@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";
 import { type ProfileBridgeFailure, toProfileBridgeFailure } from "./bridge";
@@ -13,14 +14,16 @@ export interface ProfileCommands {
 }
 
 const decodeFailure = (cause: unknown): ProfileBridgeFailure => {
-  if (typeof cause === "object" && cause !== null && "_tag" in cause) {
+  if (Predicate.isObjectOrArray(cause) && cause !== null && "_tag" in cause) {
     const tag = cause._tag;
-    if (typeof tag === "string") return toProfileBridgeFailure({ ...cause, _tag: tag });
+
+    if (Predicate.isString(tag)) return toProfileBridgeFailure({ ...cause, _tag: tag });
   }
+
   return toProfileBridgeFailure(cause);
 };
 
-export const makeProfileCommands = (client: ProfileClient): ProfileCommands => {
+export const commandsFor = (client: ProfileClient): ProfileCommands => {
   const SaveProfile = Command.define("SaveProfile", {
     args: { requestId: S.Int, command: ProfileCommand },
     messages: [SucceededProfileSave, FailedProfileSave],

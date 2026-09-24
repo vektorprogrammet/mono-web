@@ -2,9 +2,11 @@ import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
 const systemChromium = "/etc/profiles/per-user/nori/bin/chromium-browser";
+
 const chromiumExecutablePath =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
   (existsSync(systemChromium) ? systemChromium : undefined);
+
 const dashboardOrigin = "http://127.0.0.1:5187";
 
 export const organizationImportPlaywrightOutputDir = (

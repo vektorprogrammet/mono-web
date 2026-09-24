@@ -1,3 +1,4 @@
+import { Mail } from "@vektorprogrammet/domain/mail";
 /** 0107 owned Person-to-Account reconciliation / Better Auth / recovery / restore journey. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -8,18 +9,26 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { Pool } from "pg";
-import { Effect, Redacted } from "effect";
+import { Schema, flow, Predicate, Effect, Redacted } from "effect";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "../src/layers.js";
-import { makeAuthEngine, makeAuthPool, type AuthEngineConfig } from "../src/auth-engine.js";
-import { makePasswordRecovery, drainPasswordResetMail } from "../src/password-recovery.js";
+import {
+  NativeAuthEngine,
+  NativeAuthEngineLive,
+  AuthPoolLive,
+  type AuthEngineConfig,
+} from "../src/auth-engine.js";
+import { DatabasePgPool } from "../src/pg-pool.js";
+import { ManagedRuntime, Layer } from "effect";
+import { PasswordRecovery, drainPasswordResetMail } from "../src/password-recovery.js";
 import { identityRequestContext } from "../../../apps/backend/src/session-security.js";
-import { mailDeliveryConfig, makeHttpMailDelivery } from "../../../apps/backend/src/mail/http.js";
+import { mailDeliveryConfig, HttpMailLive } from "../../../apps/backend/src/mail/http.js";
 import { importIdentityCohort, IdentityCohortFailure } from "../src/identity-cohort.js";
 import { summarizeIdentityCohort } from "../src/identity-cohort-cli.js";
 import { importPersonCohort } from "../src/person-cohort.js";
 import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../src/password-codec.js";
 import { proveCredentialResetRace } from "../src/test-support/credential-race.js";
+
 declare const Bun: {
   version: string;
   serve(options: {
@@ -28,7 +37,9 @@ declare const Bun: {
     fetch: (request: Request) => Promise<Response>;
   }): { stop(force?: boolean): void | Promise<void> };
 };
+
 const root = resolve(import.meta.dirname, "../../..");
+
 const command = (name: string, args: string[]) =>
   execFileSync(name, args, {
     cwd: root,
@@ -36,8 +47,11 @@ const command = (name: string, args: string[]) =>
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 60_000,
   });
+
 const revision = command("git", ["rev-parse", "HEAD"]).trim();
+
 assert.equal(command("git", ["status", "--porcelain"]).trim(), "", "clean source required");
+
 for (const key of [
   "PASSWORD_RESET_DELIVERY_URL",
   "PASSWORD_RESET_DELIVERY_TOKEN",
@@ -46,36 +60,56 @@ for (const key of [
   "IDENTITY_COHORT_PG_URL",
 ])
   assert.ok(!process.env[key], "ambient external configuration prohibited");
+
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-account-cohort-0107-"));
+
 const pgdata = join(artifacts, "postgres"),
   backup = join(artifacts, "cohort.dump"),
   inputFile = join(artifacts, "source.json");
+
 const children: ChildProcess[] = [];
+
+let disposeAuth: (() => Promise<void>) | undefined;
+
 let pool: Pool | undefined,
   authPool: Pool | undefined,
   server: ReturnType<typeof Bun.serve> | undefined;
+
 let sink: ReturnType<typeof createHttpServer> | undefined;
+
 const secrets: string[] = [];
-const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+);
+
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 const freePort = async () => {
   const s = createServer();
   await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
-  const p = (s.address() as { port: number }).port;
+  const address = s.address();
+  assert.ok(address !== null && !Predicate.isString(address));
+  const p = address.port;
   await new Promise<void>((r) => s.close(() => r()));
+
   return p;
 };
+
 const wait = async (check: () => Promise<void>) => {
   for (let i = 0; i < 100; i++) {
     try {
       await check();
+
       return;
     } catch {
       await pause(100);
     }
   }
+
   throw new Error("owned service readiness timeout");
 };
+
 const stop = async (child: ChildProcess) => {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve, reject) => {
@@ -87,7 +121,21 @@ const stop = async (child: ChildProcess) => {
     child.kill("SIGTERM");
   });
 };
-let evidence: Record<string, unknown> | undefined;
+
+const readPassword = async (databasePool: Pool, personId: string) => {
+  const result = await databasePool.query<{ password: string }>(
+    'SELECT password FROM auth."account" WHERE "userId"=$1',
+    [personId],
+  );
+
+  const account = result.rows[0];
+  assert.ok(account, "imported credential account is required");
+
+  return account.password;
+};
+
+let evidence: Record<string, Schema.Json> | undefined;
+
 try {
   const port = await freePort();
   command("initdb", [
@@ -100,11 +148,13 @@ try {
     "--no-locale",
     "--encoding=UTF8",
   ]);
+
   const postgres = spawn(
     "postgres",
     ["-D", pgdata, "-p", String(port), "-h", "127.0.0.1", "-k", artifacts],
     { stdio: "ignore" },
   );
+
   children.push(postgres);
   pool = new Pool({ connectionString: `postgres://postgres@127.0.0.1:${port}/postgres` });
   await wait(async () => {
@@ -120,15 +170,19 @@ try {
     ),
   );
   const php = process.env.IDENTITY_COHORT_PHP ?? "php";
+
   const values = [
     "Synthetic-Å-0107-password",
     "a".repeat(72) + "legacy-tail",
     "a".repeat(71) + "é-legacy-tail",
   ];
+
   const hashes = values.map((p) =>
     command(php, ["-r", "echo password_hash($argv[1],PASSWORD_BCRYPT,['cost'=>12]);", p]),
   );
+
   secrets.push(...values, ...hashes);
+
   for (let i = 0; i < values.length; i++) {
     assert.ok(
       await verifyNativeOrLegacyPassword({ hash: hashes[i]!, password: values[i]! }),
@@ -139,6 +193,7 @@ try {
       false,
     );
   }
+
   assert.equal(
     await verifyNativeOrLegacyPassword({ hash: hashes[0]!, password: values[0]! + "\0tail" }),
     false,
@@ -148,6 +203,7 @@ try {
     false,
     "legacy bytes must not undergo NFKC normalization",
   );
+
   type Row = {
     sourceUserId: string;
     active: boolean;
@@ -156,12 +212,15 @@ try {
     username?: string;
     companyEmail?: string;
   };
+
   const occurrences: Array<{ occurrenceId: string; row: unknown }> = [];
+
   const mappings: Array<{
     sourceUserId: string;
     personId: string;
     emailOwnership: { email: string; attestedBy: string; evidenceRef: string };
   }> = [];
+
   const add = (id: string, overrides: Partial<Row> = {}, mapping = true) => {
     const row: Row = {
       sourceUserId: id,
@@ -172,7 +231,9 @@ try {
       companyEmail: `${id}@vektorprogrammet.invalid`,
       ...overrides,
     };
+
     occurrences.push({ occurrenceId: `occ-${id}`, row });
+
     if (mapping)
       mappings.push({
         sourceUserId: id,
@@ -183,8 +244,10 @@ try {
           evidenceRef: `attestation-${id}`,
         },
       });
+
     return row;
   };
+
   const acceptedRows = values.map((_, i) => add(`accepted-${i}`, { passwordHash: hashes[i]! }));
   add("inactive", { active: false });
   add("missing-password", { passwordHash: null });
@@ -210,6 +273,7 @@ try {
     occurrenceId: "occ-invalid",
     row: { sourceUserId: "invalid", unexpected: true },
   });
+
   const snapshot = {
     sourceRepository: "synthetic-legacy",
     sourceRevision: "synthetic-source-0107",
@@ -220,6 +284,7 @@ try {
     occurrences,
     mappings,
   };
+
   const reconcilePerson = async (
     source: Row,
     mode: "create" | "link" = "create",
@@ -250,6 +315,7 @@ try {
             expectedNameRevision: 0,
             expectedContactRevision: 0,
           };
+
     const result = await importPersonCohort(
       pool!,
       {
@@ -275,13 +341,17 @@ try {
       },
       client,
     );
+
     assert.equal(result.accepted, 1);
   };
+
   await pool.query(
     "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-accepted-2','Synthetic','Cohort'); INSERT INTO person_contact_profiles(person_id,email,phone) VALUES('person-accepted-2','cohort-accepted-2@example.invalid','+47 999 00 000')",
   );
+
   for (const [index, source] of acceptedRows.entries())
     await reconcilePerson(source, index === 2 ? "link" : "create");
+
   for (const source of [targetConflictRow, emailConflictRow]) await reconcilePerson(source);
   await pool.query(
     "INSERT INTO person_profiles(person_id,first_name,last_name) VALUES('person-person-missing','Synthetic','ProfileOnly'),('existing-email-owner','Synthetic','Existing')",
@@ -289,9 +359,11 @@ try {
   await pool.query(
     "INSERT INTO auth.\"user\"(id,name,email,\"emailVerified\") VALUES('person-target-conflict','Existing','target-existing@example.invalid',false),('existing-email-owner','Existing','cohort-email-conflict@example.invalid',false)",
   );
+
   const profilesBefore = digest(
     (await pool.query("SELECT * FROM person_profiles ORDER BY person_id")).rows,
   );
+
   const facts = async () =>
     digest(
       (
@@ -300,6 +372,7 @@ try {
         )
       ).rows,
     );
+
   const report = await importIdentityCohort(pool, snapshot);
   assert.equal(report.accepted, 3);
   assert.equal(report.input, occurrences.length);
@@ -334,10 +407,12 @@ try {
   const initialFacts = await facts();
   assert.deepEqual(await importIdentityCohort(pool, snapshot), report);
   assert.equal(await facts(), initialFacts);
+
   const concurrent = await Promise.all([
     importIdentityCohort(pool, snapshot),
     importIdentityCohort(pool, snapshot),
   ]);
+
   assert.deepEqual(concurrent, [report, report]);
   assert.equal(await facts(), initialFacts);
   await assert.rejects(
@@ -346,19 +421,27 @@ try {
   );
   const changed = structuredClone(snapshot);
   changed.snapshotId = "changed-source";
-  (changed.occurrences[0]!.row as Row).active = false;
+  changed.occurrences[0]!.row = {
+    ...Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+      changed.occurrences[0]!.row,
+    ),
+    active: false,
+  };
   await assert.rejects(
     importIdentityCohort(pool, changed),
     (e) => e instanceof IdentityCohortFailure && e.code === "SourceIdentityConflict",
   );
   assert.equal(await facts(), initialFacts);
+
   const failedRow: Row = {
     sourceUserId: "failure",
     active: true,
     email: "failure@example.invalid",
     passwordHash: hashes[0]!,
   };
+
   await reconcilePerson(failedRow);
+
   const failedSnapshot = {
     ...snapshot,
     snapshotId: "failure",
@@ -380,6 +463,7 @@ try {
       },
     ],
   };
+
   await pool.query(
     "CREATE FUNCTION auth.fail_cohort_0107() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$; CREATE TRIGGER fail_cohort_0107 BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_cohort_0107()",
   );
@@ -396,6 +480,7 @@ try {
     pool.query("UPDATE auth.account_cohort_imports SET source_digest=repeat('f',64)"),
   );
   await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
+
   const cli = spawn("bun", ["run", "packages/database/runtime/identity-cohort-main.ts"], {
     cwd: root,
     env: {
@@ -407,9 +492,11 @@ try {
     },
     stdio: "ignore",
   });
+
   children.push(cli);
   assert.equal(await new Promise<number | null>((r) => cli.once("exit", r)), 0);
   assert.equal(await facts(), initialFacts);
+
   const concurrentRow: Row = {
     sourceUserId: "concurrent-initial",
     active: true,
@@ -418,7 +505,9 @@ try {
     username: "legacy-concurrent-initial",
     companyEmail: "concurrent-initial@vektorprogrammet.invalid",
   };
+
   await reconcilePerson(concurrentRow);
+
   const concurrentSnapshot = {
     ...snapshot,
     sourceRevision: "synthetic-source-0107-concurrent",
@@ -436,10 +525,12 @@ try {
       },
     ],
   };
+
   const concurrentInitial = await Promise.all([
     importIdentityCohort(pool, concurrentSnapshot),
     importIdentityCohort(pool, concurrentSnapshot),
   ]);
+
   assert.deepEqual(concurrentInitial, [concurrentInitial[0], concurrentInitial[0]]);
   assert.equal(concurrentInitial[0]!.accepted, 1);
   assert.deepEqual(
@@ -453,6 +544,7 @@ try {
     ).rows[0],
     { users: 1, accounts: 1, imports: 1 },
   );
+
   // Synthetic source facts exercise the LegacyBackup path without reading a private backup.
   const backupRow: Row = {
     sourceUserId: "backup-accepted",
@@ -460,32 +552,38 @@ try {
     email: "backup-accepted@example.invalid",
     passwordHash: hashes[0]!,
   };
+
   const passwordlessRow: Row = {
     sourceUserId: "backup-passwordless",
     active: true,
     email: "backup-passwordless@example.invalid",
     passwordHash: null,
   };
+
   const emptyPasswordRow: Row = {
     sourceUserId: "backup-empty-password",
     active: true,
     email: "backup-empty-password@example.invalid",
     passwordHash: "",
   };
+
   const unsupportedBackupRow: Row = {
     sourceUserId: "backup-unsupported",
     active: true,
     email: "backup-unsupported@example.invalid",
     passwordHash: "unsupported-hash",
   };
+
   const mismatchedRow: Row = {
     sourceUserId: "backup-contact-mismatch",
     active: true,
     email: "backup-contact-mismatch@example.invalid",
     passwordHash: hashes[0]!,
   };
+
   const backupTargetConflictRow: Row = { ...targetConflictRow, passwordHash: null };
   const backupEmailConflictRow: Row = { ...emailConflictRow, passwordHash: null };
+
   for (const row of [
     backupRow,
     passwordlessRow,
@@ -500,6 +598,7 @@ try {
     "different@example.invalid",
     "person-backup-contact-mismatch",
   ]);
+
   const backupSnapshot = {
     ...snapshot,
     snapshotId: "legacy-backup-synthetic-rehearsal",
@@ -535,12 +634,14 @@ try {
       },
     })),
   };
+
   const failedRecoveryRow: Row = {
     sourceUserId: "backup-rollback",
     active: true,
     email: "backup-rollback@example.invalid",
     passwordHash: null,
   };
+
   const rollbackSnapshot = {
     ...backupSnapshot,
     snapshotId: "legacy-backup-rollback",
@@ -557,6 +658,7 @@ try {
       },
     ],
   };
+
   const rollbackFactsQuery = `SELECT jsonb_build_object(
       'persons',(SELECT count(*) FROM public.person_profiles),
       'contacts',(SELECT count(*) FROM public.person_contact_profiles),
@@ -567,11 +669,13 @@ try {
       'snapshots',(SELECT count(*) FROM auth.credential_cohort_snapshots),
       'occurrences',(SELECT count(*) FROM auth.credential_cohort_occurrences),
       'imports',(SELECT count(*) FROM auth.account_cohort_imports)) AS facts`;
+
   const rollbackFacts = await pool.query(rollbackFactsQuery);
   await pool.query(
     "CREATE FUNCTION auth.fail_recovery_cohort() RETURNS trigger LANGUAGE plpgsql AS $rollback$ BEGIN RAISE EXCEPTION 'Forced recovery rollback'; END $rollback$; CREATE TRIGGER fail_recovery_cohort BEFORE INSERT ON auth.account_cohort_imports FOR EACH ROW EXECUTE FUNCTION auth.fail_recovery_cohort()",
   );
   const rollbackClient = await pool.connect();
+
   try {
     await rollbackClient.query("BEGIN");
     await reconcilePerson(failedRecoveryRow, "create", "person-backup-rollback", rollbackClient);
@@ -580,11 +684,13 @@ try {
   } finally {
     rollbackClient.release();
   }
+
   assert.deepEqual((await pool.query(rollbackFactsQuery)).rows, rollbackFacts.rows);
   await pool.query(
     "DROP TRIGGER fail_recovery_cohort ON auth.account_cohort_imports; DROP FUNCTION auth.fail_recovery_cohort()",
   );
   const shared = await pool.connect();
+
   try {
     await shared.query("BEGIN");
     assert.equal((await importIdentityCohort(pool, backupSnapshot, shared)).accepted, 3);
@@ -592,15 +698,18 @@ try {
   } finally {
     shared.release();
   }
+
   assert.equal(
     (await pool.query('SELECT 1 FROM auth."user" WHERE id=$1', ["person-backup-accepted"]))
       .rowCount,
     0,
   );
+
   const concurrentRecovery = await Promise.all([
     importIdentityCohort(pool, backupSnapshot),
     importIdentityCohort(pool, backupSnapshot),
   ]);
+
   assert.deepEqual(concurrentRecovery[0], concurrentRecovery[1]);
   const backupReport = concurrentRecovery[0]!;
   assert.equal(backupReport.accepted, 3);
@@ -629,14 +738,7 @@ try {
       ?.reason,
     "EmailConflict",
   );
-  assert.equal(
-    (
-      await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
-        "person-backup-accepted",
-      ])
-    ).rows[0].password,
-    hashes[0],
-  );
+  assert.equal(await readPassword(pool, "person-backup-accepted"), hashes[0]);
   assert.equal(
     (
       await pool.query('SELECT 1 FROM auth."account" WHERE "userId"=$1', [
@@ -701,8 +803,10 @@ try {
     0,
   );
   assert.equal((await pool.query("SELECT count(*)::int n FROM auth.session")).rows[0].n, 0);
+
   const authPort = await freePort(),
     origin = `http://127.0.0.1:${authPort}`;
+
   const config: AuthEngineConfig = {
     postgresUrl: databaseUrl,
     secret: randomBytes(32).toString("hex"),
@@ -714,44 +818,62 @@ try {
       nativeApiResource: "urn:vektorprogrammet:native-api",
     },
   };
+
   secrets.push(config.secret);
-  const startEngine = (selected: AuthEngineConfig) => {
-    authPool = makeAuthPool(selected);
-    const recovery = makePasswordRecovery(authPool, selected);
-    const engine = makeAuthEngine(selected, authPool, recovery);
+
+  const startEngine = async (selected: AuthEngineConfig) => {
+    const runtime = ManagedRuntime.make(
+      NativeAuthEngineLive(selected).pipe(Layer.provideMerge(AuthPoolLive(selected))),
+    );
+
+    disposeAuth = () => runtime.dispose();
+    authPool = await runtime.runPromise(DatabasePgPool);
+    const recovery = await runtime.runPromise(PasswordRecovery);
+    const engine = await runtime.runPromise(NativeAuthEngine);
     server = Bun.serve({
       hostname: "127.0.0.1",
       port: authPort,
       fetch: (request) =>
         recovery.handler(engine.handler, request, identityRequestContext(request)),
     });
+
     return engine;
   };
-  const initialEngine = startEngine(config);
-  const post = async (path: string, body: unknown): Promise<Response> => {
+
+  const initialEngine = await startEngine(config);
+
+  const post = async (path: string, body: Schema.Json): Promise<Response> => {
     for (let attempt = 0; attempt < 6; attempt++) {
       const response = await fetch(origin + path, {
         method: "POST",
         headers: { origin: "http://127.0.0.1:5174", "content-type": "application/json" },
         body: JSON.stringify(body),
       });
+
       if (response.status !== 429) return response;
       const retryAfter = Number(response.headers.get("retry-after"));
+
       const waitMs =
         Number.isFinite(retryAfter) && retryAfter > 0
           ? Math.min(retryAfter * 1000 + 100, 61_000)
           : 10_100;
+
       await response.body?.cancel();
       await pause(waitMs);
     }
+
     throw new Error("bounded identity rate-limit retry exhausted");
   };
+
   const login = async (email: string, password: string) =>
     post("/api/auth/sign-in/email", { email, password });
+
   let oldCookie = "";
+
   for (let i = 0; i < 3; i++) {
     const response = await login(`cohort-accepted-${i}@example.invalid`, values[i]!);
     assert.equal(response.status, 200, "accepted cohort sign-in");
+
     if (i === 0) {
       oldCookie = response.headers
         .getSetCookie()
@@ -760,9 +882,9 @@ try {
       secrets.push(oldCookie);
     }
   }
-  const upgradedBeforeReplay = (
-    await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', ["person-accepted-1"])
-  ).rows[0].password;
+
+  const upgradedBeforeReplay = await readPassword(pool, "person-accepted-1");
+
   secrets.push(upgradedBeforeReplay);
   assert.ok(
     isNativePasswordHash(upgradedBeforeReplay),
@@ -770,11 +892,7 @@ try {
   );
   await importIdentityCohort(pool, snapshot);
   assert.ok(
-    (
-      await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
-        "person-accepted-1",
-      ])
-    ).rows[0].password === upgradedBeforeReplay,
+    (await readPassword(pool, "person-accepted-1")) === upgradedBeforeReplay,
     "replay cannot restore a legacy hash",
   );
   assert.equal(
@@ -842,28 +960,39 @@ try {
   );
   const deliveryToken = randomBytes(24).toString("hex");
   secrets.push(deliveryToken);
+
   let deliveredUrl = "",
     deliveryAttempts = 0,
     expectedRecipient = "cohort-accepted-0@example.invalid";
+
   sink = createHttpServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${deliveryToken}`) {
       res.writeHead(401).end();
+
       return;
     }
+
     try {
       let body = "";
+
       for await (const chunk of req) body += chunk;
       const value = JSON.parse(body);
       deliveryAttempts++;
-      if (value.recipient !== expectedRecipient || typeof value.text !== "string") {
+
+      if (value.recipient !== expectedRecipient || !Predicate.isString(value.text)) {
         res.writeHead(422).end();
+
         return;
       }
+
       const match = value.text.match(/https?:\/\/[^\s]+\/api\/auth\/reset-password\/[^\s]+/u);
+
       if (!match) {
         res.writeHead(422).end();
+
         return;
       }
+
       deliveredUrl = match[0];
       secrets.push(deliveredUrl);
       res.writeHead(202).end();
@@ -872,19 +1001,31 @@ try {
     }
   });
   await new Promise<void>((r) => sink!.listen(0, "127.0.0.1", r));
-  const sinkPort = (sink.address() as { port: number }).port;
+  const address = sink.address();
+  assert.ok(address !== null && !Predicate.isString(address));
+  const sinkPort = address.port;
+
   const requestReset = await post("/api/auth/request-password-reset", {
     email: "cohort-accepted-0@example.invalid",
     redirectTo: "http://127.0.0.1:5174/tilbakestill-passord",
   });
+
   assert.equal(requestReset.status, 200, "migrated account reset request");
-  const delivery = makeHttpMailDelivery(
-    mailDeliveryConfig({
-      MAIL_DELIVERY_URL: `http://127.0.0.1:${sinkPort}`,
-      MAIL_DELIVERY_TOKEN: deliveryToken,
-      MAIL_DELIVERY_TIMEOUT_MS: "1000",
-    }),
+
+  const delivery = await Effect.runPromise(
+    Mail.pipe(
+      Effect.provide(
+        HttpMailLive(
+          mailDeliveryConfig({
+            MAIL_DELIVERY_URL: `http://127.0.0.1:${sinkPort}`,
+            MAIL_DELIVERY_TOKEN: deliveryToken,
+            MAIL_DELIVERY_TIMEOUT_MS: "1000",
+          }),
+        ),
+      ),
+    ),
   );
+
   assert.equal(
     await drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
     "Delivered",
@@ -902,22 +1043,19 @@ try {
   );
   assert.equal((await login("cohort-accepted-0@example.invalid", values[0]!)).status, 401);
   assert.equal((await login("cohort-accepted-0@example.invalid", newPassword)).status, 200);
+
   const oldSession = await fetch(origin + "/api/auth/get-session", {
     headers: { cookie: oldCookie },
   });
+
   assert.equal(await oldSession.json(), null, "old sessions revoked");
-  const stored = (
-    await pool.query('SELECT password FROM auth."account" WHERE "userId"=\'person-accepted-0\'')
-  ).rows[0].password as string;
+
+  const stored = await readPassword(pool, "person-accepted-0");
+
   secrets.push(stored);
   assert.ok(isNativePasswordHash(stored));
   await importIdentityCohort(pool, snapshot);
-  assert.equal(
-    (await pool.query('SELECT password FROM auth."account" WHERE "userId"=\'person-accepted-0\''))
-      .rows[0].password,
-    stored,
-    "replay must not undo reset",
-  );
+  assert.equal(await readPassword(pool, "person-accepted-0"), stored, "replay must not undo reset");
   expectedRecipient = claimEmail;
   deliveredUrl = "";
   assert.equal(
@@ -978,11 +1116,9 @@ try {
     400,
   );
   assert.equal((await login(claimEmail, "Second-Password-Must-Not-Work")).status, 401);
-  const claimedHash = (
-    await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
-      "person-backup-passwordless",
-    ])
-  ).rows[0].password as string;
+
+  const claimedHash = await readPassword(pool, "person-backup-passwordless");
+
   secrets.push(claimedHash);
   assert.ok(isNativePasswordHash(claimedHash));
   assert.equal(
@@ -1004,19 +1140,12 @@ try {
   );
   const changedClaimSource = structuredClone(backupSnapshot);
   changedClaimSource.snapshotId = "legacy-backup-changed-claim-source";
-  (changedClaimSource.occurrences[1]!.row as Row).passwordHash = "";
+  changedClaimSource.occurrences[1]!.row.passwordHash = "";
   await assert.rejects(
     importIdentityCohort(pool, changedClaimSource),
     (error) => error instanceof IdentityCohortFailure && error.code === "SourceIdentityConflict",
   );
-  assert.equal(
-    (
-      await pool.query('SELECT password FROM auth."account" WHERE "userId"=$1', [
-        "person-backup-passwordless",
-      ])
-    ).rows[0].password,
-    claimedHash,
-  );
+  assert.equal(await readPassword(pool, "person-backup-passwordless"), claimedHash);
   await proveCredentialResetRace({
     engine: initialEngine,
     pool,
@@ -1048,17 +1177,20 @@ try {
   });
   await server!.stop(true);
   server = undefined;
-  await authPool!.end();
+  await disposeAuth?.();
+  disposeAuth = undefined;
   authPool = undefined;
   command("pg_dump", ["--format=custom", "--file", backup, databaseUrl]);
   await chmod(backup, 0o600);
+
   const backupDigest = createHash("sha256")
     .update(await readFile(backup))
     .digest("hex");
+
   await pool.query("CREATE DATABASE identity_cohort_restored");
   const restoredUrl = `postgres://postgres@127.0.0.1:${port}/identity_cohort_restored`;
   command("pg_restore", ["--exit-on-error", "--dbname", restoredUrl, backup]);
-  startEngine({ ...config, postgresUrl: restoredUrl });
+  await startEngine({ ...config, postgresUrl: restoredUrl });
   assert.equal(
     (await login("cohort-accepted-0@example.invalid", newPassword)).status,
     200,
@@ -1075,12 +1207,15 @@ try {
     "restored first credential signs in",
   );
   const restoredPool = new Pool({ connectionString: restoredUrl });
+
   try {
     assert.deepEqual(await importIdentityCohort(restoredPool, backupSnapshot), backupReport);
+
     const restoredReplay = await importIdentityCohort(restoredPool, {
       ...backupSnapshot,
       snapshotId: "legacy-backup-restored-replay",
     });
+
     assert.equal(
       restoredReplay.occurrences.find((r) => r.occurrenceId === "backup-backup-passwordless")
         ?.reason,
@@ -1098,6 +1233,7 @@ try {
   } finally {
     await restoredPool.end();
   }
+
   evidence = {
     specId: "0107",
     revision,
@@ -1172,17 +1308,21 @@ try {
   throw new Error(`Synthetic cohort failed; safe evidence: ${artifacts}/failure.json`);
 } finally {
   await server?.stop(true);
-  await authPool?.end();
+  await disposeAuth?.();
+
   if (sink) {
     sink.closeAllConnections();
     await new Promise<void>((r) => sink!.close(() => r()));
   }
+
   await pool?.end();
+
   for (const child of children.toReversed()) await stop(child);
   await rm(pgdata, { recursive: true, force: true });
   await rm(backup, { force: true });
   await rm(inputFile, { force: true });
 }
+
 const output = JSON.stringify(
   {
     ...evidence,
@@ -1191,7 +1331,10 @@ const output = JSON.stringify(
   null,
   2,
 );
+
 for (const secret of secrets)
   if (secret) assert.ok(!output.includes(secret), "private material prohibited in evidence");
+
 await writeFile(join(artifacts, "evidence.json"), output);
+
 console.log(`0107 passed: ${artifacts}/evidence.json`);

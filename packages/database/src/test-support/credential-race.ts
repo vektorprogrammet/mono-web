@@ -17,6 +17,7 @@ export const proveCredentialResetRace = async (input: {
   const context = await input.engine.$context;
   const originalCreate = context.internalAdapter.createSession;
   const nativeHash = await nativePasswordHash(input.password);
+
   for (const [id, hash] of [
     ["race-legacy", input.legacyHash],
     ["race-native", nativeHash],
@@ -40,25 +41,31 @@ export const proveCredentialResetRace = async (input: {
     });
     const reached = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
+
     const timer = setTimeout(
       () => reached.reject(new Error("Credential race barrier timed out")),
       10_000,
     );
+
     context.internalAdapter.createSession = async (...args) => {
       if (args[0] === personId) {
         reached.resolve();
         await release.promise;
       }
+
       return originalCreate(...args);
     };
+
     const login = (password: string) =>
       input.engine.api.signInEmail({
         body: { email, password },
         headers: new Headers({ origin: input.origin }),
         asResponse: true,
       });
+
     const staleLogin = login(input.password);
     let resetHash: string;
+
     try {
       await reached.promise;
       await input.reset(email);
@@ -70,6 +77,7 @@ export const proveCredentialResetRace = async (input: {
       release.resolve();
       context.internalAdapter.createSession = originalCreate;
     }
+
     const response = await staleLogin;
     assert.equal(response.status, 401, "stale verified password cannot authenticate");
     const cookies = response.headers.getSetCookie();

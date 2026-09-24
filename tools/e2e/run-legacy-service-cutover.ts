@@ -20,6 +20,7 @@ import {
   type CohortReport as IdentityCohortReport,
 } from "@vektorprogrammet/database/identity-cohort";
 import { Pool, type PoolClient } from "pg";
+import { flow } from "effect";
 import {
   buildLegacyReferences,
   departmentId,
@@ -31,11 +32,17 @@ import { buildLegacyPersonSnapshot } from "./legacy-person-snapshot";
 import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-source-snapshot";
 
 const repository = "vektorprogrammet/vektorprogrammet";
+
 const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
-const digest = (value: unknown): string => sha256(canonicalJson(value));
+
+const digest = flow(canonicalJson, sha256);
+
 const id = (value: number | string): string => String(value);
+
 const sourceUserId = (value: number | string): string => `legacy-user:${id(value)}`;
+
 const sourceSchoolId = (value: number | string): string => `legacy-school:${id(value)}`;
+
 const sourceHistoryId = (value: number | string): string => `legacy-history:${id(value)}`;
 
 interface CutoverOptions {
@@ -46,6 +53,7 @@ interface CutoverOptions {
   readonly attestedBy: string;
   readonly passwordlessPolicy: "ProvisionRecovery";
 }
+
 type CutoverStage =
   | "SourceRead"
   | "TargetConnect"
@@ -80,6 +88,7 @@ const inStage = async <A>(stage: CutoverStage, operation: () => Promise<A>): Pro
             error.message,
           )?.[1]
         : undefined;
+
     throw new CutoverStageFailure(stage, detail);
   }
 };
@@ -88,8 +97,10 @@ const reasons = (
   occurrences: ReadonlyArray<{ readonly reason: string }>,
 ): Record<string, number> => {
   const counts: Record<string, number> = {};
+
   for (const occurrence of occurrences)
     counts[occurrence.reason] = (counts[occurrence.reason] ?? 0) + 1;
+
   return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
 };
 
@@ -110,6 +121,7 @@ export const buildLegacyHistoricalSnapshot = (
       .filter((occurrence) => occurrence.disposition === "Accepted")
       .map((occurrence) => occurrence.occurrenceId),
   );
+
   const personEvidence = new Map(
     personSnapshot.mappings
       .filter((mapping) =>
@@ -126,6 +138,7 @@ export const buildLegacyHistoricalSnapshot = (
           ] as const,
       ),
   );
+
   const occurrences = source.history.map((sourceRow) => {
     const row = {
       sourceHistoryId: sourceHistoryId(sourceRow.id),
@@ -138,12 +151,14 @@ export const buildLegacyHistoricalSnapshot = (
       block: sourceRow.bolk,
       day: sourceRow.day,
     };
+
     return {
       occurrenceId: `legacy-history-row-${id(sourceRow.id)}`,
       row,
       sourceRowDigest: historicalServiceSourceRowDigest(row),
     };
   });
+
   const mappings = source.history.flatMap((row) => {
     if (
       row.userId === null ||
@@ -153,7 +168,9 @@ export const buildLegacyHistoricalSnapshot = (
     )
       return [];
     const person = personEvidence.get(sourceUserId(row.userId));
+
     if (!person) return [];
+
     return [
       {
         sourceHistoryId: sourceHistoryId(row.id),
@@ -169,6 +186,7 @@ export const buildLegacyHistoricalSnapshot = (
       },
     ];
   });
+
   return decodeHistoricalServiceSnapshot({
     sourceRepository: repository,
     sourceRevision: identity.sourceRevision,
@@ -180,6 +198,7 @@ export const buildLegacyHistoricalSnapshot = (
     mappings,
   });
 };
+
 /** Project account rows only through accepted Person reconciliation. */
 export const buildLegacyAccountSnapshot = (
   source: LegacySourceSnapshot,
@@ -196,10 +215,13 @@ export const buildLegacyAccountSnapshot = (
       .filter((occurrence) => occurrence.disposition === "Accepted")
       .map((occurrence) => occurrence.occurrenceId),
   );
+
   const users = new Map(source.users.map((user) => [String(user.id), user]));
+
   const occurrences = source.credentials.map((credential) => {
     const sourceId = String(credential.id);
     const user = users.get(sourceId);
+
     return {
       occurrenceId: "legacy-user-row-" + sourceId,
       row: {
@@ -212,6 +234,7 @@ export const buildLegacyAccountSnapshot = (
       },
     };
   });
+
   return decodeIdentityCohort({
     sourceRepository: repository,
     sourceRevision: digest(source.credentials),
@@ -231,6 +254,7 @@ export const buildLegacyAccountSnapshot = (
       })),
   });
 };
+
 /** Imports Person, directories, historical service, and owned account identities only. */
 export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   if (
@@ -241,6 +265,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
     options.sourceUrl === options.targetUrl
   )
     throw new Error("Explicit source, target, snapshot and attestation selections are required");
+
   const targetSelection = (() => {
     try {
       return new URL(options.targetUrl);
@@ -248,6 +273,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
       throw new Error("Target connection selection is invalid");
     }
   })();
+
   if (
     !["postgres:", "postgresql:"].includes(targetSelection.protocol) ||
     decodeURIComponent(targetSelection.pathname.slice(1)) !== options.targetDatabase
@@ -256,12 +282,14 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
 
   const socketPath = targetSelection.searchParams.get("host");
   const caEnv = targetSelection.searchParams.get("sslCaEnv");
+
   if (
     [...targetSelection.searchParams.keys()].some(
       (key) => !["host", "port", "sslCaEnv"].includes(key),
     )
   )
     throw new Error("Target transport options are not permitted");
+
   if (socketPath !== null) {
     if (!socketPath.startsWith("/") || caEnv !== null || targetSelection.hostname !== "localhost")
       throw new Error("Local target socket selection is invalid");
@@ -277,8 +305,10 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   const source = await inStage("SourceRead", () => readLegacySourceSnapshot(options.sourceUrl));
   const { credentials, ...personAndServiceSource } = source;
   const sourceRevision = digest(personAndServiceSource);
+
   if (source.history.length === 0)
     throw new Error("Legacy service source is empty; target untouched");
+
   const transformationRevision = sha256(
     canonicalJson(
       await Promise.all(
@@ -296,29 +326,37 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
       ),
     ),
   ).slice(0, 32);
+
   const identity = { sourceRepository: repository, sourceRevision, snapshotId: options.snapshotId };
   const references = buildLegacyReferences(source);
+
   const pool = new Pool({
     connectionString: targetSelection.toString(),
     max: 3,
     ssl: socketPath === null ? { ca: process.env[caEnv!], rejectUnauthorized: true } : undefined,
     application_name: "legacy-service-cohort-cutover",
   });
+
   let tx: PoolClient | undefined;
+
   try {
     tx = await inStage("TargetConnect", () => pool.connect());
     const client = tx;
     await inStage("TargetConnect", async () => {
       await client.query("BEGIN");
+
       const selected = await client.query<{ database: string }>(
         "SELECT current_database() AS database",
       );
+
       if (selected.rows[0]?.database !== options.targetDatabase)
         throw new Error("Connected native database differs from explicit target");
     });
+
     const referenceStage = await inStage("ReferenceSeed", () =>
       seedLegacyReferences(pool, identity, references, client),
     );
+
     const personSnapshot = await inStage("PersonProjection", async () =>
       buildLegacyPersonSnapshot(source.users, {
         sourceRevision,
@@ -327,9 +365,11 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
         attestedBy: options.attestedBy,
       }),
     );
+
     const person = await inStage("PersonImport", () =>
       importPersonCohort(pool, personSnapshot, client),
     );
+
     const historicalSnapshot = await inStage("HistoricalProjection", async () =>
       buildLegacyHistoricalSnapshot(source, person, personSnapshot, {
         sourceRevision,
@@ -338,11 +378,14 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
         referenceDigest: references.referenceDigest,
       }),
     );
+
     const historical: HistoricalServiceReport = await inStage("HistoricalImport", () =>
       importHistoricalServiceCohort(pool, historicalSnapshot, client),
     );
+
     if (historical.accepted === 0)
       throw new CutoverStageFailure("HistoricalImport", "NoAcceptedService");
+
     const accountSnapshot = await inStage("AccountProjection", async () =>
       buildLegacyAccountSnapshot(source, person, personSnapshot, {
         snapshotId: options.snapshotId,
@@ -350,10 +393,13 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
         passwordlessPolicy: options.passwordlessPolicy,
       }),
     );
+
     const accountsReport: IdentityCohortReport = await inStage("AccountImport", () =>
       importIdentityCohort(pool, accountSnapshot, client),
     );
+
     await inStage("TargetCommit", () => client.query("COMMIT"));
+
     return {
       scope: "PersonReferencesHistoricalServiceAndAccounts",
       currentAssignments: "NotImported",
@@ -404,6 +450,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
       const client = tx;
       await inStage("TargetRollback", () => client.query("ROLLBACK"));
     }
+
     throw error;
   } finally {
     tx?.release();
@@ -413,6 +460,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
 
 const usage =
   "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID --passwordless-policy=provision-recovery (remote PostgreSQL requires ?sslCaEnv=NAME; local target uses ?host=/absolute/socket; source remains SELECT-only)";
+
 if (import.meta.main) {
   if (process.argv.length === 3 && process.argv[2] === "--help") {
     console.log(usage);
@@ -421,10 +469,13 @@ if (import.meta.main) {
       const argumentsByName = Object.fromEntries(
         process.argv.slice(2).map((argument) => {
           const match = /^--([a-z-]+)=([^\s]+)$/.exec(argument);
+
           if (!match) throw new Error("Invalid options");
+
           return [match[1], match[2]];
         }),
       );
+
       const names = [
         "source-url-env",
         "target-url-env",
@@ -433,6 +484,7 @@ if (import.meta.main) {
         "attested-by",
         "passwordless-policy",
       ];
+
       if (
         Object.keys(argumentsByName).length !== names.length ||
         names.some((name) => !argumentsByName[name]) ||
@@ -441,6 +493,7 @@ if (import.meta.main) {
         throw new Error("Required option missing");
       const sourceEnv = argumentsByName["source-url-env"]!;
       const targetEnv = argumentsByName["target-url-env"]!;
+
       if (
         !/^[A-Z][A-Z0-9_]*$/.test(sourceEnv) ||
         !/^[A-Z][A-Z0-9_]*$/.test(targetEnv) ||
@@ -449,6 +502,7 @@ if (import.meta.main) {
         !process.env[targetEnv]
       )
         throw new Error("Connection environment selection is invalid");
+
       const result = await runLegacyServiceCutover({
         sourceUrl: process.env[sourceEnv]!,
         targetUrl: process.env[targetEnv]!,
@@ -457,6 +511,7 @@ if (import.meta.main) {
         attestedBy: argumentsByName["attested-by"]!,
         passwordlessPolicy: "ProvisionRecovery",
       });
+
       console.log(JSON.stringify(result));
     } catch (error) {
       // Driver and SQL exceptions can contain credentials or Person fields. No row-level diagnostics.

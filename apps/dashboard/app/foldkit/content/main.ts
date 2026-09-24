@@ -1,9 +1,10 @@
-import { makeContentWorkspaceCommands } from "./command";
+import { RetriedWorkspace } from "./message";
+import { commandsFor } from "./command";
 import type { ContentWorkspaceClient } from "./browser-client";
 import { Runtime } from "foldkit";
-import { Model, makeInitialModel } from "./model";
+import { Model, init } from "./model";
 import "./styles.css";
-import { makeUpdate } from "./update";
+import { updateFor } from "./update";
 import { view } from "./view";
 
 export interface ContentWorkspaceRuntimeInput {
@@ -14,13 +15,14 @@ export const embedContentWorkspace = (
   container: HTMLElement,
   input: ContentWorkspaceRuntimeInput,
 ): (() => void) => {
-  const commandFactories = makeContentWorkspaceCommands(input.client);
-  const initialModel = makeInitialModel();
+  const commandFactories = commandsFor(input.client);
+  const initialModel = init();
+
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => makeUpdate(commandFactories)(initialModel, { _tag: "RetriedWorkspace" }),
-    update: makeUpdate(commandFactories),
+    init: () => updateFor(commandFactories)(initialModel, RetriedWorkspace({})),
+    update: updateFor(commandFactories),
     view,
     devTools: false,
     slow: false,
@@ -37,5 +39,6 @@ export const embedContentWorkspace = (
   });
 
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 };

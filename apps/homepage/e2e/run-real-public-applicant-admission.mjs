@@ -1,3 +1,5 @@
+import { AdmissionPeriodActorSchema } from "@vektorprogrammet/domain/admission-period";
+import { ApprovalScopeSchema } from "@vektorprogrammet/domain/receipt";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -5,41 +7,69 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Predicate } from "effect";
+
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const homepageRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const composeFile = join(repositoryRoot, "docker-compose.yml");
+
 const homepageOrigin = "http://127.0.0.1:8787";
+
 const homepageHost = "p000.vektor.phibkro.org";
+
 const backendOrigin = "http://127.0.0.1:8792";
+
 const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+
 const composeProject = `mono-web-public-application-0039-${process.pid}`;
+
 const commandTimeoutMs = 300_000;
+
 const shutdownTimeoutMs = 5_000;
+
 const postgresPort = 55432;
+
 const nixPostgresPackage = "nixpkgs#postgresql_17";
+
 const remoteEvidenceAuthorized =
   process.env.CI === "true" &&
   process.env.GITHUB_ACTIONS === "true" &&
   process.env.PUBLIC_APPLICATION_REMOTE_EVIDENCE === "1";
+
 const fixedClock = "2031-09-15T12:00:00.000Z";
+
 const departmentId = "department-trondheim";
+
 const foreignDepartmentId = "department-bergen";
+
 const semesterId = "semester-autumn-2031";
+
 const fieldOfStudyId = "field-mathematics";
+
 const inactiveFieldOfStudyId = "field-inactive";
+
 const foreignFieldOfStudyId = "field-foreign";
+
 const openStart = "2031-09-01T08:00:00.000Z";
+
 const openEnd = "2031-10-01T20:00:00.000Z";
+
 const privateCanaries = [
   "Applicant Canary",
   "Private Surname",
   "applicant-canary-0039@example.invalid",
   "+47 900 00 039",
 ];
+
 const secretCanaries = ["receipt:receipt"];
+
 const postgresTopology = "docker";
+
 const commandProcesses = new Set();
 
 const sleep = (milliseconds) =>
@@ -54,10 +84,13 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
+
+      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
+
         return;
       }
+
       rejectPort(new Error(`Could not inspect loopback port ${port}`));
     });
   });
@@ -66,31 +99,38 @@ function assertPortAvailable(port) {
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
+
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: captureOutput ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
       detached: true,
     });
+
     commandProcesses.add(child);
     const stdout = [];
+
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.resume();
     }
 
     let settled = false;
+
     const timeout = setTimeout(() => {
       void stopProcess(child).catch(() => undefined);
+
       if (!settled) {
         settled = true;
         rejectCommand(new Error(`${options.label} timed out`));
       }
     }, commandTimeoutMs);
+
     timeout.unref();
 
     child.once("error", () => {
       commandProcesses.delete(child);
+
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -98,15 +138,19 @@ function runCommand(command, args, options) {
     });
     child.once("close", (code, signal) => {
       commandProcesses.delete(child);
+
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+
       if (code === 0) {
         resolveCommand(
           captureOutput ? { stdout: Buffer.concat(stdout).toString("utf8") } : undefined,
         );
+
         return;
       }
+
       rejectCommand(
         new Error(
           `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}`,
@@ -123,7 +167,9 @@ function startProcess(command, args, options) {
     stdio: ["ignore", "inherit", "inherit"],
     detached: true,
   });
+
   child.once("error", () => undefined);
+
   return child;
 }
 
@@ -137,12 +183,14 @@ async function stopProcess(child) {
   }
 
   const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
+
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not stop local process group");
     }
+
     return;
   }
 
@@ -150,37 +198,45 @@ async function stopProcess(child) {
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (stopped) return;
 
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not terminate local process group");
     }
   }
+
   await exited;
 }
 
 async function waitForHttp(url, child, label, init = undefined) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(`${label} exited before readiness`);
     }
+
     try {
       const response = await fetch(url, { ...init, redirect: "manual" });
+
       if (response.status >= 200 && response.status < 500) return;
     } catch {
       // Readiness is retried until the bounded deadline.
     }
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 }
 
 async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     try {
       const args =
@@ -201,22 +257,26 @@ async function waitForPostgres(environment) {
               "receipt_proof",
             ]
           : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+
       const options = {
         cwd: repositoryRoot,
         env: environment,
         label: "Disposable public-application PostgreSQL readiness check",
         captureOutput: true,
       };
+
       if (postgresTopology === "docker") {
         await runCommand("docker", args, options);
       } else {
         await runNixPostgres("pg_isready", args, options);
       }
+
       return;
     } catch {
       await sleep(250);
     }
   }
+
   throw new Error("Disposable public-application PostgreSQL did not become ready");
 }
 
@@ -285,11 +345,13 @@ async function stopLocalPostgres(dataRoot, environment) {
 async function pathExists(path) {
   try {
     await access(path);
+
     return true;
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return false;
     }
+
     throw error;
   }
 }
@@ -332,12 +394,14 @@ async function runPsql(sql, environment, label) {
           "-c",
           sql,
         ];
+
   const options = {
     cwd: repositoryRoot,
     env: environment,
     label,
     captureOutput: true,
   };
+
   return postgresTopology === "docker"
     ? runCommand("docker", args, options)
     : runNixPostgres("psql", args, options);
@@ -385,19 +449,23 @@ async function createOpenPeriod(leaderToken) {
       endAt: openEnd,
     }),
   });
+
   if (!response.ok) {
     throw new Error("Could not create the public-application admission period");
   }
+
   const observation = await response.json();
+
   if (
     !observation ||
-    typeof observation !== "object" ||
-    observation._tag !== "Created" ||
+    !(observation === null || Predicate.isObjectOrArray(observation)) ||
+    !Predicate.isTagged(observation, "Created") ||
     !observation.period ||
-    typeof observation.period.id !== "string"
+    !Predicate.isString(observation.period.id)
   ) {
     throw new Error("Admission period creation returned an invalid observation");
   }
+
   return observation.period.id;
 }
 
@@ -415,6 +483,7 @@ async function runOutboxDelivery(environment) {
       captureOutput: true,
     },
   );
+
   return JSON.parse(result.stdout.trim());
 }
 
@@ -507,6 +576,7 @@ async function readPostgresEvidence(environment) {
     environment,
     "Public-application persistence evidence query",
   );
+
   return JSON.parse(result.stdout.trim());
 }
 
@@ -516,6 +586,7 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
     "CreateAdmissionSubscription",
     "WriteApplicationAudit",
   ];
+
   const applicationIds = postgres.applications.map((application) => application.applicationId);
   const outboxByApplication = Object.groupBy(postgres.outbox, (effect) => effect.applicationId);
   const auditCommandIds = postgres.audits.map((audit) => audit.commandId);
@@ -566,6 +637,7 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
 
   for (const applicationId of applicationIds) {
     const effects = outboxByApplication[applicationId] ?? [];
+
     if (
       effects.map((effect) => effect.effectType).join(",") !== expectedKinds.join(",") ||
       effects.map((effect) => effect.ordinal).join(",") !== "0,1,2"
@@ -575,6 +647,7 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
   }
 
   const retried = postgres.outbox.find((effect) => effect.effectId === delivery.retriedEffectId);
+
   if (
     retried?.attempts !== 2 ||
     delivery.injectedFailureTag !== "PublicApplicationEffectDeliveryError" ||
@@ -621,6 +694,7 @@ async function restartPostgres(dataRoot, environment) {
 async function exercisePostgresFailure(dataRoot, environment) {
   await stopPostgres(dataRoot, environment);
   let response;
+
   try {
     response = await fetch(`${backendOrigin}/api/applications`, {
       method: "POST",
@@ -640,13 +714,17 @@ async function exercisePostgresFailure(dataRoot, environment) {
   } finally {
     await restartPostgres(dataRoot, environment);
   }
+
   if (response.status !== 503) {
     throw new Error("PostgreSQL failure did not return a typed service rejection");
   }
+
   const body = await response.json();
+
   if (body?.error?.tag !== "PublicApplicationPersistenceError") {
     throw new Error("PostgreSQL failure returned an unexpected error tag");
   }
+
   return { status: response.status, tag: body.error.tag };
 }
 
@@ -654,12 +732,15 @@ async function main() {
   if (!remoteEvidenceAuthorized) {
     throw new Error("The real public-applicant journey is authorized only in isolated remote CI");
   }
+
   if (!process.env.PUBLIC_APPLICATION_EVIDENCE_PATH) {
     throw new Error("PUBLIC_APPLICATION_EVIDENCE_PATH is required");
   }
+
   if (postgresTopology !== "docker") {
     throw new Error("Isolated remote CI requires Docker-backed disposable PostgreSQL");
   }
+
   await Promise.all([
     assertPortAvailable(8787),
     assertPortAvailable(8792),
@@ -670,23 +751,21 @@ async function main() {
   const postgresDataRoot = join(temporaryRoot, "postgres");
   const lifecycleEvidencePath = join(temporaryRoot, "public-application-lifecycle.json");
   const leaderToken = randomBytes(32).toString("base64url");
+
   const admissionTokens = JSON.stringify({
-    [leaderToken]: {
-      _tag: "DepartmentLeader",
-      personId: "leader-trondheim",
-      departmentId,
-      active: true,
-    },
+    [leaderToken]: AdmissionPeriodActorSchema.cases.DepartmentLeader.make({personId: "leader-trondheim", departmentId, active: true}),
   });
+
   const receiptTokens = JSON.stringify({
     [leaderToken]: {
       personId: "leader-trondheim",
       departmentId,
       active: true,
       paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-      approvalScope: { _tag: "None" },
+      approvalScope: ApprovalScopeSchema.cases.None.make({}),
     },
   });
+
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
@@ -706,6 +785,7 @@ async function main() {
     ADMISSION_RATE_LIMIT_WINDOW_MS: "600000",
     RECEIPT_AUTH_TOKENS: receiptTokens,
   };
+
   const homepageEnvironment = {
     ...baseEnvironment,
     API_URL: backendOrigin,
@@ -775,14 +855,17 @@ async function main() {
       process.exit(signal === "SIGINT" ? 130 : 143);
     });
   };
+
   const handleInterrupt = () => handleSignal("SIGINT");
   const handleTermination = () => handleSignal("SIGTERM");
   process.once("SIGINT", handleInterrupt);
   process.once("SIGTERM", handleTermination);
 
   let primaryError;
+
   try {
     postgresStarted = true;
+
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
@@ -840,6 +923,7 @@ async function main() {
       PUBLIC_APPLICATION_E2E_LEADER_TOKEN: leaderToken,
       PUBLIC_APPLICATION_E2E_RATE_LIMIT_ATTEMPTS: "80",
     };
+
     playwrightEnvironment.PUBLIC_APPLICATION_PLAYWRIGHT_ARTIFACT_ROOT = join(
       temporaryRoot,
       "playwright",
@@ -878,9 +962,11 @@ async function main() {
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Restarted unified backend");
     const persistenceFailure = await exercisePostgresFailure(postgresDataRoot, baseEnvironment);
     const postgresAfterFailure = await readPostgresEvidence(baseEnvironment);
+
     if (JSON.stringify(postgresBeforeFailure) !== JSON.stringify(postgresAfterFailure)) {
       throw new Error("PostgreSQL rejection mutated public-application state");
     }
+
     assertDurableEvidence(postgresAfterFailure, lifecycle, delivery, persistenceFailure);
 
     evidence = {
@@ -905,6 +991,7 @@ async function main() {
   }
 
   let cleanupError;
+
   try {
     await cleanup();
   } catch (error) {
@@ -920,12 +1007,15 @@ async function main() {
       "Public-application journey and cleanup failed",
     );
   }
+
   if (primaryError !== undefined) throw primaryError;
+
   if (cleanupError !== undefined) throw cleanupError;
 
   if (await pathExists(temporaryRoot)) {
     throw new Error("Public-application cleanup left the temporary root behind");
   }
+
   await Promise.all([
     assertPortAvailable(8787),
     assertPortAvailable(8792),
@@ -940,12 +1030,15 @@ async function main() {
       portsReleased: [8787, 8792, postgresPort],
     },
   };
+
   const serializedEvidence = JSON.stringify(finalEvidence);
+
   for (const canary of [...privateCanaries, ...secretCanaries, leaderToken]) {
     if (serializedEvidence.includes(canary)) {
       throw new Error("Public-application evidence exposed private material");
     }
   }
+
   await writeFile(process.env.PUBLIC_APPLICATION_EVIDENCE_PATH, `${serializedEvidence}\n`, {
     encoding: "utf8",
     mode: 0o600,

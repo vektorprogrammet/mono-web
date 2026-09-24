@@ -1,3 +1,4 @@
+import { Scope } from "@vektorprogrammet/domain/authz";
 import { randomUUID } from "node:crypto";
 import {
   DepartmentId,
@@ -42,7 +43,7 @@ import {
   schoolSurveyResultsCsvContentDisposition,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { Effect, Option, Schema } from "effect";
+import { flow, Match, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { resolveRequestCredentialInTransaction } from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
@@ -66,13 +67,16 @@ import {
 } from "../native-operation.js";
 
 const maxSubmitBodyBytes = 65_536;
+
 const maxAdminBodyBytes = 65_536;
+
 const PERSON_CHALLENGE = 'VektorSession realm="native-api", Bearer realm="native-api"';
 
-const adminListQueryKeys: Record<string, true> = {
+const adminListQueryKeys = {
   departmentId: true,
   semesterId: true,
-};
+} as const;
+
 const AdminListScope = Schema.Struct({
   departmentId: DepartmentId,
   semesterId: SemesterId,
@@ -81,6 +85,7 @@ const AdminListScope = Schema.Struct({
 type AnonymousEndpoint =
   | typeof ReadSchoolSurveyEndpoint
   | typeof SubmitSchoolSurveyResponseEndpoint;
+
 type AdminEndpoint =
   | typeof ReadAdminCatalogEndpoint
   | typeof ListAdminSurveysEndpoint
@@ -95,6 +100,7 @@ const semantic = <A>(operation: () => A) =>
     catch: (cause) =>
       cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
+
 const noQuery = (request: Request) =>
   semantic(() => {
     if (new URL(request.url).search !== "") {
@@ -104,15 +110,19 @@ const noQuery = (request: Request) =>
 
 const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
-  value: unknown,
   code: "request.malformed" | "validation.failed" | "internal.error",
 ) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(
       () =>
         new HttpSemanticFailure(
           code,
-          code === "request.malformed" ? 400 : code === "validation.failed" ? 422 : 500,
+          Match.value(code).pipe(
+            Match.when("request.malformed", () => 400),
+            Match.when("validation.failed", () => 422),
+            Match.orElse(() => 500),
+          ),
         ),
     ),
   );
@@ -120,16 +130,18 @@ const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(
 const strictAdminListScope = (request: Request) =>
   semantic(() => {
     const values = [...new URL(request.url).searchParams];
+
     if (
       values.length !== 2 ||
-      values.some(([name]) => adminListQueryKeys[name] !== true) ||
+      values.some(([name]) => !Object.hasOwn(adminListQueryKeys, name)) ||
       values.filter(([name]) => name === "departmentId").length !== 1 ||
       values.filter(([name]) => name === "semesterId").length !== 1
     ) {
       throw new HttpSemanticFailure("request.malformed", 400);
     }
+
     return Object.fromEntries(values);
-  }).pipe(Effect.flatMap((scope) => strictDecode(AdminListScope, scope, "request.malformed")));
+  }).pipe(Effect.flatMap((scope) => strictDecode(AdminListScope, "request.malformed")(scope)));
 
 const transactionInstant = () =>
   Database.use((sql) =>
@@ -141,6 +153,7 @@ const transactionInstant = () =>
     `.pipe(
       Effect.flatMap((rows) => {
         const now = rows[0]?.now;
+
         return now === undefined
           ? Effect.fail(new HttpSemanticFailure("internal.error", 500))
           : Effect.succeed(now);
@@ -161,10 +174,13 @@ const resolveSurveyAuthority = (
     const authenticated = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
       now: () => observedAt,
     });
+
     const principal = authenticated.credential.principal;
-    if (principal._tag !== "Person") {
+
+    if (!Predicate.isTagged(principal, "Person")) {
       return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
     }
+
     const authority = yield* Database.use((sql) =>
       resolveOrganizationPersonAuthorityWithSql(
         sql,
@@ -173,6 +189,7 @@ const resolveSurveyAuthority = (
         lockMode,
       ),
     );
+
     return { ...authenticated, authority };
   });
 
@@ -230,7 +247,7 @@ const requireResultsAccess = (
     ? Effect.void
     : Effect.fail(new HttpSemanticFailure("resource.not-found", 404));
 
-const privateJsonResponse = (body: unknown): Response =>
+const privateJsonResponse = (body: Schema.Json): Response =>
   new Response(JSON.stringify(body), {
     headers: {
       "content-type": "application/json",
@@ -282,26 +299,27 @@ const authorizeAdmin = (
       contexts: [
         genericContext({
           domainId: "surveys",
-          ...(departmentId === null ? {} : { departmentId }),
+          departmentId: departmentId ?? undefined,
           authorityVersion: now,
         }),
       ],
     },
     grantScopes:
       departmentId === null
-        ? [{ _tag: "Domain", domainId: DomainId.make("surveys") }]
-        : [{ _tag: "Department", departmentId }],
+        ? [Scope.Domain({ domainId: DomainId.make("surveys") })]
+        : [Scope.Department({ departmentId })],
     now,
   });
 
 const readAdminSurvey = (surveyId: SurveyId) =>
   SchoolSurveys.use(({ readAdminSurvey: read }) => read(surveyId)).pipe(
-    Effect.flatMap((survey) => strictDecode(SchoolSurveyAdminResource, survey, "internal.error")),
+    Effect.flatMap((survey) => strictDecode(SchoolSurveyAdminResource, "internal.error")(survey)),
   );
 
 const read = (request: Request, surveyId: SurveyId) =>
   Effect.gen(function* () {
     yield* noQuery(request);
+
     return yield* Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -312,7 +330,8 @@ const read = (request: Request, surveyId: SurveyId) =>
           const now = yield* transactionInstant();
           yield* authorizeAnonymous(ReadSchoolSurveyEndpoint, surveyId, now);
           const body = yield* SchoolSurveys.use(({ readForm }) => readForm(surveyId));
-          const response = yield* strictDecode(SchoolSurveyFormResource, body, "internal.error");
+          const response = yield* strictDecode(SchoolSurveyFormResource, "internal.error")(body);
+
           return new Response(JSON.stringify(response), {
             headers: {
               "content-type": "application/json",
@@ -329,20 +348,25 @@ const submit = (request: Request, surveyId: SurveyId) =>
   Effect.gen(function* () {
     yield* noQuery(request);
     yield* ensureJsonContentType(request);
+
     const body = yield* strictDecode(
       SubmitSchoolSurveyResponseRequest,
-      yield* readBoundedJson(request, maxSubmitBodyBytes),
       "validation.failed",
-    );
+    )(yield* readBoundedJson(request, maxSubmitBodyBytes));
+
     const idempotencyKeyHeader = request.headers.get("idempotency-key");
+
     const idempotencyKey = yield* semantic(() =>
       parseIdempotencyKey(idempotencyKeyHeader === null ? [] : [idempotencyKeyHeader]),
     );
+
     const operationId = "surveys.submitSchoolSurveyResponse";
+
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const now = yield* transactionInstant();
         yield* authorizeAnonymous(SubmitSchoolSurveyResponseEndpoint, surveyId, now);
+
         const identity = yield* semantic(() =>
           deriveHttpIdentity({
             credentialSubject: "Anonymous",
@@ -351,6 +375,7 @@ const submit = (request: Request, surveyId: SurveyId) =>
             idempotencyKey,
           }),
         );
+
         return {
           identity: {
             identitySha256: identity.identitySha256,
@@ -360,18 +385,21 @@ const submit = (request: Request, surveyId: SurveyId) =>
           execute: SchoolSurveys.use(({ prepareResponse, persistResponse }) =>
             Effect.gen(function* () {
               const prepared = yield* prepareResponse({ surveyId, request: body });
+
               const response = yield* persistResponse({
                 responseId: yield* semantic(() =>
                   SurveyResponseId.make(`survey_response_${randomUUID()}`),
                 ),
                 prepared,
               });
+
               const decoded = yield* Schema.decodeUnknownEffect(SchoolSurveyResponseResource)(
                 response,
                 {
                   onExcessProperty: "error",
                 },
               ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
               return {
                 status: 201,
                 mediaType: "application/json",
@@ -395,18 +423,21 @@ const submit = (request: Request, surveyId: SurveyId) =>
         retryUniqueConstraints: ["native_http_idempotency_receipts_pkey"],
       },
     );
+
     return nativeCommandOutcomeResponse(outcome);
   });
 
 const readAdminCatalog = (request: Request) =>
   Effect.gen(function* () {
     yield* noQuery(request);
+
     return yield* Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
           const now = yield* transactionInstant();
           const authorization = yield* resolveSurveyAuthority(request, now, "None");
+
           if (
             authorization.authority.globalAdministrator !== "Active" &&
             !authorization.authority.memberships.some(
@@ -415,6 +446,7 @@ const readAdminCatalog = (request: Request) =>
           ) {
             return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
           }
+
           yield* authorizeAdmin(
             authorization.credential,
             ReadAdminCatalogEndpoint,
@@ -422,14 +454,16 @@ const readAdminCatalog = (request: Request) =>
             now,
             null,
           );
+
           const catalog = yield* SchoolSurveys.use(({ readAdminCatalog: read }) =>
             read(authorization.authority),
           );
+
           const decoded = yield* strictDecode(
             SchoolSurveyAdminCatalogResource,
-            catalog,
             "internal.error",
-          );
+          )(catalog);
+
           return privateJsonResponse(decoded);
         }),
       ),
@@ -439,6 +473,7 @@ const readAdminCatalog = (request: Request) =>
 const listAdminSurveys = (request: Request) =>
   Effect.gen(function* () {
     const scope = yield* strictAdminListScope(request);
+
     return yield* Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -458,16 +493,17 @@ const listAdminSurveys = (request: Request) =>
             scope.departmentId,
           );
           const surveys = yield* SchoolSurveys.use(({ listAdminSurveys: list }) => list(scope));
+
           const decoded = yield* strictDecode(
             SchoolSurveyAdminListResource,
-            {
-              ...surveys,
-              surveys: surveys.surveys.map((survey) =>
-                projectListedSurvey(authorization.authority, survey),
-              ),
-            },
             "internal.error",
-          );
+          )({
+            ...surveys,
+            surveys: surveys.surveys.map((survey) =>
+              projectListedSurvey(authorization.authority, survey),
+            ),
+          });
+
           return privateJsonResponse(decoded);
         }),
       ),
@@ -478,16 +514,20 @@ const createAdminSurvey = (request: Request) =>
   Effect.gen(function* () {
     yield* noQuery(request);
     yield* ensureJsonContentType(request);
+
     const body = yield* strictDecode(
       CreateSchoolSurveyRequest,
-      yield* readBoundedJson(request, maxAdminBodyBytes),
       "validation.failed",
-    );
+    )(yield* readBoundedJson(request, maxAdminBodyBytes));
+
     const idempotencyKeyHeader = request.headers.get("idempotency-key");
+
     const idempotencyKey = yield* semantic(() =>
       parseIdempotencyKey(idempotencyKeyHeader === null ? [] : [idempotencyKeyHeader]),
     );
+
     const operationId = "surveys.createAdminSurvey";
+
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const now = yield* transactionInstant();
@@ -500,6 +540,7 @@ const createAdminSurvey = (request: Request) =>
           now,
           body.departmentId,
         );
+
         const identity = yield* semantic(() =>
           deriveHttpIdentity({
             credentialSubject: `Person:${authorization.authority.personId}`,
@@ -508,6 +549,7 @@ const createAdminSurvey = (request: Request) =>
             idempotencyKey,
           }),
         );
+
         return {
           identity: {
             identitySha256: identity.identitySha256,
@@ -523,11 +565,12 @@ const createAdminSurvey = (request: Request) =>
                 occurredAt: OrganizationAuthorityInstantSchema.make(now),
                 request: body,
               });
+
               const decoded = yield* strictDecode(
                 SchoolSurveyAdminResource,
-                projectMutationSurvey(survey),
                 "internal.error",
-              );
+              )(projectMutationSurvey(survey));
+
               return {
                 status: 201,
                 mediaType: "application/json",
@@ -551,6 +594,7 @@ const createAdminSurvey = (request: Request) =>
         retryUniqueConstraints: ["native_http_idempotency_receipts_pkey"],
       },
     );
+
     return nativeCommandOutcomeResponse(outcome);
   });
 
@@ -558,16 +602,20 @@ const closeAdminSurvey = (request: Request, surveyId: SurveyId) =>
   Effect.gen(function* () {
     yield* noQuery(request);
     yield* ensureJsonContentType(request);
+
     const body = yield* strictDecode(
       CloseSchoolSurveyRequest,
-      yield* readBoundedJson(request, maxAdminBodyBytes),
       "validation.failed",
-    );
+    )(yield* readBoundedJson(request, maxAdminBodyBytes));
+
     const idempotencyKeyHeader = request.headers.get("idempotency-key");
+
     const idempotencyKey = yield* semantic(() =>
       parseIdempotencyKey(idempotencyKeyHeader === null ? [] : [idempotencyKeyHeader]),
     );
+
     const operationId = "surveys.closeAdminSurvey";
+
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const now = yield* transactionInstant();
@@ -581,6 +629,7 @@ const closeAdminSurvey = (request: Request, surveyId: SurveyId) =>
           now,
           survey.departmentId,
         );
+
         const identity = yield* semantic(() =>
           deriveHttpIdentity({
             credentialSubject: `Person:${authorization.authority.personId}`,
@@ -589,6 +638,7 @@ const closeAdminSurvey = (request: Request, surveyId: SurveyId) =>
             idempotencyKey,
           }),
         );
+
         return {
           identity: {
             identitySha256: identity.identitySha256,
@@ -604,11 +654,12 @@ const closeAdminSurvey = (request: Request, surveyId: SurveyId) =>
                 occurredAt: OrganizationAuthorityInstantSchema.make(now),
                 request: body,
               });
+
               const decoded = yield* strictDecode(
                 SchoolSurveyAdminResource,
-                projectMutationSurvey(closed),
                 "internal.error",
-              );
+              )(projectMutationSurvey(closed));
+
               return {
                 status: 200,
                 mediaType: "application/json",
@@ -631,12 +682,14 @@ const closeAdminSurvey = (request: Request, surveyId: SurveyId) =>
         retryUniqueConstraints: ["native_http_idempotency_receipts_pkey"],
       },
     );
+
     return nativeCommandOutcomeResponse(outcome);
   });
 
 const readAdminResults = (request: Request, surveyId: SurveyId) =>
   Effect.gen(function* () {
     yield* noQuery(request);
+
     return yield* Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -653,11 +706,12 @@ const readAdminResults = (request: Request, surveyId: SurveyId) =>
             survey.departmentId,
           );
           const results = yield* SchoolSurveys.use(({ readAdminResults: read }) => read(surveyId));
+
           const decoded = yield* strictDecode(
             SchoolSurveyResultsResource,
-            results,
             "internal.error",
-          );
+          )(results);
+
           return privateJsonResponse(decoded);
         }),
       ),
@@ -667,6 +721,7 @@ const readAdminResults = (request: Request, surveyId: SurveyId) =>
 const exportAdminResults = (request: Request, surveyId: SurveyId) =>
   Effect.gen(function* () {
     yield* noQuery(request);
+
     return yield* Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -683,12 +738,14 @@ const exportAdminResults = (request: Request, surveyId: SurveyId) =>
             survey.departmentId,
           );
           const results = yield* SchoolSurveys.use(({ readAdminResults: read }) => read(surveyId));
+
           const decoded = yield* strictDecode(
             SchoolSurveyResultsResource,
-            results,
             "internal.error",
-          );
+          )(results);
+
           const contentDisposition = schoolSurveyResultsCsvContentDisposition(surveyId);
+
           return new Response(encodeSchoolSurveyResultsCsv(decoded), {
             headers: {
               "content-type": "text/csv; charset=utf-8",
@@ -715,10 +772,15 @@ const errorResponse = (cause: unknown): Response => {
           cause.status === 401 ? { "www-authenticate": PERSON_CHALLENGE } : undefined,
         );
   }
+
   const tag =
-    cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
+    cause !== null &&
+    (cause === null || Predicate.isObjectOrArray(cause)) &&
+    "_tag" in cause &&
+    Predicate.isString(cause._tag)
       ? cause._tag
       : undefined;
+
   switch (tag) {
     case "UnauthenticatedActor":
       return nativeProblemResponse("credential.invalid", 401, {

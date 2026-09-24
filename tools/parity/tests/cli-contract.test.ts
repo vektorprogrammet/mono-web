@@ -1,4 +1,3 @@
- 
 import { describe, expect, test } from "bun:test";
 import { parityVerifyArguments } from "../verify-config.ts";
 
@@ -17,6 +16,5 @@ describe("root parity verification command", () => {
       "--mode",
       "diff",
     ]);
- 
   });
 });

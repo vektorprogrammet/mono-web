@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { ChevronRight } from "lucide-react";
@@ -11,25 +12,31 @@ export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
 
   const client = createAuthenticatedClient(cookie, request);
+
   try {
     const result = await client.profile.readOwnProfile({ headers: {} });
+
     if (result.body === undefined) throw new Error("Profile response did not include a body");
+
     return {
       profile: projectProfile(result.body),
       identity: null,
     };
   } catch (error) {
     const code =
-      typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+      Predicate.isObjectOrArray(error) && error !== null && "code" in error ? error.code : undefined;
+
     if (code === "credential.missing" || code === "credential.invalid") {
       throw await expiredSessionRedirect(request);
     }
-    if (code === "authority.denied" || code === "scope.not-found") {
+
+    if (code === "authority.denied") {
       return {
         profile: null,
         identity: await loadSessionIdentity(request),
       };
     }
+
     throw new Response(null, { status: 503 });
   }
 }
@@ -37,8 +44,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Profile() {
   const { profile, identity } = useLoaderData<typeof loader>();
+
   if (profile === null) {
     if (identity === null) throw new Error("Missing session identity for unavailable profile");
+
     return (
       <main className="mx-10 mt-10">
         <h1 className="mb-2 font-semibold text-2xl lg:mb-4 lg:text-4xl">{identity.name}</h1>
@@ -57,6 +66,7 @@ export default function Profile() {
       </main>
     );
   }
+
   return (
     <>
       <div className="mx-10 mt-10 flex flex-col">

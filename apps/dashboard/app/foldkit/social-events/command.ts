@@ -15,7 +15,7 @@ import {
   SucceededCreate,
   type Message,
 } from "./message";
-import type { SocialEventsFailure } from "./model";
+import { SocialEventsFailure } from "./model";
 
 export interface SocialEventsCommandFactories {
   readonly LoadScope: (args: { readonly requestId: number }) => Command.Command<Message>;
@@ -32,63 +32,54 @@ export interface SocialEventsCommandFactories {
 export const failureFrom = (error: SocialEventsBridgeFailure): SocialEventsFailure => {
   switch (error.error.tag) {
     case "UnauthenticatedActor":
-      return {
-        _tag: "Denied",
+      return SocialEventsFailure.cases.Denied.make({
         tag: "UnauthenticatedActor",
         message: "Økten din er utløpt. Logg inn på nytt.",
-      };
+      });
     case "NotInScope":
-      return {
-        _tag: "Denied",
+      return SocialEventsFailure.cases.Denied.make({
         tag: "NotInScope",
         message: "Du har ikke tilgang til arrangementene for denne avdelingen.",
-      };
+      });
     case "InvalidScope":
-      return {
-        _tag: "Failed",
+      return SocialEventsFailure.cases.Failed.make({
         tag: "InvalidScope",
         message: "Den valgte avdelingen eller semesteret er ikke tilgjengelig.",
-      };
+      });
     case "ValidationFailed":
-      return {
-        _tag: "Failed",
+      return SocialEventsFailure.cases.Failed.make({
         tag: "ValidationFailed",
         message: "Arrangementet kunne ikke lagres. Kontroller feltene og prøv igjen.",
-      };
+      });
     case "CommandConflict":
-      return {
-        _tag: "Failed",
+      return SocialEventsFailure.cases.Failed.make({
         tag: "CommandConflict",
         message: "Lagringen er allerede behandlet eller pågår. Prøv igjen.",
-      };
+      });
     case "SocialEventsDecodeError":
-      return {
-        _tag: "Failed",
+      return SocialEventsFailure.cases.Failed.make({
         tag: "SocialEventsDecodeError",
         message: "Arrangementssvaret hadde et ugyldig format.",
-      };
+      });
     case "Network":
-      return {
-        _tag: "Failed",
+      return SocialEventsFailure.cases.Failed.make({
         tag: "Network",
         message: "Nettverksforbindelsen til arrangementene feilet.",
-      };
+      });
     case "Configuration":
-      return {
-        _tag: "Failed",
+      return SocialEventsFailure.cases.Failed.make({
         tag: "Configuration",
         message: "Arrangementene er ikke konfigurert.",
-      };
+      });
     case "SocialEventsPersistenceError":
-      return {
-        _tag: "Failed",
+      return SocialEventsFailure.cases.Failed.make({
         tag: "SocialEventsPersistenceError",
         message: "Arrangementene er midlertidig utilgjengelige.",
-      };
+      });
   }
 };
 
-export const makeSocialEventsCommands = (
+export const commandsFor = (
   client: SocialEventsClient,
 ): SocialEventsCommandFactories => ({
   LoadScope: ({ requestId }) => ({

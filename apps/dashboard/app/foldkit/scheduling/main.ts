@@ -2,10 +2,10 @@ import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { Runtime } from "foldkit";
 import type { RecruitmentClient } from "../recruitment/browser-client";
-import { makeSchedulingCommands } from "./command";
-import { Model, SchedulingInputJson, makeInitialModel, makeInvalidInputModel } from "./model";
+import { commandsFor } from "./command";
+import { Model, SchedulingInputJson, init, invalidInputModel } from "./model";
 import "./styles.css";
-import { makeUpdate } from "./update";
+import { updateFor } from "./update";
 import { view } from "./view";
 
 export interface SchedulingRuntimeInput {
@@ -18,25 +18,26 @@ export const embedScheduling = (
   container: HTMLElement,
   input: SchedulingRuntimeInput,
 ): (() => void) => {
-  const commands = makeSchedulingCommands(input.client);
-  const update = makeUpdate(commands);
-  let initialModel: typeof Model.Type = makeInvalidInputModel();
+  const commands = commandsFor(input.client);
+  const update = updateFor(commands);
+  let initialModel: typeof Model.Type = invalidInputModel();
 
   if (input.serializedInput !== null) {
     try {
       const decoded = S.decodeUnknownSync(SchedulingInputJson)(input.serializedInput, {
         onExcessProperty: "error",
       });
-      initialModel = makeInitialModel(decoded, input.idempotencyKeySeed);
+
+      initialModel = init(decoded, input.idempotencyKeySeed);
     } catch {
-      initialModel = makeInvalidInputModel();
+      initialModel = invalidInputModel();
     }
   }
 
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => [initialModel, []],
+    init: () => ({ model: initialModel, commands: [] }),
     update,
     view,
     devTools: false,
@@ -54,5 +55,6 @@ export const embedScheduling = (
   });
 
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 };

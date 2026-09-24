@@ -33,13 +33,17 @@ function fieldDescription(
 export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
   const relevantFailure =
     failure?.receiptId === receipt.receiptId && failure.etag === receipt.etag ? failure : undefined;
+
   const [panel, setPanel] = useState<ActionPanel>(relevantFailure?.intent ?? null);
+
   const [reviseCommandId, setReviseCommandId] = useState(
     relevantFailure?.intent === "revise" ? relevantFailure.commandId : "",
   );
+
   const [withdrawCommandId, setWithdrawCommandId] = useState(
     relevantFailure?.intent === "withdraw" ? relevantFailure.commandId : "",
   );
+
   const fieldId = useId();
   const panelId = `${fieldId}-owner-actions`;
   const reviseTitleId = `${fieldId}-revise-title`;
@@ -47,10 +51,12 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
   const navigation = useNavigation();
   const navigationReceiptId = navigation.formData?.get("receiptId");
   const navigationIntent = navigation.formData?.get("_intent");
+
   const busyIntent =
     navigation.state !== "idle" && navigationReceiptId === receipt.receiptId
       ? navigationIntent
       : undefined;
+
   const revising = busyIntent === "revise";
   const withdrawing = busyIntent === "withdraw";
   const actionBusy = revising || withdrawing;
@@ -103,6 +109,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
                   if (panel !== "revise" && reviseCommandId.length === 0) {
                     setReviseCommandId(crypto.randomUUID());
                   }
+
                   setPanel(panel === "revise" ? null : "revise");
                 }}
               >
@@ -119,6 +126,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
                   if (panel !== "withdraw" && withdrawCommandId.length === 0) {
                     setWithdrawCommandId(crypto.randomUUID());
                   }
+
                   setPanel(panel === "withdraw" ? null : "withdraw");
                 }}
               >

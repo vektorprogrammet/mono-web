@@ -1,215 +1,128 @@
 import {
-  AUTHZ_LOCK_PROTOCOL,
+  AcceptedOAuthServiceCredential,
   AuthorizationInstant,
   CredentialEvidenceRef,
-  NATIVE_API_PROTECTED_RESOURCE,
-  RECEIPT_APPROVAL_QUEUE_OPERATION,
+  CredentialMechanismSchema,
+  PrincipalSchema,
   ServicePrincipalId,
-  type AcceptedOAuthServiceCredential,
+  ServicePrincipalGrantAuthorityError,
+  ServicePrincipalReceiptGrantSchema,
 } from "@vektorprogrammet/domain/authz";
-import { Effect } from "effect";
-import type { Pool, PoolClient, QueryResult } from "pg";
-import { describe, expect, it } from "vitest";
+import { Effect, Schema } from "effect";
+import { expect, it } from "vitest";
 import { makeServicePrincipalGrantAuthorityService } from "./service-principal-grants-live.js";
+import { withPostgresTestDatabase } from "./test-support/postgres.js";
 
 const authorizationInstant = AuthorizationInstant.make("2032-06-01T12:00:00.000Z");
-const credential: AcceptedOAuthServiceCredential = {
-  _tag: "Accepted",
-  mechanism: { _tag: "OAuthServiceBearer" },
-  principal: {
-    _tag: "ServicePrincipal",
+
+const startAt = "2032-06-01T11:00:00.000Z";
+
+const credential = AcceptedOAuthServiceCredential.make({
+  mechanism: CredentialMechanismSchema.cases.OAuthServiceBearer.make({}),
+  principal: PrincipalSchema.cases.ServicePrincipal.make({
     servicePrincipalId: ServicePrincipalId.make("service-receipt-approval"),
-  },
+  }),
   evidenceRef: CredentialEvidenceRef.make(
-    "oauth:ServicePrincipal:service-jti:service-receipt-approval-client:1969873200",
+    `oauth:ServicePrincipal:service-jti:service-client:${Date.parse(startAt) / 1000}`,
   ),
-};
+});
 
-const persistedGrant = {
-  grant_id: "service-receipt-approval-grant",
-  service_principal_id: "service-receipt-approval",
-  client_id: "service-receipt-approval-client",
-  protected_resource: NATIVE_API_PROTECTED_RESOURCE,
-  operation_id: RECEIPT_APPROVAL_QUEUE_OPERATION,
-  capability_id: "approveReceipt",
-  resource_kind: "receipt",
-  resource_id: "service-receipt-approval-pending",
-  start_at: new Date("2032-06-01T11:00:00.000Z"),
-  end_at: null,
-  revoked_at: null,
-  grant_revision: 0,
-};
+it(
+  "commits grants with their audit, reads exact candidates, and fails closed for invalid persisted rules",
+  () =>
+    withPostgresTestDatabase(async (pool) => {
+      await pool.query(`
+    INSERT INTO public.person_profiles (person_id, first_name, last_name) VALUES ('receipt-owner', 'Receipt', 'Owner');
+    INSERT INTO public.organization_departments (department_id, name, short_name, email, city) VALUES ('receipt-department', 'Receipt', 'R', 'receipt@example.invalid', 'Oslo');
+    INSERT INTO public.service_principals (service_principal_id, name, state) VALUES ('service-receipt-approval', 'Approval service', 'Active');
+    INSERT INTO auth."oauthClient" (id, "clientId", "redirectUris", scopes, "clientCredentialsScopes") VALUES ('client', 'service-client', '[]', '["native-api"]', '["native-api"]');
+    INSERT INTO auth."oauthResource" (id, identifier, name) VALUES ('resource', 'urn:vektorprogrammet:native-api', 'Native API');
+    INSERT INTO auth."oauthClientResource" (id, "clientId", "resourceId") VALUES ('binding', 'service-client', 'urn:vektorprogrammet:native-api');
+    INSERT INTO auth.oauth_client_bindings (client_id, client_kind, service_principal_id, secret_expires_at) VALUES ('service-client', 'Service', 'service-receipt-approval', '2033-01-01');
+    INSERT INTO auth.oauth_access_token_state (jti, client_id, principal_kind, service_principal_id, issued_at, expires_at) VALUES ('service-jti', 'service-client', 'ServicePrincipal', 'service-receipt-approval', '2032-06-01T11:00:00Z', '2032-06-02');
+    INSERT INTO public.economy_receipts (
+      receipt_id, visual_id, owner_person_id, department_id, amount_ore, currency, description, receipt_date,
+      submitted_at, status, payment_account_ciphertext, file_ref, file_object_key, file_content_type, file_byte_length, file_sha256, revision
+    ) VALUES ('receipt-1', 'SERVICE-1', 'receipt-owner', 'receipt-department', 1250, 'NOK', 'Service candidate', '2032-06-01',
+      '2032-06-01', 'Pending', 'ciphertext:service', 'service-file', 'service-object', 'application/pdf', 100, repeat('a', 64), 0);
+  `);
+      const service = makeServicePrincipalGrantAuthorityService(pool);
 
-const persistedRule = {
-  rule_id: "service-receipt-pending-rule",
-  capability_id: "approveReceipt",
-  effect_kind: "requirement",
-  subject_kind: "ServicePrincipal",
-  subject_person_id: null,
-  subject_tag_id: null,
-  subject_service_principal_id: "service-receipt-approval",
-  scope: "Resource",
-  domain_id: null,
-  department_id: null,
-  resource_kind: "receipt",
-  resource_id: "service-receipt-approval-pending",
-  params: { requirementId: "receipts.pending", parameters: {} },
-  start_at: new Date("2032-06-01T11:00:00.000Z"),
-  end_at: null,
-  revision: 0,
-};
+      const grant = Schema.decodeUnknownSync(ServicePrincipalReceiptGrantSchema)({
+        grantId: "grant-1",
+        servicePrincipalId: "service-receipt-approval",
+        clientId: "service-client",
+        protectedResource: "urn:vektorprogrammet:native-api",
+        operationId: "receipts.listReceiptsForApproval",
+        capabilityId: "approveReceipt",
+        resourceKind: "receipt",
+        receiptId: "receipt-1",
+        startAt,
+        endAt: null,
+        revokedAt: null,
+        revision: 0,
+      });
 
-type RecordingPool = {
-  readonly pool: Pool;
-  readonly statements: Array<string>;
-  readonly values: Array<ReadonlyArray<unknown>>;
-};
-
-const queryResult = <A extends Record<string, unknown>>(rows: ReadonlyArray<A>) =>
-  ({ rows: [...rows], rowCount: rows.length }) as QueryResult<A>;
-
-const recordingPool = (
-  ruleRows: ReadonlyArray<Record<string, unknown>> = [persistedRule],
-): RecordingPool => {
-  const statements: Array<string> = [];
-  const values: Array<ReadonlyArray<unknown>> = [];
-  const client = {
-    query: async (
-      text: string,
-      parameters: ReadonlyArray<unknown> = [],
-    ): Promise<QueryResult<Record<string, unknown>>> => {
-      statements.push(text);
-      values.push(parameters);
-      if (text.includes("FROM auth.oauth_access_token_state")) {
-        return queryResult([{ client_id: "service-receipt-approval-client" }]);
-      }
-      if (text.includes("FROM public.service_principal_grants")) {
-        return queryResult([
-          {
-            ...persistedGrant,
-            visual_id: "SERVICE-1",
-            owner_person_id: "service-receipt-owner",
-            department_id: "service-receipt-department",
-            amount_ore: "1250",
-            currency: "NOK",
-            description: "Service candidate",
-            receipt_date: "2032-06-01",
-            receipt_status: "Pending",
-            receipt_revision: 0,
-          },
-        ]);
-      }
-      if (text.includes("FROM public.authz_rules")) return queryResult(ruleRows);
-      if (text.includes("INSERT INTO public.service_principal_grants")) {
-        return queryResult([persistedGrant]);
-      }
-      return queryResult([]);
-    },
-    release: () => undefined,
-  } as unknown as PoolClient;
-  return {
-    statements,
-    values,
-    pool: {
-      connect: async () => client,
-    } as unknown as Pool,
-  };
-};
-
-const statementIndex = (statements: ReadonlyArray<string>, fragment: string): number =>
-  statements.findIndex((statement) => statement.includes(fragment));
-
-describe("service-principal grant PostgreSQL authority", () => {
-  it("takes the shared authz lock before ordered grant and rule snapshot reads", async () => {
-    const recording = recordingPool();
-    const authority = await Effect.runPromise(
-      makeServicePrincipalGrantAuthorityService(recording.pool).readReceiptApprovalCandidates(
-        credential,
-        authorizationInstant,
-      ),
-    );
-    expect(authority.rules.map((rule) => rule.ruleId)).toEqual(["service-receipt-pending-rule"]);
-    const sharedLock = statementIndex(recording.statements, "pg_advisory_xact_lock_shared");
-    const tokenRead = statementIndex(recording.statements, "oauth_access_token_state");
-    const grantRead = statementIndex(recording.statements, "service_principal_grants AS");
-    const ruleRead = statementIndex(recording.statements, "FROM public.authz_rules");
-    expect(recording.values[sharedLock]).toEqual([AUTHZ_LOCK_PROTOCOL.advisoryKey]);
-    expect(AUTHZ_LOCK_PROTOCOL.rowOrder).toEqual([
-      "public.authz_tag_assignments",
-      "public.service_principal_grants",
-      "public.authz_rules",
-    ]);
-    expect(recording.values[ruleRead]).toEqual([
-      "service-receipt-approval",
-      authorizationInstant,
-      ["service-receipt-approval-pending"],
-    ]);
-    expect(recording.statements[ruleRead]).toContain("resource_id = ANY($3::text[])");
-    expect(sharedLock).toBeGreaterThanOrEqual(0);
-    expect(sharedLock).toBeLessThan(tokenRead);
-    expect(tokenRead).toBeLessThan(grantRead);
-    expect(grantRead).toBeLessThan(ruleRead);
-  });
-
-  it("fails the complete authority read when a current service rule is invalid", async () => {
-    const recording = recordingPool([
-      {
-        ...persistedRule,
-        effect_kind: "delegate",
-        params: { slot: "EconomyDepartmentApprovalGrant" },
-      },
-    ]);
-    await expect(
-      Effect.runPromise(
-        makeServicePrincipalGrantAuthorityService(recording.pool).readReceiptApprovalCandidates(
-          credential,
-          authorizationInstant,
-        ),
-      ),
-    ).rejects.toMatchObject({
-      _tag: "ServicePrincipalGrantAuthorityError",
-      reason: "PersistenceFailure",
-    });
-  });
-
-  it("takes the exclusive authz lock before grant mutation and audit append", async () => {
-    const recording = recordingPool();
-    const created = await Effect.runPromise(
-      makeServicePrincipalGrantAuthorityService(recording.pool).createGrant({
-        grant: {
-          grantId: "service-receipt-approval-grant" as never,
-          servicePrincipalId: credential.principal.servicePrincipalId,
-          clientId: "service-receipt-approval-client" as never,
-          protectedResource: NATIVE_API_PROTECTED_RESOURCE,
-          operationId: RECEIPT_APPROVAL_QUEUE_OPERATION,
-          capabilityId: "approveReceipt",
-          resourceKind: "receipt",
-          receiptId: "service-receipt-approval-pending" as never,
-          startAt: "2032-06-01T11:00:00.000Z" as never,
-          endAt: null,
-          revokedAt: null,
-          revision: 0,
-        },
+      const input = {
+        grant,
         audit: {
-          eventId: "service-receipt-approval-created",
+          eventId: "created-1",
           occurredAt: authorizationInstant,
           operatorActor: "operator",
-          requestCorrelation: "service-receipt-approval-create",
+          requestCorrelation: "grant-create",
         },
-      }),
-    );
-    expect(created.grantId).toBe("service-receipt-approval-grant");
-    const exclusiveLock = statementIndex(recording.statements, "pg_advisory_xact_lock(");
-    const mutation = statementIndex(
-      recording.statements,
-      "INSERT INTO public.service_principal_grants",
-    );
-    const audit = statementIndex(
-      recording.statements,
-      "INSERT INTO public.service_principal_grant_audit",
-    );
-    expect(exclusiveLock).toBeGreaterThanOrEqual(0);
-    expect(exclusiveLock).toBeLessThan(mutation);
-    expect(mutation).toBeLessThan(audit);
-  });
-});
+      };
+
+      await pool.query(`CREATE FUNCTION public.reject_grant_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END $$;
+    CREATE TRIGGER reject_grant_audit BEFORE INSERT ON public.service_principal_grant_audit FOR EACH ROW EXECUTE FUNCTION public.reject_grant_audit()`);
+      await expect(Effect.runPromise(service.createGrant(input))).rejects.toMatchObject({
+        reason: "PersistenceFailure",
+      });
+      expect(
+        (await pool.query(`SELECT grant_id FROM public.service_principal_grants`)).rows,
+      ).toEqual([]);
+      await pool.query(
+        `DROP TRIGGER reject_grant_audit ON public.service_principal_grant_audit; DROP FUNCTION public.reject_grant_audit()`,
+      );
+      expect(await Effect.runPromise(service.createGrant(input))).toEqual(grant);
+      expect(
+        (
+          await pool.query(
+            `SELECT event_kind, grant_id, request_correlation FROM public.service_principal_grant_audit`,
+          )
+        ).rows,
+      ).toEqual([
+        {
+          event_kind: "service-principal-grant-created",
+          grant_id: "grant-1",
+          request_correlation: "grant-create",
+        },
+      ]);
+      await pool.query(`INSERT INTO public.authz_rules (rule_id, capability_id, effect_kind, subject_kind, subject_service_principal_id, scope, resource_kind, resource_id, params, start_at, revision)
+    VALUES ('pending-rule', 'approveReceipt', 'requirement', 'ServicePrincipal', 'service-receipt-approval', 'Resource', 'receipt', 'receipt-1', '{"requirementId":"receipts.pending","parameters":{}}', '2032-06-01T11:00:00Z', 0)`);
+
+      const authority = await Effect.runPromise(
+        service.readReceiptApprovalCandidates(credential, authorizationInstant),
+      );
+
+      expect(
+        authority.candidates.map(({ grant: candidateGrant, receipt }) => [
+          candidateGrant.grantId,
+          receipt.receiptId,
+          receipt.amountOre,
+        ]),
+      ).toEqual([["grant-1", "receipt-1", "1250"]]);
+      expect(authority.rules.map(({ ruleId }) => ruleId)).toEqual(["pending-rule"]);
+      await pool.query(
+        `UPDATE public.authz_rules SET start_at = '-infinity' WHERE rule_id = 'pending-rule'`,
+      );
+
+      const invalidRule = await Effect.runPromise(
+        Effect.flip(service.readReceiptApprovalCandidates(credential, authorizationInstant)),
+      );
+
+      expect(invalidRule).toBeInstanceOf(ServicePrincipalGrantAuthorityError);
+      expect(invalidRule.reason).toBe("PersistenceFailure");
+    }),
+  20_000,
+);

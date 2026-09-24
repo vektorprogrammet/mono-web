@@ -1,15 +1,13 @@
+import { NativeAuthEngineLive, NativeAuthEngine, AuthPoolLive } from "./auth-engine.js";
+import { DatabasePgPool } from "./pg-pool.js";
+import { Layer, ManagedRuntime } from "effect";
 import assert from "node:assert/strict";
 import { Database } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { createLocalAccountIssuer } from "better-auth";
-import { Config, Effect, Redacted } from "effect";
+import { Cause, Predicate, Config, Effect, Redacted } from "effect";
 import { Pool } from "pg";
-import {
-  makeAuthEngine,
-  makeAuthPool,
-  type AuthEngine,
-  type AuthEngineConfig,
-} from "./auth-engine.js";
+import { type AuthEngine, type AuthEngineConfig } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
 import { databaseSchemaRevision } from "./migrations.js";
 
@@ -23,7 +21,9 @@ const proofCohort = {
 } as const;
 
 const proofBaseUrl = "http://127.0.0.1:8788";
+
 const sessionCookieName = "better-auth.session_token";
+
 const authTables = [
   "account",
   "identity_security_audit",
@@ -52,6 +52,7 @@ const assertDisposableDatabaseUrl = (postgresUrl: string) => {
 
 const resetIdentityCohort = async (pool: Pool, migrationId: number) => {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
     await client.query("DROP SCHEMA IF EXISTS auth CASCADE");
@@ -59,6 +60,7 @@ const resetIdentityCohort = async (pool: Pool, migrationId: number) => {
     const profileTable = await client.query<{ readonly tableName: string | null }>(
       `SELECT to_regclass('public.person_profiles')::text AS "tableName"`,
     );
+
     if (profileTable.rows[0]?.tableName !== null) {
       await client.query(`DELETE FROM public.person_profiles WHERE person_id IN ($1, $2)`, [
         proofCohort.personId,
@@ -69,6 +71,7 @@ const resetIdentityCohort = async (pool: Pool, migrationId: number) => {
     const migrationTable = await client.query<{ readonly tableName: string | null }>(
       `SELECT to_regclass('public.vektorprogrammet_schema_migrations')::text AS "tableName"`,
     );
+
     if (migrationTable.rows[0]?.tableName !== null) {
       await client.query(
         `DELETE FROM public.vektorprogrammet_schema_migrations WHERE migration_id >= ${migrationId}`,
@@ -97,6 +100,7 @@ const applyIdentityMigration = (postgresUrl: string) => {
     Effect.gen(function* () {
       const database = yield* Database;
       yield* database.health;
+
       return database.schemaRevision;
     }).pipe(Effect.provide(databaseLayer)),
   );
@@ -111,6 +115,7 @@ const inspectIdentitySchema = async (pool: Pool) => {
      FROM public.vektorprogrammet_schema_migrations
      WHERE migration_id = 15`,
   );
+
   assert.deepEqual(migration.rows, [{ migrationId: 15, name: "native-identity-better-auth" }]);
 
   const authSchemaTables = await pool.query<{ readonly tableName: string }>(
@@ -121,6 +126,7 @@ const inspectIdentitySchema = async (pool: Pool) => {
      ORDER BY table_name`,
     [[...authTables]],
   );
+
   assert.deepEqual(
     authSchemaTables.rows.map(({ tableName }) => tableName),
     [...authTables],
@@ -134,6 +140,7 @@ const inspectIdentitySchema = async (pool: Pool) => {
      ORDER BY table_name`,
     [[...authTables]],
   );
+
   assert.deepEqual(publicSchemaTables.rows, []);
 
   const identityForeignKeys = await pool.query<{
@@ -166,6 +173,7 @@ const inspectIdentitySchema = async (pool: Pool) => {
        AND source_namespace.nspname = 'auth'
        AND source_table.relname = 'user'`,
   );
+
   assert.ok(
     identityForeignKeys.rows.some(
       (row) =>
@@ -191,13 +199,17 @@ const postgresErrorCode = (cause: unknown): string | undefined => {
 
   while (pending.length > 0) {
     const current = pending.shift();
-    if (typeof current !== "object" || current === null || seen.has(current)) {
-      continue;
-    }
+
+    if (!Predicate.isObjectOrArray(current) || seen.has(current)) continue;
+
     seen.add(current);
-    const record = current as Record<string, unknown>;
-    if (typeof record.code === "string") return record.code;
-    pending.push(record.cause, record.error, record.originalError);
+
+    if (Predicate.hasProperty(current, "code") && Predicate.isString(current.code))
+      return current.code;
+
+    for (const key of ["cause", "error", "originalError"] as const) {
+      if (Predicate.hasProperty(current, key)) pending.push(current[key]);
+    }
   }
 
   return undefined;
@@ -212,6 +224,7 @@ const seedCallerSuppliedIdentity = async (engine: AuthEngine, observer: Pool) =>
 
   const context = await engine.$context;
   let orphanFailure: unknown;
+
   try {
     await context.internalAdapter.createUser(
       {
@@ -225,6 +238,7 @@ const seedCallerSuppliedIdentity = async (engine: AuthEngine, observer: Pool) =>
   } catch (cause) {
     orphanFailure = cause;
   }
+
   assert.ok(orphanFailure !== undefined, "an auth user without a PersonId must be rejected");
   assert.equal(
     postgresErrorCode(orphanFailure),
@@ -236,9 +250,11 @@ const seedCallerSuppliedIdentity = async (engine: AuthEngine, observer: Pool) =>
     `SELECT count(*)::text AS count FROM auth."user" WHERE id = $1`,
     [proofCohort.orphanPersonId],
   );
+
   assert.equal(orphanRows.rows[0]?.count, "0");
 
   const passwordHash = await context.password.hash(proofCohort.password);
+
   const user = await context.internalAdapter.createUser(
     {
       id: proofCohort.personId,
@@ -248,6 +264,7 @@ const seedCallerSuppliedIdentity = async (engine: AuthEngine, observer: Pool) =>
     },
     { method: "email-password" },
   );
+
   assert.equal(user.id, proofCohort.personId);
 
   const account = await context.internalAdapter.linkAccount({
@@ -257,6 +274,7 @@ const seedCallerSuppliedIdentity = async (engine: AuthEngine, observer: Pool) =>
     userId: proofCohort.personId,
     password: passwordHash,
   });
+
   assert.equal(account.userId, proofCohort.personId);
 
   const persisted = await observer.query<{
@@ -279,6 +297,7 @@ const seedCallerSuppliedIdentity = async (engine: AuthEngine, observer: Pool) =>
      WHERE auth_user.id = $1`,
     [proofCohort.personId],
   );
+
   assert.equal(persisted.rowCount, 1);
   assert.deepEqual(
     {
@@ -310,14 +329,17 @@ const sessionCookieFrom = (response: Response) => {
   const setCookie = response.headers
     .getSetCookie()
     .find((value) => value.startsWith(`${sessionCookieName}=`));
+
   if (setCookie === undefined) return undefined;
 
   const pair = setCookie.slice(
     0,
     setCookie.indexOf(";") === -1 ? undefined : setCookie.indexOf(";"),
   );
+
   const separator = pair.indexOf("=");
   assert.ok(separator > 0, "session Set-Cookie must contain a value");
+
   return {
     pair,
     value: pair.slice(separator + 1),
@@ -339,6 +361,7 @@ const persistedSessions = async (pool: Pool) => {
      WHERE "userId" = $1`,
     [proofCohort.personId],
   );
+
   return {
     total: Number(sessions.rows[0]?.total ?? "-1"),
     live: Number(sessions.rows[0]?.live ?? "-1"),
@@ -354,7 +377,9 @@ const assertAuthSearchPath = async (pool: Pool) => {
        current_schema() AS "currentSchema",
        current_setting('search_path') AS "searchPath"`,
   );
+
   assert.deepEqual(searchPath.rows, [{ currentSchema: "auth", searchPath: "auth" }]);
+
   return searchPath.rows[0]?.searchPath;
 };
 
@@ -370,6 +395,7 @@ const exerciseCredentialsAndSessions = async (
     },
     asResponse: true,
   });
+
   assert.equal(invalidPasswordResponse.status, 401);
   assert.equal(sessionCookieFrom(invalidPasswordResponse), undefined);
   assert.deepEqual(await persistedSessions(observer), { total: 0, live: 0 });
@@ -381,6 +407,7 @@ const exerciseCredentialsAndSessions = async (
     },
     asResponse: true,
   });
+
   assert.equal(validPasswordResponse.status, 200);
   const sessionCookie = sessionCookieFrom(validPasswordResponse);
   assert.ok(sessionCookie !== undefined, `${sessionCookieName} must be issued`);
@@ -392,6 +419,7 @@ const exerciseCredentialsAndSessions = async (
   const restoredSession = await independentlyConstructedEngine.api.getSession({
     headers: cookieHeaders(sessionCookie.pair),
   });
+
   assert.equal(restoredSession?.user.id, proofCohort.personId);
   assert.equal(restoredSession?.session.userId, proofCohort.personId);
 
@@ -399,6 +427,7 @@ const exerciseCredentialsAndSessions = async (
     headers: cookieHeaders(sessionCookie.pair),
     asResponse: true,
   });
+
   assert.equal(signOutResponse.status, 200);
   assert.deepEqual(await persistedSessions(observer), { total: 0, live: 0 });
 
@@ -408,6 +437,7 @@ const exerciseCredentialsAndSessions = async (
       headers: cookieHeaders(sessionCookie.pair),
     }),
   ]);
+
   const replaySuccesses = replayedSessions.filter((session) => session !== null).length;
   assert.equal(replaySuccesses, 0);
 
@@ -435,6 +465,7 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
   Effect.acquireUseRelease(
     Effect.sync(() => {
       assertDisposableDatabaseUrl(postgresUrl);
+
       return {
         observer: new Pool({
           connectionString: postgresUrl,
@@ -442,14 +473,14 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
           max: 1,
           application_name: "identity-postgres-proof-observer",
         }),
-        authPools: [] as Array<Pool>,
+        authFinalizers: Array<() => Promise<void>>(),
       };
     }),
     (resources) =>
       Effect.gen(function* () {
         yield* Effect.tryPromise({
           try: () => resetIdentityCohort(resources.observer, identityMigrationId),
-          catch: (cause) => cause,
+          catch: (cause) => new Cause.UnknownError(cause),
         });
         const schemaRevision = yield* applyIdentityMigration(postgresUrl);
         assert.equal(schemaRevision, databaseSchemaRevision);
@@ -457,6 +488,7 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
         return yield* Effect.tryPromise({
           try: async () => {
             const migration = await inspectIdentitySchema(resources.observer);
+
             const authConfig: AuthEngineConfig = {
               postgresUrl,
               secret: "identity-postgres-proof-0054-secret-at-least-thirty-two-characters",
@@ -468,16 +500,26 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
               trustedOrigins: [proofBaseUrl],
               secureCookies: false,
             };
-            const authPool = makeAuthPool(authConfig);
-            resources.authPools.push(authPool);
-            const independentAuthPool = makeAuthPool(authConfig);
-            resources.authPools.push(independentAuthPool);
-            const engine = makeAuthEngine(authConfig, authPool);
-            const independentlyConstructedEngine = makeAuthEngine(authConfig, independentAuthPool);
+
+            const nativeAuthLayer = NativeAuthEngineLive(authConfig).pipe(
+              Layer.provideMerge(AuthPoolLive(authConfig)),
+            );
+
+            const authRuntime = ManagedRuntime.make(nativeAuthLayer);
+            resources.authFinalizers.push(() => authRuntime.dispose());
+            const independentRuntime = ManagedRuntime.make(nativeAuthLayer);
+            resources.authFinalizers.push(() => independentRuntime.dispose());
+            const authPool = await authRuntime.runPromise(DatabasePgPool);
+            const independentAuthPool = await independentRuntime.runPromise(DatabasePgPool);
+            const engine = await authRuntime.runPromise(NativeAuthEngine);
+
+            const independentlyConstructedEngine =
+              await independentRuntime.runPromise(NativeAuthEngine);
 
             const searchPath = await assertAuthSearchPath(authPool);
             await assertAuthSearchPath(independentAuthPool);
             const identity = await seedCallerSuppliedIdentity(engine, resources.observer);
+
             const authentication = await exerciseCredentialsAndSessions(
               engine,
               independentlyConstructedEngine,
@@ -496,7 +538,7 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
               ...authentication,
             };
           },
-          catch: (cause) => cause,
+          catch: (cause) => new Cause.UnknownError(cause),
         });
       }),
     (resources) =>
@@ -504,15 +546,15 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
         try: async () => {
           await Promise.all([
             resources.observer.end(),
-            ...resources.authPools.map((pool) => pool.end()),
+            ...resources.authFinalizers.map((dispose) => dispose()),
           ]);
         },
-        catch: (cause) => cause,
+        catch: (cause) => new Cause.UnknownError(cause),
       }),
   );
 
 export const program = Effect.gen(function* () {
-  const databaseUrl = yield* Config.redacted("DATABASE_URL");
+  const databaseUrl = yield* Config.Redacted("DATABASE_URL");
   const evidence = yield* runIdentityPostgresProof(Redacted.value(databaseUrl));
   const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));
   yield* Effect.sync(() =>

@@ -4,7 +4,8 @@ import { embedSchoolsDirectory } from "./main";
 export const SCHOOLS_DIRECTORY_ELEMENT = "vektor-schools-directory";
 
 export const registerSchoolsDirectoryElement = (): void => {
-  if (typeof window === "undefined" || typeof customElements === "undefined") return;
+  if (globalThis.window === undefined || globalThis.customElements === undefined) return;
+
   if (customElements.get(SCHOOLS_DIRECTORY_ELEMENT) !== undefined) return;
 
   customElements.define(

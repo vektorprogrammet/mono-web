@@ -1,9 +1,12 @@
-import { Database, OAuthCredentialAuthority, type DatabaseShape } from "@vektorprogrammet/database";
+import { backendDatabase } from "../../test/database.js";
+import { HttpSemanticFailure } from "../http-semantics.js";
+import { backendTestConfig } from "../../test/config.js";
+import { Database, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityActor,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import { OrganizationPersistenceError, PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
@@ -11,13 +14,10 @@ import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.js";
 
-type ProfileAuthorityTestFailure = Error & {
-  readonly _tag: "AuthorityInactive" | "NotInScope";
-};
+type ProfileAuthorityTestFailure = HttpSemanticFailure;
 
-const tagged = <Tag extends ProfileAuthorityTestFailure["_tag"]>(
-  tag: Tag,
-): Error & { readonly _tag: Tag } => Object.assign(new Error(tag), { _tag: tag });
+const tagged = (_tag: "AuthorityInactive" | "NotInScope") =>
+  new HttpSemanticFailure("authority.denied", 403);
 
 const authorityDeniedProblem = {
   type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
@@ -38,7 +38,8 @@ const profileUnavailableProblem = {
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
-} as never);
+});
+
 const identity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
@@ -49,6 +50,7 @@ const identity = Identity.of({
         expiresAt: DateTime.makeUnsafe(new Date("2032-04-02T12:00:00.000Z")),
       });
     }
+
     throw new IdentitySessionNotFound();
   },
   readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
@@ -59,17 +61,19 @@ const identity = Identity.of({
   revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
   recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
   signOut: async () => ({ setCookies: [] }),
-} satisfies IdentityShape);
+} satisfies IdentityOperations);
+
 const securityServices = Layer.mergeAll(
   Layer.succeed(Identity, identity),
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );
+
 const request = async (
   cause: ProfileAuthorityTestFailure | OrganizationPersistenceError,
 ): Promise<Response> =>
   makeProfileApiHttp(
     {
-      config: {} as never,
+      config: backendTestConfig,
       resolveActor: () => Effect.fail(cause),
     },
     securityServices,
@@ -114,29 +118,34 @@ describe("Profile HTTP ETag", () => {
     nameRevision: 7,
     contactRevision: 11,
   } as const;
+
   const profileService = {
     readOwnProfile: () => Effect.succeed(profile),
-  } as never;
+  };
+
   const readAs = (
     role: "ROLE_TEAM_MEMBER" | "ROLE_TEAM_LEADER",
     representationRevision: number,
   ) => {
-    const database = ((_strings: TemplateStringsArray) =>
-      Effect.succeed([
-        {
-          ...profile,
-          contactPersonId: profile.personId,
-          representationRevision,
-        },
-      ])) as unknown as DatabaseShape;
+    const database = backendDatabase(
+      Database.use((sql) =>
+        Effect.gen(function* () {
+          yield* sql`INSERT INTO person_profiles VALUES (${profile.personId},${profile.firstName},${profile.lastName},${profile.nameRevision})`;
+          yield* sql`INSERT INTO person_contact_profiles VALUES (${profile.personId},${profile.email},${profile.phone},${profile.contactRevision})`;
+          yield* sql`UPDATE public.profile_http_versions SET representation_revision=${representationRevision} WHERE person_id=${profile.personId}`;
+        }),
+      ),
+    );
+
     const services = Layer.mergeAll(
-      Layer.succeed(Database, database),
-      Layer.succeed(Profile, profileService),
+      database.layer,
+      Layer.mock(Profile, profileService),
       securityServices,
     );
+
     return makeProfileApiHttp(
       {
-        config: {} as never,
+        config: backendTestConfig,
         resolveActor: () => Effect.succeed({ personId: profile.personId, role }),
       },
       services,

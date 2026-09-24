@@ -1,6 +1,6 @@
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
-import { m } from "foldkit/message";
+import { taggedStruct } from "foldkit/schema";
 import {
   InvitationBridgeFailureSchema,
   InvitationResponseActionSchema,
@@ -8,27 +8,35 @@ import {
   InvitationResponseRequestIdSchema,
 } from "./bridge";
 
-export const OpenedInvitationResponse = m("OpenedInvitationResponse");
-export const SucceededReadInvitationResponse = m("SucceededReadInvitationResponse", {
+export const OpenedInvitationResponse = taggedStruct("OpenedInvitationResponse", {});
+
+export const SucceededReadInvitationResponse = taggedStruct("SucceededReadInvitationResponse", {
   requestId: InvitationResponseRequestIdSchema,
   observation: InvitationResponseObservationSchema,
   etag: StrongETag,
 });
-export const FailedReadInvitationResponse = m("FailedReadInvitationResponse", {
+
+export const FailedReadInvitationResponse = taggedStruct("FailedReadInvitationResponse", {
   requestId: InvitationResponseRequestIdSchema,
   failure: InvitationBridgeFailureSchema,
 });
-export const UpdatedResponseMessage = m("UpdatedResponseMessage", { value: S.String });
-export const ConfirmedInvitation = m("ConfirmedInvitation");
-export const RejectedInvitation = m("RejectedInvitation");
-export const RequestedNewInvitationTime = m("RequestedNewInvitationTime");
-export const SucceededInvitationResponse = m("SucceededInvitationResponse", {
+
+export const UpdatedResponseMessage = taggedStruct("UpdatedResponseMessage", { value: S.String });
+
+export const ConfirmedInvitation = taggedStruct("ConfirmedInvitation", {});
+
+export const RejectedInvitation = taggedStruct("RejectedInvitation", {});
+
+export const RequestedNewInvitationTime = taggedStruct("RequestedNewInvitationTime", {});
+
+export const SucceededInvitationResponse = taggedStruct("SucceededInvitationResponse", {
   requestId: InvitationResponseRequestIdSchema,
   action: InvitationResponseActionSchema,
   observation: InvitationResponseObservationSchema,
   etag: StrongETag,
 });
-export const FailedInvitationResponse = m("FailedInvitationResponse", {
+
+export const FailedInvitationResponse = taggedStruct("FailedInvitationResponse", {
   requestId: InvitationResponseRequestIdSchema,
   action: InvitationResponseActionSchema,
   failure: InvitationBridgeFailureSchema,
@@ -45,4 +53,5 @@ export const Message = S.Union([
   SucceededInvitationResponse,
   FailedInvitationResponse,
 ]);
+
 export type Message = S.Schema.Type<typeof Message>;

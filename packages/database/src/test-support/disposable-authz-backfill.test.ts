@@ -1,5 +1,7 @@
-import { RECEIPT_DOMAIN_ID } from "@vektorprogrammet/domain/authz";
+import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
+import { AuthzRuleScopeSchema, RECEIPT_DOMAIN_ID } from "@vektorprogrammet/domain/authz";
 import {
+  DisposableAuthzRuleSubjectAuthoringSchema,
   authorDisposableAuthzBackfill,
   persistDisposableAuthzBackfill,
 } from "../authz/disposable-backfill.js";
@@ -52,10 +54,13 @@ const resetFixture = Effect.gen(function* () {
 const authzCounts = Effect.gen(function* () {
   const sql = yield* Database;
   const tags = yield* sql<CountRow>`SELECT count(*)::text AS count FROM public.authz_tags`;
+
   const assignments = yield* sql<CountRow>`
     SELECT count(*)::text AS count FROM public.authz_tag_assignments
   `;
+
   const rules = yield* sql<CountRow>`SELECT count(*)::text AS count FROM public.authz_rules`;
+
   return {
     tags: Number(tags[0]?.count ?? "0"),
     assignments: Number(assignments[0]?.count ?? "0"),
@@ -65,11 +70,13 @@ const authzCounts = Effect.gen(function* () {
 
 const authzSnapshot = Effect.gen(function* () {
   const sql = yield* Database;
+
   const tags = yield* sql`
     SELECT tag_id AS "tagId", name, revision
     FROM public.authz_tags
     ORDER BY tag_id
   `;
+
   const assignments = yield* sql`
     SELECT
       assignment_id AS "assignmentId",
@@ -81,6 +88,7 @@ const authzSnapshot = Effect.gen(function* () {
     FROM public.authz_tag_assignments
     ORDER BY assignment_id
   `;
+
   const rules = yield* sql`
     SELECT
       rule_id AS "ruleId",
@@ -98,6 +106,7 @@ const authzSnapshot = Effect.gen(function* () {
     FROM public.authz_rules
     ORDER BY rule_id
   `;
+
   return { tags, assignments, rules };
 });
 
@@ -134,12 +143,14 @@ describe("disposable authorization backfill in PGlite", () => {
           assignments: [],
           rulesBySubject: [
             {
-              subject: { _tag: "Person", personId: "authz-backfill-absent-person" },
+              subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+                personId: PersonId.make("authz-backfill-absent-person"),
+              }),
               rules: [
                 {
                   capabilityId: "approveReceipt",
                   effectKind: "delegate",
-                  scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+                  scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
                   params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                   startAt,
                   endAt: null,
@@ -151,8 +162,8 @@ describe("disposable authorization backfill in PGlite", () => {
       ),
     );
 
+    expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
     expect(failure).toMatchObject({
-      _tag: "DisposableAuthzBackfillMissingReference",
       referenceKind: "Person",
       referenceId: "authz-backfill-absent-person",
     });
@@ -168,12 +179,14 @@ describe("disposable authorization backfill in PGlite", () => {
           assignments: [],
           rulesBySubject: [
             {
-              subject: { _tag: "Tag", tagName: "Absent disposable tag" },
+              subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Tag.make({
+                tagName: "Absent disposable tag",
+              }),
               rules: [
                 {
                   capabilityId: "approveReceipt",
                   effectKind: "delegate",
-                  scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+                  scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
                   params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                   startAt,
                   endAt: null,
@@ -185,8 +198,8 @@ describe("disposable authorization backfill in PGlite", () => {
       ),
     );
 
+    expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
     expect(failure).toMatchObject({
-      _tag: "DisposableAuthzBackfillMissingReference",
       referenceKind: "Tag",
       referenceId: "Absent disposable tag",
     });
@@ -209,12 +222,16 @@ describe("disposable authorization backfill in PGlite", () => {
           ],
           rulesBySubject: [
             {
-              subject: { _tag: "Person", personId: "authz-backfill-person-a" },
+              subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+                personId: PersonId.make("authz-backfill-person-a"),
+              }),
               rules: [
                 {
                   capabilityId: "approveReceipt",
                   effectKind: "delegate",
-                  scope: { _tag: "Department", departmentId: "authz-backfill-absent-department" },
+                  scope: AuthzRuleScopeSchema.cases.Department.make({
+                    departmentId: DepartmentId.make("authz-backfill-absent-department"),
+                  }),
                   params: { slot: "EconomyDepartmentApprovalGrant" },
                   startAt,
                   endAt: null,
@@ -226,8 +243,8 @@ describe("disposable authorization backfill in PGlite", () => {
       ),
     );
 
+    expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
     expect(failure).toMatchObject({
-      _tag: "DisposableAuthzBackfillMissingReference",
       referenceKind: "Department",
       referenceId: "authz-backfill-absent-department",
     });
@@ -237,9 +254,12 @@ describe("disposable authorization backfill in PGlite", () => {
   it("rejects invalid capability and params before writing", async () => {
     const base = validInput();
     const personGroup = base.rulesBySubject[1];
+
     if (personGroup === undefined) throw new Error("missing fixture person group");
     const rule = personGroup.rules[0];
+
     if (rule === undefined) throw new Error("missing fixture rule");
+
     const invalidInputs: ReadonlyArray<unknown> = [
       {
         ...base,
@@ -268,8 +288,10 @@ describe("disposable authorization backfill in PGlite", () => {
       const failure = await runtime.runPromise(
         Effect.flip(persistDisposableAuthzBackfill(invalidInput)),
       );
+
       expect(failure._tag).toBe("DisposableAuthzBackfillDecodeError");
     }
+
     expect(await runtime.runPromise(authzCounts)).toEqual({ tags: 0, assignments: 0, rules: 0 });
   });
 
@@ -280,8 +302,10 @@ describe("disposable authorization backfill in PGlite", () => {
       assignments: [],
       rulesBySubject: [],
     };
+
     const plan = await runtime.runPromise(authorDisposableAuthzBackfill(input));
     const conflictingTag = plan.tags[1];
+
     if (conflictingTag === undefined) throw new Error("missing second atomicity tag");
     await runtime.runPromise(
       Database.use(

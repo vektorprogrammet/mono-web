@@ -28,7 +28,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Layer } from "effect";
+import { Layer, Predicate } from "effect";
 import { compareByteOrder, sha256 } from "./src/canonical.js";
 import {
   ParityCommandExecutor,
@@ -63,10 +63,15 @@ const lockLibrary = dlopen("libc.so.6", {
     returns: FFIType.c_int,
   },
 });
+
 const LOCK_SHARED = 1;
+
 const LOCK_EXCLUSIVE = 2;
+
 const LOCK_RELEASE = 8;
+
 const projectionLockQueues = new Map<string, Promise<void>>();
+
 const fchmodDescriptor = (descriptor: number, mode: number): void => {
   if (lockLibrary.symbols.fchmod(descriptor, mode) !== 0)
     throw new Error(`cannot preserve projection evidence mode: ${mode.toString(8)}`);
@@ -78,21 +83,25 @@ const acquireFileLock = (path: string, mode: "shared" | "exclusive"): (() => voi
     constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_CLOEXEC,
     0o600,
   );
+
   if (
     lockLibrary.symbols.flock(descriptor, mode === "shared" ? LOCK_SHARED : LOCK_EXCLUSIVE) !== 0
   ) {
     closeSync(descriptor);
     throw new Error(`cannot acquire projection lock: ${path}`);
   }
+
   return () => {
     const releaseFailed = lockLibrary.symbols.flock(descriptor, LOCK_RELEASE) !== 0;
     closeSync(descriptor);
+
     if (releaseFailed) throw new Error(`cannot release projection lock: ${path}`);
   };
 };
 
 const withFileLock = <A>(path: string, mode: "shared" | "exclusive", operation: () => A): A => {
   const release = acquireFileLock(path, mode);
+
   try {
     return operation();
   } finally {
@@ -114,25 +123,31 @@ export const withProjectionFileLock = async <A>(
   const path = projectionLockPath(projectionDirectory);
   const previous = projectionLockQueues.get(path) ?? Promise.resolve();
   let advanceQueue: () => void = () => undefined;
+
   const turn = new Promise<void>((resolveTurn) => {
     advanceQueue = resolveTurn;
   });
+
   const queued = previous.then(() => turn);
   projectionLockQueues.set(path, queued);
   await previous;
   let release: (() => void) | null = null;
+
   try {
     release = acquireFileLock(path, mode);
+
     return await operation();
   } finally {
     try {
       release?.();
     } finally {
       advanceQueue();
+
       if (projectionLockQueues.get(path) === queued) projectionLockQueues.delete(path);
     }
   }
 };
+
 const RENAME_EXCHANGE_SCRIPT = `import { dlopen, FFIType } from "bun:ffi"
 import { closeSync, constants, fstatSync, openSync, renameSync } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
@@ -255,7 +270,9 @@ closeInputs()`;
 
 const childAccessiblePinnedPath = (path: string): string => {
   const match = /^\/proc\/self\/fd\/(\d+)(\/.*)?$/.exec(path);
+
   if (match === null) return path;
+
   return `/proc/${process.pid}/fd/${match[1]}${match[2] ?? ""}`;
 };
 
@@ -292,49 +309,58 @@ export const exchangeDirectoriesAfterPinnedReplacementForTest = (
   replacement: string,
   displaced: string,
 ): void => renameDirectoriesNoFollow(source, target, 2, { replacement, displaced });
+
 const noFollowReadFlags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 
 const openDirectoryPathNoFollow = (path: string, create = false): number => {
   const absolute = resolve(path);
   const pinned = /^(\/proc\/(?:self|\d+)\/fd\/\d+)(\/.*)?$/.exec(absolute);
+
   let descriptor =
     pinned === null
       ? openSync("/", noFollowReadFlags | constants.O_DIRECTORY)
       : openSync(pinned[1], constants.O_RDONLY | constants.O_NONBLOCK | constants.O_DIRECTORY);
+
   const components = (pinned === null ? absolute : (pinned[2] ?? ""))
     .split("/")
     .filter((entry) => entry.length > 0);
+
   try {
     for (const component of components) {
       const childPath = `/proc/self/fd/${descriptor}/${component}`;
       let next: number;
+
       try {
         next = openSync(childPath, noFollowReadFlags | constants.O_DIRECTORY);
       } catch (cause) {
         if (
           !create ||
           cause === null ||
-          typeof cause !== "object" ||
+          (!Predicate.isObjectOrArray(cause) && cause !== null) ||
           !("code" in cause) ||
           cause.code !== "ENOENT"
         )
           throw cause;
+
         try {
           mkdirSync(childPath);
         } catch (mkdirCause) {
           if (
             mkdirCause === null ||
-            typeof mkdirCause !== "object" ||
+            (!Predicate.isObjectOrArray(mkdirCause) && mkdirCause !== null) ||
             !("code" in mkdirCause) ||
             mkdirCause.code !== "EEXIST"
           )
             throw mkdirCause;
         }
+
         next = openSync(childPath, noFollowReadFlags | constants.O_DIRECTORY);
       }
+
       closeSync(descriptor);
       descriptor = next;
     }
+
     return descriptor;
   } catch (cause) {
     closeSync(descriptor);
@@ -346,9 +372,12 @@ const openDirectoryPathNoFollow = (path: string, create = false): number => {
     );
   }
 };
+
 const causedByCode = (cause: unknown, code: string): boolean => {
-  if (cause === null || typeof cause !== "object") return false;
+  if (cause === null || (!Predicate.isObjectOrArray(cause) && cause !== null)) return false;
+
   if ("code" in cause && cause.code === code) return true;
+
   return "cause" in cause && causedByCode(cause.cause, code);
 };
 
@@ -368,6 +397,7 @@ const withDirectoryNoFollow = <A>(
   operation: (pinnedPath: string) => A,
 ): A => {
   const descriptor = openDirectoryPathNoFollow(path, options.create);
+
   try {
     return operation(`/proc/self/fd/${descriptor}`);
   } finally {
@@ -377,10 +407,12 @@ const withDirectoryNoFollow = <A>(
 
 const stableDescriptorBytes = (descriptor: number, path: string): Uint8Array => {
   const before = fstatSync(descriptor, { bigint: true });
+
   if (!before.isFile() || before.nlink !== 1n)
     throw new Error(`unsupported or aliased projection evidence entry: ${path}`);
   const bytes = readFileSync(descriptor);
   const after = fstatSync(descriptor, { bigint: true });
+
   if (
     !after.isFile() ||
     before.dev !== after.dev ||
@@ -392,6 +424,7 @@ const stableDescriptorBytes = (descriptor: number, path: string): Uint8Array => 
     before.ctimeNs !== after.ctimeNs
   )
     throw new Error(`projection evidence changed while reading: ${path}`);
+
   return bytes;
 };
 
@@ -407,8 +440,10 @@ const inspectDirectoryTreeNoFollow = (
   const capturedNames = new Set(fileNames);
   const files: Record<string, Uint8Array> = {};
   const records: ParityDirectoryTreeEntry[] = [];
+
   const visit = (descriptor: number, relativePath: string): void => {
     const before = fstatSync(descriptor, { bigint: true });
+
     if (!before.isDirectory())
       throw new Error(`projection evidence path is not a directory: ${path}`);
     records.push({
@@ -417,16 +452,20 @@ const inspectDirectoryTreeNoFollow = (
       path: relativePath,
       sha256: null,
     });
+
     for (const name of descriptorEntries(descriptor)) {
       const childPath = `/proc/self/fd/${descriptor}/${name}`;
       const child = openSync(childPath, noFollowReadFlags);
+
       try {
         const childMetadata = fstatSync(child, { bigint: true });
         const childRelativePath = relativePath === "." ? name : `${relativePath}/${name}`;
+
         if (childMetadata.isDirectory()) {
           visit(child, childRelativePath);
           continue;
         }
+
         const bytes = stableDescriptorBytes(child, childPath);
         records.push({
           kind: "file",
@@ -434,12 +473,15 @@ const inspectDirectoryTreeNoFollow = (
           path: childRelativePath,
           sha256: sha256(bytes),
         });
+
         if (relativePath === "." && capturedNames.has(name)) files[name] = bytes;
       } finally {
         closeSync(child);
       }
     }
+
     const after = fstatSync(descriptor, { bigint: true });
+
     if (
       !after.isDirectory() ||
       before.dev !== after.dev ||
@@ -450,9 +492,12 @@ const inspectDirectoryTreeNoFollow = (
     )
       throw new Error(`projection evidence changed while reading: ${path}`);
   };
+
   const root = openDirectoryPathNoFollow(path);
+
   try {
     visit(root, ".");
+
     return { entries: records, files };
   } finally {
     closeSync(root);
@@ -461,8 +506,10 @@ const inspectDirectoryTreeNoFollow = (
 
 const readFileNoFollow = (path: string): Uint8Array => {
   const parent = openDirectoryPathNoFollow(dirname(path));
+
   try {
     const descriptor = openSync(`/proc/self/fd/${parent}/${basename(path)}`, noFollowReadFlags);
+
     try {
       return stableDescriptorBytes(descriptor, path);
     } finally {
@@ -481,14 +528,17 @@ const writeFileInDirectoryNoFollow = (
 ): void => {
   if (basename(name) !== name) throw new Error(`invalid projection file name: ${name}`);
   const parent = openDirectoryPathNoFollow(directory);
+
   try {
     const descriptor = openSync(
       `/proc/self/fd/${parent}/${name}`,
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       mode ?? 0o666,
     );
+
     try {
       writeFileSync(descriptor, contents);
+
       if (mode !== undefined) fchmodDescriptor(descriptor, mode);
     } finally {
       closeSync(descriptor);
@@ -506,14 +556,18 @@ export const readFilePathNoFollow = (path: string): Uint8Array =>
 export const writeFilePathNoFollow = (path: string, contents: string | Uint8Array): void =>
   withDirectoryNoFollow(dirname(path), { create: true }, (parent) => {
     const name = basename(path);
+
     if (basename(name) !== name) throw new Error(`invalid projection file name: ${name}`);
+
     const descriptor = openSync(
       join(parent, name),
       constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,
       0o600,
     );
+
     try {
       const metadata = fstatSync(descriptor);
+
       if (!metadata.isFile() || metadata.nlink !== 1)
         throw new Error(`unsupported or aliased projection evidence entry: ${path}`);
       ftruncateSync(descriptor, 0);
@@ -526,18 +580,22 @@ export const writeFilePathNoFollow = (path: string, contents: string | Uint8Arra
 const copyDirectoryTreeNoFollow = (source: string, target: string): void => {
   if (process.platform !== "linux")
     throw new Error("secure projection evidence traversal is unavailable on this platform");
+
   const copyChildren = (sourceDescriptor: number, targetDescriptor: number): void => {
     for (const name of descriptorEntries(sourceDescriptor)) {
       const sourcePath = `/proc/self/fd/${sourceDescriptor}/${name}`;
       const sourceChild = openSync(sourcePath, noFollowReadFlags);
+
       try {
         const metadata = fstatSync(sourceChild, { bigint: true });
         const targetPath = `/proc/self/fd/${targetDescriptor}/${name}`;
         const mode = Number(metadata.mode & 0o7777n);
+
         if (metadata.isDirectory()) {
           const writableMode = mode | 0o700;
           mkdirSync(targetPath, { mode: writableMode });
           const targetChild = openSync(targetPath, noFollowReadFlags | constants.O_DIRECTORY);
+
           try {
             fchmodDescriptor(targetChild, writableMode);
             copyChildren(sourceChild, targetChild);
@@ -545,14 +603,18 @@ const copyDirectoryTreeNoFollow = (source: string, target: string): void => {
           } finally {
             closeSync(targetChild);
           }
+
           continue;
         }
+
         const bytes = stableDescriptorBytes(sourceChild, sourcePath);
+
         const targetChild = openSync(
           targetPath,
           constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
           mode,
         );
+
         try {
           writeFileSync(targetChild, bytes);
           fchmodDescriptor(targetChild, mode);
@@ -564,9 +626,12 @@ const copyDirectoryTreeNoFollow = (source: string, target: string): void => {
       }
     }
   };
+
   const sourceRoot = openDirectoryPathNoFollow(source);
+
   try {
     const targetParent = openDirectoryPathNoFollow(dirname(target));
+
     try {
       const metadata = fstatSync(sourceRoot, { bigint: true });
       const mode = Number(metadata.mode & 0o7777n);
@@ -574,6 +639,7 @@ const copyDirectoryTreeNoFollow = (source: string, target: string): void => {
       const targetPath = `/proc/self/fd/${targetParent}/${basename(target)}`;
       mkdirSync(targetPath, { mode: writableMode });
       const targetRoot = openSync(targetPath, noFollowReadFlags | constants.O_DIRECTORY);
+
       try {
         fchmodDescriptor(targetRoot, writableMode);
         copyChildren(sourceRoot, targetRoot);
@@ -595,14 +661,17 @@ const removeDirectoryTreeNoFollow = (
 ): void => {
   if (process.platform !== "linux")
     throw new Error("secure projection evidence removal is unavailable on this platform");
+
   const unlink = (parent: number, name: string, flags: 0 | 0x200): void => {
     if (lockLibrary.symbols.unlinkat(parent, Buffer.from(`${name}\0`), flags) !== 0)
       throw new Error(`cannot remove projection evidence entry: ${name}`);
   };
+
   const sameIdentity = (
     left: { readonly dev: number | bigint; readonly ino: number | bigint },
     right: { readonly dev: number | bigint; readonly ino: number | bigint },
   ): boolean => left.dev === right.dev && left.ino === right.ino;
+
   const assertCurrentDirectory = (
     parent: number,
     name: string,
@@ -612,6 +681,7 @@ const removeDirectoryTreeNoFollow = (
       `/proc/self/fd/${parent}/${name}`,
       noFollowReadFlags | constants.O_DIRECTORY,
     );
+
     try {
       if (!sameIdentity(fstatSync(current), expectedDirectory))
         throw new Error(`projection cleanup directory changed: ${name}`);
@@ -619,50 +689,64 @@ const removeDirectoryTreeNoFollow = (
       closeSync(current);
     }
   };
+
   const visit = (descriptor: number): void => {
     fchmodDescriptor(descriptor, 0o700);
+
     for (const name of descriptorEntries(descriptor)) {
       const childPath = `/proc/self/fd/${descriptor}/${name}`;
       const childMetadata = lstatSync(childPath);
+
       if (childMetadata.isDirectory()) {
         const child = openSync(childPath, noFollowReadFlags | constants.O_DIRECTORY);
         const openedMetadata = fstatSync(child);
+
         if (!sameIdentity(childMetadata, openedMetadata)) {
           closeSync(child);
           throw new Error(`projection cleanup directory changed: ${name}`);
         }
+
         try {
           visit(child);
         } finally {
           closeSync(child);
         }
+
         assertCurrentDirectory(descriptor, name, openedMetadata);
         unlink(descriptor, name, 0x200);
       } else {
         const currentMetadata = lstatSync(childPath);
+
         if (!sameIdentity(childMetadata, currentMetadata))
           throw new Error(`projection cleanup entry changed: ${name}`);
         unlink(descriptor, name, 0);
       }
     }
   };
+
   const parent = openDirectoryPathNoFollow(dirname(path));
+
   try {
     const name = basename(path);
+
     const root = openSync(
       `/proc/self/fd/${parent}/${name}`,
       noFollowReadFlags | constants.O_DIRECTORY,
     );
+
     const rootMetadata = fstatSync(root);
+
     if (expected !== undefined && !sameIdentity(rootMetadata, expected)) {
       closeSync(root);
       throw new Error(`projection cleanup target changed: ${path}`);
     }
+
     try {
       visit(root);
     } finally {
       closeSync(root);
     }
+
     assertCurrentDirectory(parent, name, rootMetadata);
     unlink(parent, name, 0x200);
   } finally {
@@ -672,6 +756,7 @@ const removeDirectoryTreeNoFollow = (
 
 const chmodDirectoryNoFollow = (path: string, mode: number): void => {
   const descriptor = openDirectoryPathNoFollow(path);
+
   try {
     fchmodDescriptor(descriptor, mode);
   } finally {
@@ -726,17 +811,22 @@ export const NodeCommandExecutorLayer = Layer.succeed(ParityCommandExecutor, {
       ...commandOptions(options),
       encoding: "utf8",
     } satisfies SpawnSyncOptionsWithStringEncoding);
-    return {
-      ...(result.error === undefined ? {} : { error: result.error }),
+
+    const output = {
       signal: result.signal,
       status: result.status,
       stderr: result.stderr ?? "",
       stdout: result.stdout ?? "",
     };
+
+    if (!(result.error === undefined)) Object.assign(output, { error: result.error });
+
+    return output;
   },
 });
 
 const runnerDirectory = dirname(fileURLToPath(new URL("./src/runner.ts", import.meta.url)));
+
 const cliPath = fileURLToPath(new URL("./cli.ts", import.meta.url));
 
 export const NodeExecutionEnvironmentLayer = Layer.succeed(ParityExecutionEnvironment, {

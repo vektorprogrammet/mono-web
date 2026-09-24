@@ -7,19 +7,25 @@ const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 // presence proves the render is native; asserting every fixture name absent
 // proves zero mock usage.
 const adminEmail = "admin.journey@example.invalid";
+
 const adminPassword = "journey-secret-2026";
+
 const leader = {
   email: "leif.ledersen@example.invalid",
   password: "leif-pass-2026-long",
 };
+
 const plainMember = {
   email: "pia.medlem@example.invalid",
   password: "pia-pass-2026-longg",
 };
 
 const endedMemberLast = "Avsluttet";
+
 const osloOnlyLast = "Oslobergen";
+
 const columnHeaders = ["Fornavn", "Etternavn", "Telefon", "E-post", "Studie", "Avdeling"];
+
 const fixtureNames = ["Ola Nordmann", "Kari Nordmann", "Trond Nordmann", "Heidi Nordmann"];
 
 async function signInFromLogin(page: Page, email: string, password: string): Promise<void> {
@@ -42,6 +48,7 @@ async function openInactiveTab(page: Page): Promise<void> {
     .poll(
       async () => {
         await page.getByRole("tab", { name: "Inaktive Brukere" }).click();
+
         return await page
           .getByRole("tab", { name: "Inaktive Brukere" })
           .getAttribute("aria-selected");
@@ -64,20 +71,25 @@ test.describe("Native user directory journey (spec 0057)", () => {
     await page.goto("/dashboard/brukere");
     const activeTable = page.getByRole("table").first();
     await expect(activeTable).toBeVisible();
+
     for (const header of columnHeaders) {
       await expect(page.getByRole("columnheader", { name: header })).toBeVisible();
     }
+
     const monaRow = activeTable.getByRole("row").filter({ hasText: "Fjellheim" });
     await expect(monaRow).toHaveCount(1);
     await expect(monaRow).toContainText("Mona");
+
     // Both departments inside ONE Avdeling cell (order is not contractual).
     const monaDepartments = await monaRow
       .getByRole("cell")
       .filter({ hasText: /Trondheim|Oslo/ })
       .innerText();
+
     for (const department of ["Trondheim", "Oslo"]) {
       expect(monaDepartments).toContain(department);
     }
+
     // studyProgramme is null in this slice: the Studie column shows an em dash.
     await expect(monaRow.getByRole("cell").filter({ hasText: "—" })).toHaveCount(1);
 
@@ -92,6 +104,7 @@ test.describe("Native user directory journey (spec 0057)", () => {
     // studyProgramme is null here too: the em dash shows for the ended
     // member as well; no mock name appears anywhere.
     await expect(gunnarRow.getByRole("cell").filter({ hasText: "—" })).toHaveCount(1);
+
     for (const name of fixtureNames) {
       await expect(page.getByRole("row").filter({ hasText: name })).toHaveCount(0);
     }
@@ -135,6 +148,7 @@ test.describe("Native user directory journey (spec 0057)", () => {
 
     // Typed denial state — and no fixture fallback anywhere.
     await expect(page.getByRole("alert")).toContainText("ikke tilgang til brukerlisten");
+
     for (const name of [...fixtureNames, "Fjellheim", osloOnlyLast]) {
       await expect(page.getByRole("row").filter({ hasText: name })).toHaveCount(0);
     }

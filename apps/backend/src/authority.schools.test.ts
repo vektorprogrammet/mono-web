@@ -5,7 +5,7 @@ import {
   IdentityActor,
   IdentitySessionExpired,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect } from "effect";
@@ -24,18 +24,20 @@ const unreachableSessionManagement = {
   signOut: async () => ({ setCookies: [] }),
 } as const;
 
-const rejectingIdentity = (failure: unknown): IdentityShape => ({
+const rejectingIdentity = (cause: unknown): IdentityOperations => ({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
-  resolveSession: () => Promise.reject(failure),
+  resolveSession: () => Promise.reject(cause),
   ...unreachableSessionManagement,
 });
 
 it("captures the Schools authorization instant exactly once after session decoding", async () => {
   const events: Array<string> = [];
+
   const identity = Identity.of({
     signIn: () => Promise.reject(new Error("unexpected sign-in")),
     resolveSession: async () => {
       events.push("session");
+
       return new IdentityActor({
         personId: PersonId.make("schools-authority-person"),
         sessionId: "schools-session",
@@ -43,7 +45,8 @@ it("captures the Schools authorization instant exactly once after session decodi
       });
     },
     ...unreachableSessionManagement,
-  } satisfies IdentityShape);
+  } satisfies IdentityOperations);
+
   let clockCalls = 0;
 
   const actor = await runTestPromise(
@@ -51,6 +54,7 @@ it("captures the Schools authorization instant exactly once after session decodi
       now: () => {
         clockCalls += 1;
         events.push("now");
+
         return "2032-05-01T12:00:00.000Z";
       },
     }).pipe(Effect.provideService(Identity, identity)),
@@ -99,9 +103,7 @@ it("maps an unknown session provider rejection to typed infrastructure", async (
         Effect.provideService(Identity, rejectingIdentity(new Error("connection refused"))),
       ),
     ),
-  ).rejects.toMatchObject({
-    _tag: "IdentityEngineError",
-    operation: "resolveSession",
-    message: "connection refused",
-  });
+  ).rejects.toMatchObject(
+    new IdentityEngineError({ operation: "resolveSession", message: "connection refused" }),
+  );
 });

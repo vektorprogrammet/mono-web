@@ -1,3 +1,4 @@
+import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { canManagePlacements } from "@vektorprogrammet/domain/placements";
@@ -25,7 +26,7 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { DomainId } from "@vektorprogrammet/domain/authz";
-import { Effect, Option, Schema } from "effect";
+import { flow, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
@@ -49,18 +50,21 @@ import {
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
 import { drainOnboardingDelivery, type OnboardingDeliveryConfig } from "./delivery.js";
+
 const semantic = <A>(operation: () => A) =>
   Effect.try({
     try: operation,
     catch: (cause) =>
       cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
+
 const promise = <A>(operation: () => PromiseLike<A>) =>
   Effect.tryPromise({
     try: () => operation(),
     catch: (cause) =>
       cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
+
 const tokenDigest = (token: string) =>
   Effect.tryPromise({
     try: () => crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
@@ -73,7 +77,9 @@ const tokenDigest = (token: string) =>
         .join(""),
     ),
   );
+
 const header = (r: Request, k: string) => (r.headers.has(k) ? [r.headers.get(k)!] : []);
+
 const resource = <A extends object>(body: A) => ({
   ...body,
   etag: deriveStrongETag({
@@ -82,27 +88,40 @@ const resource = <A extends object>(body: A) => ({
     version: JSON.stringify(body),
   }),
 });
-const json = (body: unknown, etag?: string) =>
-  new Response(JSON.stringify(body), {
-    headers: {
-      "content-type": "application/json",
-      "cache-control": etag ? "no-store" : "private, no-store",
-      vary: "Origin",
-      ...(etag ? { etag } : {}),
-    },
+
+const json = (body: Schema.Json, etag?: string) => {
+  const nativeHeaders = new Headers();
+  nativeHeaders.set("content-type", "application/json");
+  nativeHeaders.set("cache-control", etag ? "no-store" : "private, no-store");
+  nativeHeaders.set("vary", "Origin");
+
+  if (etag) {
+    nativeHeaders.set("etag", etag);
+  }
+
+  return new Response(JSON.stringify(body), {
+    headers: nativeHeaders,
   });
-const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S, value: unknown) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+};
+
+const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
+
 const query = (request: Request) =>
   semantic(() => {
     const q = new URL(request.url).searchParams;
+
     if ([...q.keys()].some((k) => k !== "departmentId" || q.getAll(k).length !== 1))
       throw new HttpSemanticFailure("request.malformed", 400);
+
     return Object.fromEntries(q);
   });
+
 type Endpoint = typeof ReadOnboardingEndpoint | typeof CommandOnboardingEndpoint;
+
 const authorize = (
   request: Request,
   endpoint: Endpoint,
@@ -112,6 +131,7 @@ const authorize = (
 ) =>
   Effect.gen(function* () {
     const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
+
     if (manage && (departmentId === null || !canManagePlacements(auth.authority, departmentId)))
       return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
     yield* authorizePersonNativeOperation({
@@ -123,71 +143,86 @@ const authorize = (
         contexts: [
           genericContext({
             domainId: "organization",
-            ...(departmentId === null ? {} : { departmentId }),
+            departmentId: departmentId ?? undefined,
             authorityVersion: auth.authorizationInstant,
           }),
         ],
       },
       grantScopes:
         departmentId === null
-          ? [{ _tag: "Domain", domainId: DomainId.make("organization") }]
-          : [{ _tag: "Department", departmentId }],
+          ? [Scope.Domain({ domainId: DomainId.make("organization") })]
+          : [Scope.Department({ departmentId })],
       now: auth.authorizationInstant,
     });
+
     return auth;
   });
+
 const errorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure || cause instanceof OnboardingFailure)
     return nativeProblemResponse(cause.code, cause.status);
+
   if (
-    typeof cause === "object" &&
+    (cause === null || Predicate.isObjectOrArray(cause)) &&
     cause !== null &&
     "_tag" in cause &&
-    cause._tag === "UnauthenticatedActor"
+    Predicate.isTagged(cause, "UnauthenticatedActor")
   )
     return nativeProblemResponse("credential.invalid", 401);
-  const sqlCode = (x: unknown, n = 0): string | null =>
-    n < 8 && typeof x === "object" && x !== null
-      ? "code" in x && typeof x.code === "string"
-        ? x.code
-        : "cause" in x
-          ? sqlCode(x.cause, n + 1)
+
+  const sqlCode = (cause: unknown, n = 0): string | null =>
+    n < 8 && (cause === null || Predicate.isObjectOrArray(cause)) && cause !== null
+      ? "code" in cause && Predicate.isString(cause.code)
+        ? cause.code
+        : "cause" in cause
+          ? sqlCode(cause.cause, n + 1)
           : null
       : null;
+
   const code = sqlCode(cause);
+
   if (code === "23505") return nativeProblemResponse("onboarding.sign-in-required", 409);
+
   if (code === "40001" || code === "40P01")
     return nativeProblemResponse("transaction.conflict", 409);
+
   return nativeProblemResponse("internal.error", 500);
 };
+
 export const OnboardingApiHandlers = (input: {
   now?: () => string;
   delivery?: OnboardingDeliveryConfig;
 }) => {
   const now = () => input.now?.() ?? new Date().toISOString();
+
   const read = (request: Request) =>
     Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          const scope = yield* decode(OnboardingScope, yield* query(request));
+          const scope = yield* decode(OnboardingScope)(yield* query(request));
           yield* authorize(request, ReadOnboardingEndpoint, scope.departmentId, true, input.now);
           const board = yield* readOnboardingBoard(scope.departmentId);
-          return json(yield* decode(OnboardingResource, resource(board)));
+
+          return json(yield* decode(OnboardingResource)(resource(board)));
         }),
       ),
     );
+
   const readBody = (request: Request) => {
     if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
       return Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
+
     return readBoundedJson(request, 8192);
   };
+
   const command = (request: Request) =>
     Effect.gen(function* () {
       const body = yield* readBody(request);
-      const selected = yield* decode(OnboardingCommand, body);
-      const scope = yield* decode(OnboardingScope, yield* query(request));
+      const selected = yield* decode(OnboardingCommand)(body);
+      const scope = yield* decode(OnboardingScope)(yield* query(request));
       const ifMatch = yield* semantic(() => parseRequiredIfMatch(header(request, "if-match")));
       const key = yield* semantic(() => parseIdempotencyKey(header(request, "idempotency-key")));
+
       const token = yield* semantic(
         () =>
           "onboard_" +
@@ -195,7 +230,9 @@ export const OnboardingApiHandlers = (input: {
             .map((byte) => byte.toString(16).padStart(2, "0"))
             .join(""),
       );
+
       const digest = yield* tokenDigest(token);
+
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
           const auth = yield* authorize(
@@ -205,6 +242,7 @@ export const OnboardingApiHandlers = (input: {
             true,
             input.now,
           );
+
           const identity = yield* semantic(() =>
             deriveHttpIdentity({
               credentialSubject: `Person:${auth.authority.personId}`,
@@ -213,6 +251,7 @@ export const OnboardingApiHandlers = (input: {
               idempotencyKey: key,
             }),
           );
+
           return {
             identity: {
               identitySha256: identity.identitySha256,
@@ -224,7 +263,8 @@ export const OnboardingApiHandlers = (input: {
               yield* lockOnboardingApplicant(app.applicantId);
               const current = resource(yield* readOnboardingBoard(scope.departmentId));
               const precondition = evaluateMutationPrecondition(current.etag, ifMatch);
-              if (precondition._tag === "Failed")
+
+              if (Predicate.isTagged(precondition, "Failed"))
                 return yield* Effect.fail(
                   new HttpSemanticFailure(precondition.code, precondition.status),
                 );
@@ -237,29 +277,39 @@ export const OnboardingApiHandlers = (input: {
                 token,
                 digest,
               });
-              const changed = resource(yield* readOnboardingBoard(scope.departmentId));
+
+              const changed = yield* decode(OnboardingResource)(
+                resource(yield* readOnboardingBoard(scope.departmentId)),
+              );
+
               return yield* promise(() => responseCapsule(json(changed, changed.etag)));
             }),
           };
         }),
       );
+
       const response = nativeCommandOutcomeResponse(outcome);
+
       if (response.ok && selected.action !== "Revoke")
         yield* drainOnboardingDelivery(selected.applicationId, input.delivery);
+
       return response;
     });
+
   const claim = (request: Request) =>
     Effect.gen(function* () {
       yield* semantic(() => {
         if (new URL(request.url).search) throw new HttpSemanticFailure("request.malformed", 400);
       });
-      const body = yield* decode(OnboardingClaim, yield* readBody(request));
+      const body = yield* decode(OnboardingClaim)(yield* readBody(request));
       const digest = yield* tokenDigest(body.token);
       yield* checkOnboardingClaim(digest, now());
+
       const passwordHash =
         body.mode === "NewAccount"
           ? yield* promise(() => hashOnboardingPassword(body.password))
           : null;
+
       const result = yield* Database.use((sql) =>
         sql.withTransaction(
           Effect.gen(function* () {
@@ -276,6 +326,7 @@ export const OnboardingApiHandlers = (input: {
                     personId: yield* semantic(() => PersonId.make(crypto.randomUUID())),
                     passwordHash: passwordHash!,
                   };
+
             return yield* claimOnboarding({
               digest,
               now: now(),
@@ -285,8 +336,10 @@ export const OnboardingApiHandlers = (input: {
           }),
         ),
       );
+
       return json(result);
     });
+
   return HttpApiBuilder.group(ExternalNativeApi, "onboarding", (handlers) =>
     Effect.succeed(
       handlers

@@ -17,9 +17,11 @@ const contextFor = async (legacyRoot: string, monoRoot: string) => {
   const legacy = await Effect.runPromise(
     scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   const mono = await Effect.runPromise(
     scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   return createManifestContextFromSnapshots(legacy, mono);
 };
 
@@ -44,10 +46,13 @@ ${classNames.map((className) => `  ${className}: ~`).join("\n")}
 test("relocated subscriber notification integrations reconcile by owner and method", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-integration-subscriber-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-integration-subscriber-mono-");
+
   try {
     const legacyPath = "src/AppBundle/EventSubscriber/ApplicationSubscriber.php";
+
     const monoPath =
       "apps/server/src/App/Admission/Infrastructure/Subscriber/ApplicationSubscriber.php";
+
     const legacyClass = "AppBundle\\EventSubscriber\\ApplicationSubscriber";
     const monoClass = "App\\Admission\\Infrastructure\\Subscriber\\ApplicationSubscriber";
     put(
@@ -61,6 +66,7 @@ test("relocated subscriber notification integrations reconcile by owner and meth
 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("integration-subscriber-cross-line"));
+
     const rows = c2.integrations.rows.filter((row) =>
       row.source_ref_ids.some((ref) =>
         [legacyPath, monoPath].includes(context.sourcePathById.get(ref)?.path ?? ""),
@@ -87,10 +93,13 @@ test("relocated subscriber notification integrations reconcile by owner and meth
 test("relocated subscriber event triggers reconcile by subscriber identity", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-schedule-subscriber-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-schedule-subscriber-mono-");
+
   try {
     const legacyPath = "src/AppBundle/EventSubscriber/ApplicationSubscriber.php";
+
     const monoPath =
       "apps/server/src/App/Admission/Infrastructure/Subscriber/ApplicationSubscriber.php";
+
     const legacyClass = "AppBundle\\EventSubscriber\\ApplicationSubscriber";
     const monoClass = "App\\Admission\\Infrastructure\\Subscriber\\ApplicationSubscriber";
     put(
@@ -104,6 +113,7 @@ test("relocated subscriber event triggers reconcile by subscriber identity", asy
 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("schedule-subscriber-cross-line"));
+
     const rows = c2.schedules.rows.filter((row) =>
       row.source_ref_ids.some((ref) =>
         [legacyPath, monoPath].includes(context.sourcePathById.get(ref)?.path ?? ""),
@@ -128,10 +138,13 @@ test("relocated subscriber event triggers reconcile by subscriber identity", asy
 test("interface and transport parser artifacts are excluded without hiding new or ambiguous integrations", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-integration-artifact-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-integration-artifact-mono-");
+
   try {
     const legacyInterfacePath = "src/AppBundle/Mailer/MailerInterface.php";
+
     const monoInterfacePath =
       "apps/server/src/App/Support/Infrastructure/Mailer/MailerInterface.php";
+
     put(
       legacyRoot,
       legacyInterfacePath,
@@ -169,6 +182,7 @@ final class WebhookClient
 `,
     );
     put(monoRoot, "apps/server/config/services.yaml", serviceConfig([newIntegrationClass]));
+
     const ambiguousLegacy = [
       [
         "src/AppBundle/EventSubscriber/Admissions/NoticeSubscriber.php",
@@ -179,10 +193,12 @@ final class WebhookClient
         "AppBundle\\EventSubscriber\\Support\\NoticeSubscriber",
       ],
     ] as const;
+
     for (const [path, className] of ambiguousLegacy) {
       const namespace = className.slice(0, className.lastIndexOf("\\"));
       put(legacyRoot, path, subscriberSource(namespace, "NoticeSubscriber"));
     }
+
     const modernAmbiguousClass = "App\\Notice\\Infrastructure\\Subscriber\\NoticeSubscriber";
     put(
       monoRoot,
@@ -202,10 +218,12 @@ final class WebhookClient
 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("integration-artifact-shape"));
+
     const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
       row.source_ref_ids
         .map((ref) => context.sourcePathById.get(ref)?.path ?? null)
         .find((path): path is string => path !== null) ?? null;
+
     const rows = c2.integrations.rows;
     expect(
       rows.some(
@@ -231,9 +249,11 @@ final class WebhookClient
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("SDK domain calls through local Transport are internal and not integration rows", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-integration-sdk-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-integration-sdk-mono-");
+
   try {
     put(
       monoRoot,
@@ -265,6 +285,7 @@ export function createAuthDomain(transport: Transport) {
 
     const context = await contextFor(legacyRoot, monoRoot);
     const integrations = collectC2(context, sha256("integration-sdk-transport")).integrations;
+
     const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
       row.source_ref_ids
         .map((ref) => context.sourcePathById.get(ref)?.path ?? null)
@@ -285,12 +306,16 @@ export function createAuthDomain(transport: Transport) {
 test("manual command schedules reconcile by stable Symfony names after namespace relocation", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-schedule-command-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-schedule-command-mono-");
+
   try {
     const legacyPath = "src/AppBundle/Command/SendAdmissionNotificationsCommand.php";
+
     const monoPath =
       "apps/server/src/App/Admission/Infrastructure/Command/SendAdmissionNotificationsCommand.php";
+
     const legacyClass = "AppBundle\\Command\\SendAdmissionNotificationsCommand";
     const monoClass = "App\\Admission\\Infrastructure\\Command\\SendAdmissionNotificationsCommand";
+
     const source = (namespace: string): string => `<?php
 namespace ${namespace};
 final class SendAdmissionNotificationsCommand
@@ -305,6 +330,7 @@ final class SendAdmissionNotificationsCommand
     }
 }
 `;
+
     put(legacyRoot, legacyPath, source("AppBundle\\Command"));
     put(monoRoot, monoPath, source("App\\Admission\\Infrastructure\\Command"));
     put(legacyRoot, "app/config/services.yml", serviceConfig([legacyClass]));
@@ -312,10 +338,12 @@ final class SendAdmissionNotificationsCommand
 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("schedule-command-relocation"));
+
     const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
       row.source_ref_ids
         .map((ref) => context.sourcePathById.get(ref)?.path ?? null)
         .find((path): path is string => path !== null) ?? null;
+
     const rows = c2.schedules.rows.filter(
       (row) => pathFor(row) === legacyPath || pathFor(row) === monoPath,
     );
@@ -347,6 +375,7 @@ final class SendAdmissionNotificationsCommand
 test("event subscriber service roots reconcile without inheriting unrelated disabled parameters", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-schedule-event-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-schedule-event-mono-");
+
   try {
     const legacyPath = "app/config/event_subscribers.yml";
     const monoPath = "apps/server/config/services.yaml";
@@ -375,10 +404,12 @@ services:
 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("schedule-event-root-relocation"));
+
     const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
       row.source_ref_ids
         .map((ref) => context.sourcePathById.get(ref)?.path ?? null)
         .find((path): path is string => path !== null) ?? null;
+
     const rows = c2.schedules.rows.filter(
       (row) => pathFor(row) === legacyPath || pathFor(row) === monoPath,
     );
@@ -407,6 +438,7 @@ services:
 test("Slack transport aliases and Mailer branches do not create wrapper or elseif integrations", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-integration-alias-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-integration-alias-mono-");
+
   try {
     put(
       legacyRoot,
@@ -470,6 +502,7 @@ class SlackMailer
 }
 `,
     );
+
     const mailerSource = (namespace: string): string => `<?php
 namespace ${namespace};
 class Mailer
@@ -486,6 +519,7 @@ class Mailer
     }
 }
 `;
+
     put(legacyRoot, "src/AppBundle/Mailer/Mailer.php", mailerSource("AppBundle\\Mailer"));
     put(
       monoRoot,
@@ -513,20 +547,24 @@ class Mailer
 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("integration-aliases"));
+
     const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
       row.source_ref_ids
         .map((ref) => context.sourcePathById.get(ref)?.path ?? null)
         .find((path): path is string => path !== null) ?? null;
+
     const rows = c2.integrations.rows.filter(
       (row) =>
         pathFor(row)?.endsWith("SlackMessenger.php") ||
         pathFor(row)?.endsWith("SlackMailer.php") ||
         pathFor(row)?.endsWith("Mailer.php"),
     );
+
     const byOwner = (owner: string, authority: "legacy" | "mono") =>
       rows.filter((row) => {
         if (row.authority_line !== authority || !("call_site_ref" in row.details)) return false;
         const callSiteRef = row.details.call_site_ref;
+
         return callSiteRef === owner || callSiteRef?.endsWith(`\\${owner}`) === true;
       });
 
@@ -576,6 +614,7 @@ class Mailer
 test("preview workers are reachable through explicit Wrangler and Alchemy entrypoint edges", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-preview-entrypoint-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-preview-entrypoint-mono-");
+
   try {
     put(
       monoRoot,
@@ -627,10 +666,12 @@ export default {
 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("preview-entrypoint-edges"));
+
     const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
       row.source_ref_ids
         .map((ref) => context.sourcePathById.get(ref)?.path ?? null)
         .find((path): path is string => path !== null) ?? null;
+
     const previewRows = c2.integrations.rows.filter(
       (row) =>
         pathFor(row) === "infra/preview.worker.ts" ||
@@ -638,9 +679,11 @@ export default {
     );
 
     expect(previewRows.some((row) => pathFor(row) === "infra/preview.worker.ts")).toBe(false);
+
     const containerRow = previewRows.find(
       (row) => pathFor(row) === "infra/alchemy/preview/worker.ts",
     );
+
     expect(containerRow).toMatchObject({
       status: "extra",
       details: {

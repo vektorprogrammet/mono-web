@@ -1,8 +1,28 @@
+import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import {
+  Admissions,
+  ReturningAssistants,
+  Organization,
+  Profile,
+  Schools,
+  Recruitment,
+  SocialEvents,
+  SchoolSurveys,
+  Mail,
+  ServicePrincipalGrantAuthority,
+} from "@vektorprogrammet/domain";
+import { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
+import {
+  Economy,
+  ReceiptAuxiliaryEffects,
+  ReceiptFileService,
+} from "@vektorprogrammet/domain/receipt";
+import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
+import { backendDatabase } from "../../test/database.js";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
 import * as BunPath from "@effect/platform-bun/BunPath";
-import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import type { Identity } from "@vektorprogrammet/domain/identity";
+
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   ContentApi,
@@ -16,9 +36,9 @@ import {
   SchoolSurveysApi,
 } from "@vektorprogrammet/http-api";
 import { SchoolSurveysApiHandlers } from "../surveys/http.js";
-import { Effect, Layer } from "effect";
-import { Etag, HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import { HttpApi, HttpApiBuilder, type HttpApiGroup } from "effect/unstable/httpapi";
+import { Context, Effect, Layer, Option, type FileSystem, type Path } from "effect";
+import { Etag, HttpRouter, HttpServerResponse, type HttpPlatform } from "effect/unstable/http";
+import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { DirectoryApiHandlers, type DirectoryApiHttpOptions } from "../directory/http.js";
 import { ContentApiHandlers, type ContentRequestActor } from "../content/http.js";
 import { NativeHttpApiMiddlewareLive } from "../http-api/transport.js";
@@ -29,11 +49,12 @@ import {
   ReceiptApiHandlers,
   type ReceiptApiHttpOptions,
 } from "../receipt/http.js";
+import { ReceiptFileStoreResource, type ReceiptFileStore } from "../receipt/filesystem.js";
 import { RecruitmentApiHandlers, type RecruitmentApiHttpOptions } from "../recruitment/http.js";
 import {
-  makeBackendHttp,
-  makeExternalNativeApiRouterLayer,
-  makeInternalNativeApiRouterLayer,
+  backendHttpHandler,
+  ExternalNativeApiRouterLive,
+  InternalNativeApiRouterLive,
   nativeHttpRouterConfig,
   type BackendAuthHandler,
   type BackendHttpOptions,
@@ -47,15 +68,18 @@ const platform = Layer.mergeAll(
   BunPath.layer,
   Etag.layer,
 );
+
 const testSessionBoundary = {
   deployment: "local",
   trustedOrigins: ["http://127.0.0.1:5174"],
   secureCookies: false,
 } as const;
+
 const testAuthHandler: BackendAuthHandler = {
   handle: () => Promise.resolve(new Response(null, { status: 404 })),
   recordTrustedOriginRejection: () => Promise.resolve(),
 };
+
 const notFound = HttpRouter.use((router) =>
   router.add(
     "*",
@@ -70,134 +94,255 @@ const notFound = HttpRouter.use((router) =>
     ),
   ),
 );
+
 const organizationContract = HttpApi.make("external-native-api")
   .add(OrganizationApi)
   .middleware(RequestSchemaErrorMiddleware);
+
 const profileContract = HttpApi.make("external-native-api")
   .add(ProfileApi)
   .middleware(RequestSchemaErrorMiddleware);
+
 const directoryContract = HttpApi.make("external-native-api")
   .add(DirectoryApi)
   .middleware(RequestSchemaErrorMiddleware);
+
 const recruitmentContract = HttpApi.make("external-native-api")
   .add(RecruitmentApi)
   .middleware(RequestSchemaErrorMiddleware);
+
 const receiptContract = HttpApi.make("external-native-api")
   .add(ReceiptsApi)
   .middleware(RequestSchemaErrorMiddleware);
+
 const internalReceiptContract = HttpApi.make("internal-native-api")
   .add(InternalReceiptsApi)
   .middleware(RequestSchemaErrorMiddleware);
+
 const contentContract = HttpApi.make("external-native-api")
   .add(ContentApi)
   .middleware(RequestSchemaErrorMiddleware);
+
 const schoolSurveysContract = HttpApi.make("external-native-api")
   .add(SchoolSurveysApi)
   .middleware(RequestSchemaErrorMiddleware);
 
-type TestServiceLayer = Layer.Layer<Identity | OAuthCredentialAuthority>;
+type BackendTestServices =
+  | Database
+  | IdentitySnapshot
+  | OAuthCredentialAuthority
+  | Identity
+  | Admissions
+  | ReturningAssistants
+  | Economy
+  | Organization
+  | Profile
+  | Schools
+  | Recruitment
+  | Content
+  | ContentManagement
+  | SocialEvents
+  | SchoolSurveys
+  | Mail
+  | ReceiptAuxiliaryEffects
+  | ReceiptFileService
+  | ServicePrincipalGrantAuthority;
 
-const provideTestServices = <Output, Error, Requirements>(
-  layer: Layer.Layer<Output, Error, Requirements>,
+type TestServiceLayer = Layer.Layer<never>;
+
+type TestApplicationRequirement =
+  | BackendTestServices
+  | HttpRouter.HttpRouter
+  | HttpRouter.Request.From<"Requires", BackendTestServices>
+  | FileSystem.FileSystem
+  | Path.Path
+  | Etag.Generator
+  | HttpPlatform.HttpPlatform;
+
+const unavailableIdentity = () =>
+  Promise.reject(
+    new IdentityEngineError({ operation: "test", message: "Unexpected identity operation" }),
+  );
+
+const unimplementedServices = Layer.mergeAll(
+  Layer.mock(IdentitySnapshot, {}),
+  Layer.mock(OAuthCredentialAuthority, { resolve: unavailableIdentity }),
+  Layer.succeed(Identity, {
+    signIn: unavailableIdentity,
+    resolveSession: unavailableIdentity,
+    readCurrentSession: unavailableIdentity,
+    listSessions: unavailableIdentity,
+    revokeCurrentSession: unavailableIdentity,
+    revokeSession: unavailableIdentity,
+    revokeOtherSessions: unavailableIdentity,
+    revokeAllSessions: unavailableIdentity,
+    recordSecurityEvent: unavailableIdentity,
+    signOut: unavailableIdentity,
+  }),
+  Layer.mock(Admissions, {}),
+  Layer.mock(ReturningAssistants, {}),
+  Layer.mock(Economy, {}),
+  Layer.mock(Organization, {}),
+  Layer.mock(Profile, {}),
+  Layer.mock(Schools, {}),
+  Layer.mock(Recruitment, {}),
+  Layer.mock(Content, {}),
+  Layer.mock(ContentManagement, {}),
+  Layer.mock(SocialEvents, {}),
+  Layer.mock(SchoolSurveys, {}),
+  Layer.mock(Mail, {}),
+  Layer.mock(ReceiptAuxiliaryEffects, {}),
+  Layer.mock(ReceiptFileService, {}),
+  Layer.mock(ServicePrincipalGrantAuthority, {}),
+);
+
+const fallbackDatabase = backendDatabase();
+
+const completeServices = (services: TestServiceLayer) =>
+  Layer.effectContext(
+    Effect.gen(function* () {
+      const provided = yield* Layer.build(services);
+      const defaults = yield* Layer.build(unimplementedServices);
+      const database = Context.getOption(provided, Database);
+
+      const sql = Option.isSome(database)
+        ? database.value
+        : yield* Effect.provide(Database, fallbackDatabase.layer);
+
+      return Context.add(Context.merge(defaults, provided), Database, sql);
+    }),
+  );
+
+const provideTestServices = (
+  layer: Layer.Layer<never, never, TestApplicationRequirement>,
   services: TestServiceLayer,
-) => layer.pipe(Layer.provide(services as Layer.Layer<Requirements>));
+) => layer.pipe(Layer.provideMerge(completeServices(services)));
 
-const testRouterFetch = <
-  Id extends string,
-  Groups extends HttpApiGroup.Constraint,
-  R,
-  S extends TestServiceLayer,
->(
-  contract: HttpApi.HttpApi<Id, Groups>,
-  handlers: Layer.Layer<HttpApiGroup.ToService<Id, Groups>, never, R>,
-  services: S,
+const testRouterFetch = (
+  app: Layer.Layer<never, never, TestApplicationRequirement>,
+  services: TestServiceLayer,
 ): ((request: Request) => Promise<Response>) => {
-  const middleware = NativeHttpApiMiddlewareLive.pipe(Layer.provide(services));
-  const app = HttpApiBuilder.layer(contract).pipe(
-    Layer.provide(handlers),
-    Layer.provide(middleware),
+  const allServices = completeServices(services);
+
+  const routerLayer = Layer.merge(app, notFound).pipe(
+    Layer.provideMerge(allServices),
     Layer.provide(platform),
   );
-  const routerLayer = HttpRouter.provideRequest(services)(Layer.merge(app, notFound));
+
   return async (request) => {
-    const webHandler = HttpRouter.toWebHandler(
-      routerLayer as Layer.Layer<never, never, HttpRouter.HttpRouter>,
-      { disableLogger: true, routerConfig: nativeHttpRouterConfig },
-    );
-    // Effect's conditional Context type cannot reduce Layer.Success<S> across this
-    // generic group helper. The exact service Layer is applied above.
-    const handler = webHandler.handler as unknown as (request: Request) => Promise<Response>;
+    const webHandler = HttpRouter.toWebHandler(routerLayer, {
+      disableLogger: true,
+      routerConfig: nativeHttpRouterConfig,
+    });
+
     try {
-      return await handler(request);
+      return await webHandler.handler(request);
     } finally {
       await webHandler.dispose();
     }
   };
 };
 
-const testFetch = <
-  Id extends string,
-  Groups extends HttpApiGroup.Constraint,
-  R,
-  S extends TestServiceLayer,
->(
-  contract: HttpApi.HttpApi<Id, Groups>,
-  handlers: Layer.Layer<HttpApiGroup.ToService<Id, Groups>, never, R>,
-  services: S,
-) =>
-  makeBackendHttp(
-    testRouterFetch(contract, handlers, services),
-    testAuthHandler,
-    testSessionBoundary,
-  ).fetch;
+const testFetch = (
+  app: Layer.Layer<never, never, TestApplicationRequirement>,
+  services: TestServiceLayer,
+) => backendHttpHandler(testRouterFetch(app, services), testAuthHandler, testSessionBoundary).fetch;
 
 export const makeOrganizationTestHttp = <S extends TestServiceLayer>(
   options: OrganizationApiHttpOptions,
   services: S,
 ) => ({
-  fetch: testFetch(organizationContract, OrganizationApiHandlers(options), services),
+  fetch: testFetch(
+    HttpApiBuilder.layer(organizationContract).pipe(
+      Layer.provide(OrganizationApiHandlers(options)),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
 });
 
 export const makeProfileTestHttp = <S extends TestServiceLayer>(
   options: ProfileApiHttpOptions,
   services: S,
 ) => ({
-  fetch: testFetch(profileContract, ProfileApiHandlers(options), services),
+  fetch: testFetch(
+    HttpApiBuilder.layer(profileContract).pipe(
+      Layer.provide(ProfileApiHandlers(options)),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
 });
 
 export const makeRecruitmentTestHttp = <S extends TestServiceLayer>(
   options: RecruitmentApiHttpOptions,
   services: S,
 ) => ({
-  fetch: testFetch(recruitmentContract, RecruitmentApiHandlers(options), services),
+  fetch: testFetch(
+    HttpApiBuilder.layer(recruitmentContract).pipe(
+      Layer.provide(RecruitmentApiHandlers(options)),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
 });
 
-export const makeReceiptTestHttp = <E, R, S extends TestServiceLayer>(
-  options: ReceiptApiHttpOptions<E, R>,
+export interface ReceiptTestHttpOptions<E, R> extends ReceiptApiHttpOptions<E, R> {
+  readonly fileStore: ReceiptFileStore;
+}
+
+export const makeReceiptTestHttp = <E, S extends TestServiceLayer>(
+  options: ReceiptTestHttpOptions<E, BackendTestServices>,
   services: S,
 ) => ({
-  fetch: testFetch(receiptContract, ReceiptApiHandlers(options), services),
+  fetch: testFetch(
+    HttpApiBuilder.layer(receiptContract).pipe(
+      Layer.provide(
+        ReceiptApiHandlers(options).pipe(
+          Layer.provide(Layer.succeed(ReceiptFileStoreResource, options.fileStore)),
+        ),
+      ),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
 });
 
-export const makeInternalReceiptTestHttp = <E, R, S extends TestServiceLayer>(
-  options: ReceiptApiHttpOptions<E, R>,
+export const makeInternalReceiptTestHttp = <E, S extends TestServiceLayer>(
+  options: ReceiptApiHttpOptions<E, BackendTestServices>,
   services: S,
 ) => ({
-  fetch: testRouterFetch(internalReceiptContract, InternalReceiptApiHandlers(options), services),
+  fetch: testRouterFetch(
+    HttpApiBuilder.layer(internalReceiptContract).pipe(
+      Layer.provide(InternalReceiptApiHandlers(options)),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
 });
 
-export const makeContentManagementTestHttp = <E, R, S extends TestServiceLayer>(
-  resolveActor: (request: Request) => Effect.Effect<ContentRequestActor, E, R>,
+export const makeContentManagementTestHttp = <E, S extends TestServiceLayer>(
+  resolveActor: (request: Request) => Effect.Effect<ContentRequestActor, E, BackendTestServices>,
   services: S,
 ) => ({
-  fetch: testFetch(contentContract, ContentApiHandlers(resolveActor), services),
+  fetch: testFetch(
+    HttpApiBuilder.layer(contentContract).pipe(
+      Layer.provide(ContentApiHandlers(resolveActor)),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
 });
 
 export const makePublicNewsTestHttp = <S extends TestServiceLayer>(services: S) => ({
   fetch: testFetch(
-    contentContract,
-    ContentApiHandlers(() =>
-      Effect.fail(new Error("staff actor resolution is unavailable in public-news tests")),
+    HttpApiBuilder.layer(contentContract).pipe(
+      Layer.provide(
+        ContentApiHandlers(() =>
+          Effect.die(new Error("staff actor resolution is unavailable in public-news tests")),
+        ),
+      ),
+      Layer.provide(NativeHttpApiMiddlewareLive),
     ),
     services,
   ),
@@ -208,13 +353,17 @@ export const makeDirectoryTestHttp = <S extends TestServiceLayer>(
   services: S,
 ) => ({
   fetch: testFetch(
-    directoryContract,
-    DirectoryApiHandlers(options, {
-      resolveActor: () =>
-        Effect.fail(
-          new UnauthenticatedActor({ message: "school actor resolution is unavailable" }),
-        ),
-    }),
+    HttpApiBuilder.layer(directoryContract).pipe(
+      Layer.provide(
+        DirectoryApiHandlers(options, {
+          resolveActor: () =>
+            Effect.fail(
+              new UnauthenticatedActor({ message: "school actor resolution is unavailable" }),
+            ),
+        }),
+      ),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
     services,
   ),
 });
@@ -224,21 +373,32 @@ export const makeSchoolsTestHttp = <S extends TestServiceLayer>(
   services: S,
 ) => ({
   fetch: testFetch(
-    directoryContract,
-    DirectoryApiHandlers(
-      {
-        resolveAuthority: () =>
-          Effect.fail(
-            new UnauthenticatedActor({ message: "people directory authority is unavailable" }),
-          ),
-      },
-      options,
+    HttpApiBuilder.layer(directoryContract).pipe(
+      Layer.provide(
+        DirectoryApiHandlers(
+          {
+            resolveAuthority: () =>
+              Effect.fail(
+                new UnauthenticatedActor({ message: "people directory authority is unavailable" }),
+              ),
+          },
+          options,
+        ),
+      ),
+      Layer.provide(NativeHttpApiMiddlewareLive),
     ),
     services,
   ),
 });
+
 export const makeSchoolSurveysTestHttp = <S extends TestServiceLayer>(services: S) => ({
-  fetch: testFetch(schoolSurveysContract, SchoolSurveysApiHandlers(), services),
+  fetch: testFetch(
+    HttpApiBuilder.layer(schoolSurveysContract).pipe(
+      Layer.provide(SchoolSurveysApiHandlers()),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
 });
 
 export const makeBackendTestHttp = (
@@ -248,20 +408,23 @@ export const makeBackendTestHttp = (
   options: BackendHttpOptions = {},
 ) => {
   const routerLayer = provideTestServices(
-    makeExternalNativeApiRouterLayer(config, options),
+    ExternalNativeApiRouterLive(config, options),
     services,
   ).pipe(Layer.provide(platform));
+
   const native = async (request: Request): Promise<Response> => {
     const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {
       disableLogger: true,
     });
+
     try {
       return await handler(request);
     } finally {
       await dispose();
     }
   };
-  return makeBackendHttp(native, authHandler, config.sessionBoundary);
+
+  return backendHttpHandler(native, authHandler, config.sessionBoundary);
 };
 
 export const makeBackendInternalTestHttp = (
@@ -270,14 +433,16 @@ export const makeBackendInternalTestHttp = (
   options: BackendHttpOptions = {},
 ) => {
   const routerLayer = provideTestServices(
-    makeInternalNativeApiRouterLayer(config, options),
+    InternalNativeApiRouterLive(config, options),
     services,
   ).pipe(Layer.provide(platform));
+
   return {
     fetch: async (request: Request): Promise<Response> => {
       const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {
         disableLogger: true,
       });
+
       try {
         return await handler(request);
       } finally {

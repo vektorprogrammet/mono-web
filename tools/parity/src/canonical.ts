@@ -1,3 +1,4 @@
+import { Array as Arr, flow, Predicate, Schema } from "effect";
 import { sha256 as digestSha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
@@ -7,93 +8,83 @@ const byteCompare = (left: string, right: string): number => {
   const a = encoder.encode(left);
   const b = encoder.encode(right);
   const size = Math.min(a.length, b.length);
+
   for (let index = 0; index < size; index += 1) {
     const delta = (a[index] ?? 0) - (b[index] ?? 0);
+
     if (delta !== 0) return delta;
   }
+
   return a.length - b.length;
 };
 
-const assertJsonValue = (value: unknown, path: string): void => {
-  if (value === undefined) throw new TypeError(`undefined JSON value at ${path}`);
-  if (typeof value === "number" && !Number.isFinite(value)) {
-    throw new TypeError(`non-finite JSON number at ${path}`);
-  }
-  if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol") {
-    throw new TypeError(`unsupported JSON value at ${path}`);
-  }
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) => assertJsonValue(entry, `${path}[${index}]`));
-    return;
-  }
-  if (value !== null && typeof value === "object") {
-    for (const [key, entry] of Object.entries(value)) assertJsonValue(entry, `${path}.${key}`);
-  }
-};
+const sortCanonical = (value: Schema.Json): Schema.Json => {
+  if (Arr.isArray<Schema.Json>(value)) return value.map(sortCanonical);
 
-const sortObject = (value: Record<string, unknown>): Record<string, unknown> => {
-  const result = Object.create(null) as Record<string, unknown>;
-  for (const key of Object.keys(value).sort(byteCompare)) {
-    Object.defineProperty(result, key, {
-      value: sortCanonical(value[key]),
-      enumerable: true,
-      configurable: true,
-      writable: true,
-    });
-  }
-  return result;
-};
+  if (
+    value === null ||
+    Predicate.isString(value) ||
+    Predicate.isNumber(value) ||
+    Predicate.isBoolean(value)
+  )
+    return value;
 
-const sortCanonical = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(sortCanonical);
-  if (value !== null && typeof value === "object")
-    return sortObject(value as Record<string, unknown>);
-  return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => byteCompare(left, right))
+      .map(([key, entry]) => [key, sortCanonical(entry)]),
+  );
 };
 
 export const compareByteOrder = byteCompare;
 
 /** Compact UTF-8 JSON with recursively byte-sorted object keys and no newline. */
-export const canonicalJson = (value: unknown): string => {
-  assertJsonValue(value, "$");
-  const output = JSON.stringify(sortCanonical(value));
-  if (output === undefined) throw new TypeError("value is not JSON serializable");
-  return output;
-};
+export const canonicalJson = flow(
+  Schema.decodeUnknownSync(Schema.Json),
+  sortCanonical,
+  JSON.stringify,
+);
 
-export const canonicalBytes = (value: unknown): Uint8Array => encoder.encode(canonicalJson(value));
+export const canonicalBytes = flow(canonicalJson, (value: string) => encoder.encode(value));
 
 export const sha256Hex = (value: Uint8Array | string): string =>
-  bytesToHex(digestSha256(typeof value === "string" ? encoder.encode(value) : value));
+  bytesToHex(digestSha256(Predicate.isString(value) ? encoder.encode(value) : value));
 
 export const sha256 = (value: Uint8Array | string): string => `sha256:${sha256Hex(value)}`;
 
-export const stableId = (prefix: string, value: unknown): string =>
+export const stableId = (prefix: string, value: Schema.Json): string =>
   `${prefix}-${sha256Hex(canonicalJson(value))}`;
 
 export const normalizeScalar = (value: string | null | undefined): string | null => {
   if (value === null || value === undefined) return null;
+
   return value.trim().normalize("NFC");
 };
 
 export const normalizePath = (value: string | null | undefined): string | null => {
   const normalized = normalizeScalar(value);
+
   if (normalized === null || normalized.length === 0) return normalized;
+
   return normalized.startsWith("/") ? normalized : `/${normalized}`;
 };
 
 export const normalizeMethods = (values: readonly unknown[]): string[] => {
   const methods = values
+    .values()
     .flatMap((value) => {
-      if (typeof value === "string") return value.split(",");
+      if (Predicate.isString(value)) return value.split(",");
+
       return [];
     })
     .map((value) => normalizeScalar(value)?.toUpperCase() ?? "")
-    .filter((value): value is string => value.length > 0);
+    .filter((value): value is string => value.length > 0)
+    .toArray();
+
   return [...new Set(methods)].sort(byteCompare);
 };
 
-export const sortUnique = (values: readonly string[]): string[] =>
+export const sortUnique = <Value extends string>(values: readonly Value[]): Value[] =>
   [...new Set(values)].sort(byteCompare);
 
 export const canonicalRouteKey = (

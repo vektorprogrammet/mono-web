@@ -19,6 +19,7 @@ export const createBrowserOrganizationCatalogClient = (): OrganizationCatalogCli
   const client = createEffectClient(
     resolveBrowserApiUrl(import.meta.env.VITE_API_URL, globalThis.location.origin),
   );
+
   return {
     organization: {
       listDepartments: () =>

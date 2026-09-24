@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import {
+import { HomepageBuildLiterals,
   assertHealthyPage,
   assertProvenance,
   BASE_URL,
@@ -13,6 +13,8 @@ import {
   test,
   expect,
 } from "./fixtures/homepage-dev";
+import { Schema, Predicate } from "effect";
+
 
 test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   mkdirSync(SCREENSHOT_DIR, { recursive: true });
@@ -27,14 +29,17 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   await expect(page.getByText("Assistenter").first()).toBeVisible();
   await page.waitForFunction("window.__MONO_WEB_HYDRATED__ === true");
   let documentRequests = 0;
+
   const onRequest = (request: { resourceType(): string }) => {
     if (request.resourceType() === "document") documentRequests += 1;
   };
+
   page.on("request", onRequest);
   const documentRequestsBeforeTeamNavigation = documentRequests;
   await page.screenshot({ path: join(SCREENSHOT_DIR, "home.png") });
 
   let navigationPassed = false;
+
   try {
     await page.getByRole("link", { name: "Team", exact: true }).first().click();
     await page.waitForURL(`${BASE_URL}/team`);
@@ -42,9 +47,11 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   } finally {
     recordClientNavigation(diagnostics, navigationPassed);
   }
+
   const team = await page.request.get(`${LOOPBACK_ORIGIN}/team`, {
     headers: { Host: LOCAL_HOST },
   });
+
   await recordProbe(diagnostics, "GET", "/team", team, "document");
   await assertProvenance(team, "/team");
   await assertHealthyPage(page, diagnostics);
@@ -59,6 +66,7 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   const asset = await page.request.get(`${LOOPBACK_ORIGIN}/images/vektor-logo.svg`, {
     headers: { Host: LOCAL_HOST },
   });
+
   await recordProbe(diagnostics, "GET", "/images/vektor-logo.svg", asset, "image");
   await assertProvenance(asset, "/images/vektor-logo.svg");
   expect(asset.status()).toBe(200);
@@ -75,6 +83,7 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
     ["/assistenter", "Assistenter"],
     ["/foreldre", "Informasjon for foreldre"],
   ] as const;
+
   for (const [path, content] of pageChecks) {
     const response = await page.goto(path);
     await assertProvenance(response, path);
@@ -85,9 +94,10 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   const health = await page.request.get(`${LOOPBACK_ORIGIN}/health`, {
     headers: { Host: LOCAL_HOST },
   });
+
   await recordProbe(diagnostics, "GET", "/health", health);
   expect(health.status()).toBe(200);
-  const healthBody = await health.json();
+  const healthBody = Schema.decodeUnknownSync(HomepageBuildLiterals)(await health.json());
   const buildLiterals = recordBuildLiterals(diagnostics, healthBody);
   expect(buildLiterals.dataSource).toBe("dev-content");
   expect(buildLiterals.commit).toMatch(/^[0-9a-f]{40}$/);
@@ -100,6 +110,7 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   const missing = await page.request.get(`${LOOPBACK_ORIGIN}/__0011_missing__`, {
     headers: { Host: LOCAL_HOST },
   });
+
   await recordProbe(diagnostics, "GET", "/__0011_missing__", missing);
   expect(missing.status()).toBe(404);
   expect(missing.headers()["x-mono-web-stage"]).toBe("p000");
@@ -107,6 +118,7 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   const method = await page.request.post(`${LOOPBACK_ORIGIN}/health`, {
     headers: { Host: LOCAL_HOST },
   });
+
   await recordProbe(diagnostics, "POST", "/health", method);
   expect(method.status()).toBe(405);
   expect(method.headers().allow).toBe("GET");
@@ -123,7 +135,8 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   expect(
     [...diagnostics.responses, ...diagnostics.probes].every(({ path }) => !/[?#]/.test(path)),
   ).toBe(true);
-  const allowedHeaders: Record<string, true> = {
+
+  const allowedHeaders = {
     allow: true,
     location: true,
     "cache-control": true,
@@ -131,16 +144,18 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
     "x-mono-web-host": true,
     "x-mono-web-stage": true,
     "x-robots-tag": true,
-  };
+  } as const;
+
   for (const entry of [...diagnostics.responses, ...diagnostics.probes]) {
     expect(entry.method).toMatch(/^[A-Z]+$/);
     expect(entry.resourceType).toBeTruthy();
     expect(entry.path).toMatch(/^\/|^(data:|blob:|external-origin)$/);
     expect(entry.path).not.toMatch(/[?#]|https?:\/\/|[\\]/);
     expect(entry.status).toEqual(expect.any(Number));
-    expect(typeof entry.redirect).toBe("boolean");
-    expect(Object.keys(entry.headers).every((name) => allowedHeaders[name] === true)).toBe(true);
+    expect(Predicate.isBoolean(entry.redirect)).toBe(true);
+    expect(Object.keys(entry.headers).every((name) => Object.hasOwn(allowedHeaders, name))).toBe(true);
   }
+
   expect(diagnostics.fixtureInputs.viewport).toEqual({ width: 1440, height: 900 });
 
   expect(diagnostics.forbiddenRequests).toEqual([]);

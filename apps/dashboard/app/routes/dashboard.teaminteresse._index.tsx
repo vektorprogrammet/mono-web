@@ -7,12 +7,14 @@ import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.teaminteresse._index";
 
 type TeamInterest = (typeof TeamInterestResponse.Type)["hydra:member"][number];
+
 type TeamInterestRow = Pick<TeamInterest, "id" | "userName" | "teamName">;
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
   const result = await client.organization.listTeamInterest({ query: {} });
+
   const teamInterest = result.body["hydra:member"].map(({ id, userName, teamName }) => ({
     id,
     userName,

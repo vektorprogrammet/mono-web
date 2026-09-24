@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { afterAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
-import { Effect } from "effect";
+import { Schema, Predicate, Effect } from "effect";
 import { Database } from "./service.js";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
@@ -79,9 +79,11 @@ const applyMigrationsThrough = async (database: PGlite, lastMigrationId: string)
   const lastMigrationIndex = databaseMigrationDefinitions.findIndex(
     ({ id }) => id === lastMigrationId,
   );
+
   if (lastMigrationIndex < 0) {
     throw new Error(`unknown database migration: ${lastMigrationId}`);
   }
+
   for (const migration of databaseMigrationDefinitions.slice(0, lastMigrationIndex + 1)) {
     await database.exec(await readFile(migration.url, "utf8"));
   }
@@ -111,15 +113,20 @@ describe("native domain schema boundary", () => {
           INSERT INTO auth.content_articles (article_id) VALUES (9007199254740991)
         `;
         yield* database`SET search_path TO auth, public`;
+
         const authFirst = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count" FROM public.content_articles
         `;
+
         yield* database`SET search_path TO public`;
+
         const publicFirst = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count" FROM public.content_articles
         `;
+
         yield* database`DROP TABLE auth.content_articles`;
         yield* database`SET search_path TO auth, public`;
+
         return { authFirst, publicFirst };
       }),
     );
@@ -132,6 +139,7 @@ describe("native domain schema boundary", () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
+
         const relations = yield* database<{
           readonly tableName: string;
           readonly schemaName: string;
@@ -145,6 +153,7 @@ describe("native domain schema boundary", () => {
             AND relation.relkind IN ('r', 'p', 'f')
           ORDER BY relation.relname, namespace.nspname
         `;
+
         const authTables = yield* database<{ readonly tableName: string }>`
           SELECT relation.relname AS "tableName"
           FROM pg_catalog.pg_class AS relation
@@ -157,6 +166,7 @@ describe("native domain schema boundary", () => {
             AND relation.relkind IN ('r', 'p', 'f')
           ORDER BY relation.relname
         `;
+
         const triggerFunctions = yield* database<{
           readonly functionName: string;
           readonly schemaName: string;
@@ -174,6 +184,7 @@ describe("native domain schema boundary", () => {
             AND procedure.pronargs = 0
           ORDER BY procedure.proname
         `;
+
         return { relations, authTables, triggerFunctions };
       }),
     );
@@ -205,10 +216,12 @@ describe("native HTTP semantics schema boundary", () => {
   const nativeHttpMigrationIndex = databaseMigrationDefinitions.findIndex(
     ({ id }) => id === "29_native-http-semantics",
   );
+
   const nativeHttpMigration = databaseMigrationDefinitions[nativeHttpMigrationIndex]!;
 
   it("places HTTP authorities in public with an auth-first search path", async () => {
     const database = new PGlite({ extensions: { btree_gist } });
+
     try {
       await applyMigrationsThrough(database, "28_service-principal-grants");
       await database.exec("SET search_path TO auth, public");
@@ -233,6 +246,7 @@ describe("native HTTP semantics schema boundary", () => {
           AND relation.relkind IN ('r', 'p', 'f')
         ORDER BY relation.relname, namespace.nspname
       `);
+
       expect(relations.rows).toEqual([
         { schemaName: "public", tableName: "native_http_idempotency_receipts" },
         { schemaName: "public", tableName: "profile_http_versions" },
@@ -262,6 +276,7 @@ describe("native HTTP semantics schema boundary", () => {
           AND procedure.pronargs = 0
         ORDER BY procedure.proname, namespace.nspname
       `);
+
       expect(functions.rows).toEqual([
         { functionName: "ensure_profile_http_version", schemaName: "public" },
         {
@@ -309,6 +324,7 @@ describe("native HTTP semantics schema boundary", () => {
           )
         ORDER BY trigger.tgname
       `);
+
       expect(triggers.rows).toEqual([
         {
           functionName: "increment_native_http_revision",
@@ -404,6 +420,7 @@ describe("native HTTP semantics schema boundary", () => {
           `,
           [identitySha256, "f".repeat(64), `profile.updateOwnProfile:${personId}`],
         );
+
         return database.query<{
           readonly invitationReceiptCount: number;
           readonly profileRevision: number;
@@ -435,11 +452,13 @@ describe("native HTTP semantics schema boundary", () => {
         "http-authority-auth-first",
         "a".repeat(64),
       );
+
       const publicOnly = await exerciseAuthorities(
         "public",
         "http-authority-public-only",
         "b".repeat(64),
       );
+
       const expectedObservation = [
         {
           invitationReceiptCount: 0,
@@ -447,6 +466,7 @@ describe("native HTTP semantics schema boundary", () => {
           receiptStatus: 204,
         },
       ];
+
       expect(authFirst.rows).toEqual(expectedObservation);
       expect(publicOnly.rows).toEqual(expectedObservation);
     } finally {
@@ -488,6 +508,7 @@ describe("identity security audit migration in PGlite", () => {
             ${database.json({ outcomeCode: "owned-session-revoked", affectedSessionCount: 1 })}
           )
         `;
+
         const update = yield* Effect.exit(
           database`
             UPDATE auth.identity_security_audit
@@ -495,12 +516,14 @@ describe("identity security audit migration in PGlite", () => {
             WHERE event_id = 'identity-audit-valid'
           `.pipe(Effect.asVoid),
         );
+
         const deletion = yield* Effect.exit(
           database`
             DELETE FROM auth.identity_security_audit
             WHERE event_id = 'identity-audit-valid'
           `.pipe(Effect.asVoid),
         );
+
         const invalidKind = yield* Effect.exit(
           database`
             INSERT INTO auth.identity_security_audit (
@@ -516,6 +539,7 @@ describe("identity security audit migration in PGlite", () => {
             )
           `.pipe(Effect.asVoid),
         );
+
         const unboundedDetails = yield* Effect.exit(
           database`
             INSERT INTO auth.identity_security_audit (
@@ -532,6 +556,7 @@ describe("identity security audit migration in PGlite", () => {
             )
           `.pipe(Effect.asVoid),
         );
+
         const missingCorrelation = yield* Effect.exit(
           database`
             INSERT INTO auth.identity_security_audit (
@@ -545,6 +570,7 @@ describe("identity security audit migration in PGlite", () => {
             )
           `.pipe(Effect.asVoid),
         );
+
         const rows = yield* database<{
           readonly eventId: string;
           readonly details: unknown;
@@ -553,12 +579,13 @@ describe("identity security audit migration in PGlite", () => {
           FROM auth.identity_security_audit
           WHERE event_id = 'identity-audit-valid'
         `;
+
         return {
-          updateRejected: update._tag === "Failure",
-          deleteRejected: deletion._tag === "Failure",
-          invalidKindRejected: invalidKind._tag === "Failure",
-          unboundedDetailsRejected: unboundedDetails._tag === "Failure",
-          missingCorrelationRejected: missingCorrelation._tag === "Failure",
+          updateRejected: Predicate.isTagged(update, "Failure"),
+          deleteRejected: Predicate.isTagged(deletion, "Failure"),
+          invalidKindRejected: Predicate.isTagged(invalidKind, "Failure"),
+          unboundedDetailsRejected: Predicate.isTagged(unboundedDetails, "Failure"),
+          missingCorrelationRejected: Predicate.isTagged(missingCorrelation, "Failure"),
           rows,
         };
       }),
@@ -590,7 +617,8 @@ describe("declarative authorization rule migration in PGlite", () => {
           VALUES ('authz-params-person', 'Authz', 'Params')
           ON CONFLICT (person_id) DO NOTHING
         `;
-        const insertSubmitRule = (ruleId: string, params: unknown) =>
+
+        const insertSubmitRule = (ruleId: string, params: Schema.Json) =>
           database`
             INSERT INTO public.authz_rules (
               rule_id,
@@ -627,14 +655,17 @@ describe("declarative authorization rule migration in PGlite", () => {
             paymentAccountCiphertext: "ciphertext",
           }),
         );
+
         const internalWhitespace = yield* Effect.exit(
           insertSubmitRule("authz-params-internal-whitespace", {
             slot: "EconomyPaymentAuthority",
             paymentAccountCiphertext: "ciphertext\u00a0account",
           }),
         );
+
         const remainingEcmaScriptTrimWhitespace = ecmaScriptTrimBoundaryCharacters.slice(2);
-        const invalidParams: ReadonlyArray<readonly [string, unknown]> = [
+
+        const invalidParams: ReadonlyArray<readonly [string, Schema.Json]> = [
           ["missingKey", { slot: "EconomyPaymentAuthority" }],
           ["arbitraryKey", { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" }],
           [
@@ -687,12 +718,16 @@ describe("declarative authorization rule migration in PGlite", () => {
             },
           ],
         ];
+
         const rejected: Record<string, boolean> = {};
+
         for (const [name, params] of invalidParams) {
           const outcome = yield* Effect.exit(insertSubmitRule(`authz-params-${name}`, params));
-          rejected[name] = outcome._tag === "Failure";
+          rejected[name] = Predicate.isTagged(outcome, "Failure");
         }
+
         let remainingEcmaScriptBoundariesRejected = true;
+
         for (const [index, whitespace] of remainingEcmaScriptTrimWhitespace.entries()) {
           const outcome = yield* Effect.exit(
             insertSubmitRule(`authz-params-ecma-boundary-${index}`, {
@@ -700,11 +735,13 @@ describe("declarative authorization rule migration in PGlite", () => {
               paymentAccountCiphertext: `${whitespace}ciphertext`,
             }),
           );
-          remainingEcmaScriptBoundariesRejected &&= outcome._tag === "Failure";
+
+          remainingEcmaScriptBoundariesRejected &&= Predicate.isTagged(outcome, "Failure");
         }
+
         return {
-          validAccepted: valid._tag === "Success",
-          internalWhitespaceAccepted: internalWhitespace._tag === "Success",
+          validAccepted: Predicate.isTagged(valid, "Success"),
+          internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
           rejected,
           remainingEcmaScriptBoundariesRejected,
         };
@@ -761,12 +798,14 @@ describe("declarative authorization rule migration in PGlite", () => {
             },
           ]),
         ];
+
         const unexpectedlyAccepted: Array<string> = [];
         let attemptedCases = 0;
 
         for (const [index, boundaryCase] of boundaryCases.entries()) {
           const base = `authz-identifiers-${index}`;
           const invalid = boundaryCase.makeValue(base);
+
           const attempts = [
             [
               "tagId",
@@ -888,13 +927,15 @@ describe("declarative authorization rule migration in PGlite", () => {
           for (const [category, attempt] of attempts) {
             attemptedCases += 1;
             const outcome = yield* Effect.exit(attempt);
-            if (outcome._tag === "Success") {
+
+            if (Predicate.isTagged(outcome, "Success")) {
               unexpectedlyAccepted.push(`${category}:${boundaryCase.name}`);
             }
           }
         }
 
         const internalTagId = "authz\tidentifiers-tag";
+
         const internalWhitespace = yield* Effect.exit(
           Effect.gen(function* () {
             yield* database`
@@ -934,7 +975,7 @@ describe("declarative authorization rule migration in PGlite", () => {
 
         return {
           attemptedCases,
-          internalWhitespaceAccepted: internalWhitespace._tag === "Success",
+          internalWhitespaceAccepted: Predicate.isTagged(internalWhitespace, "Success"),
           unexpectedlyAccepted,
         };
       }),
@@ -949,6 +990,7 @@ describe("declarative authorization rule migration in PGlite", () => {
 
   it("migration 25 accepts only Global, Domain(receipts), and Department rule scopes", async () => {
     const database = new PGlite({ extensions: { btree_gist } });
+
     try {
       await applyMigrationsThrough(database, "25_principal-credential-access-algebra");
       await database.exec(`
@@ -961,6 +1003,7 @@ describe("declarative authorization rule migration in PGlite", () => {
           'authz-domain@example.invalid', 'Oslo'
         );
       `);
+
       const insert = (
         ruleId: string,
         scope: string,
@@ -981,6 +1024,7 @@ describe("declarative authorization rule migration in PGlite", () => {
           `,
           [ruleId, scope, domainId, departmentId],
         );
+
       const accepted = async (
         ruleId: string,
         scope: string,
@@ -989,6 +1033,7 @@ describe("declarative authorization rule migration in PGlite", () => {
       ) => {
         try {
           await insert(ruleId, scope, domainId, departmentId);
+
           return true;
         } catch {
           return false;
@@ -997,26 +1042,31 @@ describe("declarative authorization rule migration in PGlite", () => {
 
       const globalAccepted = await accepted("authz-global-valid", "Global", null, null);
       const domainAccepted = await accepted("authz-domain-valid", "Domain", "receipts", null);
+
       const departmentAccepted = await accepted(
         "authz-department-valid",
         "Department",
         null,
         "authz-domain-department",
       );
+
       const receiptRejected = !(await accepted("authz-receipt-invalid", "Receipt", null, null));
       const tenantRejected = !(await accepted("authz-tenant-invalid", "Tenant", null, null));
+
       const missingDomainRejected = !(await accepted(
         "authz-domain-missing-id",
         "Domain",
         null,
         null,
       ));
+
       const wrongDomainRejected = !(await accepted(
         "authz-domain-wrong-id",
         "Domain",
         "organization",
         null,
       ));
+
       const rows = await database.query<{
         readonly departmentId: string | null;
         readonly domainId: string | null;
@@ -1068,7 +1118,9 @@ describe("declarative rule reconciliation migration", () => {
   const reconciliationMigrationIndex = databaseMigrationDefinitions.findIndex(
     ({ id }) => id === "26_declarative-rule-reconciliation",
   );
+
   const reconciliationMigration = databaseMigrationDefinitions[reconciliationMigrationIndex]!;
+
   const prepareMigration25State = async (database: PGlite) => {
     await applyMigrationsThrough(database, "25_principal-credential-access-algebra");
     await database.exec(`
@@ -1144,8 +1196,10 @@ describe("declarative rule reconciliation migration", () => {
 
   it("reports every unsupported row once and aborts before mutation", async () => {
     const database = new PGlite({ extensions: { btree_gist } });
+
     try {
       await prepareMigration25State(database);
+
       const columnsAfter25 = await database.query<{
         readonly columnName: string;
       }>(`
@@ -1156,6 +1210,7 @@ describe("declarative rule reconciliation migration", () => {
           AND column_name IN ('domain_id', 'resource_id')
         ORDER BY column_name
       `);
+
       expect(columnsAfter25.rows).toEqual([{ columnName: "domain_id" }]);
       await insertValidPreflightRows(database);
       await database.exec(`
@@ -1210,11 +1265,13 @@ describe("declarative rule reconciliation migration", () => {
       `);
 
       let failureMessage = "";
+
       try {
         await database.exec(await readFile(reconciliationMigration.url, "utf8"));
       } catch (cause) {
         failureMessage = cause instanceof Error ? cause.message : String(cause);
       }
+
       const reportMatch = /authz_rules preflight failed: (\[.*\])/u.exec(failureMessage);
       expect(reportMatch).not.toBeNull();
       expect(JSON.parse(reportMatch![1]!)).toEqual([
@@ -1250,6 +1307,7 @@ describe("declarative rule reconciliation migration", () => {
       expect(failureMessage).not.toContain("preflight-secret-ciphertext");
       expect(failureMessage).not.toContain("do-not-report");
       expect(failureMessage).not.toContain("migration-preflight-valid-");
+
       const requirementConstraint = await database.query<{
         readonly definition: string;
       }>(`
@@ -1258,6 +1316,7 @@ describe("declarative rule reconciliation migration", () => {
         WHERE conrelid = 'public.authz_rules'::regclass
           AND conname = 'authz_rules_params_declared'
       `);
+
       expect(requirementConstraint.rows).toEqual([{ definition: "CHECK (true)" }]);
     } finally {
       await database.close();
@@ -1266,27 +1325,32 @@ describe("declarative rule reconciliation migration", () => {
 
   it("accepts complete valid rows from migration 25 state", async () => {
     const database = new PGlite({ extensions: { btree_gist } });
+
     try {
       await prepareMigration25State(database);
       await insertValidPreflightRows(database);
       await database.exec(await readFile(reconciliationMigration.url, "utf8"));
+
       const rows = await database.query<{ readonly ruleId: string }>(`
         SELECT rule_id AS "ruleId"
         FROM public.authz_rules
         ORDER BY rule_id
       `);
+
       expect(rows.rows).toEqual([
         { ruleId: "migration-preflight-valid-department" },
         { ruleId: "migration-preflight-valid-domain" },
         { ruleId: "migration-preflight-valid-global" },
         { ruleId: "migration-preflight-valid-payment" },
       ]);
+
       const constraint = await database.query<{ readonly definition: string }>(`
         SELECT pg_get_constraintdef(oid) AS definition
         FROM pg_constraint
         WHERE conrelid = 'public.authz_rules'::regclass
           AND conname = 'authz_rules_params_declared'
       `);
+
       expect(constraint.rows[0]?.definition).toContain("receipts.pending");
     } finally {
       await database.close();
@@ -1301,7 +1365,13 @@ describe("declarative rule reconciliation migration", () => {
           INSERT INTO public.person_profiles (person_id, first_name, last_name)
           VALUES ('migration-requirement-person', 'Requirement', 'Rule')
         `;
-        const insert = (ruleId: string, scope: string, domainId: string | null, params: unknown) =>
+
+        const insert = (
+          ruleId: string,
+          scope: string,
+          domainId: string | null,
+          params: Schema.Json,
+        ) =>
           database`
             INSERT INTO public.authz_rules (
               rule_id, capability_id, effect_kind, subject_kind,
@@ -1314,6 +1384,7 @@ describe("declarative rule reconciliation migration", () => {
               '2030-01-01T00:00:00.000Z', NULL, 0
             )
           `.pipe(Effect.asVoid);
+
         yield* insert("migration-require-pending", "Domain", "receipts", {
           requirementId: "receipts.pending",
           parameters: {},
@@ -1322,18 +1393,21 @@ describe("declarative rule reconciliation migration", () => {
           requirementId: "receipts.approver-relationship",
           parameters: {},
         });
+
         const unsupported = yield* Effect.exit(
           insert("migration-require-unsupported", "Domain", "receipts", {
             requirementId: "receipts.owner",
             parameters: {},
           }),
         );
+
         const nonempty = yield* Effect.exit(
           insert("migration-require-nonempty", "Domain", "receipts", {
             requirementId: "receipts.pending",
             parameters: { unexpected: true },
           }),
         );
+
         const excess = yield* Effect.exit(
           insert("migration-require-excess", "Domain", "receipts", {
             requirementId: "receipts.pending",
@@ -1341,12 +1415,14 @@ describe("declarative rule reconciliation migration", () => {
             unexpected: true,
           }),
         );
+
         const receiptScope = yield* Effect.exit(
           insert("migration-require-receipt-scope", "Receipt", null, {
             requirementId: "receipts.pending",
             parameters: {},
           }),
         );
+
         const rows = yield* database<{
           readonly domainId: string | null;
           readonly ruleId: string;
@@ -1360,6 +1436,7 @@ describe("declarative rule reconciliation migration", () => {
           WHERE subject_person_id = 'migration-requirement-person'
           ORDER BY rule_id
         `;
+
         yield* database`
           DELETE FROM public.authz_rules
           WHERE subject_person_id = 'migration-requirement-person'
@@ -1368,6 +1445,7 @@ describe("declarative rule reconciliation migration", () => {
           DELETE FROM public.person_profiles
           WHERE person_id = 'migration-requirement-person'
         `;
+
         return {
           excess: excess._tag,
           nonempty: nonempty._tag,

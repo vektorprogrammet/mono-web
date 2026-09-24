@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Match, Schema } from "effect";
 import { AdmissionPeriodId, AdmissionPeriodProjectionSchema } from "../admission-period/schema.js";
 import { DepartmentId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
@@ -15,10 +15,15 @@ export const InterviewReportFilter = Schema.Literals([
   "Nei",
   "not-recorded",
 ]);
+
 export const InterviewReportParticipation = Schema.Literals(["all", "Returning", "Unknown"]);
+
 export type InterviewReportParticipation = typeof InterviewReportParticipation.Type;
+
 export const InterviewReportSort = Schema.Literals(["applicant", "recommendation", "total"]);
+
 export const InterviewReportDirection = Schema.Literals(["asc", "desc"]);
+
 export const InterviewReportQuery = Schema.Struct({
   admissionPeriodId: Schema.optional(AdmissionPeriodId),
   recommendation: Schema.optional(InterviewReportFilter),
@@ -26,7 +31,9 @@ export const InterviewReportQuery = Schema.Struct({
   sort: Schema.optional(InterviewReportSort),
   direction: Schema.optional(InterviewReportDirection),
 });
+
 export type InterviewReportQuery = typeof InterviewReportQuery.Type;
+
 export const InterviewReportRow = Schema.Struct({
   interviewId: RecruitmentInterviewId,
   firstName: Schema.String,
@@ -36,8 +43,11 @@ export const InterviewReportRow = Schema.Struct({
   participation: Schema.Literals(["Returning", "Unknown"]),
   ...RecruitmentInterviewScoreSchema.fields,
 });
+
 export type InterviewReportRow = typeof InterviewReportRow.Type;
+
 const compareText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+
 export const InterviewReport = Schema.Struct({
   departmentId: DepartmentId,
   periods: Schema.Array(AdmissionPeriodProjectionSchema),
@@ -48,10 +58,13 @@ export const InterviewReport = Schema.Struct({
   direction: InterviewReportDirection,
   rows: Schema.Array(InterviewReportRow),
 }).annotate({ identifier: "CompletedInterviewReport" });
+
 export type InterviewReport = typeof InterviewReport.Type;
+
 export const interviewScoreTotal = (
   row: Pick<InterviewReportRow, "explanatoryPower" | "roleModel" | "suitability">,
 ) => row.explanatoryPower + row.roleModel + row.suitability;
+
 export const orderInterviewReport = (
   rows: ReadonlyArray<InterviewReportRow>,
   query: InterviewReportQuery,
@@ -59,6 +72,7 @@ export const orderInterviewReport = (
   const filter = query.recommendation ?? "all";
   const participation = query.participation ?? "all";
   const direction = query.direction === "desc" ? -1 : 1;
+
   return rows
     .filter(
       (row) =>
@@ -66,18 +80,19 @@ export const orderInterviewReport = (
         (participation === "all" || row.participation === participation),
     )
     .toSorted((left, right) => {
-      const primary =
-        query.sort === "total"
-          ? interviewScoreTotal(left) - interviewScoreTotal(right)
-          : query.sort === "recommendation"
-            ? compareText(
-                left.recommendation ?? "Ikke registrert",
-                right.recommendation ?? "Ikke registrert",
-              )
-            : compareText(
-                `${left.lastName} ${left.firstName}`,
-                `${right.lastName} ${right.firstName}`,
-              );
+      const primary = Match.value(query.sort).pipe(
+        Match.when("total", () => interviewScoreTotal(left) - interviewScoreTotal(right)),
+        Match.when("recommendation", () =>
+          compareText(
+            left.recommendation ?? "Ikke registrert",
+            right.recommendation ?? "Ikke registrert",
+          ),
+        ),
+        Match.orElse(() =>
+          compareText(`${left.lastName} ${left.firstName}`, `${right.lastName} ${right.firstName}`),
+        ),
+      );
+
       return primary * direction || compareText(left.interviewId, right.interviewId);
     });
 };

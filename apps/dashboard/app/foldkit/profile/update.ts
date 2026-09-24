@@ -1,6 +1,6 @@
-import { Match as M, Schema as S } from "effect";
-import { FieldValidation } from "foldkit";
-import type { Command } from "foldkit";
+import { Match as M, Schema as S, Match } from "effect";
+import { FieldValidation, Update } from "foldkit";
+
 import type { ProfileCommands } from "./command";
 import type { Message } from "./message";
 import { ProfileCommand, type Model, type UserProfileObservation } from "./model";
@@ -18,6 +18,7 @@ const emailRules = FieldValidation.makeRules({
     [
       (value) => {
         const separator = value.indexOf("@");
+
         return (
           value.length <= 320 &&
           separator > 0 &&
@@ -54,28 +55,33 @@ const validatedFields = (model: Model): Model => ({
   phone: FieldValidation.validateAll(phoneRules)(model.phone.value),
 });
 
-export const makeUpdate =
+export const updateFor =
   ({ SaveProfile }: ProfileCommands) =>
-  (model: Model, message: Message): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
+  (model: Model, message: Message): Update.Return<Model, Message> =>
     M.value(message).pipe(
-      M.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
+      M.withReturnType<Update.Return<Model, Message>>(),
       M.tagsExhaustive({
         UpdatedProfileField: ({ field, value }) => {
-          if (model.isSaving) return [model, []];
-          const rules = field === "email" ? emailRules : field === "phone" ? phoneRules : nameRules;
-          return [
+          if (model.isSaving) return ({ model: model, commands: [] });
+
+          const rules = Match.value(field).pipe(
+Match.when("email", () => (emailRules)),
+Match.when("phone", () => (phoneRules)),
+Match.orElse(() => (nameRules))
+);
+
+          return ({ model: 
             {
               ...model,
               [field]: FieldValidation.validate(rules)(value),
               failure: null,
-            } as Model,
-            [],
-          ];
+            }, commands: [] });
         },
         SubmittedProfile: () => {
-          if (model.isSaving) return [model, []];
+          if (model.isSaving) return ({ model: model, commands: [] });
           const validated = validatedFields(model);
-          if (!allFieldsValid(validated)) return [validated, []];
+
+          if (!allFieldsValid(validated)) return ({ model: validated, commands: [] });
 
           const command = S.decodeUnknownSync(ProfileCommand)(
             {
@@ -88,28 +94,26 @@ export const makeUpdate =
             },
             { onExcessProperty: "error" },
           );
+
           const requestId = validated.requestId + 1;
-          return [
-            { ...validated, isSaving: true, requestId, failure: null, status: null },
-            [SaveProfile({ requestId, command })],
-          ];
+
+          return ({ model: 
+            { ...validated, isSaving: true, requestId, failure: null, status: null }, commands: [SaveProfile({ requestId, command })] });
         },
         SucceededProfileSave: ({ requestId, profile, etag }) =>
           requestId !== model.requestId
-            ? [model, []]
-            : [
+            ? ({ model: model, commands: [] })
+            : ({ model: 
                 {
                   ...makeInitialFrom(model, profile, etag),
                   isSaving: false,
                   commandSequence: model.commandSequence + 1,
                   status: "Profilen er lagret.",
-                },
-                [],
-              ],
+                }, commands: [] }),
         FailedProfileSave: ({ requestId, failure }) =>
           requestId !== model.requestId
-            ? [model, []]
-            : [{ ...model, isSaving: false, failure, status: null }, []],
+            ? ({ model: model, commands: [] })
+            : ({ model: { ...model, isSaving: false, failure, status: null }, commands: [] }),
       }),
     );
 

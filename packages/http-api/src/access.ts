@@ -1,4 +1,6 @@
 import {
+  CredentialMechanismSchema,
+  CapabilityExpressionSchema,
   CAPABILITY_TYPE_IDS,
   CREDENTIAL_MECHANISM_KINDS,
   INVITATION_RESPONSE_CAPABILITY,
@@ -9,21 +11,25 @@ import {
   type AccessSpec,
   type AuthorizationMode,
   type CapabilityExpression,
-  type CapabilityTypeId,
+  CapabilityTypeId,
   type CredentialMechanism,
-  type RequirementId,
-  type ScopeResolverId,
+  RequirementId,
+  ScopeResolverId,
   type TypedRequirement,
   makeAccessSpec,
+  ConcealmentPolicySchema,
 } from "@vektorprogrammet/domain/authz";
 
 type RequirementValue = (typeof REQUIREMENT_IDS)[number];
+
 type ScopeResolverValue = (typeof SCOPE_RESOLVER_IDS)[number];
+
 type CapabilityValue = (typeof CAPABILITY_TYPE_IDS)[number];
+
 const typedRequirements = (
   requirements: ReadonlyArray<RequirementValue>,
 ): ReadonlyArray<TypedRequirement> =>
-  requirements.map((id) => ({ id: id as RequirementId, parameters: {} }));
+  requirements.map((id) => ({ id: RequirementId.make(id), parameters: {} }));
 
 /** Colocated AccessSpec constructor for an anonymous native operation. */
 export const anonymousNativeAccess = (
@@ -32,12 +38,12 @@ export const anonymousNativeAccess = (
 ): AccessSpec =>
   makeAccessSpec({
     exposure: "External",
-    acceptedCredentials: [{ _tag: "None" }],
+    acceptedCredentials: [CredentialMechanismSchema.cases.None.make({})],
     principalKinds: ["Anonymous"],
-    capabilities: { _tag: "None" },
+    capabilities: CapabilityExpressionSchema.cases.None.make({}),
     requirements: [],
     canonicalScopeResolver,
-    concealment: { _tag: "Reveal" },
+    concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
     decisionTime,
   });
 
@@ -50,15 +56,15 @@ export const browserSessionNativeAccess = (input: {
 }): AccessSpec =>
   makeAccessSpec({
     exposure: "External",
-    acceptedCredentials: [{ _tag: "BetterAuthCookie" }],
+    acceptedCredentials: [CredentialMechanismSchema.cases.BetterAuthCookie.make({})],
     principalKinds: ["Person"],
-    capabilities: { _tag: "None" },
+    capabilities: CapabilityExpressionSchema.cases.None.make({}),
     requirements: typedRequirements(input.requirements ?? []),
     canonicalScopeResolver: input.canonicalScopeResolver,
     concealment:
       input.concealRequirement === true
-        ? { _tag: "NotFound", conceal: ["Requirement"] }
-        : { _tag: "Reveal" },
+        ? ConcealmentPolicySchema.cases.NotFound.make({ conceal: ["Requirement"] })
+        : ConcealmentPolicySchema.cases.Reveal.make({}),
     decisionTime: input.decisionTime,
   });
 
@@ -71,15 +77,17 @@ export const personNativeAccess = (input: {
 }): AccessSpec =>
   makeAccessSpec({
     exposure: "External",
-    acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+    acceptedCredentials: [
+      CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+      CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+    ],
     principalKinds: ["Person"],
-    capabilities: {
-      _tag: "One",
-      capability: { type: input.capability as CapabilityTypeId },
-    },
+    capabilities: CapabilityExpressionSchema.cases.One.make({
+      capability: { type: CapabilityTypeId.make(input.capability) },
+    }),
     requirements: typedRequirements(input.requirements ?? []),
-    canonicalScopeResolver: input.canonicalScopeResolver as ScopeResolverId,
-    concealment: { _tag: "Reveal" },
+    canonicalScopeResolver: ScopeResolverId.make(input.canonicalScopeResolver),
+    concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
     decisionTime: input.decisionTime,
   });
 
@@ -91,16 +99,19 @@ export const invitationNativeAccess = (
   makeAccessSpec({
     exposure: "External",
     acceptedCredentials: [
-      { _tag: "ObjectCapability", capabilityType: INVITATION_RESPONSE_CAPABILITY },
+      CredentialMechanismSchema.cases.ObjectCapability.make({
+        capabilityType: INVITATION_RESPONSE_CAPABILITY,
+      }),
     ],
     principalKinds: ["CapabilityHolder"],
-    capabilities: { _tag: "One", capability: { type: INVITATION_RESPONSE_CAPABILITY } },
+    capabilities: CapabilityExpressionSchema.cases.One.make({
+      capability: { type: INVITATION_RESPONSE_CAPABILITY },
+    }),
     requirements: typedRequirements(requirements),
     canonicalScopeResolver: "recruitment.invitation-response-by-capability",
-    concealment: {
-      _tag: "NotFound",
+    concealment: ConcealmentPolicySchema.cases.NotFound.make({
       conceal: ["CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement"],
-    },
+    }),
     decisionTime,
   });
 
@@ -108,18 +119,18 @@ export const invitationNativeAccess = (
 export const internalReceiptEvidenceAccess = (): AccessSpec =>
   makeAccessSpec({
     exposure: "Internal",
-    acceptedCredentials: [{ _tag: "BetterAuthCookie" }],
+    acceptedCredentials: [CredentialMechanismSchema.cases.BetterAuthCookie.make({})],
     principalKinds: ["Person"],
-    capabilities: {
-      _tag: "One",
-      capability: { type: "receipts.read-internal-evidence" },
-    },
+    capabilities: CapabilityExpressionSchema.cases.One.make({
+      capability: { type: CapabilityTypeId.make("receipts.read-internal-evidence") },
+    }),
     requirements: typedRequirements(["internal-evidence.enabled", "receipts.owner"]),
     canonicalScopeResolver: "receipts.by-id",
-    concealment: { _tag: "Reveal" },
+    concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
     decisionTime: "SnapshotRead",
   });
-import { Context, Option } from "effect";
+
+import { Match, Predicate, Context, Option, Schema } from "effect";
 import { HttpApiEndpoint, OpenApi } from "effect/unstable/httpapi";
 
 export const AccessSpecAnnotation = Context.Service<AccessSpec>(
@@ -128,33 +139,42 @@ export const AccessSpecAnnotation = Context.Service<AccessSpec>(
 
 const rank = (order: ReadonlyArray<string>, value: string): number => {
   const index = order.indexOf(value);
+
   return index === -1 ? order.length : index;
 };
+
 const compareByRegistry = (order: ReadonlyArray<string>) => (left: string, right: string) =>
   rank(order, left) - rank(order, right);
 
-const projectedCapabilities = (expression: CapabilityExpression): Record<string, unknown> => {
-  switch (expression._tag) {
-    case "None":
+const projectedCapabilities = (expression: CapabilityExpression) => {
+  return Match.value(expression).pipe(
+    Match.tag("None", () => {
       return { none: true };
-    case "One":
+    }),
+    Match.tag("One", (expression) => {
       return { one: expression.capability.type };
-    case "All":
+    }),
+    Match.tag("All", (expression) => {
       return {
         all: expression.capabilities
           .map((capability) => capability.type)
           .sort(compareByRegistry(CAPABILITY_TYPE_IDS)),
       };
-    case "Any":
+    }),
+    Match.tag("Any", (expression) => {
       return {
         any: expression.capabilities
           .map((capability) => capability.type)
           .sort(compareByRegistry(CAPABILITY_TYPE_IDS)),
       };
-  }
+    }),
+    Match.exhaustive,
+  );
 };
-const projectedRequirement = (requirement: TypedRequirement): Record<string, unknown> => {
+
+const projectedRequirement = (requirement: TypedRequirement) => {
   const parameters = Object.keys(requirement.parameters);
+
   return parameters.length === 0
     ? { id: requirement.id }
     : { id: requirement.id, parameters: requirement.parameters };
@@ -164,8 +184,8 @@ export interface VektorAccessProjection {
   readonly exposure: AccessSpec["exposure"];
   readonly acceptedCredentials: ReadonlyArray<string>;
   readonly principalKinds: ReadonlyArray<string>;
-  readonly capabilities: Record<string, unknown>;
-  readonly requirements: ReadonlyArray<Record<string, unknown>>;
+  readonly capabilities: ReturnType<typeof projectedCapabilities>;
+  readonly requirements: ReadonlyArray<ReturnType<typeof projectedRequirement>>;
   readonly canonicalScopeResolver: string;
   readonly concealment: {
     readonly mode: "Reveal" | "NotFound";
@@ -173,6 +193,7 @@ export interface VektorAccessProjection {
   };
   readonly decisionTime: AccessSpec["decisionTime"];
 }
+
 export const projectVektorAccess = (spec: AccessSpec): VektorAccessProjection => ({
   exposure: spec.exposure,
   acceptedCredentials: spec.acceptedCredentials
@@ -184,15 +205,16 @@ export const projectVektorAccess = (spec: AccessSpec): VektorAccessProjection =>
     .sort((left, right) => compareByRegistry(REQUIREMENT_IDS)(left.id, right.id))
     .map(projectedRequirement),
   canonicalScopeResolver: spec.canonicalScopeResolver,
-  concealment:
-    spec.concealment._tag === "Reveal"
-      ? { mode: "Reveal", stages: [] }
-      : { mode: "NotFound", stages: [...spec.concealment.conceal].sort() },
+  concealment: !Predicate.isTagged(spec.concealment, "NotFound")
+    ? { mode: "Reveal", stages: [] }
+    : { mode: "NotFound", stages: [...spec.concealment.conceal].sort() },
   decisionTime: spec.decisionTime,
 });
 
 type CapabilityTypeValue = (typeof CAPABILITY_TYPE_IDS)[number];
+
 const capabilityTypeValue = (id: CapabilityTypeId): CapabilityTypeValue => id;
+
 type BodyCapabilityProjection = {
   readonly bodyPointer: string;
   readonly required: true;
@@ -202,6 +224,7 @@ type BodyCapabilityProjection = {
     readonly mechanisms: ReadonlyArray<"BetterAuthCookie" | "OAuthUserBearer">;
   };
 };
+
 const objectCapabilitySecurityScheme: Partial<
   Record<CapabilityTypeValue, string | BodyCapabilityProjection>
 > = {
@@ -217,9 +240,11 @@ const objectCapabilitySecurityScheme: Partial<
   },
   "recruitment.invitation-response": "invitationCapability",
 };
+
 export const assertAccessProjectionRegistryParity = (): void => {
   const expected = [...OBJECT_CAPABILITY_TYPE_IDS].sort();
   const actual = Object.keys(objectCapabilitySecurityScheme).sort();
+
   if (
     expected.length !== actual.length ||
     expected.some((capabilityType, index) => capabilityType !== actual[index])
@@ -229,46 +254,64 @@ export const assertAccessProjectionRegistryParity = (): void => {
     );
   }
 };
+
 assertAccessProjectionRegistryParity();
+
 const securitySchemeFor = (mechanism: CredentialMechanism): string | null | undefined => {
-  switch (mechanism._tag) {
-    case "None":
+  return Match.value(mechanism).pipe(
+    Match.tag("None", () => {
       return undefined;
-    case "BetterAuthCookie":
+    }),
+    Match.tag("BetterAuthCookie", () => {
       return "cookieHeader";
-    case "OAuthUserBearer":
+    }),
+    Match.tag("OAuthUserBearer", () => {
       return "oauthUserBearer";
-    case "OAuthServiceBearer":
+    }),
+    Match.tag("OAuthServiceBearer", () => {
       return "oauthServiceBearer";
-    case "ObjectCapability": {
+    }),
+    Match.tag("ObjectCapability", (mechanism) => {
       const scheme = objectCapabilitySecurityScheme[capabilityTypeValue(mechanism.capabilityType)];
+
       if (scheme === undefined) {
         throw new TypeError(
           `object capability ${mechanism.capabilityType} has no OpenAPI security scheme`,
         );
       }
-      return typeof scheme === "string" ? scheme : null;
-    }
-  }
+
+      return Predicate.isString(scheme) ? scheme : null;
+    }),
+    Match.exhaustive,
+  );
 };
+
 export type OpenApiSecurityProjection = ReadonlyArray<
   Readonly<Record<string, ReadonlyArray<string>>>
 >;
+
 export const projectCredentialSecurity = (spec: AccessSpec): OpenApiSecurityProjection => {
-  if (spec.acceptedCredentials.length === 1 && spec.acceptedCredentials[0]?._tag === "None") {
+  if (
+    spec.acceptedCredentials.length === 1 &&
+    Predicate.isTagged(spec.acceptedCredentials[0], "None")
+  ) {
     return [];
   }
+
   return spec.acceptedCredentials.flatMap((mechanism) => {
     const scheme = securitySchemeFor(mechanism);
+
     if (scheme === undefined) {
       throw new TypeError("None cannot be combined with another credential mechanism");
     }
+
     return scheme === null ? [] : [{ [scheme]: [] }];
   });
 };
 
-export const accessSpecAnnotations = (input: unknown): Context.Context<AccessSpec> => {
+export const accessSpecAnnotations = (input: AccessSpec): Context.Context<AccessSpec> => {
   const spec = makeAccessSpec(input);
+
   return Context.merge(
     Context.make(AccessSpecAnnotation, spec),
     OpenApi.annotations({
@@ -277,10 +320,12 @@ export const accessSpecAnnotations = (input: unknown): Context.Context<AccessSpe
         security: projectCredentialSecurity(spec),
         ...Object.fromEntries(
           spec.acceptedCredentials.flatMap((mechanism) => {
-            if (mechanism._tag !== "ObjectCapability") return [];
+            if (!Predicate.isTagged(mechanism, "ObjectCapability")) return [];
+
             const projection =
               objectCapabilitySecurityScheme[capabilityTypeValue(mechanism.capabilityType)];
-            return typeof projection === "object"
+
+            return Predicate.isObjectOrArray(projection)
               ? [
                   [
                     "x-vektor-body-capability",
@@ -299,13 +344,42 @@ export const accessSpecAnnotations = (input: unknown): Context.Context<AccessSpe
     }),
   );
 };
-export const reflectAccessSpec = <Endpoint>(endpoint: Endpoint): Option.Option<AccessSpec> =>
-  Context.getOption((endpoint as HttpApiEndpoint.Top).annotations, AccessSpecAnnotation);
 
-export const annotateAccessSpec = <Endpoint>(endpoint: Endpoint, input: unknown): Endpoint => {
-  const typedEndpoint = endpoint as HttpApiEndpoint.Top;
-  if (Option.isSome(reflectAccessSpec(typedEndpoint))) {
-    throw new TypeError(`endpoint ${typedEndpoint.identifier} has multiple AccessSpec annotations`);
+export const reflectAccessSpec = (
+  endpoint: Pick<HttpApiEndpoint.Top, "annotations">,
+): Option.Option<AccessSpec> => Context.getOption(endpoint.annotations, AccessSpecAnnotation);
+
+export const annotateAccessSpec = <
+  Identifier extends string,
+  Method extends HttpApiEndpoint.Top["method"],
+  Path extends string,
+  Params extends Schema.Top,
+  Query extends Schema.Top,
+  Payload extends Schema.Top,
+  Headers extends Schema.Top,
+  Success extends Schema.Top,
+  Error extends Schema.Top,
+  Middleware,
+  MiddlewareServices,
+>(
+  endpoint: HttpApiEndpoint.HttpApiEndpoint<
+    Identifier,
+    Method,
+    Path,
+    Params,
+    Query,
+    Payload,
+    Headers,
+    Success,
+    Error,
+    Middleware,
+    MiddlewareServices
+  >,
+  input: AccessSpec,
+) => {
+  if (Option.isSome(reflectAccessSpec(endpoint))) {
+    throw new TypeError(`endpoint ${endpoint.identifier} has multiple AccessSpec annotations`);
   }
-  return typedEndpoint.annotateMerge(accessSpecAnnotations(input)) as unknown as Endpoint;
+
+  return endpoint.annotateMerge(accessSpecAnnotations(input));
 };

@@ -3,6 +3,7 @@ import type { Route } from "./+types/dashboard.statistikk._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAuth(request);
+
   return { available: false as const };
 }
 

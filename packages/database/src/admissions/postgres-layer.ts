@@ -18,6 +18,7 @@ export const AdmissionsLive = Layer.effect(
   Admissions,
   Effect.gen(function* () {
     const database = yield* Database;
+
     return Admissions.of({
       executeAdmissionPeriod: (input, context) =>
         executeAdmissionPeriodCommand(input, context).pipe(

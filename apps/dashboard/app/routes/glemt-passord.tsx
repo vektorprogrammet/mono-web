@@ -18,6 +18,7 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     requireNativePasswordRecovery();
     await createPasswordRecoveryClient(request).requestPasswordReset(email);
+
     return { success: true, error: null };
   } catch {
     return { error: "Noe gikk galt. Vennligst prøv igjen.", success: false };

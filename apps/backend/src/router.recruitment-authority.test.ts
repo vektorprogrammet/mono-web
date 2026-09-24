@@ -1,31 +1,42 @@
+import { backendDatabase } from "../test/database.js";
+import {
+  AdmissionPeriodId,
+  AdmissionPeriodActorSchema,
+} from "@vektorprogrammet/domain/admission-period";
+import type { RecruitmentAssignmentBoardQuery } from "@vektorprogrammet/domain/recruitment";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityActor,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
-import { Database, type DatabaseShape } from "@vektorprogrammet/database";
+
 import {
+  DepartmentId,
+  MembershipId,
+  TeamId,
   Organization,
   PersonId,
-  type OrganizationShape,
+  type OrganizationOperations,
 } from "@vektorprogrammet/domain/organization";
 import {
   Recruitment as RecruitmentService,
   RecruitmentRoleDenied,
   type RecruitmentActor,
-  type RecruitmentShape,
+  type RecruitmentOperations,
 } from "@vektorprogrammet/domain/recruitment";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
-import { DateTime, Effect, Layer } from "effect";
+import { Predicate, DateTime, Effect, Layer } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
-import { makeBackendConfig } from "./config.js";
-import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
+import { decodeBackendConfig } from "./config.js";
+import { makeBackendTestHttp as backendHttpHandler } from "./test/native-http.js";
 
 const leaderToken = "leader-session-token";
+
 const memberToken = "member-session-token";
+
 const inactiveToken = "inactive-session-token";
 
 const environment = {
@@ -39,28 +50,9 @@ const environment = {
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
 } as const;
 
-const config = makeBackendConfig(environment);
+const config = decodeBackendConfig(environment);
 
-const database = Object.assign(
-  ((strings: TemplateStringsArray) => {
-    const statement = strings.join(" ");
-    if (statement.includes("organization_memberships AS membership")) {
-      return Effect.succeed([
-        {
-          kind: "Membership",
-          identity: "membership-0",
-          revisions: [0, 0, 0],
-        },
-      ]);
-    }
-    return Effect.succeed([]);
-  }) as unknown as DatabaseShape,
-  {
-    health: Effect.void,
-    json: (value: unknown) => value,
-    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
-  },
-);
+const database = backendDatabase();
 
 interface AuthorityMembershipRow {
   readonly departmentId: string;
@@ -69,84 +61,103 @@ interface AuthorityMembershipRow {
 }
 
 /** One authority projection per session token, selected by the cookie value. */
-const membershipsByToken: Record<string, ReadonlyArray<AuthorityMembershipRow>> = {
-  [leaderToken]: [{ departmentId: "department-1", active: true, teamLeader: true }],
-  [memberToken]: [{ departmentId: "department-1", active: true, teamLeader: false }],
-  [inactiveToken]: [{ departmentId: "department-1", active: false, teamLeader: false }],
-};
+const membershipsByToken = new Map<string, ReadonlyArray<AuthorityMembershipRow>>([
+  [
+    leaderToken,
+    [{ departmentId: DepartmentId.make("department-1"), active: true, teamLeader: true }],
+  ],
+  [
+    memberToken,
+    [{ departmentId: DepartmentId.make("department-1"), active: true, teamLeader: false }],
+  ],
+  [
+    inactiveToken,
+    [{ departmentId: DepartmentId.make("department-1"), active: false, teamLeader: false }],
+  ],
+]);
 
-const personIdsByToken: Readonly<Record<string, string>> = {
-  [leaderToken]: "leader-1",
-  [memberToken]: "member-1",
-  [inactiveToken]: "inactive-1",
-};
+const personIdsByToken = new Map<string, string>([
+  [leaderToken, "leader-1"],
+  [memberToken, "member-1"],
+  [inactiveToken, "inactive-1"],
+]);
+
 const personIdForToken = (tokenValue: string): string =>
-  personIdsByToken[tokenValue] ?? "unknown-person";
+  personIdsByToken.get(tokenValue) ?? "unknown-person";
 
 const organization = {
   listDepartments: Effect.succeed([]),
   listTeams: () => Effect.succeed([]),
   listFieldOfStudies: Effect.succeed([]),
-  resolvePersonAuthority: (personId: string) => {
-    const row = Object.entries(membershipsByToken).find(
-      ([token]) => personIdForToken(token) === personId,
-    );
+  resolvePersonAuthority: (personId: PersonId) => {
+    const row = membershipsByToken
+      .entries()
+      .find(([token]) => personIdForToken(token) === personId);
+
     return Effect.succeed({
       personId,
       evaluatedAt: "2031-09-15T12:00:00.000Z",
       globalAdministrator: "Absent",
       memberships: (row?.[1] ?? []).map((membership, index) => ({
-        membershipId: `membership-${index}`,
-        teamId: `team-${index}`,
-        departmentId: membership.departmentId,
+        membershipId: MembershipId.make(`membership-${index}`),
+        teamId: TeamId.make(`team-${index}`),
+        departmentId: DepartmentId.make(membership.departmentId),
         active: membership.active,
         teamLeader: membership.teamLeader,
       })),
     });
   },
-} as unknown as OrganizationShape;
+} satisfies Partial<OrganizationOperations>;
 
 const recruitmentCalls: Array<{
   readonly operation: string;
   readonly actor: unknown;
 }> = [];
+
 const assignmentBoard = {
-  admissionPeriodId: "period-1",
-  departmentId: "department-1",
+  admissionPeriodId: AdmissionPeriodId.make("period-1"),
+  departmentId: DepartmentId.make("department-1"),
   candidates: [],
   interviewers: [],
   interviewSchemas: [],
 };
+
 const schedulingBoard = {
-  departmentId: "department-1",
+  departmentId: DepartmentId.make("department-1"),
   interviews: [],
 };
 
 // Models the frozen domain laws: assignment reads require an active DepartmentLeader;
 // scheduling reads require an active department member.
 const recruitment = {
-  readAssignmentBoard: (query: unknown, context: { readonly actor: RecruitmentActor }) =>
-    context.actor.active && context.actor._tag === "DepartmentLeader"
+  readAssignmentBoard: (
+    query: RecruitmentAssignmentBoardQuery,
+    context: { readonly actor: RecruitmentActor },
+  ) =>
+    context.actor.active && Predicate.isTagged(context.actor, "DepartmentLeader")
       ? Effect.sync(() => {
           recruitmentCalls.push({ operation: "readAssignmentBoard", actor: context.actor });
           void query;
+
           return assignmentBoard;
         })
-      : Effect.fail(new RecruitmentRoleDenied({ personId: context.actor.personId })),
+      : Effect.fail(new RecruitmentRoleDenied({ personId: PersonId.make(context.actor.personId) })),
   assignApplicant: () => Effect.die("unexpected assignApplicant"),
   readSchedulingBoard: (context: { readonly actor: RecruitmentActor }) =>
-    context.actor._tag !== "GlobalAdmin" && context.actor.active
+    !Predicate.isTagged(context.actor, "GlobalAdmin") && context.actor.active
       ? Effect.sync(() => {
           recruitmentCalls.push({ operation: "readSchedulingBoard", actor: context.actor });
+
           return schedulingBoard;
         })
-      : Effect.fail(new RecruitmentRoleDenied({ personId: context.actor.personId })),
+      : Effect.fail(new RecruitmentRoleDenied({ personId: PersonId.make(context.actor.personId) })),
   scheduleInterview: () => Effect.die("unexpected scheduleInterview"),
   readInvitationResponse: () => Effect.die("unexpected readInvitationResponse"),
   confirmInvitation: () => Effect.die("unexpected confirmInvitation"),
   rejectInvitation: () => Effect.die("unexpected rejectInvitation"),
   requestNewInvitationTime: () => Effect.die("unexpected requestNewInvitationTime"),
-} as unknown as RecruitmentShape;
+} satisfies Partial<RecruitmentOperations>;
+
 const socialEvents = SocialEvents.of({
   readSnapshotInstant: () => Effect.die("unexpected social-event read"),
   readScope: () => Effect.die("unexpected social-event read"),
@@ -154,6 +165,7 @@ const socialEvents = SocialEvents.of({
   validateScope: () => Effect.die("unexpected social-event validation"),
   create: () => Effect.die("unexpected social-event create"),
 });
+
 const schoolSurveys = SchoolSurveys.of({
   readForm: () => Effect.die("unexpected school-survey read"),
   prepareResponse: () => Effect.die("unexpected school-survey preparation"),
@@ -169,7 +181,8 @@ const schoolSurveys = SchoolSurveys.of({
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
-} as never);
+});
+
 const identity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
@@ -178,13 +191,15 @@ const identity = Identity.of({
       .map((part) => part.trim())
       .find((part) => part.startsWith("better-auth.session_token="))
       ?.slice("better-auth.session_token=".length);
-    if (tokenValue !== undefined && tokenValue in membershipsByToken) {
+
+    if (tokenValue !== undefined && membershipsByToken.has(tokenValue)) {
       return new IdentityActor({
         personId: PersonId.make(personIdForToken(tokenValue)),
         sessionId: "session-1",
         expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
       });
     }
+
     throw new IdentitySessionNotFound();
   },
   readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
@@ -195,18 +210,19 @@ const identity = Identity.of({
   revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
   recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
   signOut: async () => ({ setCookies: [] }),
-} satisfies IdentityShape);
+} satisfies IdentityOperations);
+
 const backendServices = Layer.mergeAll(
-  Layer.succeed(Database, database),
-  Layer.succeed(Organization, organization),
-  Layer.succeed(RecruitmentService, recruitment),
+  database.layer,
+  Layer.mock(Organization, organization),
+  Layer.mock(RecruitmentService, recruitment),
   Layer.succeed(SocialEvents, socialEvents),
   Layer.succeed(SchoolSurveys, schoolSurveys),
   Layer.succeed(Identity, identity),
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );
 
-const backend = makeBackendHttp(config, backendServices, {
+const backend = backendHttpHandler(config, backendServices, {
   handle: async () => new Response(null, { status: 404 }),
   recordTrustedOriginRejection: async () => undefined,
 });
@@ -234,12 +250,13 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
     expect(recruitmentCalls).toEqual([
       {
         operation: "readAssignmentBoard",
-        actor: expect.objectContaining({
-          _tag: "DepartmentLeader",
-          personId: "leader-1",
-          departmentId: "department-1",
-          active: true,
-        }),
+        actor: expect.objectContaining(
+          AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+            personId: PersonId.make("leader-1"),
+            departmentId: DepartmentId.make("department-1"),
+            active: true,
+          }),
+        ),
       },
     ]);
   });
@@ -249,6 +266,7 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
       "/api/recruitment/application-assignments?status=new",
       memberToken,
     );
+
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
@@ -281,12 +299,13 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
     expect(recruitmentCalls).toEqual([
       {
         operation: "readSchedulingBoard",
-        actor: expect.objectContaining({
-          _tag: "Member",
-          personId: "member-1",
-          departmentId: "department-1",
-          active: true,
-        }),
+        actor: expect.objectContaining(
+          AdmissionPeriodActorSchema.cases.Member.make({
+            personId: PersonId.make("member-1"),
+            departmentId: DepartmentId.make("department-1"),
+            active: true,
+          }),
+        ),
       },
     ]);
   });

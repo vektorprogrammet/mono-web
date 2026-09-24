@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Result } from "effect";
+import { Predicate, Cause, Effect, Exit, Result } from "effect";
 import type {
   ConductInterviewV1,
   CounterexampleReceipt,
@@ -26,15 +26,25 @@ import {
 } from "./tracer.js";
 
 export const FIXTURE_ID = "tutor-event-envelope-0014";
+
 export const FIXTURE_PERSON_ID = "person-synth-0014";
+
 export const FIXTURE_DEPARTMENT_ID = "department-synth-0014";
+
 export const FIXTURE_CORRELATION_ID = "corr-0014-tutor";
+
 export const FIXTURE_COMMAND_ID = "cmd-0014-conduct";
+
 export const MALFORMED_COMMAND_ID = "cmd-0014-malformed";
+
 export const STALE_COMMAND_ID = "cmd-0014-stale";
+
 export const TERMINAL_COMMAND_ID = "cmd-0014-terminal";
+
 export const CONDUCTED_EVENT_ID = "evt-0014-004";
+
 export const EFFECT_SOURCE_HASH = "2e1ddbebd9dd5cf0738ea08b2e832a7c39ae990f";
+
 export const BASE_COMMIT = "f55fc050efecd03895b08f5417324c414c44dcf4";
 
 const FIXTURE_STREAM: StreamKey = {
@@ -110,16 +120,18 @@ const OTHER_STREAM: StreamKey = {
   personId: "person-synth-0014-other",
 };
 
-const expectFailure = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<E, Error> =>
+const expectFailure = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<E> =>
   Effect.exit(effect).pipe(
     Effect.flatMap((exit) => {
       if (Exit.isSuccess(exit)) {
-        return Effect.fail(new Error("fixture expected effect failure"));
+        return Effect.die(new Error("fixture expected effect failure"));
       }
+
       const failure = Cause.findError(exit.cause);
+
       return Result.isSuccess(failure)
         ? Effect.succeed(failure.success)
-        : Effect.fail(new Error("fixture effect failed without a typed error"));
+        : Effect.die(new Error("fixture effect failed without a typed error"));
     }),
   );
 
@@ -152,8 +164,9 @@ const preservedCounterexample = (
   failure: TutorFailure,
   state: TutorState,
 ): CounterexampleReceipt => {
-  assert(failure._tag === expectedTag, `${caseId} tag mismatch`);
+  assert(Predicate.isTagged(failure, expectedTag), `${caseId} tag mismatch`);
   assert(failure.reasonCode === expectedReasonCode, `${caseId} reason mismatch`);
+
   return {
     caseId,
     expectedReasonCode,
@@ -163,21 +176,25 @@ const preservedCounterexample = (
   };
 };
 
-const statusCounts = (cases: ReadonlyArray<EvidenceCase>): Readonly<Record<string, number>> => {
+const statusCounts = (cases: ReadonlyArray<EvidenceCase>) => {
   const counts: Record<string, number> = {};
+
   for (const observation of cases) {
     const previous = counts[observation.status];
     counts[observation.status] = previous === undefined ? 1 : previous + 1;
   }
+
   return counts;
 };
 
-const reasonCounts = (cases: ReadonlyArray<EvidenceCase>): Readonly<Record<string, number>> => {
+const reasonCounts = (cases: ReadonlyArray<EvidenceCase>) => {
   const counts: Record<string, number> = {};
+
   for (const observation of cases) {
     const previous = counts[observation.reasonCode];
     counts[observation.reasonCode] = previous === undefined ? 1 : previous + 1;
   }
+
   return counts;
 };
 
@@ -205,7 +222,7 @@ export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
     assert(decodedCommand.commandId === FIXTURE_COMMAND_ID, "fixture command decode failed");
 
     const accepted = yield* conductInterview(seedState, FIXTURE_COMMAND);
-    assert(accepted._tag === "AcceptedResult", "conduct command must be accepted");
+    assert(Predicate.isTagged(accepted, "AcceptedResult"), "conduct command must be accepted");
     const acceptedState = accepted.state;
     assert(acceptedState.events.length === 4, "accepted event count must be four");
     assert(descriptorCount(acceptedState) === 1, "accepted descriptor count must be one");
@@ -222,42 +239,49 @@ export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
       "descriptor key mismatch",
     );
 
-    const malformedCommand: unknown = {
+    const malformedCommand = {
       ...FIXTURE_COMMAND,
       commandId: MALFORMED_COMMAND_ID,
       extraField: "reject",
     };
+
     const malformedFailure = yield* expectFailure(
       conductInterview(acceptedState, malformedCommand),
     );
-    assert(malformedFailure._tag === "DecodeError", "malformed command must be a decode error");
+
+    assert(
+      Predicate.isTagged(malformedFailure, "DecodeError"),
+      "malformed command must be a decode error",
+    );
     assert(
       acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
       "malformed changed state",
     );
 
-    const staleCommand: unknown = {
+    const staleCommand = {
       ...FIXTURE_COMMAND,
       commandId: STALE_COMMAND_ID,
       expectedVersion: 2,
     };
-    const staleFailure = yield* expectFailure(conductInterview(acceptedState, staleCommand));
-    assert(staleFailure._tag === "StaleState", "stale command must be stale");
 
-    const terminalCommand: unknown = {
+    const staleFailure = yield* expectFailure(conductInterview(acceptedState, staleCommand));
+    assert(Predicate.isTagged(staleFailure, "StaleState"), "stale command must be stale");
+
+    const terminalCommand = {
       ...FIXTURE_COMMAND,
       commandId: TERMINAL_COMMAND_ID,
       expectedVersion: 4,
     };
+
     const terminalFailure = yield* expectFailure(conductInterview(acceptedState, terminalCommand));
     assert(
-      terminalFailure._tag === "InvalidTransition",
+      Predicate.isTagged(terminalFailure, "InvalidTransition"),
       "terminal command must be an invalid transition",
     );
     assert(terminalFailure.reasonCode === "TERMINAL_CONDUCTED", "terminal law reason mismatch");
 
     const duplicate = yield* conductInterview(acceptedState, FIXTURE_COMMAND);
-    assert(duplicate._tag === "DuplicateResult", "identical command must be duplicate");
+    assert(Predicate.isTagged(duplicate, "DuplicateResult"), "identical command must be duplicate");
     assert(duplicate.state === acceptedState, "duplicate must preserve state identity");
     assert(
       duplicate.observationBytes === accepted.observationBytes,
@@ -268,15 +292,17 @@ export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
       "duplicate appended state",
     );
 
-    const duplicateConflictCommand: unknown = {
+    const duplicateConflictCommand = {
       ...FIXTURE_COMMAND,
       scores: { ...FIXTURE_COMMAND.scores, explanatoryPower: 7 },
     };
+
     const duplicateConflictFailure = yield* expectFailure(
       conductInterview(acceptedState, duplicateConflictCommand),
     );
+
     assert(
-      duplicateConflictFailure._tag === "DuplicateCommandConflict",
+      Predicate.isTagged(duplicateConflictFailure, "DuplicateCommandConflict"),
       "changed duplicate command must conflict",
     );
     assert(
@@ -343,24 +369,30 @@ export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
         acceptedState,
       ),
     ];
+
     const scenarioCount = cases.length;
     assert(scenarioCount === 9, "fixture must contain exactly nine journey cases");
 
-    const crossStreamCommand: unknown = {
+    const crossStreamCommand = {
       ...FIXTURE_COMMAND,
       commandId: "cmd-0014-cross-stream",
       stream: OTHER_STREAM,
     };
+
     const crossStreamFailure = yield* expectFailure(
       conductInterview(acceptedState, crossStreamCommand),
     );
+
     const emptyStreamFailure = yield* expectFailure(foldEvents([]));
+
     const gapFailure = yield* expectFailure(
       foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, streamVersion: 3 }, SEED_EVENT_3]),
     );
+
     const canonicalSequenceFailure = yield* expectFailure(
       foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, eventType: "InterviewAccepted" }, SEED_EVENT_3]),
     );
+
     const occurredAtRewindFailure = yield* expectFailure(
       foldEvents([
         SEED_EVENT_1,
@@ -368,12 +400,15 @@ export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
         SEED_EVENT_3,
       ]),
     );
+
     const duplicateEventFailure = yield* expectFailure(
       foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, eventId: SEED_EVENT_1.eventId }, SEED_EVENT_3]),
     );
+
     const eventStreamFailure = yield* expectFailure(
       foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, stream: OTHER_STREAM }, SEED_EVENT_3]),
     );
+
     const eventCorrelationFailure = yield* expectFailure(
       foldEvents([
         SEED_EVENT_1,
@@ -381,16 +416,21 @@ export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
         SEED_EVENT_3,
       ]),
     );
+
     const schemaVersionFailure = yield* expectFailure(
       foldEvents([{ ...SEED_EVENT_1, schemaVersion: 2 }]),
     );
+
     const invitedState = yield* createTutorState([SEED_EVENT_1, SEED_EVENT_2]);
-    const invitedCommand: unknown = {
+
+    const invitedCommand = {
       ...FIXTURE_COMMAND,
       commandId: "cmd-0014-invited",
       expectedVersion: 2,
     };
+
     const invitedFailure = yield* expectFailure(conductInterview(invitedState, invitedCommand));
+
     const incompleteAnswerFailure = yield* expectFailure(
       conductInterview(acceptedState, {
         ...FIXTURE_COMMAND,
@@ -398,6 +438,7 @@ export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
         scores: { ...FIXTURE_COMMAND.scores, answers: { "q-0014-a": "answer-a" } },
       }),
     );
+
     const invalidScoreFailure = yield* expectFailure(
       conductInterview(acceptedState, {
         ...FIXTURE_COMMAND,
@@ -496,6 +537,7 @@ export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
     const finalFolded = yield* foldEvents(acceptedState.events);
     const finalProjection = projectFoldedState(finalFolded);
     const finalDescriptor = accepted.observation.descriptor;
+
     const evidenceDocument: Evidence = {
       formatVersion: 1,
       specId: "0014",

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -5,20 +6,30 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const databaseRoot = join(repositoryRoot, "packages", "database");
+
 const require = createRequire(join(repositoryRoot, "packages/database/package.json"));
+
 const { Pool } = require("pg");
 
 const postgresUrl = process.env.IDENTITY_EVIDENCE_PG_URL;
+
 const password = process.env.IDENTITY_EVIDENCE_PASSWORD;
-assert.equal(typeof postgresUrl, "string", "IDENTITY_EVIDENCE_PG_URL is required");
-assert.equal(typeof password, "string", "IDENTITY_EVIDENCE_PASSWORD is required");
+
+assert.equal(Predicate.isString(postgresUrl), true, "IDENTITY_EVIDENCE_PG_URL is required");
+
+assert.equal(Predicate.isString(password), true, "IDENTITY_EVIDENCE_PASSWORD is required");
+
 assert.ok(
   password.length >= 12,
   "IDENTITY_EVIDENCE_PASSWORD must satisfy Better Auth minimum length",
 );
+
 const parsedUrl = new URL(postgresUrl);
+
 assert.ok(["postgres:", "postgresql:"].includes(parsedUrl.protocol));
+
 assert.ok(["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsedUrl.hostname));
 
 export const identityEvidencePersona = {
@@ -27,27 +38,35 @@ export const identityEvidencePersona = {
   lastName: "Identity",
   email: "admin.identity-0065@example.invalid",
 };
+
 export const dashboardIntegrityMember = {
   personId: "journey-0073-member",
   firstName: "Mina",
   lastName: "Member",
   email: "member.dashboard-0073@example.invalid",
 };
+
 const grantId = "grant-journey-0065-admin";
+
 const phone = "+47 900 00 065";
+
 const orthogonalPerson = {
   personId: "identity-0056-orthogonal-person",
   firstName: "Other",
   lastName: "Capability",
 };
+
 const authzFixture = {
   tagId: "identity-0056-orthogonal-tag",
   assignmentId: "identity-0056-orthogonal-assignment",
   activeRuleId: "identity-0056-active-other-person-rule",
   expiredRuleId: "identity-0056-expired-journey-person-rule",
 };
+
 const activeStartAt = "2020-01-01T00:00:00.000Z";
+
 const expiredStartAt = "2019-01-01T00:00:00.000Z";
+
 const expiredEndAt = "2020-01-01T00:00:00.000Z";
 
 const normalizeRows = (rows) =>
@@ -65,6 +84,7 @@ const readAuthSchemaState = async (observer) => {
     `SELECT id, name, email, "emailVerified", image, "createdAt", "updatedAt"
      FROM auth."user" ORDER BY id`,
   );
+
   const accounts = await observer.query(
     `SELECT id, "accountId", "providerId", "userId", issuer, "createdAt", "updatedAt",
        ("password" IS NOT NULL) AS "passwordPresent",
@@ -72,14 +92,17 @@ const readAuthSchemaState = async (observer) => {
          AS "providerSecretPresent"
      FROM auth.account ORDER BY id`,
   );
+
   const sessions = await observer.query(
     `SELECT count(*)::integer AS total,
        count(*) FILTER (WHERE "expiresAt" > now())::integer AS live
      FROM auth.session`,
   );
+
   const verification = await observer.query(
     `SELECT count(*)::integer AS total FROM auth.verification`,
   );
+
   return {
     users: normalizeRows(users.rows),
     accounts: normalizeRows(accounts.rows),
@@ -96,11 +119,13 @@ const readPublicAuthzState = async (observer) => {
     `SELECT tag_id AS "tagId", name, revision
      FROM public.authz_tags ORDER BY tag_id`,
   );
+
   const assignments = await observer.query(
     `SELECT assignment_id AS "assignmentId", tag_id AS "tagId", person_id AS "personId",
        start_at AS "startAt", end_at AS "endAt", revision
      FROM public.authz_tag_assignments ORDER BY assignment_id`,
   );
+
   const rules = await observer.query(
     `SELECT rule_id AS "ruleId", capability_id AS "capabilityId",
        effect_kind AS "effectKind", subject_kind AS "subjectKind",
@@ -109,6 +134,7 @@ const readPublicAuthzState = async (observer) => {
        start_at AS "startAt", end_at AS "endAt", revision
      FROM public.authz_rules ORDER BY rule_id`,
   );
+
   return {
     tags: normalizeRows(tags.rows),
     assignments: normalizeRows(assignments.rows),
@@ -175,6 +201,7 @@ const seed = spawnSync("bun", ["run", "identity:seed"], {
   },
   encoding: "utf8",
 });
+
 assert.equal(seed.status, 0, `identity:seed failed (${seed.status ?? "signal"})`);
 
 const observer = new Pool({
@@ -183,6 +210,7 @@ const observer = new Pool({
   max: 1,
   application_name: "identity-browser-0065-seed-observer",
 });
+
 try {
   const authSchemaBeforePublicAuthz = await readAuthSchemaState(observer);
   await observer.query("BEGIN");
@@ -281,6 +309,7 @@ try {
       orthogonalPerson.personId,
     ],
   );
+
   const row = result.rows[0];
   assert.equal(Number(row.profiles), 2);
   assert.equal(Number(row.authz_subjects), 1);

@@ -1,6 +1,7 @@
-import { Effect, Schema } from "effect";
+import { flow, Effect, Schema } from "effect";
 import { PublicApplicationDecodeError } from "./errors.js";
 import {
+  SubmitPublicApplicationCommandSchema,
   PublicApplicationCommandIdSchema,
   PublicApplicationEmailSchema,
   PublicApplicationNameSchema,
@@ -8,7 +9,6 @@ import {
   isPublicApplicationInstant,
   PublicApplicationSubmitInputSchema,
   type PublicApplicationSubmitInput,
-  type SubmitPublicApplicationCommand,
 } from "./schema.js";
 import { DepartmentId } from "../organization/schema.js";
 import { AdmissionFieldOfStudyId } from "../admission-period/schema.js";
@@ -27,6 +27,7 @@ const normalizeSubmitInput = (
   const phone = input.phone.trim();
   const email = input.email.trim();
   const fieldOfStudyId = AdmissionFieldOfStudyId.make(input.fieldOfStudyId.trim());
+
   if (
     commandId.length === 0 ||
     departmentId.length === 0 ||
@@ -38,6 +39,7 @@ const normalizeSubmitInput = (
   ) {
     return Effect.fail(invalidInput);
   }
+
   return Effect.succeed({
     commandId,
     departmentId,
@@ -51,30 +53,26 @@ const normalizeSubmitInput = (
   });
 };
 
-export const decodePublicApplicationSubmitInput = (
-  input: unknown,
-): Effect.Effect<PublicApplicationSubmitInput, PublicApplicationDecodeError> =>
-  Schema.decodeUnknownEffect(PublicApplicationSubmitInputSchema)(input, {
+export const decodePublicApplicationSubmitInput = flow(
+  Schema.decodeUnknownEffect(PublicApplicationSubmitInputSchema, {
     onExcessProperty: "error",
-  }).pipe(
-    Effect.flatMap(normalizeSubmitInput),
-    Effect.mapError(() => invalidInput),
-  );
+  }),
+  Effect.flatMap(normalizeSubmitInput),
+  Effect.mapError(() => invalidInput),
+);
 
 export const decodeSubmitPublicApplicationInput = decodePublicApplicationSubmitInput;
 
-export const decodeSubmitPublicApplicationCommand = (
-  input: unknown,
-): Effect.Effect<SubmitPublicApplicationCommand, PublicApplicationDecodeError> =>
-  decodePublicApplicationSubmitInput(input).pipe(
-    Effect.map((normalized) => ({ _tag: "SubmitPublicApplication" as const, ...normalized })),
-  );
+export const decodeSubmitPublicApplicationCommand = flow(
+  decodePublicApplicationSubmitInput,
+  Effect.map(SubmitPublicApplicationCommandSchema.cases.SubmitPublicApplication.make),
+);
 
-export const decodePublicApplicationNow = (
-  now: unknown,
-): Effect.Effect<string, PublicApplicationDecodeError> => {
-  if (typeof now === "string" && isPublicApplicationInstant(now)) return Effect.succeed(now);
-  return Effect.fail(
-    new PublicApplicationDecodeError({ message: "invalid public application time" }),
-  );
-};
+export const decodePublicApplicationNow = flow(
+  Schema.decodeUnknownEffect(
+    Schema.String.pipe(Schema.check(Schema.makeFilter(isPublicApplicationInstant))),
+  ),
+  Effect.mapError(
+    () => new PublicApplicationDecodeError({ message: "invalid public application time" }),
+  ),
+);

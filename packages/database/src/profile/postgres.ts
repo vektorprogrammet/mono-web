@@ -1,4 +1,4 @@
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import type {
@@ -7,8 +7,13 @@ import type {
   ReadDirectoryPageInput,
 } from "@vektorprogrammet/domain/profile";
 import { decodeDirectoryCursor, encodeDirectoryCursor } from "@vektorprogrammet/domain/profile";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Effect, Schema } from "effect";
+import {
+  canonicalJsonValue,
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/evidence";
+import { flow, Effect, Schema } from "effect";
 import {
   ProfileCommandConflict,
   ProfileContactNotFound,
@@ -50,6 +55,7 @@ const decodeProfile = (
         }),
     ),
   );
+
 const decodeContact = (
   row: PersonContactProfileSelect,
 ): Effect.Effect<PersonContactProfile, ProfileDecodeError> =>
@@ -63,7 +69,7 @@ const decodeContact = (
   );
 
 const readProfile = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<PersonProfile | undefined, ProfileFailure> =>
   sql<PersonProfileSelect>`
@@ -82,8 +88,9 @@ const readProfile = (
       Effect.fail(persistenceError("read person profile", cause)),
     ),
   );
+
 const readContact = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<PersonContactProfile | undefined, ProfileFailure> =>
   sql<PersonContactProfileSelect>`
@@ -110,45 +117,62 @@ export const readPersonProfiles = (
     // Keep Organization explicit in the Profile composition graph. Organization remains the
     // authority that determines which person identities are eligible to request here.
     yield* Organization;
+
     if (personIds.length > PROFILE_READ_LIMIT) {
       return yield* new ProfileQueryLimitExceeded({ limit: PROFILE_READ_LIMIT });
     }
+
     const sql = yield* Database;
     const seen = new Set<string>();
+
     const uniqueIds = personIds.filter((personId) => {
       if (seen.has(personId)) return false;
       seen.add(personId);
+
       return true;
     });
+
     const profiles: PersonProfile[] = [];
+
     for (const personId of uniqueIds) {
       const profile = yield* readProfile(sql, personId);
+
       if (profile === undefined) return yield* new ProfileNotFound({ personId });
       profiles.push(profile);
     }
+
     return profiles.sort((left, right) => left.personId.localeCompare(right.personId));
   });
+
 export const readPersonContacts = (
   personIds: ReadonlyArray<PersonId>,
 ): Effect.Effect<ReadonlyArray<PersonContactProfile>, ProfileFailure, Database | Organization> =>
   Effect.gen(function* () {
     yield* Organization;
+
     if (personIds.length > PROFILE_READ_LIMIT) {
       return yield* new ProfileQueryLimitExceeded({ limit: PROFILE_READ_LIMIT });
     }
+
     const sql = yield* Database;
     const seen = new Set<string>();
+
     const uniqueIds = personIds.filter((personId) => {
       if (seen.has(personId)) return false;
       seen.add(personId);
+
       return true;
     });
+
     const contacts: PersonContactProfile[] = [];
+
     for (const personId of uniqueIds) {
       const contact = yield* readContact(sql, personId);
+
       if (contact === undefined) return yield* new ProfileContactNotFound({ personId });
       contacts.push(contact);
     }
+
     return contacts.sort((left, right) => left.personId.localeCompare(right.personId));
   });
 
@@ -187,42 +211,40 @@ interface ProfileCommandPayload {
   readonly phone: UpdateOwnProfileCommand["phone"];
 }
 
-const decodePersonId = (value: unknown): Effect.Effect<PersonId, ProfileDecodeError> =>
-  Schema.decodeUnknownEffect(PersonId)(value, { onExcessProperty: "error" }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ProfileDecodeError({
-          message: cause instanceof Error ? cause.message : "invalid Profile actor person ID",
-        }),
-    ),
-  );
+const decodePersonId = flow(
+  Schema.decodeUnknownEffect(PersonId, { onExcessProperty: "error" }),
+  Effect.mapError(
+    (cause) =>
+      new ProfileDecodeError({
+        message: cause instanceof Error ? cause.message : "invalid Profile actor person ID",
+      }),
+  ),
+);
 
-const decodeOwnProfileValue = (value: unknown): Effect.Effect<OwnProfile, ProfileDecodeError> =>
-  Schema.decodeUnknownEffect(OwnProfile)(value, { onExcessProperty: "error" }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ProfileDecodeError({
-          message: cause instanceof Error ? cause.message : "invalid own Profile observation",
-        }),
-    ),
-  );
+const decodeOwnProfileValue = flow(
+  Schema.decodeUnknownEffect(OwnProfile, { onExcessProperty: "error" }),
+  Effect.mapError(
+    (cause) =>
+      new ProfileDecodeError({
+        message: cause instanceof Error ? cause.message : "invalid own Profile observation",
+      }),
+  ),
+);
 
-const decodeUpdateOwnProfileCommand = (
-  value: unknown,
-): Effect.Effect<UpdateOwnProfileCommand, ProfileDecodeError> =>
-  Schema.decodeUnknownEffect(UpdateOwnProfileCommand)(value, {
+const decodeUpdateOwnProfileCommand = flow(
+  Schema.decodeUnknownEffect(UpdateOwnProfileCommand, {
     onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ProfileDecodeError({
-          message: cause instanceof Error ? cause.message : "invalid own Profile command",
-        }),
-    ),
-  );
+  }),
+  Effect.mapError(
+    (cause) =>
+      new ProfileDecodeError({
+        message: cause instanceof Error ? cause.message : "invalid own Profile command",
+      }),
+  ),
+);
 
 const readOwnProfileHttpSourceWith = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<OwnProfileHttpSource, ProfileFailure> =>
   sql<OwnProfileJoinedRow>`
@@ -246,10 +268,13 @@ const readOwnProfileHttpSourceWith = (
     Effect.flatMap((rows) =>
       Effect.gen(function* () {
         const row = rows[0];
+
         if (row === undefined) return yield* new ProfileNotFound({ personId });
+
         if (row.contactPersonId === null) {
           return yield* new ProfileContactNotFound({ personId });
         }
+
         const profile = yield* decodeOwnProfileValue({
           personId: row.personId,
           firstName: row.firstName,
@@ -259,6 +284,7 @@ const readOwnProfileHttpSourceWith = (
           nameRevision: row.nameRevision,
           contactRevision: row.contactRevision,
         });
+
         return yield* OwnProfileHttpSource.makeEffect({
           profile,
           representationRevision: row.representationRevision,
@@ -278,7 +304,7 @@ const readOwnProfileHttpSourceWith = (
   );
 
 const readOwnProfileWith = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<OwnProfile, ProfileFailure> =>
   readOwnProfileHttpSourceWith(sql, personId).pipe(Effect.map((source) => source.profile));
@@ -290,6 +316,7 @@ export const readOwnProfile = (
   Effect.gen(function* () {
     const decodedPersonId = yield* decodePersonId(personId);
     const sql = yield* Database;
+
     return yield* readOwnProfileWith(sql, decodedPersonId);
   });
 
@@ -300,10 +327,11 @@ export const readOwnProfileHttpSourcePostgres = (
   Effect.gen(function* () {
     const decodedPersonId = yield* decodePersonId(personId);
     const sql = yield* Database;
+
     return yield* readOwnProfileHttpSourceWith(sql, decodedPersonId);
   });
 
-const lockProfileCommand = (sql: DatabaseShape, commandId: ProfileCommandId) =>
+const lockProfileCommand = (sql: DatabaseOperations, commandId: ProfileCommandId) =>
   sql`SELECT pg_advisory_xact_lock(hashtextextended(${commandId}, 0))`.pipe(
     Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
@@ -312,7 +340,7 @@ const lockProfileCommand = (sql: DatabaseShape, commandId: ProfileCommandId) =>
   );
 
 const readProfileCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: ProfileCommandId,
 ): Effect.Effect<ProfileCommandReceiptRow | undefined, ProfilePersistenceError> =>
   sql<ProfileCommandReceiptRow>`
@@ -335,7 +363,7 @@ const readProfileCommandReceipt = (
   );
 
 const lockPersonProfile = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<PersonProfile | undefined, ProfileFailure> =>
   sql<PersonProfileSelect>`
@@ -357,7 +385,7 @@ const lockPersonProfile = (
   );
 
 const lockPersonContact = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<PersonContactProfile | undefined, ProfileFailure> =>
   sql<PersonContactProfileSelect>`
@@ -379,7 +407,7 @@ const lockPersonContact = (
   );
 
 const updatePersonProfile = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   actorPersonId: PersonId,
   command: UpdateOwnProfileCommand,
 ): Effect.Effect<PersonProfile, ProfileFailure> =>
@@ -400,9 +428,11 @@ const updatePersonProfile = (
     Effect.flatMap((rows) =>
       Effect.gen(function* () {
         const row = rows[0];
+
         if (row === undefined) {
           return yield* persistenceError("update locked own Profile name row");
         }
+
         return yield* decodeProfile(row);
       }),
     ),
@@ -412,7 +442,7 @@ const updatePersonProfile = (
   );
 
 const updatePersonContact = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   actorPersonId: PersonId,
   command: UpdateOwnProfileCommand,
 ): Effect.Effect<PersonContactProfile, ProfileFailure> =>
@@ -433,9 +463,11 @@ const updatePersonContact = (
     Effect.flatMap((rows) =>
       Effect.gen(function* () {
         const row = rows[0];
+
         if (row === undefined) {
           return yield* persistenceError("update locked own Profile contact row");
         }
+
         return yield* decodeContact(row);
       }),
     ),
@@ -456,14 +488,19 @@ const replayOwnProfile = (
 > =>
   Effect.gen(function* () {
     const storedCommandJson = canonicalJson(receipt.commandJson);
+
     if (storedCommandJson !== commandJson) {
       return yield* new ProfileCommandConflict({ commandId: command.commandId });
     }
+
     const storedDigest = sha256Hex(canonicalJsonBytes(receipt.commandJson));
+
     if (receipt.commandSha256 !== commandDigest || receipt.commandSha256 !== storedDigest) {
       return yield* persistenceError("validate own Profile command digest");
     }
+
     const result = yield* decodeOwnProfileValue(receipt.resultJson);
+
     if (
       receipt.actorPersonId !== actorPersonId ||
       receipt.expectedNameRevision !== command.expectedNameRevision ||
@@ -480,11 +517,12 @@ const replayOwnProfile = (
     ) {
       return yield* persistenceError("validate own Profile command receipt linkage");
     }
+
     return result;
   });
 
 const writeProfileCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   actorPersonId: PersonId,
   command: UpdateOwnProfileCommand,
   payload: ProfileCommandPayload,
@@ -505,8 +543,8 @@ const writeProfileCommandReceipt = (
     ) VALUES (
       ${command.commandId},
       ${commandDigest},
-      ${sql.json(payload)},
-      ${sql.json(result)},
+      ${sql.json(canonicalJsonValue(payload))},
+      ${sql.json(canonicalJsonValue(result))},
       ${actorPersonId},
       ${command.expectedNameRevision},
       ${command.expectedContactRevision},
@@ -527,6 +565,7 @@ export const updateOwnProfile = (
   Effect.gen(function* () {
     const actorPersonId = yield* decodePersonId(input.actorPersonId);
     const command = yield* decodeUpdateOwnProfileCommand(input.command);
+
     const payload: ProfileCommandPayload = {
       actorPersonId,
       _tag: command._tag,
@@ -538,6 +577,7 @@ export const updateOwnProfile = (
       email: command.email,
       phone: command.phone,
     };
+
     const commandJson = canonicalJson(payload);
     const commandDigest = sha256Hex(canonicalJsonBytes(payload));
     const sql = yield* Database;
@@ -547,6 +587,7 @@ export const updateOwnProfile = (
         Effect.gen(function* () {
           yield* lockProfileCommand(sql, command.commandId);
           const receipt = yield* readProfileCommandReceipt(sql, command.commandId);
+
           if (receipt !== undefined) {
             return yield* replayOwnProfile(
               receipt,
@@ -559,13 +600,17 @@ export const updateOwnProfile = (
 
           // The fixed name-then-contact order prevents cross-command row-lock inversions.
           const profile = yield* lockPersonProfile(sql, actorPersonId);
+
           if (profile === undefined) {
             return yield* new ProfileNotFound({ personId: actorPersonId });
           }
+
           const contact = yield* lockPersonContact(sql, actorPersonId);
+
           if (contact === undefined) {
             return yield* new ProfileContactNotFound({ personId: actorPersonId });
           }
+
           if (
             profile.revision !== command.expectedNameRevision ||
             contact.revision !== command.expectedContactRevision
@@ -581,6 +626,7 @@ export const updateOwnProfile = (
 
           const updatedProfile = yield* updatePersonProfile(sql, actorPersonId, command);
           const updatedContact = yield* updatePersonContact(sql, actorPersonId, command);
+
           const result = yield* decodeOwnProfileValue({
             personId: actorPersonId,
             firstName: updatedProfile.firstName,
@@ -590,6 +636,7 @@ export const updateOwnProfile = (
             nameRevision: updatedProfile.revision,
             contactRevision: updatedContact.revision,
           });
+
           yield* writeProfileCommandReceipt(
             sql,
             actorPersonId,
@@ -598,6 +645,7 @@ export const updateOwnProfile = (
             commandDigest,
             result,
           );
+
           return result;
         }),
       )
@@ -632,12 +680,16 @@ export const readDirectoryPage = (
     // every other Profile read; Organization owns each row's departments and
     // activity while Profile owns names and contacts.
     yield* Organization;
+
     if (!Number.isSafeInteger(input.limit) || input.limit <= 0) {
       return yield* new ProfileQueryLimitExceeded({ limit: input.limit });
     }
+
     const cursorTuple =
       input.cursor === undefined ? undefined : yield* decodeDirectoryCursor(input.cursor);
+
     const sql = yield* Database;
+
     const rows = yield* sql<DirectoryJoinedRow>`
       SELECT
         profile.person_id AS "personId",
@@ -659,11 +711,14 @@ export const readDirectoryPage = (
         Effect.fail(persistenceError("read Profile directory page", cause)),
       ),
     );
+
     const entries: Array<DirectoryEntry> = [];
+
     for (const row of rows) {
       if (row.email === null || row.phone === null) {
         return yield* new ProfileContactNotFound({ personId: PersonId.make(row.personId) });
       }
+
       entries.push({
         personId: PersonId.make(row.personId),
         firstName: row.firstName,
@@ -672,8 +727,10 @@ export const readDirectoryPage = (
         phone: row.phone,
       });
     }
+
     if (entries.length <= input.limit) return { entries };
     const last = entries[input.limit - 1]!;
+
     return {
       entries: entries.slice(0, input.limit),
       nextCursor: encodeDirectoryCursor(last),

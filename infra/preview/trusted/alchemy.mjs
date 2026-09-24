@@ -10,13 +10,16 @@ import {
 } from "./contracts.mjs";
 
 const ALLOWED_ACTIONS = Object.freeze(["plan", "deploy", "destroy"]);
+
 const SAFE_ENVIRONMENT = "vektor-preview";
 
 function containsControlCharacter(value) {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
+
     if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) return true;
   }
+
   return false;
 }
 
@@ -29,8 +32,11 @@ function readManifest(path) {
   ) {
     throw new Error("ownership manifest path contains unsafe characters");
   }
+
   const manifest = JSON.parse(readFileSync(path, "utf8"));
+
   if (manifest.schema !== "preview-ownership/v1") throw new Error("unsupported ownership manifest");
+
   return manifest;
 }
 
@@ -46,23 +52,31 @@ export function buildAlchemyCommand({
   environment = SAFE_ENVIRONMENT,
 }) {
   if (!ALLOWED_ACTIONS.includes(action)) throw new Error(`unsupported Alchemy action: ${action}`);
+
   if (environment !== SAFE_ENVIRONMENT)
     throw new Error(`unexpected deployment environment: ${environment}`);
   const manifest = readManifest(manifestPath);
+
   if (
     manifest.repository !== identity.repository ||
     manifest.stage !== identity.stage ||
     manifest.target !== identity.target
   )
     throw new Error("manifest identity mismatch");
+
   if (manifest.containerName !== identity.containerName)
     throw new Error("manifest container identity mismatch");
+
   if (manifest.sourceDigest !== sourceDigest) throw new Error("manifest source digest mismatch");
+
   if (manifest.imageDigest !== imageDigest) throw new Error("manifest image digest mismatch");
+
   if (manifest.seedDigest !== seedDigest) throw new Error("manifest seed digest mismatch");
+
   if (manifest.routeContractDigest !== routeContractDigest)
     throw new Error("manifest route contract digest mismatch");
   assertNoForbiddenHost(manifest, "ownership manifest");
+
   const args = [
     "alchemy",
     action,
@@ -87,6 +101,7 @@ export function buildAlchemyCommand({
     "--ownership-manifest",
     manifestPath,
   ];
+
   if (action === "destroy")
     args.push(
       "--resource-prefix",
@@ -96,6 +111,7 @@ export function buildAlchemyCommand({
       "--exact-stage",
       identity.stage,
     );
+
   return Object.freeze({
     command: "bun",
     args,
@@ -112,15 +128,18 @@ export function buildAlchemyCommand({
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const action = args._[0];
+
   if (!action) throw new Error("action is required");
   const identity = identityFromArgs(args);
   const sourceDigest = requireDigest(requireOption(args, "source-digest"), "sourceDigest");
   const imageDigest = requireDigest(requireOption(args, "image-digest"), "imageDigest");
   const seedDigest = requireDigest(requireOption(args, "seed-digest"), "seedDigest");
+
   const routeContractDigest = requireDigest(
     requireOption(args, "route-contract-digest"),
     "routeContractDigest",
   );
+
   const command = buildAlchemyCommand({
     action,
     identity,
@@ -131,6 +150,7 @@ function main() {
     routeContractDigest,
     remoteState: requireOption(args, "remote-state"),
   });
+
   process.stdout.write(`${JSON.stringify(command, null, 2)}\n`);
 }
 

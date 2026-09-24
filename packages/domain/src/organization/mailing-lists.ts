@@ -49,12 +49,15 @@ const mergeFirstSeen = (
 ): ReadonlyArray<PersonId> => {
   const seen = new Set<string>();
   const merged: Array<PersonId> = [];
+
   for (const person of [...assistants, ...teamMembers]) {
     const key = String(person);
+
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(person);
   }
+
   return merged;
 };
 
@@ -67,10 +70,12 @@ export const projectOrganizationMailingLists = (
       : input.authorizedDepartmentIds.filter((authorized) => authorized === input.departmentId);
 
   const lists: Array<MailingList> = [];
+
   for (const departmentId of scopedDepartments) {
     const teamMembers = input.membersByDepartment.get(departmentId) ?? [];
     const assistants = input.assistantsByDepartment.get(departmentId) ?? [];
     let selected: ReadonlyArray<PersonId>;
+
     switch (input.type) {
       case "assistants":
         selected = [...assistants];
@@ -82,17 +87,23 @@ export const projectOrganizationMailingLists = (
         selected = mergeFirstSeen(assistants, teamMembers);
         break;
     }
+
     const ordered = [...selected].sort((left, right) => String(left).localeCompare(String(right)));
     const seenEmails = new Set<string>();
     const emails: Array<string> = [];
+
     for (const personId of ordered) {
       const contact = input.contacts.get(personId);
+
       if (contact === undefined) continue;
+
       if (seenEmails.has(contact.email)) continue;
       seenEmails.add(contact.email);
       emails.push(contact.email);
     }
+
     lists.push({ name: `${input.type}-${departmentId}`, emails });
   }
+
   return lists.sort((left, right) => left.name.localeCompare(right.name));
 };

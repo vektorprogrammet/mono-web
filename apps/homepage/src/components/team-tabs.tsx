@@ -50,6 +50,7 @@ export function TeamTabs({
 
 function HovedstyretTab({ teams }: { teams: readonly TeamContent[] }) {
   const team = teams.find((item) => item.city === "Hovedstyret");
+
   if (!team) return null;
 
   return (

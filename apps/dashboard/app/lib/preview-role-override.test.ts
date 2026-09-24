@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
  * - applyRoleOverrideToInput only patches the `role` field and preserves the
  *   rest of the dashboard input (F2: presentation only).
  */
-import { DashboardInputJson } from "../foldkit/dashboard/model";
+import { DashboardInputJson, LandingSummary } from "../foldkit/dashboard/model";
 import { Schema as S } from "effect";
 import {
   PREVIEW_ROLE_STORAGE_KEY,
@@ -24,6 +24,7 @@ import {
 
 const decodeInput = (json: string | null) => {
   if (json === null) return null;
+
   return S.decodeUnknownSync(DashboardInputJson)(json, { onExcessProperty: "error" });
 };
 
@@ -31,7 +32,7 @@ const serverInput = JSON.stringify({
   user: { name: "Real User", avatar: null },
   role: "ROLE_TEAM_MEMBER",
   activePath: "/dashboard",
-  summary: { _tag: "Unavailable" },
+  summary: LandingSummary.make({}),
   recruitment: null,
   scheduling: null,
 });
@@ -76,7 +77,7 @@ describe("applyRoleOverrideToInput", () => {
     // Identity stays the REAL server-provided user — only presentation changes.
     expect(decoded!.user).toEqual({ name: "Real User", avatar: null });
     expect(decoded!.activePath).toBe("/dashboard");
-    expect(decoded!.summary).toEqual({ _tag: "Unavailable" });
+    expect(decoded!.summary).toEqual(LandingSummary.make({}));
   });
 
   it("returns input unchanged when override is null", () => {

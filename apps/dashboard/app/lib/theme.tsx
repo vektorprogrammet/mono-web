@@ -1,3 +1,4 @@
+import { Schema, Option } from "effect";
 import {
   createContext,
   useCallback,
@@ -7,7 +8,9 @@ import {
   type ReactNode,
 } from "react";
 
-type Theme = "light" | "dark" | "system";
+const Theme = Schema.Literals(["light", "dark", "system"]);
+
+type Theme = typeof Theme.Type;
 
 interface ThemeContext {
   theme: Theme;
@@ -18,7 +21,8 @@ interface ThemeContext {
 const ThemeContext = createContext<ThemeContext | null>(null);
 
 function getSystemTheme(): "light" | "dark" {
-  if (typeof window === "undefined") return "light";
+  if (globalThis.window === undefined) return "light";
+
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";
@@ -34,8 +38,9 @@ function applyTheme(resolved: "light" | "dark") {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "system";
-    return (localStorage.getItem("theme") as Theme) ?? "system";
+    if (globalThis.window === undefined) return "system";
+
+    return Option.getOrElse(Schema.decodeUnknownOption(Theme)(localStorage.getItem("theme")), () => "system");
   });
 
   const resolved = resolve(theme);
@@ -54,6 +59,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => applyTheme(getSystemTheme());
     mq.addEventListener("change", handler);
+
     return () => mq.removeEventListener("change", handler);
   }, [theme, resolved]);
 
@@ -66,6 +72,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 export function useTheme() {
   const ctx = useContext(ThemeContext);
+
   if (!ctx) throw new Error("useTheme must be used within ThemeProvider");
+
   return ctx;
 }

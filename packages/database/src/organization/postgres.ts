@@ -1,13 +1,11 @@
-import { Database, type DatabaseShape } from "../service.js";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import { Database, type DatabaseOperations } from "../service.js";
 import { lockPersonAuthorization } from "./authority-postgres.js";
 import * as Statement from "effect/unstable/sql/Statement";
-import { Effect, Schema } from "effect";
+import { flow, Effect, Schema } from "effect";
 import {
   DepartmentNotFound,
-  MembershipInvalidInterval,
   MembershipNotFound,
-  MembershipRevisionConflict,
-  MembershipStaleRevision,
   OrganizationImportError,
   OrganizationDecodeError,
   OrganizationPersistenceError,
@@ -35,46 +33,42 @@ import {
   type OrganizationImportResult,
   type OrganizationQuarantine,
 } from "@vektorprogrammet/domain/organization";
-import {
-  applyMembershipRevision,
-  type MembershipRevisionCommand,
-} from "@vektorprogrammet/domain/organization";
 
 const persistenceError = (operation: string, cause: unknown) =>
   new OrganizationPersistenceError({ operation, message: String(cause) });
 
-const decodeDepartment = (row: unknown): Effect.Effect<Department, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(Department)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new OrganizationDecodeError({
-          operation: "decode Department select",
-          message: String(cause),
-        }),
-    ),
-  );
+const decodeDepartment = flow(
+  Schema.decodeUnknownEffect(Department, { onExcessProperty: "error" }),
+  Effect.mapError(
+    (cause) =>
+      new OrganizationDecodeError({
+        operation: "decode Department select",
+        message: String(cause),
+      }),
+  ),
+);
 
-const decodeTeam = (row: unknown): Effect.Effect<Team, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(Team)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new OrganizationDecodeError({ operation: "decode Team select", message: String(cause) }),
-    ),
-  );
+const decodeTeam = flow(
+  Schema.decodeUnknownEffect(Team, { onExcessProperty: "error" }),
+  Effect.mapError(
+    (cause) =>
+      new OrganizationDecodeError({ operation: "decode Team select", message: String(cause) }),
+  ),
+);
 
-const decodeMembership = (row: unknown): Effect.Effect<Membership, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(MembershipInvariantSchema)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new OrganizationDecodeError({
-          operation: "decode Membership select",
-          message: String(cause),
-        }),
-    ),
-  );
+const decodeMembership = flow(
+  Schema.decodeUnknownEffect(MembershipInvariantSchema, { onExcessProperty: "error" }),
+  Effect.mapError(
+    (cause) =>
+      new OrganizationDecodeError({
+        operation: "decode Membership select",
+        message: String(cause),
+      }),
+  ),
+);
 
 const findDepartment = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   departmentId: DepartmentId,
 ): Effect.Effect<Department | undefined, OrganizationDecodeError | OrganizationPersistenceError> =>
   sql<DepartmentSelect>`
@@ -112,6 +106,7 @@ export const readOrganizationDepartment = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const department = yield* findDepartment(sql, departmentId);
+
     return department === undefined ? yield* new DepartmentNotFound({ departmentId }) : department;
   });
 
@@ -122,6 +117,7 @@ export const listOrganizationDepartments = (): Effect.Effect<
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<DepartmentSelect>`
       SELECT
         department_id AS "departmentId",
@@ -143,11 +139,12 @@ export const listOrganizationDepartments = (): Effect.Effect<
         Effect.fail(persistenceError("list organization departments", cause)),
       ),
     );
-    return yield* Effect.forEach(rows, decodeDepartment);
+
+    return yield* Effect.forEach(rows, (row) => decodeDepartment(row));
   });
 
 const findTeam = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   teamId: TeamId,
 ): Effect.Effect<Team | undefined, OrganizationDecodeError | OrganizationPersistenceError> =>
   sql<TeamSelect>`
@@ -185,6 +182,7 @@ export const readOrganizationTeam = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const team = yield* findTeam(sql, teamId);
+
     return team === undefined ? yield* new TeamNotFound({ teamId }) : team;
   });
 
@@ -197,6 +195,7 @@ export const listOrganizationTeams = (
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows =
       departmentId === undefined
         ? yield* sql<TeamSelect>`
@@ -242,11 +241,12 @@ export const listOrganizationTeams = (
               Effect.fail(persistenceError("list organization teams", cause)),
             ),
           );
-    return yield* Effect.forEach(rows, decodeTeam);
+
+    return yield* Effect.forEach(rows, (row) => decodeTeam(row));
   });
 
 const findMembership = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   membershipId: MembershipId,
   forUpdate: boolean,
 ): Effect.Effect<
@@ -269,7 +269,7 @@ const findMembership = (
           is_suspended AS "isSuspended",
           revision
         FROM organization_memberships
-        WHERE membership_id = ${membershipId}
+        WHERE membership_id = ${membershipId} AND board_id IS NULL
         FOR UPDATE
       `
     : sql<MembershipSelect>`
@@ -287,8 +287,9 @@ const findMembership = (
           is_suspended AS "isSuspended",
           revision
         FROM organization_memberships
-        WHERE membership_id = ${membershipId}
+        WHERE membership_id = ${membershipId} AND board_id IS NULL
       `;
+
   return query.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined ? Effect.succeed(undefined) : decodeMembership(rows[0]),
@@ -298,6 +299,7 @@ const findMembership = (
     ),
   );
 };
+
 export const readOrganizationMembership = (
   membershipId: MembershipId,
 ): Effect.Effect<
@@ -308,6 +310,7 @@ export const readOrganizationMembership = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const membership = yield* findMembership(sql, membershipId, false);
+
     return membership === undefined ? yield* new MembershipNotFound({ membershipId }) : membership;
   });
 
@@ -320,6 +323,7 @@ export const listOrganizationMembershipsForTeam = (
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<MembershipSelect>`
       SELECT
         membership_id AS "membershipId",
@@ -342,7 +346,8 @@ export const listOrganizationMembershipsForTeam = (
         Effect.fail(persistenceError("list organization team memberships", cause)),
       ),
     );
-    return yield* Effect.forEach(rows, decodeMembership);
+
+    return yield* Effect.forEach(rows, (row) => decodeMembership(row));
   });
 
 export const listOrganizationHistoricalMemberships = (): Effect.Effect<
@@ -352,6 +357,7 @@ export const listOrganizationHistoricalMemberships = (): Effect.Effect<
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<MembershipSelect>`
       SELECT
         membership_id AS "membershipId",
@@ -367,133 +373,20 @@ export const listOrganizationHistoricalMemberships = (): Effect.Effect<
         is_suspended AS "isSuspended",
         revision
       FROM organization_memberships
-      WHERE team_id IS NULL
+      WHERE team_id IS NULL AND board_id IS NULL
       ORDER BY start_at ASC, membership_id ASC
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("list organization historical memberships", cause)),
       ),
     );
-    return yield* Effect.forEach(rows, decodeMembership);
+
+    return yield* Effect.forEach(rows, (row) => decodeMembership(row));
   });
-const updateMembership = (
-  sql: DatabaseShape,
-  current: Membership,
-  next: Membership,
-): Effect.Effect<
-  Membership,
-  OrganizationDecodeError | OrganizationPersistenceError | MembershipRevisionConflict
-> =>
-  Effect.gen(function* () {
-    const rows = yield* sql<MembershipSelect>`
-      UPDATE organization_memberships
-      SET
-        end_at = ${next.endAt},
-        position_id = ${next.positionId},
-        is_team_leader = ${next.isTeamLeader},
-        is_suspended = ${next.isSuspended},
-        revision = revision + 1
-      WHERE membership_id = ${current.membershipId}
-        AND revision = ${current.revision}
-      RETURNING
-        membership_id AS "membershipId",
-        person_id AS "personId",
-        team_id AS "teamId",
-        deleted_team_name AS "deletedTeamName",
-        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
-        CASE WHEN end_at IS NULL THEN NULL
-          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-        END AS "endAt",
-        position_id AS "positionId",
-        is_team_leader AS "isTeamLeader",
-        is_suspended AS "isSuspended",
-        revision
-    `;
-    if (rows[0] === undefined) {
-      return yield* new MembershipRevisionConflict({ membershipId: current.membershipId });
-    }
-    return yield* decodeMembership(rows[0]);
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("revise organization membership", cause)),
-    ),
-  );
-
-type MembershipRevisionPersistenceError =
-  | MembershipNotFound
-  | OrganizationDecodeError
-  | OrganizationPersistenceError
-  | MembershipRevisionConflict
-  | MembershipInvalidInterval
-  | MembershipStaleRevision;
-
-/**
- * Resolves the canonical person before taking any membership row lock, then
- * serializes that person's authority changes before locking the row. The
- * second read rejects a delete/reinsert or out-of-band person reassignment.
- */
-export const lockOrganizationMembershipForRevision = (
-  sql: DatabaseShape,
-  membershipId: MembershipId,
-): Effect.Effect<
-  Membership,
-  | MembershipNotFound
-  | OrganizationDecodeError
-  | OrganizationPersistenceError
-  | MembershipRevisionConflict
-> =>
-  Effect.gen(function* () {
-    const observed = yield* findMembership(sql, membershipId, false);
-    if (observed === undefined) return yield* new MembershipNotFound({ membershipId });
-    yield* lockPersonAuthorization(sql, observed.personId);
-    const locked = yield* findMembership(sql, membershipId, true);
-    if (locked === undefined || locked.personId !== observed.personId) {
-      return yield* new MembershipRevisionConflict({ membershipId });
-    }
-    return locked;
-  });
-
-const executeMembershipRevision = (
-  command: MembershipRevisionCommand,
-): Effect.Effect<Membership, MembershipRevisionPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const database = yield* Database;
-    return yield* database
-      .withTransaction(
-        Effect.gen(function* () {
-          const current = yield* lockOrganizationMembershipForRevision(
-            database,
-            command.membershipId,
-          );
-          const next = yield* applyMembershipRevision(current, command);
-          return yield* updateMembership(database, current, next);
-        }),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("organization membership transaction", cause)),
-        ),
-      );
-  });
-
-export const reviseOrganizationMembership = (
-  command: Extract<MembershipRevisionCommand, { readonly _tag: "ReviseMembership" }>,
-): Effect.Effect<Membership, MembershipRevisionPersistenceError, Database> =>
-  executeMembershipRevision(command);
-
-export const suspendOrganizationMembership = (
-  command: Extract<MembershipRevisionCommand, { readonly _tag: "SuspendMembership" }>,
-): Effect.Effect<Membership, MembershipRevisionPersistenceError, Database> =>
-  executeMembershipRevision(command);
-
-export const reinstateOrganizationMembership = (
-  command: Extract<MembershipRevisionCommand, { readonly _tag: "ReinstateMembership" }>,
-): Effect.Effect<Membership, MembershipRevisionPersistenceError, Database> =>
-  executeMembershipRevision(command);
 
 const insertImportedOrganization = (
-  sql: DatabaseShape,
-  database: DatabaseShape,
+  sql: DatabaseOperations,
+  database: DatabaseOperations,
   snapshot: LegacyOrganizationSnapshot,
   result: OrganizationImportResult,
 ): Effect.Effect<OrganizationImportResult, OrganizationPersistenceError> =>
@@ -501,10 +394,12 @@ const insertImportedOrganization = (
     const affectedPersonIds = [
       ...new Set(result.memberships.map((membership) => membership.personId)),
     ].sort();
+
     yield* Effect.forEach(affectedPersonIds, (personId) => lockPersonAuthorization(sql, personId));
     const quarantined: OrganizationQuarantine[] = [...result.quarantined];
     const ledger: OrganizationImportLedgerEntry[] = [...result.ledger];
     const destinationCollisions = new Set<string>();
+
     const quarantineCollision = (
       sourceKind: OrganizationQuarantine["sourceKind"],
       destinationIdentity: string,
@@ -515,12 +410,15 @@ const insertImportedOrganization = (
           entry.destinationIdentity === destinationIdentity &&
           entry.result === "Accepted",
       );
+
       const entry = ledger[index];
+
       if (entry === undefined) {
         return Effect.fail(
           persistenceError("classify organization destination collision", destinationIdentity),
         );
       }
+
       quarantined.push({
         sourceKind,
         sourcePrimaryKey: entry.sourcePrimaryKey,
@@ -536,8 +434,10 @@ const insertImportedOrganization = (
         result: "Quarantined",
         reason: "DESTINATION_IDENTITY_COLLISION",
       };
+
       return Effect.void;
     };
+
     yield* Effect.forEach(result.departments, (department) =>
       sql<{ readonly persisted_id: string }>`
           INSERT INTO organization_departments (
@@ -591,10 +491,12 @@ const insertImportedOrganization = (
         `.pipe(
         Effect.flatMap((rows) => {
           if (rows.length === 1) return Effect.void;
+
           return sql<{ readonly persisted_id: string }>`
             SELECT membership_id AS persisted_id
             FROM organization_memberships
             WHERE membership_id = ${membership.membershipId}
+              AND board_id IS NULL
               AND person_id = ${membership.personId}
               AND team_id IS NOT DISTINCT FROM ${membership.teamId}
               AND deleted_team_name IS NOT DISTINCT FROM ${membership.deletedTeamName}
@@ -625,7 +527,7 @@ const insertImportedOrganization = (
           ${snapshot.sourceRepository}, ${snapshot.sourceRevision}, ${snapshot.snapshotId},
           ${row.sourcePrimaryKey}, ${row.sourceOccurrence}, ${snapshot.transformationRevision},
           ${row.sourceKind}, ${row.targetSemanticIdentity}, ${row.reason},
-          ${database.json(row.raw)}
+          ${database.json(canonicalJsonValue(row.raw))}
         ) ON CONFLICT (
           source_repository, source_revision, snapshot_id, source_kind, source_primary_key,
           source_occurrence, transformation_revision
@@ -645,14 +547,15 @@ const insertImportedOrganization = (
           ${entry.sourceRepository}, ${entry.sourceRevision}, ${entry.snapshotId}, ${entry.sourceKind},
           ${entry.sourcePrimaryKey}, ${entry.sourceOccurrence}, ${entry.transformationRevision},
           ${entry.targetSemanticIdentity}, ${entry.destinationIdentity}, ${entry.result},
-          ${entry.reason === null ? null : database.json({ code: entry.reason })},
-          ${entry.sourceMetadata === null ? null : database.json(entry.sourceMetadata)}
+          ${entry.reason === null ? null : database.json(canonicalJsonValue({ code: entry.reason }))},
+          ${entry.sourceMetadata === null ? null : database.json(canonicalJsonValue(entry.sourceMetadata))}
         ) ON CONFLICT (
           source_repository, source_revision, snapshot_id, source_kind, source_primary_key,
           source_occurrence, transformation_revision
         ) DO NOTHING
       `,
     );
+
     return {
       departments: result.departments.filter(
         (department) => !destinationCollisions.has(`department:${department.departmentId}`),
@@ -680,6 +583,7 @@ export const importOrganizationSnapshot = (
   Effect.gen(function* () {
     const database = yield* Database;
     const classified = yield* importLegacyOrganizationEffect(snapshot);
+
     return yield* database
       .withTransaction(insertImportedOrganization(database, database, snapshot, classified))
       .pipe(
@@ -689,21 +593,19 @@ export const importOrganizationSnapshot = (
       );
   });
 
-const decodeTeamInterestRegistration = (
-  row: unknown,
-): Effect.Effect<TeamInterestRegistration, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(TeamInterestRegistration)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new OrganizationDecodeError({
-          operation: "decode TeamInterestRegistration select",
-          message: String(cause),
-        }),
-    ),
-  );
+const decodeTeamInterestRegistration = flow(
+  Schema.decodeUnknownEffect(TeamInterestRegistration, { onExcessProperty: "error" }),
+  Effect.mapError(
+    (cause) =>
+      new OrganizationDecodeError({
+        operation: "decode TeamInterestRegistration select",
+        message: String(cause),
+      }),
+  ),
+);
 
 const teamInterestScopeClause = (
-  database: DatabaseShape,
+  database: DatabaseOperations,
   authorizedDepartmentIds: ReadonlyArray<DepartmentId>,
 ) =>
   Statement.or(
@@ -713,18 +615,21 @@ const teamInterestScopeClause = (
   );
 
 const teamInterestPredicate = (
-  database: DatabaseShape,
+  database: DatabaseOperations,
   filter: TeamInterestFilter,
 ): Statement.Fragment => {
   const clauses: Array<Statement.Fragment> = [
     teamInterestScopeClause(database, filter.authorizedDepartmentIds),
   ];
+
   if (filter.semesterId !== undefined) {
     clauses.push(database`registration.semester_id = ${filter.semesterId}`);
   }
+
   if (filter.departmentId !== undefined) {
     clauses.push(database`registration.department_id = ${filter.departmentId}`);
   }
+
   return Statement.and(clauses);
 };
 
@@ -736,8 +641,10 @@ export const listOrganizationTeamInterestRegistrations = (
   Database
 > => {
   if (filter.authorizedDepartmentIds.length === 0) return Effect.succeed([]);
+
   return Effect.gen(function* () {
     const database = yield* Database;
+
     const rows = yield* database<TeamInterestRegistrationSelect>`
       SELECT
         registration.registration_id::text AS "registrationId",
@@ -760,6 +667,7 @@ export const listOrganizationTeamInterestRegistrations = (
         Effect.fail(persistenceError("list organization team interest registrations", cause)),
       ),
     );
-    return yield* Effect.forEach(rows, decodeTeamInterestRegistration);
+
+    return yield* Effect.forEach(rows, (row) => decodeTeamInterestRegistration(row));
   });
 };

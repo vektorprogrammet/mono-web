@@ -1,5 +1,10 @@
+import type { ReceiptActor } from "@vektorprogrammet/domain/receipt";
+import { observePostgresStatements } from "./test-support/observe-postgres.js";
 import assert from "node:assert/strict";
 import {
+  PrincipalSchema,
+  AuthzRuleSubjectSchema,
+  AuthzRuleScopeSchema,
   AUTHZ_LOCK_PROTOCOL,
   AuthorityVersion,
   AuthzRuleId,
@@ -19,16 +24,18 @@ import {
   removeAuthzRule,
 } from "./authz/postgres.js";
 import {
+  DisposableAuthzRuleSubjectAuthoringSchema,
   persistDisposableAuthzBackfill,
   type DisposableAuthzBackfillPlan,
 } from "./authz/disposable-backfill.js";
 import {
+  AdmissionPeriodCommandSchema,
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
   decideAdmissionPeriod,
 } from "@vektorprogrammet/domain/admission-period";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
-import { Database, type DatabaseShape } from "./service.js";
+import { Database, type DatabaseOperations } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   DepartmentId,
@@ -48,6 +55,9 @@ import {
 } from "./organization/authority-postgres.js";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import {
+  ReceiptActorSchema,
+  ApprovalScopeSchema,
+  ReceiptCommandRequestSchema,
   ReceiptApprovalGrantId,
   ReceiptId,
   ReceiptPaymentAuthorityId,
@@ -67,8 +77,8 @@ import {
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
-import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
-import { makeSpec0055OrganizationAuthorityFixtures } from "../../domain/src/organization/authority-fixtures.test-support.js";
+import { Result, Data, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
+import { spec0055OrganizationAuthorityFixtures } from "../../domain/src/organization/authority-fixtures.test-support.js";
 import { resolveOrganizationPersonAuthorityForRead } from "./organization/authority-postgres.js";
 import { executeReceiptCommand } from "./receipt/postgres.js";
 import { DatabaseLive } from "./layers.js";
@@ -80,10 +90,15 @@ import {
 } from "./test-support/disposable-authz-backfill-fixtures.js";
 
 const implementationBaseRevision = "f83d18ae408ad2c1e954d344620802a7ad1bda42";
+
 const proofApplicationPrefix = "authorization-rules-proof-0056";
+
 const activeStart = "2037-01-01T00:00:00.000Z";
+
 const inactiveEnd = "2037-06-01T00:00:00.000Z";
+
 const exactEnd = "2037-06-15T12:00:00.000Z";
+
 const justBeforeExactEnd = "2037-06-15T11:59:59.999Z";
 
 const ids = {
@@ -212,6 +227,7 @@ const generatedVisualIds = {
 } as const;
 
 const personId = (value: string) => PersonId.make(value);
+
 const departmentId = (value: string) => DepartmentId.make(value);
 
 const proofReceiptContext = (department: DepartmentId) => ({
@@ -270,15 +286,18 @@ const makeZeroRuleProofLayer = (url: Redacted.Redacted<string>, applicationName:
   const databaseLayer = makeProofLayer(url, applicationName);
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
   const profileLayer = ProfileLive.pipe(
     Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
   );
+
   const supportLayer = Layer.mergeAll(
     databaseLayer,
     admissionsLayer,
     organizationLayer,
     profileLayer,
   );
+
   return Layer.merge(supportLayer, RecruitmentLive.pipe(Layer.provide(supportLayer)));
 };
 
@@ -289,7 +308,7 @@ const assertDisposablePostgres = (url: Redacted.Redacted<string>): void => {
   assert.match(decodeURIComponent(parsed.pathname.slice(1)), /proof|test/u);
 };
 
-const resetDatabaseObjects = (sql: DatabaseShape) =>
+const resetDatabaseObjects = (sql: DatabaseOperations) =>
   sql
     .unsafe(`
     DO $$
@@ -319,7 +338,7 @@ const resetDatabaseObjects = (sql: DatabaseShape) =>
   `)
     .pipe(Effect.asVoid);
 
-const seedDatabase = (sql: DatabaseShape) =>
+const seedDatabase = (sql: DatabaseOperations) =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
@@ -651,7 +670,7 @@ interface SeedRecord {
   readonly id: string;
 }
 
-const readSeedRecords = (sql: DatabaseShape) =>
+const readSeedRecords = (sql: DatabaseOperations) =>
   sql<SeedRecord>`
     SELECT seed.kind, seed.id
     FROM (
@@ -699,20 +718,25 @@ const replayCanonicalMigrationsAndSeed = (databaseUrl: Redacted.Redacted<string>
     const sql = yield* Database;
     yield* resetDatabaseObjects(sql);
     yield* sql.migrate;
+
     const firstReplay = yield* sql<MigrationRow>`
       SELECT migration_id, name
       FROM public.vektorprogrammet_schema_migrations
       ORDER BY migration_id ASC
     `;
+
     yield* sql.migrate;
+
     const idempotentReplay = yield* sql<MigrationRow>`
       SELECT migration_id, name
       FROM public.vektorprogrammet_schema_migrations
       ORDER BY migration_id ASC
     `;
+
     const [server] = yield* sql<{ readonly serverVersionNum: number }>`
       SELECT current_setting('server_version_num')::integer AS "serverVersionNum"
     `;
+
     assert.deepEqual(firstReplay, idempotentReplay);
     assert.equal(firstReplay.length, databaseMigrationDefinitions.length);
     assert.deepEqual(
@@ -723,6 +747,7 @@ const replayCanonicalMigrationsAndSeed = (databaseUrl: Redacted.Redacted<string>
     assert(server);
     yield* seedDatabase(sql);
     const seedRecords = yield* readSeedRecords(sql);
+
     return {
       serverVersionNum: server.serverVersionNum,
       migrationRows: firstReplay,
@@ -739,7 +764,7 @@ interface DurableCommandFacts {
 }
 
 const readDurableCommandFacts = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: string,
 ): Effect.Effect<DurableCommandFacts, unknown> =>
   Effect.gen(function* () {
@@ -766,7 +791,9 @@ const readDurableCommandFacts = (
           WHERE command_id = ${commandId}
         ) AS "outboxCommandRows"
     `;
+
     assert(row);
+
     return row;
   });
 
@@ -776,7 +803,7 @@ interface AuthzRowCounts {
   readonly rules: number;
 }
 
-const readAuthzRowCounts = (sql: DatabaseShape): Effect.Effect<AuthzRowCounts, unknown> =>
+const readAuthzRowCounts = (sql: DatabaseOperations): Effect.Effect<AuthzRowCounts, unknown> =>
   Effect.gen(function* () {
     const [counts] = yield* sql<AuthzRowCounts>`
       SELECT
@@ -784,12 +811,15 @@ const readAuthzRowCounts = (sql: DatabaseShape): Effect.Effect<AuthzRowCounts, u
         (SELECT count(*)::integer FROM public.authz_tag_assignments) AS assignments,
         (SELECT count(*)::integer FROM public.authz_rules) AS rules
     `;
+
     assert(counts);
+
     return counts;
   });
 
 const backfillPlanEvidence = (plan: DisposableAuthzBackfillPlan) => {
   const bytes = canonicalJsonBytes(plan);
+
   return {
     byteLength: bytes.byteLength,
     sha256: sha256Hex(bytes),
@@ -799,16 +829,23 @@ const backfillPlanEvidence = (plan: DisposableAuthzBackfillPlan) => {
   };
 };
 
-const failureTag = (failure: unknown): string =>
-  typeof failure === "object" &&
-  failure !== null &&
-  "_tag" in failure &&
-  typeof failure._tag === "string"
-    ? failure._tag
+type ReceiptActorMappingEvidence = Data.TaggedEnum<{
+  Success: { readonly actor: ReceiptActor };
+  Failure: { readonly failureTag: string };
+}>;
+
+const ReceiptActorMappingEvidence = Data.taggedEnum<ReceiptActorMappingEvidence>();
+
+const failureTag = (cause: unknown): string =>
+  (cause === null || Predicate.isObjectOrArray(cause)) &&
+  cause !== null &&
+  "_tag" in cause &&
+  Predicate.isString(cause._tag)
+    ? cause._tag
     : "UnknownFailure";
 
-const resultFailureTag = (result: { readonly _tag: string; readonly failure?: unknown }): string =>
-  result._tag === "Failure" ? failureTag(result.failure) : "Success";
+const resultFailureTag = <A, E>(result: Result.Result<A, E>): string =>
+  Result.isFailure(result) ? failureTag(result.failure) : "Success";
 
 type SqlPhase =
   | "command-receipt-lock"
@@ -843,72 +880,94 @@ const makeSqlTrace = (): SqlTrace => ({ attempted: [], completed: [] });
 
 const classifySql = (text: string, values: ReadonlyArray<unknown>): SqlPhase | undefined => {
   if (text.includes("pg_advisory_xact_lock_shared")) return "authz-shared-lock";
+
   if (
     text.includes("pg_advisory_xact_lock") &&
     values.some((value) => value === AUTHZ_LOCK_PROTOCOL.advisoryKey)
   ) {
     return "authz-exclusive-lock";
   }
+
   if (
     text.includes("pg_advisory_xact_lock") &&
-    values.some((value) => typeof value === "string" && value.startsWith("receipt-command:"))
+    values.some((value) => Predicate.isString(value) && value.startsWith("receipt-command:"))
   ) {
     return "command-receipt-lock";
   }
+
   if (
     text.includes("pg_advisory_xact_lock") &&
     values.some(
       (value) =>
-        typeof value === "string" && value.startsWith("vektorprogrammet:person-authorization:v1:"),
+        Predicate.isString(value) && value.startsWith("vektorprogrammet:person-authorization:v1:"),
     )
   ) {
     return "person-authorization-lock";
   }
+
   if (text.includes("FROM economy_receipts") && text.includes("FOR UPDATE")) {
     return "receipt-target-lock";
   }
+
   if (text.includes("WITH locked_global_administrator_grants AS MATERIALIZED")) {
     return "organization-authority-projection";
   }
+
   if (text.includes("WITH locked_payment_authorities AS MATERIALIZED")) {
     return "direct-receipt-authority-projection";
   }
+
   if (
     text.includes("FROM public.authz_tag_assignments") &&
     text.includes("ORDER BY tag_id ASC, assignment_id ASC")
   ) {
     return "authz-tag-assignment-projection";
   }
+
   if (text.includes("FROM public.authz_rules AS rule")) return "authz-rule-projection";
+
   if (text.includes("INSERT INTO public.economy_payment_authorities")) {
     return "direct-payment-insert";
   }
+
   if (text.includes("UPDATE public.economy_payment_authorities")) return "direct-payment-end";
+
   if (text.includes("DELETE FROM public.economy_payment_authorities")) {
     return "direct-payment-remove";
   }
+
   if (text.includes("INSERT INTO public.economy_receipt_approval_grants")) {
     return "direct-approval-insert";
   }
+
   if (text.includes("DELETE FROM public.economy_receipt_approval_grants")) {
     return "direct-approval-remove";
   }
+
   if (text.includes("INSERT INTO public.organization_global_administrator_grants")) {
     return "organization-administrator-insert";
   }
+
   if (text.includes("UPDATE public.organization_global_administrator_grants")) {
     return "organization-administrator-end";
   }
+
   if (text.includes("DELETE FROM public.organization_global_administrator_grants")) {
     return "organization-administrator-remove";
   }
+
   if (text.includes("UPDATE public.economy_receipt_approval_grants")) {
     return "direct-authority-update";
   }
+
   if (text.includes("UPDATE public.authz_rules")) return "end-rule";
+
   if (text.includes("DELETE FROM public.authz_rules")) return "remove-rule";
+
   if (text.includes("UPDATE public.authz_tag_assignments")) return "end-tag-assignment";
+
   if (text.includes("INSERT INTO economy_receipt_audit")) return "durable-audit-insert";
+
   return undefined;
 };
 
@@ -925,54 +984,48 @@ interface ObserveSqlOptions {
 }
 
 const observeSql = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   trace: SqlTrace,
   options: ObserveSqlOptions = {},
-): DatabaseShape =>
-  new Proxy(sql, {
-    apply(target, thisArgument, argumentsList) {
-      const statement = Reflect.apply(target, thisArgument, argumentsList) as Effect.Effect<
-        ReadonlyArray<unknown>,
-        unknown
-      >;
-      const strings = argumentsList[0] as TemplateStringsArray;
-      const values = argumentsList.slice(1) as ReadonlyArray<unknown>;
-      const phase = classifySql(strings.join("?"), values);
-      if (phase === undefined) return statement;
-      let observed = Effect.sync(() => trace.attempted.push(phase)).pipe(
-        Effect.andThen(
-          options.signalBefore?.phase === phase
-            ? Deferred.succeed(options.signalBefore.deferred, undefined)
-            : Effect.void,
-        ),
-        Effect.andThen(statement),
-        Effect.tap(() => Effect.sync(() => trace.completed.push(phase))),
-      );
-      if (options.pauseAfter?.phase === phase) {
-        observed = observed.pipe(
-          Effect.tap(() =>
-            Deferred.succeed(options.pauseAfter!.ready, undefined).pipe(
-              Effect.andThen(Deferred.await(options.pauseAfter!.resume)),
-            ),
+): DatabaseOperations =>
+  observePostgresStatements(sql, (statement, text, values) => {
+    const phase = classifySql(text, values);
+
+    if (phase === undefined) return statement;
+
+    let observed = Effect.sync(() => trace.attempted.push(phase)).pipe(
+      Effect.andThen(
+        options.signalBefore?.phase === phase
+          ? Deferred.succeed(options.signalBefore.deferred, undefined)
+          : Effect.void,
+      ),
+      Effect.andThen(statement),
+      Effect.tap(() => Effect.sync(() => trace.completed.push(phase))),
+    );
+
+    if (options.pauseAfter?.phase === phase) {
+      observed = observed.pipe(
+        Effect.tap(() =>
+          Deferred.succeed(options.pauseAfter!.ready, undefined).pipe(
+            Effect.andThen(Deferred.await(options.pauseAfter!.resume)),
           ),
-        );
-      }
-      return observed;
-    },
-    get(target, property) {
-      const value = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  }) as DatabaseShape;
+        ),
+      );
+    }
+
+    return observed;
+  });
 
 const assertSubsequence = (
   actual: ReadonlyArray<SqlPhase>,
   expected: ReadonlyArray<SqlPhase>,
 ): void => {
   let expectedIndex = 0;
+
   for (const phase of actual) {
     if (phase === expected[expectedIndex]) expectedIndex += 1;
   }
+
   assert.equal(expectedIndex, expected.length);
 };
 
@@ -981,7 +1034,7 @@ interface ConnectionStamp {
   readonly observedAt: string;
 }
 
-const connectionStamp = (sql: DatabaseShape): Effect.Effect<ConnectionStamp, unknown> =>
+const connectionStamp = (sql: DatabaseOperations): Effect.Effect<ConnectionStamp, unknown> =>
   Effect.gen(function* () {
     const [stamp] = yield* sql<ConnectionStamp>`
       SELECT
@@ -991,7 +1044,9 @@ const connectionStamp = (sql: DatabaseShape): Effect.Effect<ConnectionStamp, unk
           'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
         ) AS "observedAt"
     `;
+
     assert(stamp);
+
     return stamp;
   });
 
@@ -1007,7 +1062,7 @@ const parseBlockingPids = (value: string | null): ReadonlyArray<number> =>
   value === null || value === "" ? [] : value.split(",").map((entry) => Number.parseInt(entry, 10));
 
 const awaitBlockedBy = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   blockedPid: number,
   blockerPid: number,
   remainingQueries = 256,
@@ -1026,14 +1081,17 @@ const awaitBlockedBy = (
       FROM pg_catalog.pg_stat_activity AS activity
       WHERE activity.pid = ${blockedPid}
     `;
+
     if (row !== undefined && parseBlockingPids(row.blockingPidsText).includes(blockerPid)) {
       return row;
     }
+
     if (remainingQueries <= 0) {
-      return yield* Effect.fail(
+      return yield* Effect.die(
         new Error(`PostgreSQL did not report backend ${blockedPid} blocked by ${blockerPid}`),
       );
     }
+
     return yield* awaitBlockedBy(sql, blockedPid, blockerPid, remainingQueries - 1);
   });
 
@@ -1062,6 +1120,7 @@ const observeBlockingAndLocks = (input: {
   Effect.gen(function* () {
     const sql = yield* Database;
     const blocked = yield* awaitBlockedBy(sql, input.blockedPid, input.blockerPid);
+
     const relationLocks = yield* sql<RelationLockRow>`
       SELECT
         lock.pid,
@@ -1087,6 +1146,7 @@ const observeBlockingAndLocks = (input: {
         )
       ORDER BY lock.pid ASC, relation ASC, lock.mode ASC, lock.granted DESC
     `;
+
     const advisoryLocks = yield* sql<SemanticAdvisoryLockRow>`
       WITH semantic_key (key_name, key_value) AS (
         VALUES
@@ -1119,6 +1179,7 @@ const observeBlockingAndLocks = (input: {
       WHERE lock.pid IN (${input.blockedPid}, ${input.blockerPid})
       ORDER BY lock.pid ASC, semantic_key.key_name ASC, lock.mode ASC, lock.granted DESC
     `;
+
     return {
       blocked: {
         pid: blocked.pid,
@@ -1165,41 +1226,49 @@ const submissionCompositionFacts = (
   Effect.gen(function* () {
     const subject = personId(person);
     const departmentScope = departmentId(department);
+
     const organization = yield* resolveOrganizationPersonAuthorityForRead(
       subject,
       authorizationInstant,
     );
+
     const direct = yield* resolveReceiptAuthorityForRead(
       subject,
       authorizationInstant,
       organization,
     );
+
     const context = proofReceiptContext(departmentScope);
+
     const applicable = yield* loadApplicableAuthorizationRules(
-      { _tag: "Person", personId: subject },
+      PrincipalSchema.cases.Person.make({ personId: subject }),
       "submitReceipt",
       authorizationInstant,
       context,
     );
+
     const composition = composeCapabilityEvidence(
       "submitReceipt",
       { paymentAuthorities: direct.paymentAuthorities },
       applicable.rules,
       {
-        principal: { _tag: "Person", personId: subject },
+        principal: PrincipalSchema.cases.Person.make({ personId: subject }),
         authorizationInstant,
         context,
         tagAssignments: applicable.tagAssignments,
       },
     );
+
     const composedAuthority = projectReceiptAuthority(
       organization,
       composition.evidence.paymentAuthorities ?? [],
       [],
     );
+
     const mapped = yield* Effect.result(
       mapReceiptSubmissionPrincipal(composedAuthority, departmentScope),
     );
+
     return {
       applicableRuleIds: applicable.rules.map((rule) => rule.ruleId),
       assignmentIds: applicable.tagAssignments.map((assignment) => assignment.assignmentId),
@@ -1214,10 +1283,9 @@ const submissionCompositionFacts = (
       composedPaymentAuthorityIds: (composition.evidence.paymentAuthorities ?? []).map(
         (authority) => authority.paymentAuthorityId,
       ),
-      mapped:
-        mapped._tag === "Success"
-          ? { _tag: "Success" as const, actor: mapped.success.actor }
-          : { _tag: "Failure" as const, failureTag: failureTag(mapped.failure) },
+      mapped: Predicate.isTagged(mapped, "Success")
+        ? ReceiptActorMappingEvidence.Success({ actor: mapped.success.actor })
+        : ReceiptActorMappingEvidence.Failure({ failureTag: failureTag(mapped.failure) }),
     };
   });
 
@@ -1229,41 +1297,49 @@ const approvalCompositionFacts = (
   Effect.gen(function* () {
     const subject = personId(person);
     const departmentScope = departmentId(department);
+
     const organization = yield* resolveOrganizationPersonAuthorityForRead(
       subject,
       authorizationInstant,
     );
+
     const direct = yield* resolveReceiptAuthorityForRead(
       subject,
       authorizationInstant,
       organization,
     );
+
     const context = proofReceiptContext(departmentScope);
+
     const applicable = yield* loadApplicableAuthorizationRules(
-      { _tag: "Person", personId: subject },
+      PrincipalSchema.cases.Person.make({ personId: subject }),
       "approveReceipt",
       authorizationInstant,
       context,
     );
+
     const composition = composeCapabilityEvidence(
       "approveReceipt",
       { approvalGrants: direct.approvalGrants },
       applicable.rules,
       {
-        principal: { _tag: "Person", personId: subject },
+        principal: PrincipalSchema.cases.Person.make({ personId: subject }),
         authorizationInstant,
         context,
         tagAssignments: applicable.tagAssignments,
       },
     );
+
     const composedAuthority = projectReceiptAuthority(
       organization,
       [],
       composition.evidence.approvalGrants ?? [],
     );
+
     const mapped = yield* Effect.result(
       mapReceiptApprovalActor(composedAuthority, departmentScope),
     );
+
     return {
       applicableRuleIds: applicable.rules.map((rule) => rule.ruleId),
       assignmentIds: applicable.tagAssignments.map((assignment) => assignment.assignmentId),
@@ -1277,10 +1353,9 @@ const approvalCompositionFacts = (
       composedApprovalGrantIds: (composition.evidence.approvalGrants ?? []).map(
         (grant) => grant.approvalGrantId,
       ),
-      mapped:
-        mapped._tag === "Success"
-          ? { _tag: "Success" as const, actor: mapped.success }
-          : { _tag: "Failure" as const, failureTag: failureTag(mapped.failure) },
+      mapped: Predicate.isTagged(mapped, "Success")
+        ? ReceiptActorMappingEvidence.Success({ actor: mapped.success })
+        : ReceiptActorMappingEvidence.Failure({ failureTag: failureTag(mapped.failure) }),
     };
   });
 
@@ -1289,41 +1364,54 @@ const proveStrictWriters = (databaseUrl: Redacted.Redacted<string>) =>
     const sql = yield* Database;
     const unknownRuleId = "authz-0056-proof-rule-invalid-capability";
     const invalidParamsRuleId = "authz-0056-proof-rule-invalid-params";
+
     const unknownCapability = yield* Effect.result(
       createAuthzRule({
         ruleId: unknownRuleId,
         capabilityId: "unknownCapability",
         effectKind: "delegate",
-        subject: { _tag: "Person", personId: ids.persons.ruleSubmit },
-        scope: { _tag: "Department", departmentId: ids.departments.alpha },
+        subject: AuthzRuleSubjectSchema.cases.Person.make({
+          personId: PersonId.make(ids.persons.ruleSubmit),
+        }),
+        scope: AuthzRuleScopeSchema.cases.Department.make({
+          departmentId: DepartmentId.make(ids.departments.alpha),
+        }),
         params: { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: "not-stored" },
         startAt: activeStart,
         endAt: null,
         revision: 0,
-      } as never),
+      }),
     );
+
     const invalidParams = yield* Effect.result(
       createAuthzRule({
         ruleId: invalidParamsRuleId,
         capabilityId: "submitReceipt",
         effectKind: "delegate",
-        subject: { _tag: "Person", personId: ids.persons.ruleSubmit },
-        scope: { _tag: "Department", departmentId: ids.departments.alpha },
+        subject: AuthzRuleSubjectSchema.cases.Person.make({
+          personId: PersonId.make(ids.persons.ruleSubmit),
+        }),
+        scope: AuthzRuleScopeSchema.cases.Department.make({
+          departmentId: DepartmentId.make(ids.departments.alpha),
+        }),
         params: { slot: "EconomyPaymentAuthority" },
         startAt: activeStart,
         endAt: null,
         revision: 0,
-      } as never),
+      }),
     );
+
     const [stored] = yield* sql<{ readonly count: number }>`
       SELECT count(*)::integer AS count
       FROM public.authz_rules
       WHERE rule_id IN (${unknownRuleId}, ${invalidParamsRuleId})
     `;
+
     assert(stored);
     assert.equal(resultFailureTag(unknownCapability), "AuthzValidationError");
     assert.equal(resultFailureTag(invalidParams), "AuthzValidationError");
     assert.equal(stored.count, 0);
+
     return {
       unknownCapability: {
         failureTag: resultFailureTag(unknownCapability),
@@ -1343,9 +1431,11 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
     const before = yield* readAuthzRowCounts(sql);
     const forwardPlan = yield* persistDisposableAuthzBackfill(validDisposableAuthzBackfillInput());
     const afterForward = yield* readAuthzRowCounts(sql);
+
     const reversedPlan = yield* persistDisposableAuthzBackfill(
       reversedDisposableAuthzBackfillInput(),
     );
+
     const afterReversedReplay = yield* readAuthzRowCounts(sql);
     const replayPlan = yield* persistDisposableAuthzBackfill(validDisposableAuthzBackfillInput());
     const afterReplay = yield* readAuthzRowCounts(sql);
@@ -1372,15 +1462,14 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         assignments: [],
         rulesBySubject: [
           {
-            subject: {
-              _tag: "Person",
-              personId: "authz-0056-proof-backfill-absent-person",
-            },
+            subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+              personId: PersonId.make("authz-0056-proof-backfill-absent-person"),
+            }),
             rules: [
               {
                 capabilityId: "approveReceipt",
                 effectKind: "delegate",
-                scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+                scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
                 params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                 startAt: activeStart,
                 endAt: null,
@@ -1390,17 +1479,16 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         ],
       }),
     );
+
     assert.deepEqual(
       {
         failureTag: missingPerson._tag,
-        referenceKind:
-          missingPerson._tag === "DisposableAuthzBackfillMissingReference"
-            ? missingPerson.referenceKind
-            : null,
-        referenceId:
-          missingPerson._tag === "DisposableAuthzBackfillMissingReference"
-            ? missingPerson.referenceId
-            : null,
+        referenceKind: Predicate.isTagged(missingPerson, "DisposableAuthzBackfillMissingReference")
+          ? missingPerson.referenceKind
+          : null,
+        referenceId: Predicate.isTagged(missingPerson, "DisposableAuthzBackfillMissingReference")
+          ? missingPerson.referenceId
+          : null,
       },
       {
         failureTag: "DisposableAuthzBackfillMissingReference",
@@ -1418,12 +1506,14 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         assignments: [],
         rulesBySubject: [
           {
-            subject: { _tag: "Tag", tagName: "PG proof absent authored tag" },
+            subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Tag.make({
+              tagName: "PG proof absent authored tag",
+            }),
             rules: [
               {
                 capabilityId: "approveReceipt",
                 effectKind: "delegate",
-                scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+                scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
                 params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                 startAt: activeStart,
                 endAt: null,
@@ -1433,17 +1523,16 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         ],
       }),
     );
+
     assert.deepEqual(
       {
         failureTag: missingTag._tag,
-        referenceKind:
-          missingTag._tag === "DisposableAuthzBackfillMissingReference"
-            ? missingTag.referenceKind
-            : null,
-        referenceId:
-          missingTag._tag === "DisposableAuthzBackfillMissingReference"
-            ? missingTag.referenceId
-            : null,
+        referenceKind: Predicate.isTagged(missingTag, "DisposableAuthzBackfillMissingReference")
+          ? missingTag.referenceKind
+          : null,
+        referenceId: Predicate.isTagged(missingTag, "DisposableAuthzBackfillMissingReference")
+          ? missingTag.referenceId
+          : null,
       },
       {
         failureTag: "DisposableAuthzBackfillMissingReference",
@@ -1468,15 +1557,16 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         ],
         rulesBySubject: [
           {
-            subject: { _tag: "Person", personId: "authz-backfill-person-a" },
+            subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+              personId: PersonId.make("authz-backfill-person-a"),
+            }),
             rules: [
               {
                 capabilityId: "approveReceipt",
                 effectKind: "delegate",
-                scope: {
-                  _tag: "Department",
-                  departmentId: "authz-0056-proof-backfill-absent-department",
-                },
+                scope: AuthzRuleScopeSchema.cases.Department.make({
+                  departmentId: DepartmentId.make("authz-0056-proof-backfill-absent-department"),
+                }),
                 params: { slot: "EconomyDepartmentApprovalGrant" },
                 startAt: activeStart,
                 endAt: null,
@@ -1486,17 +1576,22 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         ],
       }),
     );
+
     assert.deepEqual(
       {
         failureTag: missingDepartment._tag,
-        referenceKind:
-          missingDepartment._tag === "DisposableAuthzBackfillMissingReference"
-            ? missingDepartment.referenceKind
-            : null,
-        referenceId:
-          missingDepartment._tag === "DisposableAuthzBackfillMissingReference"
-            ? missingDepartment.referenceId
-            : null,
+        referenceKind: Predicate.isTagged(
+          missingDepartment,
+          "DisposableAuthzBackfillMissingReference",
+        )
+          ? missingDepartment.referenceKind
+          : null,
+        referenceId: Predicate.isTagged(
+          missingDepartment,
+          "DisposableAuthzBackfillMissingReference",
+        )
+          ? missingDepartment.referenceId
+          : null,
       },
       {
         failureTag: "DisposableAuthzBackfillMissingReference",
@@ -1514,12 +1609,14 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         assignments: [],
         rulesBySubject: [
           {
-            subject: { _tag: "Person", personId: "authz-backfill-person-a" },
+            subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+              personId: PersonId.make("authz-backfill-person-a"),
+            }),
             rules: [
               {
                 capabilityId: "unknownCapability",
                 effectKind: "delegate",
-                scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+                scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
                 params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                 startAt: activeStart,
                 endAt: null,
@@ -1529,6 +1626,7 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         ],
       }),
     );
+
     assert.equal(invalidCapability._tag, "DisposableAuthzBackfillDecodeError");
     const afterInvalidCapability = yield* readAuthzRowCounts(sql);
     assert.deepEqual(afterInvalidCapability, afterForward);
@@ -1540,12 +1638,14 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         assignments: [],
         rulesBySubject: [
           {
-            subject: { _tag: "Person", personId: "authz-backfill-person-a" },
+            subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+              personId: PersonId.make("authz-backfill-person-a"),
+            }),
             rules: [
               {
                 capabilityId: "submitReceipt",
                 effectKind: "delegate",
-                scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+                scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
                 params: { slot: "EconomyPaymentAuthority", ignored: true },
                 startAt: activeStart,
                 endAt: null,
@@ -1555,6 +1655,7 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
         ],
       }),
     );
+
     assert.equal(invalidParams._tag, "DisposableAuthzBackfillDecodeError");
     const afterInvalidParams = yield* readAuthzRowCounts(sql);
     assert.deepEqual(afterInvalidParams, afterForward);
@@ -1624,13 +1725,14 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const alpha = departmentId(ids.departments.alpha);
+
     const {
       administrator: administratorFixture,
       leader: leaderFixture,
       inactiveLeader: inactiveLeaderFixture,
       member: memberFixture,
       absent: absentFixture,
-    } = makeSpec0055OrganizationAuthorityFixtures({
+    } = spec0055OrganizationAuthorityFixtures({
       evaluatedAt: exactEnd,
       departmentId: ids.departments.alpha,
       teamId: ids.teams.alpha,
@@ -1652,22 +1754,27 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       leaderFixture.personId,
       exactEnd,
     );
+
     const inactiveLeaderProjection = yield* resolveOrganizationPersonAuthorityForRead(
       inactiveLeaderFixture.personId,
       exactEnd,
     );
+
     const administratorProjection = yield* resolveOrganizationPersonAuthorityForRead(
       administratorFixture.personId,
       exactEnd,
     );
+
     const memberProjection = yield* resolveOrganizationPersonAuthorityForRead(
       memberFixture.personId,
       exactEnd,
     );
+
     const absentProjection = yield* resolveOrganizationPersonAuthorityForRead(
       absentFixture.personId,
       exactEnd,
     );
+
     assert.deepEqual(leaderProjection, leaderFixture);
     assert.deepEqual(inactiveLeaderProjection, inactiveLeaderFixture);
     assert.deepEqual(administratorProjection, administratorFixture);
@@ -1702,6 +1809,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
             AND (assignment.end_at IS NULL OR ${exactEnd} < assignment.end_at)
         )
     `;
+
     assert(fixtureRuleRows);
     assert.equal(fixtureRuleRows.count, 0);
 
@@ -1710,9 +1818,10 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         | { readonly _tag: "Allow"; readonly value: A }
         | { readonly _tag: "Deny"; readonly reason: string },
     ): A => {
-      if (decision._tag !== "Allow") {
+      if (!Predicate.isTagged(decision, "Allow")) {
         assert.fail(`expected Allow, received Deny(${decision.reason})`);
       }
+
       return decision.value;
     };
 
@@ -1720,12 +1829,13 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       decision:
         | { readonly _tag: "Allow"; readonly value: unknown }
         | { readonly _tag: "Deny"; readonly reason: string },
-      scope: unknown,
-      activeState: unknown,
+      scope: typeof AuthzRuleScopeSchema.cases.Department.Type,
+      activeState: { readonly globalAdministrator: "Absent"; readonly membershipActive: boolean },
     ) => {
-      if (decision._tag !== "Deny") {
+      if (!Predicate.isTagged(decision, "Deny")) {
         assert.fail("expected mapper denial");
       }
+
       return {
         actor: null,
         scope,
@@ -1737,25 +1847,29 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     const admissionAcceptedDirectActor = requireAllowed(
       mapOrganizationAuthorityToAdmissionPeriodActor(leaderFixture, alpha),
     );
+
     const admissionAcceptedRulesEmptyActor = requireAllowed(
       mapOrganizationAuthorityToAdmissionPeriodActor(leaderProjection, alpha),
     );
+
     const admissionSemesterId = SemesterId.make(ids.domainBoundaries.recruitmentSemester);
     const admissionCommandId = AdmissionPeriodCommandId.make(ids.commands.admissionMatrixCreate);
     const admissionPeriodId = AdmissionPeriodId.make(ids.domainBoundaries.admissionDecisionPeriod);
+
     const admissionSemester = {
       semesterId: admissionSemesterId,
       startAt: "2037-01-01T00:00:00.000Z",
       endAt: "2038-01-01T00:00:00.000Z",
     } as const;
-    const admissionCommand = {
-      _tag: "CreateAdmissionPeriod",
+
+    const admissionCommand = AdmissionPeriodCommandSchema.cases.CreateAdmissionPeriod.make({
       commandId: admissionCommandId,
       semesterId: admissionSemesterId,
       departmentId: alpha,
       startAt: "2037-06-01T00:00:00.000Z",
       endAt: "2037-07-01T00:00:00.000Z",
-    } as const;
+    });
+
     const admissionAcceptedDirectDecision = yield* decideAdmissionPeriod(
       undefined,
       admissionCommand,
@@ -1766,6 +1880,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         admissionPeriodId,
       },
     );
+
     const admissionAcceptedRulesEmptyDecision = yield* decideAdmissionPeriod(
       undefined,
       admissionCommand,
@@ -1776,6 +1891,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         admissionPeriodId,
       },
     );
+
     const expectedAdmissionObservation = {
       _tag: "Created" as const,
       commandId: admissionCommandId,
@@ -1789,8 +1905,10 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         lastCommandId: admissionCommandId,
       },
     };
+
     assert.deepEqual(admissionAcceptedDirectDecision.observation, expectedAdmissionObservation);
     assert.deepEqual(admissionAcceptedRulesEmptyDecision.observation, expectedAdmissionObservation);
+
     const admissionAcceptedDirect = {
       actor: admissionAcceptedDirectActor,
       scope: { _tag: "Department" as const, departmentId: alpha },
@@ -1800,6 +1918,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         observation: admissionAcceptedDirectDecision.observation,
       },
     };
+
     const admissionAcceptedRulesEmpty = {
       actor: admissionAcceptedRulesEmptyActor,
       scope: { _tag: "Department" as const, departmentId: alpha },
@@ -1809,11 +1928,13 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         observation: admissionAcceptedRulesEmptyDecision.observation,
       },
     };
+
     const admissionRejectedDirect = observeMapperDenial(
       mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeaderFixture, alpha),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );
+
     const admissionRejectedRulesEmpty = observeMapperDenial(
       mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeaderProjection, alpha),
       { _tag: "Department" as const, departmentId: alpha },
@@ -1823,18 +1944,23 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     const recruitmentAcceptedDirectActor = requireAllowed(
       mapOrganizationAuthorityToRecruitmentActor(leaderFixture, alpha),
     );
+
     const recruitmentAcceptedRulesEmptyActor = requireAllowed(
       mapOrganizationAuthorityToRecruitmentActor(leaderProjection, alpha),
     );
+
     const recruitment = yield* Recruitment;
+
     const recruitmentAcceptedDirectBoard = yield* recruitment.readAssignmentBoard(
       { status: "new" },
       { actor: recruitmentAcceptedDirectActor, now: exactEnd },
     );
+
     const recruitmentAcceptedRulesEmptyBoard = yield* recruitment.readAssignmentBoard(
       { status: "new" },
       { actor: recruitmentAcceptedRulesEmptyActor, now: exactEnd },
     );
+
     assert.deepEqual(recruitmentAcceptedRulesEmptyBoard, recruitmentAcceptedDirectBoard);
     assert.equal(
       recruitmentAcceptedDirectBoard.admissionPeriodId,
@@ -1870,6 +1996,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         (interviewer) => interviewer.personId === leaderFixture.personId,
       ),
     );
+
     const recruitmentAcceptedDirect = {
       actor: recruitmentAcceptedDirectActor,
       scope: { _tag: "Department" as const, departmentId: alpha },
@@ -1879,6 +2006,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         assignmentBoard: recruitmentAcceptedDirectBoard,
       },
     };
+
     const recruitmentAcceptedRulesEmpty = {
       actor: recruitmentAcceptedRulesEmptyActor,
       scope: { _tag: "Department" as const, departmentId: alpha },
@@ -1888,11 +2016,13 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         assignmentBoard: recruitmentAcceptedRulesEmptyBoard,
       },
     };
+
     const recruitmentRejectedDirect = observeMapperDenial(
       mapOrganizationAuthorityToRecruitmentActor(inactiveLeaderFixture, alpha),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );
+
     const recruitmentRejectedRulesEmpty = observeMapperDenial(
       mapOrganizationAuthorityToRecruitmentActor(inactiveLeaderProjection, alpha),
       { _tag: "Department" as const, departmentId: alpha },
@@ -1901,36 +2031,46 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
 
     const organizationAcceptedDirectActor =
       mapOrganizationAuthorityToOrganizationActor(administratorFixture);
+
     const organizationAcceptedRulesEmptyActor =
       mapOrganizationAuthorityToOrganizationActor(administratorProjection);
+
     const organizationAcceptedDirectResult = yield* Effect.result(
       authorizeOrganizationActor(organizationAcceptedDirectActor),
     );
+
     const organizationAcceptedRulesEmptyResult = yield* Effect.result(
       authorizeOrganizationActor(organizationAcceptedRulesEmptyActor),
     );
+
     const organizationAcceptedDirect = {
       actor: organizationAcceptedDirectActor,
       scope: { _tag: "Global" as const },
       activeState: { globalAdministrator: "Active" as const },
       result: { _tag: resultFailureTag(organizationAcceptedDirectResult) },
     };
+
     const organizationAcceptedRulesEmpty = {
       actor: organizationAcceptedRulesEmptyActor,
       scope: { _tag: "Global" as const },
       activeState: { globalAdministrator: "Active" as const },
       result: { _tag: resultFailureTag(organizationAcceptedRulesEmptyResult) },
     };
+
     const organizationRejectedDirectActor =
       mapOrganizationAuthorityToOrganizationActor(memberFixture);
+
     const organizationRejectedRulesEmptyActor =
       mapOrganizationAuthorityToOrganizationActor(memberProjection);
+
     const organizationRejectedDirectResult = yield* Effect.result(
       authorizeOrganizationActor(organizationRejectedDirectActor),
     );
+
     const organizationRejectedRulesEmptyResult = yield* Effect.result(
       authorizeOrganizationActor(organizationRejectedRulesEmptyActor),
     );
+
     const organizationRejectedDirect = {
       actor: organizationRejectedDirectActor,
       scope: { _tag: "Global" as const },
@@ -1940,6 +2080,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       },
       result: { _tag: resultFailureTag(organizationRejectedDirectResult) },
     };
+
     const organizationRejectedRulesEmpty = {
       actor: organizationRejectedRulesEmptyActor,
       scope: { _tag: "Global" as const },
@@ -1952,32 +2093,39 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
 
     const profileAcceptedDirectResult = mapOrganizationAuthorityToProfileRole(leaderFixture);
     const profileAcceptedRulesEmptyResult = mapOrganizationAuthorityToProfileRole(leaderProjection);
+
     const profileRejectedDirectResult =
       mapOrganizationAuthorityToProfileRole(inactiveLeaderFixture);
+
     const profileRejectedRulesEmptyResult =
       mapOrganizationAuthorityToProfileRole(inactiveLeaderProjection);
+
     assert.equal(profileAcceptedDirectResult._tag, "Allow");
     assert.equal(profileAcceptedRulesEmptyResult._tag, "Allow");
     assert.equal(profileRejectedDirectResult._tag, "Deny");
     assert.equal(profileRejectedRulesEmptyResult._tag, "Deny");
+
     const profileAcceptedDirect = {
       actor: profileAcceptedDirectResult.value,
       scope: { _tag: "Self" as const, personId: leaderFixture.personId },
       activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
       result: profileAcceptedDirectResult,
     };
+
     const profileAcceptedRulesEmpty = {
       actor: profileAcceptedRulesEmptyResult.value,
       scope: { _tag: "Self" as const, personId: leaderProjection.personId },
       activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
       result: profileAcceptedRulesEmptyResult,
     };
+
     const profileRejectedDirect = {
       actor: null,
       scope: { _tag: "Self" as const, personId: inactiveLeaderFixture.personId },
       activeState: { globalAdministrator: "Absent" as const, membershipActive: false },
       result: profileRejectedDirectResult,
     };
+
     const profileRejectedRulesEmpty = {
       actor: null,
       scope: { _tag: "Self" as const, personId: inactiveLeaderProjection.personId },
@@ -1990,20 +2138,25 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       justBeforeExactEnd,
       ids.departments.alpha,
     );
+
     assert.equal(composition.applicableRuleIds.length, 0);
     assert.deepEqual(composition.contributingRuleIds, []);
     assert.equal(composition.mapped._tag, "Success");
+
     const result = yield* executeReceiptCommand(
       submitCommand(ids.commands.directSubmit, ids.departments.alpha, "direct"),
       principal(ids.persons.direct, justBeforeExactEnd),
       allocation(generatedReceiptIds.direct, generatedVisualIds.direct),
     );
+
     const durable = yield* readDurableCommandFacts(sql, ids.commands.directSubmit);
+
     const actual = {
-      actor: composition.mapped._tag === "Success" ? composition.mapped.actor : null,
+      actor: Predicate.isTagged(composition.mapped, "Success") ? composition.mapped.actor : null,
       scope: { domainId: RECEIPT_DOMAIN_ID, departmentId: ids.departments.alpha },
       observation: result.observation,
     };
+
     const spec0055Oracle = {
       actor: {
         personId: ids.persons.direct,
@@ -2021,6 +2174,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         replayed: false,
       },
     };
+
     assert.deepEqual(actual, spec0055Oracle);
     assert.deepEqual(durable, {
       commandReceiptRows: 1,
@@ -2028,12 +2182,14 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       outboxRows: 3,
       outboxCommandRows: 1,
     });
+
     const receiptAcceptedDirect = {
       actor: spec0055Oracle.actor,
       scope: spec0055Oracle.scope,
       activeState: true,
       result: { _tag: "Accepted" as const },
     };
+
     const receiptAcceptedRulesEmpty = {
       actor: actual.actor,
       scope: actual.scope,
@@ -2046,9 +2202,11 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       exactEnd,
       ids.departments.alpha,
     );
+
     assert.deepEqual(rejectedComposition.applicableRuleIds, []);
     assert.deepEqual(rejectedComposition.contributingRuleIds, []);
     assert.equal(rejectedComposition.mapped._tag, "Success");
+
     const rejectedResult = yield* Effect.result(
       executeReceiptCommand(
         submitCommand(
@@ -2063,6 +2221,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         ),
       ),
     );
+
     const rejectedDurable = yield* readDurableCommandFacts(sql, ids.commands.matrixReceiptRejected);
     assert.equal(resultFailureTag(rejectedResult), "InactiveActor");
     assert.deepEqual(rejectedDurable, {
@@ -2071,8 +2230,11 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       outboxRows: 0,
       outboxCommandRows: 0,
     });
-    const receiptRejectedActor =
-      rejectedComposition.mapped._tag === "Success" ? rejectedComposition.mapped.actor : null;
+
+    const receiptRejectedActor = Predicate.isTagged(rejectedComposition.mapped, "Success")
+      ? rejectedComposition.mapped.actor
+      : null;
+
     const receiptRejectedDirect = {
       actor: {
         personId: ids.persons.endedDirect,
@@ -2084,6 +2246,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       activeState: false,
       result: { _tag: "InactiveActor" as const },
     };
+
     const receiptRejectedRulesEmpty = {
       actor: receiptRejectedActor,
       scope: { domainId: RECEIPT_DOMAIN_ID, departmentId: ids.departments.alpha },
@@ -2177,6 +2340,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       actorScopeActiveResultEqual:
         canonicalJson(entry.directOracle) === canonicalJson(entry.rulesEmpty),
     }));
+
     assert.equal(matrix.length, 10);
     assert.deepEqual(
       matrix.map((entry) => [entry.domain, entry.expected]),
@@ -2220,29 +2384,32 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
 const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const endedRuleBefore = yield* loadApplicableAuthorizationRules(
-      { _tag: "Person", personId: personId(ids.persons.endedRule) },
+      PrincipalSchema.cases.Person.make({ personId: personId(ids.persons.endedRule) }),
       "approveReceipt",
       justBeforeExactEnd,
       proofReceiptContext(departmentId(ids.departments.alpha)),
     );
+
     const endedRuleExact = yield* loadApplicableAuthorizationRules(
-      { _tag: "Person", personId: personId(ids.persons.endedRule) },
+      PrincipalSchema.cases.Person.make({ personId: personId(ids.persons.endedRule) }),
       "approveReceipt",
       exactEnd,
       proofReceiptContext(departmentId(ids.departments.alpha)),
     );
+
     const endedRuleCommand = yield* Effect.result(
       executeReceiptCommand(
-        {
-          _tag: "RejectReceipt",
+        ReceiptCommandRequestSchema.cases.RejectReceipt.make({
           commandId: ids.commands.endedRuleApprove,
           receiptId: ReceiptId.make(ids.receipts.endedRule),
           expectedRevision: 0,
-        },
+        }),
         principal(ids.persons.endedRule, exactEnd),
       ),
     );
+
     const endedRuleDurable = yield* readDurableCommandFacts(sql, ids.commands.endedRuleApprove);
 
     const directBefore = yield* submissionCompositionFacts(
@@ -2250,11 +2417,13 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       justBeforeExactEnd,
       ids.departments.alpha,
     );
+
     const directExact = yield* submissionCompositionFacts(
       ids.persons.endedDirect,
       exactEnd,
       ids.departments.alpha,
     );
+
     const endedDirectCommand = yield* Effect.result(
       executeReceiptCommand(
         submitCommand(ids.commands.endedDirectSubmit, ids.departments.alpha, "ended-direct"),
@@ -2262,20 +2431,23 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
         allocation(generatedReceiptIds.endedDirect, generatedVisualIds.endedDirect),
       ),
     );
+
     const endedDirectDurable = yield* readDurableCommandFacts(sql, ids.commands.endedDirectSubmit);
 
     const crossRuleMatchingScope = yield* loadApplicableAuthorizationRules(
-      { _tag: "Person", personId: personId(ids.persons.crossDepartment) },
+      PrincipalSchema.cases.Person.make({ personId: personId(ids.persons.crossDepartment) }),
       "submitReceipt",
       exactEnd,
       proofReceiptContext(departmentId(ids.departments.alpha)),
     );
+
     const crossRuleOtherScope = yield* loadApplicableAuthorizationRules(
-      { _tag: "Person", personId: personId(ids.persons.crossDepartment) },
+      PrincipalSchema.cases.Person.make({ personId: personId(ids.persons.crossDepartment) }),
       "submitReceipt",
       exactEnd,
       proofReceiptContext(departmentId(ids.departments.beta)),
     );
+
     const crossDepartmentCommand = yield* Effect.result(
       executeReceiptCommand(
         submitCommand(ids.commands.crossDepartmentSubmit, ids.departments.beta, "cross-department"),
@@ -2283,10 +2455,12 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
         allocation(generatedReceiptIds.crossDepartment, generatedVisualIds.crossDepartment),
       ),
     );
+
     const crossDepartmentDurable = yield* readDurableCommandFacts(
       sql,
       ids.commands.crossDepartmentSubmit,
     );
+
     const endedRuleBeforeIds = endedRuleBefore.rules.map((rule) => rule.ruleId);
     const endedRuleExactIds = endedRuleExact.rules.map((rule) => rule.ruleId);
     const crossRuleMatchingScopeIds = crossRuleMatchingScope.rules.map((rule) => rule.ruleId);
@@ -2302,15 +2476,17 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       outboxCommandRows: 0,
     });
     assert.equal(directBefore.mapped._tag, "Success");
-    assert.deepEqual(directExact.mapped, {
-      _tag: "Success",
-      actor: {
-        personId: ids.persons.endedDirect,
-        departmentId: ids.departments.alpha,
-        active: false,
-        approvalScope: { _tag: "None" },
-      },
-    });
+    assert.deepEqual(
+      directExact.mapped,
+      ReceiptActorMappingEvidence.Success({
+        actor: ReceiptActorSchema.make({
+          personId: PersonId.make(ids.persons.endedDirect),
+          departmentId: DepartmentId.make(ids.departments.alpha),
+          active: false,
+          approvalScope: ApprovalScopeSchema.cases.None.make({}),
+        }),
+      }),
+    );
     assert.equal(resultFailureTag(endedDirectCommand), "InactiveActor");
     assert.deepEqual(endedDirectDurable, {
       commandReceiptRows: 0,
@@ -2372,6 +2548,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
         const commandStarted = yield* Deferred.make<ConnectionStamp>();
         const writerTrace = makeSqlTrace();
         const commandTrace = makeSqlTrace();
+
         const before = yield* submissionCompositionFacts(
           ids.persons.phantomEconomy,
           exactEnd,
@@ -2381,18 +2558,20 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-before`),
           ),
         );
+
         assert.deepEqual(before.applicableRuleIds, []);
         assert.equal(before.directPaymentAuthorities.length, 0);
-        assert.deepEqual(before.mapped, {
-          _tag: "Failure",
-          failureTag: "ReceiptAuthorityDenied",
-        });
+        assert.deepEqual(
+          before.mapped,
+          ReceiptActorMappingEvidence.Failure({ failureTag: "ReceiptAuthorityDenied" }),
+        );
 
         const writerFiber = yield* Effect.forkScoped(
           Effect.gen(function* () {
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(writerStarted, started);
+
             const observed = observeSql(sql, writerTrace, {
               pauseAfter: {
                 phase: "direct-payment-insert",
@@ -2400,6 +2579,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
                 resume: resumeWriter,
               },
             });
+
             const created = yield* createReceiptPaymentAuthority({
               paymentAuthorityId: ReceiptPaymentAuthorityId.make(
                 ids.directAuthorities.phantomEconomyPayment,
@@ -2410,7 +2590,9 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
               startAt: activeStart,
               endAt: null,
             }).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, created };
           }).pipe(
             Effect.provide(
@@ -2418,6 +2600,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             ),
           ),
         );
+
         yield* Deferred.await(writerPaused);
 
         const commandFiber = yield* Effect.forkScoped(
@@ -2425,12 +2608,14 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(commandStarted, started);
+
             const observed = observeSql(sql, commandTrace, {
               signalBefore: {
                 phase: "person-authorization-lock",
                 deferred: commandAttempted,
               },
             });
+
             const value = yield* executeReceiptCommand(
               submitCommand(
                 ids.commands.phantomEconomyInsert,
@@ -2443,7 +2628,9 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
                 generatedVisualIds.phantomEconomyInsert,
               ),
             ).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, value };
           }).pipe(
             Effect.provide(
@@ -2451,18 +2638,22 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             ),
           ),
         );
+
         yield* Deferred.await(commandAttempted);
         const writerStamp = yield* Deferred.await(writerStarted);
         const commandStamp = yield* Deferred.await(commandStarted);
         assert.notEqual(writerStamp.pid, commandStamp.pid);
+
         const writerAtBlock = {
           attempted: [...writerTrace.attempted],
           completed: [...writerTrace.completed],
         };
+
         const commandAtBlock = {
           attempted: [...commandTrace.attempted],
           completed: [...commandTrace.completed],
         };
+
         const locks = yield* observeBlockingAndLocks({
           databaseUrl,
           blockedPid: commandStamp.pid,
@@ -2471,6 +2662,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
           commandId: ids.commands.phantomEconomyInsert,
           applicationName: `${proofApplicationPrefix}-phantom-economy-observer`,
         });
+
         assert.equal(locks.blocked.waitEventType, "Lock");
         assert.ok(locks.blocked.blockingPids.includes(writerStamp.pid));
         assert.ok(
@@ -2527,26 +2719,32 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-after`),
           ),
         );
+
         assert.deepEqual(afterInsert.applicableRuleIds, []);
         assert.deepEqual(afterInsert.composedPaymentAuthorityIds, [
           ids.directAuthorities.phantomEconomyPayment,
         ]);
         assert.equal(afterInsert.mapped._tag, "Success");
+
         const cleanup = yield* Effect.gen(function* () {
           const sql = yield* Database;
           const durable = yield* readDurableCommandFacts(sql, ids.commands.phantomEconomyInsert);
+
           const removed = yield* removeReceiptPaymentAuthority({
             paymentAuthorityId: ReceiptPaymentAuthorityId.make(
               ids.directAuthorities.phantomEconomyPayment,
             ),
             expectedRevision: 0,
           });
+
           const [remaining] = yield* sql<{ readonly count: number }>`
             SELECT count(*)::integer AS count
             FROM public.economy_payment_authorities
             WHERE payment_authority_id = ${ids.directAuthorities.phantomEconomyPayment}
           `;
+
           assert(remaining);
+
           return {
             durable,
             removed: {
@@ -2560,6 +2758,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-cleanup`),
           ),
         );
+
         assert.deepEqual(cleanup.durable, {
           commandReceiptRows: 1,
           auditRows: 1,
@@ -2603,7 +2802,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             ids.directAuthorities.phantomOrganizationApproval,
           ),
           personId: personId(ids.persons.phantomOrganization),
-          scope: { _tag: "Global" },
+          scope: AuthzRuleScopeSchema.cases.Global.make({}),
           startAt: activeStart,
           endAt: null,
         }).pipe(
@@ -2611,6 +2810,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-approval-setup`),
           ),
         );
+
         const before = yield* approvalCompositionFacts(
           ids.persons.phantomOrganization,
           exactEnd,
@@ -2620,10 +2820,13 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-before`),
           ),
         );
+
         assert.deepEqual(before.applicableRuleIds, []);
         assert.equal(before.directApprovalGrants[0]?.active, false);
         assert.equal(before.mapped._tag, "Success");
-        if (before.mapped._tag === "Success") assert.equal(before.mapped.actor.active, false);
+
+        if (Predicate.isTagged(before.mapped, "Success"))
+          assert.equal(before.mapped.actor.active, false);
 
         const writerPaused = yield* Deferred.make<void>();
         const resumeWriter = yield* Deferred.make<void>();
@@ -2632,11 +2835,13 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
         const commandStarted = yield* Deferred.make<ConnectionStamp>();
         const insertWriterTrace = makeSqlTrace();
         const insertCommandTrace = makeSqlTrace();
+
         const insertWriterFiber = yield* Effect.forkScoped(
           Effect.gen(function* () {
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(writerStarted, started);
+
             const observed = observeSql(sql, insertWriterTrace, {
               pauseAfter: {
                 phase: "organization-administrator-insert",
@@ -2644,6 +2849,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
                 resume: resumeWriter,
               },
             });
+
             const created = yield* createOrganizationGlobalAdministratorGrant({
               grantId: OrganizationGlobalAdministratorGrantId.make(
                 ids.directAuthorities.phantomOrganizationAdministrator,
@@ -2652,7 +2858,9 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
               startAt: activeStart,
               endAt: null,
             }).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, created };
           }).pipe(
             Effect.provide(
@@ -2660,6 +2868,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             ),
           ),
         );
+
         yield* Deferred.await(writerPaused);
 
         const insertCommandFiber = yield* Effect.forkScoped(
@@ -2667,22 +2876,25 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(commandStarted, started);
+
             const observed = observeSql(sql, insertCommandTrace, {
               signalBefore: {
                 phase: "person-authorization-lock",
                 deferred: commandAttempted,
               },
             });
+
             const value = yield* executeReceiptCommand(
-              {
-                _tag: "RejectReceipt",
+              ReceiptCommandRequestSchema.cases.RejectReceipt.make({
                 commandId: ids.commands.phantomOrganizationInsert,
                 receiptId: ReceiptId.make(ids.receipts.phantomOrganizationInsert),
                 expectedRevision: 0,
-              },
+              }),
               principal(ids.persons.phantomOrganization, exactEnd),
             ).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, value };
           }).pipe(
             Effect.provide(
@@ -2690,18 +2902,22 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             ),
           ),
         );
+
         yield* Deferred.await(commandAttempted);
         const insertWriterStamp = yield* Deferred.await(writerStarted);
         const insertCommandStamp = yield* Deferred.await(commandStarted);
         assert.notEqual(insertWriterStamp.pid, insertCommandStamp.pid);
+
         const insertWriterAtBlock = {
           attempted: [...insertWriterTrace.attempted],
           completed: [...insertWriterTrace.completed],
         };
+
         const insertCommandAtBlock = {
           attempted: [...insertCommandTrace.attempted],
           completed: [...insertCommandTrace.completed],
         };
+
         const insertLocks = yield* observeBlockingAndLocks({
           databaseUrl,
           blockedPid: insertCommandStamp.pid,
@@ -2710,6 +2926,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
           commandId: ids.commands.phantomOrganizationInsert,
           applicationName: `${proofApplicationPrefix}-phantom-org-insert-observer`,
         });
+
         assert.equal(insertLocks.blocked.waitEventType, "Lock");
         assert.ok(insertLocks.blocked.blockingPids.includes(insertWriterStamp.pid));
         assert.ok(
@@ -2754,6 +2971,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
           "authz-rule-projection",
           "durable-audit-insert",
         ]);
+
         const afterInsert = yield* approvalCompositionFacts(
           ids.persons.phantomOrganization,
           exactEnd,
@@ -2763,9 +2981,11 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-after-insert`),
           ),
         );
+
         assert.equal(afterInsert.directApprovalGrants[0]?.active, true);
         assert.equal(afterInsert.mapped._tag, "Success");
-        if (afterInsert.mapped._tag === "Success")
+
+        if (Predicate.isTagged(afterInsert.mapped, "Success"))
           assert.equal(afterInsert.mapped.actor.active, true);
 
         const commandReady = yield* Deferred.make<void>();
@@ -2775,11 +2995,13 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
         const endWriterStarted = yield* Deferred.make<ConnectionStamp>();
         const endCommandTrace = makeSqlTrace();
         const endWriterTrace = makeSqlTrace();
+
         const endCommandFiber = yield* Effect.forkScoped(
           Effect.gen(function* () {
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(endCommandStarted, started);
+
             const observed = observeSql(sql, endCommandTrace, {
               pauseAfter: {
                 phase: "durable-audit-insert",
@@ -2787,16 +3009,18 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
                 resume: resumeCommand,
               },
             });
+
             const value = yield* executeReceiptCommand(
-              {
-                _tag: "RejectReceipt",
+              ReceiptCommandRequestSchema.cases.RejectReceipt.make({
                 commandId: ids.commands.phantomOrganizationRemove,
                 receiptId: ReceiptId.make(ids.receipts.phantomOrganizationRemove),
                 expectedRevision: 0,
-              },
+              }),
               principal(ids.persons.phantomOrganization, exactEnd),
             ).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, value };
           }).pipe(
             Effect.provide(
@@ -2804,6 +3028,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             ),
           ),
         );
+
         yield* Deferred.await(commandReady);
 
         const endWriterFiber = yield* Effect.forkScoped(
@@ -2811,12 +3036,14 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(endWriterStarted, started);
+
             const observed = observeSql(sql, endWriterTrace, {
               signalBefore: {
                 phase: "person-authorization-lock",
                 deferred: endWriterAttempted,
               },
             });
+
             const ended = yield* endOrganizationGlobalAdministratorGrant({
               grantId: OrganizationGlobalAdministratorGrantId.make(
                 ids.directAuthorities.phantomOrganizationAdministrator,
@@ -2824,7 +3051,9 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
               endAt: exactEnd,
               expectedRevision: 0,
             }).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, ended };
           }).pipe(
             Effect.provide(
@@ -2832,18 +3061,22 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             ),
           ),
         );
+
         yield* Deferred.await(endWriterAttempted);
         const endCommandStamp = yield* Deferred.await(endCommandStarted);
         const endWriterStamp = yield* Deferred.await(endWriterStarted);
         assert.notEqual(endCommandStamp.pid, endWriterStamp.pid);
+
         const endCommandAtBlock = {
           attempted: [...endCommandTrace.attempted],
           completed: [...endCommandTrace.completed],
         };
+
         const endWriterAtBlock = {
           attempted: [...endWriterTrace.attempted],
           completed: [...endWriterTrace.completed],
         };
+
         const endLocks = yield* observeBlockingAndLocks({
           databaseUrl,
           blockedPid: endWriterStamp.pid,
@@ -2852,6 +3085,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
           commandId: ids.commands.phantomOrganizationRemove,
           applicationName: `${proofApplicationPrefix}-phantom-org-end-observer`,
         });
+
         assert.equal(endLocks.blocked.waitEventType, "Lock");
         assert.ok(endLocks.blocked.blockingPids.includes(endCommandStamp.pid));
         assert.ok(
@@ -2885,49 +3119,57 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
 
         const afterEnd = yield* Effect.gen(function* () {
           const sql = yield* Database;
+
           const beforeExact = yield* resolveOrganizationPersonAuthorityForRead(
             personId(ids.persons.phantomOrganization),
             justBeforeExactEnd,
           );
+
           const atExact = yield* resolveOrganizationPersonAuthorityForRead(
             personId(ids.persons.phantomOrganization),
             exactEnd,
           );
+
           const insertDurable = yield* readDurableCommandFacts(
             sql,
             ids.commands.phantomOrganizationInsert,
           );
+
           const endDurable = yield* readDurableCommandFacts(
             sql,
             ids.commands.phantomOrganizationRemove,
           );
+
           const fresh = yield* Effect.result(
             executeReceiptCommand(
-              {
-                _tag: "RejectReceipt",
+              ReceiptCommandRequestSchema.cases.RejectReceipt.make({
                 commandId: ids.commands.phantomOrganizationFresh,
                 receiptId: ReceiptId.make(ids.receipts.phantomOrganizationFresh),
                 expectedRevision: 0,
-              },
+              }),
               principal(ids.persons.phantomOrganization, exactEnd),
             ),
           );
+
           const freshDurable = yield* readDurableCommandFacts(
             sql,
             ids.commands.phantomOrganizationFresh,
           );
+
           const removedAdministrator = yield* removeOrganizationGlobalAdministratorGrant({
             grantId: OrganizationGlobalAdministratorGrantId.make(
               ids.directAuthorities.phantomOrganizationAdministrator,
             ),
             expectedRevision: 1,
           });
+
           const removedApproval = yield* removeReceiptApprovalGrant({
             approvalGrantId: ReceiptApprovalGrantId.make(
               ids.directAuthorities.phantomOrganizationApproval,
             ),
             expectedRevision: 0,
           });
+
           const [remaining] = yield* sql<{
             readonly administrators: number;
             readonly approvals: number;
@@ -2944,7 +3186,9 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
                 WHERE approval_grant_id = ${ids.directAuthorities.phantomOrganizationApproval}
               ) AS approvals
           `;
+
           assert(remaining);
+
           return {
             beforeExactGlobalAdministrator: beforeExact.globalAdministrator,
             exactGlobalAdministrator: atExact.globalAdministrator,
@@ -2968,6 +3212,7 @@ const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<stri
             makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-after-end`),
           ),
         );
+
         assert.equal(afterEnd.beforeExactGlobalAdministrator, "Active");
         assert.equal(afterEnd.exactGlobalAdministrator, "Inactive");
         assert.deepEqual(afterEnd.insertDurable, {
@@ -3075,6 +3320,7 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
       const writerAttempted = yield* Deferred.make<void>();
       const commandTrace = makeSqlTrace();
       const writerTrace = makeSqlTrace();
+
       const composition = yield* approvalCompositionFacts(
         ids.persons.ruleApprove,
         justBeforeExactEnd,
@@ -3084,6 +3330,7 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-direct-lock-composition`),
         ),
       );
+
       assert.deepEqual(composition.applicableRuleIds, [ids.rules.approve]);
       assert.equal(composition.directApprovalGrants[0]?.active, false);
       assert.equal(composition.mapped._tag, "Success");
@@ -3092,6 +3339,7 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
         Effect.gen(function* () {
           const sql = yield* Database;
           const started = yield* connectionStamp(sql);
+
           const observed = observeSql(sql, commandTrace, {
             pauseAfter: {
               phase: "durable-audit-insert",
@@ -3099,16 +3347,18 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
               resume: resumeCommand,
             },
           });
+
           const value = yield* executeReceiptCommand(
-            {
-              _tag: "RejectReceipt",
+            ReceiptCommandRequestSchema.cases.RejectReceipt.make({
               commandId: ids.commands.approveLock,
               receiptId: ReceiptId.make(ids.receipts.approveLock),
               expectedRevision: 0,
-            },
+            }),
             principal(ids.persons.ruleApprove, justBeforeExactEnd),
           ).pipe(Effect.provideService(Database, observed));
+
           const completed = yield* connectionStamp(sql);
+
           return { started, completed, value };
         }).pipe(
           Effect.provide(
@@ -3116,6 +3366,7 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
           ),
         ),
       );
+
       yield* Deferred.await(commandReady);
 
       const writerFiber = yield* Effect.forkScoped(
@@ -3123,6 +3374,7 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
           const sql = yield* Database;
           const started = yield* connectionStamp(sql);
           const observed = observeSql(sql, writerTrace);
+
           const rows = yield* observed.withTransaction(
             Deferred.succeed(writerAttempted, undefined).pipe(
               Effect.andThen(observed<{ readonly revision: number }>`
@@ -3133,7 +3385,9 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
               `),
             ),
           );
+
           const completed = yield* connectionStamp(sql);
+
           return { started, completed, rows };
         }).pipe(
           Effect.provide(
@@ -3141,10 +3395,12 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
           ),
         ),
       );
+
       yield* Deferred.await(writerAttempted);
 
       const commandStartStamp = yield* Effect.gen(function* () {
         const sql = yield* Database;
+
         return yield* sql<{ readonly pid: number }>`
           SELECT pid
           FROM pg_catalog.pg_stat_activity
@@ -3155,8 +3411,10 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-direct-lock-pid-observer`),
         ),
       );
+
       const writerStartStamp = yield* Effect.gen(function* () {
         const sql = yield* Database;
+
         return yield* sql<{ readonly pid: number }>`
           SELECT pid
           FROM pg_catalog.pg_stat_activity
@@ -3167,11 +3425,13 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-direct-lock-writer-pid-observer`),
         ),
       );
+
       const commandPid = commandStartStamp[0]?.pid;
       const writerPid = writerStartStamp[0]?.pid;
-      assert.equal(typeof commandPid, "number");
-      assert.equal(typeof writerPid, "number");
+      assert.ok(Predicate.isNumber(commandPid));
+      assert.ok(Predicate.isNumber(writerPid));
       assert.notEqual(commandPid, writerPid);
+
       const lockObservation = yield* observeBlockingAndLocks({
         databaseUrl,
         blockedPid: writerPid!,
@@ -3180,6 +3440,7 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
         commandId: ids.commands.approveLock,
         applicationName: `${proofApplicationPrefix}-direct-lock-observer`,
       });
+
       assert.equal(lockObservation.blocked.waitEventType, "Lock");
       assert.ok(lockObservation.blocked.blockingPids.includes(commandPid!));
       assert.ok(
@@ -3208,14 +3469,17 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
           true,
         ),
       );
+
       const commandAtBlock = {
         attempted: [...commandTrace.attempted],
         completed: [...commandTrace.completed],
       };
+
       const writerAtBlock = {
         attempted: [...writerTrace.attempted],
         completed: [...writerTrace.completed],
       };
+
       yield* Deferred.succeed(resumeCommand, undefined);
       const command = yield* Fiber.join(commandFiber);
       const writer = yield* Fiber.join(writerFiber);
@@ -3233,20 +3497,24 @@ const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
         "authz-rule-projection",
         "durable-audit-insert",
       ]);
+
       const durable = yield* Effect.gen(function* () {
         const sql = yield* Database;
+
         return yield* readDurableCommandFacts(sql, ids.commands.approveLock);
       }).pipe(
         Effect.provide(
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-direct-lock-durable`),
         ),
       );
+
       assert.deepEqual(durable, {
         commandReceiptRows: 1,
         auditRows: 1,
         outboxRows: 2,
         outboxCommandRows: 1,
       });
+
       return {
         composition,
         participants: {
@@ -3276,6 +3544,7 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
       const writerAttempted = yield* Deferred.make<void>();
       const commandTrace = makeSqlTrace();
       const writerTrace = makeSqlTrace();
+
       const composition = yield* submissionCompositionFacts(
         ids.persons.ruleSubmit,
         exactEnd,
@@ -3285,6 +3554,7 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-rule-removal-composition`),
         ),
       );
+
       assert.deepEqual(composition.applicableRuleIds, [ids.rules.submit]);
       assert.equal(composition.directPaymentAuthorities[0]?.active, false);
       assert.equal(composition.mapped._tag, "Success");
@@ -3293,6 +3563,7 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
         Effect.gen(function* () {
           const sql = yield* Database;
           const started = yield* connectionStamp(sql);
+
           const observed = observeSql(sql, commandTrace, {
             pauseAfter: {
               phase: "durable-audit-insert",
@@ -3300,12 +3571,15 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
               resume: resumeCommand,
             },
           });
+
           const value = yield* executeReceiptCommand(
             submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
             principal(ids.persons.ruleSubmit, exactEnd),
             allocation(generatedReceiptIds.ruleSubmit, generatedVisualIds.ruleSubmit),
           ).pipe(Effect.provideService(Database, observed));
+
           const completed = yield* connectionStamp(sql);
+
           return { started, completed, value };
         }).pipe(
           Effect.provide(
@@ -3313,20 +3587,24 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
           ),
         ),
       );
+
       yield* Deferred.await(commandReady);
 
       const writerFiber = yield* Effect.forkScoped(
         Effect.gen(function* () {
           const sql = yield* Database;
           const started = yield* connectionStamp(sql);
+
           const observed = observeSql(sql, writerTrace, {
             signalBefore: { phase: "authz-exclusive-lock", deferred: writerAttempted },
           });
+
           yield* removeAuthzRule({
             ruleId: AuthzRuleId.make(ids.rules.submit),
             expectedRevision: 0,
           }).pipe(Effect.provideService(Database, observed));
           const completed = yield* connectionStamp(sql);
+
           return { started, completed };
         }).pipe(
           Effect.provide(
@@ -3334,18 +3612,22 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
           ),
         ),
       );
+
       yield* Deferred.await(writerAttempted);
 
       const commandAtBlock = {
         attempted: [...commandTrace.attempted],
         completed: [...commandTrace.completed],
       };
+
       const writerAtBlock = {
         attempted: [...writerTrace.attempted],
         completed: [...writerTrace.completed],
       };
+
       const participantPids = yield* Effect.gen(function* () {
         const sql = yield* Database;
+
         return yield* sql<{ readonly applicationName: string; readonly pid: number }>`
           SELECT application_name AS "applicationName", pid
           FROM pg_catalog.pg_stat_activity
@@ -3360,15 +3642,19 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-rule-removal-pid-observer`),
         ),
       );
+
       const commandPid = participantPids.find((row) =>
         row.applicationName.endsWith("rule-removal-command"),
       )?.pid;
+
       const writerPid = participantPids.find((row) =>
         row.applicationName.endsWith("rule-removal-writer"),
       )?.pid;
-      assert.equal(typeof commandPid, "number");
-      assert.equal(typeof writerPid, "number");
+
+      assert.ok(Predicate.isNumber(commandPid));
+      assert.ok(Predicate.isNumber(writerPid));
       assert.notEqual(commandPid, writerPid);
+
       const lockObservation = yield* observeBlockingAndLocks({
         databaseUrl,
         blockedPid: writerPid!,
@@ -3377,6 +3663,7 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
         commandId: ids.commands.ruleSubmit,
         applicationName: `${proofApplicationPrefix}-rule-removal-observer`,
       });
+
       assert.equal(lockObservation.blocked.waitEventType, "Lock");
       assert.ok(lockObservation.blocked.blockingPids.includes(commandPid!));
       assert.ok(
@@ -3432,23 +3719,29 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
       const replayAndFresh = yield* Effect.gen(function* () {
         const sql = yield* Database;
         const beforeReplay = yield* readDurableCommandFacts(sql, ids.commands.ruleSubmit);
+
         const [stored] = yield* sql<{ readonly observationJson: unknown }>`
           SELECT observation_json AS "observationJson"
           FROM public.economy_receipt_command_receipts
           WHERE command_id = ${ids.commands.ruleSubmit}
         `;
+
         assert(stored);
+
         const replay = yield* executeReceiptCommand(
           submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
           principal(ids.persons.ruleSubmit, exactEnd),
           allocation(generatedReceiptIds.ruleSubmit, generatedVisualIds.ruleSubmit),
         );
+
         const afterReplay = yield* readDurableCommandFacts(sql, ids.commands.ruleSubmit);
+
         const freshCommand = submitCommand(
           ids.commands.ruleSubmitFresh,
           ids.departments.alpha,
           "rule-submit",
         );
+
         const fresh = yield* Effect.result(
           executeReceiptCommand(
             freshCommand,
@@ -3456,14 +3749,18 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
             allocation(generatedReceiptIds.ruleSubmitFresh, generatedVisualIds.ruleSubmitFresh),
           ),
         );
+
         const freshDurable = yield* readDurableCommandFacts(sql, ids.commands.ruleSubmitFresh);
+
         const [ruleCount] = yield* sql<{ readonly count: number }>`
           SELECT count(*)::integer AS count
           FROM public.authz_rules
           WHERE rule_id = ${ids.rules.submit}
         `;
+
         assert(ruleCount);
         const replayComparable = { ...replay.observation, replayed: false };
+
         return {
           beforeReplay,
           storedObservation: stored.observationJson,
@@ -3487,6 +3784,7 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-rule-removal-replay`),
         ),
       );
+
       assert.equal(replayAndFresh.replayed, true);
       assert.equal(replayAndFresh.replayOutboxCount, 0);
       assert.equal(replayAndFresh.storedObservationFieldsEqual, true);
@@ -3533,6 +3831,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
         const writerStarted = yield* Deferred.make<ConnectionStamp>();
         const commandTrace = makeSqlTrace();
         const writerTrace = makeSqlTrace();
+
         const before = yield* submissionCompositionFacts(
           ids.persons.expiryCommandFirst,
           exactEnd,
@@ -3540,6 +3839,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
         ).pipe(
           Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-before`)),
         );
+
         assert.deepEqual(before.applicableRuleIds, [ids.rules.expiryCommandFirst]);
         assert.deepEqual(before.contributingRuleIds, [ids.rules.expiryCommandFirst]);
         assert.equal(before.directPaymentAuthorities.length, 0);
@@ -3550,6 +3850,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(commandStarted, started);
+
             const observed = observeSql(sql, commandTrace, {
               pauseAfter: {
                 phase: "durable-audit-insert",
@@ -3557,6 +3858,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
                 resume: resumeCommand,
               },
             });
+
             const value = yield* executeReceiptCommand(
               submitCommand(
                 ids.commands.expiryCommandFirst,
@@ -3569,7 +3871,9 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
                 generatedVisualIds.expiryCommandFirst,
               ),
             ).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, value };
           }).pipe(
             Effect.provide(
@@ -3577,6 +3881,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             ),
           ),
         );
+
         yield* Deferred.await(commandReady);
 
         const writerFiber = yield* Effect.forkScoped(
@@ -3584,15 +3889,19 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(writerStarted, started);
+
             const observed = observeSql(sql, writerTrace, {
               signalBefore: { phase: "authz-exclusive-lock", deferred: writerAttempted },
             });
+
             const ended = yield* endAuthzRule({
               ruleId: AuthzRuleId.make(ids.rules.expiryCommandFirst),
               endAt: exactEnd,
               expectedRevision: 0,
             }).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, ended };
           }).pipe(
             Effect.provide(
@@ -3600,18 +3909,22 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             ),
           ),
         );
+
         yield* Deferred.await(writerAttempted);
         const commandStamp = yield* Deferred.await(commandStarted);
         const writerStamp = yield* Deferred.await(writerStarted);
         assert.notEqual(commandStamp.pid, writerStamp.pid);
+
         const commandAtBlock = {
           attempted: [...commandTrace.attempted],
           completed: [...commandTrace.completed],
         };
+
         const writerAtBlock = {
           attempted: [...writerTrace.attempted],
           completed: [...writerTrace.completed],
         };
+
         const locks = yield* observeBlockingAndLocks({
           databaseUrl,
           blockedPid: writerStamp.pid,
@@ -3620,6 +3933,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
           commandId: ids.commands.expiryCommandFirst,
           applicationName: `${proofApplicationPrefix}-expiry-cf-observer`,
         });
+
         assert.equal(locks.blocked.waitEventType, "Lock");
         assert.ok(locks.blocked.blockingPids.includes(commandStamp.pid));
         assert.ok(
@@ -3658,22 +3972,30 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
 
         const after = yield* Effect.gen(function* () {
           const sql = yield* Database;
+
           const beforeExact = yield* loadApplicableAuthorizationRules(
-            { _tag: "Person", personId: personId(ids.persons.expiryCommandFirst) },
+            PrincipalSchema.cases.Person.make({
+              personId: personId(ids.persons.expiryCommandFirst),
+            }),
             "submitReceipt",
             justBeforeExactEnd,
             proofReceiptContext(departmentId(ids.departments.alpha)),
           );
+
           const atExact = yield* loadApplicableAuthorizationRules(
-            { _tag: "Person", personId: personId(ids.persons.expiryCommandFirst) },
+            PrincipalSchema.cases.Person.make({
+              personId: personId(ids.persons.expiryCommandFirst),
+            }),
             "submitReceipt",
             exactEnd,
             proofReceiptContext(departmentId(ids.departments.alpha)),
           );
+
           const acceptedDurable = yield* readDurableCommandFacts(
             sql,
             ids.commands.expiryCommandFirst,
           );
+
           const fresh = yield* Effect.result(
             executeReceiptCommand(
               submitCommand(
@@ -3688,10 +4010,12 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
               ),
             ),
           );
+
           const freshDurable = yield* readDurableCommandFacts(
             sql,
             ids.commands.expiryCommandFirstFresh,
           );
+
           return {
             beforeExactRuleIds: beforeExact.rules.map((rule) => rule.ruleId),
             exactRuleIds: atExact.rules.map((rule) => rule.ruleId),
@@ -3702,6 +4026,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
         }).pipe(
           Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-after`)),
         );
+
         assert.deepEqual(after.beforeExactRuleIds, [ids.rules.expiryCommandFirst]);
         assert.deepEqual(after.exactRuleIds, []);
         assert.deepEqual(after.acceptedDurable, {
@@ -3752,6 +4077,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
         const commandStarted = yield* Deferred.make<ConnectionStamp>();
         const writerTrace = makeSqlTrace();
         const commandTrace = makeSqlTrace();
+
         const before = yield* submissionCompositionFacts(
           ids.persons.expiryWriterFirst,
           justBeforeExactEnd,
@@ -3759,6 +4085,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
         ).pipe(
           Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-before`)),
         );
+
         assert.deepEqual(before.applicableRuleIds, [ids.rules.expiryWriterFirst]);
         assert.deepEqual(before.contributingRuleIds, [ids.rules.expiryWriterFirst]);
         assert.equal(before.directPaymentAuthorities.length, 0);
@@ -3769,6 +4096,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(writerStarted, started);
+
             const observed = observeSql(sql, writerTrace, {
               pauseAfter: {
                 phase: "end-rule",
@@ -3776,12 +4104,15 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
                 resume: resumeWriter,
               },
             });
+
             const ended = yield* endAuthzRule({
               ruleId: AuthzRuleId.make(ids.rules.expiryWriterFirst),
               endAt: exactEnd,
               expectedRevision: 0,
             }).pipe(Effect.provideService(Database, observed));
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, ended };
           }).pipe(
             Effect.provide(
@@ -3789,6 +4120,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             ),
           ),
         );
+
         yield* Deferred.await(writerPaused);
 
         const commandFiber = yield* Effect.forkScoped(
@@ -3796,9 +4128,11 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             const sql = yield* Database;
             const started = yield* connectionStamp(sql);
             yield* Deferred.succeed(commandStarted, started);
+
             const observed = observeSql(sql, commandTrace, {
               signalBefore: { phase: "authz-shared-lock", deferred: commandAttempted },
             });
+
             const result = yield* Effect.result(
               executeReceiptCommand(
                 submitCommand(
@@ -3813,7 +4147,9 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
                 ),
               ).pipe(Effect.provideService(Database, observed)),
             );
+
             const completed = yield* connectionStamp(sql);
+
             return { started, completed, result };
           }).pipe(
             Effect.provide(
@@ -3821,18 +4157,22 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             ),
           ),
         );
+
         yield* Deferred.await(commandAttempted);
         const writerStamp = yield* Deferred.await(writerStarted);
         const commandStamp = yield* Deferred.await(commandStarted);
         assert.notEqual(writerStamp.pid, commandStamp.pid);
+
         const writerAtBlock = {
           attempted: [...writerTrace.attempted],
           completed: [...writerTrace.completed],
         };
+
         const commandAtBlock = {
           attempted: [...commandTrace.attempted],
           completed: [...commandTrace.completed],
         };
+
         const locks = yield* observeBlockingAndLocks({
           databaseUrl,
           blockedPid: commandStamp.pid,
@@ -3841,6 +4181,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
           commandId: ids.commands.expiryWriterFirst,
           applicationName: `${proofApplicationPrefix}-expiry-wf-observer`,
         });
+
         assert.equal(locks.blocked.waitEventType, "Lock");
         assert.ok(locks.blocked.blockingPids.includes(writerStamp.pid));
         assert.ok(
@@ -3885,19 +4226,27 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
 
         const after = yield* Effect.gen(function* () {
           const sql = yield* Database;
+
           const beforeExact = yield* loadApplicableAuthorizationRules(
-            { _tag: "Person", personId: personId(ids.persons.expiryWriterFirst) },
+            PrincipalSchema.cases.Person.make({
+              personId: personId(ids.persons.expiryWriterFirst),
+            }),
             "submitReceipt",
             justBeforeExactEnd,
             proofReceiptContext(departmentId(ids.departments.alpha)),
           );
+
           const atExact = yield* loadApplicableAuthorizationRules(
-            { _tag: "Person", personId: personId(ids.persons.expiryWriterFirst) },
+            PrincipalSchema.cases.Person.make({
+              personId: personId(ids.persons.expiryWriterFirst),
+            }),
             "submitReceipt",
             exactEnd,
             proofReceiptContext(departmentId(ids.departments.alpha)),
           );
+
           const durable = yield* readDurableCommandFacts(sql, ids.commands.expiryWriterFirst);
+
           return {
             beforeExactRuleIds: beforeExact.rules.map((rule) => rule.ruleId),
             exactRuleIds: atExact.rules.map((rule) => rule.ruleId),
@@ -3906,6 +4255,7 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
         }).pipe(
           Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-after`)),
         );
+
         assert.deepEqual(after.beforeExactRuleIds, [ids.rules.expiryWriterFirst]);
         assert.deepEqual(after.exactRuleIds, []);
         assert.deepEqual(after.durable, {
@@ -3957,26 +4307,31 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-tag-before-composition`),
         ),
       );
+
       assert.deepEqual(beforeComposition.applicableRuleIds, [ids.rules.tagApprove]);
       assert.deepEqual(beforeComposition.assignmentIds, [ids.assignment]);
       assert.equal(beforeComposition.directApprovalGrants.length, 0);
       assert.equal(beforeComposition.mapped._tag, "Success");
+
       const accepted = yield* Effect.gen(function* () {
         const sql = yield* Database;
+
         const value = yield* executeReceiptCommand(
-          {
-            _tag: "RejectReceipt",
+          ReceiptCommandRequestSchema.cases.RejectReceipt.make({
             commandId: ids.commands.tagAccepted,
             receiptId: ReceiptId.make(ids.receipts.tagAccepted),
             expectedRevision: 0,
-          },
+          }),
           principal(ids.persons.tagApprove, justBeforeExactEnd),
         );
+
         const durable = yield* readDurableCommandFacts(sql, ids.commands.tagAccepted);
+
         return { value, durable };
       }).pipe(
         Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-tag-accepted`)),
       );
+
       assert.deepEqual(accepted.durable, {
         commandReceiptRows: 1,
         auditRows: 1,
@@ -3994,6 +4349,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
         Effect.gen(function* () {
           const sql = yield* Database;
           const started = yield* connectionStamp(sql);
+
           const observed = observeSql(sql, writerTrace, {
             pauseAfter: {
               phase: "end-tag-assignment",
@@ -4001,12 +4357,15 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
               resume: resumeWriter,
             },
           });
+
           const assignment = yield* endAuthzTagAssignment({
             assignmentId: AuthzTagAssignmentId.make(ids.assignment),
             endAt: exactEnd,
             expectedRevision: 0,
           }).pipe(Effect.provideService(Database, observed));
+
           const completed = yield* connectionStamp(sql);
+
           return { started, completed, assignment };
         }).pipe(
           Effect.provide(
@@ -4014,30 +4373,34 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           ),
         ),
       );
+
       yield* Deferred.await(writerPaused);
 
       const commandFiber = yield* Effect.forkScoped(
         Effect.gen(function* () {
           const sql = yield* Database;
           const started = yield* connectionStamp(sql);
+
           const observed = observeSql(sql, commandTrace, {
             signalBefore: {
               phase: "authz-shared-lock",
               deferred: commandAttemptedRuleLock,
             },
           });
+
           const result = yield* Effect.result(
             executeReceiptCommand(
-              {
-                _tag: "RejectReceipt",
+              ReceiptCommandRequestSchema.cases.RejectReceipt.make({
                 commandId: ids.commands.tagWriterFirst,
                 receiptId: ReceiptId.make(ids.receipts.tagWriterFirst),
                 expectedRevision: 0,
-              },
+              }),
               principal(ids.persons.tagApprove, exactEnd),
             ).pipe(Effect.provideService(Database, observed)),
           );
+
           const completed = yield* connectionStamp(sql);
+
           return { started, completed, result };
         }).pipe(
           Effect.provide(
@@ -4045,18 +4408,22 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           ),
         ),
       );
+
       yield* Deferred.await(commandAttemptedRuleLock);
 
       const writerAtBlock = {
         attempted: [...writerTrace.attempted],
         completed: [...writerTrace.completed],
       };
+
       const commandAtBlock = {
         attempted: [...commandTrace.attempted],
         completed: [...commandTrace.completed],
       };
+
       const participantPids = yield* Effect.gen(function* () {
         const sql = yield* Database;
+
         return yield* sql<{ readonly applicationName: string; readonly pid: number }>`
           SELECT application_name AS "applicationName", pid
           FROM pg_catalog.pg_stat_activity
@@ -4071,15 +4438,19 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-tag-writer-first-pid-observer`),
         ),
       );
+
       const writerPid = participantPids.find((row) =>
         row.applicationName.endsWith("tag-writer-first-writer"),
       )?.pid;
+
       const commandPid = participantPids.find((row) =>
         row.applicationName.endsWith("tag-writer-first-command"),
       )?.pid;
-      assert.equal(typeof writerPid, "number");
-      assert.equal(typeof commandPid, "number");
+
+      assert.ok(Predicate.isNumber(writerPid));
+      assert.ok(Predicate.isNumber(commandPid));
       assert.notEqual(writerPid, commandPid);
+
       const lockObservation = yield* observeBlockingAndLocks({
         databaseUrl,
         blockedPid: commandPid!,
@@ -4088,6 +4459,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
         commandId: ids.commands.tagWriterFirst,
         applicationName: `${proofApplicationPrefix}-tag-writer-first-observer`,
       });
+
       assert.equal(lockObservation.blocked.waitEventType, "Lock");
       assert.ok(lockObservation.blocked.blockingPids.includes(writerPid!));
       assert.ok(
@@ -4134,25 +4506,31 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
 
       const after = yield* Effect.gen(function* () {
         const sql = yield* Database;
+
         const beforeInstant = yield* loadApplicableAuthorizationRules(
-          { _tag: "Person", personId: personId(ids.persons.tagApprove) },
+          PrincipalSchema.cases.Person.make({ personId: personId(ids.persons.tagApprove) }),
           "approveReceipt",
           justBeforeExactEnd,
           proofReceiptContext(departmentId(ids.departments.alpha)),
         );
+
         const exactInstant = yield* loadApplicableAuthorizationRules(
-          { _tag: "Person", personId: personId(ids.persons.tagApprove) },
+          PrincipalSchema.cases.Person.make({ personId: personId(ids.persons.tagApprove) }),
           "approveReceipt",
           exactEnd,
           proofReceiptContext(departmentId(ids.departments.alpha)),
         );
+
         const durable = yield* readDurableCommandFacts(sql, ids.commands.tagWriterFirst);
+
         const [receipt] = yield* sql<{ readonly status: string; readonly revision: number }>`
           SELECT status, revision
           FROM public.economy_receipts
           WHERE receipt_id = ${ids.receipts.tagWriterFirst}
         `;
+
         assert(receipt);
+
         return {
           beforeInstantRuleIds: beforeInstant.rules.map((rule) => rule.ruleId),
           beforeInstantAssignmentIds: beforeInstant.tagAssignments.map(
@@ -4170,6 +4548,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-tag-writer-first-after`),
         ),
       );
+
       assert.deepEqual(after.beforeInstantRuleIds, [ids.rules.tagApprove]);
       assert.deepEqual(after.beforeInstantAssignmentIds, [ids.assignment]);
       assert.deepEqual(after.exactInstantRuleIds, []);
@@ -4181,8 +4560,10 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
         outboxCommandRows: 0,
       });
       assert.deepEqual(after.receipt, { status: "Pending", revision: 0 });
+
       const retry = yield* Effect.gen(function* () {
         const sql = yield* Database;
+
         const createdAssignment = yield* createAuthzTagAssignment({
           assignmentId: AuthzTagAssignmentId.make(ids.retryAssignment),
           tagId: AuthzTagId.make(ids.tag),
@@ -4191,22 +4572,25 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           endAt: null,
           revision: 0,
         });
+
         const applicable = yield* loadApplicableAuthorizationRules(
-          { _tag: "Person", personId: personId(ids.persons.tagApprove) },
+          PrincipalSchema.cases.Person.make({ personId: personId(ids.persons.tagApprove) }),
           "approveReceipt",
           exactEnd,
           proofReceiptContext(departmentId(ids.departments.alpha)),
         );
+
         const value = yield* executeReceiptCommand(
-          {
-            _tag: "RejectReceipt",
+          ReceiptCommandRequestSchema.cases.RejectReceipt.make({
             commandId: ids.commands.tagWriterFirst,
             receiptId: ReceiptId.make(ids.receipts.tagWriterFirst),
             expectedRevision: 0,
-          },
+          }),
           principal(ids.persons.tagApprove, exactEnd),
         );
+
         const durable = yield* readDurableCommandFacts(sql, ids.commands.tagWriterFirst);
+
         return {
           sameCommandId: ids.commands.tagWriterFirst,
           createdAssignment: {
@@ -4227,6 +4611,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           makeProofLayer(databaseUrl, `${proofApplicationPrefix}-tag-failed-command-retry`),
         ),
       );
+
       assert.deepEqual(retry.applicableRuleIds, [ids.rules.tagApprove]);
       assert.deepEqual(retry.applicableAssignmentIds, [ids.retryAssignment]);
       assert.deepEqual(retry.durable, {
@@ -4281,14 +4666,17 @@ interface CleanupEvidence {
 const cleanupDatabase = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const [connections] = yield* sql<{ readonly count: number }>`
       SELECT count(*)::integer AS count
       FROM pg_catalog.pg_stat_activity
       WHERE application_name LIKE ${`${proofApplicationPrefix}%`}
         AND pid <> pg_backend_pid()
     `;
+
     assert(connections);
     yield* resetDatabaseObjects(sql);
+
     const [remaining] = yield* sql<CleanupEvidence>`
       SELECT
         ${connections.count}::integer AS "participantConnectionsBeforeCleanup",
@@ -4319,7 +4707,9 @@ const cleanupDatabase = (databaseUrl: Redacted.Redacted<string>) =>
           WHERE extname <> 'plpgsql'
         ) AS "remainingNonDefaultExtensions"
     `;
+
     assert(remaining);
+
     return remaining;
   }).pipe(Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-cleanup`)));
 
@@ -4336,6 +4726,7 @@ const runProof = (databaseUrl: Redacted.Redacted<string>) =>
     const ruleExpiry = yield* proveRuleExpiryRaces(databaseUrl);
     const commandFirstRuleRemoval = yield* proveCommandFirstRuleRemoval(databaseUrl);
     const writerFirstTagDetachment = yield* proveTagDetachmentWriterFirst(databaseUrl);
+
     return {
       schema: "AuthorizationRulesPostgresProofEvidence/v1" as const,
       specId: "0056" as const,
@@ -4369,11 +4760,13 @@ const runProof = (databaseUrl: Redacted.Redacted<string>) =>
   });
 
 export const program = Effect.gen(function* () {
-  const databaseUrl = yield* Config.redacted("DATABASE_URL").pipe(
+  const databaseUrl = yield* Config.Redacted("DATABASE_URL").pipe(
     Config.withDefault(Redacted.make("postgres://receipt:receipt@127.0.0.1:55432/receipt_proof")),
   );
+
   assertDisposablePostgres(databaseUrl);
   let cleaned = false;
+
   const cleanupOnce = Effect.suspend(() =>
     cleaned
       ? Effect.void
@@ -4387,6 +4780,7 @@ export const program = Effect.gen(function* () {
       SqlError: Effect.die,
     }),
   );
+
   const evidence = yield* Effect.scoped(runProof(databaseUrl)).pipe(
     Effect.flatMap((proof) =>
       cleanupDatabase(databaseUrl).pipe(
@@ -4396,6 +4790,7 @@ export const program = Effect.gen(function* () {
     ),
     Effect.ensuring(cleanupOnce),
   );
+
   assert.deepEqual(evidence.cleanup, {
     participantConnectionsBeforeCleanup: 0,
     remainingUserSchemas: 0,

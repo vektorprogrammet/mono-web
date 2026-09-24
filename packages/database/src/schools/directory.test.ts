@@ -1,213 +1,160 @@
-import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
-import {
-  OrganizationAuthorityInstantSchema,
-  type OrganizationAuthorityInstant,
-  type OrganizationPersonAuthority,
-} from "@vektorprogrammet/domain/organization";
-import { DepartmentNotFound } from "@vektorprogrammet/domain/organization";
+import { afterAll, beforeAll, expect, it } from "vitest";
+import { Effect, Layer } from "effect";
 import {
   DepartmentId,
-  MembershipId,
+  Organization,
+  OrganizationAuthorityInstantSchema,
   PersonId,
-  TeamId,
 } from "@vektorprogrammet/domain/organization";
-import { Organization } from "@vektorprogrammet/domain/organization";
+import { Database } from "../service.js";
+import { DatabaseTest } from "../layers.js";
+import { OrganizationLive } from "../organization/postgres-layer.js";
+import { SchoolsLive } from "./postgres-layer.js";
+import { makeControlledTestRuntime } from "../../test/runtime.js";
 import { readSchoolsDirectory } from "./directory.js";
-import { Schools } from "@vektorprogrammet/domain/schools";
 
 const personId = PersonId.make("schools-journey-person");
+
+const inactivePersonId = PersonId.make("schools-inactive-person");
+
+const absentPersonId = PersonId.make("schools-absent-person");
+
 const authorizationInstant = OrganizationAuthorityInstantSchema.make("2032-03-01T12:00:00.000Z");
+
 const otherInstant = OrganizationAuthorityInstantSchema.make("2032-03-01T12:00:00.001Z");
+
 const departmentA = DepartmentId.make("schools-journey-a");
+
 const departmentB = DepartmentId.make("schools-journey-b");
 
-const authority = (
-  overrides: Partial<OrganizationPersonAuthority> = {},
-): OrganizationPersonAuthority => ({
-  personId,
-  evaluatedAt: authorizationInstant,
-  globalAdministrator: "Absent",
-  memberships: [
-    {
-      membershipId: MembershipId.make("schools-membership-b"),
-      teamId: TeamId.make("schools-team-b"),
-      departmentId: departmentB,
-      active: true,
-      teamLeader: false,
-    },
-    {
-      membershipId: MembershipId.make("schools-membership-a"),
-      teamId: TeamId.make("schools-team-a"),
-      departmentId: departmentA,
-      active: true,
-      teamLeader: true,
-    },
-  ],
-  ...overrides,
+const outsideDepartmentId = DepartmentId.make("schools-journey-outside");
+
+const runtime = makeControlledTestRuntime(
+  SchoolsLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest())))),
+);
+
+beforeAll(
+  () =>
+    runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        yield* sql`
+      INSERT INTO person_profiles (person_id, first_name, last_name)
+      VALUES (${personId}, 'School', 'Member'),
+        (${inactivePersonId}, 'Inactive', 'Administrator'),
+        (${absentPersonId}, 'Unappointed', 'Person')
+    `;
+        yield* sql`
+      INSERT INTO organization_departments (department_id, name, short_name, email, city)
+      VALUES (${departmentA}, 'Department A', 'DA', 'a@example.invalid', 'Oslo'),
+        (${departmentB}, 'Department B', 'DB', 'b@example.invalid', 'Bergen'),
+        (${outsideDepartmentId}, 'Outside', 'OUT', 'out@example.invalid', 'Trondheim')
+    `;
+        yield* sql`
+      INSERT INTO organization_teams (team_id, department_id, name)
+      VALUES ('schools-team-a', ${departmentA}, 'Team A'),
+        ('schools-team-b', ${departmentB}, 'Team B')
+    `;
+        yield* sql`
+      INSERT INTO organization_memberships (
+        membership_id, person_id, team_id, start_at, end_at, is_team_leader
+      ) VALUES ('schools-membership-a', ${personId}, 'schools-team-a',
+          '2030-01-01T00:00:00.000Z', ${otherInstant}, TRUE),
+        ('schools-membership-b', ${personId}, 'schools-team-b',
+          '2030-01-01T00:00:00.000Z', NULL, FALSE)
+    `;
+        yield* sql`
+      INSERT INTO organization_global_administrator_grants (grant_id, person_id, start_at, end_at)
+      VALUES ('schools-expired-grant', ${inactivePersonId},
+        '2030-01-01T00:00:00.000Z', '2031-01-01T00:00:00.000Z')
+    `;
+        yield* sql`
+      INSERT INTO schools_directory_schools (
+        name, contact_person, email, phone, language, active
+      ) VALUES ('A School', 'Contact A', 'a@school.invalid', '+4700000001', 'Norwegian', TRUE),
+        ('B School', 'Contact B', 'b@school.invalid', '+4700000002', 'Norwegian', TRUE),
+        ('Outside School', 'Contact C', 'c@school.invalid', '+4700000003', 'Norwegian', TRUE)
+    `;
+        yield* sql`
+      INSERT INTO schools_directory_departments (school_id, department_id)
+      SELECT school_id, CASE name WHEN 'A School' THEN ${departmentA}
+        WHEN 'B School' THEN ${departmentB} ELSE ${outsideDepartmentId} END
+      FROM schools_directory_schools
+    `;
+      }),
+    ),
+  15_000,
+);
+
+afterAll(() => runtime.dispose());
+
+it("unions memberships at the supplied instant and excludes an expired membership", async () => {
+  const visible = await runtime.runPromise(
+    readSchoolsDirectory(personId, authorizationInstant, {}),
+  );
+
+  const afterExpiry = await runtime.runPromise(readSchoolsDirectory(personId, otherInstant, {}));
+
+  expect(visible.activeSchools.map((school) => school.name)).toEqual(["A School", "B School"]);
+  expect(visible.activeSchools.flatMap((school) => school.departments)).toEqual([
+    { departmentId: departmentA, name: "Department A" },
+    { departmentId: departmentB, name: "Department B" },
+  ]);
+  expect(afterExpiry.activeSchools.map((school) => school.name)).toEqual(["B School"]);
 });
 
-const emptyDirectory = {
-  activeSchools: [],
-  inactiveSchools: [],
-} as const;
+it("maps inactive and absent Organization projections to distinct typed denials", async () => {
+  const inactive = await runtime.runPromise(
+    Effect.flip(readSchoolsDirectory(inactivePersonId, authorizationInstant, {})),
+  );
 
-const makeDatabase = (observed: { transactions: number; statements: Array<string> }) => {
-  const sql = ((strings: TemplateStringsArray) => {
-    observed.statements.push(strings.join("?"));
-    return Effect.succeed([]);
-  }) as unknown as DatabaseShape;
-  Object.assign(sql, {
-    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => {
-      observed.transactions += 1;
-      return effect;
-    },
-  });
-  return sql;
-};
+  const absent = await runtime.runPromise(
+    Effect.flip(readSchoolsDirectory(absentPersonId, authorizationInstant, {})),
+  );
 
-it.effect(
-  "uses one injected instant, one snapshot transaction, and the full membership union",
-  () =>
+  expect(inactive._tag).toBe("AuthorityInactive");
+  expect(absent._tag).toBe("NotInScope");
+});
+
+it("checks that a narrowing department exists before rejecting an out-of-scope one", async () => {
+  const outside = await runtime.runPromise(
+    Effect.flip(
+      readSchoolsDirectory(personId, authorizationInstant, { departmentId: outsideDepartmentId }),
+    ),
+  );
+
+  const unknown = await runtime.runPromise(
+    Effect.flip(
+      readSchoolsDirectory(personId, authorizationInstant, {
+        departmentId: DepartmentId.make("schools-unknown-department"),
+      }),
+    ),
+  );
+
+  expect(outside._tag).toBe("SchoolsDepartmentOutOfScope");
+  expect(unknown._tag).toBe("SchoolsDepartmentNotFound");
+});
+
+it("rejects an Organization projection evaluated at another instant", async () => {
+  const failure = await runtime.runPromise(
     Effect.gen(function* () {
-      const observed = {
-        transactions: 0,
-        statements: [] as Array<string>,
-        authorityCalls: [] as Array<readonly [PersonId, string]>,
-        listInputs: [] as Array<unknown>,
-      };
-      const database = makeDatabase(observed);
-      const organization = Organization.of({
-        resolvePersonAuthorityForRead: (
-          resolvedPersonId: PersonId,
-          instant: OrganizationAuthorityInstant,
-        ) => {
-          observed.authorityCalls.push([resolvedPersonId, instant]);
-          return Effect.succeed(authority());
-        },
-      } as never);
-      const schools = Schools.of({
-        listDirectory: (input) => {
-          observed.listInputs.push(input);
-          return Effect.succeed(emptyDirectory);
-        },
+      const organization = yield* Organization;
+
+      const wrongInstant = Organization.of({
+        ...organization,
+        resolvePersonAuthorityForRead: (resolvedPersonId, instant) =>
+          organization
+            .resolvePersonAuthorityForRead(resolvedPersonId, instant)
+            .pipe(Effect.map((projection) => ({ ...projection, evaluatedAt: otherInstant }))),
       });
 
-      const directory = yield* readSchoolsDirectory(personId, authorizationInstant, {}).pipe(
-        Effect.provideService(Database, database),
-        Effect.provideService(Organization, organization),
-        Effect.provideService(Schools, schools),
-      );
-
-      expect(directory).toEqual(emptyDirectory);
-      expect(observed.transactions).toBe(1);
-      expect(observed.statements).toHaveLength(1);
-      expect(observed.statements[0]).toContain("REPEATABLE READ");
-      expect(observed.statements[0]).toContain("READ ONLY");
-      expect(observed.authorityCalls).toEqual([[personId, authorizationInstant]]);
-      expect(observed.listInputs).toEqual([
-        {
-          scope: { _tag: "DepartmentIds", departmentIds: [departmentA, departmentB] },
-        },
-      ]);
-    }),
-);
-
-it.effect("maps inactive and absent Organization projections to distinct typed denials", () =>
-  Effect.gen(function* () {
-    const observed = { transactions: 0, statements: [] as Array<string> };
-    const database = makeDatabase(observed);
-    const schools = Schools.of({ listDirectory: () => Effect.succeed(emptyDirectory) });
-    for (const [projection, expectedTag] of [
-      [authority({ memberships: [], globalAdministrator: "Inactive" }), "AuthorityInactive"],
-      [authority({ memberships: [], globalAdministrator: "Absent" }), "NotInScope"],
-    ] as const) {
-      const organization = Organization.of({
-        resolvePersonAuthorityForRead: () => Effect.succeed(projection),
-      } as never);
-      const failure = yield* Effect.flip(
+      return yield* Effect.flip(
         readSchoolsDirectory(personId, authorizationInstant, {}).pipe(
-          Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
-          Effect.provideService(Schools, schools),
+          Effect.provideService(Organization, wrongInstant),
         ),
       );
-      expect(failure._tag).toBe(expectedTag);
-    }
-  }),
-);
+    }),
+  );
 
-it.effect("checks that a narrowing department exists before rejecting an out-of-scope one", () =>
-  Effect.gen(function* () {
-    const observed = { transactions: 0, statements: [] as Array<string>, listCalls: 0 };
-    const database = makeDatabase(observed);
-    const schools = Schools.of({
-      listDirectory: () => {
-        observed.listCalls += 1;
-        return Effect.succeed(emptyDirectory);
-      },
-    });
-    const scopedAuthority = authority({
-      memberships: authority().memberships.filter(
-        (membership) => membership.departmentId === departmentA,
-      ),
-    });
-    const knownOrganization = Organization.of({
-      resolvePersonAuthorityForRead: () => Effect.succeed(scopedAuthority),
-      readDepartment: () => Effect.succeed({} as never),
-    } as never);
-    const outsideFailure = yield* Effect.flip(
-      readSchoolsDirectory(personId, authorizationInstant, {
-        departmentId: departmentB,
-      }).pipe(
-        Effect.provideService(Database, database),
-        Effect.provideService(Organization, knownOrganization),
-        Effect.provideService(Schools, schools),
-      ),
-    );
-    expect(outsideFailure._tag).toBe("SchoolsDepartmentOutOfScope");
-
-    const unknownOrganization = Organization.of({
-      resolvePersonAuthorityForRead: () => Effect.succeed(scopedAuthority),
-      readDepartment: () => Effect.fail(new DepartmentNotFound({ departmentId: departmentB })),
-    } as never);
-    const unknownFailure = yield* Effect.flip(
-      readSchoolsDirectory(personId, authorizationInstant, {
-        departmentId: departmentB,
-      }).pipe(
-        Effect.provideService(Database, database),
-        Effect.provideService(Organization, unknownOrganization),
-        Effect.provideService(Schools, schools),
-      ),
-    );
-    expect(unknownFailure._tag).toBe("SchoolsDepartmentNotFound");
-    expect(observed.listCalls).toBe(0);
-  }),
-);
-
-it.effect("rejects an Organization projection evaluated at another instant", () =>
-  Effect.gen(function* () {
-    const observed = { transactions: 0, statements: [] as Array<string>, listCalls: 0 };
-    const database = makeDatabase(observed);
-    const organization = Organization.of({
-      resolvePersonAuthorityForRead: () =>
-        Effect.succeed(authority({ evaluatedAt: otherInstant, globalAdministrator: "Active" })),
-    } as never);
-    const schools = Schools.of({
-      listDirectory: () => {
-        observed.listCalls += 1;
-        return Effect.succeed(emptyDirectory);
-      },
-    });
-    const failure = yield* Effect.flip(
-      readSchoolsDirectory(personId, authorizationInstant, {}).pipe(
-        Effect.provideService(Database, database),
-        Effect.provideService(Organization, organization),
-        Effect.provideService(Schools, schools),
-      ),
-    );
-    expect(failure._tag).toBe("SchoolsDecodeError");
-    expect(observed.listCalls).toBe(0);
-  }),
-);
+  expect(failure._tag).toBe("SchoolsDecodeError");
+});

@@ -33,21 +33,26 @@ import {
 import { readOwnProfile } from "@vektorprogrammet/database/profile";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect, Redacted, Schema } from "effect";
+import { flow, Predicate, Effect, Redacted, Schema } from "effect";
 import { Pool } from "pg";
-import { buildLegacyPersonSnapshot, type LegacyUserJson } from "./legacy-person-snapshot";
+import { buildLegacyPersonSnapshot, LegacyUserJson } from "./legacy-person-snapshot";
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
 
 const moduleFile = fileURLToPath(import.meta.url);
+
 const repositoryRoot = resolve(dirname(moduleFile), "../..");
+
 const expectedSourceSha256 = "0ee71a6d3009181f1711ca9ee73917a8945c340d1ecd9f729ba12ecd57a88df5";
+
 const expectedSourceSize = 8_254_002;
+
 const expectedHistoricalStateFingerprint =
   "803940f7aab3f9da92d61abd3b5e6cdb2b65bc01080bf14fd9f1013310a64457";
+
 const expectedAccountDispositionFingerprint =
   "090e90e3128e3cc661bc833771f66ba6e9e4c96e4c1b7876f814debeb6129f89";
 
-const expectedLegacyShape = {
+const expectedLegacyInventory = {
   tables: 65,
   entityTables: 48,
   relationTables: 16,
@@ -62,12 +67,64 @@ const expectedLegacyShape = {
 
 const sha256 = (value: string | Uint8Array): string =>
   createHash("sha256").update(value).digest("hex");
-const digest = (value: unknown): string => sha256(canonicalJson(value));
-const toInt = (value: unknown): number => {
+
+const digest = flow(canonicalJson, sha256);
+
+const Aggregate = Schema.Union([Schema.Number, Schema.String]);
+
+const toInt = flow(Schema.decodeUnknownSync(Aggregate), (value): number => {
   const parsed = Number(value);
   assert.ok(Number.isSafeInteger(parsed), "Expected an integer aggregate");
+
   return parsed;
-};
+});
+
+const LegacyInventory = Schema.Struct({
+  tables: Aggregate,
+  columns: Aggregate,
+  foreignKeys: Aggregate,
+  migrations: Aggregate,
+  people: Aggregate,
+  activePeople: Aggregate,
+  credentials: Aggregate,
+});
+
+const LegacyColumn = Schema.Struct({
+  table: Schema.String,
+  column: Schema.String,
+  ordinal: Aggregate,
+  type: Schema.String,
+  nullable: Schema.String,
+  default: Schema.NullOr(Schema.String),
+  key: Schema.String,
+  extra: Schema.String,
+});
+
+const LegacyForeignKey = Schema.Struct({
+  name: Schema.String,
+  table: Schema.String,
+  referencedTable: Schema.String,
+  updateRule: Schema.String,
+  deleteRule: Schema.String,
+});
+
+const LegacyUserConstraint = Schema.Struct({
+  name: Schema.String,
+  type: Schema.String,
+  column: Schema.String,
+  referencedTable: Schema.NullOr(Schema.String),
+  referencedColumn: Schema.NullOr(Schema.String),
+});
+
+const LegacyPassword = Schema.Struct({
+  id: LegacyUserJson.fields.id,
+  password: Schema.String,
+});
+
+// PostgreSQL timestamps remain Dates; changing their representation would change state evidence.
+const SqlEvidenceRow = Schema.Record(Schema.String, Schema.Union([Schema.Json, Schema.Date]));
+
+const decodeSqlEvidenceRows = Schema.decodeUnknownSync(Schema.Array(SqlEvidenceRow));
 
 interface SpawnOptions {
   readonly cwd?: string;
@@ -82,27 +139,34 @@ const run = async (command: ReadonlyArray<string>, options: SpawnOptions = {}): 
     env: { ...process.env, ...options.env },
     stdio: ["pipe", "pipe", "pipe"],
   });
+
   if (options.stdin === undefined) child.stdin.end();
   else child.stdin.end(options.stdin);
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
   child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
   child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
   const exitCode = await new Promise<number>((resolveClose, reject) => {
     child.once("error", reject);
     child.once("close", (code) => resolveClose(code ?? 1));
   });
+
   const stdout = Buffer.concat(stdoutChunks).toString("utf8");
   const stderr = Buffer.concat(stderrChunks).toString("utf8");
+
   if (exitCode !== 0) {
     const details = options.redactStderr ? "details redacted" : stderr.slice(-2_000);
     throw new Error(String(command[0]) + " failed (" + exitCode + "): " + details);
   }
+
   return stdout.trim();
 };
+
 const waitForProcessExit = async (child: ChildProcess, timeoutMs: number): Promise<boolean> =>
   await new Promise<boolean>((resolveExit) => {
     let settled = false;
+
     const finish = (exited: boolean) => {
       if (settled) return;
       settled = true;
@@ -110,17 +174,21 @@ const waitForProcessExit = async (child: ChildProcess, timeoutMs: number): Promi
       child.removeListener("exit", onExit);
       resolveExit(exited);
     };
+
     const onExit = () => finish(true);
     const timeout = setTimeout(() => finish(false), timeoutMs);
     child.once("exit", onExit);
+
     if (child.exitCode !== null || child.signalCode !== null) finish(true);
   });
 
 const stopProcess = async (child: ChildProcess): Promise<void> => {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill("SIGTERM");
+
   if (await waitForProcessExit(child, 5_000)) return;
   child.kill("SIGKILL");
+
   if (await waitForProcessExit(child, 5_000)) return;
   throw new Error("Disposable service did not terminate; details redacted");
 };
@@ -131,7 +199,7 @@ const freePort = async (): Promise<number> =>
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
-      assert.ok(address !== null && typeof address !== "string");
+      assert.ok(address !== null && !Predicate.isString(address));
       const port = address.port;
       server.close((error) => (error === undefined ? resolvePort(port) : reject(error)));
     });
@@ -140,15 +208,18 @@ const freePort = async (): Promise<number> =>
 const waitFor = async (probe: () => Promise<void>, label: string): Promise<void> => {
   const deadline = Date.now() + 30_000;
   let last: unknown;
+
   while (Date.now() < deadline) {
     try {
       await probe();
+
       return;
     } catch (error) {
       last = error;
       await delay(100);
     }
   }
+
   throw new Error(`${label} did not become ready: ${String(last)}`);
 };
 
@@ -160,8 +231,10 @@ const secureRegularFile = async (path: string, expectedMode: number): Promise<vo
   assert.equal(metadata.uid, process.getuid?.(), "Private artifact must be owned by this user");
   assert.equal(metadata.mode & 0o777, expectedMode, "Private artifact has an unsafe mode");
 };
+
 const readPrivateFile = async (path: string, maxBytes: number): Promise<Buffer> => {
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+
   try {
     const metadata = await handle.stat();
     assert.ok(metadata.isFile(), "Private input must be a regular file");
@@ -169,14 +242,15 @@ const readPrivateFile = async (path: string, maxBytes: number): Promise<Buffer> 
     assert.equal(metadata.uid, process.getuid?.(), "Private input must be owned by this user");
     assert.equal(metadata.mode & 0o777, 0o600, "Private input mode must be 600");
     assert.ok(metadata.size <= maxBytes, "Private input exceeds its accepted size");
+
     return await handle.readFile();
   } finally {
     await handle.close();
   }
 };
 
-const readPrivateJson = async (path: string): Promise<unknown> =>
-  JSON.parse((await readPrivateFile(path, 16 * 1024 * 1024)).toString("utf8"));
+const readPrivatePersonCohort = async (path: string): Promise<PersonCohortSnapshot> =>
+  decodePersonCohort(JSON.parse((await readPrivateFile(path, 16 * 1024 * 1024)).toString("utf8")));
 
 const mysql = async (socket: string, sql: string): Promise<string> =>
   run([
@@ -192,27 +266,33 @@ const mysql = async (socket: string, sql: string): Promise<string> =>
     sql,
   ]);
 
-const jsonLines = <A>(output: string): ReadonlyArray<A> =>
-  output === "" ? [] : output.split("\n").map((line) => JSON.parse(line) as A);
+const jsonLines = <A>(decode: (line: string) => A, output: string): ReadonlyArray<A> =>
+  output === "" ? [] : output.split("\n").map((line) => decode(line));
 
 const phpFiles = async (root: string): Promise<ReadonlyArray<string>> => {
   const files: string[] = [];
+
   const visit = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
+
       if (entry.isDirectory()) await visit(path);
       else if (entry.isFile() && entry.name.endsWith(".php")) files.push(path);
     }
   };
+
   await visit(root);
+
   return files;
 };
 
 const doctrineEntityTables = async (): Promise<ReadonlySet<string>> => {
   const root = join(repositoryRoot, "apps/server/src");
   const tables = new Set<string>();
+
   for (const path of await phpFiles(root)) {
     const source = await readFile(path, "utf8");
+
     if (!source.includes("#[ORM\\Entity")) continue;
     const explicit = source.match(/#\[ORM\\Table\(name:\s*['"]([^'"]+)['"]/)?.[1];
     const className = source.match(/\bclass\s+(\w+)/)?.[1];
@@ -222,6 +302,7 @@ const doctrineEntityTables = async (): Promise<ReadonlySet<string>> => {
     );
     tables.add(explicit ?? className!);
   }
+
   return tables;
 };
 
@@ -238,6 +319,7 @@ const startNativeDatabase = async (dataRoot: string, port: number): Promise<void
     "--encoding=UTF8",
   ]);
   const logPath = join(dataRoot, "postgres.log");
+
   try {
     await run([
       "pg_ctl",
@@ -255,10 +337,12 @@ const startNativeDatabase = async (dataRoot: string, port: number): Promise<void
     throw new Error(String(error) + "\n" + log.slice(-2_000));
   }
 };
+
 const postgresUrl = (socketRoot: string, port: number, database: string): string => {
   const url = new URL("postgresql://postgres@localhost/" + database);
   url.searchParams.set("host", socketRoot);
   url.searchParams.set("port", String(port));
+
   return url.toString();
 };
 
@@ -286,12 +370,15 @@ const nativeCounts = async (pool: Pool): Promise<Record<string, number>> => {
       (SELECT count(*) FROM public.person_cohort_occurrences)::text AS occurrences,
       (SELECT count(*) FROM public.person_cohort_imports)::text AS imports
   `);
+
   return Object.fromEntries(
     Object.entries(result.rows[0]!).map(([key, value]) => [key, toInt(value)]),
   );
 };
+
 const nativeStateFingerprint = async (pool: Pool): Promise<string> => {
-  const rows = async (sql: string) => (await pool.query<Record<string, unknown>>(sql)).rows;
+  const rows = async (sql: string) => decodeSqlEvidenceRows((await pool.query(sql)).rows);
+
   return digest({
     profiles: await rows(
       "SELECT person_id, first_name, last_name, revision FROM public.person_profiles ORDER BY person_id",
@@ -315,7 +402,8 @@ const nativeStateFingerprint = async (pool: Pool): Promise<string> => {
 };
 
 const cutoverState = async (pool: Pool) => {
-  const rows = async (sql: string) => (await pool.query<Record<string, unknown>>(sql)).rows;
+  const rows = async (sql: string) => decodeSqlEvidenceRows((await pool.query(sql)).rows);
+
   const counts = (
     await pool.query<Record<string, string>>(`SELECT
       (SELECT count(*) FROM public.assistant_service_history)::text AS history,
@@ -331,6 +419,7 @@ const cutoverState = async (pool: Pool) => {
       (SELECT count(*) FROM auth.credential_cohort_occurrences)::text AS credential_occurrences,
       (SELECT count(*) FROM auth.identity_security_audit)::text AS credential_audit`)
   ).rows[0]!;
+
   const historicalFingerprint = digest({
     occurrences: await rows(
       "SELECT occurrence_id, disposition, reason, raw_row_digest, source_row_digest FROM public.historical_service_occurrences ORDER BY occurrence_id",
@@ -345,7 +434,9 @@ const cutoverState = async (pool: Pool) => {
       "SELECT school_id::text, name, contact_person, email, phone, language, active FROM public.schools_directory_schools ORDER BY school_id",
     ),
   });
+
   const personFingerprint = await nativeStateFingerprint(pool);
+
   return {
     counts: {
       history: toInt(counts.history),
@@ -407,8 +498,9 @@ const cutoverState = async (pool: Pool) => {
     }),
   };
 };
+
 const expectFailure = async (
-  effect: Promise<unknown>,
+  effect: Promise<PersonCohortReport>,
   code: PersonCohortFailure["code"],
 ): Promise<void> => {
   try {
@@ -422,14 +514,91 @@ const expectFailure = async (
 
 const reasonCounts = (report: PersonCohortReport): Record<string, number> => {
   const counts: Record<string, number> = {};
+
   for (const occurrence of report.occurrences)
     counts[occurrence.reason] = (counts[occurrence.reason] ?? 0) + 1;
+
   return Object.fromEntries(
     Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
   );
 };
 
+interface RehearsalReport {
+  readonly specification: "legacy-backup-person-and-accounts-rehearsal";
+  readonly result: "passed";
+  readonly source: {
+    readonly sha256: string;
+    readonly bytes: number;
+    readonly ["shape"]: {
+      readonly tables: number;
+      readonly columns: number;
+      readonly foreignKeys: number;
+      readonly appliedMigrations: number;
+      readonly declaredMigrations: number;
+      readonly people: number;
+      readonly activePeople: number;
+    };
+    readonly classifications: {
+      readonly entityTables: number;
+      readonly relationTables: number;
+      readonly migrationTables: number;
+    };
+    readonly schemaFingerprint: string;
+    readonly declaredMigrationFingerprint: string;
+    readonly postBackupMigrationFingerprint: string;
+  };
+  readonly cohort: Pick<
+    PersonCohortReport,
+    "input" | "accepted" | "quarantined" | "aliases" | "credentials"
+  > & {
+    readonly digest: string;
+    readonly toolRevision: string;
+    readonly reasons: ReturnType<typeof reasonCounts>;
+    readonly aliasesDetected: number;
+    readonly credentialsDetected: number;
+  };
+  readonly native: {
+    readonly schemaRevision: typeof databaseSchemaRevision;
+    readonly stateFingerprint: string;
+    readonly reportFingerprint: string;
+    readonly counts: Awaited<ReturnType<typeof nativeCounts>>;
+  };
+  readonly cutoverRehearsal: Awaited<ReturnType<typeof runLegacyServiceCutover>> & {
+    readonly acceptedPersonAccountGap: ReadonlyArray<{
+      readonly reason: string;
+      readonly count: number;
+    }>;
+    readonly native: Awaited<ReturnType<typeof cutoverState>>;
+    readonly postClaim: Awaited<ReturnType<typeof cutoverState>>;
+  };
+  readonly gates: {
+    readonly postgresTransport: "owner-only-unix-socket";
+    readonly rollbackLeavesNoPartialWrites: "passed";
+    readonly concurrentImport: "one-commit-one-replay";
+    readonly exactReplay: "no-additional-writes";
+    readonly changedSource: "rejected";
+    readonly backupRestore: "equivalent";
+    readonly restoredReplay: "no-additional-writes";
+    readonly nativeOwnProfileRead: "passed";
+    readonly cutoverRollbackLeavesNoPartialWrites: "passed";
+    readonly cutoverChangedAccountSource: "rejected";
+    readonly passwordlessIdentityUnverifiedWithoutCredential: "passed";
+    readonly claimCredentialSurvivesReplay: "passed";
+    readonly cutoverBackupRestore: "equivalent";
+    readonly cutoverRestoredReplay: "no-additional-writes";
+    readonly privateArtifacts: "owner-only-and-cleaned";
+  };
+  readonly deferredCohorts: readonly [
+    "legacy-aliases",
+    "current-school-placements",
+    "receipt-and-private-files",
+  ];
+  readonly productionResourcesUsed: false;
+  readonly externalProviderActions: false;
+}
+
 let processCleanupComplete = true;
+
 const runRehearsal = async (temporaryRoot: string) => {
   const sourcePath = process.env.LEGACY_BACKUP_SQL;
   assert.ok(sourcePath !== undefined, "LEGACY_BACKUP_SQL is required");
@@ -464,6 +633,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     "--skip-test-db",
   ]);
   processCleanupComplete = false;
+
   const mysqlProcess = spawn(
     "mariadbd",
     [
@@ -476,6 +646,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     ],
     { cwd: repositoryRoot, stdio: "ignore" },
   );
+
   mysqlProcess.once("error", () => undefined);
 
   let postgresStarted = false;
@@ -483,8 +654,9 @@ const runRehearsal = async (temporaryRoot: string) => {
   let restoredPool: Pool | undefined;
   let cutoverPool: Pool | undefined;
   let restoredCutoverPool: Pool | undefined;
-  let completedReport: Record<string, unknown> | undefined;
+  let completedReport: RehearsalReport | undefined;
   let cleanupFailed = false;
+
   try {
     await waitFor(async () => {
       await run(["mariadb-admin", "--socket", mysqlSocket, "-uroot", "ping"]);
@@ -507,7 +679,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       "CREATE USER 'legacy_cutover_reader'@'localhost'; GRANT SELECT ON vektor.* TO 'legacy_cutover_reader'@'localhost'",
     );
 
-    const shape = JSON.parse(
+    const legacyInventory = Schema.decodeSync(Schema.fromJsonString(LegacyInventory))(
       await mysql(
         mysqlSocket,
         `SELECT JSON_OBJECT(
@@ -520,13 +692,14 @@ const runRehearsal = async (temporaryRoot: string) => {
           'credentials', (SELECT COUNT(*) FROM user WHERE password IS NOT NULL AND password <> '')
         )`,
       ),
-    ) as Record<string, number | string>;
-    assert.equal(toInt(shape.tables), expectedLegacyShape.tables);
-    assert.equal(toInt(shape.columns), expectedLegacyShape.columns);
-    assert.equal(toInt(shape.foreignKeys), expectedLegacyShape.foreignKeys);
-    assert.equal(toInt(shape.migrations), expectedLegacyShape.appliedMigrations);
-    assert.equal(toInt(shape.people), expectedLegacyShape.people);
-    assert.equal(toInt(shape.activePeople), expectedLegacyShape.activePeople);
+    );
+
+    assert.equal(toInt(legacyInventory.tables), expectedLegacyInventory.tables);
+    assert.equal(toInt(legacyInventory.columns), expectedLegacyInventory.columns);
+    assert.equal(toInt(legacyInventory.foreignKeys), expectedLegacyInventory.foreignKeys);
+    assert.equal(toInt(legacyInventory.migrations), expectedLegacyInventory.appliedMigrations);
+    assert.equal(toInt(legacyInventory.people), expectedLegacyInventory.people);
+    assert.equal(toInt(legacyInventory.activePeople), expectedLegacyInventory.activePeople);
 
     const tableNames = (
       await mysql(
@@ -534,14 +707,17 @@ const runRehearsal = async (temporaryRoot: string) => {
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'vektor' AND table_type = 'BASE TABLE' ORDER BY table_name",
       )
     ).split("\n");
+
     const entityTables = await doctrineEntityTables();
     const migrationTables = tableNames.filter((name) => name === "migration_versions");
+
     const relationTables = tableNames.filter(
       (name) => !entityTables.has(name) && name !== "migration_versions",
     );
-    assert.equal(entityTables.size, expectedLegacyShape.entityTables);
-    assert.equal(relationTables.length, expectedLegacyShape.relationTables);
-    assert.equal(migrationTables.length, expectedLegacyShape.migrationTables);
+
+    assert.equal(entityTables.size, expectedLegacyInventory.entityTables);
+    assert.equal(relationTables.length, expectedLegacyInventory.relationTables);
+    assert.equal(migrationTables.length, expectedLegacyInventory.migrationTables);
     assert.deepEqual(
       [...entityTables].filter((table) => !tableNames.includes(table)),
       [],
@@ -553,21 +729,27 @@ const runRehearsal = async (temporaryRoot: string) => {
     )
       .split("\n")
       .map((version) => version.replace(/^.*Version/, ""));
+
     const declaredMigrationIds = (await readdir(join(repositoryRoot, "apps/server/migrations")))
       .filter((name) => /^Version.+\.php$/.test(name))
       .map((name) => name.slice("Version".length, -".php".length))
       .sort();
-    assert.equal(declaredMigrationIds.length, expectedLegacyShape.declaredMigrations);
+
+    assert.equal(declaredMigrationIds.length, expectedLegacyInventory.declaredMigrations);
     assert.deepEqual(
       appliedMigrationIds.filter((migration) => !declaredMigrationIds.includes(migration)),
       [],
       "Backup contains an unknown legacy migration",
     );
+
     const postBackupMigrationIds = declaredMigrationIds.filter(
       (migration) => !appliedMigrationIds.includes(migration),
     );
+
     assert.deepEqual(postBackupMigrationIds, ["20260810002046"]);
-    const schemaRows = jsonLines<Record<string, unknown>>(
+
+    const schemaRows = jsonLines(
+      Schema.decodeSync(Schema.fromJsonString(LegacyColumn)),
       await mysql(
         mysqlSocket,
         `SELECT JSON_OBJECT(
@@ -584,7 +766,9 @@ const runRehearsal = async (temporaryRoot: string) => {
         ORDER BY table_name, ordinal_position`,
       ),
     );
-    const foreignKeyRows = jsonLines<Record<string, unknown>>(
+
+    const foreignKeyRows = jsonLines(
+      Schema.decodeSync(Schema.fromJsonString(LegacyForeignKey)),
       await mysql(
         mysqlSocket,
         `SELECT JSON_OBJECT(
@@ -598,7 +782,9 @@ const runRehearsal = async (temporaryRoot: string) => {
         ORDER BY table_name, constraint_name`,
       ),
     );
-    const representativeUserConstraints = jsonLines<Record<string, unknown>>(
+
+    const representativeUserConstraints = jsonLines(
+      Schema.decodeSync(Schema.fromJsonString(LegacyUserConstraint)),
       await mysql(
         mysqlSocket,
         `SELECT JSON_OBJECT(
@@ -616,6 +802,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         ORDER BY tc.constraint_name, kcu.ordinal_position`,
       ),
     );
+
     assert.ok(
       representativeUserConstraints.some((constraint) => constraint.type === "PRIMARY KEY"),
       "Legacy user primary key was not restored",
@@ -625,7 +812,8 @@ const runRehearsal = async (temporaryRoot: string) => {
       "Legacy user foreign keys were not restored",
     );
 
-    const users = jsonLines<LegacyUserJson>(
+    const users = jsonLines(
+      Schema.decodeSync(Schema.fromJsonString(LegacyUserJson)),
       await mysql(
         mysqlSocket,
         `SELECT JSON_OBJECT(
@@ -640,7 +828,8 @@ const runRehearsal = async (temporaryRoot: string) => {
         ) FROM user ORDER BY id`,
       ),
     );
-    assert.equal(users.length, expectedLegacyShape.people);
+
+    assert.equal(users.length, expectedLegacyInventory.people);
 
     const toolRevision = sha256(
       canonicalJson(
@@ -652,16 +841,18 @@ const runRehearsal = async (temporaryRoot: string) => {
         ),
       ),
     );
+
     const snapshot = buildLegacyPersonSnapshot(users, {
       sourceRevision: sourceSha256,
       transformationRevision: toolRevision.slice(0, 32),
       snapshotId: "vektor-backup-2024-08-22",
       attestedBy: "legacy-backup-2024-08-22",
     });
+
     const cohortPath = join(privateRoot, "person-cohort.json");
     await writeFile(cohortPath, canonicalJson(snapshot), { mode: 0o600 });
     await chmod(cohortPath, 0o600);
-    const decodedSnapshot = decodePersonCohort(await readPrivateJson(cohortPath));
+    const decodedSnapshot = await readPrivatePersonCohort(cohortPath);
     const cohortDigest = digest(decodedSnapshot);
 
     const postgresPort = await freePort();
@@ -717,6 +908,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       importPersonCohort(pool, decodedSnapshot),
       importPersonCohort(pool, decodedSnapshot),
     ]);
+
     assert.deepEqual(
       concurrentReports.map(({ replay }) => replay).sort(),
       [false, true],
@@ -752,9 +944,14 @@ const runRehearsal = async (temporaryRoot: string) => {
       "Replay report differs; details redacted",
     );
 
-    const changed = structuredClone(decodedSnapshot) as PersonCohortSnapshot;
+    const changed = structuredClone(decodedSnapshot);
     const first = changed.occurrences[0]!;
-    const changedRow = { ...(first.row as Record<string, unknown>), username: "changed-source" };
+
+    const changedRow = {
+      ...Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(first.row),
+      username: "changed-source",
+    };
+
     const changedSnapshot = decodePersonCohort({
       ...changed,
       snapshotId: "vektor-backup-2024-08-22-changed",
@@ -763,6 +960,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         ...changed.occurrences.slice(1),
       ],
     });
+
     await expectFailure(importPersonCohort(pool, changedSnapshot), "SourceIdentityConflict");
 
     const countsBeforeBackup = await nativeCounts(pool);
@@ -833,8 +1031,10 @@ const runRehearsal = async (temporaryRoot: string) => {
     const acceptedOccurrence = committedReport.occurrences.find(
       ({ disposition }) => disposition === "Accepted",
     )!;
+
     const acceptedSourceId = acceptedOccurrence.occurrenceId.slice("legacy-user-row-".length);
-    const acceptedPersonId = Schema.decodeSync(PersonId)("legacy-person-" + acceptedSourceId);
+    const acceptedPersonId = PersonId.make("legacy-person-" + acceptedSourceId);
+
     const profile = await Effect.runPromise(
       readOwnProfile(acceptedPersonId).pipe(
         Effect.provide(
@@ -846,13 +1046,15 @@ const runRehearsal = async (temporaryRoot: string) => {
         ),
       ),
     );
+
     assert.equal(profile.personId, acceptedPersonId);
 
     const aliasesDetected = users.filter(
       ({ username, companyEmail }) =>
-        (typeof username === "string" && username !== "") ||
-        (typeof companyEmail === "string" && companyEmail !== ""),
+        (Predicate.isString(username) && username !== "") ||
+        (Predicate.isString(companyEmail) && companyEmail !== ""),
     ).length;
+
     const reasons = reasonCounts(committedReport);
     const cutoverDatabase = "legacy_service_cutover_rehearsal";
     await run([
@@ -869,6 +1071,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     await migrateNativeDatabase(cutoverTargetUrl);
     const cutoverSourceUrl = new URL("mysql://legacy_cutover_reader@localhost/vektor");
     cutoverSourceUrl.searchParams.set("socketPath", mysqlSocket);
+
     const cutoverOptions = {
       sourceUrl: cutoverSourceUrl.toString(),
       targetUrl: cutoverTargetUrl,
@@ -877,6 +1080,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       attestedBy: "legacy-backup-2024-08-22",
       passwordlessPolicy: "ProvisionRecovery" as const,
     };
+
     cutoverPool = new Pool({ connectionString: cutoverTargetUrl, max: 2 });
     await cutoverPool.query("CREATE TABLE public.unrelated_state (id integer PRIMARY KEY)");
     await cutoverPool.query("INSERT INTO public.unrelated_state (id) VALUES (1)");
@@ -901,6 +1105,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       (cause: unknown) =>
         cause instanceof CutoverStageFailure && cause.stage === "HistoricalImport",
     );
+
     const rollbackCountsSql = `SELECT
       (SELECT count(*) FROM public.historical_service_reference_provenance)::text AS refs,
       (SELECT count(*) FROM public.organization_departments)::text AS departments,
@@ -923,6 +1128,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       (SELECT count(*) FROM auth.credential_cohort_snapshots)::text AS account_snapshots,
       (SELECT count(*) FROM auth.credential_cohort_occurrences)::text AS account_occurrences,
       (SELECT count(*) FROM auth.identity_security_audit)::text AS audit`;
+
     const rolledBack = await cutoverPool.query<Record<string, string>>(rollbackCountsSql);
     assert.deepEqual(
       Object.values(rolledBack.rows[0]!),
@@ -958,6 +1164,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       DROP TRIGGER fail_recovery_cutover_insert ON auth.account_cohort_imports;
       DROP FUNCTION auth.fail_recovery_cutover_insert();
     `);
+
     const cutoverFirst = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
       throw new Error(
         cause instanceof CutoverStageFailure
@@ -965,6 +1172,7 @@ const runRehearsal = async (temporaryRoot: string) => {
           : "Local service cutover failed; details redacted",
       );
     });
+
     assert.deepEqual(
       {
         departments: cutoverFirst.references.departments,
@@ -1015,6 +1223,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         "SELECT a.reason, count(*)::text AS count FROM public.person_cohort_occurrences p JOIN auth.credential_cohort_occurrences a ON a.occurrence_id = p.occurrence_id WHERE p.disposition = 'Accepted' AND a.disposition = 'Quarantined' GROUP BY a.reason ORDER BY a.reason",
       )
     ).rows.map(({ reason, count }) => ({ reason, count: toInt(count) }));
+
     assert.equal(
       acceptedPersonAccountGap.reduce((sum, row) => sum + row.count, 0),
       cutoverFirst.person.accepted - cutoverFirst.accounts.accepted,
@@ -1046,25 +1255,31 @@ const runRehearsal = async (temporaryRoot: string) => {
     assert.equal(cutoverBefore.counts.account_imports, cutoverFirst.accounts.accepted);
     assert.equal(cutoverBefore.counts.credential_occurrences, 2923);
     assert.equal(cutoverBefore.counts.credential_audit, cutoverFirst.accounts.accepted);
+
     const originalHashes = new Map(
-      jsonLines<{ id: number | string; password: string }>(
+      jsonLines(
+        Schema.decodeSync(Schema.fromJsonString(LegacyPassword)),
         await mysql(
           mysqlSocket,
           "SELECT JSON_OBJECT('id', id, 'password', password) FROM user WHERE password IS NOT NULL AND password <> '' ORDER BY id",
         ),
       ).map(({ id, password }) => [`legacy-user:${id}`, password]),
     );
+
     const importedHashes = await cutoverPool.query<{ source_user_id: string; password: string }>(
       `SELECT i.source_user_id, a.password FROM auth.account_cohort_imports i
        JOIN auth."account" a ON a.id = i.account_id
        WHERE i.import_mode = 'CredentialImported' ORDER BY i.source_user_id`,
     );
+
     assert.equal(importedHashes.rowCount, 1482);
+
     for (const { source_user_id, password } of importedHashes.rows)
       assert.ok(
         originalHashes.get(source_user_id) === password,
         "Imported hash differs; details redacted",
       );
+
     const recoveryCandidate = await cutoverPool.query<{
       person_id: string;
       source_user_id: string;
@@ -1083,6 +1298,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       JOIN public.person_contact_profiles c ON c.person_id = i.person_id
       WHERE i.import_mode = 'RecoveryPending'
       ORDER BY i.source_user_id LIMIT 1`);
+
     const candidate = recoveryCandidate.rows[0];
     assert.ok(candidate !== undefined, "No reconciled passwordless account");
     assert.equal(candidate.verified, false);
@@ -1092,12 +1308,15 @@ const runRehearsal = async (temporaryRoot: string) => {
     assert.equal(toInt(candidate.native_credentials), 0);
     const sourceId = /^legacy-user:(\d+)$/.exec(candidate.source_user_id)?.[1];
     assert.ok(sourceId, "Recovery source identity must be a numeric legacy user");
+
     const sourcePassword = await mysql(
       mysqlSocket,
       `SELECT IF(password IS NULL, 'NULL', IF(password = '', 'EMPTY', 'PRESENT')) FROM user WHERE id = ${sourceId}`,
     );
+
     assert.match(sourcePassword, /^(NULL|EMPTY)$/);
     await mysql(mysqlSocket, `UPDATE user SET password = 'changed-source' WHERE id = ${sourceId}`);
+
     try {
       await assert.rejects(
         runLegacyServiceCutover(cutoverOptions),
@@ -1114,6 +1333,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         `UPDATE user SET password = ${sourcePassword === "NULL" ? "NULL" : "''"} WHERE id = ${sourceId}`,
       );
     }
+
     const cutoverReplay = await runLegacyServiceCutover(cutoverOptions).catch((cause: unknown) => {
       throw new Error(
         cause instanceof CutoverStageFailure
@@ -1121,6 +1341,7 @@ const runRehearsal = async (temporaryRoot: string) => {
           : "Local service cutover replay failed; details redacted",
       );
     });
+
     assert.equal(cutoverReplay.references.stage, "ExactReplay");
     assert.equal(cutoverReplay.person.stage, "ExactReplay");
     assert.deepEqual(
@@ -1136,12 +1357,14 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     // Native reset creates the first credential later; prove the import replay cannot overwrite one.
     const claimAccountId = "rehearsal-claim-" + sha256(candidate.person_id).slice(0, 32);
+
     const simulatedClaim = await cutoverPool.query(
       `INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt")
        SELECT $1,$2,'credential',issuer,$2,password,now()
          FROM auth."account" WHERE "providerId" = 'credential' ORDER BY id LIMIT 1`,
       [claimAccountId, candidate.person_id],
     );
+
     assert.equal(simulatedClaim.rowCount, 1, "No supported credential hash for replay probe");
     const cutoverClaimed = await cutoverState(cutoverPool);
     assert.equal(cutoverClaimed.counts.credentials, cutoverBefore.counts.credentials + 1);
@@ -1216,11 +1439,13 @@ const runRehearsal = async (temporaryRoot: string) => {
       cutoverClaimed,
       "Restored Person, service, account, or post-claim credential content differs",
     );
+
     const restoredCutoverReplay = await runLegacyServiceCutover({
       ...cutoverOptions,
       targetUrl: restoredCutoverUrl,
       targetDatabase: restoredCutoverDatabase,
     });
+
     assert.equal(restoredCutoverReplay.references.stage, "ExactReplay");
     assert.equal(restoredCutoverReplay.person.stage, "ExactReplay");
     assert.deepEqual(restoredCutoverReplay.accounts, cutoverFirst.accounts);
@@ -1235,14 +1460,14 @@ const runRehearsal = async (temporaryRoot: string) => {
       source: {
         sha256: sourceSha256,
         bytes: sourceBytes.byteLength,
-        shape: {
-          tables: toInt(shape.tables),
-          columns: toInt(shape.columns),
-          foreignKeys: toInt(shape.foreignKeys),
-          appliedMigrations: toInt(shape.migrations),
+        ["shape"]: {
+          tables: toInt(legacyInventory.tables),
+          columns: toInt(legacyInventory.columns),
+          foreignKeys: toInt(legacyInventory.foreignKeys),
+          appliedMigrations: toInt(legacyInventory.migrations),
           declaredMigrations: declaredMigrationIds.length,
-          people: toInt(shape.people),
-          activePeople: toInt(shape.activePeople),
+          people: toInt(legacyInventory.people),
+          activePeople: toInt(legacyInventory.activePeople),
         },
         classifications: {
           entityTables: entityTables.size,
@@ -1262,7 +1487,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         reasons,
         aliasesDetected,
         aliases: committedReport.aliases,
-        credentialsDetected: toInt(shape.credentials),
+        credentialsDetected: toInt(legacyInventory.credentials),
         credentials: committedReport.credentials,
       },
       native: {
@@ -1300,43 +1525,60 @@ const runRehearsal = async (temporaryRoot: string) => {
     } as const;
   } finally {
     let processCleanupFailed = false;
+
     const recordCleanupFailure = () => {
       cleanupFailed = true;
     };
+
     const recordProcessCleanupFailure = () => {
       cleanupFailed = true;
       processCleanupFailed = true;
     };
+
     if (restoredPool !== undefined) await restoredPool.end().catch(recordCleanupFailure);
+
     if (restoredCutoverPool !== undefined)
       await restoredCutoverPool.end().catch(recordCleanupFailure);
+
     if (cutoverPool !== undefined) await cutoverPool.end().catch(recordCleanupFailure);
+
     if (pool !== undefined) await pool.end().catch(recordCleanupFailure);
+
     if (postgresStarted) {
       await run(["pg_ctl", "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"], {
         redactStderr: true,
       }).catch(recordCleanupFailure);
+
       const pidFileRemains = await lstat(join(postgresRoot, "postmaster.pid")).then(
         () => true,
         () => false,
       );
+
       if (pidFileRemains) recordProcessCleanupFailure();
     }
+
     await stopProcess(mysqlProcess).catch(recordProcessCleanupFailure);
     processCleanupComplete = !processCleanupFailed;
   }
+
   if (cleanupFailed) throw new Error("Rehearsal process cleanup failed; details redacted");
   assert.ok(completedReport !== undefined);
+
   return completedReport;
 };
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "vektor-legacy-person-rehearsal-"));
+
 await chmod(temporaryRoot, 0o700);
+
 let report: Awaited<ReturnType<typeof runRehearsal>> | undefined;
+
 try {
   report = await runRehearsal(temporaryRoot);
 } finally {
   if (processCleanupComplete) await rm(temporaryRoot, { recursive: true, force: true });
 }
+
 assert.ok(report !== undefined);
+
 console.log(JSON.stringify(report, null, 2));

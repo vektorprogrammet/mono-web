@@ -7,23 +7,31 @@ import {
   invitationResponsePayloadForEvidence,
 } from "@vektorprogrammet/database/recruitment";
 import { makeRecordingNotificationGateway } from "@vektorprogrammet/domain/notification";
-import { Effect, Layer, Redacted } from "effect";
+import { RecruitmentInvitationResponseOutboxRequestSchema } from "@vektorprogrammet/domain/recruitment";
+import { Predicate, Effect, Layer, Redacted, Schema } from "effect";
 
 const databaseUrl = process.env.BACKEND_PG_URL;
+
 if (databaseUrl === undefined || databaseUrl.length === 0) {
   throw new Error("BACKEND_PG_URL is required for response recording evidence");
 }
 
 const deliveredAt = "2031-09-15T12:01:00.000Z";
+
 const recording = makeRecordingNotificationGateway(deliveredAt);
+
 const databaseLayer = DatabaseLive({
   url: Redacted.make(databaseUrl),
   applicationName: "native-invitation-response-recording-evidence",
   maxConnections: 1,
 });
+
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
+
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
 const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
+
 const authorityLayers = Layer.mergeAll(
   databaseLayer,
   admissionsLayer,
@@ -32,14 +40,26 @@ const authorityLayers = Layer.mergeAll(
 );
 
 let providerNetworkRequests = 0;
+
 const originalFetch = globalThis.fetch;
-globalThis.fetch = ((..._arguments: Parameters<typeof fetch>) => {
-  providerNetworkRequests += 1;
-  return Promise.reject(new Error("The recording NotificationGateway attempted network access"));
-}) as typeof fetch;
+
+globalThis.fetch = Object.assign(
+  (..._arguments: Parameters<typeof fetch>): ReturnType<typeof fetch> => {
+    providerNetworkRequests += 1;
+
+    return Promise.reject(new Error("The recording NotificationGateway attempted network access"));
+  },
+  {
+    preconnect: () => {
+      providerNetworkRequests += 1;
+      throw new Error("The recording NotificationGateway attempted network access");
+    },
+  },
+);
 
 try {
   const results = [];
+
   for (let index = 0; index < 2; index += 1) {
     const result = await Effect.runPromise(
       Effect.scoped(
@@ -49,9 +69,11 @@ try {
         ).pipe(Effect.provide(recording.layer), Effect.provide(authorityLayers)),
       ),
     );
-    if (result._tag !== "Delivered") {
+
+    if (!Predicate.isTagged(result, "Delivered")) {
       throw new Error("Expected a recorded invitation-response delivery");
     }
+
     results.push({
       result: result._tag,
       claim: {
@@ -62,15 +84,21 @@ try {
       notificationEvidence: result.evidence,
     });
   }
+
   if (recording.responseRequests.length !== 2) {
     throw new Error("Expected exactly two approved response requests");
   }
+
   if (providerNetworkRequests !== 0) {
     throw new Error("The recording NotificationGateway performed network access");
   }
-  const responseRequests = recording.responseRequests.map(
-    (request) => JSON.parse(invitationResponsePayloadForEvidence(request)) as unknown,
+
+  const responseRequests = recording.responseRequests.map((request) =>
+    Schema.decodeSync(Schema.fromJsonString(RecruitmentInvitationResponseOutboxRequestSchema))(
+      invitationResponsePayloadForEvidence(request),
+    ),
   );
+
   process.stdout.write(
     JSON.stringify({ results, responseRequests, providerNetworkRequests }) + "\n",
   );

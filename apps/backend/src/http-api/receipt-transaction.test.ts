@@ -1,12 +1,34 @@
-import { describe, expect, it } from "vitest";
-import { Data, Effect } from "effect";
-import { SqlError, UniqueViolation } from "effect/unstable/sql/SqlError";
-import { Database, type DatabaseShape } from "@vektorprogrammet/database";
+import { beforeEach, describe, expect, it } from "vitest";
+import { Cause, Exit, Result, Predicate, Data, Effect } from "effect";
+import { Database } from "@vektorprogrammet/database";
+import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { backendPostgres } from "../../test/postgres.js";
 import {
   executeNativeHttpCommandPostgres,
+  NativeHttpCommandOutcome,
   type NativeHttpReceiptIdentity,
   type NativeHttpResponseCapsule,
 } from "./receipt-transaction.js";
+
+const database = backendPostgres();
+
+const runWithExternalSchema = <A, E>(effect: Effect.Effect<A, E, Database>) =>
+  database.run(
+    Database.use((sql) =>
+      Effect.gen(function* () {
+        const [config] = yield* sql<{
+          host: string;
+          database: string;
+          username: string;
+        }>`SELECT current_setting('unix_socket_directories') AS host, current_database() AS database, current_user AS username`;
+
+        if (config === undefined)
+          return yield* Effect.die("Missing PostgreSQL connection configuration");
+
+        return yield* Effect.provide(effect, DatabaseRuntimeLive({ ...config, maxConnections: 1 }));
+      }),
+    ),
+  );
 
 const identity: NativeHttpReceiptIdentity = {
   identitySha256: "a".repeat(64),
@@ -21,295 +43,206 @@ const response: NativeHttpResponseCapsule = {
   headers: { "content-type": "application/json" },
 };
 
-interface StoredRow {
-  identitySha256: string;
-  requestSha256: string;
-  operationId: string;
-  state: "Complete" | "Tombstone";
-  status: number | null;
-  mediaType: string | null;
-  bodyBytes: Uint8Array | null;
-  headers: Readonly<Record<string, string>> | null;
-}
-
-interface FakeDatabaseState {
-  readonly receipts: Map<string, StoredRow>;
-  domainRevision: number;
-}
-
-class FakeSqlError extends Data.TaggedError("SqlError")<{
-  readonly cause: string;
-}> {}
 class CredentialRevoked extends Data.TaggedError("CredentialRevoked") {}
 
-const makeSql = () => {
-  let committed: FakeDatabaseState = {
-    receipts: new Map(),
-    domainRevision: 0,
-  };
-  let active = committed;
-  let lockAcquired = true;
-  let failCommit = false;
-  let domainWriteAttempts = 0;
-  let receiptWriteAttempts = 0;
-  let serializableBegins = 0;
-
-  const cloneState = (state: FakeDatabaseState): FakeDatabaseState => ({
-    receipts: new Map(
-      [...state.receipts].map(([key, row]) => [
-        key,
-        {
-          ...row,
-          bodyBytes: row.bodyBytes === null ? null : row.bodyBytes.slice(),
-          headers: row.headers === null ? null : { ...row.headers },
-        },
-      ]),
-    ),
-    domainRevision: state.domainRevision,
-  });
-
-  const query = (strings: TemplateStringsArray, ...values: ReadonlyArray<unknown>) =>
-    Effect.sync(() => {
-      const statement = strings.join("?").replaceAll(/\s+/gu, " ").trim();
-      if (statement === "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE") {
-        serializableBegins += 1;
-        return [];
-      }
-      if (statement.includes("pg_try_advisory_xact_lock")) {
-        return [{ acquired: lockAcquired }];
-      }
-      if (statement.startsWith("UPDATE native_test_domain_state")) {
-        domainWriteAttempts += 1;
-        active.domainRevision += 1;
-        return [];
-      }
-      if (statement.startsWith("UPDATE public.native_http_idempotency_receipts")) {
-        const key = values[0] as string;
-        const row = active.receipts.get(key);
-        if (row?.state === "Complete" && row.status === -1) {
-          active.receipts.set(key, {
-            ...row,
-            state: "Tombstone",
-            status: null,
-            mediaType: null,
-            bodyBytes: null,
-            headers: null,
-          });
-        }
-        return [];
-      }
-      if (
-        statement.startsWith("SELECT") &&
-        statement.includes("FROM public.native_http_idempotency_receipts")
-      ) {
-        const row = active.receipts.get(values[0] as string);
-        return row === undefined ? [] : [row];
-      }
-      if (statement.startsWith("INSERT INTO public.native_http_idempotency_receipts")) {
-        receiptWriteAttempts += 1;
-        active.receipts.set(values[0] as string, {
-          identitySha256: values[0] as string,
-          requestSha256: values[1] as string,
-          operationId: values[2] as string,
-          state: "Complete",
-          status: values[3] as number,
-          mediaType: values[4] as string | null,
-          bodyBytes: values[5] as Uint8Array | null,
-          headers: values[6] as Readonly<Record<string, string>> | null,
-        });
-        return [];
-      }
-      throw new Error(`unexpected SQL: ${statement}`);
-    });
-
-  Object.defineProperty(query, "withTransaction", {
-    value: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      Effect.suspend(() => {
-        const transaction = cloneState(committed);
-        active = transaction;
-        return effect.pipe(
-          Effect.matchEffect({
-            onFailure: (error) =>
-              Effect.gen(function* () {
-                active = committed;
-                return yield* Effect.fail(error);
-              }),
-            onSuccess: (value) =>
-              Effect.gen(function* () {
-                if (failCommit) {
-                  active = committed;
-                  return yield* Effect.fail(new FakeSqlError({ cause: "commit failed" }));
-                }
-                committed = transaction;
-                active = committed;
-                return value;
-              }),
-          }),
-        );
+beforeEach(async () => {
+  await database.run(
+    Database.use((sql) =>
+      Effect.gen(function* () {
+        yield* sql`CREATE TABLE IF NOT EXISTS native_test_domain_state (revision integer NOT NULL)`;
+        yield* sql`CREATE TABLE IF NOT EXISTS native_test_commands (command_id text, CONSTRAINT native_test_commands_id_key UNIQUE (command_id))`;
+        yield* sql`DROP TRIGGER IF EXISTS reject_native_receipt_commit ON public.native_http_idempotency_receipts`;
+        yield* sql`TRUNCATE public.native_http_idempotency_receipts, native_test_domain_state, native_test_commands`;
+        yield* sql`INSERT INTO native_test_domain_state VALUES (0)`;
       }),
-  });
-  Object.defineProperty(query, "json", {
-    value: (value: unknown) => value,
-  });
-  const sql = query as unknown as DatabaseShape;
-  return {
-    sql,
-    committedDomainRevision: () => committed.domainRevision,
-    committedReceiptCount: () => committed.receipts.size,
-    domainWriteAttempts: () => domainWriteAttempts,
-    receiptWriteAttempts: () => receiptWriteAttempts,
-    serializableBegins: () => serializableBegins,
-    setLockAcquired(value: boolean) {
-      lockAcquired = value;
-    },
-    setFailCommit(value: boolean) {
-      failCommit = value;
-    },
-  };
-};
+    ),
+  );
+});
 
-const run = <A, E>(sql: DatabaseShape, effect: Effect.Effect<A, E, Database>): Promise<A> =>
-  Effect.runPromise(effect.pipe(Effect.provideService(Database, sql)));
+const persistedState = Database.use((sql) =>
+  Effect.gen(function* () {
+    const revisions = yield* sql<{
+      revision: number;
+    }>`SELECT revision FROM native_test_domain_state`;
+
+    const receipts = yield* sql<{
+      count: number;
+    }>`SELECT count(*)::integer AS count FROM public.native_http_idempotency_receipts`;
+
+    return { revision: revisions[0]?.revision, receipts: receipts[0]?.count };
+  }),
+);
+
 const preparedCommand = <E>(
   preparedIdentity: NativeHttpReceiptIdentity,
   execute: Effect.Effect<NativeHttpResponseCapsule, E, Database>,
-  onPrepare: () => void = () => {},
+  onPrepare?: () => void,
 ) =>
   executeNativeHttpCommandPostgres(
     Effect.sync(() => {
-      onPrepare();
+      onPrepare?.();
+
       return { identity: preparedIdentity, execute };
     }),
   );
 
 describe("native HTTP command receipt transaction", () => {
-  it("commits the injected domain write and HTTP receipt once, then replays", async () => {
-    const state = makeSql();
+  it("commits the domain write and receipt once, then replays identical bytes", async () => {
     let executions = 0;
     let preparations = 0;
+
     const execute = Database.use((sql) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         executions += 1;
-      }).pipe(
-        Effect.andThen(sql`
-          UPDATE native_test_domain_state
-          SET revision = revision + 1
-        `),
-        Effect.as(response),
+        yield* sql`UPDATE native_test_domain_state SET revision = revision + 1`;
+
+        return response;
+      }),
+    );
+
+    const prepare = () => {
+      preparations += 1;
+    };
+
+    await expect(database.run(preparedCommand(identity, execute, prepare))).resolves.toEqual(
+      NativeHttpCommandOutcome.Committed({ response }),
+    );
+    expect(await database.run(persistedState)).toEqual({ revision: 1, receipts: 1 });
+    const replay = await database.run(preparedCommand(identity, execute, prepare));
+    expect(replay._tag).toBe("Replay");
+
+    if (!Predicate.isTagged(replay, "Replay")) throw new Error("Expected a stored replay");
+    expect({ ...replay.response, bodyBytes: Array.from(replay.response.bodyBytes ?? []) }).toEqual({
+      ...response,
+      bodyBytes: Array.from(response.bodyBytes ?? []),
+    });
+    expect(await database.run(persistedState)).toEqual({ revision: 1, receipts: 1 });
+    await expect(
+      database.run(
+        preparedCommand({ ...identity, requestSha256: "c".repeat(64) }, execute, prepare),
       ),
-    );
-
-    const committed = await run(
-      state.sql,
-      preparedCommand(identity, execute, () => {
-        preparations += 1;
-      }),
-    );
-    expect(committed).toEqual({ _tag: "Committed", response });
-    expect(state.committedDomainRevision()).toBe(1);
-    expect(state.committedReceiptCount()).toBe(1);
-
-    const replay = await run(
-      state.sql,
-      preparedCommand(identity, execute, () => {
-        preparations += 1;
-      }),
-    );
-    expect(replay).toEqual({ _tag: "Replay", response });
-    expect(executions).toBe(1);
-    expect(state.committedDomainRevision()).toBe(1);
-    expect(state.committedReceiptCount()).toBe(1);
-    expect(preparations).toBe(2);
-
-    const conflict = await run(
-      state.sql,
-      preparedCommand({ ...identity, requestSha256: "c".repeat(64) }, execute, () => {
-        preparations += 1;
-      }),
-    );
-    expect(conflict).toEqual({ _tag: "DigestConflict" });
+    ).resolves.toEqual(NativeHttpCommandOutcome.DigestConflict());
     expect(executions).toBe(1);
     expect(preparations).toBe(3);
-    expect(state.serializableBegins()).toBe(3);
   });
 
-  it("rolls back the injected domain write and HTTP receipt when commit fails", async () => {
-    const state = makeSql();
-    state.setFailCommit(true);
-    const execute = Database.use((sql) =>
-      sql`
-        UPDATE native_test_domain_state
-        SET revision = revision + 1
-      `.pipe(Effect.as(response)),
+  it.each([database.run, runWithExternalSchema])(
+    "rolls back both writes when PostgreSQL rejects the deferred commit",
+    async (run) => {
+      await database.run(
+        Database.use((sql) =>
+          Effect.gen(function* () {
+            yield* sql`CREATE OR REPLACE FUNCTION reject_native_receipt_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'receipt commit rejected'; END $$`;
+            yield* sql`CREATE CONSTRAINT TRIGGER reject_native_receipt_commit AFTER INSERT ON public.native_http_idempotency_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_native_receipt_commit()`;
+          }),
+        ),
+      );
+      let executed = false;
+
+      const execute = Database.use((sql) =>
+        Effect.gen(function* () {
+          yield* sql`UPDATE native_test_domain_state SET revision = revision + 1`;
+          executed = true;
+
+          return response;
+        }),
+      );
+
+      const result = run(preparedCommand(identity, execute));
+      await expect(result).rejects.toHaveProperty("_tag", "NativeHttpReceiptPersistenceError");
+      await expect(result).rejects.toMatchObject({ operation: "execute" });
+      expect(executed).toBe(true);
+      expect(await database.run(persistedState)).toEqual({ revision: 0, receipts: 0 });
+    },
+  );
+
+  it("returns in-flight while a distinct PostgreSQL session holds the key lock", async () => {
+    await database.compete(
+      Database.use(
+        (sql) => sql`SELECT pg_advisory_lock(hashtextextended(${identity.identitySha256}, 0))`,
+      ),
     );
-
-    await expect(run(state.sql, preparedCommand(identity, execute))).rejects.toMatchObject({
-      _tag: "NativeHttpReceiptPersistenceError",
-      operation: "execute",
-    });
-    expect(state.domainWriteAttempts()).toBe(1);
-    expect(state.receiptWriteAttempts()).toBe(1);
-    expect(state.committedDomainRevision()).toBe(0);
-    expect(state.committedReceiptCount()).toBe(0);
-  });
-
-  it("returns an in-flight result without executing the command", async () => {
-    const state = makeSql();
-    state.setLockAcquired(false);
     let executed = false;
-    const execute = Effect.sync(() => {
-      executed = true;
-      return response;
-    });
-    const result = await run(state.sql, preparedCommand(identity, execute));
-    expect(result).toEqual({ _tag: "InFlight", retryAfterSeconds: 1 });
-    expect(executed).toBe(false);
+
+    try {
+      const execute = Effect.sync(() => {
+        executed = true;
+
+        return response;
+      });
+
+      await expect(database.run(preparedCommand(identity, execute))).resolves.toEqual(
+        NativeHttpCommandOutcome.InFlight({ retryAfterSeconds: 1 }),
+      );
+      expect(executed).toBe(false);
+      expect(await database.run(persistedState)).toEqual({ revision: 0, receipts: 0 });
+    } finally {
+      await database.compete(
+        Database.use(
+          (sql) => sql`SELECT pg_advisory_unlock(hashtextextended(${identity.identitySha256}, 0))`,
+        ),
+      );
+    }
   });
 
-  it("restarts once when an allowed idempotency constraint loses a stale-snapshot race", async () => {
-    const state = makeSql();
+  it("restarts once after a real concurrent unique-key winner invalidates its snapshot", async () => {
     let preparations = 0;
     let executions = 0;
+
     const command = executeNativeHttpCommandPostgres(
       Effect.sync(() => {
         preparations += 1;
+
         return {
           identity,
-          execute: Effect.suspend(() => {
-            executions += 1;
-            return executions === 1
-              ? Effect.fail(
-                  new SqlError({
-                    reason: new UniqueViolation({
-                      cause: new Error("concurrent command committed"),
-                      constraint: "social_events_created_command_id_key",
-                    }),
-                  }),
-                )
-              : Effect.succeed(response);
-          }),
+          execute: Database.use((sql) =>
+            Effect.gen(function* () {
+              executions += 1;
+
+              const rows = yield* sql<{
+                commandId: string;
+              }>`SELECT command_id AS "commandId" FROM native_test_commands WHERE command_id = 'same-command'`;
+
+              if (rows.length === 0) {
+                yield* Effect.promise(() =>
+                  database.compete(
+                    Database.use(
+                      (other) => other`INSERT INTO native_test_commands VALUES ('same-command')`,
+                    ),
+                  ),
+                );
+                yield* sql`INSERT INTO native_test_commands VALUES ('same-command')`;
+              }
+
+              return response;
+            }),
+          ),
         };
       }),
       {
         retry: "serialization-or-unique-once",
-        retryUniqueConstraints: ["social_events_created_command_id_key"],
+        retryUniqueConstraints: ["native_test_commands_id_key"],
       },
     );
 
-    await expect(run(state.sql, command)).resolves.toEqual({ _tag: "Committed", response });
+    await expect(database.run(command)).resolves.toEqual(
+      NativeHttpCommandOutcome.Committed({ response }),
+    );
     expect(preparations).toBe(2);
     expect(executions).toBe(2);
-    expect(state.serializableBegins()).toBe(2);
-    expect(state.committedReceiptCount()).toBe(1);
+    expect(await database.run(persistedState)).toEqual({ revision: 0, receipts: 1 });
   });
-  it("checks current credential state before returning a replay", async () => {
-    const state = makeSql();
+
+  it("checks current credentials before returning a stored replay", async () => {
     let credentialCurrent = true;
     let executions = 0;
+
     const execute = Effect.sync(() => {
       executions += 1;
+
       return response;
     });
+
     const command = executeNativeHttpCommandPostgres(
       Effect.suspend(() =>
         credentialCurrent
@@ -318,10 +251,43 @@ describe("native HTTP command receipt transaction", () => {
       ),
     );
 
-    await expect(run(state.sql, command)).resolves.toMatchObject({ _tag: "Committed" });
+    await expect(database.run(command)).resolves.toEqual(
+      NativeHttpCommandOutcome.Committed({ response }),
+    );
     credentialCurrent = false;
-    await expect(run(state.sql, command)).rejects.toMatchObject({ _tag: "CredentialRevoked" });
+    await expect(database.run(command)).rejects.toBeInstanceOf(CredentialRevoked);
     expect(executions).toBe(1);
-    expect(state.committedReceiptCount()).toBe(1);
+    expect(await database.run(persistedState)).toEqual({ revision: 0, receipts: 1 });
   });
+
+  it.each([database.run, runWithExternalSchema])(
+    "preserves non-SQL defects without retrying or committing",
+    async (run) => {
+      const defect = new Error("Unexpected command defect");
+      let attempts = 0;
+
+      const command = executeNativeHttpCommandPostgres(
+        Effect.sync(() => {
+          attempts += 1;
+
+          return { identity, execute: Effect.die(defect) };
+        }),
+        {
+          retry: "serialization-or-unique-once",
+          retryUniqueConstraints: ["native_test_commands_id_key"],
+        },
+      );
+
+      const exit = await run(Effect.exit(command));
+
+      if (!Exit.isFailure(exit)) throw new Error("Expected a defect exit");
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      const observed = Cause.findDefect(exit.cause);
+
+      if (!Result.isSuccess(observed)) throw new Error("Expected the original defect");
+      expect(observed.success).toBe(defect);
+      expect(attempts).toBe(1);
+      expect(await database.run(persistedState)).toEqual({ revision: 0, receipts: 0 });
+    },
+  );
 });

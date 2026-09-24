@@ -25,13 +25,22 @@ export async function observeReceiptReopening(options: {
   const { pool, origin, cookie, approverCookie } = options;
   const dashboardOrigin = "http://127.0.0.1:5174";
   const client = createPromiseClient(origin, { cookie: approverCookie, origin: dashboardOrigin });
-  const headers = (session: string, etag?: string, key: string = randomUUID()) => ({
-    cookie: session,
-    origin: dashboardOrigin,
-    "content-type": "application/json",
-    "idempotency-key": key,
-    ...(etag ? { "if-match": etag } : {}),
-  });
+
+  const headers = (session: string, etag?: string, key: string = randomUUID()) => {
+    const result = new Headers({
+      cookie: session,
+      origin: dashboardOrigin,
+      "content-type": "application/json",
+      "idempotency-key": key,
+    });
+
+    if (etag) {
+      result.set("if-match", etag);
+    }
+
+    return result;
+  };
+
   const request = (
     id: string,
     action: string,
@@ -45,8 +54,10 @@ export async function observeReceiptReopening(options: {
       headers: headers(session, etag, key),
       body,
     });
+
   const row = async (id: string) =>
     (await pool.query("SELECT * FROM economy_receipts WHERE receipt_id=$1", [id])).rows[0];
+
   const snapshot = async (id: string) => ({
     receipt: await row(id),
     audit: (
@@ -68,6 +79,7 @@ export async function observeReceiptReopening(options: {
       )
     ).rows,
   });
+
   const submit = async () => {
     const form = new FormData();
     form.set("description", "Synthetic correction 0102");
@@ -77,31 +89,38 @@ export async function observeReceiptReopening(options: {
       "file",
       new File(["%PDF-1.4\nSynthetic 0102\n%%EOF"], "receipt.pdf", { type: "application/pdf" }),
     );
+
     const response = await fetch(`${origin}/api/receipts?departmentId=receipt-department-0095`, {
       method: "POST",
       headers: { cookie, origin: dashboardOrigin, "idempotency-key": randomUUID() },
       body: form,
     });
+
     assert.equal(response.status, 201, "synthetic submission");
     const resource = Schema.decodeUnknownSync(ReceiptResource)(await response.json());
+
     return { id: resource.receiptId, etag: resource.etag };
   };
+
   const rejected = async () => {
     const receipt = await submit();
     const response = await request(receipt.id, "reject", receipt.etag);
     assert.equal(response.status, 200);
+
     return {
       ...receipt,
       initialEtag: receipt.etag,
       etag: Schema.decodeUnknownSync(StrongETag)(response.headers.get("etag")),
     };
   };
+
   options.setDeliveryAvailable(false);
   const target = await rejected();
   options.setDeliveryAvailable(true);
   const before = await snapshot(target.id);
   assert.ok(before.outbox.some((item: any) => item.status === "Failed"));
   const attemptsBefore = options.attempts();
+
   // Invalid commands must have no persisted footprint.
   for (const [name, response, expected] of [
     ["owner", await request(target.id, "reopen", target.etag, cookie), 403],
@@ -122,6 +141,7 @@ export async function observeReceiptReopening(options: {
   ] as const)
     assert.equal(response.status, expected, name);
   assert.deepEqual(await snapshot(target.id), before);
+
   for (const mutation of [
     "UPDATE economy_receipt_approval_grants SET end_at=now(),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
     "UPDATE organization_memberships SET end_at=now() WHERE membership_id='receipt0097-approver-membership'",
@@ -135,6 +155,7 @@ export async function observeReceiptReopening(options: {
       "UPDATE organization_memberships SET end_at=NULL WHERE membership_id='receipt0097-approver-membership'",
     );
   }
+
   await pool.query(
     "INSERT INTO organization_departments(department_id,name,short_name,email,city,active) VALUES ('receipt-wrong-0102','Wrong0102','Wrong0102','wrong0102@example.invalid','Synthetic',true)",
   );
@@ -160,11 +181,13 @@ export async function observeReceiptReopening(options: {
   assert.deepEqual(await snapshot(target.id), before);
   await pool.query("DROP TRIGGER fail_reopen_0102 ON economy_receipt_audit");
   await pool.query("DROP FUNCTION fail_reopen_0102()");
+
   const reopened = await client.receipts.reopenReceipt({
     params: { receiptId: target.id },
     headers: { "if-match": target.etag, "idempotency-key": retryKey },
     payload: {},
   });
+
   assert.equal(reopened.body.status, "Pending");
   const after = await snapshot(target.id);
   assert.deepEqual(after.receipt, {
@@ -176,11 +199,13 @@ export async function observeReceiptReopening(options: {
   assert.equal(after.commands.length, before.commands.length + 1);
   assert.deepEqual(after.outbox, before.outbox);
   assert.equal(options.attempts(), attemptsBefore);
+
   const replay = await client.receipts.reopenReceipt({
     params: { receiptId: target.id },
     headers: { "if-match": target.etag, "idempotency-key": retryKey },
     payload: {},
   });
+
   assert.deepEqual(replay.body, reopened.body);
   assert.deepEqual(await snapshot(target.id), after);
   assert.equal(
@@ -199,10 +224,12 @@ export async function observeReceiptReopening(options: {
   );
   assert.equal((await request(target.id, "reopen", reopened.body.etag)).status, 409);
   const race = await rejected();
+
   const results = await Promise.all([
     request(race.id, "reopen", race.etag),
     request(race.id, "reopen", race.etag),
   ]);
+
   const concurrentStatuses = results.map((r) => r.status).sort();
   assert.equal(concurrentStatuses.filter((status) => status === 200).length, 1);
   assert.ok(
@@ -222,38 +249,40 @@ export async function observeReceiptReopening(options: {
     1,
   );
   assert.equal((await request(race.id, "refund", race.etag)).status, 412);
+
   for (const action of ["refund", "withdraw"]) {
     const receipt = await submit();
+
     const closed = await request(
       receipt.id,
       action,
       receipt.etag,
       action === "withdraw" ? cookie : approverCookie,
     );
+
     assert.equal(closed.status, 200);
     const closedBefore = await snapshot(receipt.id);
     assert.equal((await request(receipt.id, "reopen", closed.headers.get("etag")!)).status, 409);
     assert.deepEqual(await snapshot(receipt.id), closedBefore);
   }
+
   // Browser journey uses real sessions from this driver's native sign-in and the built dashboard.
   const browserTarget = await rejected();
   const browserBefore = await snapshot(browserTarget.id);
   const requireDashboard = createRequire(join(options.root, "apps/dashboard/package.json"));
   const { chromium, expect } = requireDashboard("@playwright/test");
   const { default: AxeBuilder } = requireDashboard("@axe-core/playwright");
+
   const checkAxe = async (page: any, gate: string) => {
-    await page.evaluate(async () => {
-      const { document } = globalThis as unknown as {
-        document: { getAnimations: () => Array<{ finished: Promise<unknown> }> };
-      };
-      await Promise.all(
-        document.getAnimations().map((animation) => animation.finished.catch(() => {})),
-      );
-    });
+    await page.evaluate(
+      "Promise.all(document.getAnimations().map(animation => animation.finished.catch(() => {})))",
+    );
+
     const violations = (await new AxeBuilder({ page }).analyze()).violations.map((v: any) => ({
       id: v.id,
       nodes: v.nodes.map((node: any) => ({ target: node.target, summary: node.failureSummary })),
     }));
+
     if (violations.length > 0) {
       await page.screenshot({
         path: join(options.artifactDirectory, "0102-browser-failure.png"),
@@ -262,12 +291,14 @@ export async function observeReceiptReopening(options: {
       throw new Error(JSON.stringify({ gate, violations }));
     }
   };
+
   const reservation = createServer();
   await new Promise<void>((resolve, reject) => {
     reservation.once("error", reject);
     reservation.listen(5174, "127.0.0.1", resolve);
   });
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
+
   const dashboard = spawn("bun", ["server.mjs"], {
     cwd: join(options.root, "apps/dashboard"),
     env: {
@@ -282,16 +313,20 @@ export async function observeReceiptReopening(options: {
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
+
   const startupDiagnostics: string[] = [];
   dashboard.stderr?.on("data", (chunk) => {
     startupDiagnostics.push(String(chunk));
+
     if (startupDiagnostics.length > 20) startupDiagnostics.shift();
   });
   let browser: any;
   const errors: string[] = [];
   const mutations: Array<{ path: string; status: number }> = [];
+
   try {
     let ready = false;
+
     for (let n = 0; n < 100; n++) {
       try {
         if ((await fetch(`${dashboardOrigin}/logg-inn`)).status < 500) {
@@ -299,8 +334,10 @@ export async function observeReceiptReopening(options: {
           break;
         }
       } catch {}
+
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+
     assert.ok(
       ready,
       `production dashboard startup: exit=${dashboard.exitCode}; ${startupDiagnostics.join("").slice(-4000)}`,
@@ -311,6 +348,7 @@ export async function observeReceiptReopening(options: {
         "/etc/profiles/per-user/nori/bin/chromium-browser",
       headless: true,
     });
+
     const context = async (session: string) => {
       const value = await browser.newContext({ viewport: { width: 390, height: 844 } });
       const equals = session.indexOf("=");
@@ -345,10 +383,13 @@ export async function observeReceiptReopening(options: {
           );
         }
       });
+
       return page;
     };
+
     const ownerPage = await context(cookie),
       approverPage = await context(approverCookie);
+
     const ownedRow = ownerPage.locator(`tr[data-receipt-id="${browserTarget.id}"]`);
     await ownerPage.goto(`${dashboardOrigin}/dashboard/mine-utlegg`);
     await expect(ownedRow.locator('[data-status="Rejected"]')).toBeVisible();
@@ -367,6 +408,7 @@ export async function observeReceiptReopening(options: {
     });
     const browserAttempts = options.attempts();
     await approverPage.getByRole("button", { name: "Bekreft gjenåpning", exact: true }).click();
+
     try {
       await expect(
         approverPage.locator('[role="status"][data-action-intent="reopen"]'),
@@ -387,6 +429,7 @@ export async function observeReceiptReopening(options: {
         }),
       );
     }
+
     await expect(approvalRow).toHaveCount(0);
     assert.equal(options.attempts(), browserAttempts);
     const browserReopened = await snapshot(browserTarget.id);
@@ -398,9 +441,11 @@ export async function observeReceiptReopening(options: {
     assert.deepEqual(browserReopened.outbox, browserBefore.outbox);
     await ownerPage.reload();
     await ownedRow.getByRole("button", { name: "Rediger", exact: true }).click();
+
     const edit = ownerPage
       .locator('[data-receipt-form="revise"]')
       .filter({ has: ownerPage.locator(`input[name="receiptId"][value="${browserTarget.id}"]`) });
+
     await edit.locator('[name="description"]').fill("Corrected same claim 0102");
     await edit.locator('[name="amountNok"]').fill("6,00");
     await checkAxe(ownerPage, "owner correction accessibility");
@@ -454,6 +499,7 @@ export async function observeReceiptReopening(options: {
     );
     assert.ok(final.outbox.every((r: any) => r.status === "Delivered"));
     assert.deepEqual(errors, []);
+
     return {
       specId: "0102",
       browser: true,
@@ -471,10 +517,12 @@ export async function observeReceiptReopening(options: {
     };
   } finally {
     if (browser) await browser.close();
+
     if (dashboard.exitCode === null && dashboard.signalCode === null) {
       const exited = new Promise((resolve) => dashboard.once("exit", resolve));
       dashboard.kill("SIGTERM");
       const timer = setTimeout(() => dashboard.kill("SIGKILL"), 5000);
+
       try {
         await exited;
       } finally {

@@ -5,6 +5,7 @@ import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
+  AdmissionPeriodActorSchema,
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
@@ -21,7 +22,7 @@ import {
   type Organization,
 } from "@vektorprogrammet/domain";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
-import { Effect, Layer } from "effect";
+import { Schema, Cause, Predicate, Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { AdmissionsApiHandlers } from "./admission/http.js";
@@ -42,8 +43,12 @@ import {
 import type { BackendConfig } from "./config.js";
 import { ContentApiHandlers } from "./content/http.js";
 import { SystemApiHandlers } from "./http-api/system.js";
-import { makeNativeHttpApiMiddlewareLayer } from "./http-api/transport.js";
-import { methodNotAllowedResponse, nativeProblemResponse } from "./http-semantics.js";
+import { nativeHttpApiMiddlewareLayer } from "./http-api/transport.js";
+import {
+  HttpSemanticFailure,
+  methodNotAllowedResponse,
+  nativeProblemResponse,
+} from "./http-semantics.js";
 import { externalNativePreflightMethodsForPath } from "./native-api-preflight.js";
 
 import { decideNativePreflight } from "./native-preflight.js";
@@ -54,7 +59,11 @@ import {
   ReceiptApiHandlers,
   type ReceiptIdentityResolvers,
 } from "./receipt/http.js";
-import type { ReceiptFileStore } from "./receipt/filesystem.js";
+import {
+  ReceiptFileStoreResource,
+  ReceiptFileStoreLive,
+  type ReceiptFileStore,
+} from "./receipt/filesystem.js";
 import { RecruitmentApiHandlers } from "./recruitment/http.js";
 import { SocialEventsApiHandlers, type SocialEventTransactionHook } from "./social-events/http.js";
 import { SchoolSurveysApiHandlers } from "./surveys/http.js";
@@ -67,6 +76,7 @@ import {
   withTrustedOriginCors,
   type NativeSessionBoundaryPolicy,
 } from "./session-security.js";
+
 export const nativeHttpRouterConfig = {
   // FindMyWay matches the encoded path segment: every accepted UTF-8 byte can occupy "%HH".
   maxParamLength: SURVEY_IDENTIFIER_MAX_UTF8_BYTES * 3,
@@ -76,7 +86,7 @@ export interface BackendHttp {
   readonly fetch: (request: Request) => Promise<Response>;
 }
 
-const jsonResponse = (body: unknown, status = 200): Response =>
+const jsonResponse = (body: Schema.Json, status = 200): Response =>
   new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -84,14 +94,6 @@ const jsonResponse = (body: unknown, status = 200): Response =>
       "cache-control": "no-store",
     },
   });
-
-const profileAuthorityError = (
-  tag: "AuthorityInactive" | "NotInScope",
-): Error & { readonly _tag: typeof tag } => {
-  const error = new Error(tag) as Error & { readonly _tag: typeof tag };
-  Object.defineProperty(error, "_tag", { value: tag, enumerable: true });
-  return error;
-};
 
 /**
  * The Better Auth Request -> Response handler mounted only at `/api/auth/*`.
@@ -124,7 +126,7 @@ export interface BackendHttpOptions {
  * Builds every external native handler group from the process-owned capability
  * graph. This function constructs Layers once at the composition root.
  */
-export const makeExternalNativeApiRouterLayer = (
+export const ExternalNativeApiRouterLive = (
   config: BackendConfig,
   options: BackendHttpOptions = {},
 ) => {
@@ -142,6 +144,7 @@ export const makeExternalNativeApiRouterLayer = (
   > =>
     Effect.gen(function* () {
       const authority = yield* resolveRequestPersonAuthority(request, { now: options.now });
+
       if (departmentScope === undefined) {
         if (authority.globalAdministrator !== "Active") {
           return yield* Effect.fail(
@@ -152,12 +155,13 @@ export const makeExternalNativeApiRouterLayer = (
                 }),
           );
         }
-        return {
-          _tag: "GlobalAdmin" as const,
+
+        return AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
           personId: authority.personId,
           active: true,
-        };
+        });
       }
+
       return yield* Effect.try({
         try: () => admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
         catch: (cause) => {
@@ -177,14 +181,15 @@ export const makeExternalNativeApiRouterLayer = (
     resolveApprovalCredential: (request: Request) =>
       resolveRequestCredentialAtInstant(request, "Either", { now: options.now }),
   };
+
   const receiptOptions = {
     config: config.receipt,
     identity: receiptIdentity,
     now: options.now,
-    fileStore: options.receiptFileStore,
   };
 
-  const middlewareLayer = makeNativeHttpApiMiddlewareLayer(config.contact);
+  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
+
   const handlers = Layer.mergeAll(
     SubstitutesApiHandlers({ now: options.now }),
     PlacementsApiHandlers({ now: options.now }),
@@ -195,18 +200,29 @@ export const makeExternalNativeApiRouterLayer = (
       config: config.admission,
       resolveActor: resolveAdmissionActor,
     }),
-    ReceiptApiHandlers(receiptOptions),
+    ReceiptApiHandlers(receiptOptions).pipe(
+      Layer.provide(
+        options.receiptFileStore === undefined
+          ? ReceiptFileStoreLive({
+              stagingRoot: config.receipt.stagingRoot,
+              committedRoot: config.receipt.committedRoot,
+              failNextPromotionEffectId: config.receipt.e2eTestMode
+                ? config.receipt.e2eFailNextPromotionEffectId
+                : undefined,
+            })
+          : Layer.succeed(ReceiptFileStoreResource, options.receiptFileStore),
+      ),
+    ),
     RecruitmentApiHandlers({
       config: config.recruitment,
       resolveConductContext: (request) =>
         resolveRequestPersonAuthority(request, { now: options.now }).pipe(
           Effect.map((authority) => ({
-            actor: {
-              _tag: "Member" as const,
+            actor: AdmissionPeriodActorSchema.cases.Member.make({
               personId: authority.personId,
               departmentId: DepartmentId.make(authority.memberships[0]?.departmentId ?? "conduct"),
               active: true,
-            },
+            }),
             authorizationInstant: authority.evaluatedAt,
           })),
         ),
@@ -215,7 +231,10 @@ export const makeExternalNativeApiRouterLayer = (
           Effect.flatMap((authority) =>
             Effect.try({
               try: () => recruitmentBoardActorFrom(authority),
-              catch: (cause) => cause,
+              catch: (cause) =>
+                cause instanceof InactiveActor || cause instanceof UnauthenticatedActor
+                  ? cause
+                  : new Cause.UnknownError(cause),
             }),
           ),
         ),
@@ -243,17 +262,17 @@ export const makeExternalNativeApiRouterLayer = (
         resolveRequestPersonAuthority(request, { now: options.now }).pipe(
           Effect.flatMap((authority) => {
             const decision = profileRoleFrom(authority);
-            if (decision._tag === "Deny") {
+
+            if (Predicate.isTagged(decision, "Deny")) {
               return Effect.fail(
                 decision.reason === "Unauthenticated"
                   ? new UnauthenticatedActor({
                       message: "profile authority is unauthenticated",
                     })
-                  : profileAuthorityError(
-                      decision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
-                    ),
+                  : new HttpSemanticFailure("authority.denied", 403),
               );
             }
+
             return Effect.succeed({ personId: authority.personId, role: decision.value });
           }),
         ),
@@ -266,6 +285,7 @@ export const makeExternalNativeApiRouterLayer = (
     Layer.provide(handlers),
     Layer.provide(middlewareLayer),
   );
+
   const notFound = HttpRouter.use((router) =>
     router.add(
       "*",
@@ -275,11 +295,12 @@ export const makeExternalNativeApiRouterLayer = (
       ),
     ),
   );
+
   return Layer.merge(nativeRoutes, notFound);
 };
 
 /** Builds the isolated internal API root for an explicitly selected ingress. */
-export const makeInternalNativeApiRouterLayer = (
+export const InternalNativeApiRouterLive = (
   config: BackendConfig,
   options: BackendHttpOptions = {},
 ) => {
@@ -294,17 +315,21 @@ export const makeInternalNativeApiRouterLayer = (
     resolvePersonId: (request: Request) =>
       resolveAuthenticatedPerson(request.headers.get("cookie") ?? undefined),
   };
+
   const receiptOptions = {
     config: config.receipt,
     identity: receiptIdentity,
     now: options.now,
   };
-  const middlewareLayer = makeNativeHttpApiMiddlewareLayer(config.contact);
+
+  const middlewareLayer = nativeHttpApiMiddlewareLayer(config.contact);
   const handlers = InternalReceiptApiHandlers(receiptOptions).pipe(Layer.provide(middlewareLayer));
+
   const internalRoutes = HttpApiBuilder.layer(InternalNativeApi).pipe(
     Layer.provide(handlers),
     Layer.provide(middlewareLayer),
   );
+
   const notFound = HttpRouter.use((router) =>
     router.add(
       "*",
@@ -314,6 +339,7 @@ export const makeInternalNativeApiRouterLayer = (
       ),
     ),
   );
+
   return Layer.merge(internalRoutes, notFound);
 };
 
@@ -347,7 +373,9 @@ const authorizationRequestAccepted = async (
   authHandler: BackendAuthHandler,
 ): Promise<boolean> => {
   const url = new URL(request.url);
+
   if (url.search.length > 8 * 1024) return false;
+
   const required = [
     "client_id",
     "redirect_uri",
@@ -358,11 +386,13 @@ const authorizationRequestAccepted = async (
     "response_type",
     "scope",
   ] as const;
+
   if (required.some((name) => url.searchParams.getAll(name).length !== 1)) return false;
   const clientId = url.searchParams.get("client_id")!;
   const redirectUri = url.searchParams.get("redirect_uri")!;
   const state = url.searchParams.get("state")!;
   const challenge = url.searchParams.get("code_challenge")!;
+
   if (
     clientId.length === 0 ||
     !/^[A-Za-z0-9_-]{43,512}$/u.test(state) ||
@@ -376,16 +406,19 @@ const authorizationRequestAccepted = async (
   ) {
     return false;
   }
+
   return authHandler.exactRedirectAccepted(clientId, redirectUri);
 };
 
 const sourceNetworkList = (networks: ReadonlyArray<string>): BlockList => {
   const list = new BlockList();
+
   for (const network of networks) {
     const separator = network.lastIndexOf("/");
     const address = network.slice(0, separator);
     const prefix = Number(network.slice(separator + 1));
     const family = isIP(address);
+
     if (
       separator <= 0 ||
       (family !== 4 && family !== 6) ||
@@ -395,15 +428,18 @@ const sourceNetworkList = (networks: ReadonlyArray<string>): BlockList => {
     ) {
       throw new TypeError("internal OAuth source network must be canonical CIDR");
     }
+
     list.addSubnet(address, prefix, family === 4 ? "ipv4" : "ipv6");
   }
+
   return list;
 };
+
 /**
  * Explicit external boundary around the native HttpApi handler.
  * Better Auth remains the only external path family outside `ExternalNativeApi`.
  */
-export const makeBackendHttp = (
+export const backendHttpHandler = (
   nativeHandler: (request: Request) => Promise<Response>,
   authHandler: BackendAuthHandler,
   sessionBoundary: NativeSessionBoundaryPolicy,
@@ -412,13 +448,17 @@ export const makeBackendHttp = (
     const prepared = prepareIdentityBoundaryRequest(request);
     const pathname = new URL(prepared.request.url).pathname;
     const oauthNamespace = isOAuthProviderNamespace(pathname);
+
     if (oauthNamespace && prepared.request.method === "OPTIONS") {
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     }
+
     const oauthRouteKey = `${prepared.request.method} ${pathname}`;
+
     if (oauthNamespace && !externalOAuthRoutes.has(oauthRouteKey)) {
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     }
+
     if (oauthNamespace) {
       if (
         pathname === "/api/auth/oauth2/authorize" &&
@@ -426,11 +466,13 @@ export const makeBackendHttp = (
       ) {
         return invalidAuthorizationRequest();
       }
+
       return (
         authHandler.handleOAuth?.(prepared.request, prepared.context) ??
         jsonResponse({ error: { tag: "RouteNotFound" } }, 404)
       );
     }
+
     const credentialFlow =
       (prepared.request.method === "POST" &&
         (pathname === "/api/auth/request-password-reset" ||
@@ -438,49 +480,64 @@ export const makeBackendHttp = (
       (prepared.request.method === "GET" && /^\/api\/auth\/reset-password\/[^/]+$/.test(pathname))
         ? ("PasswordRecovery" as const)
         : undefined;
+
     const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
-    const acceptedOrigin = decision._tag === "Allowed" ? decision.origin : null;
-    if (decision._tag === "Rejected") {
+    const acceptedOrigin = Predicate.isTagged(decision, "Allowed") ? decision.origin : null;
+
+    if (Predicate.isTagged(decision, "Rejected")) {
       await authHandler
         .recordTrustedOriginRejection(prepared.context, credentialFlow)
         .catch(() => undefined);
+
       return trustedOriginRejectedResponse();
     }
+
     if (prepared.request.method === "OPTIONS") {
       if (acceptedOrigin === null) {
         await authHandler
           .recordTrustedOriginRejection(prepared.context, credentialFlow)
           .catch(() => undefined);
+
         return trustedOriginRejectedResponse();
       }
+
       const requestedMethod = prepared.request.headers.get("access-control-request-method");
+
       const preflight = decideNativePreflight({
         pathname,
         requestedMethod,
         headersAllowed: allowsNativePreflightHeaders(prepared.request),
         methodsForPath: externalNativePreflightMethodsForPath,
       });
-      if (preflight._tag === "HeaderMalformed") {
+
+      if (Predicate.isTagged(preflight, "HeaderMalformed")) {
         return withTrustedOriginCors(
           nativeProblemResponse("header.malformed", 400),
           acceptedOrigin,
         );
       }
-      if (preflight._tag === "MethodNotAllowed") {
+
+      if (Predicate.isTagged(preflight, "MethodNotAllowed")) {
         return withTrustedOriginCors(methodNotAllowedResponse(preflight.methods), acceptedOrigin);
       }
-      if (preflight._tag === "Ready") {
+
+      if (Predicate.isTagged(preflight, "Ready")) {
         return trustedPreflightResponse(acceptedOrigin, preflight.methods);
       }
 
-      if (pathname === "/api/auth/" || pathname.startsWith("/api/auth/")) {
+      if (
+        Predicate.isTagged(preflight, "RouteNotFound") &&
+        (pathname === "/api/auth/" || pathname.startsWith("/api/auth/"))
+      ) {
         if (!allowsNativePreflightHeaders(prepared.request)) {
           return withTrustedOriginCors(
             nativeProblemResponse("header.malformed", 400),
             acceptedOrigin,
           );
         }
+
         const authResponse = await authHandler.handle(prepared.request, prepared.context);
+
         return authResponse.status >= 200 && authResponse.status < 300
           ? trustedPreflightResponse(acceptedOrigin, [preflight.requestedMethod])
           : withTrustedOriginCors(authResponse, acceptedOrigin);
@@ -491,31 +548,37 @@ export const makeBackendHttp = (
         acceptedOrigin,
       );
     }
+
     const response =
       pathname === "/api/auth/" || pathname.startsWith("/api/auth/")
         ? await authHandler.handle(prepared.request, prepared.context)
         : await nativeHandler(prepared.request);
+
     return withTrustedOriginCors(response, acceptedOrigin);
   },
 });
 
 /** Independent internal ingress: native internal API plus one non-fallthrough OAuth route. */
-export const makeInternalBackendHttp = (
+export const internalBackendHttpHandler = (
   nativeHandler: (request: Request) => Promise<Response>,
   authHandler: BackendAuthHandler,
   allowedSourceNetworks: ReadonlyArray<string>,
 ): BackendHttp => {
   const allowedSources = sourceNetworkList(allowedSourceNetworks);
+
   return {
     fetch: async (request) => {
       const prepared = prepareIdentityBoundaryRequest(request);
       const pathname = new URL(prepared.request.url).pathname;
+
       if (isOAuthProviderNamespace(pathname)) {
         if (prepared.request.method !== "POST" || pathname !== "/api/auth/oauth2/introspect") {
           return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
         }
+
         const sourceIp = prepared.context.sourceIp;
         const family = sourceIp === null ? 0 : isIP(sourceIp);
+
         if (
           sourceIp === null ||
           (family !== 4 && family !== 6) ||
@@ -529,6 +592,7 @@ export const makeInternalBackendHttp = (
             },
           );
         }
+
         return (
           authHandler.handleOAuthIntrospection?.(prepared.request, prepared.context) ??
           Response.json(
@@ -537,6 +601,7 @@ export const makeInternalBackendHttp = (
           )
         );
       }
+
       return nativeHandler(prepared.request);
     },
   };

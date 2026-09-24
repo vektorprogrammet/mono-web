@@ -9,16 +9,23 @@ const Rfc3339InstantPattern =
  */
 export const isRfc3339Instant = (value: string): boolean => {
   const match = Rfc3339InstantPattern.exec(value);
+
   if (match === null) return false;
+
   const parts = (() => {
     if (value.endsWith("Z")) {
       const parsed = DateTime.make(value);
+
       return Option.isSome(parsed) ? DateTime.toPartsUtc(parsed.value) : undefined;
     }
+
     const parsed = DateTime.makeZonedFromString(value);
+
     return Option.isSome(parsed) ? DateTime.toParts(parsed.value) : undefined;
   })();
+
   if (parts === undefined) return false;
+
   return (
     parts.year === Number(match[1]) &&
     parts.month === Number(match[2]) &&
@@ -32,6 +39,7 @@ export const isRfc3339Instant = (value: string): boolean => {
 export const compareRfc3339Instants = (left: string, right: string): -1 | 0 | 1 => {
   const leftMilliseconds = DateTime.toEpochMillis(DateTime.makeUnsafe(left));
   const rightMilliseconds = DateTime.toEpochMillis(DateTime.makeUnsafe(right));
+
   return leftMilliseconds < rightMilliseconds ? -1 : leftMilliseconds > rightMilliseconds ? 1 : 0;
 };
 

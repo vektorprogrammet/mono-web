@@ -7,6 +7,10 @@ import {
   INTERNAL_RECEIPT_EVIDENCE_ACCESS,
   RECEIPT_APPROVAL_QUEUE_ACCESS,
   makeAccessSpec,
+  CredentialMechanismSchema,
+  CapabilityExpressionSchema,
+  CapabilityTypeId,
+  ConcealmentPolicySchema,
 } from "@vektorprogrammet/domain/authz";
 import {
   Receipt,
@@ -59,6 +63,7 @@ import {
   SubmitReceiptMultipartV2,
   WithdrawReceiptRequest,
 } from "./v2-schemas.js";
+
 export { ReceiptId };
 
 const privateEntityMutationResponse = <S extends Schema.Top>(success: S) =>
@@ -70,34 +75,49 @@ const privateEntityMutationResponse = <S extends Schema.Top>(success: S) =>
 
 const ReceiptSettlementQueueAccess = makeAccessSpec({
   exposure: "External",
-  acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+  acceptedCredentials: [
+    CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+    CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+  ],
   principalKinds: ["Person"],
-  capabilities: { _tag: "One", capability: { type: "settleReceipt" } },
+  capabilities: CapabilityExpressionSchema.cases.One.make({
+    capability: { type: CapabilityTypeId.make("settleReceipt") },
+  }),
   requirements: [],
   canonicalScopeResolver: "receipts.settlement-queue",
-  concealment: { _tag: "NotFound", conceal: ["Capability", "Scope"] },
+  concealment: ConcealmentPolicySchema.cases.NotFound.make({ conceal: ["Capability", "Scope"] }),
   decisionTime: "SnapshotRead",
 });
 
 const ReceiptSettlementReadAccess = makeAccessSpec({
   exposure: "External",
-  acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+  acceptedCredentials: [
+    CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+    CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+  ],
   principalKinds: ["Person"],
-  capabilities: { _tag: "One", capability: { type: "settleReceipt" } },
+  capabilities: CapabilityExpressionSchema.cases.One.make({
+    capability: { type: CapabilityTypeId.make("settleReceipt") },
+  }),
   requirements: [],
   canonicalScopeResolver: "receipts.by-id",
-  concealment: { _tag: "NotFound", conceal: ["Capability", "Scope"] },
+  concealment: ConcealmentPolicySchema.cases.NotFound.make({ conceal: ["Capability", "Scope"] }),
   decisionTime: "SnapshotRead",
 });
 
 const ReceiptSettlementMutationAccess = makeAccessSpec({
   exposure: "External",
-  acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+  acceptedCredentials: [
+    CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+    CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+  ],
   principalKinds: ["Person"],
-  capabilities: { _tag: "One", capability: { type: "settleReceipt" } },
+  capabilities: CapabilityExpressionSchema.cases.One.make({
+    capability: { type: CapabilityTypeId.make("settleReceipt") },
+  }),
   requirements: [],
   canonicalScopeResolver: "receipts.by-id",
-  concealment: { _tag: "NotFound", conceal: ["Capability", "Scope"] },
+  concealment: ConcealmentPolicySchema.cases.NotFound.make({ conceal: ["Capability", "Scope"] }),
   decisionTime: "Transaction",
 });
 
@@ -178,6 +198,7 @@ export const ReceiptListResponse = Schema.Struct({
     },
   ],
 });
+
 export const ReceiptApprovalQueueItem = Schema.Struct({
   receiptId: Schema.String,
   visualId: Schema.String,
@@ -245,6 +266,7 @@ export const ReceiptLifecycleEvidenceResponse = Schema.Struct({
     byteLength: Schema.Int,
     sha256: Schema.String,
   }),
+  settlement: Schema.NullOr(ReceiptSettlementEvidenceSchema),
   outbox: Schema.Array(
     Schema.Struct({
       effectId: Schema.String,
@@ -273,12 +295,15 @@ export const ReceiptLifecycleEvidenceResponse = Schema.Struct({
 const ReceiptStatusQuery = {
   status: Schema.optional(ReceiptStatusSchema),
 };
+
 const OwnerReceiptStatusQuery = {
   status: Schema.optional(Schema.Union([ReceiptStatusSchema, Schema.Array(ReceiptStatusSchema)])),
 };
+
 const ReceiptParams = { receiptId: ReceiptId };
 
 const ReceiptFileContentType = Schema.Literals(["image/jpeg", "image/png", "application/pdf"]);
+
 const ReceiptFileContentLength = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => /^[1-9]\d*$/u.test(value), {
@@ -286,11 +311,13 @@ const ReceiptFileContentLength = Schema.String.pipe(
     }),
   ),
 );
+
 const ReceiptFileContentDisposition = Schema.Literals([
   'inline; filename="receipt.jpg"',
   'inline; filename="receipt.png"',
   'inline; filename="receipt.pdf"',
 ]);
+
 const ReceiptPrivateFileResponse = HttpApiSchema.WithHeaders(
   Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array()),
   {
@@ -302,6 +329,7 @@ const ReceiptPrivateFileResponse = HttpApiSchema.WithHeaders(
     "x-content-type-options": Schema.Literal("nosniff"),
   },
 );
+
 /** @since 0.1.0 @category Endpoints */
 export const SubmitReceiptEndpoint = HttpApiEndpoint.post("submitReceipt", "/api/receipts", {
   query: { departmentId: Schema.optional(Schema.String) },
@@ -359,7 +387,7 @@ export const ReviseReceiptEndpoint = HttpApiEndpoint.patch(
 /** @since 0.1.0 @category Endpoints */
 export const WithdrawReceiptEndpoint = HttpApiEndpoint.post(
   "withdrawReceipt",
-  "/api/receipts/:receiptId([^:]+)::withdraw",
+  "/api/receipts/:receiptId:withdraw",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,
@@ -529,7 +557,7 @@ export const ReadReceiptSettlementForFinanceEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const SettleReceiptEndpoint = HttpApiEndpoint.post(
   "settleReceipt",
-  "/api/receipts/:receiptId([^:]+)::settle",
+  "/api/receipts/:receiptId:settle",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,
@@ -550,7 +578,7 @@ export const SettleReceiptEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ApproveReceiptEndpoint = HttpApiEndpoint.post(
   "approveReceipt",
-  "/api/receipts/:receiptId([^:]+)::approve",
+  "/api/receipts/:receiptId:approve",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,
@@ -576,7 +604,7 @@ export const ApproveReceiptEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const RejectReceiptEndpoint = HttpApiEndpoint.post(
   "rejectReceipt",
-  "/api/receipts/:receiptId([^:]+)::reject",
+  "/api/receipts/:receiptId:reject",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,
@@ -601,7 +629,7 @@ export const RejectReceiptEndpoint = HttpApiEndpoint.post(
 
 export const ReopenReceiptEndpoint = HttpApiEndpoint.post(
   "reopenReceipt",
-  "/api/receipts/:receiptId([^:]+)::reopen",
+  "/api/receipts/:receiptId:reopen",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,

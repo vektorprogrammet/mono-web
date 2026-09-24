@@ -8,6 +8,7 @@ import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
+
 const runtime = makeControlledTestRuntime(
   Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))),
 );
@@ -178,6 +179,7 @@ describe("rule-aware Receipt approval projection in PGlite", () => {
 
         const list = (queryPersonId: PersonId, status?: "Pending" | "Rejected") =>
           economy.listReceiptsForApproval(queryPersonId, authorizationInstant, status);
+
         const directGlobalRows = yield* list(directGlobal);
         const directDepartmentRows = yield* list(directDepartment);
         const ruleDepartmentRows = yield* list(ruleDepartment);

@@ -9,4 +9,5 @@ export {
   type ClientOptions,
   type PromiseSdk,
 } from "./promise.js";
+
 export { apiUrl, isFixtureMode, sdkRuntimeConfig } from "./config.js";

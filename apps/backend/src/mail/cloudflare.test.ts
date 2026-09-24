@@ -33,12 +33,15 @@ describe("CloudflareMailLive", () => {
       "temporary-unavailability",
     );
 
-    await expect(
-      deliver({
+    {
+      const observed = deliver({
         binding: { send: async () => new Promise<never>(() => undefined) },
         deliveryTimeoutMilliseconds: 1,
-      }),
-    ).rejects.toMatchObject({ _tag: "MailDeliveryError", kind: "ambiguous-outcome" });
+      });
+
+      await expect(observed).rejects.toHaveProperty("_tag", "MailDeliveryError");
+      await expect(observed).rejects.toMatchObject({ kind: "ambiguous-outcome" });
+    }
   });
 
   it("sends the immutable provider-neutral request and returns a stable acknowledgement", async () => {

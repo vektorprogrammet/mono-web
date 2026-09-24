@@ -1,5 +1,28 @@
 ## Unreleased
 
+### Economy boundary
+
+* Validate the owner receipt query with `SqlSchema` and shared receipt field schemas.
+* Route settlement through the complete Economy command. Remove the public authorization witness and partial writer.
+* Preserve atomic business writes and HTTP replay receipts, including authorization before replay.
+* Preserve an omitted submission department without an undefined command field that breaks canonical encoding.
+
+### Dependency compatibility
+
+* Upgrade Effect to `4.0.0-rc.116` and Foldkit to `0.163.0`.
+* Keep `@effect/sql-pg` at `4.0.0-rc.112` to preserve the PostgreSQL pool shared with Better Auth.
+* Preserve public action URLs with the schema-aware router, client, and OpenAPI support from Effect.
+* Use the renamed Effect configuration constructors without changing configuration keys or defaults.
+* Preserve union-command requests and portable Fetch capabilities in generated SDK types.
+* Use typed Arbitrary run options so property checks execute the requested number of cases.
+* Preserve typed SQL transaction failures in both database runtime layers and fix runtime JSON encoding.
+* Set explicit OAuth and dashboard-mount configuration in the native Schools browser runner.
+
+### Code quality
+
+* Enforce the configured anti-slop rules across the repository.
+* Use private PostgreSQL fixtures for backend contract tests, including failure-path cleanup.
+
 ### ⚠ BREAKING CHANGES
 
 * **sdk:** SDK no longer exports createQueryApi, QueryProvider, or paths type.

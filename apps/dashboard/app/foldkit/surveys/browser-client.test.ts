@@ -10,10 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserSchoolSurveysClient, schoolSurveyResultsCsvUrl } from "./browser-client";
 
 const departmentId = DepartmentId.make("department-survey-browser-test");
+
 const semesterId = SemesterId.make("semester-survey-browser-test");
+
 const surveyId = SurveyId.make("survey-browser-test");
+
 const questionId = SurveyQuestionId.make("question-browser-test");
+
 const createCommandId = IdempotencyKey.make("school-survey-browser-create-command");
+
 const closeCommandId = IdempotencyKey.make("school-survey-browser-close-command");
 
 const catalog = {
@@ -53,11 +58,7 @@ const survey = {
   ],
 };
 
-const jsonResponse = (value: unknown, status = 200): Response =>
-  new Response(JSON.stringify(value), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
+
 
 describe("School surveys browser bridge client", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -73,11 +74,11 @@ describe("School surveys browser bridge client", () => {
 
   it("uses the single authenticated bridge for catalog, scoped list, create, close, and results", async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse(catalog))
-      .mockResolvedValueOnce(jsonResponse({ departmentId, semesterId, surveys: [survey] }))
-      .mockResolvedValueOnce(jsonResponse(survey, 201))
+      .mockResolvedValueOnce(Response.json(catalog))
+      .mockResolvedValueOnce(Response.json({ departmentId, semesterId, surveys: [survey] }))
+      .mockResolvedValueOnce(Response.json(survey, { status: 201 }))
       .mockResolvedValueOnce(
-        jsonResponse({
+        Response.json({
           ...survey,
           state: "Closed",
           revision: 1,
@@ -85,7 +86,7 @@ describe("School surveys browser bridge client", () => {
           closedByPersonId: "person-browser-test",
         }),
       )
-      .mockResolvedValueOnce(jsonResponse({ survey, responseCount: 0, responses: [] }));
+      .mockResolvedValueOnce(Response.json({ survey, responseCount: 0, responses: [] }));
 
     const client = createBrowserSchoolSurveysClient().surveys;
     await Effect.runPromise(client.readAdminCatalog());
@@ -114,10 +115,12 @@ describe("School surveys browser bridge client", () => {
     await Effect.runPromise(client.readAdminResults({ surveyId }));
 
     expect(fetchMock).toHaveBeenCalledTimes(5);
+
     for (const [url, init] of fetchMock.mock.calls) {
       expect(String(url)).toBe("/surveys");
       expect(init?.credentials).toBe("same-origin");
     }
+
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       operation: "list",
@@ -144,8 +147,8 @@ describe("School surveys browser bridge client", () => {
 
   it("keeps denial typed and rejects a response that is not the declared survey resource", async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ error: { tag: "NotInScope" } }, 403))
-      .mockResolvedValueOnce(jsonResponse({ ...catalog, staleLegacyField: true }));
+      .mockResolvedValueOnce(Response.json({ error: { tag: "NotInScope" } }, { status: 403 }))
+      .mockResolvedValueOnce(Response.json({ ...catalog, staleLegacyField: true }));
 
     const client = createBrowserSchoolSurveysClient().surveys;
     const denied = await Effect.runPromise(client.readAdminCatalog().pipe(Effect.flip));

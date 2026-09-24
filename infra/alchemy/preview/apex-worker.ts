@@ -8,7 +8,7 @@
  * Additive to p20: shares zero resources with the p20 stack; every physical
  * resource name is prefixed `vektor-apex-`.
  */
-import type { CloudflareSendEmailBinding } from "../../../apps/backend/src/password-recovery/cloudflare-email.ts";
+import type { CloudflareSendEmailBinding } from "../../../apps/backend/src/mail/cloudflare.ts";
 import { APEX_IDENTITY } from "./identity.ts";
 import { apexSurface } from "./surface-apex.ts";
 import { validateDashboardPreviewStage } from "../../../apps/dashboard/workers/preview-stage.ts";
@@ -31,12 +31,13 @@ export interface ApexWorkerEnv {
  * not own that hostname.
  */
 export const BACKEND_ORIGIN = APEX_IDENTITY.backendOrigin;
+
 const APEX_ORIGIN = `https://${APEX_IDENTITY.hostname}`;
 
-const ALLOWED_HOSTS: Record<string, true> = {
+const ALLOWED_HOSTS = {
   [APEX_IDENTITY.hostname]: true,
   [APEX_IDENTITY.apiHostname]: true,
-};
+} as const;
 
 /**
  * Rewrite only redirects that resolve to the exact backend origin. Relative
@@ -48,8 +49,10 @@ const proxyResponse = (backendResponse: Response): Response => {
   headers.set("x-robots-tag", "noindex");
   headers.set("cache-control", headers.get("cache-control") ?? "no-store");
   const location = headers.get("location");
+
   if (location !== null) {
     let redirect: URL;
+
     try {
       redirect = new URL(location, `${BACKEND_ORIGIN}/`);
     } catch {
@@ -58,6 +61,7 @@ const proxyResponse = (backendResponse: Response): Response => {
         headers: { "cache-control": "no-store", "x-robots-tag": "noindex" },
       });
     }
+
     if (
       location.startsWith("//") ||
       redirect.origin !== BACKEND_ORIGIN ||
@@ -69,11 +73,13 @@ const proxyResponse = (backendResponse: Response): Response => {
         headers: { "cache-control": "no-store", "x-robots-tag": "noindex" },
       });
     }
+
     headers.set(
       "location",
       new URL(`${redirect.pathname}${redirect.search}${redirect.hash}`, APEX_ORIGIN).href,
     );
   }
+
   return new Response(backendResponse.body, {
     status: backendResponse.status,
     statusText: backendResponse.statusText,
@@ -84,6 +90,7 @@ const proxyResponse = (backendResponse: Response): Response => {
 const withPreviewStage = (response: Response, stage: string): Response => {
   const headers = new Headers(response.headers);
   headers.set("x-mono-web-stage", stage);
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -98,6 +105,7 @@ export default {
     const url = new URL(request.url);
     const host = request.headers.get("host")?.toLowerCase() ?? "";
     let stage: string;
+
     try {
       stage = validateDashboardPreviewStage(env.PREVIEW_STAGE, env.PREVIEW_HOST);
     } catch {
@@ -141,6 +149,7 @@ export default {
     // stage guards so 421/503 semantics are unchanged.
     if (url.pathname === "/kontrollpanel" || url.pathname === "/kontrollpanel.data") {
       const target = url.search || "?redirectTo=%2Fdashboard";
+
       return withPreviewStage(
         new Response(null, {
           status: 302,
@@ -149,6 +158,7 @@ export default {
         stage,
       );
     }
+
     // Both applications emit root-relative fingerprinted assets. Probe the
     // dashboard binding first, then fall back to homepage assets on a genuine
     // miss so each build remains the authority for its own asset manifest.
@@ -157,32 +167,38 @@ export default {
       url.pathname.startsWith("/assets/")
     ) {
       const dashboardAsset = await env.Dashboard.fetch(request);
+
       if (dashboardAsset.status !== 404) {
         return withPreviewStage(dashboardAsset, stage);
       }
+
       return withPreviewStage(await env.Homepage.fetch(request), stage);
     }
 
     const surface = apexSurface(`${url.pathname}${url.search}`);
+
     if (surface === "homepage") {
       return withPreviewStage(await env.Homepage.fetch(request), stage);
     }
+
     if (surface === "dashboard") {
       return withPreviewStage(await env.Dashboard.fetch(request), stage);
     }
 
     // server surface (/api/* and /health): proxy through the dedicated
     // origin-api tunnel. The browser stays on the apex origin.
+    const backendRequest = {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      redirect: "manual",
+      duplex: "half",
+    } satisfies RequestInit & { duplex: "half" };
+
     return withPreviewStage(
       proxyResponse(
         await fetch(
-          new Request(backendUrl(url), {
-            method: request.method,
-            headers: request.headers,
-            body: request.body,
-            redirect: "manual",
-            duplex: "half",
-          } as RequestInit),
+          new Request(backendUrl(url), backendRequest),
         ),
       ),
       stage,

@@ -1,5 +1,6 @@
 import { runIdentityCohortCli } from "../src/identity-cohort-cli.js";
 import { IdentityCohortFailure } from "../src/identity-cohort.js";
+
 try {
   await runIdentityCohortCli();
 } catch (cause) {

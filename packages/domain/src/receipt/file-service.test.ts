@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import { makeReceiptOutboxRequest, type ReceiptOutboxRequest } from "./effects.js";
+import { Schema, Effect } from "effect";
+import { ReceiptOutboxRequestSchema, receiptOutboxRequest } from "./effects.js";
 import { makeReceiptFileRecording, ReceiptFileService } from "./file-service.js";
 import type { ReceiptFile } from "./schema.js";
 
@@ -25,13 +25,16 @@ const fileRequest = (
   effectType: "PromoteReceiptFile" | "DeleteReceiptFile",
   file: ReceiptFile,
 ) =>
-  makeReceiptOutboxRequest(commandId, "receipt-1", effectType, file) as Extract<
-    ReceiptOutboxRequest,
-    { readonly _tag: "PromoteReceiptFile" | "DeleteReceiptFile" }
-  >;
+  Schema.decodeUnknownSync(
+    Schema.Union([
+      ReceiptOutboxRequestSchema.cases.PromoteReceiptFile,
+      ReceiptOutboxRequestSchema.cases.DeleteReceiptFile,
+    ]),
+  )(receiptOutboxRequest(commandId, "receipt-1", effectType, file));
 
 it.effect("promotes before exact deletion and replays file effects idempotently", () => {
   const recording = makeReceiptFileRecording();
+
   return Effect.gen(function* () {
     const service = yield* ReceiptFileService;
     yield* service.stage(original);
@@ -65,6 +68,7 @@ it.effect("promotes before exact deletion and replays file effects idempotently"
 
 it.effect("fails closed when one effect id names different file identities", () => {
   const recording = makeReceiptFileRecording();
+
   return Effect.gen(function* () {
     const service = yield* ReceiptFileService;
     yield* service.stage(original);
@@ -74,6 +78,7 @@ it.effect("fails closed when one effect id names different file identities", () 
     const conflict = yield* Effect.exit(
       service.apply(fileRequest("same-command", "PromoteReceiptFile", replacement)),
     );
+
     expect(conflict._tag).toBe("Failure");
     expect((yield* recording.snapshot).current).toEqual([original]);
   }).pipe(Effect.provide(recording.layer));

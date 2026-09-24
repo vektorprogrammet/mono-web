@@ -5,7 +5,13 @@ import {
   OnboardingClaim,
   OnboardingClaimResult,
 } from "@vektorprogrammet/domain/onboarding";
-import { makeAccessSpec, CapabilityTypeId } from "@vektorprogrammet/domain/authz";
+import {
+  makeAccessSpec,
+  CapabilityTypeId,
+  CredentialMechanismSchema,
+  CapabilityExpressionSchema,
+  ConcealmentPolicySchema,
+} from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
@@ -18,12 +24,14 @@ import {
   endpointProblemResponses,
   problemUnion,
 } from "./http-semantics.js";
+
 export { OnboardingClaim, OnboardingCommand, OnboardingScope };
 
 export const OnboardingResource = Schema.Struct({
   ...OnboardingBoard.fields,
   etag: StrongETag,
 }).annotate({ identifier: "OnboardingResource" });
+
 export const OnboardingProblem = problemUnion("OnboardingProblem", [
   ["request.malformed", 400],
   ["request.too-large", 413],
@@ -45,12 +53,14 @@ export const OnboardingProblem = problemUnion("OnboardingProblem", [
   ["onboarding.sign-in-required", 409],
   ["onboarding.already-linked", 409],
 ]);
+
 const access = (write = false) =>
   personNativeAccess({
     capability: "onboarding.manage",
     canonicalScopeResolver: "onboarding.application-department",
     decisionTime: write ? "Transaction" : "SnapshotRead",
   });
+
 export const ReadOnboardingEndpoint = HttpApiEndpoint.get("readBoard", "/api/onboarding", {
   query: OnboardingScope.fields,
   success: privateReadResponse(OnboardingResource),
@@ -64,6 +74,7 @@ export const ReadOnboardingEndpoint = HttpApiEndpoint.get("readBoard", "/api/onb
       "Scoped applicant names and invitation states.",
     ),
   );
+
 export const CommandOnboardingEndpoint = HttpApiEndpoint.post("command", "/api/onboarding", {
   query: OnboardingScope.fields,
   payload: OnboardingCommand,
@@ -79,6 +90,7 @@ export const CommandOnboardingEndpoint = HttpApiEndpoint.post("command", "/api/o
       "No arbitrary recipient or target Person selector.",
     ),
   );
+
 export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboarding/claim", {
   payload: OnboardingClaim,
   success: privateReadResponse(OnboardingClaimResult),
@@ -90,16 +102,17 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
       makeAccessSpec({
         exposure: "External",
         acceptedCredentials: [
-          { _tag: "ObjectCapability", capabilityType: CapabilityTypeId.make("onboarding.claim") },
+          CredentialMechanismSchema.cases.ObjectCapability.make({
+            capabilityType: CapabilityTypeId.make("onboarding.claim"),
+          }),
         ],
         principalKinds: ["CapabilityHolder"],
-        capabilities: {
-          _tag: "One",
+        capabilities: CapabilityExpressionSchema.cases.One.make({
           capability: { type: CapabilityTypeId.make("onboarding.claim") },
-        },
+        }),
         requirements: [],
         canonicalScopeResolver: "onboarding.claim",
-        concealment: { _tag: "Reveal" },
+        concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
         decisionTime: "Transaction",
       }),
     ),
@@ -110,6 +123,7 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
       "A purpose-specific token in the body is required; existing-account mode additionally requires an authenticated Person.",
     ),
   );
+
 export class OnboardingApi extends HttpApiGroup.make("onboarding")
   .add(ReadOnboardingEndpoint)
   .add(CommandOnboardingEndpoint)

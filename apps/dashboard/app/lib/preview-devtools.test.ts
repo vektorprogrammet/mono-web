@@ -58,8 +58,8 @@ describe("previewDevtoolsEnabled", () => {
 
   it("returns false for server-stage with null or production stages", () => {
     expect(serverPreviewDevtoolsEnabled(null)).toBe(false);
-    expect(serverPreviewDevtoolsEnabled("production" as never)).toBe(false);
-    expect(serverPreviewDevtoolsEnabled("p999" as never)).toBe(false);
+    expect(previewDevtoolsEnabled("server-stage", "production")).toBe(false);
+    expect(previewDevtoolsEnabled("server-stage", "p999")).toBe(false);
   });
 
   it("build-time constant mirrors import.meta.env.VITE_PREVIEW_DEVTOOLS (F1)", () => {

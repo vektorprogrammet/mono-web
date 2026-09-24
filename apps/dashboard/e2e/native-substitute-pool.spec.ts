@@ -4,9 +4,12 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 const manifestPath = process.env.SUBSTITUTE_JOURNEY_MANIFEST;
+
 const manifest = manifestPath ? JSON.parse(await readFile(manifestPath, "utf8")) : null;
+
 const scopePath = (semesterId: string) =>
   `/dashboard/vikarer?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId })}`;
+
 const signIn = async (page: Page, person: { email: string; password: string }) => {
   await page.goto(
     `${manifest.dashboardOrigin}/dashboard/login?redirectTo=${encodeURIComponent("/vikarer")}`,
@@ -16,6 +19,7 @@ const signIn = async (page: Page, person: { email: string; password: string }) =
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Vikarer", exact: true })).toBeVisible();
 };
+
 const axe = async (page: Page, state: string) => {
   const result = await new AxeBuilder({ page }).analyze();
   expect(
@@ -27,6 +31,7 @@ const axe = async (page: Page, state: string) => {
     state,
   ).toEqual([]);
 };
+
 const selectHistorical = async (page: Page) => {
   await page
     .getByRole("combobox", { name: "Avdeling", exact: true })
@@ -37,7 +42,9 @@ const selectHistorical = async (page: Page) => {
   await page.getByRole("button", { name: "Vis vikarer" }).click();
   await expect(page).toHaveURL(`${manifest.dashboardOrigin}${scopePath(manifest.semesterId)}`);
 };
+
 const card = (page: Page) => page.getByRole("article", { name: "Sofie Søker", exact: true });
+
 const declare = async (page: Page, year = "3") => {
   for (const label of ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag"])
     await card(page)
@@ -48,12 +55,15 @@ const declare = async (page: Page, year = "3") => {
     .selectOption("Norwegian");
   await card(page).getByLabel("Studieår").fill(year);
 };
+
 const readEntry = async (page: Page) => {
   const response = await page.request.get(
     `${manifest.backendOrigin}/api/substitutes/${manifest.applicationId}`,
     { headers: { Origin: manifest.dashboardOrigin } },
   );
+
   expect(response.status()).toBe(200);
+
   return response.json();
 };
 
@@ -67,13 +77,16 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
   const wrong = await browser.newContext();
   const anonymous = await browser.newContext();
   const contexts = [leader, other, member, wrong, anonymous];
+
   const actionObservations: Array<{
     url: string;
     status: number;
     request: string | null;
     response: string;
   }> = [];
+
   const actionReads: Array<Promise<void>> = [];
+
   for (const context of contexts) {
     context.setDefaultTimeout(10_000);
     context.on("page", (observedPage) =>
@@ -96,11 +109,13 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
       }),
     );
   }
+
   const page = await leader.newPage();
   page.setDefaultTimeout(10_000);
   const gates: string[] = [];
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
+
   try {
     const anon = await anonymous.newPage();
     await anon.goto(`${manifest.dashboardOrigin}${scopePath(manifest.semesterId)}`);
@@ -192,11 +207,13 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await axe(page, "mobile stale rejected draft");
     const rejectedKey = await card(page).locator('input[name="commandId"]').inputValue();
     expect(rejectedKey).not.toBe("");
+
     const retryResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         new URL(response.url()).pathname.endsWith("/vikarer.data"),
     );
+
     await card(page).getByRole("button", { name: "Lagre endringer" }).click();
     await (await retryResponse).finished();
     await expect(card(page).getByRole("button", { name: "Lagre endringer" })).toBeEnabled();
@@ -213,6 +230,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await page.reload();
     await expect(card(page).getByLabel("Studieår")).toHaveValue("4");
     expect((await readEntry(page)).preferences.language).toBe("English");
+
     // Consecutive successes on the same mounted form must use the latest ETag and a new command.
     for (const available of ["true", "false"]) {
       await card(page)
@@ -226,6 +244,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
         page.getByRole("status").filter({ hasText: "Opplysningene er lagret." }),
       ).toBeInViewport({ ratio: 1 });
     }
+
     await page.setViewportSize({ width: 1280, height: 900 });
     gates.push(
       "two real browser versions conflict; draft retained; unchanged failed retry preserves its key; explicit version refresh and consecutive successful edits persist canonical year/language/weekdays",
@@ -312,6 +331,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
     await expect(readOnly.getByRole("button", { name: "Lagre endringer" })).toHaveCount(0);
     await expect(readOnly.getByRole("combobox", { name: "Søker", exact: true })).toHaveCount(0);
     const selected = await readEntry(readOnly);
+
     const denied = await readOnly.request.post(
       `${manifest.backendOrigin}/api/substitutes/${manifest.applicationId}:deactivate`,
       {
@@ -323,6 +343,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
         data: {},
       },
     );
+
     expect(denied.status()).toBe(403);
     await axe(readOnly, "read-only pool");
     await readOnly.setViewportSize({ width: 390, height: 844 });
@@ -374,10 +395,12 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
   } catch (cause) {
     await Promise.allSettled(actionReads);
     const captures: Array<{ url: string; artifact: string; error?: string }> = [];
+
     for (const [contextIndex, context] of contexts.entries()) {
       for (const [pageIndex, failedPage] of context.pages().entries()) {
         if (failedPage.isClosed()) continue;
         const artifact = `failure-${contextIndex}-${pageIndex}`;
+
         try {
           await writeFile(
             join(manifest.artifacts, `${artifact}.yml`),
@@ -395,6 +418,7 @@ test("0094 coordinator manages a real persisted substitute pool", async ({ brows
         }
       }
     }
+
     await writeFile(
       join(manifest.artifacts, "browser-failure.json"),
       JSON.stringify(

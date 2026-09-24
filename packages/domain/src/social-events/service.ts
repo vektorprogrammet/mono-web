@@ -25,7 +25,7 @@ export interface ReadSocialEventListInput {
 }
 
 /** Portable social-event capability; callers retain transaction ownership. */
-export interface SocialEventsShape {
+export interface SocialEventsOperations {
   readonly readSnapshotInstant: () => Effect.Effect<SocialEventObservedAt, SocialEventFailure>;
   readonly readScope: (
     input: ReadSocialEventScopeInput,
@@ -41,6 +41,6 @@ export interface SocialEventsShape {
   ) => Effect.Effect<SocialEventResource, SocialEventFailure>;
 }
 
-export class SocialEvents extends Context.Service<SocialEvents, SocialEventsShape>()(
+export class SocialEvents extends Context.Service<SocialEvents, SocialEventsOperations>()(
   "@vektorprogrammet/domain/SocialEvents",
 ) {}

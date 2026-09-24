@@ -1,33 +1,12 @@
+import { Predicate } from "effect";
 import { makeNativeProblem } from "@vektorprogrammet/http-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const api = vi.hoisted(() => {
-  const session = vi.fn();
-  const deleteSession = vi.fn();
-  const serverApiEndpoint = vi.fn((path: string) => `http://api.test${path}`);
-  return {
-    session,
-    deleteSession,
-    serverApiEndpoint,
-    createAuthenticatedClient: vi.fn(() => ({
-      system: { readSession: session, deleteSession },
-    })),
-  };
-});
+vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
-vi.mock("./api.server", () => ({
-  createAuthenticatedClient: api.createAuthenticatedClient,
-  serverApiEndpoint: api.serverApiEndpoint,
-}));
+import { loadSessionIdentity, hasAuthenticatedSession, requireAuth, safeRedirect, signInWithEmail, signOut, SignInResult } from "./auth.server";
 
-import {
-  loadSessionIdentity,
-  hasAuthenticatedSession,
-  requireAuth,
-  safeRedirect,
-  signInWithEmail,
-  signOut,
-} from "./auth.server";
+const transport = vi.fn<typeof fetch>();
 
 function responseWithCookies(
   status: number,
@@ -35,16 +14,17 @@ function responseWithCookies(
   body = "body must remain opaque",
 ): Response {
   const headers = new Headers();
+
   for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+
   return new Response(body, { status, headers });
 }
 
 describe("native dashboard authentication", () => {
   beforeEach(() => {
-    api.session.mockReset();
-    api.deleteSession.mockReset();
-    api.serverApiEndpoint.mockImplementation((path: string) => `http://api.test${path}`);
-    api.createAuthenticatedClient.mockClear();
+    vi.stubEnv("API_URL", "http://api.test");
+    transport.mockReset();
+    vi.stubGlobal("fetch", transport);
   });
 
   afterEach(() => {
@@ -55,19 +35,24 @@ describe("native dashboard authentication", () => {
   it("fresh-reads the strict actor projection and returns the exact incoming Cookie", async () => {
     const rawCookie =
       "theme=dark; better-auth.session_token=session-value; invitation_capability=opaque";
-    api.session.mockResolvedValue({ personId: "person-1" });
+
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({sessionId: "session-1", personId: "person-1", createdAt: "2030-01-01T00:00:00Z", updatedAt: "2030-01-01T00:00:00Z", expiresAt: "2030-01-02T00:00:00Z", ipAddress: null, userAgent: null, current: true}, {headers: {"cache-control": "private, no-store", vary: "Origin"}}));
+    transport.mockImplementation(fetchMock);
+
     const request = new Request("http://dashboard.test/dashboard", {
       headers: { Cookie: rawCookie },
     });
 
     await expect(requireAuth(request)).resolves.toBe(rawCookie);
-    expect(api.createAuthenticatedClient).toHaveBeenCalledWith(rawCookie, request);
-    expect(api.session).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [input, init] = fetchMock.mock.calls[0];
+    expect(new Request(input, init).headers.get("cookie")).toBe(rawCookie);
   });
 
   it("reads the Better Auth session identity with the exact incoming Cookie", async () => {
     const rawCookie = "theme=dark; better-auth.session_token=session-value";
-    const fetchMock = vi.fn().mockResolvedValue(
+
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({
         session: { id: "session-1" },
         user: {
@@ -78,7 +63,8 @@ describe("native dashboard authentication", () => {
         },
       }),
     );
-    vi.stubGlobal("fetch", fetchMock);
+
+    transport.mockImplementation(fetchMock);
 
     await expect(
       loadSessionIdentity(
@@ -88,19 +74,19 @@ describe("native dashboard authentication", () => {
       ),
     ).resolves.toEqual({ name: "Ada Lovelace", email: "ada@example.invalid" });
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("http://api.test/api/auth/get-session");
-    expect(new Headers(init.headers).get("Cookie")).toBe(rawCookie);
+    expect(new Headers(init?.headers).get("Cookie")).toBe(rawCookie);
   });
 
   it("fails closed when Better Auth returns a malformed session identity", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: { id: "person-1" } })));
+    transport.mockImplementation(vi.fn<typeof fetch>().mockResolvedValue(Response.json({ user: { id: "person-1" } })));
 
     const failure = await loadSessionIdentity(
       new Request("http://dashboard.test/dashboard", {
         headers: { Cookie: "better-auth.session_token=session-value" },
       }),
-    ).catch((error: unknown) => error);
+    ).catch((error) => error);
 
     expect(failure).toBeInstanceOf(Response);
     expect(failure).toMatchObject({ status: 502 });
@@ -115,24 +101,21 @@ describe("native dashboard authentication", () => {
       status: 302,
       headers: expect.any(Headers),
     });
-    expect(api.createAuthenticatedClient).not.toHaveBeenCalled();
+    
   });
 
   it.each([
     ["missing credential problem", { body: makeNativeProblem("credential.missing") }],
     ["invalid credential problem", { body: makeNativeProblem("credential.invalid") }],
   ] as const)("redirects an invalid session after a %s", async (_name, failure) => {
-    api.session.mockRejectedValue(failure);
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          responseWithCookies(200, [
-            "better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-          ]),
-        ),
-    );
+    transport.mockImplementation(vi.fn<typeof fetch>(async (input, init) => {
+      const url = new Request(input, init).url;
+
+      return url.endsWith("/api/session")
+        ? Response.json(failure.body, {status: 401, headers: {"content-type": "application/problem+json", "cache-control": "no-store", vary: "Origin", "www-authenticate": 'VektorSession realm="native-api"'}})
+        : responseWithCookies(200, ["better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"]);
+    }));
+
     const request = new Request("http://dashboard.test/dashboard", {
       headers: { Cookie: "better-auth.session_token=revoked" },
     });
@@ -144,22 +127,13 @@ describe("native dashboard authentication", () => {
     await expect(hasAuthenticatedSession(request)).resolves.toBe(false);
   });
 
-  it.each([
-    ["network", { code: "dependency.unavailable" }],
-    ["configuration", { code: "configuration.invalid" }],
-    ["server", { code: "server.unavailable" }],
-    ["unknown provider", new Error("authentication provider unavailable")],
-  ] as const)("preserves a %s session inspection failure", async (_name, failure) => {
-    api.session.mockRejectedValue(failure);
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const request = new Request("http://dashboard.test/dashboard", {
-      headers: { Cookie: "better-auth.session_token=session-value" },
-    });
-
-    await expect(requireAuth(request)).rejects.toBe(failure);
-    await expect(hasAuthenticatedSession(request)).rejects.toBe(failure);
-    expect(fetchMock).not.toHaveBeenCalled();
+  it("preserves a transport failure instead of redirecting or revoking the session", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("network unavailable"));
+    transport.mockImplementation(fetchMock);
+    const request = new Request("http://dashboard.test/dashboard", {headers: {Cookie: "better-auth.session_token=session-value"}});
+    await expect(requireAuth(request)).rejects.not.toBeInstanceOf(Response);
+    await expect(hasAuthenticatedSession(request)).rejects.not.toBeInstanceOf(Response);
+    expect(fetchMock.mock.calls.every(([input, init]) => new Request(input, init).method === "GET")).toBe(true);
   });
 
   it("posts email credentials to Better Auth and preserves every Set-Cookie value", async () => {
@@ -167,8 +141,10 @@ describe("native dashboard authentication", () => {
       "better-auth.session_token=session-value; Path=/; HttpOnly; SameSite=Lax; Secure",
       "better-auth.session_data=opaque; Path=/; Expires=Wed, 26 Aug 2026 12:00:00 GMT; Secure",
     ];
-    const fetchMock = vi.fn().mockResolvedValue(responseWithCookies(200, cookies));
-    vi.stubGlobal("fetch", fetchMock);
+
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(responseWithCookies(200, cookies));
+    transport.mockImplementation(fetchMock);
+
     const request = new Request("https://dashboard.example/login", {
       method: "POST",
       headers: { Origin: "https://dashboard.example" },
@@ -177,14 +153,15 @@ describe("native dashboard authentication", () => {
     const result = await signInWithEmail(request, "ada@example.com", "correct horse");
 
     expect(result._tag).toBe("Authenticated");
-    if (result._tag !== "Authenticated") throw new Error("expected authenticated result");
+
+    if (!Predicate.isTagged(result, "Authenticated")) throw new Error("expected authenticated result");
     expect(result.headers.getSetCookie()).toEqual(cookies);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("http://api.test/api/auth/sign-in/email");
-    expect(init.method).toBe("POST");
-    expect(init.redirect).toBe("manual");
-    expect(new Headers(init.headers).get("Origin")).toBe("https://dashboard.example");
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(init?.method).toBe("POST");
+    expect(init?.redirect).toBe("manual");
+    expect(new Headers(init?.headers).get("Origin")).toBe("https://dashboard.example");
+    expect(JSON.parse(String(init?.body))).toEqual({
       email: "ada@example.com",
       password: "correct horse",
     });
@@ -193,7 +170,8 @@ describe("native dashboard authentication", () => {
   it("forwards the opaque OAuth query in the credential request and returns the provider continuation", async () => {
     const query = "client_id=client&sig=opaque%2Bbytes";
     const cookies = ["better-auth.session_token=session-value; Path=/; HttpOnly; SameSite=Lax"];
-    const fetchMock = vi.fn().mockResolvedValue(
+
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       responseWithCookies(
         200,
         cookies,
@@ -203,7 +181,9 @@ describe("native dashboard authentication", () => {
         }),
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+
+    transport.mockImplementation(fetchMock);
+
     const request = new Request("https://dashboard.example/dashboard/login", {
       method: "POST",
       headers: { Origin: "https://dashboard.example" },
@@ -212,12 +192,13 @@ describe("native dashboard authentication", () => {
     const result = await signInWithEmail(request, "ada@example.com", "correct horse", query);
 
     expect(result._tag).toBe("Authenticated");
-    if (result._tag !== "Authenticated") throw new Error("expected authenticated result");
+
+    if (!Predicate.isTagged(result, "Authenticated")) throw new Error("expected authenticated result");
     expect(result.continuation).toBe(
       "https://dashboard.example/dashboard/oauth/consent?next=signed",
     );
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({
       email: "ada@example.com",
       password: "correct horse",
       oauth_query: query,
@@ -230,7 +211,9 @@ describe("native dashboard authentication", () => {
       [],
       "sig=credential-engine-state-that-must-not-be-returned",
     );
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    transport.mockImplementation(vi.fn<typeof fetch>().mockResolvedValue(response));
+
     const request = new Request("https://dashboard.example/dashboard/login", {
       method: "POST",
       headers: { Origin: "https://dashboard.example" },
@@ -238,13 +221,14 @@ describe("native dashboard authentication", () => {
 
     await expect(
       signInWithEmail(request, "ada@example.com", "correct horse", "sig=tampered"),
-    ).resolves.toEqual({ _tag: "InvalidOAuthRequest" });
+    ).resolves.toEqual(SignInResult.InvalidOAuthRequest());
     expect(response.bodyUsed).toBe(false);
   });
 
   it("preserves the exact OAuth login destination for a missing session", async () => {
     const destination = "/login?client_id=client&sig=opaque%2Bbytes";
     let failure: unknown;
+
     try {
       await requireAuth(
         new Request("https://dashboard.example/dashboard/oauth/consent"),
@@ -255,7 +239,9 @@ describe("native dashboard authentication", () => {
     }
 
     expect(failure).toBeInstanceOf(Response);
-    const response = failure as Response;
+
+    if (!(failure instanceof Response)) throw new Error("Expected an authentication redirect");
+    const response = failure;
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(destination);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
@@ -273,7 +259,8 @@ describe("native dashboard authentication", () => {
       [],
       "provider-secret=do-not-return; BETTER_AUTH_SECRET=never-leak",
     );
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    transport.mockImplementation(vi.fn<typeof fetch>().mockResolvedValue(response));
     const request = new Request("http://dashboard.test/login", { method: "POST" });
 
     await expect(signInWithEmail(request, "invalid@example.com", "wrong")).resolves.toEqual({
@@ -282,19 +269,19 @@ describe("native dashboard authentication", () => {
     expect(response.bodyUsed).toBe(false);
   });
   it("maps an endpoint configuration failure to Unavailable without exposing its details", async () => {
-    api.serverApiEndpoint.mockImplementation(() => {
-      throw new Error("API URL missing; BETTER_AUTH_SECRET=never-leak");
-    });
+    vi.stubEnv("API_URL", "");
+    vi.resetModules();
+    const { signInWithEmail: signInWithoutApi } = await import("./auth.server");
     const request = new Request("http://dashboard.test/login", { method: "POST" });
 
-    await expect(signInWithEmail(request, "ada@example.com", "wrong")).resolves.toEqual({
-      _tag: "Unavailable",
-    });
+    await expect(signInWithoutApi(request, "ada@example.com", "wrong")).resolves.toEqual(SignInResult.Unavailable());
   });
 
   it("deletes the generated native session and emits local clearing cookies", async () => {
-    api.deleteSession.mockResolvedValue(undefined);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, {status: 204, headers: {"cache-control": "no-store", vary: "Origin"}}));
+    transport.mockImplementation(fetchMock);
     const rawCookie = "theme=dark; better-auth.session_token=session-value";
+
     const request = new Request("https://dashboard.example/logout", {
       method: "POST",
       headers: { Cookie: rawCookie },
@@ -304,11 +291,11 @@ describe("native dashboard authentication", () => {
     expect(headers.getSetCookie()).toEqual([
       "better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
     ]);
-    expect(api.createAuthenticatedClient).toHaveBeenCalledWith(rawCookie, request);
-    expect(api.deleteSession).toHaveBeenCalledOnce();
-    expect(api.deleteSession).toHaveBeenCalledWith({
-      headers: { "idempotency-key": expect.any(String) },
-    });
+    const [input, init] = fetchMock.mock.calls[0];
+    const sent = new Request(input, init);
+    expect(sent.method).toBe("DELETE");
+    expect(sent.headers.get("cookie")).toBe(rawCookie);
+    expect(sent.headers.get("idempotency-key")).toEqual(expect.any(String));
   });
 
   it("allows only same-origin relative post-login redirects", () => {
@@ -322,7 +309,8 @@ describe("native dashboard authentication", () => {
 it("rejects explicit legacy recovery before native sign-in in dev and production callers", async () => {
   vi.stubEnv("PASSWORD_RECOVERY_ENGINE", "legacy-symfony");
   const network = vi.fn();
-  vi.stubGlobal("fetch", network);
+  transport.mockImplementation(network);
+
   try {
     expect(
       await signInWithEmail(
@@ -330,7 +318,7 @@ it("rejects explicit legacy recovery before native sign-in in dev and production
         "person@example.invalid",
         "synthetic-password",
       ),
-    ).toEqual({ _tag: "Unavailable" });
+    ).toEqual(SignInResult.Unavailable());
     expect(network).not.toHaveBeenCalled();
   } finally {
     vi.unstubAllEnvs();

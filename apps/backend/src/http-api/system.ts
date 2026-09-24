@@ -1,3 +1,4 @@
+import { Scope } from "@vektorprogrammet/domain/authz";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { IdentitySnapshot, type IdentitySnapshotService } from "@vektorprogrammet/database";
 import { databaseHealth, type Database } from "@vektorprogrammet/database";
@@ -9,7 +10,7 @@ import {
   IdentitySessionNotFound,
   type IdentityActor,
   type IdentitySession,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import { executeNativeHttpCommandPostgres } from "./receipt-transaction.js";
 import {
@@ -23,7 +24,7 @@ import {
   RevokeOtherSessionsEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { DateTime, Effect, Option } from "effect";
+import { Schema, Match, Predicate, DateTime, Effect, Option } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   resolveAuthenticatedPersonAtInstant,
@@ -47,7 +48,10 @@ import {
 import { identityRequestContext } from "../session-security.js";
 import { toHttpApiResponse } from "./transport.js";
 
-const jsonResponse = (body: unknown, cacheControl: "no-store" | "private, no-store"): Response =>
+const jsonResponse = (
+  body: Schema.Json,
+  cacheControl: "no-store" | "private, no-store",
+): Response =>
   new Response(JSON.stringify(body), {
     status: 200,
     headers: {
@@ -60,9 +64,11 @@ const identityErrorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(cause.code, cause.status);
   }
+
   if (cause instanceof IdentityOwnedSessionNotFound) {
     return nativeProblemResponse("resource.not-found", 404);
   }
+
   if (
     cause instanceof UnauthenticatedActor ||
     cause instanceof IdentitySessionNotFound ||
@@ -72,18 +78,27 @@ const identityErrorResponse = (cause: unknown): Response => {
       "www-authenticate": 'VektorSession realm="native-api"',
     });
   }
-  if (cause !== null && typeof cause === "object" && "_tag" in cause) {
-    switch (cause._tag) {
-      case "NativeHttpReceiptInFlightError":
+
+  if (cause !== null && (cause === null || Predicate.isObjectOrArray(cause)) && "_tag" in cause) {
+    const response = Match.value(cause).pipe(
+      Match.when(Predicate.isTagged("NativeHttpReceiptInFlightError"), () => {
         return nativeProblemResponse("idempotency.in-flight", 409, { "retry-after": "1" });
-      case "NativeHttpReceiptDigestConflictError":
+      }),
+      Match.when(Predicate.isTagged("NativeHttpReceiptDigestConflictError"), () => {
         return nativeProblemResponse("idempotency.digest-conflict", 409);
-      case "NativeHttpReceiptExpiredError":
+      }),
+      Match.when(Predicate.isTagged("NativeHttpReceiptExpiredError"), () => {
         return nativeProblemResponse("idempotency.response-expired", 409);
-      case "NativeHttpReceiptPersistenceError":
+      }),
+      Match.when(Predicate.isTagged("NativeHttpReceiptPersistenceError"), () => {
         return nativeProblemResponse("idempotency.unavailable", 503);
-    }
+      }),
+      Match.orElse(() => undefined),
+    );
+
+    if (response !== undefined) return response;
   }
+
   return nativeProblemResponse("identity.unavailable", 503);
 };
 
@@ -99,7 +114,7 @@ const projection = (personId: string, session: IdentitySession) => ({
 });
 
 const identityOperation = <A>(
-  operation: (identity: IdentityShape) => Promise<A>,
+  operation: (identity: IdentityOperations) => Promise<A>,
 ): Effect.Effect<
   A,
   | IdentityEngineError
@@ -154,15 +169,14 @@ const authorizeSessionOperation = (input: {
       contexts: [
         genericContext({
           domainId: "identity",
-          ...(input.resourceId === undefined
-            ? {}
-            : { resourceKind: "identity-session", resourceId: input.resourceId }),
+          resourceKind: input.resourceId === undefined ? undefined : "identity-session",
+          resourceId: input.resourceId,
           facts: { ownerPersonId: input.principal.personId },
           authorityVersion: `identity:${input.principal.authorizationInstant}`,
         }),
       ],
     },
-    grantScopes: [{ _tag: "Global" }],
+    grantScopes: [Scope.Global()],
     now: input.principal.authorizationInstant,
   });
 
@@ -184,17 +198,21 @@ const executeSessionMutation = (input: {
 }) =>
   Effect.gen(function* () {
     yield* noQuery(input.request);
+
     const idempotencyKey = parseIdempotencyKey(
       input.request.headers.get("idempotency-key") === null
         ? []
         : [input.request.headers.get("idempotency-key")!],
     );
+
     const credentialHeaders = new Headers(input.request.headers);
     credentialHeaders.delete("authorization");
+
     const cookieRequest = new Request(input.request.url, {
       method: input.request.method,
       headers: credentialHeaders,
     });
+
     const result = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const authenticated = yield* resolveRequestCredentialInTransaction(
@@ -202,11 +220,14 @@ const executeSessionMutation = (input: {
           "OAuthUserBearer",
           { now: input.options.now },
         );
+
         const identity = yield* IdentitySnapshot;
+
         const actor = yield* identity.resolveSession(
           input.request.headers.get("cookie") ?? undefined,
           authenticated.authorizationInstant,
         );
+
         yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
           credential: authenticated.credential,
@@ -216,23 +237,24 @@ const executeSessionMutation = (input: {
             contexts: [
               genericContext({
                 domainId: "identity",
-                ...(input.resourceId === undefined
-                  ? {}
-                  : { resourceKind: "identity-session", resourceId: input.resourceId }),
+                resourceKind: input.resourceId === undefined ? undefined : "identity-session",
+                resourceId: input.resourceId,
                 facts: { ownerPersonId: actor.personId },
                 authorityVersion: `identity:${authenticated.authorizationInstant}`,
               }),
             ],
           },
-          grantScopes: [{ _tag: "Global" }],
+          grantScopes: [Scope.Global()],
           now: authenticated.authorizationInstant,
         });
+
         const derived = deriveHttpIdentity({
           credentialSubject: `Person:${actor.personId}`,
           qualifiedOperationId: input.operationId,
           normalizedTarget: input.normalizedTarget,
           idempotencyKey,
         });
+
         return {
           identity: {
             identitySha256: derived.identitySha256,
@@ -250,6 +272,7 @@ const executeSessionMutation = (input: {
         };
       }),
     );
+
     return nativeCommandOutcomeResponse(result);
   });
 
@@ -278,6 +301,7 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
                   (options.now ?? (() => new Date().toISOString()))(),
                 );
                 yield* databaseHealth;
+
                 return jsonResponse({ status: "ok" }, "no-store");
               }),
             (cause) =>
@@ -293,15 +317,18 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
               Effect.gen(function* () {
                 yield* noQuery(webRequest);
                 const principal = yield* principalFor(webRequest, options);
+
                 const session = yield* identityOperation((identity) =>
                   identity.readCurrentSession(webRequest.headers.get("cookie") ?? undefined),
                 );
+
                 yield* authorizeSessionOperation({
                   request: webRequest,
                   principal,
                   endpoint: ReadSessionEndpoint,
                   resourceId: session.sessionId,
                 });
+
                 return jsonResponse(projection(principal.personId, session), "private, no-store");
               }),
             identityErrorResponse,
@@ -336,9 +363,11 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
                   endpoint: ListSessionsEndpoint,
                   collection: true,
                 });
+
                 const sessions = yield* identityOperation((identity) =>
                   identity.listSessions(webRequest.headers.get("cookie") ?? undefined),
                 );
+
                 return jsonResponse(
                   sessions.map((session) => projection(principal.personId, session)),
                   "private, no-store",

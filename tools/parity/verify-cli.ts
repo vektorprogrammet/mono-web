@@ -11,6 +11,7 @@ if (import.meta.main) {
   const missing = parityExternalInputs(repositoryRoot)
     .filter(({ path, directory }) => {
       if (!existsSync(path)) return true;
+
       try {
         return directory ? !lstatSync(path).isDirectory() : !lstatSync(path).isFile();
       } catch {
@@ -18,6 +19,7 @@ if (import.meta.main) {
       }
     })
     .map(({ label, path }) => `${label}: ${path}`);
+
   if (missing.length > 0) {
     process.stderr.write(
       [
@@ -37,6 +39,7 @@ if (import.meta.main) {
     const exitCode = await Effect.runPromise(
       main(parityVerifyArguments()).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     process.exitCode = exitCode;
   }
 }

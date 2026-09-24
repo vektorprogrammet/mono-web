@@ -1,6 +1,8 @@
+import { Predicate } from "effect";
 import { Button, Disclosure } from "@foldkit/ui";
 import { Option, Schema as S } from "effect";
-import type { Html, HtmlBuilder, TagName } from "foldkit/html";
+import type { Html, HtmlBuilder } from "foldkit/html";
+import { CustomElement } from "foldkit";
 import { RECRUITMENT_ELEMENT, RECRUITMENT_INPUT_ATTRIBUTE } from "../recruitment/elements";
 import { RecruitmentInputJson } from "../recruitment/model";
 import { SCHEDULING_ELEMENT, SCHEDULING_INPUT_ATTRIBUTE } from "../scheduling/elements";
@@ -27,6 +29,10 @@ import {
   type NavigationLink,
 } from "./navigation";
 
+const SchedulingElement = CustomElement.define({ tag: SCHEDULING_ELEMENT, properties: {}, events: {} });
+
+const RecruitmentElement = CustomElement.define({ tag: RECRUITMENT_ELEMENT, properties: {}, events: {} });
+
 const initials = (name: string): string =>
   name
     .trim()
@@ -50,6 +56,7 @@ const avatarView = (user: DashboardIdentity, h: HtmlBuilder<Message>): Html =>
 
 const activeLinkAttributes = (model: ReadyModel, link: NavigationLink, h: HtmlBuilder<Message>) => {
   const isActive = !link.external && isActivePath(model.activePath, link.href);
+
   return [
     h.Href(link.href),
     h.Class(`fd-nav-link${isActive ? " is-active" : ""}`),
@@ -203,7 +210,7 @@ const mobileCloseButton = (h: HtmlBuilder<Message>): Html =>
             h.Id("fd-mobile-navigation-close"),
             h.Class("fd-mobile-close"),
             h.AriaLabel("Lukk meny"),
-            h.OnClickFocus("#fd-mobile-navigation-toggle", ClosedMobileNavigation()),
+            h.OnClick(ClosedMobileNavigation(), { focusSelector: "#fd-mobile-navigation-toggle" }),
           ],
           [h.span([h.AriaHidden(true)], ["×"]), h.small([], ["lukk"])],
         ),
@@ -285,7 +292,7 @@ const mobileOverlay = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
             h.Class("fd-mobile-overlay"),
             h.Hidden(!model.isMobileNavigationOpen),
             h.AriaLabel("Lukk meny"),
-            h.OnClickFocus("#fd-mobile-navigation-toggle", ClosedMobileNavigation()),
+            h.OnClick(ClosedMobileNavigation(), { focusSelector: "#fd-mobile-navigation-toggle" }),
           ],
           [],
         ),
@@ -365,7 +372,7 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
             [h.Id("fd-main"), h.Class("fd-main"), h.Tabindex(-1)],
             model.scheduling !== null
               ? [
-                  h.keyed(SCHEDULING_ELEMENT as TagName)("foldkit-recruitment-scheduling", [
+                  SchedulingElement.withMessage(h)([h.Key("foldkit-recruitment-scheduling"),
                     h.Id("fd-scheduling-program"),
                     h.Attribute(
                       SCHEDULING_INPUT_ATTRIBUTE,
@@ -375,7 +382,7 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
                 ]
               : model.recruitment !== null
                 ? [
-                    h.keyed(RECRUITMENT_ELEMENT as TagName)("foldkit-recruitment-board", [
+                    RecruitmentElement.withMessage(h)([h.Key("foldkit-recruitment-board"),
                       h.Id("fd-recruitment-program"),
                       h.Attribute(
                         RECRUITMENT_INPUT_ATTRIBUTE,
@@ -406,4 +413,4 @@ const invalidInputView = (h: HtmlBuilder<Message>): Html =>
   );
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
-  model._tag === "Ready" ? readyView(model, h) : invalidInputView(h);
+  Predicate.isTagged(model, "Ready") ? readyView(model, h) : invalidInputView(h);

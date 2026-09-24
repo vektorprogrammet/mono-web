@@ -1,10 +1,11 @@
+import { Predicate } from "effect";
 import { RecruitmentAssignmentBoardSchema } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import { describe, expect, it } from "vitest";
 import type { RecruitmentClient } from "./browser-client";
-import { makeRecruitmentCommands } from "./command";
+import { commandsFor } from "./command";
 import {
   FailedLoadBoard,
   FailedAssignment,
@@ -16,8 +17,8 @@ import {
   SucceededAssignment,
   SucceededLoadBoard,
 } from "./message";
-import { makeInitialModel } from "./model";
-import { makeUpdate } from "./update";
+import { init, LoadedRecruitmentInput } from "./model";
+import { updateFor } from "./update";
 
 const decodeBoard = S.decodeUnknownSync(RecruitmentAssignmentBoardSchema);
 
@@ -75,24 +76,27 @@ const client: RecruitmentClient = {
   correctInterviewAssessment: () => Effect.die("not executed by transition tests"),
   },
 };
-const update = makeUpdate(makeRecruitmentCommands(client));
+
+const update = updateFor(commandsFor(client));
 
 const readyModel = () => {
-  const model = makeInitialModel(
-    { _tag: "Loaded", status: "all", board: unassignedBoard },
+  const model = init(
+    LoadedRecruitmentInput.make({ status: "all", board: unassignedBoard }),
     IdempotencyKey.make("recruitment-test-command"),
   );
-  if (model._tag !== "Ready") throw new Error("expected a ready recruitment model");
+
+  if (!Predicate.isTagged(model, "Ready")) throw new Error("expected a ready recruitment model");
+
   return model;
 };
 
 describe("Foldkit recruitment transitions", () => {
   it("opens only an unassigned applicant and validates both choices", () => {
     const applicationId = unassignedBoard.candidates[0].applicationId;
-    const [opened] = update(readyModel(), OpenedAssignment({ applicationId }));
+    const { model: opened } = update(readyModel(), OpenedAssignment({ applicationId }));
     expect(opened).toMatchObject({ selectedApplicationId: applicationId, isAssigning: false });
 
-    const [invalid, commands] = update(opened, SubmittedAssignment());
+    const { model: invalid, commands = [] } = update(opened, SubmittedAssignment());
     expect(invalid).toMatchObject({ assignmentError: "Velg både intervjuer og intervjuskjema." });
     expect(commands).toEqual([]);
   });
@@ -101,26 +105,31 @@ describe("Foldkit recruitment transitions", () => {
     const candidate = unassignedBoard.candidates[0];
     const interviewer = unassignedBoard.interviewers[0];
     const schema = unassignedBoard.interviewSchemas[0];
-    const [opened] = update(
+
+    const { model: opened } = update(
       readyModel(),
       OpenedAssignment({ applicationId: candidate.applicationId }),
     );
-    const [withInterviewer] = update(
+
+    const { model: withInterviewer } = update(
       opened,
       SelectedInterviewer({ personId: interviewer.personId }),
     );
-    const [withSchema] = update(
+
+    const { model: withSchema } = update(
       withInterviewer,
       SelectedSchema({ interviewSchemaId: schema.interviewSchemaId }),
     );
-    const [submitting, commands] = update(withSchema, SubmittedAssignment());
+
+    const { model: submitting, commands = [] } = update(withSchema, SubmittedAssignment());
     expect(submitting).toMatchObject({ isAssigning: true });
     expect(commands).toHaveLength(1);
 
-    const [failed] = update(
+    const { model: failed } = update(
       submitting,
       FailedAssignment({ message: "Intervjuet kunne ikke tildeles nå." }),
     );
+
     expect(failed).toMatchObject({
       isAssigning: false,
       selectedApplicationId: candidate.applicationId,
@@ -132,11 +141,13 @@ describe("Foldkit recruitment transitions", () => {
 
   it("replaces the board only with the post-command observation", () => {
     const initial = readyModel();
-    const [succeeded] = update(initial, SucceededAssignment({ board: assignedBoard }));
-    if (succeeded._tag !== "Ready") throw new Error("expected a ready recruitment model");
+    const { model: succeeded } = update(initial, SucceededAssignment({ board: assignedBoard }));
+
+    if (!Predicate.isTagged(succeeded, "Ready")) throw new Error("expected a ready recruitment model");
     const board = AsyncData.getData(succeeded.board);
     expect(board._tag).toBe("Some");
-    if (board._tag !== "Some") throw new Error("expected a successful board");
+
+    if (!Predicate.isTagged(board, "Some")) throw new Error("expected a successful board");
     expect(board.value).toEqual(assignedBoard);
     expect(succeeded).toMatchObject({
       selectedApplicationId: null,
@@ -148,40 +159,46 @@ describe("Foldkit recruitment transitions", () => {
   });
 
   it("clears the dialog and loads a fresh board for each filter", () => {
-    const [next, commands] = update(readyModel(), SelectedFilter({ status: "new" }));
+    const { model: next, commands = [] } = update(readyModel(), SelectedFilter({ status: "new" }));
     expect(next).toMatchObject({
       selectedFilter: "new",
       boardRequestId: 1,
       selectedApplicationId: null,
       feedback: null,
     });
-    if (next._tag !== "Ready") throw new Error("expected a ready recruitment model");
+
+    if (!Predicate.isTagged(next, "Ready")) throw new Error("expected a ready recruitment model");
     expect(AsyncData.isPending(next.board)).toBe(true);
     expect(commands).toHaveLength(1);
   });
 
   it("ignores stale filter results after a newer request starts", () => {
-    const [first] = update(readyModel(), SelectedFilter({ status: "new" }));
-    const [second] = update(first, SelectedFilter({ status: "all" }));
-    if (second._tag !== "Ready") throw new Error("expected a ready recruitment model");
+    const { model: first } = update(readyModel(), SelectedFilter({ status: "new" }));
+    const { model: second } = update(first, SelectedFilter({ status: "all" }));
+
+    if (!Predicate.isTagged(second, "Ready")) throw new Error("expected a ready recruitment model");
     expect(second.boardRequestId).toBe(2);
 
-    const [staleSuccess] = update(
+    const { model: staleSuccess } = update(
       second,
       SucceededLoadBoard({ requestId: 1, board: unassignedBoard }),
     );
-    const [staleFailure] = update(
+
+    const { model: staleFailure } = update(
       second,
       FailedLoadBoard({ requestId: 1, message: "stale failure" }),
     );
+
     expect(staleSuccess).toBe(second);
     expect(staleFailure).toBe(second);
 
-    const [current] = update(second, SucceededLoadBoard({ requestId: 2, board: assignedBoard }));
-    if (current._tag !== "Ready") throw new Error("expected a ready recruitment model");
+    const { model: current } = update(second, SucceededLoadBoard({ requestId: 2, board: assignedBoard }));
+
+    if (!Predicate.isTagged(current, "Ready")) throw new Error("expected a ready recruitment model");
     const board = AsyncData.getData(current.board);
     expect(board._tag).toBe("Some");
-    if (board._tag !== "Some") throw new Error("expected the current board observation");
+
+    if (!Predicate.isTagged(board, "Some")) throw new Error("expected the current board observation");
     expect(board.value).toEqual(assignedBoard);
   });
 });

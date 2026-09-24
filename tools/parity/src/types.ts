@@ -1,34 +1,35 @@
 import type { AcceptedIntentRegister } from "./coverage.js";
+
 export interface RuntimeEvidenceReceipt {
-  readonly receipt_ref_id: string
-  readonly journey_ref_id: string
-  readonly step_ids: readonly string[]
-  readonly legacy_revision_ref_id: string
-  readonly mono_revision_ref_id: string
-  readonly runner_source_ref_ids: readonly string[]
-  readonly runner_digest: string
-  readonly fixture_digest: string
-  readonly environment_kind: "local_disposable" | "e2e" | "ci_non_production"
-  readonly exit_code: number
-  readonly result: "passed" | "failed"
-  readonly artifact_digest: string
+  readonly receipt_ref_id: string;
+  readonly journey_ref_id: string;
+  readonly step_ids: readonly string[];
+  readonly legacy_revision_ref_id: string;
+  readonly mono_revision_ref_id: string;
+  readonly runner_source_ref_ids: readonly string[];
+  readonly runner_digest: string;
+  readonly fixture_digest: string;
+  readonly environment_kind: "local_disposable" | "e2e" | "ci_non_production";
+  readonly exit_code: number;
+  readonly result: "passed" | "failed";
+  readonly artifact_digest: string;
 }
 
 export interface RuntimeEvidenceRegister {
-  readonly $schema: "https://json-schema.org/draft/2020-12/schema"
-  readonly schema_version: "functional-parity-runtime-evidence/v1"
-  readonly receipts: readonly RuntimeEvidenceReceipt[]
+  readonly $schema: "https://json-schema.org/draft/2020-12/schema";
+  readonly schema_version: "functional-parity-runtime-evidence/v1";
+  readonly receipts: readonly RuntimeEvidenceReceipt[];
 }
 
 export interface EvidenceAuthorityRecord {
-  readonly repository_ref: "external_runtime_evidence_authority"
-  readonly authority_path: string
-  readonly revision_ref_id: string
-  readonly revision: string
-  readonly blob_oid: string
-  readonly digest: string
-  readonly source_ref_ids: readonly string[]
-  readonly immutable: true
+  readonly repository_ref: "external_runtime_evidence_authority";
+  readonly authority_path: string;
+  readonly revision_ref_id: string;
+  readonly revision: string;
+  readonly blob_oid: string;
+  readonly digest: string;
+  readonly source_ref_ids: readonly string[];
+  readonly immutable: true;
 }
 
 export type AuthorityLine = "legacy" | "mono" | "cross_line";
@@ -246,10 +247,9 @@ export type RowDetails =
   | ExternalIntegrationDetails
   | UserJourneyDetails;
 
-export interface InventoryRow {
+interface InventoryRowFields {
   readonly row_id: string;
   readonly declaration_id: string;
-  readonly inventory_kind: InventoryKind;
   readonly authority_line: AuthorityLine;
   readonly canonical_key: string;
   readonly signature: string;
@@ -264,8 +264,24 @@ export interface InventoryRow {
   readonly mismatch: Mismatch;
   readonly reason_codes: readonly string[];
   readonly related_row_ids: readonly string[];
-  readonly details: RowDetails;
 }
+
+type InventoryDetailsByKind = {
+  readonly legacy_route: LegacyRouteDetails;
+  readonly mono_route: MonoRouteDetails;
+  readonly api_operation: ApiOperationDetails;
+  readonly command_write: CommandWriteDetails;
+  readonly schedule_background: ScheduleBackgroundDetails;
+  readonly external_integration: ExternalIntegrationDetails;
+  readonly user_journey: UserJourneyDetails;
+};
+
+export type InventoryRow<K extends InventoryKind = InventoryKind> = {
+  readonly [P in K]: InventoryRowFields & {
+    readonly inventory_kind: P;
+    readonly details: InventoryDetailsByKind[P];
+  };
+}[K];
 
 export interface InventoryLink {
   readonly relation_id: string;
@@ -331,20 +347,20 @@ export interface RevisionRecord {
 }
 
 export interface CollectorExecutables {
-  readonly phpExecutable: string
-  readonly bwrapExecutable: string
+  readonly phpExecutable: string;
+  readonly bwrapExecutable: string;
 }
 
-export type CollectorExecutableProvenance = "usr-bin" | "nix-store"
+export type CollectorExecutableProvenance = "usr-bin" | "nix-store";
 
 export interface RuntimeExecutableDigests {
-  readonly php: string | null
-  readonly bwrap: string | null
+  readonly php: string | null;
+  readonly bwrap: string | null;
 }
 
 export interface RuntimeExecutableProvenance {
-  readonly php: CollectorExecutableProvenance | null
-  readonly bwrap: CollectorExecutableProvenance | null
+  readonly php: CollectorExecutableProvenance | null;
+  readonly bwrap: CollectorExecutableProvenance | null;
 }
 
 export interface RuntimeObservation {
@@ -480,7 +496,7 @@ export interface ReportFailure {
   readonly row_ids: readonly string[];
   readonly source_ref_ids: readonly string[];
   readonly accepted_intent_ref_ids: readonly string[];
-  readonly runtime_evidence_ref_ids?: readonly string[]
+  readonly runtime_evidence_ref_ids?: readonly string[];
 }
 
 export interface ReportMismatch {
@@ -520,6 +536,7 @@ export interface ZeroGapReport {
   readonly openapi_reconciliation_ref: "openapi-reconciliation.json";
   readonly verification: Verification;
 }
+
 export interface IntentAuthorityEvidence extends IntentAuthorityRecord {
   readonly authority_root: string;
   readonly relative_path: string;
@@ -527,9 +544,9 @@ export interface IntentAuthorityEvidence extends IntentAuthorityRecord {
 }
 
 export interface EvidenceAuthorityEvidence extends EvidenceAuthorityRecord {
-  readonly authority_root: string
-  readonly relative_path: string
-  readonly bytes: Uint8Array
+  readonly authority_root: string;
+  readonly relative_path: string;
+  readonly bytes: Uint8Array;
 }
 
 export interface RouteParseFailure {
@@ -537,6 +554,7 @@ export interface RouteParseFailure {
   readonly reason_code: string;
   readonly status: "source_unavailable" | "unresolved";
 }
+
 export interface RouteCollection {
   readonly inventory: InventoryEnvelope;
   readonly failures: readonly RouteParseFailure[];

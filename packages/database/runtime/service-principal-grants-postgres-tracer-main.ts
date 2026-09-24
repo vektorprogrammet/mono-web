@@ -1,3 +1,19 @@
+import { ReceiptId } from "@vektorprogrammet/domain/receipt";
+import { Schema, ManagedRuntime, Layer } from "effect";
+import { AuthEngine, AuthLive } from "../src/auth-live.js";
+import { AuthPoolLive } from "../src/auth-engine.js";
+import { DatabasePgPool } from "../src/pg-pool.js";
+import { OAuthClientOperator, OAuthCredentialAuthority } from "../src/oauth-live.js";
+import {
+  GrantId,
+  OAuthClientId,
+  AcceptedOAuthServiceCredential,
+  CredentialMechanismSchema,
+  PrincipalSchema,
+  AccessEvaluation,
+  CredentialOutcomeSchema,
+  ServicePrincipalGrantAuthority,
+} from "@vektorprogrammet/domain/authz";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
@@ -9,32 +25,25 @@ import {
   ServicePrincipalId,
   composeServicePrincipalReceiptRuleRequirements,
   evaluateServicePrincipalReceiptApprovalAccess,
-  type AcceptedOAuthServiceCredential,
   type ServicePrincipalReceiptGrantAuthority,
 } from "@vektorprogrammet/domain/authz";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import { Pool } from "pg";
-import { makeAuthEngine, makeAuthPool, type AuthEngineConfig } from "../src/auth-engine.js";
-import {
-  databaseMigrationDefinitions,
-  databaseSchemaRevision,
-} from "../src/migrations.js";
-import {
-  makeOAuthClientOperatorService,
-  makeOAuthCredentialAuthorityService,
-  makeOAuthReleaseBarrier,
-} from "../src/oauth-live.js";
-import { makeServicePrincipalGrantAuthorityService } from "../src/service-principal-grants-live.js";
+import { type AuthEngineConfig } from "../src/auth-engine.js";
+import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 
 const databaseUrl =
   process.env.SERVICE_PRINCIPAL_GRANTS_PROOF_PG_URL ??
   "postgres://postgres@127.0.0.1:45128/service_principal_grants_0056_3_proof";
+
 const parsedDatabaseUrl = new URL(databaseUrl);
+
 assert.ok(
   ["127.0.0.1", "localhost", "::1"].includes(parsedDatabaseUrl.hostname),
   "Service-principal grant proof database must use a loopback host",
 );
+
 assert.match(
   parsedDatabaseUrl.pathname,
   /(?:proof|test)/u,
@@ -42,9 +51,11 @@ assert.match(
 );
 
 const migrationPool = new Pool({ connectionString: databaseUrl, max: 1 });
+
 for (const migration of databaseMigrationDefinitions) {
   await migrationPool.query(await readFile(migration.url, "utf8"));
 }
+
 await migrationPool.end();
 
 const config: AuthEngineConfig = {
@@ -58,9 +69,15 @@ const config: AuthEngineConfig = {
   trustedOrigins: ["http://127.0.0.1:4173"],
   secureCookies: false,
 };
-const pool = makeAuthPool(config);
-const engine = makeAuthEngine(config, pool);
-const operator = makeOAuthClientOperatorService(pool, engine);
+
+const authRuntime = ManagedRuntime.make(
+  AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config))),
+);
+
+const pool = await authRuntime.runPromise(DatabasePgPool);
+
+const operator = await authRuntime.runPromise(OAuthClientOperator);
+
 const execution = {
   dryRun: false,
   target: parsedDatabaseUrl.pathname.slice(1),
@@ -69,6 +86,7 @@ const execution = {
 } as const;
 
 await operator.bootstrapSigningKey(execution);
+
 const provisionedService = await operator.provision(
   {
     clientId: "service-receipt-approval-client",
@@ -81,7 +99,9 @@ const provisionedService = await operator.provision(
   },
   execution,
 );
-assert.equal(typeof provisionedService.clientSecret, "string");
+
+assert.ok(Predicate.isString(provisionedService.clientSecret));
+
 await operator.provision(
   {
     clientId: "service-receipt-approval-resource-server",
@@ -97,6 +117,7 @@ await pool.query(
   `INSERT INTO public.person_profiles (person_id, first_name, last_name)
    VALUES ('service-receipt-owner', 'Service receipt', 'Owner')`,
 );
+
 await pool.query(
   `INSERT INTO public.organization_departments (
      department_id, name, short_name, email, city
@@ -105,6 +126,7 @@ await pool.query(
      'service-receipt-department@example.invalid', 'Oslo'
    )`,
 );
+
 await pool.query(
   `INSERT INTO public.economy_receipts (
      receipt_id, visual_id, owner_person_id, department_id, amount_ore,
@@ -140,7 +162,9 @@ const requestContext = new IdentityRequestContext({
   sourceIp: "127.0.0.1",
   userAgent: "service-principal-grants-postgres-proof",
 });
-const release = makeOAuthReleaseBarrier(engine, pool, config.oauth);
+
+const release = (await authRuntime.runPromise(AuthEngine)).oauthHandler;
+
 const tokenResponse = await release(
   new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
     method: "POST",
@@ -159,40 +183,60 @@ const tokenResponse = await release(
   }),
   requestContext,
 );
+
 assert.equal(tokenResponse.status, 200);
-const tokenPayload = (await tokenResponse.json()) as { readonly access_token?: unknown };
-assert.equal(typeof tokenPayload.access_token, "string");
-const bearer = tokenPayload.access_token as string;
-const credentialAuthority = makeOAuthCredentialAuthorityService(pool, config.oauth);
+
+const tokenPayload = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+  await tokenResponse.json(),
+);
+
+assert.ok(Predicate.isString(tokenPayload.access_token));
+
+const bearer = tokenPayload.access_token;
+
+const credentialAuthority = await authRuntime.runPromise(OAuthCredentialAuthority);
+
 const resolved = await credentialAuthority.resolve(
   new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
     headers: { authorization: `Bearer ${bearer}` },
   }),
   "OAuthServiceBearer",
 );
+
 assert.equal(resolved._tag, "Accepted");
-assert.equal(resolved._tag === "Accepted" && resolved.mechanism._tag, "OAuthServiceBearer");
-assert.equal(resolved._tag === "Accepted" && resolved.principal._tag, "ServicePrincipal");
+
+assert.equal(
+  Predicate.isTagged(resolved, "Accepted") && resolved.mechanism._tag,
+  "OAuthServiceBearer",
+);
+
+assert.equal(
+  Predicate.isTagged(resolved, "Accepted") && resolved.principal._tag,
+  "ServicePrincipal",
+);
+
 if (
-  resolved._tag !== "Accepted" ||
-  resolved.mechanism._tag !== "OAuthServiceBearer" ||
-  resolved.principal._tag !== "ServicePrincipal"
+  !Predicate.isTagged(resolved, "Accepted") ||
+  !Predicate.isTagged(resolved.mechanism, "OAuthServiceBearer") ||
+  !Predicate.isTagged(resolved.principal, "ServicePrincipal")
 ) {
   throw new TypeError("service credential proof did not resolve the exact principal");
 }
-const credential: AcceptedOAuthServiceCredential = {
-  _tag: "Accepted",
-  mechanism: { _tag: "OAuthServiceBearer" },
-  principal: {
-    _tag: "ServicePrincipal",
+
+const credential: AcceptedOAuthServiceCredential = AcceptedOAuthServiceCredential.make({
+  mechanism: CredentialMechanismSchema.cases.OAuthServiceBearer.make({}),
+  principal: PrincipalSchema.cases.ServicePrincipal.make({
     servicePrincipalId: ServicePrincipalId.make(resolved.principal.servicePrincipalId),
-  },
+  }),
   evidenceRef: CredentialEvidenceRef.make(resolved.evidenceRef),
-};
+});
+
 const authorizationInstant = AuthorizationInstant.make(new Date().toISOString());
-const grantAuthority = makeServicePrincipalGrantAuthorityService(pool);
+
+const grantAuthority = await authRuntime.runPromise(ServicePrincipalGrantAuthority);
 
 const ruleFixtureClient = await pool.connect();
+
 try {
   await ruleFixtureClient.query("BEGIN");
   await ruleFixtureClient.query(
@@ -229,9 +273,13 @@ try {
 } finally {
   ruleFixtureClient.release();
 }
+
 const blocker = await pool.connect();
+
 let authorizationReadBlockedByExclusiveLock = false;
+
 let before: ServicePrincipalReceiptGrantAuthority;
+
 try {
   await blocker.query("BEGIN");
   await blocker.query(
@@ -241,9 +289,11 @@ try {
     [AUTHZ_LOCK_PROTOCOL.advisoryKey],
   );
   let settled = false;
+
   const blockedRead = Effect.runPromise(
     grantAuthority.readReceiptApprovalCandidates(credential, authorizationInstant),
   );
+
   void blockedRead.then(
     () => {
       settled = true;
@@ -265,25 +315,30 @@ try {
 } finally {
   blocker.release();
 }
+
 assert.deepEqual(before.candidates, []);
+
 assert.deepEqual(before.rules, []);
-assert.deepEqual(evaluateServicePrincipalReceiptApprovalAccess(credential, before, authorizationInstant), {
-  _tag: "Deny",
-  stage: "Capability",
-  reason: "CapabilityMissing",
-});
+
+assert.deepEqual(
+  evaluateServicePrincipalReceiptApprovalAccess(credential, before, authorizationInstant),
+  AccessEvaluation.Deny({
+    stage: "Capability",
+    reason: "CapabilityMissing",
+  }),
+);
 
 const created = await Effect.runPromise(
   grantAuthority.createGrant({
     grant: {
-      grantId: "service-receipt-approval-grant" as never,
+      grantId: GrantId.make("service-receipt-approval-grant"),
       servicePrincipalId: credential.principal.servicePrincipalId,
-      clientId: provisionedService.clientId as never,
+      clientId: OAuthClientId.make(provisionedService.clientId),
       protectedResource: NATIVE_API_PROTECTED_RESOURCE,
       operationId: RECEIPT_APPROVAL_QUEUE_OPERATION,
       capabilityId: "approveReceipt",
       resourceKind: "receipt",
-      receiptId: "service-receipt-approval-pending" as never,
+      receiptId: ReceiptId.make("service-receipt-approval-pending"),
       startAt: authorizationInstant,
       endAt: null,
       revokedAt: null,
@@ -297,35 +352,44 @@ const created = await Effect.runPromise(
     },
   }),
 );
+
 assert.equal(created.grantId, "service-receipt-approval-grant");
+
 const active = await Effect.runPromise(
   grantAuthority.readReceiptApprovalCandidates(credential, authorizationInstant),
 );
+
 assert.deepEqual(
   active.candidates.map((candidate) => candidate.receipt.receiptId),
   ["service-receipt-approval-pending"],
 );
+
 const allowed = evaluateServicePrincipalReceiptApprovalAccess(
   credential,
   active,
   authorizationInstant,
 );
+
 assert.equal(allowed._tag, "Allow");
-if (allowed._tag !== "Allow") {
+
+if (!Predicate.isTagged(allowed, "Allow")) {
   throw new TypeError("active service grant did not produce an allowed context");
 }
+
 const allowedContext = allowed.resolution.contexts[0];
+
 assert.ok(allowedContext);
+
 const ruleComposition = composeServicePrincipalReceiptRuleRequirements(
   active,
   allowedContext,
   authorizationInstant,
 );
-assert.deepEqual(ruleComposition.contributingRuleIds, [
-  "service-receipt-pending-requirement",
-]);
+
+assert.deepEqual(ruleComposition.contributingRuleIds, ["service-receipt-pending-requirement"]);
 
 const revokedAt = AuthorizationInstant.make(new Date(Date.now() + 1_000).toISOString());
+
 await Effect.runPromise(
   grantAuthority.revokeGrant({
     grantId: created.grantId,
@@ -339,26 +403,32 @@ await Effect.runPromise(
     },
   }),
 );
+
 const afterRevocation = await Effect.runPromise(
   grantAuthority.readReceiptApprovalCandidates(credential, revokedAt),
 );
+
 assert.deepEqual(afterRevocation.candidates, []);
+
 const stillAccepted = await credentialAuthority.resolve(
   new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
     headers: { authorization: `Bearer ${bearer}` },
   }),
   "OAuthServiceBearer",
 );
+
 assert.equal(stillAccepted._tag, "Accepted");
 
 await operator.disableServicePrincipal("service-receipt-approval", execution);
+
 const disabled = await credentialAuthority.resolve(
   new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
     headers: { authorization: `Bearer ${bearer}` },
   }),
   "OAuthServiceBearer",
 );
-assert.deepEqual(disabled, { _tag: "Rejected", reason: "Revoked" });
+
+assert.deepEqual(disabled, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
 
 const auditRows = await pool.query<{
   readonly event_kind: string;
@@ -368,6 +438,7 @@ const auditRows = await pool.query<{
      FROM public.service_principal_grant_audit
     ORDER BY occurred_at ASC, event_id ASC`,
 );
+
 assert.deepEqual(auditRows.rows, [
   {
     event_kind: "service-principal-grant-created",
@@ -385,9 +456,9 @@ const evidence = {
     credentialAcceptedBeforeGrant: 1,
     authorizationReadBlockedByExclusiveLock: authorizationReadBlockedByExclusiveLock ? 1 : 0,
     capabilityDeniedBeforeGrant: before.candidates.length === 0 ? 1 : 0,
-    activeGrantAllowed: allowed._tag === "Allow" ? 1 : 0,
-    credentialAcceptedAfterRevocation: stillAccepted._tag === "Accepted" ? 1 : 0,
-    credentialRejectedAfterDisable: disabled._tag === "Rejected" ? 1 : 0,
+    activeGrantAllowed: Predicate.isTagged(allowed, "Allow") ? 1 : 0,
+    credentialAcceptedAfterRevocation: Predicate.isTagged(stillAccepted, "Accepted") ? 1 : 0,
+    credentialRejectedAfterDisable: Predicate.isTagged(disabled, "Rejected") ? 1 : 0,
   },
   candidateCounts: {
     beforeGrant: before.candidates.length,
@@ -396,20 +467,21 @@ const evidence = {
     afterRevocation: afterRevocation.candidates.length,
   },
   auditCounts: {
-    created: auditRows.rows.filter(
-      (row) => row.event_kind === "service-principal-grant-created",
-    ).length,
-    ended: auditRows.rows.filter(
-      (row) => row.event_kind === "service-principal-grant-ended",
-    ).length,
-    revoked: auditRows.rows.filter(
-      (row) => row.event_kind === "service-principal-grant-revoked",
-    ).length,
+    created: auditRows.rows.filter((row) => row.event_kind === "service-principal-grant-created")
+      .length,
+    ended: auditRows.rows.filter((row) => row.event_kind === "service-principal-grant-ended")
+      .length,
+    revoked: auditRows.rows.filter((row) => row.event_kind === "service-principal-grant-revoked")
+      .length,
   },
 };
+
 const boundedEvidence = JSON.stringify(evidence);
+
 assert.equal(boundedEvidence.includes(bearer), false);
+
 assert.equal(boundedEvidence.includes(provisionedService.clientSecret!), false);
+
 process.stdout.write(`${boundedEvidence}\n`);
 
-await pool.end();
+await authRuntime.dispose();

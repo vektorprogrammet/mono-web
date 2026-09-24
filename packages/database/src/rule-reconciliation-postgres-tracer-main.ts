@@ -1,26 +1,32 @@
 import assert from "node:assert/strict";
-import { composeCapabilityEvidence } from "@vektorprogrammet/domain/authz";
+import { PrincipalSchema, composeCapabilityEvidence } from "@vektorprogrammet/domain/authz";
 import { readApplicableAuthorizationRules } from "./authz/postgres.js";
-import { Database, type DatabaseShape } from "./service.js";
+import { Database, type DatabaseOperations } from "./service.js";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
+  ReceiptCommandRequestSchema,
   makeReceiptApprovalContext,
   ReceiptId,
   type ReceiptApprovalCandidate,
 } from "@vektorprogrammet/domain/receipt";
 import { resolveReceiptAuthorityForRead } from "./receipt/authority-postgres.js";
-import { Effect, Redacted } from "effect";
+import { Predicate, Effect, Redacted } from "effect";
 import { resolveOrganizationPersonAuthorityForRead } from "./organization/authority-postgres.js";
 import { executeReceiptCommand } from "./receipt/postgres.js";
 import { DatabaseLive } from "./layers.js";
 import { proveRuleReconciliationMigration } from "./rule-reconciliation-migration-postgres-proof.js";
 
 const authorizationInstant = "2037-06-15T12:00:00.000Z";
+
 const activeStart = "2037-01-01T00:00:00.000Z";
+
 const principalId = PersonId.make("rule-reconciliation-principal");
+
 const ownerId = PersonId.make("rule-reconciliation-owner");
+
 const relatedDepartmentId = DepartmentId.make("rule-reconciliation-related");
+
 const foreignDepartmentId = DepartmentId.make("rule-reconciliation-foreign");
 
 const assertDisposablePostgres = (url: Redacted.Redacted<string>): void => {
@@ -29,12 +35,12 @@ const assertDisposablePostgres = (url: Redacted.Redacted<string>): void => {
   assert.match(decodeURIComponent(parsed.pathname.slice(1)), /proof|test/u);
 };
 
-const resetDatabase = (sql: DatabaseShape) =>
+const resetDatabase = (sql: DatabaseOperations) =>
   sql
     .unsafe("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;")
     .pipe(Effect.asVoid, Effect.orDie);
 
-const seed = (sql: DatabaseShape) =>
+const seed = (sql: DatabaseOperations) =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
@@ -130,7 +136,7 @@ type ReceiptTraceRow = ReceiptApprovalCandidate & {
   readonly outboxCount: number;
 };
 
-const readTraceRow = (sql: DatabaseShape, receiptId: string) =>
+const readTraceRow = (sql: DatabaseOperations, receiptId: string) =>
   sql<ReceiptTraceRow>`
     SELECT
       receipt.receipt_id AS "receiptId",
@@ -152,64 +158,73 @@ const readTraceRow = (sql: DatabaseShape, receiptId: string) =>
     WHERE receipt.receipt_id = ${receiptId}
   `.pipe(Effect.map((rows) => rows[0]!));
 
-const traceReceipt = (sql: DatabaseShape, receiptId: string) =>
+const traceReceipt = (sql: DatabaseOperations, receiptId: string) =>
   Effect.gen(function* () {
     const before = yield* readTraceRow(sql, receiptId);
+
     const organization = yield* resolveOrganizationPersonAuthorityForRead(
       principalId,
       authorizationInstant,
     );
+
     const direct = yield* resolveReceiptAuthorityForRead(
       principalId,
       authorizationInstant,
       organization,
     );
+
     const unresolvedContext = makeReceiptApprovalContext(before, organization, direct, []);
+
     const applicable = yield* readApplicableAuthorizationRules(
       sql,
-      { _tag: "Person", personId: principalId },
+      PrincipalSchema.cases.Person.make({ personId: principalId }),
       "approveReceipt",
       authorizationInstant,
       unresolvedContext,
       "None",
     );
+
     const context = makeReceiptApprovalContext(before, organization, direct, applicable.rules);
+
     const composition = composeCapabilityEvidence(
       "approveReceipt",
       { approvalGrants: direct.approvalGrants },
       applicable.rules,
       {
-        principal: { _tag: "Person", personId: principalId },
+        principal: PrincipalSchema.cases.Person.make({ personId: principalId }),
         authorizationInstant,
         context,
         tagAssignments: applicable.tagAssignments,
       },
     );
+
     const command = yield* Effect.result(
       executeReceiptCommand(
-        {
-          _tag: "RejectReceipt",
+        ReceiptCommandRequestSchema.cases.RejectReceipt.make({
           commandId: `rule-reconciliation-command-${receiptId}`,
           receiptId: ReceiptId.make(receiptId),
           expectedRevision: before.revision,
-        },
+        }),
         { personId: principalId, authorizationInstant },
       ),
     );
+
     const after = yield* readTraceRow(sql, receiptId);
+
     return {
       receiptId,
-      decision: composition.decision._tag === "Allow" ? "Allow" : composition.decision.reason,
-      command: command._tag === "Success" ? "Accepted" : command.failure._tag,
+      decision: Predicate.isTagged(composition.decision, "Allow")
+        ? "Allow"
+        : composition.decision.reason,
+      command: Predicate.isTagged(command, "Success") ? "Accepted" : command.failure._tag,
       contributingRuleIds: composition.contributingRuleIds,
-      requirementSources:
-        composition.requirements._tag === "Ambiguous"
-          ? composition.requirements.sourceRuleIds
-          : composition.requirements.requirements.map((requirement) => ({
-              requirementId: requirement.requirement.id,
-              sourceRuleIds: requirement.sourceRuleIds,
-              result: requirement.result._tag,
-            })),
+      requirementSources: Predicate.isTagged(composition.requirements, "Ambiguous")
+        ? composition.requirements.sourceRuleIds
+        : composition.requirements.requirements.map((requirement) => ({
+            requirementId: requirement.requirement.id,
+            sourceRuleIds: requirement.sourceRuleIds,
+            result: requirement.result._tag,
+          })),
       auditDelta: after.auditCount - before.auditCount,
       transitionDelta: after.revision - before.revision,
       outboxDelta: after.outboxCount - before.outboxCount,
@@ -238,47 +253,56 @@ const trace = Effect.gen(function* () {
   assert.equal(foreign.transitionDelta, 0);
   assert.equal(foreign.auditDelta, 0);
   assert.equal(foreign.outboxDelta, 0);
+
   const allRuleIds = [
     "rule-reconciliation-approver",
     "rule-reconciliation-delegate",
     "rule-reconciliation-pending-a",
     "rule-reconciliation-pending-b",
   ];
+
   assert.deepEqual(pending.contributingRuleIds, allRuleIds);
   assert.deepEqual(nonpending.contributingRuleIds, allRuleIds);
   assert.deepEqual(foreign.contributingRuleIds, allRuleIds);
+
   const pendingRequirement = {
     requirementId: "receipts.pending",
     sourceRuleIds: ["rule-reconciliation-pending-a", "rule-reconciliation-pending-b"],
     result: "Satisfied",
   };
+
   const approverRequirement = {
     requirementId: "receipts.approver-relationship",
     sourceRuleIds: ["rule-reconciliation-approver"],
     result: "Satisfied",
   };
+
   assert.deepEqual(pending.requirementSources, [pendingRequirement, approverRequirement]);
   assert.deepEqual(nonpending.requirementSources, [{ ...pendingRequirement, result: "Failed" }]);
   assert.deepEqual(foreign.requirementSources, [
     pendingRequirement,
     { ...approverRequirement, result: "Failed" },
   ]);
+
   return { pending, nonpending, foreign };
 });
 
-export const makeRuleReconciliationTracerProgram = (databaseUrl: Redacted.Redacted<string>) =>
+export const ruleReconciliationTracerProgram = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     assertDisposablePostgres(databaseUrl);
     const migrationPreflight = yield* proveRuleReconciliationMigration(databaseUrl);
+
     const layer = DatabaseLive({
       url: Redacted.make(Redacted.value(databaseUrl)),
       applicationName: "rule-reconciliation-tracer-0056-2",
       maxConnections: 1,
     });
+
     const receipts = yield* trace.pipe(
       Effect.ensuring(Database.use(resetDatabase)),
       Effect.provide(layer),
     );
+
     const evidence = {
       migrationPreflight: {
         invalidRowCount: migrationPreflight.invalidRows.length,
@@ -289,5 +313,6 @@ export const makeRuleReconciliationTracerProgram = (databaseUrl: Redacted.Redact
       },
       receipts,
     };
+
     yield* Effect.sync(() => process.stdout.write(`${canonicalJson(evidence)}\n`));
   });

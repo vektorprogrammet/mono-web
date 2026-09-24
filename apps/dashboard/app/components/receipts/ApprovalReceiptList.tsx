@@ -1,3 +1,4 @@
+import { Match } from "effect";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Table,
@@ -7,13 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type {
-  ApprovalReceiptView,
-  ReceiptApprovalFailure,
-  ReceiptApprovalNotice,
-  ReceiptStatus,
-  ReceiptUiError,
-} from "@/lib/receipt-view";
+import { type ApprovalReceiptView, type ReceiptApprovalFailure, type ReceiptApprovalNotice, type ReceiptStatus, ReceiptUiError } from "@/lib/receipt-view";
 import { ApprovalReceiptRow } from "./ApprovalReceiptRow";
 
 type ApprovalReceiptListProps = {
@@ -109,11 +104,11 @@ export function ApprovalReceiptList({
                 data-etag={actionNotice.etag}
               >
                 Utlegget er{" "}
-                {actionNotice.intent === "approve"
-                  ? "godkjent"
-                  : actionNotice.intent === "reopen"
-                    ? "åpnet for korrigering (Venter)"
-                    : "avvist"}{" "}
+                {Match.value(actionNotice).pipe(
+Match.when({ intent: "approve" }, () => ("godkjent")),
+Match.when({ intent: "reopen" }, () => ("åpnet for korrigering (Venter)")),
+Match.orElse(() => ("avvist"))
+)}{" "}
                 som versjon {actionNotice.revision}. Godkjenning registrerer ikke oppgjør.
               </p>
             )}

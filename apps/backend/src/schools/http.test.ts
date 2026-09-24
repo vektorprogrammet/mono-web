@@ -1,12 +1,14 @@
-import { Database, OAuthCredentialAuthority, type DatabaseShape } from "@vektorprogrammet/database";
+import { backendDatabase } from "../../test/database.js";
+import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
   IdentityActor,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import {
+  Department,
   DepartmentId,
   DepartmentNotFound,
   MembershipId,
@@ -17,6 +19,7 @@ import {
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import {
+  SchoolDirectoryScopeSchema,
   SchoolId,
   Schools,
   SchoolsDecodeError,
@@ -24,18 +27,23 @@ import {
   type SchoolDirectory,
   type SchoolDirectoryListInput,
 } from "@vektorprogrammet/domain/schools";
-import { DateTime, Effect, Layer } from "effect";
+import { Schema, DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeSchoolsTestHttp as makeSchoolsApiHttp } from "../test/native-http.js";
 
 const personId = PersonId.make("schools-http-person");
+
 const sessionRequest = (url: string): Request =>
   new Request(url, {
     headers: { cookie: "better-auth.session_token=schools-test-session" },
   });
+
 const departmentA = DepartmentId.make("schools-http-a");
+
 const departmentB = DepartmentId.make("schools-http-b");
+
 const instant = OrganizationAuthorityInstantSchema.make("2032-04-01T12:00:00.000Z");
+
 const emptyDirectory: SchoolDirectory = { activeSchools: [], inactiveSchools: [] };
 
 const projection = (
@@ -56,18 +64,13 @@ const projection = (
   ...overrides,
 });
 
-const makeDatabase = (): DatabaseShape => {
-  const sql = (() => Effect.succeed([])) as unknown as DatabaseShape;
-  Object.assign(sql, {
-    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
-  });
-  return sql;
-};
+const makeDatabase = () => backendDatabase();
 
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
-} as never);
+});
+
 const identity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
@@ -78,6 +81,7 @@ const identity = Identity.of({
         expiresAt: DateTime.makeUnsafe(new Date("2032-04-02T12:00:00.000Z")),
       });
     }
+
     throw new IdentitySessionNotFound();
   },
   readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
@@ -88,31 +92,52 @@ const identity = Identity.of({
   revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
   recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
   signOut: async () => ({ setCookies: [] }),
-} satisfies IdentityShape);
+} satisfies IdentityOperations);
+
 const makeServices = (
   authority: OrganizationPersonAuthority,
   listDirectory: (
     input: SchoolDirectoryListInput,
   ) => Effect.Effect<SchoolDirectory, SchoolsDecodeError | SchoolsPersistenceError>,
-  readDepartment: (departmentId: DepartmentId) => Effect.Effect<unknown, DepartmentNotFound> = (
+  readDepartment: (departmentId: DepartmentId) => Effect.Effect<Department, DepartmentNotFound> = (
     departmentId,
-  ) => Effect.succeed({ departmentId }),
+  ) =>
+    Effect.succeed(
+      new Department({
+        departmentId,
+        name: "Fixture department",
+        shortName: "Fixture",
+        email: "fixture@example.invalid",
+        address: null,
+        city: "Oslo",
+        latitude: null,
+        longitude: null,
+        slackChannel: null,
+        logoPath: null,
+        active: true,
+        revision: 0,
+      }),
+    ),
 ) => {
-  const organization = Organization.of({
+  const organization = {
     resolvePersonAuthorityForRead: () => Effect.succeed(authority),
     readDepartment,
-  } as never);
+  };
+
   const schools = Schools.of({ listDirectory });
+
   return Layer.mergeAll(
-    Layer.succeed(Database, makeDatabase()),
-    Layer.succeed(Organization, organization),
+    makeDatabase().layer,
+    Layer.mock(Organization, organization),
     Layer.succeed(Schools, schools),
     Layer.succeed(Identity, identity),
     Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
   );
 };
 
-const responseBody = (response: Response): Promise<unknown> => response.json();
+const responseBody = async (response: Response): Promise<Schema.Json> =>
+  Schema.decodeUnknownSync(Schema.Json)(await response.json());
+
 const expectedProblem = (code: string, title: string, status: number, detail: string) => ({
   type: `urn:vektorprogrammet:problem:v0.2:${code}`,
   title,
@@ -120,6 +145,7 @@ const expectedProblem = (code: string, title: string, status: number, detail: st
   detail,
   code,
 });
+
 const expectedProblemForTag = (tag: string, status: number) => {
   if (tag === "UnauthenticatedActor") {
     return expectedProblem(
@@ -129,6 +155,7 @@ const expectedProblemForTag = (tag: string, status: number) => {
       "The supplied credential is invalid.",
     );
   }
+
   if (tag === "SchoolsDepartmentNotFound" && status === 422) {
     return expectedProblem(
       "schools.invalid-department",
@@ -137,6 +164,7 @@ const expectedProblemForTag = (tag: string, status: number) => {
       "The requested department is not valid for the school directory.",
     );
   }
+
   if (status === 403) {
     return expectedProblem(
       "authority.denied",
@@ -145,6 +173,7 @@ const expectedProblemForTag = (tag: string, status: number) => {
       "The authenticated principal is not permitted to perform this operation.",
     );
   }
+
   return expectedProblem(
     "schools.unavailable",
     "Schools unavailable",
@@ -156,6 +185,7 @@ const expectedProblemForTag = (tag: string, status: number) => {
 describe("Schools native HTTP adapter", () => {
   it("runs the named journey once and narrows the visible union by department", async () => {
     const listInputs: Array<SchoolDirectoryListInput> = [];
+
     const school: SchoolDirectory = {
       activeSchools: [
         {
@@ -171,10 +201,13 @@ describe("Schools native HTTP adapter", () => {
       ],
       inactiveSchools: [],
     };
+
     const services = makeServices(projection(), (input) => {
       listInputs.push(input);
+
       return Effect.succeed(school);
     });
+
     const api = makeSchoolsApiHttp(
       { resolveActor: () => Effect.succeed({ personId, authorizationInstant: instant }) },
       services,
@@ -189,22 +222,31 @@ describe("Schools native HTTP adapter", () => {
       body: school,
     });
     expect(listInputs).toEqual([
-      { scope: { _tag: "DepartmentIds", departmentIds: [departmentA] }, departmentId: departmentA },
+      {
+        scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+          departmentIds: [departmentA],
+        }),
+        departmentId: departmentA,
+      },
     ]);
   });
 
   it("rejects unknown, duplicate, and malformed query input before authentication", async () => {
     let actorCalls = 0;
     let listCalls = 0;
+
     const services = makeServices(projection(), () => {
       listCalls += 1;
+
       return Effect.succeed(emptyDirectory);
     });
+
     const api = makeSchoolsApiHttp(
       {
         resolveActor: () =>
           Effect.sync(() => {
             actorCalls += 1;
+
             return { personId, authorizationInstant: instant };
           }),
       },
@@ -236,6 +278,7 @@ describe("Schools native HTTP adapter", () => {
         body: expected,
       });
     }
+
     expect(actorCalls).toBe(0);
     expect(listCalls).toBe(0);
   });
@@ -253,7 +296,7 @@ describe("Schools native HTTP adapter", () => {
       >;
       readonly readDepartment?: (
         departmentId: DepartmentId,
-      ) => Effect.Effect<unknown, DepartmentNotFound>;
+      ) => Effect.Effect<Department, DepartmentNotFound>;
       readonly listDirectory?: (
         input: SchoolDirectoryListInput,
       ) => Effect.Effect<SchoolDirectory, SchoolsDecodeError | SchoolsPersistenceError>;
@@ -329,6 +372,7 @@ describe("Schools native HTTP adapter", () => {
           testCase.readDepartment,
         ),
       );
+
       const query = testCase.query === undefined ? "" : `?${testCase.query}`;
       const response = await api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`));
       expect(

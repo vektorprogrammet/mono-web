@@ -1,7 +1,8 @@
-import type { DepartmentId } from "../organization/schema.js";
+import { type DepartmentId, PersonId } from "../organization/schema.js";
 import type { ContentActor } from "./actor.js";
 import { canPublishContent, canReviseDraft } from "./actor.js";
 import {
+  ArticleVersionNumber,
   ArticleId,
   ArticleSlug,
   PublishedNewsListingSchema,
@@ -18,6 +19,7 @@ export const NEWS_PAGE_SIZE = 10;
 
 const compareWorkspaceEntries = (left: ContentWorkspaceEntry, right: ContentWorkspaceEntry) => {
   if (left.updatedAt !== right.updatedAt) return left.updatedAt < right.updatedAt ? 1 : -1;
+
   return right.articleId - left.articleId;
 };
 
@@ -44,13 +46,13 @@ export const projectContentWorkspace = (input: {
     (draft): ContentWorkspaceEntry => ({
       articleId: draft.articleId,
       title: draft.title,
-      slug: ArticleSlug.make(draft.slug) as never,
+      slug: ArticleSlug.make(draft.slug),
       status: draft.currentVersionNumber === null ? "Draft" : "Published",
       sticky: draft.sticky,
       updatedAt: draft.updatedAt,
       departmentIds: [...draft.departmentIds],
       canRevise: canReviseDraft(input.actor, {
-        createdByPersonId: draft.createdByPersonId as never,
+        createdByPersonId: PersonId.make(draft.createdByPersonId),
         currentVersionNumber: draft.currentVersionNumber,
         departmentIds: draft.departmentIds,
       }),
@@ -59,7 +61,9 @@ export const projectContentWorkspace = (input: {
         input.authorDisplayNames.get(draft.createdByPersonId) ?? draft.createdByPersonId,
     }),
   );
+
   entries.sort(compareWorkspaceEntries);
+
   return { entries };
 };
 
@@ -88,17 +92,17 @@ export const projectNewsSummaries = (input: {
 }): ReadonlyArray<PublishedNewsSummary> =>
   input.versions.map((version) => {
     const key = `${version.articleId}:${version.publishedAt}`;
+
     const summary: PublishedNewsSummary = {
-      slug: version.slug as never,
+      slug: ArticleSlug.make(version.slug),
       title: version.title,
       sticky: version.sticky,
       publishedAt: version.publishedAt,
       authorDisplayName: input.authorDisplayNames.get(version.authorPersonId) ?? "",
-      departmentIds: [
-        ...(input.departmentsByVersionKey.get(key) ?? []),
-      ] as PublishedNewsSummary["departmentIds"],
+      departmentIds: [...(input.departmentsByVersionKey.get(key) ?? [])],
       hasImage: false,
     };
+
     return summary satisfies typeof PublishedNewsSummarySchema.Type;
   });
 
@@ -108,11 +112,14 @@ export const orderNewsSummaries = (
 ): PublishedNewsListing => {
   const ordered = [...summaries].sort((left, right) => {
     if (left.sticky !== right.sticky) return left.sticky ? -1 : 1;
+
     if (left.publishedAt !== right.publishedAt) {
       return left.publishedAt < right.publishedAt ? 1 : -1;
     }
+
     return 0;
   });
+
   return { articles: ordered } satisfies typeof PublishedNewsListingSchema.Type;
 };
 
@@ -152,7 +159,7 @@ export const projectPublishedNewsArticle = (
   previousVersions: [...previousVersions]
     .sort((left, right) => right.versionNumber - left.versionNumber)
     .map((version): PublishedNewsArticle["previousVersions"][number] => ({
-      versionNumber: version.versionNumber as never,
+      versionNumber: ArticleVersionNumber.make(version.versionNumber),
       publishedAt: version.publishedAt,
       urlPath: `/nyhet/${version.slug}?versjon=${version.versionNumber}`,
     })),
@@ -181,6 +188,8 @@ export const slugifyTitle = (title: string): string =>
 export const dedupeSlug = (base: string, takenSlugs: ReadonlySet<string>): string => {
   if (!takenSlugs.has(base)) return base;
   let counter = 2;
+
   while (takenSlugs.has(`${base}-${counter}`)) counter += 1;
+
   return `${base}-${counter}`;
 };

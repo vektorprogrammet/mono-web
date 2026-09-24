@@ -11,7 +11,7 @@ import { PersonId } from "./organization/schema.js";
 it("decodes session actors to the canonical Organization PersonId", async () => {
   const actor = await Effect.runPromise(
     decodeIdentityActor({
-      personId: "person-identity-test",
+      personId: PersonId.make("person-identity-test"),
       sessionId: "session-identity-test",
       expiresAt: new Date("2032-05-01T12:00:00.000Z"),
     }),
@@ -43,6 +43,7 @@ it("accepts only credential-free native session metadata", () => {
     userAgent: "identity-test",
     current: true,
   };
+
   expect(
     Schema.decodeUnknownSync(IdentitySession)(session, { onExcessProperty: "error" }),
   ).toBeInstanceOf(IdentitySession);
@@ -54,7 +55,7 @@ it("accepts only credential-free native session metadata", () => {
   ).toThrow();
   expect(() =>
     Schema.decodeUnknownSync(IdentitySession)(
-      { ...session, personId: "person-identity-test" },
+      { ...session, personId: PersonId.make("person-identity-test") },
       { onExcessProperty: "error" },
     ),
   ).toThrow();
@@ -74,6 +75,7 @@ it("keeps identity security events closed, bounded, and request-correlated", () 
       affectedSessionCount: 0,
     },
   };
+
   expect(
     Schema.decodeUnknownSync(IdentitySecurityEvent)(event, {
       onExcessProperty: "error",

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ActivatedNavigation,
@@ -5,7 +6,7 @@ import {
   OpenedMobileNavigation,
   ToggledProfileMenu,
 } from "./message";
-import { makeInitialModel } from "./model";
+import { init } from "./model";
 import { canViewLink, navigationSections } from "./navigation";
 import { update } from "./update";
 
@@ -19,9 +20,9 @@ const input = {
 
 describe("Foldkit dashboard state", () => {
   it("opens the legacy Opptak disclosure for an active child route", () => {
-    const model = makeInitialModel(input);
+    const model = init(input);
+    expect(model).toHaveProperty("_tag", "Ready");
     expect(model).toMatchObject({
-      _tag: "Ready",
       isAdmissionMenuOpen: true,
       isMobileNavigationOpen: false,
       isProfileMenuOpen: false,
@@ -29,18 +30,19 @@ describe("Foldkit dashboard state", () => {
   });
 
   it("closes transient navigation state after route activation and Escape", () => {
-    const initial = makeInitialModel(input);
-    const [mobile] = update(initial, OpenedMobileNavigation());
-    const [profile] = update(mobile, ToggledProfileMenu({ isOpen: true }));
-    const [activated] = update(profile, ActivatedNavigation({ path: "/dashboard/team" }));
+    const initial = init(input);
+    const { model: mobile } = update(initial, OpenedMobileNavigation());
+    const { model: profile } = update(mobile, ToggledProfileMenu({ isOpen: true }));
+    const { model: activated } = update(profile, ActivatedNavigation({ path: "/dashboard/team" }));
     expect(activated).toMatchObject({
       activePath: "/dashboard/team",
       isMobileNavigationOpen: false,
       isProfileMenuOpen: false,
     });
-    if (activated._tag !== "Ready") throw new Error("ready model became invalid");
 
-    const [dismissed] = update({ ...activated, isAdmissionMenuOpen: true }, DismissedNavigation());
+    if (!Predicate.isTagged(activated, "Ready")) throw new Error("ready model became invalid");
+
+    const { model: dismissed } = update({ ...activated, isAdmissionMenuOpen: true }, DismissedNavigation());
     expect(dismissed).toMatchObject({
       isAdmissionMenuOpen: false,
       isMobileNavigationOpen: false,

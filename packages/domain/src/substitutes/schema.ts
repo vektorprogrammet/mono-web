@@ -17,12 +17,16 @@ export const SubstitutePreferences = Schema.Struct({
   friday: Schema.Boolean,
   language: Schema.Literals(["Norwegian", "English", "NorwegianAndEnglish"]),
 });
+
 export type SubstitutePreferences = typeof SubstitutePreferences.Type;
+
 export const SubstituteMutation = Schema.Struct({
   ...SubstitutePreferences.fields,
   yearOfStudy: PublicApplicationYearOfStudySchema,
 });
+
 export type SubstituteMutation = typeof SubstituteMutation.Type;
+
 export const SubstituteEntryFields = {
   applicationId: PublicApplicationIdSchema,
   admissionPeriodId: AdmissionPeriodId,
@@ -35,6 +39,7 @@ export const SubstituteEntryFields = {
   yearOfStudy: PublicApplicationYearOfStudySchema,
   revision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 };
+
 export const SubstituteEntry = Schema.Union([
   Schema.Struct({
     ...SubstituteEntryFields,
@@ -47,16 +52,21 @@ export const SubstituteEntry = Schema.Union([
     preferences: Schema.NullOr(SubstitutePreferences),
   }),
 ]);
+
 export type SubstituteEntry = typeof SubstituteEntry.Type;
+
 export const SubstituteScope = Schema.Struct({
   departmentId: DepartmentId,
   semesterId: SemesterId,
 });
+
 export type SubstituteScope = typeof SubstituteScope.Type;
+
 export const SubstituteScopes = Schema.Struct({
   departments: Schema.Array(Schema.Struct({ departmentId: DepartmentId, name: Schema.String })),
   semesters: Schema.Array(
     Schema.Struct({ semesterId: SemesterId, startAt: Schema.String, endAt: Schema.String }),
   ),
 });
+
 export type SubstituteScopes = typeof SubstituteScopes.Type;

@@ -7,9 +7,11 @@ class LocalNetworkGuard {
 
   addHttp(origin: string): void {
     const url = new URL(origin);
+
     if (url.protocol !== "http:" || normalizedLoopbackHost(url.hostname) !== "127.0.0.1") {
       throw new Error("network guard rejected a non-loopback origin");
     }
+
     this.#allowedOrigins.add(url.origin);
   }
 
@@ -19,9 +21,11 @@ class LocalNetworkGuard {
   ): Promise<Response> => {
     const request = new Request(input, init);
     const url = new URL(request.url);
+
     if (url.protocol !== "http:" || !this.#allowedOrigins.has(url.origin)) {
       throw new Error("network guard rejected a non-loopback destination");
     }
+
     return this.fetch(request);
   };
 }
@@ -29,5 +33,6 @@ class LocalNetworkGuard {
 export async function run(origin: string): Promise<Response> {
   const guard = new LocalNetworkGuard();
   guard.addHttp(origin);
+
   return guard.fetchLoopback(`${origin}/remote`);
 }

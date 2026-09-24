@@ -1,5 +1,13 @@
+import type { AuthEngine } from "./auth-engine.js";
+import { DatabasePgPool } from "./pg-pool.js";
+import { NativeAuthEngine } from "./auth-engine.js";
+import {
+  CredentialOutcomeSchema,
+  CredentialMechanismSchema,
+  PrincipalSchema,
+} from "@vektorprogrammet/domain/authz";
 import { createHash, randomBytes, randomUUID, timingSafeEqual, webcrypto } from "node:crypto";
-import { Context, Effect, Schema } from "effect";
+import { Types, flow, Layer, Cause, Predicate, Context, Effect, Schema } from "effect";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
   CredentialEvidenceRef,
@@ -26,10 +34,15 @@ import {
 } from "./oauth-config.js";
 
 const TOKEN_RESPONSE_LIMIT = 64 * 1024;
+
 const TOKEN_INPUT_LIMIT = 8 * 1024;
+
 const FORM_INPUT_LIMIT = 16 * 1024;
+
 const CLIENT_SECRET_LIFETIME_MS = 90 * 24 * 60 * 60 * 1_000;
+
 const REFRESH_INACTIVITY_MS = 7 * 24 * 60 * 60 * 1_000;
+
 const REFRESH_ABSOLUTE_MS = 30 * 24 * 60 * 60 * 1_000;
 
 export const DELEGATED_RECEIPT_APPROVAL_PUBLIC_CLIENT = {
@@ -80,7 +93,7 @@ export interface OAuthProvisionResult {
 
 export interface OAuthClientOperatorService {
   readonly provision: (
-    manifest: unknown,
+    manifest: OAuthClientManifest,
     execution: OAuthOperatorExecution,
   ) => Promise<OAuthProvisionResult>;
   readonly rotateSecret: (
@@ -103,23 +116,9 @@ export class OAuthClientOperator extends Context.Service<
   OAuthClientOperatorService
 >()("@vektorprogrammet/database/OAuthClientOperator") {}
 
-interface OAuthEngineBoundary {
-  readonly handler: (request: Request) => Promise<Response>;
-  readonly $context: Promise<{
-    readonly adapter: {
-      readonly create: (input: {
-        readonly model: string;
-        readonly data: Record<string, unknown>;
-        readonly forceAllowId?: boolean;
-      }) => Promise<Record<string, unknown>>;
-    };
-  }>;
-  readonly api: {
-    readonly signJWT: (input: {
-      readonly body: { readonly payload: Record<string, unknown> };
-    }) => Promise<{ readonly token: string }>;
-  };
-}
+type OAuthEngineBoundary = Pick<AuthEngine, "handler" | "$context"> & {
+  readonly api: Pick<AuthEngine["api"], "signJWT">;
+};
 
 interface TokenStateRow extends QueryResultRow {
   readonly jti: string;
@@ -180,15 +179,6 @@ interface RefreshLookupRow extends QueryResultRow {
   readonly family_id: string | null;
 }
 
-interface AccessTokenResponse {
-  readonly access_token: string;
-  readonly token_type: string;
-  readonly expires_in: number;
-  readonly expires_at?: number;
-  readonly refresh_token?: string;
-  readonly scope?: string;
-}
-
 const AccessTokenResponseSchema = Schema.Struct({
   access_token: Schema.String,
   token_type: Schema.String,
@@ -209,19 +199,20 @@ const decodeClaimsJson = (text: string) =>
   });
 
 const decodeUnknownRecordJson = (text: string) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))(
-    text,
-  );
+  Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)))(text);
 
 const decodeTokenResponseJson = (text: string) =>
   Schema.decodeUnknownSync(Schema.fromJsonString(AccessTokenResponseSchema))(text, {
     onExcessProperty: "error",
   });
+
 const base64UrlBytes = (value: string): Uint8Array => {
   if (!/^[A-Za-z0-9_-]+$/u.test(value)) throw new TypeError("invalid compact JWT segment");
   const bytes = Buffer.from(value, "base64url");
+
   if (bytes.toString("base64url") !== value)
     throw new TypeError("non-canonical compact JWT segment");
+
   return bytes;
 };
 
@@ -229,9 +220,12 @@ const decodeJwt = (token: string): DecodedNativeJwt => {
   if (token.length === 0 || token.length > TOKEN_INPUT_LIMIT) {
     throw new TypeError("bounded bearer required");
   }
+
   const parts = token.split(".");
+
   if (parts.length !== 3) throw new TypeError("compact JWT required");
   const [encodedHeader, encodedPayload, encodedSignature] = parts;
+
   if (
     encodedHeader === undefined ||
     encodedPayload === undefined ||
@@ -239,8 +233,10 @@ const decodeJwt = (token: string): DecodedNativeJwt => {
   ) {
     throw new TypeError("compact JWT required");
   }
+
   const header = decodeHeaderJson(new TextDecoder().decode(base64UrlBytes(encodedHeader)));
   const claims = decodeClaimsJson(new TextDecoder().decode(base64UrlBytes(encodedPayload)));
+
   return {
     header,
     claims,
@@ -254,6 +250,7 @@ const verifyJwtSignature = async (
   publicKey: string,
 ): Promise<boolean> => {
   const publicJwk = decodeUnknownRecordJson(publicKey);
+
   const verificationKey = await webcrypto.subtle.importKey(
     "jwk",
     publicJwk,
@@ -261,6 +258,7 @@ const verifyJwtSignature = async (
     false,
     ["verify"],
   );
+
   return webcrypto.subtle.verify(
     { name: "ECDSA", hash: "SHA-256" },
     verificationKey,
@@ -277,9 +275,12 @@ const verifyIssuedJwtSignature = async (
     `SELECT "publicKey" AS public_key, alg FROM auth.jwks WHERE id = $1`,
     [decoded.header.kid],
   );
+
   const key = selected.rows[0];
+
   return key !== undefined && key.alg === "ES256" && verifyJwtSignature(decoded, key.public_key);
 };
+
 const refreshTokenDigest = (token: string): Promise<string> | undefined => {
   if (
     !token.startsWith(OAUTH_REFRESH_TOKEN_PREFIX) ||
@@ -287,16 +288,18 @@ const refreshTokenDigest = (token: string): Promise<string> | undefined => {
   ) {
     return undefined;
   }
+
   return hashOAuthToken(token.slice(OAUTH_REFRESH_TOKEN_PREFIX.length), "refresh_token");
 };
 
-const bearerFromRequest = (
-  request: Request,
-): { readonly token?: string; readonly malformed: boolean } => {
+const bearerFromRequest = (request: Request) => {
   const value = request.headers.get("authorization");
+
   if (value === null) return { malformed: false };
+
   if (value.includes(",")) return { malformed: true };
   const match = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/u.exec(value);
+
   return match === null ? { malformed: true } : { token: match[1], malformed: false };
 };
 
@@ -306,6 +309,7 @@ const hasBetterAuthCookie = (request: Request): boolean =>
 const constantDigestEqual = (left: string, right: string): boolean => {
   const leftBytes = Buffer.from(left, "utf8");
   const rightBytes = Buffer.from(right, "utf8");
+
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 };
 
@@ -337,13 +341,15 @@ const selectTokenState = async (
        JOIN auth.jwks jwks ON jwks.id = $2
        LEFT JOIN public.service_principals principal
          ON principal.service_principal_id = state.service_principal_id
-       LEFT JOIN auth."session" session ON session.id = state.session_id
+       LEFT JOIN auth.usable_human_sessions session ON session.id = state.session_id
        LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
       WHERE state.jti = $1`,
     [claims.jti, kid, OAUTH_NATIVE_API_RESOURCE, claims.scope],
   );
+
   return result.rows[0];
 };
+
 const selectTokenStateInTransaction = (
   claims: NativeAccessTokenClaims,
   kid: string,
@@ -373,7 +379,7 @@ const selectTokenStateInTransaction = (
         JOIN auth.jwks jwks ON jwks.id = ${kid}
         LEFT JOIN public.service_principals principal
           ON principal.service_principal_id = state.service_principal_id
-        LEFT JOIN auth."session" session ON session.id = state.session_id
+        LEFT JOIN auth.usable_human_sessions session ON session.id = state.session_id
         LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
        WHERE state.jti = ${claims.jti}
     `.pipe(Effect.map((rows) => rows[0])),
@@ -392,7 +398,9 @@ const canonicalClientScopes = (
       clientCredentials[0] === "native-api"
     );
   }
+
   if (kind === "ResourceServer") return values?.length === 0 && clientCredentials?.length === 0;
+
   return (
     clientCredentials?.length === 0 &&
     ((values?.length === 1 && values[0] === "native-api") ||
@@ -414,45 +422,58 @@ const resolveOAuthCredential = <R>(
 ): Effect.Effect<CredentialOutcome, never, R> =>
   Effect.gen(function* () {
     const bearer = bearerFromRequest(request);
-    if (bearer.malformed) return { _tag: "Rejected", reason: "Malformed" } as const;
-    if (bearer.token === undefined) return { _tag: "Rejected", reason: "Missing" } as const;
+
+    if (bearer.malformed)
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Malformed" });
+
+    if (bearer.token === undefined)
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Missing" });
+
     if (hasBetterAuthCookie(request)) {
-      return { _tag: "Rejected", reason: "AmbiguousMechanism" } as const;
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "AmbiguousMechanism" });
     }
 
     let decoded: DecodedNativeJwt;
+
     try {
       decoded = decodeJwt(bearer.token);
     } catch {
-      return { _tag: "Rejected", reason: "Malformed" } as const;
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Malformed" });
     }
+
     if (
       decoded.claims.iss !== oauthIssuer(config) ||
       decoded.claims.client_id !== decoded.claims.azp
     ) {
-      return { _tag: "Rejected", reason: "Invalid" } as const;
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
     }
+
     const nowSeconds = Math.floor(now.getTime() / 1_000);
+
     if (decoded.claims.iat > nowSeconds || decoded.claims.exp <= decoded.claims.iat) {
-      return { _tag: "Rejected", reason: "Invalid" } as const;
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
     }
 
     const state = yield* lookup(decoded.claims, decoded.header.kid).pipe(
       Effect.catch(() => Effect.succeed(undefined)),
     );
+
     if (state === undefined || state.key_alg !== "ES256") {
-      return { _tag: "Rejected", reason: "Invalid" } as const;
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
     }
+
     const signatureValid = yield* Effect.tryPromise({
       try: () => verifyJwtSignature(decoded, state.public_key),
-      catch: (cause) => cause,
+      catch: (cause) => new Cause.UnknownError(cause),
     }).pipe(Effect.catch(() => Effect.succeed(false)));
-    if (!signatureValid) return { _tag: "Rejected", reason: "Invalid" } as const;
+
+    if (!signatureValid) return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
 
     const immutableClaimsMatch =
       state.client_id === decoded.claims.client_id &&
       Math.floor(state.issued_at.getTime() / 1_000) === decoded.claims.iat &&
       Math.floor(state.expires_at.getTime() / 1_000) === decoded.claims.exp;
+
     if (
       !immutableClaimsMatch ||
       !canonicalClientScopes(
@@ -461,11 +482,13 @@ const resolveOAuthCredential = <R>(
         state.client_credentials_scopes,
       )
     ) {
-      return { _tag: "Rejected", reason: "Invalid" } as const;
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" });
     }
+
     if (decoded.claims.exp <= nowSeconds || state.expires_at.getTime() <= now.getTime()) {
-      return { _tag: "Rejected", reason: "Expired" } as const;
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Expired" });
     }
+
     if (
       state.revoked_at !== null ||
       state.family_revoked_at !== null ||
@@ -476,12 +499,13 @@ const resolveOAuthCredential = <R>(
       (state.family_absolute_expires_at !== null &&
         state.family_absolute_expires_at.getTime() <= now.getTime())
     ) {
-      return { _tag: "Rejected", reason: "Revoked" } as const;
+      return CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" });
     }
 
     const evidenceRef = CredentialEvidenceRef.make(
       `oauth:${state.principal_kind}:${state.jti}:${state.client_id}:${decoded.claims.iat}`,
     );
+
     if (state.client_kind === "DelegatedPublic" || state.client_kind === "DelegatedConfidential") {
       if (
         expected === "OAuthServiceBearer" ||
@@ -495,17 +519,16 @@ const resolveOAuthCredential = <R>(
         (decoded.claims.scope !== "native-api" &&
           decoded.claims.scope !== "native-api offline_access")
       ) {
-        return {
-          _tag: "Rejected",
+        return CredentialOutcomeSchema.cases.Rejected.make({
           reason: expected === "OAuthServiceBearer" ? "WrongMechanism" : "Revoked",
-        } as const;
+        });
       }
-      return {
-        _tag: "Accepted",
-        mechanism: { _tag: "OAuthUserBearer" },
-        principal: { _tag: "Person", personId: PersonId.make(state.person_id) },
+
+      return CredentialOutcomeSchema.cases.Accepted.make({
+        mechanism: CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+        principal: PrincipalSchema.cases.Person.make({ personId: PersonId.make(state.person_id) }),
         evidenceRef,
-      } as const;
+      });
     }
 
     if (
@@ -518,20 +541,18 @@ const resolveOAuthCredential = <R>(
       decoded.claims.sid !== undefined ||
       decoded.claims.scope !== "native-api"
     ) {
-      return {
-        _tag: "Rejected",
+      return CredentialOutcomeSchema.cases.Rejected.make({
         reason: expected === "OAuthUserBearer" ? "WrongMechanism" : "Revoked",
-      } as const;
+      });
     }
-    return {
-      _tag: "Accepted",
-      mechanism: { _tag: "OAuthServiceBearer" },
-      principal: {
-        _tag: "ServicePrincipal",
+
+    return CredentialOutcomeSchema.cases.Accepted.make({
+      mechanism: CredentialMechanismSchema.cases.OAuthServiceBearer.make({}),
+      principal: PrincipalSchema.cases.ServicePrincipal.make({
         servicePrincipalId: ServicePrincipalId.make(state.service_principal_id),
-      },
+      }),
       evidenceRef,
-    } as const;
+    });
   });
 
 export const makeOAuthCredentialAuthorityService = (
@@ -547,7 +568,7 @@ export const makeOAuthCredentialAuthorityService = (
         (claims, kid) =>
           Effect.tryPromise({
             try: () => selectTokenState(pool, claims, kid),
-            catch: (cause) => cause,
+            catch: (cause) => new Cause.UnknownError(cause),
           }),
         config,
       ),
@@ -561,10 +582,12 @@ const inTransaction = async <A>(
   use: (client: PoolClient) => Promise<A>,
 ): Promise<A> => {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
     const result = await use(client);
     await client.query("COMMIT");
+
     return result;
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
@@ -574,13 +597,7 @@ const inTransaction = async <A>(
   }
 };
 
-const sanitizedRequestContext = (
-  context: IdentityRequestContext,
-): {
-  readonly correlation: string;
-  readonly sourceIp: string | null;
-  readonly userAgent: string | null;
-} => ({
+const sanitizedRequestContext = (context: IdentityRequestContext) => ({
   correlation: context.requestCorrelation.slice(0, 160),
   sourceIp:
     context.sourceIp !== null &&
@@ -609,7 +626,7 @@ const appendAudit = async (
     readonly requestCorrelation: string;
     readonly sourceIp?: string | null;
     readonly userAgent?: string | null;
-    readonly details?: Readonly<Record<string, unknown>>;
+    readonly details?: Readonly<Record<string, Schema.Json>>;
   },
 ): Promise<void> => {
   await client.query(
@@ -637,97 +654,113 @@ const appendAudit = async (
 
 const validateRedirect = (value: string): void => {
   let url: URL;
+
   try {
     url = new URL(value);
   } catch {
     throw new TypeError("redirect URI must be absolute");
   }
+
   if (url.toString() !== value || url.username !== "" || url.password !== "" || url.hash !== "") {
     throw new TypeError("redirect URI contains a forbidden or non-canonical component");
   }
+
   const fixedLoopback = url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port !== "";
+
   if (url.protocol !== "https:" && !fixedLoopback) {
     throw new TypeError("redirect URI must use https or fixed-port http://127.0.0.1");
   }
 };
 
-const validateManifest = (input: unknown): OAuthClientManifest => {
-  const manifest = Schema.decodeUnknownSync(OAuthClientManifestSchema)(input, {
-    onExcessProperty: "error",
-  });
-  if (
-    !/^[A-Za-z0-9._~-]{1,128}$/u.test(manifest.clientId) ||
-    manifest.name.trim() !== manifest.name ||
-    manifest.name.length === 0 ||
-    manifest.name.length > 160
-  ) {
-    throw new TypeError("client identifier or name is invalid");
-  }
-  if (new Set(manifest.redirectUris).size !== manifest.redirectUris.length) {
-    throw new TypeError("redirect URIs must be unique");
-  }
-  for (const redirect of manifest.redirectUris) validateRedirect(redirect);
-  const delegated =
-    manifest.clientKind === "DelegatedPublic" || manifest.clientKind === "DelegatedConfidential";
-  const scopesCanonical =
-    manifest.scopes.length === 1 && manifest.scopes[0] === "native-api"
-      ? true
-      : manifest.scopes.length === 2 &&
+const validateManifest = flow(
+  Schema.decodeUnknownSync(OAuthClientManifestSchema, { onExcessProperty: "error" }),
+  (manifest) => {
+    if (
+      !/^[A-Za-z0-9._~-]{1,128}$/u.test(manifest.clientId) ||
+      manifest.name.trim() !== manifest.name ||
+      manifest.name.length === 0 ||
+      manifest.name.length > 160
+    ) {
+      throw new TypeError("client identifier or name is invalid");
+    }
+
+    if (new Set(manifest.redirectUris).size !== manifest.redirectUris.length) {
+      throw new TypeError("redirect URIs must be unique");
+    }
+
+    for (const redirect of manifest.redirectUris) validateRedirect(redirect);
+
+    const delegated =
+      manifest.clientKind === "DelegatedPublic" || manifest.clientKind === "DelegatedConfidential";
+
+    const scopesCanonical =
+      manifest.scopes.length === 1 && manifest.scopes[0] === "native-api"
+        ? true
+        : manifest.scopes.length === 2 &&
+          manifest.scopes[0] === "native-api" &&
+          manifest.scopes[1] === "offline_access";
+
+    if (delegated !== manifest.redirectUris.length > 0 || (delegated && !scopesCanonical)) {
+      throw new TypeError("delegated client redirects or scopes are invalid");
+    }
+
+    if (
+      manifest.clientKind === "Service" &&
+      !(
+        manifest.redirectUris.length === 0 &&
+        manifest.scopes.length === 1 &&
         manifest.scopes[0] === "native-api" &&
-        manifest.scopes[1] === "offline_access";
-  if (delegated !== manifest.redirectUris.length > 0 || (delegated && !scopesCanonical)) {
-    throw new TypeError("delegated client redirects or scopes are invalid");
-  }
-  if (
-    manifest.clientKind === "Service" &&
-    !(
-      manifest.redirectUris.length === 0 &&
-      manifest.scopes.length === 1 &&
-      manifest.scopes[0] === "native-api" &&
+        manifest.servicePrincipalId !== undefined &&
+        manifest.servicePrincipalName !== undefined
+      )
+    ) {
+      throw new TypeError("service client manifest is invalid");
+    }
+
+    if (
+      manifest.clientKind === "ResourceServer" &&
+      !(
+        manifest.redirectUris.length === 0 &&
+        manifest.scopes.length === 0 &&
+        manifest.servicePrincipalId === undefined &&
+        manifest.servicePrincipalName === undefined
+      )
+    ) {
+      throw new TypeError("resource-server client manifest is invalid");
+    }
+
+    if (
+      manifest.clientKind !== "Service" &&
+      (manifest.servicePrincipalId !== undefined || manifest.servicePrincipalName !== undefined)
+    ) {
+      throw new TypeError("only a service client can bind a service principal");
+    }
+
+    if (
       manifest.servicePrincipalId !== undefined &&
-      manifest.servicePrincipalName !== undefined
-    )
-  ) {
-    throw new TypeError("service client manifest is invalid");
-  }
-  if (
-    manifest.clientKind === "ResourceServer" &&
-    !(
-      manifest.redirectUris.length === 0 &&
-      manifest.scopes.length === 0 &&
-      manifest.servicePrincipalId === undefined &&
-      manifest.servicePrincipalName === undefined
-    )
-  ) {
-    throw new TypeError("resource-server client manifest is invalid");
-  }
-  if (
-    manifest.clientKind !== "Service" &&
-    (manifest.servicePrincipalId !== undefined || manifest.servicePrincipalName !== undefined)
-  ) {
-    throw new TypeError("only a service client can bind a service principal");
-  }
-  if (
-    manifest.servicePrincipalId !== undefined &&
-    !/^[A-Za-z0-9._~-]{1,128}$/u.test(manifest.servicePrincipalId)
-  ) {
-    throw new TypeError("service-principal identifier is invalid");
-  }
-  if (
-    manifest.servicePrincipalName !== undefined &&
-    (manifest.servicePrincipalName.trim() !== manifest.servicePrincipalName ||
-      manifest.servicePrincipalName.length === 0 ||
-      manifest.servicePrincipalName.length > 160)
-  ) {
-    throw new TypeError("service-principal name is invalid");
-  }
-  return manifest;
-};
+      !/^[A-Za-z0-9._~-]{1,128}$/u.test(manifest.servicePrincipalId)
+    ) {
+      throw new TypeError("service-principal identifier is invalid");
+    }
+
+    if (
+      manifest.servicePrincipalName !== undefined &&
+      (manifest.servicePrincipalName.trim() !== manifest.servicePrincipalName ||
+        manifest.servicePrincipalName.length === 0 ||
+        manifest.servicePrincipalName.length > 160)
+    ) {
+      throw new TypeError("service-principal name is invalid");
+    }
+
+    return manifest;
+  },
+);
 
 const requireOperatorExecution = (execution: OAuthOperatorExecution): void => {
   if (execution.target.trim().length === 0 || execution.authority !== "operator") {
     throw new TypeError("an explicit target and operator authority are required");
   }
+
   if (
     execution.requestCorrelation.trim().length === 0 ||
     execution.requestCorrelation.length > 160
@@ -736,13 +769,14 @@ const requireOperatorExecution = (execution: OAuthOperatorExecution): void => {
   }
 };
 
-const clientProviderShape = (
+const clientProviderRecord = (
   manifest: OAuthClientManifest,
   storedSecret: string | null,
   now: Date,
-): Record<string, unknown> => {
+) => {
   const delegated =
     manifest.clientKind === "DelegatedPublic" || manifest.clientKind === "DelegatedConfidential";
+
   return {
     clientId: manifest.clientId,
     clientSecret: storedSecret,
@@ -779,14 +813,16 @@ export const makeOAuthClientOperatorService = (
   provision: async (unsafeManifest, execution) => {
     requireOperatorExecution(execution);
     const manifest = validateManifest(unsafeManifest);
+
     if (execution.dryRun) {
-      return {
-        clientId: manifest.clientId,
-        ...(manifest.servicePrincipalId === undefined
-          ? {}
-          : { servicePrincipalId: manifest.servicePrincipalId }),
-      };
+      const result: OAuthProvisionResult = { clientId: manifest.clientId };
+
+      if (manifest.servicePrincipalId !== undefined)
+        return { ...result, servicePrincipalId: manifest.servicePrincipalId };
+
+      return result;
     }
+
     const confidential = manifest.clientKind !== "DelegatedPublic";
     const rawSecret = confidential ? randomBytes(32).toString("base64url") : undefined;
     const clientSecret = rawSecret === undefined ? undefined : `vkr_cs_${rawSecret}`;
@@ -795,7 +831,7 @@ export const makeOAuthClientOperatorService = (
     const context = await engine.$context;
     await context.adapter.create({
       model: "oauthClient",
-      data: clientProviderShape(manifest, storedSecret, now),
+      data: clientProviderRecord(manifest, storedSecret, now),
     });
     await context.adapter.create({
       model: "oauthClientResource",
@@ -814,6 +850,7 @@ export const makeOAuthClientOperatorService = (
           [manifest.servicePrincipalId, manifest.servicePrincipalName, now],
         );
       }
+
       await client.query(
         `INSERT INTO auth.oauth_client_bindings (
            client_id, client_kind, service_principal_id, secret_expires_at,
@@ -836,22 +873,26 @@ export const makeOAuthClientOperatorService = (
         details: { client_kind: manifest.clientKind, resource: OAUTH_NATIVE_API_RESOURCE },
       });
     });
-    return {
-      clientId: manifest.clientId,
-      ...(manifest.servicePrincipalId === undefined
-        ? {}
-        : { servicePrincipalId: manifest.servicePrincipalId }),
-      ...(clientSecret === undefined ? {} : { clientSecret }),
-    };
+
+    const result: Types.Mutable<OAuthProvisionResult> = { clientId: manifest.clientId };
+
+    if (manifest.servicePrincipalId !== undefined)
+      result.servicePrincipalId = manifest.servicePrincipalId;
+
+    if (clientSecret !== undefined) result.clientSecret = clientSecret;
+
+    return result;
   },
   rotateSecret: async (clientId, execution) => {
     requireOperatorExecution(execution);
+
     if (execution.dryRun) return { clientId };
     const rawSecret = randomBytes(32).toString("base64url");
     const secret = `vkr_cs_${rawSecret}`;
     const digest = await hashOAuthClientSecret(rawSecret);
     await inTransaction(pool, async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [clientId]);
+
       const updated = await client.query(
         `UPDATE auth."oauthClient" provider
             SET "clientSecret" = $2, "updatedAt" = CURRENT_TIMESTAMP
@@ -862,6 +903,7 @@ export const makeOAuthClientOperatorService = (
             AND COALESCE(provider.disabled, false) = false`,
         [clientId, digest],
       );
+
       if (updated.rowCount !== 1) throw new Error("live confidential client not found");
       await client.query(
         `UPDATE auth.oauth_client_bindings
@@ -878,18 +920,22 @@ export const makeOAuthClientOperatorService = (
         requestCorrelation: execution.requestCorrelation,
       });
     });
+
     return { clientId, clientSecret: secret };
   },
   disableClient: async (clientId, execution) => {
     requireOperatorExecution(execution);
+
     if (execution.dryRun) return;
     await inTransaction(pool, async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [clientId]);
+
       const updated = await client.query(
         `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = CURRENT_TIMESTAMP
           WHERE "clientId" = $1 AND COALESCE(disabled, false) = false`,
         [clientId],
       );
+
       if (updated.rowCount !== 1) throw new Error("live OAuth client not found");
       await client.query(
         `UPDATE auth.oauth_access_token_state SET revoked_at = CURRENT_TIMESTAMP,
@@ -913,6 +959,7 @@ export const makeOAuthClientOperatorService = (
   },
   disableServicePrincipal: async (servicePrincipalId, execution) => {
     requireOperatorExecution(execution);
+
     if (execution.dryRun) return;
     await inTransaction(pool, async (client) => {
       const selected = await client.query<{ readonly client_id: string }>(
@@ -920,7 +967,9 @@ export const makeOAuthClientOperatorService = (
           WHERE service_principal_id = $1 FOR UPDATE`,
         [servicePrincipalId],
       );
+
       const binding = selected.rows[0];
+
       if (binding === undefined) throw new Error("service-principal binding not found");
       await client.query(
         `UPDATE public.service_principals
@@ -950,24 +999,30 @@ export const makeOAuthClientOperatorService = (
   },
   bootstrapSigningKey: async (execution) => {
     requireOperatorExecution(execution);
+
     const selected = await pool.query<{ readonly id: string }>(
       `SELECT id FROM auth.jwks
         WHERE COALESCE(alg, '') = 'ES256'
           AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
         ORDER BY "createdAt" DESC`,
     );
+
     if (selected.rows.length > 1) throw new Error("multiple active ES256 signing keys");
+
     if (selected.rows[0] !== undefined) return { keyId: selected.rows[0].id };
+
     if (execution.dryRun) return {};
     await engine.api.signJWT({
       body: { payload: { sub: "oauth-signing-key-bootstrap", aud: OAUTH_NATIVE_API_RESOURCE } },
     });
+
     const created = await pool.query<{ readonly id: string }>(
       `SELECT id FROM auth.jwks
         WHERE COALESCE(alg, '') = 'ES256'
           AND ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
         ORDER BY "createdAt" DESC`,
     );
+
     if (created.rows.length !== 1)
       throw new Error("signing key bootstrap did not create exactly one key");
     const keyId = created.rows[0]!.id;
@@ -979,17 +1034,21 @@ export const makeOAuthClientOperatorService = (
         details: { key_id: keyId },
       }),
     );
+
     return { keyId };
   },
   retireSigningKeys: async (execution, now = new Date()) => {
     requireOperatorExecution(execution);
+
     if (execution.dryRun) return 0;
+
     const result = await pool.query(
       `DELETE FROM auth.jwks
         WHERE "expiresAt" IS NOT NULL
           AND "expiresAt" + interval '15 minutes' <= $1`,
       [now],
     );
+
     return result.rowCount ?? 0;
   },
 });
@@ -1010,6 +1069,7 @@ const readClientAuthority = async (
       WHERE binding.client_id = $1`,
     [clientId],
   );
+
   return result.rows[0];
 };
 
@@ -1017,15 +1077,20 @@ const basicClientCredential = (
   request: Request,
 ): { readonly clientId: string; readonly secret: string } | undefined => {
   const value = request.headers.get("authorization");
+
   if (value === null || !value.startsWith("Basic ") || value.includes(",")) return undefined;
   let decoded: string;
+
   try {
     decoded = Buffer.from(value.slice(6), "base64").toString("utf8");
   } catch {
     return undefined;
   }
+
   const separator = decoded.indexOf(":");
+
   if (separator <= 0) return undefined;
+
   return {
     clientId: decodeURIComponent(decoded.slice(0, separator)),
     secret: decodeURIComponent(decoded.slice(separator + 1)),
@@ -1041,8 +1106,10 @@ const authorizeTokenClient = async (
   const basic = basicClientCredential(request);
   const formClientId = form.get("client_id");
   const clientId = basic?.clientId ?? formClientId;
+
   if (clientId === null || clientId === undefined) return undefined;
   const client = await readClientAuthority(pool, clientId);
+
   if (
     client === undefined ||
     client.disabled === true ||
@@ -1050,6 +1117,7 @@ const authorizeTokenClient = async (
   ) {
     return undefined;
   }
+
   if (client.client_kind === "DelegatedPublic") {
     if (basic !== undefined || client.token_endpoint_auth_method !== "none") return undefined;
   } else {
@@ -1066,6 +1134,7 @@ const authorizeTokenClient = async (
       return undefined;
     }
   }
+
   return client;
 };
 
@@ -1075,8 +1144,10 @@ export const authorizeOAuthIntrospectionClient = async (
   now = new Date(),
 ): Promise<boolean> => {
   const basic = basicClientCredential(request);
+
   if (basic === undefined) return false;
   const client = await readClientAuthority(pool, basic.clientId);
+
   if (
     client === undefined ||
     client.client_kind !== "ResourceServer" ||
@@ -1094,11 +1165,13 @@ export const authorizeOAuthIntrospectionClient = async (
   ) {
     return false;
   }
+
   const linked = await pool.query(
     `SELECT 1 FROM auth."oauthClientResource"
       WHERE "clientId" = $1 AND "resourceId" = $2`,
     [client.client_id, OAUTH_NATIVE_API_RESOURCE],
   );
+
   return linked.rowCount === 1;
 };
 
@@ -1115,9 +1188,11 @@ export const makeOAuthInternalIntrospectionHandler =
   ): ((request: Request, context: IdentityRequestContext) => Promise<Response>) =>
   async (request, context) => {
     const pathname = new URL(request.url).pathname;
+
     if (request.method !== "POST" || pathname !== "/api/auth/oauth2/introspect") {
       return new Response("Not Found", { status: 404 });
     }
+
     const reject = async (reason: string): Promise<Response> => {
       await inTransaction(pool, (transaction) =>
         appendAudit(transaction, {
@@ -1129,32 +1204,40 @@ export const makeOAuthInternalIntrospectionHandler =
           details: { denial_category: reason },
         }),
       ).catch(() => undefined);
+
       return inactiveIntrospectionResponse();
     };
+
     if (
       request.headers.get("cookie") !== null ||
       request.headers.get("content-type")?.split(";", 1)[0] !== "application/x-www-form-urlencoded"
     ) {
       return reject("invalid-request");
     }
+
     const body = await request.clone().text();
+
     if (new TextEncoder().encode(body).byteLength > FORM_INPUT_LIMIT) {
       return reject("input-limit");
     }
+
     if (!(await authorizeOAuthIntrospectionClient(pool, request))) {
       return reject("invalid-client");
     }
+
     const provider = await boundedProviderResponse(await engine.handler(request));
     const parsed = decodeUnknownRecordJson(provider.body);
+
     if (
       parsed.active !== true ||
-      typeof parsed.jti !== "string" ||
-      typeof parsed.client_id !== "string" ||
-      typeof parsed.sub !== "string" ||
-      typeof parsed.scope !== "string"
+      !Predicate.isString(parsed.jti) ||
+      !Predicate.isString(parsed.client_id) ||
+      !Predicate.isString(parsed.sub) ||
+      !Predicate.isString(parsed.scope)
     ) {
       return inactiveIntrospectionResponse();
     }
+
     const tracked = await pool.query(
       `SELECT 1
          FROM auth.oauth_access_token_state state
@@ -1162,7 +1245,7 @@ export const makeOAuthInternalIntrospectionHandler =
          JOIN auth."oauthClient" client ON client."clientId" = state.client_id
          LEFT JOIN public.service_principals principal
            ON principal.service_principal_id = state.service_principal_id
-         LEFT JOIN auth."session" session ON session.id = state.session_id
+         LEFT JOIN auth.usable_human_sessions session ON session.id = state.session_id
          LEFT JOIN auth.oauth_refresh_families family ON family.family_id = state.family_id
         WHERE state.jti = $1
           AND state.client_id = $2
@@ -1209,12 +1292,14 @@ export const makeOAuthInternalIntrospectionHandler =
         parsed.jti,
         parsed.client_id,
         parsed.sub,
-        typeof parsed.sid === "string" ? parsed.sid : null,
+        Predicate.isString(parsed.sid) ? parsed.sid : null,
         OAUTH_NATIVE_API_RESOURCE,
         parsed.scope,
       ],
     );
+
     if (tracked.rowCount !== 1) return inactiveIntrospectionResponse();
+
     const allowed = [
       "active",
       "client_id",
@@ -1228,10 +1313,13 @@ export const makeOAuthInternalIntrospectionHandler =
       "jti",
       "sid",
     ] as const;
-    const bounded: Record<string, unknown> = {};
+
+    const bounded: Partial<Record<(typeof allowed)[number], Schema.Json>> = {};
+
     for (const name of allowed) {
       if (parsed[name] !== undefined) bounded[name] = parsed[name];
     }
+
     return Response.json(bounded, {
       status: 200,
       headers: { "cache-control": "no-store", pragma: "no-cache" },
@@ -1251,9 +1339,11 @@ const boundedProviderResponse = async (
   response: Response,
 ): Promise<{ readonly response: Response; readonly body: string }> => {
   const body = await response.text();
+
   if (new TextEncoder().encode(body).byteLength > TOKEN_RESPONSE_LIMIT) {
     throw new Error("provider response exceeded release barrier limit");
   }
+
   return {
     response: new Response(body, {
       status: response.status,
@@ -1270,8 +1360,10 @@ const withSessionAdvisoryLock = async <A>(
   use: (client: PoolClient) => Promise<A>,
 ): Promise<A> => {
   const client = await pool.connect();
+
   try {
     await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [key]);
+
     return await use(client);
   } finally {
     await client
@@ -1339,13 +1431,16 @@ const initialCodeExchange = async (
   config: OAuthProviderRuntimeConfig,
 ): Promise<Response> => {
   const code = form.get("code");
+
   if (code === null) return invalidOAuthResponse(400, "invalid_request");
   const codeDigest = await hashOAuthToken(code, "authorization_code");
+
   return withSessionAdvisoryLock(pool, `oauth-code:${codeDigest}`, async () => {
     const replay = await pool.query<{ readonly family_id: string }>(
       `SELECT family_id FROM auth.oauth_refresh_families WHERE authorization_code_id = $1`,
       [codeDigest],
     );
+
     if (replay.rows[0] !== undefined) {
       await inTransaction(pool, async (transaction) => {
         await transaction.query(
@@ -1368,12 +1463,16 @@ const initialCodeExchange = async (
           requestCorrelation: context.requestCorrelation,
         });
       });
+
       return invalidOAuthResponse(400, "invalid_grant");
     }
+
     const buffered = await boundedProviderResponse(await engine.handler(request));
+
     if (!buffered.response.ok) return buffered.response;
-    const tokenResponse = decodeTokenResponseJson(buffered.body) as AccessTokenResponse;
+    const tokenResponse = decodeTokenResponseJson(buffered.body);
     const decoded = decodeJwt(tokenResponse.access_token);
+
     if (
       !(await verifyIssuedJwtSignature(pool, decoded)) ||
       decoded.claims.iss !== oauthIssuer(config) ||
@@ -1384,12 +1483,15 @@ const initialCodeExchange = async (
     ) {
       throw new Error("provider issued a token outside the delegated contract");
     }
+
     const familyId = randomUUID();
     const now = new Date(decoded.claims.iat * 1_000);
     const absolute = new Date(now.getTime() + REFRESH_ABSOLUTE_MS);
+
     const inactivity = new Date(
       Math.min(now.getTime() + REFRESH_INACTIVITY_MS, absolute.getTime()),
     );
+
     await inTransaction(pool, async (transaction) => {
       await transaction.query(
         `INSERT INTO auth.oauth_refresh_families (
@@ -1409,6 +1511,7 @@ const initialCodeExchange = async (
       );
       await insertIssuedToken(transaction, decoded.claims, client, familyId, context);
     });
+
     return buffered.response;
   });
 };
@@ -1423,9 +1526,12 @@ const refreshExchange = async (
   config: OAuthProviderRuntimeConfig,
 ): Promise<Response> => {
   const refreshToken = form.get("refresh_token");
+
   if (refreshToken === null) return invalidOAuthResponse(400, "invalid_request");
   const digest = await refreshTokenDigest(refreshToken);
+
   if (digest === undefined) return invalidOAuthResponse(400, "invalid_grant");
+
   const before = await pool.query<RefreshLookupRow>(
     `SELECT token."authorizationCodeId" AS authorization_code_id,
             token."clientId" AS client_id, token."sessionId" AS session_id,
@@ -1437,10 +1543,13 @@ const refreshExchange = async (
       WHERE token.token = $1`,
     [digest],
   );
+
   const lookup = before.rows[0];
+
   if (lookup === undefined || lookup.authorization_code_id === null || lookup.family_id === null) {
     return invalidOAuthResponse(400, "invalid_grant");
   }
+
   return withSessionAdvisoryLock(pool, `oauth-family:${lookup.authorization_code_id}`, async () => {
     const reread = await pool.query<RefreshLookupRow>(
       `SELECT token."authorizationCodeId" AS authorization_code_id,
@@ -1453,7 +1562,9 @@ const refreshExchange = async (
         WHERE token.token = $1`,
       [digest],
     );
+
     const current = reread.rows[0];
+
     const family = await pool.query<{
       readonly revoked_at: Date | null;
       readonly inactivity_expires_at: Date;
@@ -1463,8 +1574,10 @@ const refreshExchange = async (
          FROM auth.oauth_refresh_families WHERE family_id = $1`,
       [lookup.family_id],
     );
+
     const state = family.rows[0];
     const now = new Date();
+
     if (
       state === undefined ||
       current === undefined ||
@@ -1497,12 +1610,16 @@ const refreshExchange = async (
           requestCorrelation: context.requestCorrelation,
         });
       });
+
       return invalidOAuthResponse(400, "invalid_grant");
     }
+
     const buffered = await boundedProviderResponse(await engine.handler(request));
+
     if (!buffered.response.ok) return buffered.response;
-    const tokenResponse = decodeTokenResponseJson(buffered.body) as AccessTokenResponse;
+    const tokenResponse = decodeTokenResponseJson(buffered.body);
     const decoded = decodeJwt(tokenResponse.access_token);
+
     if (
       !(await verifyIssuedJwtSignature(pool, decoded)) ||
       decoded.claims.iss !== oauthIssuer(config) ||
@@ -1513,6 +1630,7 @@ const refreshExchange = async (
     ) {
       throw new Error("provider issued a token outside the refresh contract");
     }
+
     await inTransaction(pool, async (transaction) => {
       await transaction.query(
         `UPDATE auth.oauth_refresh_families
@@ -1523,6 +1641,7 @@ const refreshExchange = async (
       );
       await insertIssuedToken(transaction, decoded.claims, client, lookup.family_id, context);
     });
+
     return buffered.response;
   });
 };
@@ -1536,11 +1655,14 @@ const serviceExchange = async (
   config: OAuthProviderRuntimeConfig,
 ): Promise<Response> => {
   const buffered = await boundedProviderResponse(await engine.handler(request));
+
   if (!buffered.response.ok) return buffered.response;
-  const tokenResponse = decodeTokenResponseJson(buffered.body) as AccessTokenResponse;
+  const tokenResponse = decodeTokenResponseJson(buffered.body);
+
   if (tokenResponse.refresh_token !== undefined)
     throw new Error("service token response contained refresh token");
   const decoded = decodeJwt(tokenResponse.access_token);
+
   if (
     !(await verifyIssuedJwtSignature(pool, decoded)) ||
     client.client_kind !== "Service" ||
@@ -1553,9 +1675,11 @@ const serviceExchange = async (
   ) {
     throw new Error("provider issued a token outside the service contract");
   }
+
   await inTransaction(pool, (transaction) =>
     insertIssuedToken(transaction, decoded.claims, client, null, context),
   );
+
   return buffered.response;
 };
 
@@ -1567,22 +1691,30 @@ const handleToken = async (
   config: OAuthProviderRuntimeConfig,
 ): Promise<Response> => {
   if (request.headers.get("cookie") !== null) return invalidOAuthResponse(400, "invalid_request");
+
   if (
     request.headers.get("content-type")?.split(";", 1)[0] !== "application/x-www-form-urlencoded"
   ) {
     return invalidOAuthResponse(400, "invalid_request");
   }
+
   const body = await request.clone().text();
+
   if (new TextEncoder().encode(body).byteLength > FORM_INPUT_LIMIT) {
     return invalidOAuthResponse(400, "invalid_request");
   }
+
   const form = new URLSearchParams(body);
+
   if (form.getAll("resource").length !== 1 || form.get("resource") !== OAUTH_NATIVE_API_RESOURCE) {
     return invalidOAuthResponse(400, "invalid_target");
   }
+
   const grantType = form.get("grant_type");
   const client = await authorizeTokenClient(pool, request, form, new Date());
+
   if (client === undefined) return invalidOAuthResponse(401, "invalid_client");
+
   if (grantType === "authorization_code") {
     if (
       client.client_kind !== "DelegatedPublic" &&
@@ -1590,12 +1722,16 @@ const handleToken = async (
     ) {
       return invalidOAuthResponse(400, "unauthorized_client");
     }
+
     const redirect = form.get("redirect_uri");
+
     if (redirect === null || !client.redirect_uris.some((registered) => registered === redirect)) {
       return invalidOAuthResponse(400, "invalid_grant");
     }
+
     return initialCodeExchange(engine, pool, request, form, client, context, config);
   }
+
   if (grantType === "refresh_token") {
     if (
       client.client_kind !== "DelegatedPublic" &&
@@ -1603,18 +1739,24 @@ const handleToken = async (
     ) {
       return invalidOAuthResponse(400, "unauthorized_client");
     }
+
     const scope = form.get("scope");
+
     if (scope !== null && scope !== "native-api" && scope !== "native-api offline_access") {
       return invalidOAuthResponse(400, "invalid_scope");
     }
+
     return refreshExchange(engine, pool, request, form, client, context, config);
   }
+
   if (grantType === "client_credentials") {
     if (client.client_kind !== "Service" || form.get("scope") !== "native-api") {
       return invalidOAuthResponse(400, "unauthorized_client");
     }
+
     return serviceExchange(engine, pool, request, client, context, config);
   }
+
   return invalidOAuthResponse(400, "unsupported_grant_type");
 };
 
@@ -1630,25 +1772,34 @@ const handleRevocation = async (
   ) {
     return invalidOAuthResponse(400, "invalid_request");
   }
+
   const body = await request.clone().text();
+
   if (new TextEncoder().encode(body).byteLength > FORM_INPUT_LIMIT) {
     return invalidOAuthResponse(400, "invalid_request");
   }
+
   const form = new URLSearchParams(body);
   const token = form.get("token");
+
   if (token === null) return invalidOAuthResponse(400, "invalid_request");
   const client = await authorizeTokenClient(pool, request, form, new Date());
+
   if (client === undefined) return invalidOAuthResponse(401, "invalid_client");
+
   if (token.split(".").length === 3) {
     let decoded: DecodedNativeJwt;
+
     try {
       decoded = decodeJwt(token);
+
       if (!(await verifyIssuedJwtSignature(pool, decoded))) {
         return new Response(null, { status: 200, headers: { "cache-control": "no-store" } });
       }
     } catch {
       return new Response(null, { status: 200, headers: { "cache-control": "no-store" } });
     }
+
     await inTransaction(pool, async (transaction) => {
       const updated = await transaction.query<{ readonly family_id: string | null }>(
         `UPDATE auth.oauth_access_token_state
@@ -1657,6 +1808,7 @@ const handleRevocation = async (
           RETURNING family_id`,
         [decoded.claims.jti, client.client_id],
       );
+
       if (updated.rows[0] !== undefined) {
         await appendAudit(transaction, {
           eventKind: "oauth-access-token-revoked",
@@ -1668,18 +1820,22 @@ const handleRevocation = async (
         });
       }
     });
+
     return new Response(null, {
       status: 200,
       headers: { "cache-control": "no-store", pragma: "no-cache" },
     });
   }
+
   const refreshDigest = await refreshTokenDigest(token);
+
   if (refreshDigest === undefined) {
     return new Response(null, {
       status: 200,
       headers: { "cache-control": "no-store", pragma: "no-cache" },
     });
   }
+
   await inTransaction(pool, async (transaction) => {
     const family = await transaction.query<{ readonly family_id: string }>(
       `SELECT family.family_id
@@ -1691,7 +1847,9 @@ const handleRevocation = async (
         FOR UPDATE OF family`,
       [refreshDigest, client.client_id],
     );
+
     const owned = family.rows[0];
+
     if (owned === undefined) return;
     await transaction.query(
       `UPDATE auth.oauth_refresh_families
@@ -1714,9 +1872,11 @@ const handleRevocation = async (
     });
   });
   const response = await engine.handler(request);
+
   if (!response.ok) throw new Error("provider refresh revocation failed after owned revocation");
   response.headers.set("cache-control", "no-store");
   response.headers.set("pragma", "no-cache");
+
   return response;
 };
 
@@ -1726,25 +1886,41 @@ const handleConsentWithdrawal = async (
   request: Request,
   context: IdentityRequestContext,
 ): Promise<Response> => {
-  const body = (await request
+  const body = await request
     .clone()
-    .json()
-    .catch(() => undefined)) as { readonly id?: unknown } | undefined;
-  if (typeof body?.id !== "string") return invalidOAuthResponse(400, "invalid_request");
+    .text()
+    .then(decodeUnknownRecordJson)
+    .catch(() => undefined);
+
+  if (!Predicate.isString(body?.id)) return invalidOAuthResponse(400, "invalid_request");
+
   const session = await engine.handler(
     new Request(new URL("/api/auth/get-session", request.url), {
       headers: { cookie: request.headers.get("cookie") ?? "" },
     }),
   );
+
   if (!session.ok) return invalidOAuthResponse(401, "invalid_request");
-  const sessionBody = (await session.json()) as { readonly user?: { readonly id?: unknown } };
-  if (typeof sessionBody.user?.id !== "string") return invalidOAuthResponse(401, "invalid_request");
+  const sessionBody = decodeUnknownRecordJson(await session.text());
+  const user = sessionBody.user;
+
+  if (
+    !Predicate.isObject(user) ||
+    !Predicate.hasProperty(user, "id") ||
+    !Predicate.isString(user.id)
+  )
+    return invalidOAuthResponse(401, "invalid_request");
+
+  const personId = user.id;
+
   const consent = await pool.query<{ readonly client_id: string }>(
     `SELECT "clientId" AS client_id FROM auth."oauthConsent"
       WHERE id = $1 AND "userId" = $2`,
-    [body.id, sessionBody.user.id],
+    [body.id, personId],
   );
+
   const owned = consent.rows[0];
+
   if (owned === undefined) return invalidOAuthResponse(404, "invalid_request");
   await inTransaction(pool, async (transaction) => {
     const families = await transaction.query<{ readonly family_id: string }>(
@@ -1752,56 +1928,67 @@ const handleConsentWithdrawal = async (
           SET revoked_at = CURRENT_TIMESTAMP, revocation_reason = 'consent-withdrawn'
         WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL
         RETURNING family_id`,
-      [owned.client_id, sessionBody.user!.id],
+      [owned.client_id, personId],
     );
+
     await transaction.query(
       `UPDATE auth.oauth_access_token_state
           SET revoked_at = CURRENT_TIMESTAMP, revocation_reason = 'consent-withdrawn'
         WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL`,
-      [owned.client_id, sessionBody.user!.id],
+      [owned.client_id, personId],
     );
     await appendAudit(transaction, {
       eventKind: "oauth-consent-withdrawn",
       clientId: owned.client_id,
-      personId: sessionBody.user!.id as string,
-      actorPrincipal: `person:${sessionBody.user!.id}`,
+      personId,
+      actorPrincipal: `person:${personId}`,
       requestCorrelation: context.requestCorrelation,
       details: { affected_count: families.rowCount ?? 0 },
     });
   });
   const response = await engine.handler(request);
+
   if (!response.ok) throw new Error("provider consent cleanup failed after owned revocation");
+
   return response;
 };
+
 const handlePublicClient = async (
   engine: OAuthEngineBoundary,
   pool: Pool,
   request: Request,
 ): Promise<Response> => {
   const clientId = new URL(request.url).searchParams.get("client_id");
+
   if (clientId === null) return invalidOAuthResponse(400, "invalid_request");
   const client = await readClientAuthority(pool, clientId);
+
   if (
     client === undefined ||
     (client.client_kind !== "DelegatedPublic" && client.client_kind !== "DelegatedConfidential")
   ) {
     return invalidOAuthResponse(404, "invalid_request");
   }
+
   const buffered = await boundedProviderResponse(await engine.handler(request));
+
   if (!buffered.response.ok) return buffered.response;
   const provider = decodeUnknownRecordJson(buffered.body);
+
   if (
     provider.client_id !== clientId ||
-    typeof provider.client_name !== "string" ||
+    !Predicate.isString(provider.client_name) ||
     provider.client_name.length === 0 ||
     provider.client_name.length > 160
   ) {
     throw new Error("provider returned a malformed public client");
   }
+
   const headers = new Headers(buffered.response.headers);
   headers.set("cache-control", "no-store");
   headers.set("pragma", "no-cache");
   headers.set("content-type", "application/json; charset=utf-8");
+
   return Response.json(
     {
       client_id: clientId,
@@ -1820,23 +2007,30 @@ export const makeOAuthReleaseBarrier =
   ): ((request: Request, context: IdentityRequestContext) => Promise<Response>) =>
   async (request, context) => {
     const pathname = new URL(request.url).pathname;
+
     try {
       if (request.method === "GET" && pathname === "/api/auth/oauth2/public-client") {
         return await handlePublicClient(engine, pool, request);
       }
+
       if (request.method === "POST" && pathname === "/api/auth/oauth2/token") {
         return await handleToken(engine, pool, request, context, config);
       }
+
       if (request.method === "POST" && pathname === "/api/auth/oauth2/revoke") {
         return await handleRevocation(engine, pool, request, context);
       }
+
       if (request.method === "POST" && pathname === "/api/auth/oauth2/delete-consent") {
         return await handleConsentWithdrawal(engine, pool, request, context);
       }
+
       const response = await engine.handler(request);
+
       if (pathname === "/api/auth/jwks" && response.ok) {
         const body = await response.text();
         const etag = `"${createHash("sha256").update(body, "utf8").digest("base64url")}"`;
+
         return new Response(body, {
           status: response.status,
           statusText: response.statusText,
@@ -1847,10 +2041,12 @@ export const makeOAuthReleaseBarrier =
           },
         });
       }
+
       if (pathname.startsWith("/api/auth/oauth2/")) {
         response.headers.set("cache-control", "no-store");
         response.headers.set("pragma", "no-cache");
       }
+
       return response;
     } catch {
       return Response.json(
@@ -1870,6 +2066,7 @@ export const exactRedirectAccepted = async (
   now = new Date(),
 ): Promise<boolean> => {
   const client = await readClientAuthority(pool, clientId);
+
   if (
     client === undefined ||
     client.disabled === true ||
@@ -1881,11 +2078,13 @@ export const exactRedirectAccepted = async (
   ) {
     return false;
   }
+
   const linked = await pool.query(
     `SELECT 1 FROM auth."oauthClientResource"
       WHERE "clientId" = $1 AND "resourceId" = $2`,
     [clientId, OAUTH_NATIVE_API_RESOURCE],
   );
+
   return linked.rowCount === 1;
 };
 
@@ -1896,6 +2095,7 @@ export const verifyOAuthBootState = async (
 ): Promise<void> => {
   if (config.nativeApiResource !== OAUTH_NATIVE_API_RESOURCE)
     throw new Error("OAuth resource drift");
+
   const resources = await pool.query<{
     readonly identifier: string;
     readonly name: string;
@@ -1914,7 +2114,9 @@ export const verifyOAuthBootState = async (
        FROM auth."oauthResource" WHERE identifier = $1`,
     [OAUTH_NATIVE_API_RESOURCE],
   );
+
   const resource = resources.rows[0];
+
   if (
     resource === undefined ||
     resource.name !== "Vektorprogrammet native API" ||
@@ -1927,7 +2129,9 @@ export const verifyOAuthBootState = async (
   ) {
     throw new Error("OAuth resource row drift");
   }
+
   if (!requireSigningKey) return;
+
   const keys = await pool.query<{
     readonly id: string;
     readonly private_key: string;
@@ -1939,6 +2143,7 @@ export const verifyOAuthBootState = async (
       WHERE ("expiresAt" IS NULL OR "expiresAt" > CURRENT_TIMESTAMP)
       ORDER BY "createdAt" DESC`,
   );
+
   if (
     keys.rows.length !== 1 ||
     keys.rows[0]!.alg !== "ES256" ||
@@ -1947,3 +2152,30 @@ export const verifyOAuthBootState = async (
     throw new Error("OAuth signing-key state is invalid");
   }
 };
+
+export class OAuthHandlers extends Context.Service<
+  OAuthHandlers,
+  {
+    readonly release: ReturnType<typeof makeOAuthReleaseBarrier>;
+    readonly introspection: ReturnType<typeof makeOAuthInternalIntrospectionHandler>;
+  }
+>()("@vektorprogrammet/database/OAuthHandlers") {}
+
+export const OAuthLive = (config: OAuthProviderRuntimeConfig) =>
+  Layer.effectContext(
+    Effect.gen(function* () {
+      const pool = yield* DatabasePgPool;
+      const engine = yield* NativeAuthEngine;
+
+      return Context.make(
+        OAuthCredentialAuthority,
+        makeOAuthCredentialAuthorityService(pool, config),
+      ).pipe(
+        Context.add(OAuthClientOperator, makeOAuthClientOperatorService(pool, engine)),
+        Context.add(OAuthHandlers, {
+          release: makeOAuthReleaseBarrier(engine, pool, config),
+          introspection: makeOAuthInternalIntrospectionHandler(engine, pool),
+        }),
+      );
+    }),
+  );

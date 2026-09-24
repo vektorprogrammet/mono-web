@@ -29,7 +29,9 @@ const runtimeRoute = (
     runtime_resolved: true,
     imported_from_ref: null,
   };
+
   const canonicalKey = canonicalRouteKey(method, pathTemplate, routeName);
+
   return {
     row_id: rowId,
     declaration_id: `decl-${rowId}`,
@@ -74,20 +76,25 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
     join(monoRoot, resourcePath),
     "<?php\nnamespace App\\Fixture\\Api\\Resource;\nuse ApiPlatform\\Metadata\\ApiResource;\nuse ApiPlatform\\Metadata\\Get;\n#[ApiResource(operations: [new Get(uriTemplate: '/things')])]\nfinal class Thing {}\n",
   );
+
   try {
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
+
     const routeCollection = await Effect.runPromise(
       collectRoutes(context, sha256("api-prefix-routes"), undefined, true).pipe(
         Effect.provide(NodeRuntimeLayer),
       ),
     );
-    const routeRows = routeCollection.mono.rows as InventoryRow[];
+
+    const routeRows = [...routeCollection.mono.rows];
     routeRows.push(
       runtimeRoute("row-declared-route", "_api_/things_get", "/api/things", "GET"),
       runtimeRoute("row-declared-head", "_api_/things_get", "/api/things", "HEAD"),
@@ -98,6 +105,7 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
         "GET",
       ),
     );
+
     const result = await Effect.runPromise(
       collectApiOperations(context, sha256("api-prefix-test"), routeRows, true, undefined, {
         path: "fixture-api-prefix",
@@ -123,21 +131,24 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
         ),
       }).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const declared = result.h3RouteRows.find((row) => row.row_id === "row-declared-route");
     const generated = result.h3RouteRows.find((row) => row.row_id === "row-generated-route");
     expect(declared).toBeUndefined();
     expect(result.h3RouteRows.find((row) => row.row_id === "row-declared-head")).toBeUndefined();
-    expect(routeRows.some((row) => row.row_id === "row-declared-head")).toBe(false);
+    expect(result.routeRows.some((row) => row.row_id === "row-declared-head")).toBe(false);
     expect(generated).toMatchObject({ status: "extra", reason_codes: ["RUNTIME_ONLY_SOURCE"] });
+
     const operationRows = result.rows.filter((row) =>
       row.observation_kinds.includes("static_source"),
     );
-    expect(routeCollection.mono.rows.some((row) => row.row_id === "row-declared-route")).toBe(
-      false,
-    );
+
+    expect(result.routeRows.some((row) => row.row_id === "row-declared-route")).toBe(false);
+
     const declaredOperation = operationRows.find(
       (row) => "operation_name" in row.details && row.details.operation_name === "Get",
     );
+
     expect(declaredOperation).toMatchObject({ status: "covered" });
     expect(declaredOperation?.source_ref_ids).toContain("source-runtime-route");
     expect(
@@ -155,6 +166,7 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
 test("omitted StaticContent Get pairs with the default item operation and route evidence", async () => {
   const directory = mkdtempSync("/tmp/parity-api-static-content-");
   const legacyRoot = join(directory, "legacy");
@@ -179,14 +191,18 @@ test("omitted StaticContent Get pairs with the default item operation and route 
     join(monoRoot, providerPath),
     "<?php\nnamespace App\\Content\\Api\\State;\nfinal class StaticContentByHtmlIdProvider {}\n",
   );
+
   try {
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
+
     const routeRows = [
       runtimeRoute(
         "row-static-content-default-route",
@@ -201,6 +217,7 @@ test("omitted StaticContent Get pairs with the default item operation and route 
         "GET",
       ),
     ];
+
     const result = await Effect.runPromise(
       collectApiOperations(
         context,
@@ -247,25 +264,28 @@ test("omitted StaticContent Get pairs with the default item operation and route 
         },
       ).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const staticRows = result.rows.filter(
       (row) =>
         row.observation_kinds.includes("static_source") &&
         "resource_class_ref" in row.details &&
         row.details.resource_class_ref === "App\\Content\\Infrastructure\\Entity\\StaticContent",
     );
+
     const defaultGet = staticRows.find(
       (row) =>
         "operation_name" in row.details &&
         row.details.operation_name === "Get" &&
         row.details.uri_template === null,
     );
+
     expect(defaultGet).toMatchObject({
       status: "covered",
       observation_kinds: ["static_source", "runtime_resolution"],
       reason_codes: [],
     });
     expect(defaultGet?.source_ref_ids).toContain("source-runtime-route");
-    expect(routeRows).toHaveLength(0);
+    expect(result.routeRows).toHaveLength(0);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

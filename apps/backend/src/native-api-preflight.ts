@@ -1,6 +1,6 @@
 import { ExternalNativeApi, reflectAccessSpec } from "@vektorprogrammet/http-api";
 import { Option } from "effect";
-import { makeNativePreflightMethodResolver } from "./native-preflight.js";
+import { nativePreflightMethodResolver } from "./native-preflight.js";
 
 const externalNativeEndpoints = Object.values(ExternalNativeApi.groups).flatMap((group) =>
   Object.values(group.endpoints),
@@ -28,4 +28,4 @@ export const externalNativePreflightAttachmentGaps: ReadonlyArray<NativePrefligh
 
 /** Methods for the current NativeApi route graph. */
 export const externalNativePreflightMethodsForPath =
-  makeNativePreflightMethodResolver(externalNativeEndpoints);
+  nativePreflightMethodResolver(externalNativeEndpoints);

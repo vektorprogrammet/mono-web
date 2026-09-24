@@ -35,7 +35,7 @@ import {
   type Decision,
 } from "@vektorprogrammet/domain/authz";
 import type { RecruitmentActor } from "@vektorprogrammet/domain/recruitment";
-import { Effect, Schema } from "effect";
+import { Predicate, Effect, Schema } from "effect";
 import { hasBetterAuthSessionCredential } from "./session-security.js";
 
 /**
@@ -69,6 +69,7 @@ const sessionEffect = (
         if (cause instanceof IdentitySessionNotFound || cause instanceof IdentitySessionExpired) {
           return new UnauthenticatedActor({ message: "authentication required" });
         }
+
         return cause instanceof IdentityEngineError
           ? cause
           : new IdentityEngineError({
@@ -96,6 +97,7 @@ const requestCredentialEffect = (
   ) {
     return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
   }
+
   if (request.headers.has("authorization")) {
     return OAuthCredentialAuthority.use(({ resolve }) =>
       Effect.tryPromise({
@@ -110,12 +112,13 @@ const requestCredentialEffect = (
       }),
     ).pipe(
       Effect.flatMap((outcome) =>
-        outcome._tag === "Accepted"
+        Predicate.isTagged(outcome, "Accepted")
           ? Effect.succeed(outcome)
           : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
       ),
     );
   }
+
   return Effect.map(sessionEffect(request.headers.get("cookie") ?? undefined), (actor) => ({
     _tag: "Accepted" as const,
     mechanism: { _tag: "BetterAuthCookie" as const },
@@ -132,10 +135,11 @@ const requestPersonEffect = (
   Identity | OAuthCredentialAuthority
 > =>
   Effect.flatMap(requestCredentialEffect(request, "OAuthUserBearer"), (credential) =>
-    credential.principal._tag === "Person"
+    Predicate.isTagged(credential.principal, "Person")
       ? Effect.succeed(credential.principal.personId)
       : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
   );
+
 const requestCredentialInTransactionEffect = (
   request: Request,
   expected: "OAuthUserBearer" | "OAuthServiceBearer" | "Either",
@@ -152,20 +156,23 @@ const requestCredentialInTransactionEffect = (
   ) {
     return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
   }
+
   if (request.headers.has("authorization")) {
     return OAuthCredentialAuthority.use(({ resolveInTransaction }) =>
       resolveInTransaction(request, expected, new Date(authorizationInstant)),
     ).pipe(
       Effect.flatMap((outcome) =>
-        outcome._tag === "Accepted"
+        Predicate.isTagged(outcome, "Accepted")
           ? Effect.succeed(outcome)
           : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
       ),
     );
   }
+
   if (expected === "OAuthServiceBearer") {
     return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
   }
+
   return IdentitySnapshot.use(({ resolveSession }) =>
     resolveSession(request.headers.get("cookie") ?? undefined, authorizationInstant),
   ).pipe(
@@ -303,15 +310,19 @@ export const resolveRequestPersonAuthorityInTransaction = (
       "OAuthUserBearer",
       options,
     );
-    if (authenticated.credential.principal._tag !== "Person") {
+
+    if (!Predicate.isTagged(authenticated.credential.principal, "Person")) {
       return yield* Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
     }
+
     const personId = authenticated.credential.principal.personId;
     const organization = yield* Organization;
+
     const authority = yield* organization.resolvePersonAuthority(
       personId,
       decodeAuthorizationInstant(authenticated.authorizationInstant),
     );
+
     return { ...authenticated, authority };
   });
 
@@ -410,11 +421,13 @@ export const admissionActorForDepartment = (
   departmentId: DepartmentId,
 ): AdmissionPeriodActor => {
   const decision = mapOrganizationAuthorityToAdmissionPeriodActor(authority, departmentId);
-  if (decision._tag === "Deny") {
+
+  if (Predicate.isTagged(decision, "Deny")) {
     throw decision.reason === "AuthorityInactive"
       ? new InactiveActor({ personId: authority.personId })
       : new AdmissionScopeDenied({ personId: authority.personId, departmentId });
   }
+
   return decision.value;
 };
 
@@ -453,9 +466,11 @@ export const recruitmentBoardActorFrom = (
         .map((membership) => membership.departmentId),
     ),
   ].sort();
+
   if (departments.length === 1) {
     return admissionActorForDepartment(authority, departments[0]!);
   }
+
   throw new UnauthenticatedActor({
     message:
       departments.length === 0

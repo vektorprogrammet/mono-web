@@ -1,38 +1,37 @@
 import { Match as M } from "effect";
-import { type Command } from "foldkit";
+import { Update } from "foldkit";
 import type { OrganizationCatalogCommands } from "./command";
 import type { Message } from "./message";
 import { OrganizationCatalogData, type Model } from "./model";
 
-export const makeUpdate =
+export const updateFor =
   ({ LoadCatalog }: OrganizationCatalogCommands) =>
-  (model: Model, message: Message): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
+  (model: Model, message: Message): Update.Return<Model, Message> =>
     M.value(message).pipe(
-      M.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
+      M.withReturnType<Update.Return<Model, Message>>(),
       M.tagsExhaustive({
         RetriedCatalog: () => {
           const requestId = model.requestId + 1;
-          return [
+
+          return ({ model: 
             {
               ...model,
               catalog: OrganizationCatalogData.Loading(),
               requestId,
               retryCount: model.retryCount + 1,
-            },
-            [LoadCatalog({ catalogKind: model.catalogKind, requestId })],
-          ];
+            }, commands: [LoadCatalog({ catalogKind: model.catalogKind, requestId })] });
         },
         SucceededTeamCatalog: ({ requestId, catalogKind, snapshot }) =>
           requestId !== model.requestId || catalogKind !== model.catalogKind
-            ? [model, []]
-            : [{ ...model, catalog: OrganizationCatalogData.Success({ data: snapshot }) }, []],
+            ? ({ model: model, commands: [] })
+            : ({ model: { ...model, catalog: OrganizationCatalogData.Success({ data: snapshot }) }, commands: [] }),
         SucceededFieldOfStudyCatalog: ({ requestId, catalogKind, snapshot }) =>
           requestId !== model.requestId || catalogKind !== model.catalogKind
-            ? [model, []]
-            : [{ ...model, catalog: OrganizationCatalogData.Success({ data: snapshot }) }, []],
+            ? ({ model: model, commands: [] })
+            : ({ model: { ...model, catalog: OrganizationCatalogData.Success({ data: snapshot }) }, commands: [] }),
         FailedOrganizationCatalog: ({ requestId, catalogKind, message: failure }) =>
           requestId !== model.requestId || catalogKind !== model.catalogKind
-            ? [model, []]
-            : [{ ...model, catalog: OrganizationCatalogData.Failure({ error: failure }) }, []],
+            ? ({ model: model, commands: [] })
+            : ({ model: { ...model, catalog: OrganizationCatalogData.Failure({ error: failure }) }, commands: [] }),
       }),
     );

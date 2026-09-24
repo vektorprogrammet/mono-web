@@ -55,6 +55,7 @@ function healthResponse(request: Request, stage: string, host: string): Response
 
   if (request.method !== "GET") {
     headers.set("Allow", "GET");
+
     return new Response(null, { status: 405, headers });
   }
 
@@ -76,6 +77,7 @@ function withProvenance(response: Response, stage: string, host: string): Respon
   baseHeaders(stage, host).forEach((value, name) => {
     headers.set(name, value);
   });
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -85,6 +87,7 @@ function withProvenance(response: Response, stage: string, host: string): Respon
 
 function isStaticAssetPath(pathname: string): boolean {
   const last = pathname.split("/").at(-1);
+
   return (
     pathname.startsWith("/assets/") || (last?.includes(".") === true && !pathname.endsWith(".data"))
   );
@@ -93,9 +96,11 @@ function isStaticAssetPath(pathname: string): boolean {
 export default {
   async fetch(request: Request, env: HomepageEnv): Promise<Response> {
     const rawHost = request.headers.get("host");
+
     if (!rawHost) return invalidHostResponse();
 
     let requestInfo: HomepageRequest;
+
     try {
       requestInfo = resolveHomepageRequest(rawHost, {
         stage: env.PREVIEW_STAGE,
@@ -106,6 +111,7 @@ export default {
     }
 
     const url = new URL(request.url);
+
     if (url.pathname === "/health") {
       return healthResponse(request, requestInfo.stage, requestInfo.host);
     }
@@ -118,6 +124,7 @@ export default {
     routerContext.set(homepageRequestContext, requestInfo);
     routerContext.set(contactIngressContext, authenticateContactIngress(request, env));
     const response = await requestHandler(request, routerContext);
+
     return withProvenance(response, requestInfo.stage, requestInfo.host);
   },
 };

@@ -1,6 +1,6 @@
 # Enterprise models
 
-**Status:** Draft target views. Revised 2026-09-22.
+**Status:** Draft target views. Revised 2026-09-24.
 
 This document models the intended Vektorprogrammet replacement through 4EM and
 ArchiMate viewpoints. It does not define a second business or architecture source.
@@ -8,7 +8,7 @@ ArchiMate viewpoints. It does not define a second business or architecture sourc
 - [system.md](system.md) defines business meaning and target behavior.
 - [architecture.md](architecture.md) defines technical ownership and boundaries.
 - [operational-responsibility-map.md](operational-responsibility-map.md) defines
-  actors, end-to-end work, and migration gaps.
+  actors, end-to-end work, and replacement contracts.
 - [STATE.md](../STATE.md) alone records current implementation and acceptance.
 
 The diagrams use Mermaid for review in the repository. They use method vocabulary,
@@ -66,21 +66,21 @@ has started or is authorized.
 
 ### Business Rules Model
 
-| ID      | Rule                                                                                                                  | Source                                                                                                    |
-| ------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `BR-01` | A Person is the stable human identity. Account, Profile, Appointment, Affiliation, and Placement remain separate.     | [Business facts](system.md#business-facts)                                                                |
-| `BR-02` | Team membership must not imply volunteer affiliation.                                                                 | [Responsibility rules](operational-responsibility-map.md#responsibility-rules)                            |
-| `BR-03` | Recommendation, invitation, account claim, affiliation, and placement are separate decisions.                         | [Recruitment and affiliation](system.md#recruitment-and-affiliation)                                      |
-| `BR-04` | A human coordinator confirms a proposed placement. The system must not silently convert a match into a placement.     | [School demand and placement](system.md#school-demand-and-placement)                                      |
-| `BR-05` | Authority requires a usable account, active relationship, covered scope, and allowed capability at the given instant. | [Authority model](system.md#authority-model)                                                              |
-| `BR-06` | The backend denies access by default. A hidden frontend action is not enforcement.                                    | [Authority model](system.md#authority-model)                                                              |
-| `BR-07` | One transaction records current state, immutable history, command receipt, audit, and required outbox work.           | [Durable effects](system.md#durable-effects)                                                              |
-| `BR-08` | External delivery starts after commit. Retry reuses the immutable first envelope and remains bounded.                 | [Delivery and providers](architecture.md#delivery-and-providers)                                          |
-| `BR-09` | A report distinguishes current from historical, missing from unavailable, and recorded from inferred.                 | [Reporting](system.md#reporting)                                                                          |
-| `BR-10` | A file path, team label, menu role, or pool membership does not grant business authority.                             | [Expense reimbursement](system.md#expense-reimbursement) and [Authority model](system.md#authority-model) |
-| `BR-11` | Receipt approval does not imply payment or bank-settlement authority.                                                 | [Reimburse an expense](operational-responsibility-map.md#reimburse-an-expense)                            |
-| `BR-12` | Production data, providers, deployment, writer transfer, and destructive actions need explicit operator authority.    | [Production authority boundary](operational-responsibility-map.md#production-authority-boundary)          |
-| `BR-13` | A recommendation must not imply an admission decision. Add that decision only after the organization defines it.      | [Recruitment and affiliation](system.md#recruitment-and-affiliation)                                      |
+| ID      | Rule                                                                                                                      | Source                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `BR-01` | A Person is the stable human identity. Account, Profile, Appointment, Affiliation, and Placement remain separate.         | [Business facts](system.md#business-facts)                                                                |
+| `BR-02` | Team membership must not imply volunteer affiliation.                                                                     | [Responsibility rules](operational-responsibility-map.md#responsibility-rules)                            |
+| `BR-03` | Recommendation, invitation, account claim, affiliation, and placement are separate decisions.                             | [Recruitment and affiliation](system.md#recruitment-and-affiliation)                                      |
+| `BR-04` | A coordinator confirms the roster and reviews its exceptions. A proposal does not create a placement or prove attendance. | [School demand and placement](system.md#school-demand-and-placement)                                      |
+| `BR-05` | Authority requires a usable account, active relationship, covered scope, and allowed capability at the given instant.     | [Authority model](system.md#authority-model)                                                              |
+| `BR-06` | The backend denies access by default. A hidden frontend action is not enforcement.                                        | [Authority model](system.md#authority-model)                                                              |
+| `BR-07` | One transaction records current state, immutable history, command receipt, audit, and required outbox work.               | [Durable effects](system.md#durable-effects)                                                              |
+| `BR-08` | External delivery starts after commit. Retry reuses the immutable first envelope and remains bounded.                     | [Delivery and providers](architecture.md#delivery-and-providers)                                          |
+| `BR-09` | A report distinguishes current from historical, missing from unavailable, and recorded from inferred.                     | [Reporting](system.md#reporting)                                                                          |
+| `BR-10` | A file path, team label, menu role, or pool membership does not grant business authority.                                 | [Expense reimbursement](system.md#expense-reimbursement) and [Authority model](system.md#authority-model) |
+| `BR-11` | Receipt approval does not imply payment or bank-settlement authority.                                                     | [Reimburse an expense](operational-responsibility-map.md#reimburse-an-expense)                            |
+| `BR-12` | Production data, providers, deployment, writer transfer, and destructive actions need explicit operator authority.        | [Cutover gates and authority](operational-responsibility-map.md#cutover-gates-and-authority)              |
+| `BR-13` | A recommendation must not imply an admission decision. Add that decision only after the organization defines it.          | [Recruitment and affiliation](system.md#recruitment-and-affiliation)                                      |
 
 ```mermaid
 flowchart LR
@@ -110,9 +110,10 @@ classDiagram
   class Placement
   class SemesterRef
   class SchoolDemand
-  class TeachingOccurrence {
-    <<target gap>>
-  }
+  class SchoolServiceCommitment
+  class ScheduledAssignment
+  class ServiceOutcome
+  class TeachingOccurrence
   class RecruitmentApplication
   class InterviewAssessment
   class Recommendation
@@ -128,10 +129,13 @@ classDiagram
   Person --> Appointment : holds for interval
   Person --> VolunteerAffiliation : holds for chapter
   VolunteerAffiliation --> Placement : qualifies person for
-  Placement --> SchoolDemand : fulfills confirmed demand
+  Placement --> SchoolDemand : provides planned supply
   Placement --> SemesterRef : is effective in
   SchoolDemand --> SemesterRef : belongs to
-  Placement --> TeachingOccurrence : enables recording
+  Placement --> ScheduledAssignment : supplies recurring placement
+  SchoolServiceCommitment --> ScheduledAssignment : schedules
+  SchoolServiceCommitment --> ServiceOutcome : closes with evidence
+  ServiceOutcome --> TeachingOccurrence : records actual attendance only
   Person --> RecruitmentApplication : submits
   RecruitmentApplication --> InterviewAssessment : receives
   InterviewAssessment --> Recommendation : records
@@ -143,8 +147,9 @@ classDiagram
   AuditEvent --> ExpenseClaim : records decision history
 ```
 
-`TeachingOccurrence` belongs to the target service cycle. The current migration map
-states that this cycle is not complete.
+The [dated-service contract](system.md#dated-school-service) separates planned supply, dated commitments, terminal outcomes, and actual attendance.
+Cancellation creates no occurrence. Unfulfilled service records an occurrence only when actual attendance exists.
+Implementation and acceptance remain in [STATE.md](../STATE.md).
 
 ### Business Process Model
 
@@ -177,21 +182,33 @@ flowchart LR
   BP12["BP-12 Produce constrained roster proposal"]
   BP13["BP-13 Review exceptions"]
   BP14["BP-14 Confirm roster"]
+  SVCPlan["Establish dated commitment and assignments"]
   BP15["BP-15 Notify participants"]
-  BP16["BP-16 Record teaching occurrence"]
   BP17["BP-17 Resolve absence or substitution"]
-  BP18["BP-18 Close service history"]
-  BP19["BP-19 Publish feedback and certificate"]
+  BP16["BP-16 Record actual attendance or no attendance"]
+  BP18["BP-18 Record terminal decision and evidence"]
+  Completed["Completed"]
+  Cancelled["Cancelled"]
+  Unfulfilled["Unfulfilled"]
+  Occurrence["Attendance occurrence"]
+  Closed["Immutable service history"]
+  BP19["BP-19 Follow-up under explicit policy"]
 
   BP10 --> BP12
   BP11 --> BP12
-  BP12 --> BP13 --> BP14 --> BP15 --> BP17 --> BP16 --> BP18 --> BP19
+  BP12 --> BP13 --> BP14 --> SVCPlan --> BP15 --> BP17 --> BP16 --> BP18
+  BP18 --> Completed --> Occurrence --> Closed
+  BP18 --> Cancelled --> Closed
+  BP18 --> Unfulfilled
+  Unfulfilled -->|actual attendance exists| Occurrence
+  Unfulfilled -->|no attendance| Closed
+  Closed -.->|required follow-up or optional certificate| BP19
 ```
 
-This is the target core process for `CAP-SVC` and `CAP-SUB`. The native system now
-closes demand, roster, notification, occurrence, absence, sequential substitute
-dispatch, acknowledgement, and Covered or Uncovered service history. No-show,
-correction, certificate, and complete reporting remain open.
+This target process covers `CAP-SVC` and `CAP-SUB`. A terminal decision records its evidence atomically.
+Covered and Uncovered describe an absence, not the whole service outcome.
+Completion requires actual attendance that meets demand. Cancellation records no attendance.
+Certificates are outside the mandatory core path. [State](../STATE.md#next) records unresolved operational obligations.
 
 #### Reimburse an expense
 
@@ -538,7 +555,7 @@ flowchart LR
   GAP03["MIG-GAP03 Real providers, recovery, and operational proof"]
   GAP04["MIG-GAP04 Writer transfer and cutover authority"]
 
-  WP01["MIG-WP01 Complete service, substitute, recruitment, survey, and finance outcomes"]
+  WP01["MIG-WP01 Close required maintenance and active operational journeys"]
   WP02["MIG-WP02 Reconcile retained production data"]
   WP03["MIG-WP03 Prove providers, backup, restore, recovery, and rollback"]
   WP04["MIG-WP04 Rehearse writer transfer"]
@@ -590,7 +607,7 @@ operator authority and does not follow automatically from technical completion.
 | `CAP-SVC`  | `G-01`, `G-02`, `BR-04`, `BP-10`–`BP-18`            | `MOT-GOL01`, `BUS-PRC03`, `BUS-SVC03` | [Plan and deliver school service](operational-responsibility-map.md#plan-and-deliver-school-service)         |
 | `CAP-SUB`  | `BP-17`, `AR-A04`, `AR-A07`                         | `BUS-PRC04`, `BUS-SVC04`              | [Substitute coverage](system.md#substitute-coverage)                                                         |
 | `CAP-ECO`  | `G-07`, `BR-10`, `BR-11`, `BP-20`–`BP-25`           | `BUS-PRC05`, `BUS-SVC05`, `BUS-OBJ05` | [Expense reimbursement](system.md#expense-reimbursement)                                                     |
-| `CAP-OPS`  | `G-05`, `G-06`, `BR-07`, `BR-08`, `BR-12`, `TR-Q12` | `MOT-GOL03`, `MIG-*`                  | [Production authority boundary](operational-responsibility-map.md#production-authority-boundary)             |
+| `CAP-OPS`  | `G-05`, `G-06`, `BR-07`, `BR-08`, `BR-12`, `TR-Q12` | `MOT-GOL03`, `MIG-*`                  | [Cutover gates and authority](operational-responsibility-map.md#cutover-gates-and-authority)                 |
 
 Capabilities without detailed diagrams still remain in the shared key list. Their
 canonical behavior stays in the three source documents.

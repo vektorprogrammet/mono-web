@@ -1,3 +1,4 @@
+import { Predicate, Match } from "effect";
 import { interviewRecommendations } from "@vektorprogrammet/http-api"
 import type { RecruitmentInterviewConductObservation,
 RecruitmentInterviewQuestionSnapshot,
@@ -5,7 +6,7 @@ RecruitmentSchedulingInterview, } from "@vektorprogrammet/http-api"
 import { Button, Dialog, Input } from "@foldkit/ui";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import { SchedulingBoard } from "../recruitment/bridge";
+import { SchedulingBoard, RecruitmentBridgeFailure } from "../recruitment/bridge";
 import {
   ChangedAnswer,
   ChangedScore,
@@ -33,7 +34,7 @@ import {
 import type { Model, ReadyModel } from "./model";
 
 const fieldError = (id: string, field: ReadyModel["scheduledAt"], h: HtmlBuilder<Message>): Html =>
-  field._tag === "Invalid"
+  Predicate.isTagged(field, "Invalid")
     ? h.p(
         [h.Id(`${id}-error`), h.Class("fs-field-error"), h.Role("alert")],
         [field.errors.join(" ")],
@@ -94,7 +95,9 @@ const actionButton = (
 
 const formatInstant = (instant: string): string => {
   const parsed = new Date(instant);
+
   if (!Number.isFinite(parsed.getTime())) return instant;
+
   return new Intl.DateTimeFormat("nb-NO", {
     dateStyle: "long",
     timeStyle: "short",
@@ -175,6 +178,7 @@ const interviewCard = (
 ): Html => {
   const applicantName = `${interview.applicant.firstName} ${interview.applicant.lastName}`.trim();
   const isScheduled = interview.schedule !== null;
+
   return h.article(
     [h.Class("fs-interview"), h.AriaLabelledBy(`fs-applicant-${index}`)],
     [
@@ -335,16 +339,19 @@ const boardView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
 
 const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
   const board = AsyncData.getData(model.board);
+
   const interview =
-    board._tag === "Some" && model.selectedInterviewId !== null
+    Predicate.isTagged(board, "Some") && model.selectedInterviewId !== null
       ? board.value.interviews.find(
           (candidate) => candidate.interviewId === model.selectedInterviewId,
         )
       : undefined;
+
   const applicantName =
     interview === undefined
       ? ""
       : `${interview.applicant.firstName} ${interview.applicant.lastName}`.trim();
+
   const mapLink = model.mapLink.value.trim();
 
   return h.submodel({
@@ -499,7 +506,7 @@ const scoreFieldError = (
   field: ReadyModel["score"]["explanatoryPower"],
   h: HtmlBuilder<Message>,
 ): Html =>
-  field._tag === "Invalid"
+  Predicate.isTagged(field, "Invalid")
     ? h.p(
         [h.Id(`${id}-error`), h.Class("fs-field-error"), h.Role("alert")],
         [field.errors.join(" ")],
@@ -513,12 +520,15 @@ const questionView = (
   h: HtmlBuilder<Message>,
 ): Html => {
   const current = model.answers.find((answer) => answer.questionId === question.questionId);
+
   const error = model.answerErrors.find(
     (candidate) => candidate.questionId === question.questionId,
   );
+
   const describedBy = error === undefined ? undefined : `${question.questionId}-error`;
-  const answerValue = typeof current?.answer === "string" ? current.answer : "";
+  const answerValue = Predicate.isString(current?.answer) ? current.answer : "";
   const selectedValues = Array.isArray(current?.answer) ? current.answer : [];
+
   const fieldError =
     error === undefined
       ? h.empty
@@ -526,14 +536,16 @@ const questionView = (
           [h.Id(`${question.questionId}-error`), h.Class("fs-field-error"), h.Role("alert")],
           [error.message],
         );
+
   const inputAttrs = [
     h.Name(`question-${question.questionId}`),
-    h.Disabled(model.isConducting || model.conduct._tag === "Refreshing" || isTerminal),
+    h.Disabled(model.isConducting || Predicate.isTagged(model.conduct, "Refreshing") || isTerminal),
     ...(describedBy === undefined ? [] : [h.AriaDescribedBy(describedBy)]),
   ];
+
   const controls =
-    question.kind === "text"
-      ? [
+    Match.value(question).pipe(
+Match.when({ kind: "text" }, (question) => ([
           h.label([h.For(`question-${question.questionId}`), h.Class("fs-label")], ["Svar"]),
           h.textarea(
             [
@@ -545,11 +557,9 @@ const questionView = (
                 ChangedAnswer({ questionId: question.questionId, answer: value }),
               ),
             ],
-            [],
           ),
-        ]
-      : question.kind === "check"
-        ? question.alternatives.map((alternative, index) =>
+        ])),
+Match.when({ kind: "check" }, (question) => (question.alternatives.map((alternative, index) =>
             h.label(
               [h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
               [
@@ -571,8 +581,8 @@ const questionView = (
                 alternative,
               ],
             ),
-          )
-        : question.alternatives.map((alternative, index) =>
+          ))),
+Match.orElse((question) => (question.alternatives.map((alternative, index) =>
             h.label(
               [h.Class("fs-option flex min-h-11 items-center gap-3 py-2")],
               [
@@ -589,7 +599,9 @@ const questionView = (
                 alternative,
               ],
             ),
-          );
+          )))
+);
+
   return h.fieldset(
     [
       h.Class("fs-question fs-field min-w-0"),
@@ -627,7 +639,7 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
               h.Id("interviewer-recommendation"),
               h.Class("fs-input"),
               h.Value(model.recommendation ?? ""),
-              h.Disabled(model.isConducting || model.conduct._tag === "Refreshing" || isTerminal),
+              h.Disabled(model.isConducting || Predicate.isTagged(model.conduct, "Refreshing") || isTerminal),
               h.OnChange((value) =>
                 ChangedRecommendation({
                   value: interviewRecommendations.find((choice) => choice === value) ?? null,
@@ -649,6 +661,7 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
         ] as const
       ).map(([axis, label]) => {
         const field = model.score[axis];
+
         return h.div(
           [h.Class("fs-score__field fs-field min-w-0")],
           [
@@ -658,7 +671,7 @@ const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Messag
                 h.Id(`score-${axis}`),
                 h.Class("fs-input"),
                 h.Value(field.value),
-                h.Disabled(model.isConducting || model.conduct._tag === "Refreshing" || isTerminal),
+                h.Disabled(model.isConducting || Predicate.isTagged(model.conduct, "Refreshing") || isTerminal),
                 h.OnChange((value) => ChangedScore({ axis, value })),
               ],
               [
@@ -695,7 +708,7 @@ const conductDetailView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
 
 const historyAnswer = (
   answer: RecruitmentInterviewConductObservation["answers"][number],
-): string => (typeof answer.answer === "string" ? answer.answer : answer.answer.join(", "));
+): string => (Predicate.isString(answer.answer) ? answer.answer : answer.answer.join(", "));
 
 const correctionHistoryView = (
   detail: RecruitmentInterviewConductObservation,
@@ -707,10 +720,11 @@ const correctionHistoryView = (
       h.h3([h.Id("fs-history-title"), h.Class("fs-label")], ["Vurderingshistorikk"]),
       h.p([h.Class("fs-field-hint")], ["Historikken er skrivebeskyttet."]),
       ...detail.history.map((entry, index) => {
-        const original = entry._tag === "Original";
+        const original = Predicate.isTagged(entry, "Original");
         const actor = original ? entry.finalizedByPersonId : entry.correctedByPersonId;
         const timestamp = original ? entry.finalizedAt : entry.correctedAt;
         const label = original ? "Original vurdering" : "Korrigering";
+
         return h.article(
           [h.Class("fs-history__entry"), h.AriaLabelledBy(`fs-history-entry-${index}`)],
           [
@@ -738,6 +752,7 @@ const correctionHistoryView = (
                       const question = detail.questions.find(
                         (candidate) => candidate.questionId === answer.questionId,
                       );
+
                       return h.p(
                         [h.Class("fs-history__answer")],
                         [`${question?.prompt ?? answer.questionId}: ${historyAnswer(answer)}`],
@@ -806,12 +821,14 @@ const conductSuccessView = (
   h: HtmlBuilder<Message>,
 ): Html => {
   const applicantName = `${detail.applicant.firstName} ${detail.applicant.lastName}`.trim();
+
   const terminal =
     detail.completionState === "Completed"
       ? "Completed"
       : detail.cancellationState === "Cancelled"
         ? "Cancelled"
         : null;
+
   return h.section(
     [h.Class("fs-conduct fs-board mt-4 grid gap-6 p-4"), h.AriaLabelledBy("fs-conduct-title")],
     [
@@ -828,11 +845,11 @@ const conductSuccessView = (
           h.span(
             [h.Class("fs-status fs-status--scheduled")],
             [
-              terminal === "Completed"
-                ? "Fullført"
-                : terminal === "Cancelled"
-                  ? "Avlyst"
-                  : "Klar til gjennomføring",
+              Match.value(terminal).pipe(
+Match.when("Completed", () => ("Fullført")),
+Match.when("Cancelled", () => ("Avlyst")),
+Match.orElse(() => ("Klar til gjennomføring"))
+),
             ],
           ),
         ],
@@ -920,23 +937,14 @@ const conductSuccessView = (
   );
 };
 
-const conductFailureMessage = (failure: {
-  readonly _tag: string;
-  readonly message: string;
-}): string => {
-  switch (failure._tag) {
-    case "Unauthorized":
-    case "Forbidden":
-      return "Du har ikke tilgang til intervjuet.";
-    case "NotFound":
-      return "Intervjuet finnes ikke lenger.";
-    case "Conflict":
-      return "Intervjuet er endret. Velg intervjuet på nytt.";
-    case "Validation":
-      return "Intervjuet inneholdt ugyldige data.";
-    default:
-      return "Intervjuet er midlertidig utilgjengelig. Prøv igjen senere.";
-  }
+const conductFailureMessage = (failure: RecruitmentBridgeFailure): string => {
+  return Match.value(failure).pipe(
+Match.tag("Unauthorized", "Forbidden", () => {return "Du har ikke tilgang til intervjuet.";}),
+Match.tag("NotFound", () => {return "Intervjuet finnes ikke lenger.";}),
+Match.tag("Conflict", () => {return "Intervjuet er endret. Velg intervjuet på nytt.";}),
+Match.tag("Validation", () => {return "Intervjuet inneholdt ugyldige data.";}),
+Match.orElse(() => {return "Intervjuet er midlertidig utilgjengelig. Prøv igjen senere.";})
+);
 };
 
 const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
@@ -957,21 +965,21 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                     h.h2(
                       [...title],
                       [
-                        model.pendingConductAction === "Finalize"
-                          ? "Fullfør intervjuet?"
-                          : model.pendingConductAction === "Correct"
-                            ? "Rette intervjuet?"
-                            : "Avlys intervjuet?",
+                        Match.value(model).pipe(
+Match.when({ pendingConductAction: "Finalize" }, () => ("Fullfør intervjuet?")),
+Match.when({ pendingConductAction: "Correct" }, () => ("Rette intervjuet?")),
+Match.orElse(() => ("Avlys intervjuet?"))
+),
                       ],
                     ),
                     h.p(
                       [...description],
                       [
-                        model.pendingConductAction === "Finalize"
-                          ? "Svarene og scorene lagres som endelig resultat."
-                          : model.pendingConductAction === "Correct"
-                            ? "Den nye vurderingen lagres som en ny versjon."
-                            : "Intervjuet markeres som avlyst. Dette kan ikke angres.",
+                        Match.value(model).pipe(
+Match.when({ pendingConductAction: "Finalize" }, () => ("Svarene og scorene lagres som endelig resultat.")),
+Match.when({ pendingConductAction: "Correct" }, () => ("Den nye vurderingen lagres som en ny versjon.")),
+Match.orElse(() => ("Intervjuet markeres som avlyst. Dette kan ikke angres."))
+),
                       ],
                     ),
                     h.div(
@@ -1000,11 +1008,11 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                                   h.Class("fs-button fs-button--primary"),
                                 ],
                                 [
-                                  model.pendingConductAction === "Finalize"
-                                    ? "Fullfør intervju"
-                                    : model.pendingConductAction === "Correct"
-                                      ? "Rett intervju"
-                                      : "Avlys intervju",
+                                  Match.value(model).pipe(
+Match.when({ pendingConductAction: "Finalize" }, () => ("Fullfør intervju")),
+Match.when({ pendingConductAction: "Correct" }, () => ("Rett intervju")),
+Match.orElse(() => ("Avlys intervju"))
+),
                                 ],
                               ),
                           },
@@ -1061,4 +1069,4 @@ const invalidInputView = (h: HtmlBuilder<Message>): Html =>
   );
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
-  model._tag === "Ready" ? readyView(model, h) : invalidInputView(h);
+  Predicate.isTagged(model, "Ready") ? readyView(model, h) : invalidInputView(h);

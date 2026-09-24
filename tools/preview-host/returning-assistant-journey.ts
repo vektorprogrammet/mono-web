@@ -1,3 +1,14 @@
+import { type RecruitmentInvitationDeliveryResult } from "../../packages/database/src/recruitment/index.js";
+import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
+import {
+  RecruitmentInterviewResource,
+  ScheduleInterviewResponse,
+  FinalizeInterviewResponse,
+} from "../../packages/http-api/src/v2-schemas.js";
+import {
+  RecruitmentInterviewConductObservationSchema,
+  RecruitmentInvitationResponseObservationSchema,
+} from "../../packages/domain/src/recruitment/schema.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -7,6 +18,7 @@ import type { Browser, Locator, Page } from "@playwright/test";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
 import { publicApplicationCommandDigest } from "../../packages/domain/src/application/digest.js";
 import {
+  SubmitPublicApplicationCommandSchema,
   PublicApplicationCommandIdSchema,
   PublicApplicationEmailSchema,
   PublicApplicationGenderSchema,
@@ -15,6 +27,7 @@ import {
   PublicApplicationYearOfStudySchema,
 } from "../../packages/domain/src/application/schema.js";
 import { DepartmentId } from "../../packages/domain/src/organization/schema.js";
+import { Match, Predicate, Schema } from "effect";
 
 const person = {
   personId: "journey-returning-assistant-0104",
@@ -23,38 +36,58 @@ const person = {
   email: "rita.returning@example.invalid",
   password: "returning-e2e-0104-password",
 } as const;
+
 const departmentId = "department-native-conduct-0063";
+
 const semesterId = "semester-native-conduct-0063";
+
 const admissionPeriodId = "admission-period-native-conduct-0063";
+
 const nextSemesterId = "semester-returning-next-0104";
+
 const historicalDepartmentId = "department-returning-history-0104";
+
 const historicalSemesterId = "semester-returning-history-0104";
+
 const nextAdmissionPeriodId = "admission-period-returning-next-0104";
+
 const fieldOfStudyId = "field-native-conduct-0063";
+
 const applicantId = "applicant-returning-0104";
+
 const applicationId = "application-returning-0104";
+
 const invitationId = "invitation-returning-0104";
+
 const originalPublicCommandId = "public-original-returning-0104";
+
 const originalActivationDigest = createHash("sha256")
   .update("historical-public-activation-returning-0104")
   .digest("hex");
-const originalPublicCommand = {
-  _tag: "SubmitPublicApplication" as const,
-  commandId: PublicApplicationCommandIdSchema.make(originalPublicCommandId),
-  departmentId: DepartmentId.make(departmentId),
-  firstName: PublicApplicationNameSchema.make("Rita"),
-  lastName: PublicApplicationNameSchema.make("Tilbake"),
-  phone: PublicApplicationPhoneSchema.make("90000104"),
-  email: PublicApplicationEmailSchema.make("rita.returning@example.invalid"),
-  gender: PublicApplicationGenderSchema.make(0),
-  fieldOfStudyId: AdmissionFieldOfStudyId.make(fieldOfStudyId),
-  yearOfStudy: PublicApplicationYearOfStudySchema.make(2),
-} as const;
+
+const originalPublicCommand =
+  SubmitPublicApplicationCommandSchema.cases.SubmitPublicApplication.make({
+    commandId: PublicApplicationCommandIdSchema.make(originalPublicCommandId),
+    departmentId: DepartmentId.make(departmentId),
+    firstName: PublicApplicationNameSchema.make("Rita"),
+    lastName: PublicApplicationNameSchema.make("Tilbake"),
+    phone: PublicApplicationPhoneSchema.make("90000104"),
+    email: PublicApplicationEmailSchema.make("rita.returning@example.invalid"),
+    gender: PublicApplicationGenderSchema.make(0),
+    fieldOfStudyId: AdmissionFieldOfStudyId.make(fieldOfStudyId),
+    yearOfStudy: PublicApplicationYearOfStudySchema.make(2),
+  });
+
 const originalPublicCommandDigest = publicApplicationCommandDigest(originalPublicCommand);
+
 const placementId = `placement-${"f".repeat(64)}`;
+
 const teamId = "team-native-conduct-0063";
+
 const foreignDepartmentId = "department-returning-foreign-0104";
+
 const foreignTeamId = "team-returning-foreign-0104";
+
 const negativeProbePersons = [
   {
     personId: "journey-returning-no-placement-0104",
@@ -121,11 +154,10 @@ export const seedReturningAssistant = async ({
     join(root, "packages/database"),
   );
   const client = await pool.connect();
+
   const seedQuery = async (label: string, text: string, values?: unknown[]) => {
     try {
-      return values === undefined
-        ? await client.query(text)
-        : await client.query(text, values as any[]);
+      return values === undefined ? await client.query(text) : await client.query(text, values);
     } catch (cause) {
       throw new Error(
         `returning seed ${label}: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -133,6 +165,7 @@ export const seedReturningAssistant = async ({
       );
     }
   };
+
   try {
     await client.query("BEGIN");
     await seedQuery(
@@ -261,6 +294,7 @@ export const seedReturningAssistant = async ({
        VALUES($1,$2,'2026-01-03T00:00:00Z',$3) ON CONFLICT DO NOTHING`,
       [applicantId, person.personId, invitationId],
     );
+
     const negativeApplicants = [
       {
         applicantId: "applicant-returning-no-placement-0104",
@@ -291,6 +325,7 @@ export const seedReturningAssistant = async ({
         applicationId: "application-returning-multi-b-0104",
       },
     ] as const;
+
     for (const [index, negative] of negativeApplicants.entries()) {
       await seedQuery(
         `negative applicant ${index}`,
@@ -329,6 +364,7 @@ export const seedReturningAssistant = async ({
         [negative.applicantId, negative.personId, negativeInvitation],
       );
     }
+
     await seedQuery(
       "no-placement affiliation",
       `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision)
@@ -346,10 +382,12 @@ export const seedReturningAssistant = async ({
       `INSERT INTO public.schools_directory_schools(name,contact_person,email,phone,language,active,revision)
        VALUES('Returning School','School Contact','school-returning@example.invalid','+47 900000106','Norwegian',true,0) ON CONFLICT DO NOTHING`,
     );
+
     const school = await seedQuery(
       "school lookup",
       "SELECT school_id FROM public.schools_directory_schools WHERE name='Returning School'",
     );
+
     assert.equal(school.rows.length, 1);
     await seedQuery(
       "school department",
@@ -444,6 +482,7 @@ export const seedReturningAssistant = async ({
   } finally {
     client.release();
   }
+
   const counts = await pool.query(
     `SELECT (SELECT count(*)::int FROM public.applicant_account_links WHERE person_id=$1) links,
             (SELECT count(*)::int FROM public.assistant_placements WHERE person_id=$1) placements,
@@ -451,6 +490,7 @@ export const seedReturningAssistant = async ({
             (SELECT count(*)::int FROM public.organization_teams WHERE team_id=$3 AND department_id=$2) foreign_teams`,
     [person.personId, foreignDepartmentId, foreignTeamId],
   );
+
   assert.deepEqual(counts.rows[0], {
     links: 1,
     placements: 2,
@@ -486,12 +526,10 @@ export const runReturningAssistantBrowserJourney = async ({
   readonly coordinatorEmail: string;
   readonly coordinatorPassword: string;
   readonly readInvitationCapability?: (interviewId: string) => string | undefined;
-  readonly deliverRecruitmentInvitation?: (claimId: string) => Promise<{
-    readonly _tag: "Delivered" | "Idle" | "Failed";
-    readonly claim?: { readonly effectId: string };
-  }>;
+  readonly deliverRecruitmentInvitation?: (claimId: string) => Promise<RecruitmentInvitationDeliveryResult>;
 }) => {
-  const trace: Array<Record<string, unknown>> = [];
+  const trace: Array<Schema.JsonObject> = [];
+
   try {
     stage?.("returning:browser.newContext");
     const context = await browser.newContext();
@@ -500,6 +538,7 @@ export const runReturningAssistantBrowserJourney = async ({
     const returning = await context.newPage();
     returning.on("request", (request) => {
       const url = new URL(request.url());
+
       if (
         url.pathname.includes("/dashboard/tidligere-assistenter") ||
         url.pathname.includes("/api/returning-assistant/") ||
@@ -514,6 +553,7 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     returning.on("response", async (response) => {
       const url = new URL(response.url());
+
       if (
         !url.pathname.includes("/dashboard/tidligere-assistenter") &&
         !url.pathname.includes("/api/returning-assistant/") &&
@@ -521,22 +561,27 @@ export const runReturningAssistantBrowserJourney = async ({
       )
         return;
       let code = "unknown";
+
       if (url.pathname.endsWith(".data")) {
         const body = await response.text().catch(() => "");
+
         try {
           const value: unknown = JSON.parse(body);
+
           if (
             value !== null &&
-            typeof value === "object" &&
+            (value === null || Predicate.isObjectOrArray(value)) &&
             "code" in value &&
-            typeof value.code === "string"
+            Predicate.isString(value.code)
           )
             code = value.code;
         } catch {}
       }
+
       responses.push(`response ${response.status()} ${url.pathname} code=${code}`);
     });
     returning.on("pageerror", (error: Error) => errors.push(`returning:${error.message}`));
+
     const captureReturningFailure = async (phase: string, cause: unknown): Promise<never> => {
       const markup = await returning.content().catch(() => "<unavailable>");
       await writeFile(
@@ -547,7 +592,7 @@ export const runReturningAssistantBrowserJourney = async ({
         path: join(artifacts, `returning-${phase}-failure.png`),
         fullPage: true,
       });
-      const kind = cause instanceof Error ? cause.name : typeof cause;
+      const kind = cause instanceof Error ? cause.name : Object.prototype.toString.call(cause);
       const causeMessage = cause instanceof Error ? cause.message : String(cause);
       await writeFile(
         join(artifacts, "returning-registration-trace.json"),
@@ -558,13 +603,16 @@ export const runReturningAssistantBrowserJourney = async ({
         { cause },
       );
     };
+
     returning.on("request", (request) => {
       const url = new URL(request.url());
+
       if (
         request.method() === "POST" &&
         url.pathname.startsWith("/dashboard/tidligere-assistenter")
       ) {
         const body = new URLSearchParams(request.postData() ?? "");
+
         const row = {
           phase: "dashboard-post",
           form: [...body.entries()],
@@ -572,6 +620,7 @@ export const runReturningAssistantBrowserJourney = async ({
           expectedRevision: body.get("expectedRevision"),
           commandId: body.get("commandId"),
         };
+
         trace.push(row);
         responses.push(
           `dashboard POST request period=${row.admissionPeriodId} expectedRevision=${row.expectedRevision} commandId=${row.commandId}`,
@@ -580,6 +629,7 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     const destination = "/dashboard/tidligere-assistenter";
     stage?.("returning:login");
+
     try {
       await returning.goto(`${ui}/login?redirectTo=${encodeURIComponent(destination)}`);
       await returning.getByLabel("E-post", { exact: true }).fill(person.email);
@@ -591,16 +641,20 @@ export const runReturningAssistantBrowserJourney = async ({
     } catch (cause) {
       await captureReturningFailure("login", cause);
     }
+
     const cookieHeader = (await context.cookies())
       .map((cookie) => `${cookie.name}=${cookie.value}`)
       .join("; ");
+
     const optionsResponse = await context.request.get(`${api}/api/returning-assistant/options`, {
       headers: { origin: ui, accept: "application/json", cookie: cookieHeader },
     });
+
     const waitForDashboardAction = async (periodId: string, trigger: () => Promise<void>) => {
       const responsePromise = returning.waitForResponse(
         (response) => {
           const url = new URL(response.url());
+
           if (
             response.request().method() !== "POST" ||
             !["/dashboard/tidligere-assistenter", "/dashboard/tidligere-assistenter.data"].includes(
@@ -609,15 +663,18 @@ export const runReturningAssistantBrowserJourney = async ({
           )
             return false;
           const body = new URLSearchParams(response.request().postData() ?? "");
+
           return body.get("admissionPeriodId") === periodId;
         },
         { timeout: 30_000 },
       );
+
       await trigger();
       const response = await responsePromise;
       await response.finished();
       assert.equal(response.status(), 200);
       const body = new URLSearchParams(response.request().postData() ?? "");
+
       return {
         phase: "dashboard-post",
         form: [...body.entries()],
@@ -626,6 +683,7 @@ export const runReturningAssistantBrowserJourney = async ({
         commandId: body.get("commandId"),
       };
     };
+
     const waitForActionReady = async (form: Locator) => {
       for (let attempt = 0; attempt < 100; attempt += 1) {
         if (
@@ -635,9 +693,12 @@ export const runReturningAssistantBrowserJourney = async ({
           return;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
+
       throw new Error("returning form did not become ready for action");
     };
+
     responses.push(`context.request options ${optionsResponse.status()}`);
+
     const negativeMutationSnapshot = async (personId: string) =>
       (
         await pool.query(
@@ -648,6 +709,7 @@ export const runReturningAssistantBrowserJourney = async ({
           [personId],
         )
       ).rows[0];
+
     const probeNegativeOptions = async (
       gate: string,
       probePerson: (typeof negativeProbePersons)[number],
@@ -658,6 +720,7 @@ export const runReturningAssistantBrowserJourney = async ({
         headers: { origin: ui, "content-type": "application/json" },
         body: JSON.stringify({ email: probePerson.email, password: probePerson.password }),
       });
+
       for (let retry = 0; signIn.status === 429 && retry < 30; retry += 1) {
         const cooldown = Promise.withResolvers<void>();
         setTimeout(cooldown.resolve, 1_000);
@@ -668,22 +731,27 @@ export const runReturningAssistantBrowserJourney = async ({
           body: JSON.stringify({ email: probePerson.email, password: probePerson.password }),
         });
       }
+
       assert.equal(signIn.status, 200, `${gate} sign-in`);
       const cookie = signIn.headers.get("set-cookie")?.match(/^([^=;]+=[^;]+)/u)?.[1];
       assert.ok(cookie, `${gate} session cookie`);
       const before = await negativeMutationSnapshot(probePerson.personId);
+
       const response = await fetch(`${api}/api/returning-assistant/options`, {
         headers: { origin: ui, accept: "application/json", cookie },
       });
+
       const body = await response.text();
       assert.equal(response.status, expectedStatus, `${gate} status body=${body}`);
       const after = await negativeMutationSnapshot(probePerson.personId);
+
       if (JSON.stringify(after) !== JSON.stringify(before))
         throw new Error(
           `${gate} must not mutate before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
         );
       trace.push({ phase: "negative-gate", gate, status: response.status, body });
     };
+
     await probeNegativeOptions("no-placement-despite-affiliation", negativeProbePersons[0], 404);
     await probeNegativeOptions("missing-applicant-person-link", negativeProbePersons[1], 404);
     await probeNegativeOptions("multiple-applicant-person-links", negativeProbePersons[2], 409);
@@ -691,6 +759,7 @@ export const runReturningAssistantBrowserJourney = async ({
       "UPDATE public.admission_period_fields_of_study SET active=false WHERE field_of_study_id=$1",
       [fieldOfStudyId],
     );
+
     try {
       await probeNegativeOptions("inactive-study-mapping", negativeProbePersons[3], 409);
     } finally {
@@ -699,6 +768,7 @@ export const runReturningAssistantBrowserJourney = async ({
         [fieldOfStudyId],
       );
     }
+
     const mappingKey = await pool.query(
       `SELECT to_jsonb(array_agg(a.attname::text ORDER BY k.ordinality)) AS columns
      FROM pg_index i
@@ -707,7 +777,9 @@ export const runReturningAssistantBrowserJourney = async ({
      WHERE i.indrelid='public.admission_period_fields_of_study'::regclass AND i.indisprimary
      GROUP BY i.indexrelid`,
     );
+
     const expectedMappingKey = [{ columns: ["field_of_study_id"] }];
+
     if (JSON.stringify(mappingKey.rows) !== JSON.stringify(expectedMappingKey))
       throw new Error(
         `ambiguous-study-mapping structural key mismatch actual=${JSON.stringify(mappingKey.rows)} expected=${JSON.stringify(expectedMappingKey)}`,
@@ -717,15 +789,19 @@ export const runReturningAssistantBrowserJourney = async ({
       gate: "ambiguous-study-mapping-structural-primary-key",
       status: "proven",
     });
+
     const browserOptions = await returning.evaluate(async (endpoint) => {
       const response = await fetch(endpoint, {
         credentials: "include",
         headers: { accept: "application/json" },
       });
+
       return { status: response.status };
     }, `${api}/api/returning-assistant/options`);
+
     assert.equal(browserOptions.status, 200);
     trace.push({ phase: "options-probe", status: browserOptions.status });
+
     const originalCustody = await pool.query(
       `SELECT
        to_jsonb(application) - 'year_of_study' - 'revision' AS application_immutable,
@@ -752,18 +828,24 @@ export const runReturningAssistantBrowserJourney = async ({
      WHERE application.application_id=$1`,
       [applicationId],
     );
+
     assert.equal(originalCustody.rows.length, 1);
-    const originalCustodyRow = originalCustody.rows[0] as {
-      activation_digest: string;
-      public_receipts: ReadonlyArray<unknown>;
-      public_audit: ReadonlyArray<unknown>;
-    };
+
+    const originalCustodyRow = Schema.decodeUnknownSync(
+      Schema.Struct({
+        activation_digest: Schema.String,
+        public_receipts: Schema.Array(Schema.Json),
+        public_audit: Schema.Array(Schema.Json),
+      }),
+    )(originalCustody.rows[0]);
+
     assert.notEqual(originalCustodyRow.activation_digest, null);
     assert.notEqual(originalCustodyRow.activation_digest, "");
     assert.ok(originalCustodyRow.public_receipts.length > 0);
     assert.ok(originalCustodyRow.public_audit.length > 0);
     let form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
     stage?.("returning:form");
+
     try {
       await form
         .getByRole("combobox", { name: "Opptaksperiode" })
@@ -780,12 +862,14 @@ export const runReturningAssistantBrowserJourney = async ({
     } catch (cause) {
       await captureReturningFailure("form", cause);
     }
+
     let submit = form.locator('button[type="submit"]');
     let droppedResponse = false;
     let interceptedActions = 0;
     let firstCommandKey: string | undefined;
     let firstExpectedRevision: string | undefined;
     let routeFailure: string | undefined;
+
     const firstPayload = {
       admissionPeriodId: nextAdmissionPeriodId,
       expectedRevision: 0,
@@ -802,19 +886,25 @@ export const runReturningAssistantBrowserJourney = async ({
       teamInterest: true,
       teamIds: [teamId],
     } as const;
+
     const anonymousBefore = await negativeMutationSnapshot(person.personId);
+
     const anonymous = await fetch(`${api}/api/returning-assistant/options`, {
       headers: { origin: ui, accept: "application/json" },
     });
+
     assert.equal(anonymous.status, 401);
     assert.deepEqual(await negativeMutationSnapshot(person.personId), anonymousBefore);
     trace.push({ phase: "negative-gate", gate: "anonymous-options", status: anonymous.status });
+
     const foreignTeam = await pool.query(
       "SELECT team_id FROM public.organization_teams WHERE department_id<>$1 ORDER BY team_id LIMIT 1",
       [departmentId],
     );
+
     assert.equal(foreignTeam.rows.length, 1);
     const wrongTeamBefore = await negativeMutationSnapshot(person.personId);
+
     const wrongTeam = await context.request.post(`${api}/api/returning-assistant/registrations`, {
       headers: {
         "content-type": "application/json",
@@ -828,7 +918,8 @@ export const runReturningAssistantBrowserJourney = async ({
         teamIds: [foreignTeam.rows[0].team_id],
       },
     });
-    const wrongTeamBody = (await wrongTeam.json()) as { code?: string };
+
+    const wrongTeamBody = Schema.decodeUnknownSync(NativeProblem)(await wrongTeam.json());
     assert.equal(wrongTeam.status(), 403);
     assert.equal(wrongTeamBody.code, "returning.team-scope-denied");
     assert.deepEqual(await negativeMutationSnapshot(person.personId), wrongTeamBefore);
@@ -842,20 +933,25 @@ export const runReturningAssistantBrowserJourney = async ({
     let rejectFirstAction!: (cause: unknown) => void;
     let resolveSecondAction!: () => void;
     let rejectSecondAction!: (cause: unknown) => void;
+
     const firstActionSettled = new Promise<void>((resolve, reject) => {
       resolveFirstAction = resolve;
       rejectFirstAction = reject;
     });
+
     const secondActionSettled = new Promise<void>((resolve, reject) => {
       resolveSecondAction = resolve;
       rejectSecondAction = reject;
     });
+
     await returning.route("**/dashboard/tidligere-assistenter*", async (route) => {
       try {
         if (route.request().method() !== "POST") {
           await route.continue();
+
           return;
         }
+
         interceptedActions += 1;
         const formData = new URLSearchParams(route.request().postData() ?? "");
         const commandKey = formData.get("commandId");
@@ -876,19 +972,24 @@ export const runReturningAssistantBrowserJourney = async ({
         responses.push(
           `intercepted POST /dashboard/tidligere-assistenter.data phase=${phase} status=${status}`,
         );
+
         if (!droppedResponse) {
           droppedResponse = true;
           firstCommandKey = commandKey ?? undefined;
           firstExpectedRevision = expectedRevision ?? undefined;
+
           if (status < 200 || status >= 300) routeFailure = `first action status ${status}`;
           trace.push({ phase: "first-delivery", transport: "aborted", fetchedStatus: status });
           await response.body();
           await route.abort("failed");
           resolveFirstAction();
+
           return;
         }
+
         if (commandKey !== firstCommandKey || expectedRevision !== firstExpectedRevision)
           routeFailure = "retry payload identity changed";
+
         if (status < 200 || status >= 300) routeFailure = `retry action status ${status}`;
         await route.fulfill({ response });
         resolveSecondAction();
@@ -899,12 +1000,14 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     stage?.("returning:mutation");
     let firstCommittedRow: unknown;
+
     try {
       stage?.("returning:mutation:first:click");
       await submit.click();
       stage?.("returning:mutation:first:await");
       await firstActionSettled;
       stage?.("returning:mutation:first:settled");
+
       const firstCommittedBeforeRetry = await pool.query(
         `SELECT *
        FROM public.admission_returning_registrations
@@ -912,54 +1015,64 @@ export const runReturningAssistantBrowserJourney = async ({
        ORDER BY revision`,
         [person.personId, nextAdmissionPeriodId],
       );
+
       assert.ok(firstCommandKey);
       assert.equal(firstCommittedBeforeRetry.rows.length, 1);
       firstCommittedRow = firstCommittedBeforeRetry.rows[0];
       trace.push({ phase: "first-before-retry", sqlCommitted: firstCommittedBeforeRetry.rows });
       stage?.("returning:mutation:recovery");
       const recovery = returning.getByRole("button", { name: "Prøv igjen", exact: true });
+
       const hasRecoveryControl = await recovery
         .waitFor({ state: "visible", timeout: 5_000 })
         .then(() => true)
         .catch(() => false);
+
       const firstRequest = trace.find((entry) => entry.phase === "first");
       assert.ok(firstRequest && Array.isArray(firstRequest.form));
+
       const assertRecoveredIntent = async () => {
         let lastError: unknown;
+
         for (let attempt = 0; attempt < 50; attempt += 1) {
           try {
-            const restoredEntries = await form.evaluate(
-              (node) =>
-                [...new FormData(node as HTMLFormElement)].map(([name, value]) => [
-                  name,
-                  String(value),
-                ]),
-              undefined,
-            );
+            const restoredEntries = await form.evaluate((node) => {
+              if (!(node instanceof HTMLFormElement))
+                throw new Error("Expected the returning-assistant form");
+
+              return [...new FormData(node)].map(([name, value]) => [name, String(value)]);
+            }, undefined);
+
             if (JSON.stringify(restoredEntries) !== JSON.stringify(firstRequest.form))
               throw new Error(
                 `recovered form intent mismatch actual=${JSON.stringify(restoredEntries)} expected=${JSON.stringify(firstRequest.form)}`,
               );
             const recoveredCommandId = await form.locator('input[name="commandId"]').inputValue();
+
             if (recoveredCommandId !== firstCommandKey)
               throw new Error(
                 `recovered command id mismatch actual=${recoveredCommandId} expected=${firstCommandKey}`,
               );
+
             const recoveredRevision = await form
               .locator('input[name="expectedRevision"]')
               .inputValue();
+
             if (recoveredRevision !== firstExpectedRevision)
               throw new Error(
                 `recovered base revision mismatch actual=${recoveredRevision} expected=${firstExpectedRevision}`,
               );
+
             return;
           } catch (cause) {
             lastError = cause;
             await new Promise((resolve) => setTimeout(resolve, 100));
           }
         }
+
         throw lastError;
       };
+
       if (hasRecoveryControl) await recovery.click();
       form = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
       await form.waitFor({ state: "visible" });
@@ -976,9 +1089,11 @@ export const runReturningAssistantBrowserJourney = async ({
     } catch (cause) {
       await captureReturningFailure("submit", cause);
     }
+
     assert.equal(interceptedActions, 2);
     assert.equal(droppedResponse, true);
     assert.equal(routeFailure, undefined);
+
     const captureCommitted = async (phase: string, periodId: string) => {
       const committed = await pool.query(
         `SELECT *
@@ -987,12 +1102,14 @@ export const runReturningAssistantBrowserJourney = async ({
        ORDER BY revision`,
         [person.personId, periodId],
       );
+
       trace.push({ phase, sqlCommitted: committed.rows });
       await writeFile(
         join(artifacts, "returning-registration-trace.json"),
         JSON.stringify(trace, null, 2),
       );
     };
+
     const afterRetryCommitted = await pool.query(
       `SELECT *
      FROM public.admission_returning_registrations
@@ -1000,6 +1117,7 @@ export const runReturningAssistantBrowserJourney = async ({
      ORDER BY revision`,
       [person.personId, nextAdmissionPeriodId],
     );
+
     assert.equal(afterRetryCommitted.rows.length, 1);
     assert.deepEqual(afterRetryCommitted.rows[0], firstCommittedRow);
     await returning.unroute("**/dashboard/tidligere-assistenter*");
@@ -1025,6 +1143,7 @@ export const runReturningAssistantBrowserJourney = async ({
     await returning.waitForURL(
       new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${admissionPeriodId}$`),
     );
+
     for (
       let attempt = 0;
       attempt < 100 &&
@@ -1040,17 +1159,21 @@ export const runReturningAssistantBrowserJourney = async ({
     await reloaded.getByLabel("Ønsket skole (valgfritt)", { exact: true }).fill("");
     await reloaded.getByLabel("Jeg er interessert i teamarbeid", { exact: true }).uncheck();
     await reloaded.locator(`input[name="teamIds"][value="${teamId}"]`).uncheck();
+
     const nativePost = await waitForDashboardAction(admissionPeriodId, async () => {
       await waitForActionReady(reloaded);
       await reloaded.locator('button[type="submit"]').click();
     });
+
     assert.equal(nativePost.admissionPeriodId, admissionPeriodId);
     assert.equal(nativePost.expectedRevision, "0");
+
     try {
       await assertStatus(reloaded, "Registreringen er lagret.");
     } catch (cause) {
       await captureReturningFailure("existing-registration-status", cause);
     }
+
     await captureCommitted("existing-period-after-registration", admissionPeriodId);
 
     await returning.reload();
@@ -1065,43 +1188,54 @@ export const runReturningAssistantBrowserJourney = async ({
     await expectValue(existing.getByRole("combobox", { name: "Språk" }), "Norsk og engelsk");
     await existing.getByRole("combobox", { name: "Studieår" }).selectOption("3");
     await existing.getByRole("combobox", { name: "Språk" }).selectOption("Engelsk");
+
     const updatePost = await waitForDashboardAction(admissionPeriodId, async () => {
       await waitForActionReady(existing);
       await existing.getByRole("button", { name: "Lagre endringer" }).click();
     });
+
     assert.equal(updatePost.admissionPeriodId, admissionPeriodId);
     assert.equal(updatePost.expectedRevision, "1");
+
     try {
       await assertStatus(existing, "Registreringen er lagret.");
     } catch (cause) {
       await captureReturningFailure("update-status", cause);
     }
+
     await captureCommitted("existing-period-after-update", admissionPeriodId);
     await returning.reload();
     const updated = returning.getByRole("form", { name: "Registrer som tidligere assistent" });
     await expectValue(updated.getByRole("combobox", { name: "Opptaksperiode" }), admissionPeriodId);
     stage?.("returning:period-history");
     const periodSelector = updated.getByRole("combobox", { name: "Opptaksperiode" });
+
     const waitForPeriodUrl = async (periodId: string) => {
       await returning.waitForURL(
         new RegExp(`/dashboard/tidligere-assistenter\\?admissionPeriodId=${periodId}$`),
       );
     };
+
     const waitForPeriodForm = async (periodId: string) => {
       let actual = "";
+
       for (let attempt = 0; attempt < 100; attempt += 1) {
         const candidate = returning.getByRole("form", {
           name: "Registrer som tidligere assistent",
         });
+
         const selector = candidate.getByRole("combobox", { name: "Opptaksperiode" });
         actual = await selector.inputValue();
+
         if (actual === periodId && (await selector.isEnabled())) return candidate;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
+
       throw new Error(
         `period form did not settle actual=${JSON.stringify(actual)} expected=${JSON.stringify(periodId)}`,
       );
     };
+
     await periodSelector.selectOption(nextAdmissionPeriodId);
     await waitForPeriodUrl(nextAdmissionPeriodId);
     let periodForm = await waitForPeriodForm(nextAdmissionPeriodId);
@@ -1154,19 +1288,24 @@ export const runReturningAssistantBrowserJourney = async ({
     await periodForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
     const staleContext = await browser.newContext({ storageState: await context.storageState() });
     const staleReturning = await staleContext.newPage();
+
     try {
       await staleReturning.goto(
         `${ui}/dashboard/tidligere-assistenter?admissionPeriodId=${encodeURIComponent(nextAdmissionPeriodId)}`,
       );
+
       const staleForm = staleReturning.getByRole("form", {
         name: "Registrer som tidligere assistent",
       });
+
       await staleForm.waitFor({ state: "visible" });
       assert.equal(await staleForm.locator('input[name="expectedRevision"]').inputValue(), "1");
       await staleForm.getByRole("combobox", { name: "Studieår" }).selectOption("5");
+
       const staleSaveResponsePromise = staleReturning.waitForResponse(
         (response) => {
           const url = new URL(response.url());
+
           if (
             response.request().method() !== "POST" ||
             !["/dashboard/tidligere-assistenter", "/dashboard/tidligere-assistenter.data"].includes(
@@ -1174,6 +1313,7 @@ export const runReturningAssistantBrowserJourney = async ({
             )
           )
             return false;
+
           return (
             new URLSearchParams(response.request().postData() ?? "").get("admissionPeriodId") ===
             nextAdmissionPeriodId
@@ -1181,14 +1321,16 @@ export const runReturningAssistantBrowserJourney = async ({
         },
         { timeout: 30_000 },
       );
+
       await staleForm.getByRole("button", { name: "Lagre endringer" }).click();
       const staleSaveResponse = await staleSaveResponsePromise;
       await staleSaveResponse.finished();
       assert.equal(staleSaveResponse.status(), 200);
       const staleSavePost = new URLSearchParams(staleSaveResponse.request().postData() ?? "");
       assert.equal(staleSavePost.get("expectedRevision"), "1");
-      assert.equal(typeof staleSavePost.get("commandId"), "string");
+      assert.ok(Predicate.isString(staleSavePost.get("commandId")));
       assert.notEqual(staleSavePost.get("commandId"), "");
+
       const afterStaleSave = await pool.query(
         `SELECT revision,year_of_study
        FROM public.admission_returning_registrations
@@ -1197,10 +1339,13 @@ export const runReturningAssistantBrowserJourney = async ({
        LIMIT 1`,
         [person.personId, nextAdmissionPeriodId],
       );
+
       assert.deepEqual(afterStaleSave.rows, [{ revision: 2, year_of_study: 5 }]);
+
       const staleDraftResponsePromise = returning.waitForResponse(
         (response) => {
           const url = new URL(response.url());
+
           if (
             response.request().method() !== "POST" ||
             !["/dashboard/tidligere-assistenter", "/dashboard/tidligere-assistenter.data"].includes(
@@ -1208,6 +1353,7 @@ export const runReturningAssistantBrowserJourney = async ({
             )
           )
             return false;
+
           return (
             new URLSearchParams(response.request().postData() ?? "").get("admissionPeriodId") ===
             nextAdmissionPeriodId
@@ -1215,6 +1361,7 @@ export const runReturningAssistantBrowserJourney = async ({
         },
         { timeout: 30_000 },
       );
+
       await waitForActionReady(periodForm);
       await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
       const staleDraftResponse = await staleDraftResponsePromise;
@@ -1223,7 +1370,7 @@ export const runReturningAssistantBrowserJourney = async ({
       const staleDraftPost = new URLSearchParams(staleDraftResponse.request().postData() ?? "");
       const staleDraftCommandId = staleDraftPost.get("commandId");
       assert.equal(staleDraftPost.get("expectedRevision"), "1");
-      assert.equal(typeof staleDraftCommandId, "string");
+      assert.ok(Predicate.isString(staleDraftCommandId));
       assert.notEqual(staleDraftCommandId, "");
       assert.notEqual(staleDraftCommandId, staleSavePost.get("commandId"));
       await periodForm.getByRole("alert").filter({ hasText: "Alternativene er endret." }).waitFor();
@@ -1249,10 +1396,12 @@ export const runReturningAssistantBrowserJourney = async ({
       await expectValue(periodForm.getByRole("combobox", { name: "Studieår" }), "5");
       const recoveredCommandId = await periodForm.locator('input[name="commandId"]').inputValue();
       assert.equal(recoveredCommandId, "");
+
       const recoveredPost = await waitForDashboardAction(nextAdmissionPeriodId, async () => {
         await waitForActionReady(periodForm);
         await periodForm.getByRole("button", { name: "Lagre endringer" }).click();
       });
+
       assert.equal(recoveredPost.expectedRevision, "2");
       assert.notEqual(recoveredPost.commandId, staleDraftPost.get("commandId"));
       await assertStatus(periodForm, "Registreringen er lagret.");
@@ -1260,6 +1409,7 @@ export const runReturningAssistantBrowserJourney = async ({
       await staleReturning.close();
       await staleContext.close();
     }
+
     const nextPeriodRevision = await pool.query(
       `SELECT revision,year_of_study
      FROM public.admission_returning_registrations
@@ -1268,8 +1418,10 @@ export const runReturningAssistantBrowserJourney = async ({
      LIMIT 1`,
       [person.personId, nextAdmissionPeriodId],
     );
+
     assert.deepEqual(nextPeriodRevision.rows, [{ revision: 3, year_of_study: 5 }]);
     await auditPage(returning, "returning-registration");
+
     const finalCustody = await pool.query(
       `SELECT
        to_jsonb(application) - 'year_of_study' - 'revision' AS application_immutable,
@@ -1296,17 +1448,24 @@ export const runReturningAssistantBrowserJourney = async ({
      WHERE application.application_id=$1`,
       [applicationId],
     );
+
     const finalCustodyRow = finalCustody.rows[0];
     assert.ok(finalCustodyRow);
     assert.equal(finalCustodyRow.activation_digest, originalActivationDigest);
-    assert.ok((finalCustodyRow.public_receipts as ReadonlyArray<unknown>).length > 0);
-    assert.ok((finalCustodyRow.public_audit as ReadonlyArray<unknown>).length > 0);
+    assert.ok(
+      Schema.decodeUnknownSync(Schema.Array(Schema.Json))(finalCustodyRow.public_receipts).length >
+        0,
+    );
+    assert.ok(
+      Schema.decodeUnknownSync(Schema.Array(Schema.Json))(finalCustodyRow.public_audit).length > 0,
+    );
     assert.deepEqual(finalCustody.rows, originalCustody.rows);
     trace.push({
       phase: "negative-gate",
       gate: "preserved-original-receipt-activation-conduct",
       status: "observed",
     });
+
     const nextInterviews = await pool.query(
       `SELECT count(*)::int AS count
      FROM public.recruitment_interviews interview
@@ -1314,13 +1473,16 @@ export const runReturningAssistantBrowserJourney = async ({
      WHERE application.admission_period_id=$1`,
       [nextAdmissionPeriodId],
     );
+
     assert.deepEqual(nextInterviews.rows, [{ count: 0 }]);
     trace.push({ phase: "negative-gate", gate: "new-period-no-new-interview", status: "observed" });
+
     const ordinaryConduct = await pool.query(
       `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id='interview-native-conduct-a-0063'`,
     );
+
     if (ordinaryConduct.rows.length === 0) {
       await page.goto(`${ui}/dashboard/intervjuer`);
       await page.getByRole("heading", { name: "Planlegg intervjuer", exact: true }).waitFor();
@@ -1335,6 +1497,7 @@ export const runReturningAssistantBrowserJourney = async ({
       await page.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
       await page.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
       await page.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
+
       for (const axis of ["explanatoryPower", "roleModel", "suitability"])
         await page.locator(`#score-${axis}`).selectOption("8");
       await page.locator("#interviewer-recommendation").selectOption("Ja");
@@ -1346,11 +1509,13 @@ export const runReturningAssistantBrowserJourney = async ({
       await page.getByText("Intervjuet er fullført.", { exact: true }).waitFor();
       await page.reload();
     }
+
     const ordinaryAfter = await pool.query(
       `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id='interview-native-conduct-a-0063'`,
     );
+
     assert.deepEqual(ordinaryAfter.rows, [
       { recommendation: "Ja", explanatory_power: 8, role_model: 8, suitability: 8 },
     ]);
@@ -1360,6 +1525,7 @@ export const runReturningAssistantBrowserJourney = async ({
       recommendation: "Ja",
       total: 24,
     });
+
     const concurrent = await Promise.all([
       context.request.post(`${api}/api/returning-assistant/registrations`, {
         headers: {
@@ -1410,30 +1576,39 @@ export const runReturningAssistantBrowserJourney = async ({
         },
       }),
     ]);
+
     const concurrentDetails = await Promise.all(
       concurrent.map(async (response) => ({
         status: response.status(),
         body: await response.text(),
       })),
     );
+
     assert.deepEqual(
       concurrentDetails.map(({ status }) => status).sort((left, right) => left - right),
       [201, 412],
       JSON.stringify(concurrentDetails),
     );
+
     const concurrentRows = await pool.query(
       "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
       [person.personId, admissionPeriodId],
     );
+
     assert.deepEqual(concurrentRows.rows, [{ revision: 1 }, { revision: 2 }, { revision: 3 }]);
     stage?.("returning:next-period-assignment");
+
     const nextApplication = await pool.query(
       `SELECT application_id
      FROM public.admission_applications
      WHERE applicant_id=$1 AND admission_period_id=$2`,
       [applicantId, nextAdmissionPeriodId],
     );
-    const nextApplicationId = nextApplication.rows[0].application_id as string;
+
+    const nextApplicationId = Schema.decodeUnknownSync(Schema.String)(
+      nextApplication.rows[0].application_id,
+    );
+
     const assignmentActorContextBefore = await pool.query(
       `SELECT
          membership.membership_id,
@@ -1453,6 +1628,7 @@ export const runReturningAssistantBrowserJourney = async ({
        ORDER BY membership.membership_id`,
       ["journey-conduct-leader-0063"],
     );
+
     const assignmentPeriodContextBefore = await pool.query(
       `SELECT
          p.admission_period_id,
@@ -1469,12 +1645,16 @@ export const runReturningAssistantBrowserJourney = async ({
        ORDER BY p.admission_period_id`,
       [departmentId],
     );
+
     assert.equal(nextApplication.rows.length, 1);
+
     const assignmentPayload = {
       interviewerPersonId: "journey-conduct-leader-0063",
       interviewSchemaId: "interview-schema-native-conduct-0063",
     };
+
     const assignmentPath = `${api}/api/recruitment/applications/${encodeURIComponent(nextApplicationId)}/interviews`;
+
     const ambiguousAssignment = await page.request.post(assignmentPath, {
       headers: {
         "content-type": "application/json",
@@ -1483,6 +1663,7 @@ export const runReturningAssistantBrowserJourney = async ({
       },
       data: assignmentPayload,
     });
+
     const ambiguousBodyText = await ambiguousAssignment.text();
     trace.push({
       phase: "assignment-response",
@@ -1492,11 +1673,11 @@ export const runReturningAssistantBrowserJourney = async ({
       periodContextBefore: assignmentPeriodContextBefore.rows,
     });
     assert.equal(ambiguousAssignment.status(), 403, ambiguousBodyText);
-    const ambiguousBody = JSON.parse(ambiguousBodyText) as {
-      readonly code?: unknown;
-      readonly status?: unknown;
-    };
+
+    const ambiguousBody = Schema.decodeUnknownSync(NativeProblem)(JSON.parse(ambiguousBodyText));
+
     assert.equal(ambiguousBody.code, "authority.denied");
+
     const assignmentPeriodContext = await pool.query(
       `SELECT
        p.admission_period_id,
@@ -1512,6 +1693,7 @@ export const runReturningAssistantBrowserJourney = async ({
      ORDER BY p.admission_period_id`,
       [departmentId],
     );
+
     trace.push({
       phase: "negative-gate",
       gate: "next-assignment-requires-one-open-period",
@@ -1531,6 +1713,7 @@ export const runReturningAssistantBrowserJourney = async ({
       "UPDATE public.admission_periods SET end_at='2026-09-12T00:00:00Z' WHERE admission_period_id=$1",
       [admissionPeriodId],
     );
+
     const postClosePeriodContext = await pool.query(
       `SELECT
        p.admission_period_id,
@@ -1546,6 +1729,7 @@ export const runReturningAssistantBrowserJourney = async ({
      ORDER BY p.admission_period_id`,
       [departmentId],
     );
+
     assert.deepEqual(
       postClosePeriodContext.rows.map(
         (row: { admission_period_id: string; eligible_now: boolean }) => ({
@@ -1558,6 +1742,7 @@ export const runReturningAssistantBrowserJourney = async ({
         { admission_period_id: nextAdmissionPeriodId, eligible_now: true },
       ],
     );
+
     const resolvedCoordinator = await pool.query(
       `SELECT
        membership.person_id,
@@ -1580,6 +1765,7 @@ export const runReturningAssistantBrowserJourney = async ({
      ORDER BY membership.membership_id`,
       ["report-coordinator-0103"],
     );
+
     assert.deepEqual(resolvedCoordinator.rows, [
       {
         person_id: "report-coordinator-0103",
@@ -1606,6 +1792,7 @@ export const runReturningAssistantBrowserJourney = async ({
     let assignmentBodyText!: string;
     let assignmentETag!: string;
     let nextInterviewId!: string;
+
     try {
       stage?.("returning:next-period-assignment:coordinator-login");
       const coordinatorPage = await coordinatorContext.newPage();
@@ -1614,6 +1801,7 @@ export const runReturningAssistantBrowserJourney = async ({
       await coordinatorPage.getByLabel("Passord", { exact: true }).fill(coordinatorPassword);
       await coordinatorPage.getByRole("button", { name: "Logg inn", exact: true }).click();
       await coordinatorPage.waitForURL(/\/dashboard\/?$/);
+
       const assignmentResponse = await coordinatorPage.request.post(assignmentPath, {
         headers: {
           "content-type": "application/json",
@@ -1622,9 +1810,11 @@ export const runReturningAssistantBrowserJourney = async ({
         },
         data: assignmentPayload,
       });
+
       assignmentStatus = assignmentResponse.status();
       assignmentBodyText = await assignmentResponse.text();
       assignmentETag = assignmentResponse.headers()["etag"] ?? "";
+
       if (assignmentStatus !== 201) {
         const assignmentActorContext = await pool.query(
           `SELECT
@@ -1644,6 +1834,7 @@ export const runReturningAssistantBrowserJourney = async ({
          ORDER BY membership.membership_id`,
           ["report-coordinator-0103"],
         );
+
         trace.push({
           phase: "assignment-failure",
           status: assignmentStatus,
@@ -1654,19 +1845,22 @@ export const runReturningAssistantBrowserJourney = async ({
         });
         throw new Error(`next assignment failed ${assignmentStatus} ${assignmentBodyText}`);
       }
-      const assignmentBody = JSON.parse(assignmentBodyText) as {
-        interviewId?: string;
-        applicationId?: string;
-      };
+
+      const assignmentBody = Schema.decodeUnknownSync(RecruitmentInterviewResource)(
+        JSON.parse(assignmentBodyText),
+      );
+
       assert.equal(assignmentBody.applicationId, nextApplicationId);
-      assert.equal(typeof assignmentBody.interviewId, "string");
+      assert.ok(Predicate.isString(assignmentBody.interviewId));
       nextInterviewId = assignmentBody.interviewId!;
+
       const assignmentRow = await pool.query(
         `SELECT interview_id,application_id,interviewer_person_id,revision
        FROM public.recruitment_interviews
        WHERE interview_id=$1`,
         [nextInterviewId],
       );
+
       assert.deepEqual(assignmentRow.rows, [
         {
           interview_id: nextInterviewId,
@@ -1678,6 +1872,7 @@ export const runReturningAssistantBrowserJourney = async ({
       stage?.("returning:next-period-schedule");
       assert.ok(assignmentETag);
       const assignedETag = assignmentETag;
+
       const scheduleResponse = await coordinatorPage.request.post(
         `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}:schedule`,
         {
@@ -1696,18 +1891,19 @@ export const runReturningAssistantBrowserJourney = async ({
           },
         },
       );
+
       const scheduleBodyText = await scheduleResponse.text();
+
       if (scheduleResponse.status() !== 200) {
         throw new Error(
           `next interview schedule failed ${scheduleResponse.status()} ${scheduleBodyText}`,
         );
       }
-      const scheduleBody = JSON.parse(scheduleBodyText) as {
-        interviewId: string;
-        responseState: string;
-        notificationState: string;
-        schedule: { scheduleRevision: number; scheduledAt: string };
-      };
+
+      const scheduleBody = Schema.decodeUnknownSync(ScheduleInterviewResponse)(
+        JSON.parse(scheduleBodyText),
+      );
+
       assert.equal(scheduleBody.interviewId, nextInterviewId);
       assert.equal(scheduleBody.responseState, "Pending");
       assert.equal(scheduleBody.notificationState, "Pending");
@@ -1725,19 +1921,25 @@ export const runReturningAssistantBrowserJourney = async ({
     } finally {
       await coordinatorContext.close();
     }
+
     const deliverRecruitmentInvitationOnce = deliverRecruitmentInvitation;
     assert.ok(deliverRecruitmentInvitationOnce);
     stage?.("returning:next-period-invitation-delivery");
+
     const delivery = await deliverRecruitmentInvitationOnce(
       "returning-next-invitation-delivery-0104",
     );
+
     assert.equal(delivery._tag, "Delivered");
-    if (delivery._tag !== "Delivered" || delivery.claim === undefined)
+
+    if (!Predicate.isTagged(delivery, "Delivered") || delivery.claim === undefined)
       throw new Error(`next invitation delivery did not complete: ${delivery._tag}`);
+
     const deliveredInvitationOutbox = await pool.query(
       "SELECT status,attempts FROM public.recruitment_invitation_outbox WHERE effect_id=$1",
       [delivery.claim.effectId],
     );
+
     assert.deepEqual(deliveredInvitationOutbox.rows, [{ status: "Delivered", attempts: 1 }]);
     trace.push({
       phase: "returning:native-invitation-delivered",
@@ -1749,34 +1951,39 @@ export const runReturningAssistantBrowserJourney = async ({
     const invitationCapabilityReader = readInvitationCapability;
     assert.ok(invitationCapabilityReader);
     let invitationCapability: string | undefined;
+
     for (let attempt = 0; attempt < 120 && invitationCapability === undefined; attempt += 1) {
       invitationCapability = invitationCapabilityReader(nextInterviewId);
+
       if (invitationCapability === undefined)
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
+
     assert.ok(invitationCapability);
     stage?.("returning:next-period-invitation");
+
     const invitationHeaders = {
       "x-recruitment-invitation-capability": invitationCapability,
       origin: ui,
     };
+
     const invitationPendingResponse = await page.request.get(
       `${api}/api/recruitment/invitation-response`,
       { headers: invitationHeaders },
     );
+
     const invitationPendingText = await invitationPendingResponse.text();
+
     if (invitationPendingResponse.status() !== 200) {
       throw new Error(
         `next invitation read failed ${invitationPendingResponse.status()} ${invitationPendingText}`,
       );
     }
-    const invitationPending = JSON.parse(invitationPendingText) as {
-      scheduledAt: string;
-      room: string;
-      campus: string;
-      responseState: string;
-      responseMessage: string | null;
-    };
+
+    const invitationPending = Schema.decodeUnknownSync(
+      RecruitmentInvitationResponseObservationSchema,
+    )(JSON.parse(invitationPendingText));
+
     const invitationETag = invitationPendingResponse.headers()["etag"];
     assert.ok(invitationETag);
     assert.deepEqual(invitationPending, {
@@ -1786,6 +1993,7 @@ export const runReturningAssistantBrowserJourney = async ({
       responseState: "Pending",
       responseMessage: null,
     });
+
     const invitationConfirmResponse = await page.request.post(
       `${api}/api/recruitment/invitation-response:confirm`,
       {
@@ -1798,24 +2006,26 @@ export const runReturningAssistantBrowserJourney = async ({
         data: {},
       },
     );
+
     const invitationConfirmText = await invitationConfirmResponse.text();
+
     if (invitationConfirmResponse.status() !== 204) {
       throw new Error(
         `next invitation confirmation failed ${invitationConfirmResponse.status()} ${invitationConfirmText}`,
       );
     }
+
     const invitationAcceptedResponse = await page.request.get(
       `${api}/api/recruitment/invitation-response`,
       { headers: invitationHeaders },
     );
+
     assert.equal(invitationAcceptedResponse.status(), 200);
-    const invitationAccepted = JSON.parse(await invitationAcceptedResponse.text()) as {
-      scheduledAt: string;
-      room: string;
-      campus: string;
-      responseState: string;
-      responseMessage: string | null;
-    };
+
+    const invitationAccepted = Schema.decodeUnknownSync(
+      RecruitmentInvitationResponseObservationSchema,
+    )(JSON.parse(await invitationAcceptedResponse.text()));
+
     assert.deepEqual(invitationAccepted, {
       scheduledAt: "2026-09-20T10:00:00.000Z",
       room: "Returning Room 0104",
@@ -1831,23 +2041,19 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     stage?.("returning:next-period-finalization");
     const conductPath = `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}`;
+
     const conductResponse = await page.request.get(conductPath, {
       headers: { origin: ui },
     });
+
     assert.equal(conductResponse.status(), 200);
     const conductETag = conductResponse.headers()["etag"];
     assert.ok(conductETag);
-    const conductBefore = JSON.parse(await conductResponse.text()) as {
-      interviewId: string;
-      applicationId: string;
-      invitationResponse: string;
-      questions: Array<{ questionId: string; kind: string }>;
-      answers: unknown[];
-      score: unknown;
-      recommendation: string | null;
-      completionState: string;
-      revision: number;
-    };
+
+    const conductBefore = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
+      JSON.parse(await conductResponse.text()),
+    );
+
     assert.equal(conductBefore.interviewId, nextInterviewId);
     assert.equal(conductBefore.applicationId, nextApplicationId);
     assert.equal(conductBefore.invitationResponse, "Accepted");
@@ -1857,18 +2063,19 @@ export const runReturningAssistantBrowserJourney = async ({
     assert.equal(conductBefore.score, null);
     assert.equal(conductBefore.recommendation, null);
     assert.equal(conductBefore.questions.length, 4);
+
     const finalizeAnswers = conductBefore.questions.map((question) => ({
       questionId: question.questionId,
-      answer:
-        question.kind === "text"
-          ? "Jeg vil utvikle læringsopplegg sammen med andre."
-          : question.kind === "check"
-            ? ["Samarbeid"]
-            : question.kind === "list"
-              ? "Teknologi"
-              : "Praksis",
+      answer: Match.value(question.kind).pipe(
+        Match.when("text", () => "Jeg vil utvikle læringsopplegg sammen med andre." as const),
+        Match.when("check", () => ["Samarbeid"]),
+        Match.when("list", () => "Teknologi" as const),
+        Match.orElse(() => "Praksis" as const),
+      ),
     }));
+
     const finalizeKey = "returning-native-finalize-0104";
+
     const finalizeResponse = await page.request.post(`${conductPath}:finalize`, {
       headers: {
         "content-type": "application/json",
@@ -1882,33 +2089,34 @@ export const runReturningAssistantBrowserJourney = async ({
         recommendation: "Kanskje",
       },
     });
+
     const finalizeBodyText = await finalizeResponse.text();
+
     if (finalizeResponse.status() !== 200) {
       throw new Error(
         `native finalization failed ${finalizeResponse.status()} ${finalizeBodyText}`,
       );
     }
-    const finalizeBody = JSON.parse(finalizeBodyText) as {
-      interviewId: string;
-      finalizedAt: string;
-      completionState: string;
-      cancellationState: string;
-    };
+
+    const finalizeBody = Schema.decodeUnknownSync(FinalizeInterviewResponse)(
+      JSON.parse(finalizeBodyText),
+    );
+
     assert.equal(finalizeBody.interviewId, nextInterviewId);
     assert.match(finalizeBody.finalizedAt, /^\d{4}-\d{2}-\d{2}T/u);
     assert.equal(finalizeBody.completionState, "Completed");
     assert.equal(finalizeBody.cancellationState, "NotCancelled");
+
     const conductAfterResponse = await page.request.get(conductPath, {
       headers: { origin: ui },
     });
+
     assert.equal(conductAfterResponse.status(), 200);
-    const conductAfter = JSON.parse(await conductAfterResponse.text()) as {
-      answers: unknown[];
-      score: { explanatoryPower: number; roleModel: number; suitability: number } | null;
-      recommendation: string | null;
-      completionState: string;
-      revision: number;
-    };
+
+    const conductAfter = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
+      JSON.parse(await conductAfterResponse.text()),
+    );
+
     assert.equal(conductAfterResponse.headers()["etag"] !== conductETag, true);
     assert.equal(conductAfter.answers.length, 4);
     assert.deepEqual(conductAfter.score, { explanatoryPower: 9, roleModel: 9, suitability: 9 });
@@ -1926,27 +2134,33 @@ export const runReturningAssistantBrowserJourney = async ({
       recommendation: "Kanskje",
       scoreTotal: 27,
     });
+
     const finalizedConduct = await pool.query(
       `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id=$1`,
       [nextInterviewId],
     );
+
     assert.deepEqual(finalizedConduct.rows, [
       { recommendation: "Kanskje", explanatory_power: 9, role_model: 9, suitability: 9 },
     ]);
+
     const preservedConduct = await pool.query(
       `SELECT c.recommendation,c.explanatory_power,c.role_model,c.suitability
      FROM public.recruitment_interview_conducts c
      WHERE c.interview_id='interview-returning-0104'`,
     );
+
     assert.deepEqual(preservedConduct.rows, [
       { recommendation: "Ja", explanatory_power: 8, role_model: 8, suitability: 8 },
     ]);
+
     const registrations = await pool.query(
       "SELECT admission_period_id,revision,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids FROM public.admission_returning_registrations WHERE person_id=$1 ORDER BY admission_period_id,revision",
       [person.personId],
     );
+
     assert.deepEqual(registrations.rows, [
       {
         admission_period_id: admissionPeriodId,
@@ -2045,6 +2259,7 @@ export const runReturningAssistantBrowserJourney = async ({
         team_ids: [teamId],
       },
     ]);
+
     const provenance = await pool.query(
       `SELECT DISTINCT
        r.admission_period_id,
@@ -2059,6 +2274,7 @@ export const runReturningAssistantBrowserJourney = async ({
      ORDER BY r.admission_period_id`,
       [person.personId],
     );
+
     assert.deepEqual(provenance.rows, [
       {
         admission_period_id: admissionPeriodId,
@@ -2084,15 +2300,18 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     assert.ok(firstCommandKey);
     assert.ok(firstExpectedRevision !== undefined);
+
     const firstReplayPayload = {
       commandId: firstCommandKey,
       ...firstPayload,
       expectedRevision: Number(firstExpectedRevision),
     };
+
     const nextRevisionBeforeReplay = await pool.query(
       "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
       [person.personId, nextAdmissionPeriodId],
     );
+
     const exactReplay = await context.request.post(`${api}/api/returning-assistant/registrations`, {
       headers: {
         "content-type": "application/json",
@@ -2101,17 +2320,21 @@ export const runReturningAssistantBrowserJourney = async ({
       },
       data: firstReplayPayload,
     });
+
     assert.equal(exactReplay.status(), 201);
+
     const nextRevisionAfterReplay = await pool.query(
       "SELECT count(*)::int AS count FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2",
       [person.personId, nextAdmissionPeriodId],
     );
+
     assert.deepEqual(nextRevisionAfterReplay.rows, nextRevisionBeforeReplay.rows);
     const closedBefore = await negativeMutationSnapshot(person.personId);
     await pool.query(
       "UPDATE public.admission_periods SET end_at='2026-08-03T00:00:00Z' WHERE admission_period_id=$1",
       [nextAdmissionPeriodId],
     );
+
     try {
       const closedReplay = await context.request.post(
         `${api}/api/returning-assistant/registrations`,
@@ -2124,6 +2347,7 @@ export const runReturningAssistantBrowserJourney = async ({
           data: firstReplayPayload,
         },
       );
+
       assert.equal(closedReplay.status(), 409);
       assert.deepEqual(await negativeMutationSnapshot(person.personId), closedBefore);
       trace.push({ phase: "negative-gate", gate: "closed-period", status: closedReplay.status() });
@@ -2133,17 +2357,22 @@ export const runReturningAssistantBrowserJourney = async ({
         [nextAdmissionPeriodId],
       );
     }
+
     const returningOutbox = await pool.query(
       "SELECT effect_id,status,attempts FROM public.admission_application_outbox WHERE origin='ReturningAssistant' ORDER BY effect_id",
     );
+
     assert.equal(returningOutbox.rows.length, 18);
     const revokedBefore = await negativeMutationSnapshot(person.personId);
+
     const session = await pool.query(
       'SELECT count(*)::int AS count FROM auth.session WHERE "userId"=$1',
       [person.personId],
     );
+
     assert.equal(session.rows[0].count, 1);
     await pool.query('DELETE FROM auth.session WHERE "userId"=$1', [person.personId]);
+
     const revokedReplay = await context.request.post(
       `${api}/api/returning-assistant/registrations`,
       {
@@ -2155,6 +2384,7 @@ export const runReturningAssistantBrowserJourney = async ({
         data: firstReplayPayload,
       },
     );
+
     assert.equal(revokedReplay.status(), 401);
     assert.deepEqual(await negativeMutationSnapshot(person.personId), revokedBefore);
     trace.push({
@@ -2165,23 +2395,27 @@ export const runReturningAssistantBrowserJourney = async ({
     stage?.("returning:report");
     const reportContext = await browser.newContext();
     const reportPage = await reportContext.newPage();
+
     try {
       await reportPage.goto(`${ui}/login`);
       await reportPage.getByLabel("E-post", { exact: true }).fill(coordinatorEmail);
       await reportPage.getByLabel("Passord", { exact: true }).fill(coordinatorPassword);
       await reportPage.getByRole("button", { name: "Logg inn", exact: true }).click();
       await reportPage.waitForURL(/\/dashboard\/?$/);
+
       const reportRows = async (periodId: string) => {
         await reportPage.goto(
           `${ui}/dashboard/intervjuer/rapport?admissionPeriodId=${encodeURIComponent(periodId)}`,
         );
         await reportPage.getByRole("heading", { level: 1, name: "Fullførte intervjuer" }).waitFor();
+
         return reportPage
           .locator("tbody tr")
           .evaluateAll((rows) =>
             rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
           );
       };
+
       const currentReportRows = await reportRows(admissionPeriodId);
       const currentRita = currentReportRows.find((row) => row.includes("Rita Tilbake"));
       assert.ok(currentRita);
@@ -2224,11 +2458,13 @@ export const runReturningAssistantBrowserJourney = async ({
       assert.match(nextRita, /9/u);
       assert.match(nextRita, /27/u);
       await reportPage.reload();
+
       const reloadedNextRows = await reportPage
         .locator("tbody tr")
         .evaluateAll((rows) =>
           rows.map((row) => (row.textContent ?? "").replace(/\s+/gu, " ").trim()),
         );
+
       assert.deepEqual(reloadedNextRows, nextReportRows);
       await auditPage(reportPage, "returning-report-next-period-finalized");
       await reportPage.screenshot({
@@ -2246,6 +2482,7 @@ export const runReturningAssistantBrowserJourney = async ({
       JSON.stringify(trace, null, 2),
     );
   }
+
   return { trace };
 };
 
@@ -2263,6 +2500,7 @@ export const runReturningAssistantLoginProbe = async ({
   const context = await browser.newContext();
   const probe = await context.newPage();
   const events: string[] = [];
+
   const dbSnapshot = async (label: string) => ({
     label,
     activity: (
@@ -2281,13 +2519,16 @@ export const runReturningAssistantLoginProbe = async ({
       )
     ).rows,
   });
+
   probe.on("request", (request) => {
     const url = new URL(request.url());
+
     if (url.pathname.includes("/login") || url.pathname.includes("/api/auth/"))
       events.push(`request ${request.method()} ${url.pathname}`);
   });
   probe.on("response", (response) => {
     const url = new URL(response.url());
+
     if (url.pathname.includes("/login") || url.pathname.includes("/api/auth/"))
       events.push(`response ${response.status()} ${url.pathname}`);
   });
@@ -2301,6 +2542,7 @@ export const runReturningAssistantLoginProbe = async ({
   await probe.getByLabel("Passord", { exact: true }).fill(person.password);
   await probe.screenshot({ path: join(artifacts, "returning-login-before.png"), fullPage: true });
   let click = "not-started";
+
   try {
     await probe.getByRole("button", { name: "Logg inn", exact: true }).click({
       timeout: 10_000,
@@ -2308,16 +2550,19 @@ export const runReturningAssistantLoginProbe = async ({
     });
     click = "resolved";
   } catch (cause) {
-    click = `error:${cause instanceof Error ? cause.name : typeof cause}`;
+    click = `error:${cause instanceof Error ? cause.name : Object.prototype.toString.call(cause)}`;
   }
+
   const afterClick = await dbSnapshot("after-click");
   let navigation = "not-started";
+
   try {
     await probe.waitForURL(/\/dashboard\/tidligere-assistenter$/, { timeout: 10_000 });
     navigation = "dashboard";
   } catch (cause) {
-    navigation = `error:${cause instanceof Error ? cause.name : typeof cause}`;
+    navigation = `error:${cause instanceof Error ? cause.name : Object.prototype.toString.call(cause)}`;
   }
+
   const afterNavigation = await dbSnapshot("after-navigation");
   await probe.screenshot({ path: join(artifacts, "returning-login-after.png"), fullPage: true });
   const html = await probe.content().catch(() => "<unavailable>");
@@ -2325,6 +2570,7 @@ export const runReturningAssistantLoginProbe = async ({
     join(artifacts, "returning-login-probe.html"),
     html.replaceAll(person.email, "[redacted]").replaceAll(person.password, "[redacted]"),
   );
+
   const result = {
     click,
     navigation,
@@ -2334,16 +2580,20 @@ export const runReturningAssistantLoginProbe = async ({
     afterNavigation,
     url: probe.url(),
   };
+
   await writeFile(join(artifacts, "returning-login-probe.json"), JSON.stringify(result, null, 2));
   await context.close();
+
   return result;
 };
 
 const assertStatus = async (form: Locator, expected: string) => {
   await form.getByRole("status").filter({ hasText: expected }).waitFor();
 };
+
 const expectValue = async (field: Locator, expected: string) => {
   const actual = await field.inputValue();
+
   if (actual !== expected) {
     throw new Error(
       `field value mismatch actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`,

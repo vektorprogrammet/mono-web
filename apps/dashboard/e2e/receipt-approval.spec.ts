@@ -18,18 +18,31 @@ import {
 import { z } from "zod";
 
 const execFileAsync = promisify(execFile);
+
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+
 const DEFAULT_RECEIPT_COMPOSE_FILE = join(REPOSITORY_ROOT, "docker-compose.yml");
+
 const RECEIPT_COMPOSE_FILE = process.env.RECEIPT_COMPOSE_FILE ?? DEFAULT_RECEIPT_COMPOSE_FILE;
+
 const RECEIPT_COMPOSE_PROJECT = process.env.RECEIPT_COMPOSE_PROJECT;
+
 const RECEIPT_POSTGRES_TOPOLOGY = process.env.RECEIPT_POSTGRES_TOPOLOGY ?? "docker";
+
 const RECEIPT_POSTGRES_PACKAGE = process.env.RECEIPT_POSTGRES_PACKAGE ?? "nixpkgs#postgresql_17";
+
 const RECEIPT_PG_DATA_ROOT = process.env.RECEIPT_PG_DATA_ROOT;
+
 const RECEIPT_PG_PORT = process.env.RECEIPT_PG_PORT ?? "55432";
+
 const RECEIPT_APPROVAL_EVIDENCE_FILE = process.env.RECEIPT_APPROVAL_EVIDENCE_FILE;
+
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
+
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8790";
+
 const REAL_RECEIPT_APPROVAL_E2E = process.env.REAL_RECEIPT_APPROVAL_E2E === "1";
+
 const receiptCommandId = (
   personId: string,
   qualifiedOperationId: string,
@@ -46,22 +59,28 @@ const receiptCommandId = (
       ]),
     )
     .digest("base64url")}`;
+
 const RECEIPT_COMMITTED_ROOT = process.env.RECEIPT_COMMITTED_ROOT;
+
 const RECEIPT_DATE = "2026-08-22";
+
 const PNG_RECEIPT_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+
 const PDF_RECEIPT_BYTES = Buffer.from(
   "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAxIDFdID4+CmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMTgyCiUlRU9GCg==",
   "base64",
 );
+
 const PNG_RECEIPT_FILE = {
   bytes: PNG_RECEIPT_BYTES,
   contentType: "image/png",
   extension: "png",
   name: "receipt.png",
 } as const;
+
 const PDF_RECEIPT_FILE = {
   bytes: PDF_RECEIPT_BYTES,
   contentType: "application/pdf",
@@ -130,10 +149,15 @@ const receiptMutationCountsSchema = z
   .strict();
 
 type ReceiptProjection = z.infer<typeof receiptProjectionSchema>;
+
 type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
+
 type ResolutionIntent = "approve" | "reject";
+
 type FileIdentity = z.infer<typeof fileIdentitySchema>[number];
+
 type ReceiptMutationCounts = z.infer<typeof receiptMutationCountsSchema>;
+
 type ReceiptFileFixture = typeof PNG_RECEIPT_FILE | typeof PDF_RECEIPT_FILE;
 
 type PersonaEnvironment = {
@@ -174,6 +198,7 @@ type SubmittedReceipt = {
 };
 
 const JOURNEY_REF_ID = "intent://journey:parity:finance_operations:v1";
+
 const ACCEPTED_STEP_IDS = [
   "finance-operations-api-operation",
   "finance-operations-command-write",
@@ -183,9 +208,11 @@ const ACCEPTED_STEP_IDS = [
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
+
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required for the real Receipt approval journey`);
   }
+
   return value;
 }
 
@@ -237,7 +264,7 @@ function approvalEnvironment(): ApprovalEnvironment {
   };
 }
 
-function sessionHeaders(cookie: string): { Cookie: string; Origin: string } {
+function sessionHeaders(cookie: string) {
   return { Cookie: cookie, Origin: DASHBOARD_ORIGIN };
 }
 
@@ -246,19 +273,22 @@ const actionPath = (receiptId: string, intent: ResolutionIntent): string =>
 
 const approvalFilePath = (receiptId: string): string =>
   `${BACKEND_ORIGIN}/api/receipt-approval-queue/${encodeURIComponent(receiptId)}/file`;
+
 const dashboardApprovalFilePath = (receiptId: string): string =>
   `${DASHBOARD_ORIGIN}/dashboard/utlegg/${encodeURIComponent(receiptId)}/file`;
+
 const ownerFilePath = (receiptId: string): string =>
   `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}/file`;
 
 const concurrencyProbeHeader = "x-receipt-e2e-concurrency-probe";
+
 const concurrencySynchronizedHeader = "x-receipt-e2e-concurrency-synchronized";
 
 const actionHeaders = (
   cookie: string,
   idempotencyKey: string,
   ifMatch: string,
-): Record<string, string> => ({
+) => ({
   ...sessionHeaders(cookie),
   "content-type": "application/json",
   "Idempotency-Key": idempotencyKey,
@@ -278,6 +308,7 @@ async function expectProblemCode(
     code: expectedCode,
     type: `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
   });
+
   return problem.code;
 }
 
@@ -285,7 +316,7 @@ function expectApprovedReceiptFileHeaders(
   response: APIResponse | PlaywrightResponse,
   file: ReceiptFileFixture,
   fileIdentities: ReadonlyArray<FileIdentity>,
-): Record<string, string> {
+) {
   expect(response.status()).toBe(200);
   const headers = response.headers();
   expect(headers["cache-control"]).toBe("private, no-store");
@@ -295,11 +326,13 @@ function expectApprovedReceiptFileHeaders(
   expect(headers["x-content-type-options"]).toBe("nosniff");
   expect(headers.vary).toBe("Origin");
   const exposedResponseMetadata = [response.url(), ...Object.values(headers)].join("\n");
+
   for (const identity of fileIdentities) {
     expect(exposedResponseMetadata).not.toContain(identity.fileRef);
     expect(exposedResponseMetadata).not.toContain(identity.objectKey);
     expect(exposedResponseMetadata).not.toContain(identity.sha256);
   }
+
   return headers;
 }
 
@@ -339,6 +372,7 @@ function expectNoReceiptFileHeaders(response: APIResponse): void {
   const headers = response.headers();
   expect(headers["content-disposition"]).toBeUndefined();
 }
+
 const fileIdentitySql = `
   SELECT COALESCE(
     json_agg(
@@ -364,13 +398,15 @@ const receiptMutationCountsSql = `
   )::text;
 `;
 
-async function readPostgresJson<T>(sql: string): Promise<T> {
+async function readPostgresJson<T>(sql: string, schema: z.ZodType<T>): Promise<T> {
   let command: string;
   let commandArgs: Array<string>;
+
   if (RECEIPT_POSTGRES_TOPOLOGY === "local") {
     if (RECEIPT_PG_DATA_ROOT === undefined || RECEIPT_PG_DATA_ROOT.length === 0) {
       throw new Error("RECEIPT_PG_DATA_ROOT is required for local PostgreSQL evidence");
     }
+
     command = "nix";
     commandArgs = [
       "shell",
@@ -395,6 +431,7 @@ async function readPostgresJson<T>(sql: string): Promise<T> {
     if (RECEIPT_COMPOSE_PROJECT === undefined || RECEIPT_COMPOSE_PROJECT.length === 0) {
       throw new Error("RECEIPT_COMPOSE_PROJECT is required for durable Receipt evidence");
     }
+
     command = "docker";
     commandArgs = [
       "compose",
@@ -417,52 +454,59 @@ async function readPostgresJson<T>(sql: string): Promise<T> {
       sql,
     ];
   }
+
   const result = await execFileAsync(command, commandArgs, {
     cwd: REPOSITORY_ROOT,
     maxBuffer: 1_048_576,
   });
+
   const output = String(result.stdout).trim();
+
   if (output.length === 0) throw new Error("PostgreSQL evidence query returned no JSON");
   const lastLine = output.split(/\r?\n/).at(-1);
+
   if (lastLine === undefined) throw new Error("PostgreSQL evidence query returned no JSON row");
-  return JSON.parse(lastLine) as T;
+
+  return schema.parse(JSON.parse(lastLine));
 }
 
 async function readFileIdentities(): Promise<ReadonlyArray<FileIdentity>> {
-  return fileIdentitySchema.parse(await readPostgresJson<unknown>(fileIdentitySql));
+  return readPostgresJson(fileIdentitySql, fileIdentitySchema);
 }
 
 async function readReceiptMutationCounts(): Promise<ReceiptMutationCounts> {
-  return receiptMutationCountsSchema.parse(
-    await readPostgresJson<unknown>(receiptMutationCountsSql),
-  );
+  return readPostgresJson(receiptMutationCountsSql, receiptMutationCountsSchema);
 }
 
 async function observeDurablePostgresFailure(
   request: APIRequestContext,
   cookie: string,
 ): Promise<{ readonly status: number; readonly tag: string }> {
-  await readPostgresJson<boolean>(
-    "ALTER TABLE economy_receipts RENAME TO economy_receipts_failure_probe; SELECT 'true'::json::text;",
+  await readPostgresJson(
+    "ALTER TABLE economy_receipts RENAME TO economy_receipts_failure_probe; SELECT 'true'::json::text;", z.boolean(),
   );
   let failure: { readonly status: number; readonly tag: string } | undefined;
+
   try {
     const response = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
       headers: sessionHeaders(cookie),
       timeout: 5_000,
     });
+
     failure = {
       status: response.status(),
       tag: await expectProblemCode(response, 503, "receipts.unavailable"),
     };
   } finally {
-    await readPostgresJson<boolean>(
-      "ALTER TABLE economy_receipts_failure_probe RENAME TO economy_receipts; SELECT 'true'::json::text;",
+    await readPostgresJson(
+      "ALTER TABLE economy_receipts_failure_probe RENAME TO economy_receipts; SELECT 'true'::json::text;", z.boolean(),
     );
   }
+
   if (failure === undefined) {
     throw new Error("PostgreSQL table failure did not produce a typed durable failure");
   }
+
   return failure;
 }
 
@@ -474,6 +518,7 @@ async function submitReceipt(
   file: ReceiptFileFixture,
 ): Promise<SubmittedReceipt> {
   const submissionIdempotencyKey = randomUUID();
+
   const response = await request.post(`${BACKEND_ORIGIN}/api/receipts`, {
     headers: {
       ...sessionHeaders(cookie),
@@ -490,6 +535,7 @@ async function submitReceipt(
       },
     },
   });
+
   expect(response.status()).toBe(201);
   const resource = receiptResourceSchema.parse(await response.json());
   expect(resource).toMatchObject({
@@ -500,9 +546,11 @@ async function submitReceipt(
   const ownedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
     headers: sessionHeaders(cookie),
   });
+
   expect(ownedResponse.status()).toBe(200);
   const owned = receiptPageSchema.parse(await ownedResponse.json());
   const projection = owned.items.find((item) => item.receiptId === resource.receiptId);
+
   if (projection === undefined) {
     throw new Error(`Submitted Receipt ${resource.receiptId} is absent from its owner projection`);
   }
@@ -516,10 +564,13 @@ async function listForApproval(
   status?: ReceiptStatus,
 ): Promise<z.infer<typeof receiptPageSchema>> {
   const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
+
   const response = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue${query}`, {
     headers: sessionHeaders(cookie),
   });
+
   expect(response.status()).toBe(200);
+
   return receiptPageSchema.parse(await response.json());
 }
 
@@ -534,6 +585,7 @@ async function authenticate(
   await page.getByLabel("E-post").fill(persona.email);
   await page.getByLabel("Passord", { exact: true }).fill(persona.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
+
   try {
     await page.waitForURL((url) => url.pathname === "/dashboard", {
       timeout: 15_000,
@@ -552,28 +604,38 @@ async function authenticate(
         name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
     )
     .sort(({ name: left }, { name: right }) => left.localeCompare(right));
+
   expect(sessionCookies).toHaveLength(1);
   const sessionCookie = sessionCookies[0];
+
   if (sessionCookie === undefined) throw new Error("Better Auth session cookie is missing");
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
+
   const sessionResponse = await request.get(`${BACKEND_ORIGIN}/api/session`, {
     headers: sessionHeaders(cookie),
   });
+
   expect(sessionResponse.status()).toBe(200);
+
   const session = z
     .object({ sessionId: z.string(), personId: z.string(), current: z.literal(true) })
     .passthrough()
     .parse(await sessionResponse.json());
+
   expect(session.personId).toBe(persona.personId);
+
   const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/profile`, {
     headers: sessionHeaders(cookie),
   });
+
   expect(profileResponse.status()).toBe(expectedProfileStatus);
+
   if (expectedProfileStatus === 200) {
     const profile = z
       .object({ personId: z.string() })
       .passthrough()
       .parse(await profileResponse.json());
+
     expect(profile.personId).toBe(persona.personId);
   } else {
     await expectProblemCode(profileResponse, 403, "authority.denied");
@@ -601,6 +663,7 @@ async function usePersona(page: Page, persona: AuthenticatedPersona): Promise<vo
 
 async function expectUnauthenticatedBrowser(browser: Browser): Promise<void> {
   const missingContext = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
+
   try {
     const missingPage = await missingContext.newPage();
     await missingPage.goto("/dashboard/utlegg");
@@ -610,6 +673,7 @@ async function expectUnauthenticatedBrowser(browser: Browser): Promise<void> {
   }
 
   const invalidContext = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
+
   try {
     await invalidContext.addCookies([
       {
@@ -674,6 +738,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     request,
   }) => {
     const environment = approvalEnvironment();
+
     const browserRequestLedger: Array<{
       method: string;
       protocol: string;
@@ -681,6 +746,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       pathname: string;
       query: string;
     }> = [];
+
     page.context().on("request", (browserRequest) => {
       const url = new URL(browserRequest.url());
       browserRequestLedger.push({
@@ -691,19 +757,23 @@ test.describe("Native scoped Receipt approval journey", () => {
         query: url.search,
       });
     });
+
     const unauthenticatedResponse = await request.get(
       `${BACKEND_ORIGIN}/api/receipt-approval-queue`,
     );
+
     const unauthenticatedTag = await expectProblemCode(
       unauthenticatedResponse,
       401,
       "credential.missing",
     );
+
     await expectUnauthenticatedBrowser(browser);
 
     const expiredApiResponse = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
       headers: sessionHeaders("better-auth.session_token=invalid-local-receipt-approval-session"),
     });
+
     const expiredApiTag = await expectProblemCode(expiredApiResponse, 401, "credential.invalid");
 
     const sessions = {
@@ -719,11 +789,13 @@ test.describe("Native scoped Receipt approval journey", () => {
     const inactiveResponse = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
       headers: sessionHeaders(sessions.inactive.cookie),
     });
+
     const inactiveTag = await expectProblemCode(inactiveResponse, 403, "authority.denied");
 
     const noneScopeResponse = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
       headers: sessionHeaders(sessions.noneScope.cookie),
     });
+
     const noneScopeTag = await expectProblemCode(noneScopeResponse, 403, "authority.denied");
 
     await usePersona(page, sessions.noneScope);
@@ -746,6 +818,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       12_550,
       PNG_RECEIPT_FILE,
     );
+
     const rejectReceipt = await submitReceipt(
       request,
       sessions.ownerB.cookie,
@@ -753,6 +826,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       2_075,
       PDF_RECEIPT_FILE,
     );
+
     const staleReceipt = await submitReceipt(
       request,
       sessions.ownerA.cookie,
@@ -760,6 +834,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       3_300,
       PNG_RECEIPT_FILE,
     );
+
     const concurrentReceipt = await submitReceipt(
       request,
       sessions.ownerA.cookie,
@@ -771,14 +846,17 @@ test.describe("Native scoped Receipt approval journey", () => {
     const fileIdentitiesBefore = await readFileIdentities();
 
     const fileReadMutationCountsBefore = await readReceiptMutationCounts();
+
     const unauthenticatedApprovalFileResponse = await request.get(
       approvalFilePath(approvedReceipt.projection.receiptId),
     );
+
     const unauthenticatedApprovalFileTag = await expectProblemCode(
       unauthenticatedApprovalFileResponse,
       401,
       "credential.missing",
     );
+
     expectNoReceiptFileHeaders(unauthenticatedApprovalFileResponse);
 
     const invalidApprovalFileResponse = await request.get(
@@ -787,22 +865,26 @@ test.describe("Native scoped Receipt approval journey", () => {
         headers: sessionHeaders("better-auth.session_token=invalid-local-receipt-approval-session"),
       },
     );
+
     const invalidApprovalFileTag = await expectProblemCode(
       invalidApprovalFileResponse,
       401,
       "credential.invalid",
     );
+
     expectNoReceiptFileHeaders(invalidApprovalFileResponse);
 
     const activePngApprovalFileResponse = await request.get(
       approvalFilePath(approvedReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.departmentA.cookie) },
     );
+
     const activePngApprovalFile = await expectApprovedReceiptFile(
       activePngApprovalFileResponse,
       approvedReceipt.file,
       fileIdentitiesBefore,
     );
+
     expect(activePngApprovalFileResponse.url()).toBe(
       approvalFilePath(approvedReceipt.projection.receiptId),
     );
@@ -811,11 +893,13 @@ test.describe("Native scoped Receipt approval journey", () => {
       approvalFilePath(rejectReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.departmentB.cookie) },
     );
+
     const activePdfApprovalFile = await expectApprovedReceiptFile(
       activePdfApprovalFileResponse,
       rejectReceipt.file,
       fileIdentitiesBefore,
     );
+
     expect(activePdfApprovalFileResponse.url()).toBe(
       approvalFilePath(rejectReceipt.projection.receiptId),
     );
@@ -823,27 +907,33 @@ test.describe("Native scoped Receipt approval journey", () => {
     const ownerFileResponse = await request.get(ownerFilePath(approvedReceipt.projection.receiptId), {
       headers: sessionHeaders(sessions.ownerA.cookie),
     });
+
     expect(ownerFileResponse.status()).toBe(200);
+
     const ownerFileMetadata = [
       ownerFileResponse.url(),
       ...Object.values(ownerFileResponse.headers()),
     ].join("\n");
+
     for (const identity of fileIdentitiesBefore) {
       expect(ownerFileMetadata).not.toContain(identity.fileRef);
       expect(ownerFileMetadata).not.toContain(identity.objectKey);
       expect(ownerFileMetadata).not.toContain(identity.sha256);
     }
+
     expect(Buffer.compare(await ownerFileResponse.body(), approvedReceipt.file.bytes)).toBe(0);
 
     const ownerApprovalFileResponse = await request.get(
       approvalFilePath(approvedReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.ownerA.cookie) },
     );
+
     const ownerApprovalFileTag = await expectProblemCode(
       ownerApprovalFileResponse,
       403,
       "authority.denied",
     );
+
     expectNoReceiptFileHeaders(ownerApprovalFileResponse);
 
     const foreignOwnerFileResponse = await request.get(
@@ -852,11 +942,13 @@ test.describe("Native scoped Receipt approval journey", () => {
         headers: sessionHeaders(sessions.ownerB.cookie),
       },
     );
+
     const foreignOwnerFileTag = await expectProblemCode(
       foreignOwnerFileResponse,
       404,
       "resource.not-found",
     );
+
     expectNoReceiptFileHeaders(foreignOwnerFileResponse);
 
     const approverOwnerFileResponse = await request.get(
@@ -865,66 +957,78 @@ test.describe("Native scoped Receipt approval journey", () => {
         headers: sessionHeaders(sessions.departmentA.cookie),
       },
     );
+
     const approverOwnerFileTag = await expectProblemCode(
       approverOwnerFileResponse,
       404,
       "resource.not-found",
     );
+
     expectNoReceiptFileHeaders(approverOwnerFileResponse);
 
     const foreignApprovalFileResponse = await request.get(
       approvalFilePath(rejectReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.departmentA.cookie) },
     );
+
     const foreignApprovalFileTag = await expectProblemCode(
       foreignApprovalFileResponse,
       403,
       "authority.denied",
     );
+
     expectNoReceiptFileHeaders(foreignApprovalFileResponse);
 
     const inactiveApprovalFileResponse = await request.get(
       approvalFilePath(approvedReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.inactive.cookie) },
     );
+
     const inactiveApprovalFileTag = await expectProblemCode(
       inactiveApprovalFileResponse,
       403,
       "authority.denied",
     );
+
     expectNoReceiptFileHeaders(inactiveApprovalFileResponse);
 
     const noScopeApprovalFileResponse = await request.get(
       approvalFilePath(approvedReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.noneScope.cookie) },
     );
+
     const noScopeApprovalFileTag = await expectProblemCode(
       noScopeApprovalFileResponse,
       403,
       "authority.denied",
     );
+
     expectNoReceiptFileHeaders(noScopeApprovalFileResponse);
 
     const absentApprovalFileResponse = await request.get(
       approvalFilePath(`receipt-absent-file-${randomUUID()}`),
       { headers: sessionHeaders(sessions.global.cookie) },
     );
+
     const absentApprovalFileTag = await expectProblemCode(
       absentApprovalFileResponse,
       404,
       "resource.not-found",
     );
+
     expectNoReceiptFileHeaders(absentApprovalFileResponse);
 
     const dashboardPngFileResponse = await request.get(
       dashboardApprovalFilePath(approvedReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.departmentA.cookie) },
     );
+
     const dashboardPngFile = await expectApprovedReceiptFile(
       dashboardPngFileResponse,
       approvedReceipt.file,
       fileIdentitiesBefore,
     );
+
     expect(dashboardPngFileResponse.url()).toBe(
       dashboardApprovalFilePath(approvedReceipt.projection.receiptId),
     );
@@ -933,6 +1037,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       dashboardApprovalFilePath(rejectReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.departmentB.cookie) },
     );
+
     const dashboardPdfFile = await expectApprovedReceiptFile(
       dashboardPdfFileResponse,
       rejectReceipt.file,
@@ -942,28 +1047,36 @@ test.describe("Native scoped Receipt approval journey", () => {
     const dashboardMissingSessionFileResponse = await request.get(
       dashboardApprovalFilePath(approvedReceipt.projection.receiptId),
     );
+
     await expectDashboardFileFailure(dashboardMissingSessionFileResponse, 401);
+
     const dashboardInvalidSessionFileResponse = await request.get(
       dashboardApprovalFilePath(approvedReceipt.projection.receiptId),
       {
         headers: sessionHeaders("better-auth.session_token=invalid-local-receipt-approval-session"),
       },
     );
+
     await expectDashboardFileFailure(dashboardInvalidSessionFileResponse, 401);
+
     const dashboardForeignScopeFileResponse = await request.get(
       dashboardApprovalFilePath(rejectReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.departmentA.cookie) },
     );
+
     await expectDashboardFileFailure(dashboardForeignScopeFileResponse, 403);
+
     const dashboardAbsentFileResponse = await request.get(
       dashboardApprovalFilePath(`receipt-absent-dashboard-file-${randomUUID()}`),
       { headers: sessionHeaders(sessions.global.cookie) },
     );
+
     await expectDashboardFileFailure(dashboardAbsentFileResponse, 404);
 
     const approvedFileIdentity = fileIdentitiesBefore.find(
       ({ receiptId }) => receiptId === approvedReceipt.projection.receiptId,
     );
+
     if (
       RECEIPT_COMMITTED_ROOT === undefined ||
       RECEIPT_COMMITTED_ROOT.length === 0 ||
@@ -973,17 +1086,20 @@ test.describe("Native scoped Receipt approval journey", () => {
         "Committed Receipt file evidence is unavailable for the missing-object probe",
       );
     }
+
     const committedFilePath = join(RECEIPT_COMMITTED_ROOT, approvedFileIdentity.objectKey);
     const unavailableFilePath = `${committedFilePath}.unavailable-${randomUUID()}`;
     let missingObjectApprovalFileStatus: number | undefined;
     let missingObjectApprovalFileTag: string | undefined;
     let dashboardMissingObjectStatus: number | undefined;
     await rename(committedFilePath, unavailableFilePath);
+
     try {
       const missingObjectApprovalFileResponse = await request.get(
         approvalFilePath(approvedReceipt.projection.receiptId),
         { headers: sessionHeaders(sessions.departmentA.cookie) },
       );
+
       missingObjectApprovalFileStatus = missingObjectApprovalFileResponse.status();
       missingObjectApprovalFileTag = await expectProblemCode(
         missingObjectApprovalFileResponse,
@@ -996,11 +1112,13 @@ test.describe("Native scoped Receipt approval journey", () => {
         dashboardApprovalFilePath(approvedReceipt.projection.receiptId),
         { headers: sessionHeaders(sessions.departmentA.cookie) },
       );
+
       dashboardMissingObjectStatus = dashboardMissingObjectFileResponse.status();
       await expectDashboardFileFailure(dashboardMissingObjectFileResponse, 503);
     } finally {
       await rename(unavailableFilePath, committedFilePath);
     }
+
     if (
       missingObjectApprovalFileStatus === undefined ||
       missingObjectApprovalFileTag === undefined ||
@@ -1023,6 +1141,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     const inactiveCommandTag = await expectProblemCode(
       inactiveCommandResponse,
       403,
@@ -1040,6 +1159,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: Buffer.from("{", "utf8"),
       },
     );
+
     const malformedJsonTag = await expectProblemCode(
       malformedJsonResponse,
       400,
@@ -1057,6 +1177,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: { unexpected: true },
       },
     );
+
     const excessJsonTag = await expectProblemCode(excessJsonResponse, 422, "validation.failed");
 
     const queryRejectedResponse = await request.post(
@@ -1070,6 +1191,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     const queryRejectedTag = await expectProblemCode(
       queryRejectedResponse,
       400,
@@ -1082,6 +1204,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         headers: sessionHeaders(sessions.departmentA.cookie),
       },
     );
+
     const invalidFilterTag = await expectProblemCode(
       invalidFilterResponse,
       400,
@@ -1153,15 +1276,18 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const browserFileReadMutationCountsBefore = await readReceiptMutationCounts();
     const approvalFileLink = approvedRow.getByRole("link", { name: "Vis kvittering", exact: true });
+
     const dashboardApprovedFilePath = `/dashboard/utlegg/${encodeURIComponent(
       approvedReceipt.projection.receiptId,
     )}/file`;
+
     expect(page.viewportSize()).toEqual({ width: 1440, height: 900 });
     await expect(approvalFileLink).toHaveAttribute("href", dashboardApprovedFilePath);
     await expect(approvalFileLink).toHaveAttribute("target", "_blank");
     await expect(approvalFileLink).toHaveAttribute("rel", "noopener noreferrer");
     await approvalFileLink.focus();
     await expect(approvalFileLink).toBeFocused();
+
     const [receiptFilePopup, keyboardReceiptFileResponse] = await Promise.all([
       page.context().waitForEvent("page"),
       page
@@ -1173,6 +1299,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         ),
       page.keyboard.press("Enter"),
     ]);
+
     try {
       await expectApprovedReceiptFile(
         keyboardReceiptFileResponse,
@@ -1189,15 +1316,18 @@ test.describe("Native scoped Receipt approval journey", () => {
     const desktopNoOverflow = await page.evaluate<boolean>(
       "document.documentElement.scrollWidth <= window.innerWidth",
     );
+
     expect(desktopNoOverflow).toBe(true);
     await page.setViewportSize({ width: 390, height: 844 });
     await usePersona(page, sessions.departmentB);
     await page.goto("/dashboard/utlegg");
     const pdfReceiptRow = receiptRowFor(page, rejectReceipt.projection.receiptId);
+
     const pdfApprovalFileLink = pdfReceiptRow.getByRole("link", {
       name: "Vis kvittering",
       exact: true,
     });
+
     await expect(pdfApprovalFileLink).toHaveAttribute(
       "href",
       `/dashboard/utlegg/${encodeURIComponent(rejectReceipt.projection.receiptId)}/file`,
@@ -1206,6 +1336,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(pdfApprovalFileLink).toHaveAttribute("rel", "noopener noreferrer");
     await pdfApprovalFileLink.focus();
     await expect(pdfApprovalFileLink).toBeFocused();
+
     const [pdfReceiptFilePopup, keyboardPdfReceiptFileResponse] = await Promise.all([
       page.context().waitForEvent("page"),
       page
@@ -1217,23 +1348,28 @@ test.describe("Native scoped Receipt approval journey", () => {
         ),
       page.keyboard.press("Enter"),
     ]);
+
     try {
       expectApprovedReceiptFileHeaders(
         keyboardPdfReceiptFileResponse,
         rejectReceipt.file,
         fileIdentitiesBefore,
       );
+
       const expectedPdfReceiptFileUrl = dashboardApprovalFilePath(
         rejectReceipt.projection.receiptId,
       );
+
       await pdfReceiptFilePopup.waitForURL(expectedPdfReceiptFileUrl);
       expect(pdfReceiptFilePopup.url()).toBe(expectedPdfReceiptFileUrl);
     } finally {
       await pdfReceiptFilePopup.close();
     }
+
     const mobileNoOverflow = await page.evaluate<boolean>(
       "document.documentElement.scrollWidth <= window.innerWidth",
     );
+
     expect(mobileNoOverflow).toBe(true);
     await page.setViewportSize({ width: 1440, height: 900 });
     const browserFileReadMutationCountsAfter = await readReceiptMutationCounts();
@@ -1255,9 +1391,11 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     const foreignScopeTag = await expectProblemCode(foreignScopeResponse, 403, "authority.denied");
 
     const absentReceiptId = `receipt-absent-${randomUUID()}`;
+
     const absentScopeResponse = await request.post(actionPath(absentReceiptId, "approve"), {
       headers: actionHeaders(
         sessions.departmentA.cookie,
@@ -1266,12 +1404,14 @@ test.describe("Native scoped Receipt approval journey", () => {
       ),
       data: {},
     });
+
     const absentScopeTag = await expectProblemCode(absentScopeResponse, 404, "receipt.not-found");
 
     const globalAbsentResponse = await request.post(actionPath(absentReceiptId, "approve"), {
       headers: actionHeaders(sessions.global.cookie, randomUUID(), approvedReceipt.projection.etag),
       data: {},
     });
+
     const globalAbsentTag = await expectProblemCode(globalAbsentResponse, 404, "receipt.not-found");
 
     const browserForeignRow = receiptRowFor(page, rejectReceipt.projection.receiptId);
@@ -1282,17 +1422,21 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(browserScopeForm.locator('input[name="receiptId"]')).toHaveValue(
       rejectReceipt.projection.receiptId,
     );
+
     const browserScopeIdempotencyKey = await browserScopeForm
       .locator('input[name="commandId"]')
       .inputValue();
+
     expect(browserScopeIdempotencyKey).not.toBe("");
     await expect(browserScopeForm.locator('input[name="etag"]')).toHaveValue(
       rejectReceipt.projection.etag,
     );
     await browserScopeForm.getByRole("button", { name: "Bekreft godkjenning", exact: true }).click();
+
     const browserScopeAlert = page.locator(
       `[role="alert"][data-receipt-id=${JSON.stringify(rejectReceipt.projection.receiptId)}]`,
     );
+
     await expect(browserScopeAlert).toHaveAttribute("data-error-tag", "ReceiptScopeDenied");
     await expect(browserScopeAlert).toHaveAttribute("data-command-id", browserScopeIdempotencyKey);
     await expect(page).toHaveURL(/\/dashboard\/utlegg(?:\?index)?$/);
@@ -1306,9 +1450,11 @@ test.describe("Native scoped Receipt approval journey", () => {
     await page.goto("/dashboard/utlegg");
     await expect(receiptRowFor(page, approvedReceipt.projection.receiptId)).toHaveCount(1);
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(1);
+
     const rejectReceiptAfterDenied = (
       await listForApproval(request, sessions.global.cookie)
     ).items.find((item) => item.receiptId === rejectReceipt.projection.receiptId);
+
     expect(rejectReceiptAfterDenied).toMatchObject({ status: "Pending", revision: 0 });
 
     const approvalMutation = await resolveThroughUi(
@@ -1316,6 +1462,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       approvedReceipt.projection.receiptId,
       "approve",
     );
+
     approvedRow = receiptRowFor(page, approvedReceipt.projection.receiptId);
     await expect(approvedRow.locator('[data-status="Approved"]')).toHaveText("Godkjent");
     await expect(approvedRow.locator('[data-revision="1"]')).toHaveText("Versjon 1");
@@ -1338,6 +1485,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     expect(approvalReplayResponse.status()).toBe(200);
     const approvalReplay = receiptResourceSchema.parse(await approvalReplayResponse.json());
     expect(approvalReplayResponse.headers()["etag"]).toBe(approvalReplay.etag);
@@ -1359,6 +1507,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     const conflictingReplayTag = await expectProblemCode(
       conflictingReplayResponse,
       409,
@@ -1372,6 +1521,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     const staleTerminalTag = await expectProblemCode(
       staleTerminalResponse,
       412,
@@ -1385,6 +1535,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     const terminalApprovedTag = await expectProblemCode(
       terminalApprovedResponse,
       409,
@@ -1396,6 +1547,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       rejectReceipt.projection.receiptId,
       "reject",
     );
+
     let rejectRow = receiptRowFor(page, rejectReceipt.projection.receiptId);
     await expect(rejectRow.locator('[data-status="Rejected"]')).toHaveText("Avvist");
     await expect(rejectRow.locator('[data-revision="1"]')).toHaveText("Versjon 1");
@@ -1412,6 +1564,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     expect(rejectReplayResponse.status()).toBe(200);
     const rejectReplay = receiptResourceSchema.parse(await rejectReplayResponse.json());
     expect(rejectReplayResponse.headers()["etag"]).toBe(rejectReplay.etag);
@@ -1429,6 +1582,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     const terminalRejectTag = await expectProblemCode(
       terminalRejectResponse,
       409,
@@ -1436,42 +1590,51 @@ test.describe("Native scoped Receipt approval journey", () => {
     );
 
     const terminalFileReadMutationCountsBefore = await readReceiptMutationCounts();
+
     const terminalApprovedApprovalFileResponse = await request.get(
       approvalFilePath(approvedReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.global.cookie) },
     );
+
     const terminalApprovedApprovalFile = await expectApprovedReceiptFile(
       terminalApprovedApprovalFileResponse,
       approvedReceipt.file,
       fileIdentitiesBefore,
     );
+
     const terminalRejectApprovalFileResponse = await request.get(
       approvalFilePath(rejectReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.global.cookie) },
     );
+
     const terminalRejectApprovalFile = await expectApprovedReceiptFile(
       terminalRejectApprovalFileResponse,
       rejectReceipt.file,
       fileIdentitiesBefore,
     );
+
     const terminalApprovedDashboardFileResponse = await request.get(
       dashboardApprovalFilePath(approvedReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.global.cookie) },
     );
+
     const terminalApprovedDashboardFile = await expectApprovedReceiptFile(
       terminalApprovedDashboardFileResponse,
       approvedReceipt.file,
       fileIdentitiesBefore,
     );
+
     const terminalRejectDashboardFileResponse = await request.get(
       dashboardApprovalFilePath(rejectReceipt.projection.receiptId),
       { headers: sessionHeaders(sessions.global.cookie) },
     );
+
     const terminalRejectDashboardFile = await expectApprovedReceiptFile(
       terminalRejectDashboardFileResponse,
       rejectReceipt.file,
       fileIdentitiesBefore,
     );
+
     await expect(
       approvedRow.getByRole("link", { name: "Vis kvittering", exact: true }),
     ).toHaveAttribute(
@@ -1491,12 +1654,15 @@ test.describe("Native scoped Receipt approval journey", () => {
     await staleRow.getByRole("button", { name: "Godkjenn", exact: true }).click();
     const staleForm = page.locator('form[data-receipt-resolution="approve"]');
     await expect(staleForm.locator('input[name="etag"]')).toHaveValue(staleReceipt.projection.etag);
+
     const staleBrowserIdempotencyKey = await staleForm
       .locator('input[name="commandId"]')
       .inputValue();
+
     expect(staleBrowserIdempotencyKey).not.toBe("");
 
     const externalResolutionIdempotencyKey = randomUUID();
+
     const externalResolutionResponse = await request.post(
       actionPath(staleReceipt.projection.receiptId, "reject"),
       {
@@ -1508,6 +1674,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     expect(externalResolutionResponse.status()).toBe(200);
     const externalResolution = receiptResourceSchema.parse(await externalResolutionResponse.json());
     expect(externalResolutionResponse.headers()["etag"]).toBe(externalResolution.etag);
@@ -1518,9 +1685,11 @@ test.describe("Native scoped Receipt approval journey", () => {
     await listForApproval(request, sessions.global.cookie);
 
     await staleForm.getByRole("button", { name: "Bekreft godkjenning", exact: true }).click();
+
     const staleAlert = page.locator(
       `[role="alert"][data-receipt-id=${JSON.stringify(staleReceipt.projection.receiptId)}]`,
     );
+
     await expect(staleAlert).toHaveAttribute("data-error-tag", "StaleReceiptRevision");
     await expect(staleAlert).toHaveAttribute("data-action-intent", "approve");
     await expect(staleAlert).toHaveAttribute("data-etag", staleReceipt.projection.etag);
@@ -1533,6 +1702,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const concurrentReadMutationCountsBefore = await readReceiptMutationCounts();
     const concurrentApproveIdempotencyKey = randomUUID();
     const concurrentRejectIdempotencyKey = randomUUID();
+
     const [concurrentApprovalFileResponse, concurrentApproveResponse, concurrentRejectResponse] =
       await Promise.all([
         request.get(approvalFilePath(concurrentReceipt.projection.receiptId), {
@@ -1564,6 +1734,7 @@ test.describe("Native scoped Receipt approval journey", () => {
           data: {},
         }),
       ]);
+
     for (const [lane, response] of [
       ["file-read", concurrentApprovalFileResponse],
       ["approve", concurrentApproveResponse],
@@ -1574,11 +1745,13 @@ test.describe("Native scoped Receipt approval journey", () => {
         `${lane} response status ${response.status()} did not prove barrier synchronization`,
       ).toBe("1");
     }
+
     const concurrentApprovalFile = await expectApprovedReceiptFile(
       concurrentApprovalFileResponse,
       concurrentReceipt.file,
       fileIdentitiesBefore,
     );
+
     const concurrentReadMutationCountsAfter = await readReceiptMutationCounts();
     expect(concurrentReadMutationCountsAfter).toEqual({
       receiptCount: concurrentReadMutationCountsBefore.receiptCount,
@@ -1586,6 +1759,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       auditCount: concurrentReadMutationCountsBefore.auditCount + 1,
       outboxCount: concurrentReadMutationCountsBefore.outboxCount + 2,
     });
+
     const concurrentAttempts = [
       {
         intent: "approve" as const,
@@ -1598,33 +1772,41 @@ test.describe("Native scoped Receipt approval journey", () => {
         response: concurrentRejectResponse,
       },
     ];
+
     expect(concurrentAttempts.filter((attempt) => attempt.response.status() === 200)).toHaveLength(
       1,
     );
     expect(concurrentAttempts.filter((attempt) => attempt.response.status() === 412)).toHaveLength(
       1,
     );
+
     const concurrentWinner = concurrentAttempts.find(
       (attempt) => attempt.response.status() === 200,
     );
+
     const concurrentLoser = concurrentAttempts.find((attempt) => attempt.response.status() === 412);
+
     if (concurrentWinner === undefined || concurrentLoser === undefined) {
       throw new Error("Concurrent Receipt resolution did not produce exactly one winner and loser");
     }
+
     const concurrentObservation = receiptResourceSchema.parse(
       await concurrentWinner.response.json(),
     );
+
     expect(concurrentWinner.response.headers()["etag"]).toBe(concurrentObservation.etag);
     expect(concurrentObservation).toMatchObject({
       receiptId: concurrentReceipt.projection.receiptId,
       status: concurrentWinner.intent === "approve" ? "Approved" : "Rejected",
       revision: 1,
     });
+
     const concurrentLoserTag = await expectProblemCode(
       concurrentLoser.response,
       412,
       "precondition.failed",
     );
+
     await listForApproval(request, sessions.global.cookie);
 
     const concurrentReplayResponse = await request.post(
@@ -1638,6 +1820,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         data: {},
       },
     );
+
     expect(concurrentReplayResponse.status()).toBe(200);
     const concurrentReplay = receiptResourceSchema.parse(await concurrentReplayResponse.json());
     expect(concurrentReplayResponse.headers()["etag"]).toBe(concurrentReplay.etag);
@@ -1678,16 +1861,20 @@ test.describe("Native scoped Receipt approval journey", () => {
       request,
       sessions.global.cookie,
     );
+
     const recoveredGlobalProjection = await listForApproval(request, sessions.global.cookie);
     expect(recoveredGlobalProjection.items).toEqual(finalGlobalProjection.items);
     const fileIdentitiesAfter = await readFileIdentities();
     expect(fileIdentitiesAfter).toEqual(fileIdentitiesBefore);
+
     const fileIdentityChecksumBefore = `sha256:${createHash("sha256")
       .update(JSON.stringify(fileIdentitiesBefore))
       .digest("hex")}`;
+
     const fileIdentityChecksumAfter = `sha256:${createHash("sha256")
       .update(JSON.stringify(fileIdentitiesAfter))
       .digest("hex")}`;
+
     expect(fileIdentityChecksumAfter).toBe(fileIdentityChecksumBefore);
 
     if (RECEIPT_APPROVAL_EVIDENCE_FILE === undefined) {
@@ -1695,9 +1882,11 @@ test.describe("Native scoped Receipt approval journey", () => {
     }
 
     const allowedBrowserOrigins = new Set([DASHBOARD_ORIGIN, BACKEND_ORIGIN]);
+
     const browserNetworkRequests = browserRequestLedger.filter(({ protocol }) =>
       ["http:", "https:"].includes(protocol),
     );
+
     const forbiddenBrowserRequests = browserNetworkRequests.filter(
       ({ method, origin, pathname }) =>
         !allowedBrowserOrigins.has(origin) ||
@@ -1706,6 +1895,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         /\/api\/admin\/receipts\/[^/]+\/status$/u.test(pathname) ||
         (["PUT", "PATCH", "DELETE"].includes(method) && pathname.includes("/receipts")),
     );
+
     expect(forbiddenBrowserRequests).toEqual([]);
 
     const sessionEvidence = Object.fromEntries(
@@ -1721,6 +1911,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         },
       ]),
     );
+
     const submissionCommandIds = [
       receiptCommandId(
         sessions.ownerA.sessionPersonId,
@@ -1747,6 +1938,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         concurrentReceipt.submissionIdempotencyKey,
       ),
     ] as const;
+
     const resolutionCommandId = (
       receiptId: string,
       action: "approve" | "reject",
@@ -1758,21 +1950,25 @@ test.describe("Native scoped Receipt approval journey", () => {
         `/api/receipts/${encodeURIComponent(receiptId)}::${action}`,
         idempotencyKey,
       );
+
     const approvalCommandId = resolutionCommandId(
       approvedReceipt.projection.receiptId,
       "approve",
       approvalMutation.idempotencyKey,
     );
+
     const rejectCommandId = resolutionCommandId(
       rejectReceipt.projection.receiptId,
       "reject",
       rejectMutation.idempotencyKey,
     );
+
     const staleCommandId = resolutionCommandId(
       staleReceipt.projection.receiptId,
       "reject",
       externalResolutionIdempotencyKey,
     );
+
     const concurrentWinnerCommandId = resolutionCommandId(
       concurrentReceipt.projection.receiptId,
       concurrentWinner.intent,
@@ -1975,13 +2171,10 @@ test.describe("Native scoped Receipt approval journey", () => {
             pathname.startsWith("/api/receipt-approval-queue"),
         ),
         sameOriginReceiptFileRequests: browserRequestLedger
-          .filter(
-            ({ method, origin, pathname }) =>
+          .flatMap(({ method, origin, pathname, query }) =>
               method === "GET" &&
               origin === DASHBOARD_ORIGIN &&
-              /^\/dashboard\/utlegg\/[^/]+\/file$/u.test(pathname),
-          )
-          .map(({ method, origin, pathname, query }) => ({ method, origin, pathname, query })),
+              /^\/dashboard\/utlegg\/[^/]+\/file$/u.test(pathname) ? [{ method, origin, pathname, query }] : []),
         receiptFileLink: {
           desktopNoOverflow,
           mobileNoOverflow,
@@ -1998,6 +2191,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         })),
       },
     };
+
     const evidenceBytes = Buffer.from(JSON.stringify(journeyEvidence));
     await writeFile(RECEIPT_APPROVAL_EVIDENCE_FILE, evidenceBytes);
     await test.info().attach("receipt-approval-evidence.json", {

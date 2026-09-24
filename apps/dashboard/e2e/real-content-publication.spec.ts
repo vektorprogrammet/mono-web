@@ -1,9 +1,14 @@
+import { Schema, Predicate } from "effect";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
+
 const operatorUsername = "content-publication-operator-0032";
+
 const operatorPassword = "content-publication-password-0032";
+
 const viewerUsername = "content-publication-viewer-0032";
+
 const viewerPassword = "content-publication-viewer-password-0032";
 
 function requireContentPublicationMode(): void {
@@ -30,13 +35,15 @@ async function loginWithApi(page: Page, username: string, password: string): Pro
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     data: { username, password },
   });
+
   expect(response.status()).toBe(200);
-  const payload = (await response.json()) as { token?: unknown };
-  expect(typeof payload.token).toBe("string");
-  return payload.token as string;
+  const payload = Schema.decodeUnknownSync(Schema.Struct({ token: Schema.String }))((await response.json()));
+  expect(Predicate.isString(payload.token)).toBe(true);
+
+  return payload.token;
 }
 
-function headers(token: string): Record<string, string> {
+function headers(token: string) {
   return {
     Accept: "application/ld+json",
     Authorization: `Bearer ${token}`,
@@ -57,10 +64,12 @@ test.describe("Real Symfony content publication journey", () => {
     requireContentPublicationMode();
 
     const viewerToken = await loginWithApi(page, viewerUsername, viewerPassword);
+
     const unauthorized = await page.request.post(`${apiOrigin}/api/admin/changelogs`, {
       headers: headers(viewerToken),
       data: { title: "Unauthorized content publication" },
     });
+
     await expectProblem(unauthorized, [401, 403]);
 
     await loginWithUi(page, operatorUsername, operatorPassword);
@@ -75,9 +84,11 @@ test.describe("Real Symfony content publication journey", () => {
         githubLink: "https://github.invalid/content-publication-0032",
       },
     });
+
     await expectProblem(invalid, [400, 422]);
 
     const title = "Content publication release 0032";
+
     const created = await page.request.post(`${apiOrigin}/api/admin/changelogs`, {
       headers: { ...headers(operatorToken), Accept: "application/json" },
       data: {
@@ -87,19 +98,20 @@ test.describe("Real Symfony content publication journey", () => {
         githubLink: "https://github.invalid/content-publication-0032",
       },
     });
+
     const createdBody = await created.text();
     expect(created.status(), createdBody).toBe(201);
-    const createdPayload = JSON.parse(createdBody) as { id?: unknown };
-    expect(typeof createdPayload.id).toBe("number");
+    const createdPayload = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Number }))(JSON.parse(createdBody));
+    expect(Predicate.isNumber(createdPayload.id)).toBe(true);
 
     const freshRead = await page.request.get(`${apiOrigin}/api/change_log_items`, {
       headers: { Accept: "application/ld+json" },
     });
+
     expect(freshRead.status()).toBe(200);
-    const readPayload = (await freshRead.json()) as {
-      "hydra:member"?: Array<{ title?: unknown }>;
-      member?: Array<{ title?: unknown }>;
-    };
+
+    const readPayload = Schema.decodeUnknownSync(Schema.Struct({ "hydra:member": Schema.optional(Schema.Array(Schema.Struct({ title: Schema.optional(Schema.Json) }))), member: Schema.optional(Schema.Array(Schema.Struct({ title: Schema.optional(Schema.Json) }))) }))((await freshRead.json()));
+
     const changelogs = readPayload["hydra:member"] ?? readPayload.member ?? [];
     expect(changelogs.some((item) => item.title === title)).toBe(true);
 

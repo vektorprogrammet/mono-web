@@ -1,5 +1,7 @@
+import { SubstituteMutation } from "../../packages/domain/src/substitutes/schema.js";
+import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
-import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
+import {IdempotencyIfMatchHeaders,  NativeProblem } from "../../packages/http-api/src/http-semantics.js";
 /** 0094 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -9,29 +11,39 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { stopPreviewScenarioBackend } from "./preview-scenario.js";
+import {type PreviewRuntimeObservation,  stopPreviewScenarioBackend } from "./preview-scenario.js";
+import { Predicate, Schema } from "effect";
+
 const root = new URL("../../", import.meta.url).pathname;
+
 const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
 );
-const requireApi = createRequire(new URL("../../packages/http-api/package.json", import.meta.url));
-const { Schema } = await import(requireApi.resolve("effect"));
-const { HttpApiSchema } = await import(requireApi.resolve("effect/unstable/httpapi"));
+
 const { Pool } = requireDatabase("pg");
+
 const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
   execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
+
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
+
 assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
+
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-substitutes-0094-"));
+
 const children: ReturnType<typeof spawn>[] = [];
+
 const outputs: string[] = [];
+
 const start = (command: string, args: string[], env = process.env) => {
   const child = spawn(command, args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   children.push(child);
   child.stdout?.on("data", (chunk) => outputs.push(String(chunk)));
   child.stderr?.on("data", (chunk) => outputs.push(String(chunk)));
+
   return child;
 };
+
 const port = async (requested = 0): Promise<number> => {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -39,14 +51,19 @@ const port = async (requested = 0): Promise<number> => {
     server.listen(requested, "127.0.0.1", resolve);
   });
   const address = server.address();
-  assert.ok(address && typeof address !== "string");
+  assert.ok(address && !Predicate.isString(address));
   const value = address.port;
   await new Promise<void>((resolve) => server.close(() => resolve()));
+
   return value;
 };
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 let pool: InstanceType<typeof Pool> | undefined;
-let evidence: Record<string, unknown> | undefined;
+
+let evidence: Schema.JsonObject | undefined;
+
 try {
   const pgPort = await port();
   const backendPort = await port();
@@ -56,6 +73,7 @@ try {
   start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
   const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
   pool = new Pool({ connectionString: postgresUrl });
+
   for (let n = 0; ; n++) {
     try {
       await pool.query("SELECT 1");
@@ -65,8 +83,10 @@ try {
       await delay(100);
     }
   }
+
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
   const environment = {
     ...process.env,
     BACKEND_HOST: "127.0.0.1",
@@ -81,17 +101,20 @@ try {
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     JOURNEY_SEED_PG_URL: postgresUrl,
   };
+
   for (const key of Object.keys(environment))
     if (
       key.startsWith("CONTACT_") ||
       (key.startsWith("PUBLIC_APPLICATION_EFFECT_") && key !== "PUBLIC_APPLICATION_EFFECT_MODE")
     )
-      delete environment[key as keyof typeof environment];
+      Reflect.deleteProperty(environment, key);
   run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
+
   const departmentId = "department-native-journey-0049",
     semesterId = "semester-historical-0094",
     secondSemesterId = "semester-native-journey-0049",
     noPeriodSemesterId = "semester-no-period-0094";
+
   await pool.query(`INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at) VALUES ('${semesterId}','2024-01-01','2024-07-01'),('${noPeriodSemesterId}','2023-01-01','2023-07-01');
  INSERT INTO public.admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id) VALUES ('period-historical-0094','${departmentId}','${semesterId}','2024-01-01','2024-06-01',0,'fixture-0094');
  INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
@@ -100,13 +123,16 @@ try {
  INSERT INTO public.organization_teams(team_id,department_id,name,active,revision) VALUES ('wrong-team-0094','wrong-0094','Annet team',true,0);
  UPDATE public.organization_memberships SET team_id='wrong-team-0094',is_team_leader=true WHERE person_id='journey-rec-interviewer-b-0049';`);
   start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
+
   for (let n = 0; ; n++) {
     try {
       if ((await fetch(`${backendOrigin}/health`)).ok) break;
     } catch {}
+
     if (n > 150) throw Error("backend startup failed");
     await delay(200);
   }
+
   const persons = {
     leader: { email: "lina.leader@example.invalid", password: "journey-secret-0123456789abcdef" },
     member: {
@@ -118,42 +144,58 @@ try {
       password: "journey-secret-0123456789abcdef",
     },
   };
+
   const login = async (person: { email: string; password: string }) => {
     const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: dashboardOrigin },
       body: JSON.stringify(person),
     });
+
     assert.equal(response.status, 200, `login: ${await response.text()}`);
     const cookie = response.headers.get("set-cookie");
     assert.ok(cookie);
+
     return cookie.split(";")[0]!;
   };
+
   const leader = await login(persons.leader),
     member = await login(persons.member),
     wrong = await login(persons.wrongDepartment);
+
   const request = async (
     path: string,
     cookie?: string,
-    body?: unknown,
+    body?: Schema.Json,
     etag?: string,
     key = randomBytes(18).toString("base64url"),
-  ) =>
-    fetch(`${backendOrigin}${path}`, {
+  ) => {
+    const nativeHeaders = new Headers();
+    nativeHeaders.set("origin", dashboardOrigin);
+
+    if (cookie) {
+      nativeHeaders.set("cookie", cookie);
+    }
+
+    if (!(body === undefined)) {
+      nativeHeaders.set("content-type", "application/json");
+      nativeHeaders.set("idempotency-key", key);
+
+      if (etag) {
+        nativeHeaders.set("if-match", etag);
+      }
+    }
+
+    const requestBody: Pick<RequestInit, "body"> =
+      body === undefined ? {} : { body: JSON.stringify(body) };
+
+    return fetch(`${backendOrigin}${path}`, {
       method: body === undefined ? "GET" : "POST",
-      headers: {
-        origin: dashboardOrigin,
-        ...(cookie ? { cookie } : {}),
-        ...(body === undefined
-          ? {}
-          : {
-              "content-type": "application/json",
-              "idempotency-key": key,
-              ...(etag ? { "if-match": etag } : {}),
-            }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      headers: nativeHeaders,
+      ...requestBody,
     });
+  };
+
   const sdk = createPromiseClient(backendOrigin, { cookie: leader, origin: dashboardOrigin });
   const sessionResponse = await request("/api/session", leader);
   assert.equal(sessionResponse.headers.get("cache-control"), "private, no-store");
@@ -165,6 +207,7 @@ try {
   );
   assert.ok((await sdk.substitutes.listScopes()).body.departments.length > 0);
   const submissionKey = randomBytes(18).toString("base64url");
+
   const submission = {
     departmentId,
     firstName: "Anne",
@@ -175,6 +218,7 @@ try {
     fieldOfStudyId: "field-native-journey-0049",
     yearOfStudy: 3,
   };
+
   const submitted = await request(
     "/api/applications",
     undefined,
@@ -182,11 +226,15 @@ try {
     undefined,
     submissionKey,
   );
+
   assert.equal(submitted.status, 201, await submitted.clone().text());
   const confirmation = await submitted.json();
+
   const applicationId = confirmation.applicationId,
     path = `/api/substitutes/${applicationId}`;
-  assert.equal(typeof applicationId, "string");
+
+  assert.ok(Predicate.isString(applicationId));
+
   const interview = await request(
     `/api/recruitment/applications/${applicationId}/interviews`,
     leader,
@@ -195,11 +243,14 @@ try {
       interviewSchemaId: "interview-schema-native-journey-0049",
     },
   );
+
   assert.equal(interview.status, 201, await interview.clone().text());
+
   const recruitmentBefore = await pool.query(
     "SELECT * FROM public.recruitment_interviews WHERE application_id=$1",
     [applicationId],
   );
+
   assert.equal(recruitmentBefore.rows.length, 1);
 
   const body = {
@@ -211,11 +262,14 @@ try {
     language: "Norwegian",
     yearOfStudy: 3,
   };
+
   const get = async (cookie = leader) => {
     const response = await request(path, cookie);
     assert.equal(response.status, 200, await response.clone().text());
+
     return response.json();
   };
+
   await pool.query(
     "INSERT INTO public.organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES ('first-membership-0094','journey-rec-leader-0049','wrong-team-0094',NULL,'2026-01-01',NULL,NULL,false,false,0)",
   );
@@ -238,14 +292,16 @@ try {
     "DELETE FROM public.organization_global_administrator_grants WHERE grant_id='admin-0094'",
   );
   const initial = await get();
-  const selectedSdk = await sdk.substitutes.readEntry({ params: { applicationId }, headers: {} });
+  const selectedSdk = await sdk.substitutes.readEntry({ params: { applicationId: PublicApplicationIdSchema.make(applicationId) }, headers: {} });
   assert.equal(selectedSdk.body?.applicationId, applicationId);
 
   assert.equal(initial.active, false);
   assert.equal(initial.preferences, null);
+
   for (const cookie of [undefined, wrong]) {
     assert.ok([401, 403].includes((await request(path, cookie)).status));
   }
+
   assert.equal((await request(path, member)).status, 403, "inactive item private from member");
   const selectedPool = `/api/substitutes?departmentId=${departmentId}&semesterId=${secondSemesterId}`;
   assert.equal((await request(selectedPool, wrong)).status, 403, "wrong department pool denied");
@@ -267,6 +323,7 @@ try {
   assert.equal(memberBoard._tag, "ReadOnly");
   assert.equal("candidates" in memberBoard, false);
   assert.equal((await request(`${path}:activate`, member, body, initial.etag)).status, 403);
+
   for (const invalid of [
     { yearOfStudy: 3 },
     { ...body, language: "French" },
@@ -295,25 +352,31 @@ try {
     (await request(`${path}:edit`, leader, { ...body, yearOfStudy: 4 }, initial.etag)).status,
     412,
   );
+
   const staleCommand = {
-    params: { applicationId },
-    headers: { "if-match": initial.etag, "idempotency-key": randomBytes(18).toString("base64url") },
-    payload: { ...body, yearOfStudy: 4 },
+    params: { applicationId: PublicApplicationIdSchema.make(applicationId) },
+    headers: Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({ "if-match": initial.etag, "idempotency-key": randomBytes(18).toString("base64url") }),
+    payload: Schema.decodeUnknownSync(SubstituteMutation)({ ...body, yearOfStudy: 4 }),
   };
+
   for (const attempt of ["initial stale edit", "unchanged rejected retry"]) {
-    await assert.rejects(sdk.substitutes.edit(staleCommand), (error: unknown) => {
-      assert.ok(HttpApiSchema.isWithHeadersValue(error), attempt);
+    await assert.rejects(sdk.substitutes.edit(staleCommand), (error) => {
+      assert.ok(Predicate.hasProperty(error, "body"), attempt);
       const problem = Schema.decodeUnknownSync(NativeProblem)(error.body);
       assert.equal(problem.code, "precondition.failed", attempt);
       assert.equal(problem.status, 412, attempt);
+
       return true;
     });
   }
+
   assert.equal((await request(path, member)).status, 200);
+
   const edits = await Promise.all([
     request(`${path}:edit`, leader, { ...body, yearOfStudy: 4 }, activated.etag),
     request(`${path}:edit`, leader, { ...body, yearOfStudy: 5 }, activated.etag),
   ]);
+
   assert.equal(
     edits.filter((r) => r.status === 200).length,
     1,
@@ -324,6 +387,7 @@ try {
     `concurrent edit rejection ${edits.map((r) => r.status)}`,
   );
   const edited = await get();
+
   const submissionReplay = await request(
     "/api/applications",
     undefined,
@@ -331,6 +395,7 @@ try {
     undefined,
     submissionKey,
   );
+
   assert.equal(submissionReplay.status, 201);
   assert.deepEqual(
     await submissionReplay.json(),
@@ -341,16 +406,18 @@ try {
     pool.query("UPDATE public.admission_applications SET revision=-1 WHERE application_id=$1", [
       applicationId,
     ]),
-    (error) => error.code === "23514",
+    (error) => Predicate.hasProperty(error, "code") && error.code === "23514",
   );
   assert.ok([4, 5].includes(edited.yearOfStudy));
   const deactivated = await request(`${path}:deactivate`, leader, {}, edited.etag);
   assert.equal(deactivated.status, 200);
   const inactive = await deactivated.json();
+
   const recruitmentAfter = await pool.query(
     "SELECT * FROM public.recruitment_interviews WHERE application_id=$1",
     [applicationId],
   );
+
   assert.deepEqual(
     recruitmentAfter.rows,
     recruitmentBefore.rows,
@@ -368,6 +435,7 @@ try {
   assert.equal((await request(`${path}:edit`, leader, body, inactive.etag)).status, 400);
   assert.equal((await request(`${path}:deactivate`, leader, {}, inactive.etag)).status, 400);
   const unavailable = { ...body, monday: false, wednesday: false, friday: false };
+
   const concurrent = await Promise.all([
     request(`${path}:activate`, leader, unavailable, inactive.etag),
     request(`${path}:activate`, leader, unavailable, inactive.etag),
@@ -391,20 +459,26 @@ try {
   await pool.query(
     "UPDATE public.organization_memberships SET is_suspended=false WHERE person_id='journey-rec-leader-0049'",
   );
+
   const empty = await request(
     `/api/substitutes?departmentId=${departmentId}&semesterId=${noPeriodSemesterId}`,
     leader,
   );
+
   assert.equal(empty.status, 200);
   assert.equal((await empty.json()).admissionPeriodId, null);
+
   const count = await pool.query(
     "SELECT count(*)::integer AS count FROM public.admission_substitute_preferences WHERE application_id=$1",
     [applicationId],
   );
+
   assert.equal(count.rows[0].count, 1);
+
   const browserCandidate = await pool.query(
     "SELECT year_of_study FROM public.admission_applications WHERE application_id='application-browser-0094'",
   );
+
   assert.equal(browserCandidate.rows[0].year_of_study, 3, "other semester unchanged");
   const finalApi = await get();
   assert.ok(
@@ -414,10 +488,13 @@ try {
     "all unavailable is a valid explicit declaration",
   );
   assert.equal((await request(`${path}:deactivate`, leader, {}, finalApi.etag)).status, 200);
+
   const receiptCount = await pool.query(
     "SELECT count(*)::integer AS count FROM public.native_http_idempotency_receipts WHERE operation_id LIKE 'substitutes.%'",
   );
+
   assert.equal(receiptCount.rows[0].count, 5, "only five executed writes, not retries/rejections");
+
   const manifest = {
     revision,
     backendOrigin,
@@ -430,13 +507,16 @@ try {
     applicationId: "application-browser-0094",
     persons,
   };
+
   const manifestPath = join(artifacts, "manifest.json");
   await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+
   const secondSemesterBefore = await pool.query(
     "SELECT row_to_json(application) AS application FROM public.admission_applications application INNER JOIN public.admission_periods period ON period.admission_period_id=application.admission_period_id WHERE period.semester_id=$1 ORDER BY application.application_id",
     [secondSemesterId],
   );
-  let browserEvidence: Record<string, unknown> | null = null;
+
+  let browserEvidence: Schema.JsonObject | null = null;
 
   if (process.argv.includes("--browser")) {
     run(
@@ -448,36 +528,50 @@ try {
       },
       300_000,
     );
-    browserEvidence = JSON.parse(await readFile(join(artifacts, "browser-evidence.json"), "utf8"));
+    browserEvidence = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.JsonObject))(
+      await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
+    );
     assert.equal(browserEvidence?.passed, true);
     assert.equal(browserEvidence?.revision, revision);
+
     const browserRows = await pool.query(
       `SELECT application.application_id AS "applicationId", application.year_of_study AS "yearOfStudy", preferences.active,
       jsonb_build_object('monday',monday,'tuesday',tuesday,'wednesday',wednesday,'thursday',thursday,'friday',friday,'language',language) AS preferences
       FROM public.admission_applications application INNER JOIN public.admission_substitute_preferences preferences ON preferences.application_id=application.application_id WHERE application.application_id=$1`,
       [manifest.applicationId],
     );
+
     assert.deepEqual(
       browserRows.rows,
       [browserEvidence?.finalExpected],
       "browser final expectation independently observed in PostgreSQL",
     );
+
     const secondSemesterAfter = await pool.query(
       "SELECT row_to_json(application) AS application FROM public.admission_applications application INNER JOIN public.admission_periods period ON period.admission_period_id=application.admission_period_id WHERE period.semester_id=$1 ORDER BY application.application_id",
       [secondSemesterId],
     );
+
     assert.deepEqual(
       secondSemesterAfter.rows,
       secondSemesterBefore.rows,
       "browser edits do not change another semester",
     );
   }
+
+  const bunVersion = process.versions.bun;
+
+  const postgresVersion = Schema.decodeUnknownSync(Schema.String)(
+    (await pool.query("SELECT version() AS version")).rows[0].version,
+  );
+
+  const runtime: PreviewRuntimeObservation = bunVersion === undefined
+    ? { postgres: postgresVersion }
+    : { bun: bunVersion, postgres: postgresVersion };
+
   evidence = {
     revision,
-    runtime: {
-      bun: process.versions.bun,
-      postgres: (await pool.query("SELECT version() AS version")).rows[0].version,
-    },
+    runtime,
     apiPassed: true,
     browserEvidence,
     apiGates: [
@@ -511,9 +605,11 @@ try {
   throw error;
 } finally {
   if (pool) await pool.end();
+
   for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
   await rm(join(artifacts, "manifest.json"), { force: true });
+
   if (evidence) {
     await writeFile(
       join(artifacts, "evidence.json"),

@@ -4,20 +4,24 @@ import {
   deliverNextPublicApplicationOutbox,
   makeRecordingPublicApplicationEffectInterpreter,
 } from "@vektorprogrammet/domain/application";
-import { Effect, Redacted } from "effect";
+import { Predicate, Effect, Redacted } from "effect";
 
 const postgresUrl = process.env.PUBLIC_APPLICATION_OUTBOX_PG_URL;
+
 if (!postgresUrl) {
   throw new Error("Missing PUBLIC_APPLICATION_OUTBOX_PG_URL");
 }
 
 const claimedAt = "2031-09-15T12:00:01.000Z";
+
 const interpreter = makeRecordingPublicApplicationEffectInterpreter();
+
 const databaseLayer = DatabaseLive({
   url: Redacted.make(postgresUrl),
   applicationName: "public-application-recording-outbox-0039",
   maxConnections: 2,
 });
+
 const failProof = (message: string): Effect.Effect<never> =>
   Effect.sync(() => {
     throw new Error(message);
@@ -36,41 +40,52 @@ const program = Effect.gen(function* () {
         LIMIT 1
       `,
   );
+
   const firstEffectId = rows[0]?.effect_id;
+
   if (firstEffectId === undefined) {
     return yield* failProof("Public-application outbox was empty");
   }
 
   interpreter.failOnce(firstEffectId);
+
   const injected = yield* deliverNextPublicApplicationOutbox(
     "public-application-injected-failure",
     claimedAt,
     interpreter,
   );
-  if (injected._tag !== "Failed" || injected.claim.effectId !== firstEffectId) {
+
+  if (!Predicate.isTagged(injected, "Failed") || injected.claim.effectId !== firstEffectId) {
     return yield* failProof("Public-application outbox did not persist provider failure");
   }
+
   const retry = yield* deliverNextPublicApplicationOutbox(
     "public-application-retry",
     "2031-09-15T12:00:02.000Z",
     interpreter,
   );
-  if (retry._tag !== "Delivered" || retry.claim.effectId !== firstEffectId) {
+
+  if (!Predicate.isTagged(retry, "Delivered") || retry.claim.effectId !== firstEffectId) {
     return yield* failProof("Public-application outbox did not retry the failed effect first");
   }
 
   let deliveryIndex = 0;
+
   while (true) {
     const result = yield* deliverNextPublicApplicationOutbox(
       `public-application-delivery-${deliveryIndex}`,
       `2031-09-15T12:00:${String(deliveryIndex + 3).padStart(2, "0")}.000Z`,
       interpreter,
     );
-    if (result._tag === "Idle") break;
-    if (result._tag !== "Delivered") {
+
+    if (Predicate.isTagged(result, "Idle")) break;
+
+    if (!Predicate.isTagged(result, "Delivered")) {
       return yield* failProof("Public-application outbox returned an unexpected delivery state");
     }
+
     deliveryIndex += 1;
+
     if (deliveryIndex > 32) {
       return yield* failProof("Public-application outbox did not reach its bounded idle state");
     }
@@ -80,6 +95,7 @@ const program = Effect.gen(function* () {
 
   const snapshot = interpreter.snapshot();
   const appliedEffectIds = snapshot.map((entry) => entry.effectId);
+
   return {
     retriedEffectId: firstEffectId,
     injectedFailureTag: injected.failureTag,
@@ -94,6 +110,7 @@ try {
   const evidence = await Effect.runPromise(
     Effect.scoped(program.pipe(Effect.provide(databaseLayer))),
   );
+
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 } catch {
   process.stderr.write("Public-application recording outbox driver failed\n");

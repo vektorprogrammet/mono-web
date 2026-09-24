@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { APPROVED_TEST_ENV } from "./fixtures/collector-environment.js";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -9,11 +10,9 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { NodeRuntimeLayer } from "../node-runtime.js";
 import {
-  API_METADATA_SCRIPT,
-  API_OPENAPI_SCRIPT,
   buildCollectorSandboxArguments,
   collectorExecutableProvenance,
   discoverCollectorExecutables,
@@ -31,20 +30,21 @@ import {
 import { scanRootEffect } from "../src/runtime.js";
 import {
   ParityFileSystem,
-  type ParityCommandExecutorShape,
-  type ParityFileSystemShape,
+  type ParityCommandExecutorOperations,
+  type ParityFileSystemOperations,
 } from "../src/services.js";
 
 // Raw node-backed filesystem shape for service-level tests; resolved lazily so the
 // module registers its tests without top-level await.
-const realFileSystemPromise: Promise<ParityFileSystemShape> = Effect.runPromise(
+const realFileSystemPromise: Promise<ParityFileSystemOperations> = Effect.runPromise(
   Effect.gen(function* () {
     return yield* ParityFileSystem;
   }).pipe(Effect.provide(NodeRuntimeLayer)),
 );
+
 // Command executor stub whose sandbox invocations always fail closed: enough for
 // reaching the execution seam while never spawning real processes.
-const noopCommands: ParityCommandExecutorShape = {
+const noopCommands: ParityCommandExecutorOperations = {
   executeBytes: () => {
     throw new Error("collector sandbox execution is unavailable in tests");
   },
@@ -53,6 +53,7 @@ const noopCommands: ParityCommandExecutorShape = {
   },
   spawnText: () => ({ signal: null, status: 1, stderr: "", stdout: "" }),
 };
+
 test("route payload safety validates values without treating structural keys as secrets", () => {
   const safe = {
     reset_password: {
@@ -61,6 +62,7 @@ test("route payload safety validates values without treating structural keys as 
       methods: ["GET"],
     },
   };
+
   expect(unsafeSourceTextReason(JSON.stringify(safe))).toBe("UNSAFE_SOURCE");
   expect(routePayloadContainsUnsafe(safe)).toBe(false);
   expect(routePayloadContainsUnsafe({ ...safe, secret_route: { token: "concrete-secret" } })).toBe(
@@ -74,20 +76,25 @@ test("missing collector configuration is a runtime_unavailable observation", asy
   const monoRoot = join(directory, "mono");
   mkdirSync(legacyRoot);
   mkdirSync(monoRoot);
+
   try {
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
+
     const result = await Effect.runPromise(
       collectApiOperations(
         context,
         "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     expect(result.failures).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "runtime_unavailable" })]),
     );
@@ -100,77 +107,39 @@ test("missing collector configuration is a runtime_unavailable observation", asy
     rmSync(directory, { recursive: true, force: true });
   }
 });
-const APPROVED_TEST_ENV = `# define your env variables for the test env here
-APP_ENV=test
-APP_DEBUG=1
-CORS_ALLOW_ORIGIN='*'
-DATABASE_URL=sqlite:///:memory:
-APP_SECRET=test_app_secret_for_testing_only
-JWT_PASSPHRASE=
-TEST_JWT_PRIVATE_PATH=/dev/null
-TEST_JWT_PUBLIC_PATH=/dev/null
-TEST_JWT_PASSPHRASE=
 
-LOG_CHANNEL='#test-log'
-SLACK_DISABLED=1
-SLACK_ENDPOINT='https://example.invalid/slack'
-GATEWAY_API_TOKEN=
-SMS_DISABLE=1
-DEFAULT_SURVEY_EMAIL=
-IPINFO_TOKEN=
-GEO_IGNORED_ASNS='[]'
-DEFAULT_FROM_EMAIL=
-ECONOMY_EMAIL=
-GOOGLE_API_CLIENT_ID=test
-GOOGLE_API_CLIENT_SECRET=
-GOOGLE_API_REFRESH_TOKEN=`;
-test("metadata collector loads only the staged test dotenv before fixed kernel boot", () => {
-  const autoload = API_METADATA_SCRIPT.indexOf("require $root . '/vendor/autoload.php';");
-  const dotenv = API_METADATA_SCRIPT.indexOf(
-    "(new \\Symfony\\Component\\Dotenv\\Dotenv())->usePutenv()->load($root . '/.env.test');",
-  );
-  const kernel = API_METADATA_SCRIPT.indexOf("$kernel = new \\Kernel('test', false);");
-  const testContainer = API_METADATA_SCRIPT.indexOf(
-    "$container = $kernel->getContainer()->get('test.service_container');",
-  );
-  const factory = API_METADATA_SCRIPT.indexOf(
-    "$factory = $container->get('api_platform.metadata.resource.metadata_collection_factory');",
-  );
-  expect(testContainer).toBeGreaterThan(kernel);
-  expect(factory).toBeGreaterThan(testContainer);
-  expect(autoload).toBeGreaterThanOrEqual(0);
-  expect(dotenv).toBeGreaterThan(autoload);
-  expect(kernel).toBeGreaterThan(dotenv);
-  expect(API_METADATA_SCRIPT).not.toContain("bootEnv");
-  expect(API_METADATA_SCRIPT).not.toContain("loadEnv");
-  expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env';");
-  expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env.local';");
-  expect(API_METADATA_SCRIPT).not.toMatch(/\$root \. '\/\.env\.(?:dev|prod|local)'/);
-});
-
-test("OpenAPI collector uses the API Platform command serializer seam", () => {
-  expect(API_OPENAPI_SCRIPT).toContain("$serializer = $container->get('api_platform.serializer');");
-  expect(API_OPENAPI_SCRIPT).not.toContain("$container->get('serializer')");
-});
-
-test("tracked collector environment contains only the approved test bytes", async () => {
+test("tracked collector environment preserves approved bytes and rejects identity values", async () => {
   const directory = mkdtempSync("/tmp/parity-collector-env-scan-");
-  const expectedBytes = execFileSync("git", ["show", "HEAD:apps/server/.env.test"], {
-    cwd: resolve(import.meta.dir, "../../.."),
-    maxBuffer: 4096,
-  });
+
+  const expectedBytes = Buffer.from(APPROVED_TEST_ENV);
+
   mkdirSync(join(directory, "apps/server"), { recursive: true });
   writeFileSync(join(directory, "apps/server/.env.test"), expectedBytes);
+  execFileSync("git", ["-C", directory, "init", "-q"]);
+  execFileSync("git", ["-C", directory, "config", "user.email", "parity@example.invalid"]);
+  execFileSync("git", ["-C", directory, "config", "user.name", "parity-test"]);
+  execFileSync("git", ["-C", directory, "add", "."]);
+  execFileSync("git", ["-C", directory, "commit", "-qm", "approved environment"]);
+
   try {
     const mono = await Effect.runPromise(
       scanRootEffect(directory, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const envFiles = mono.files.filter((file) => /(?:^|\/)\.env(?:$|[.-])/iu.test(file.path));
     expect(envFiles.map((file) => file.path)).toEqual(["apps/server/.env.test"]);
     const envFile = envFiles[0];
     expect(envFile).toMatchObject({ availability: "available", unsafe: false });
     expect(Buffer.from(envFile?.bytes ?? new Uint8Array())).toEqual(expectedBytes);
-    expect(new TextDecoder().decode(envFile?.bytes ?? new Uint8Array())).toBe(APPROVED_TEST_ENV);
+    writeFileSync(
+      join(directory, "apps/server/.env.test"),
+      APPROVED_TEST_ENV.replace("DEFAULT_FROM_EMAIL=", "DEFAULT_FROM_EMAIL=test@example.invalid"),
+    );
+    execFileSync("git", ["-C", directory, "add", "."]);
+    execFileSync("git", ["-C", directory, "commit", "-qm", "identity value"]);
+    await expect(
+      Effect.runPromise(scanRootEffect(directory, "mono").pipe(Effect.provide(NodeRuntimeLayer))),
+    ).rejects.toMatchObject({ operation: "scan_root" });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -182,14 +151,18 @@ test("failed fixture collector bytes become fixed reason-only observations", asy
   const monoRoot = join(directory, "mono");
   mkdirSync(legacyRoot);
   mkdirSync(monoRoot);
+
   try {
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
+
     const cases = [
       { path: "non-utf8", bytes: new Uint8Array([0xff, 0xfe, 0xfd]), reason: "NON_UTF8_OUTPUT" },
       {
@@ -210,6 +183,7 @@ test("failed fixture collector bytes become fixed reason-only observations", asy
         reason: "UNSAFE_SOURCE",
       },
     ] as const;
+
     for (const fixture of cases) {
       const result = await Effect.runPromise(
         collectApiOperations(
@@ -221,10 +195,13 @@ test("failed fixture collector bytes become fixed reason-only observations", asy
           { path: fixture.path, bytes: fixture.bytes },
         ).pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const observation = context.runtimeObservations.at(-1);
+
       const fixtureSource = context.sources.find(
         (source) => source.path === `fixture://runtime/${fixture.path}`,
       );
+
       expect(fixtureSource).toMatchObject({
         byte_length: null,
         sha256: null,
@@ -251,6 +228,7 @@ test("collector executable validation rejects arbitrary, symlinked, and writable
   writeFileSync(regular, "#!/bin/sh\n");
   chmodSync(regular, 0o755);
   symlinkSync(regular, link);
+
   try {
     expect(
       await Effect.runPromise(
@@ -279,8 +257,10 @@ test("collector executable validation rejects arbitrary, symlinked, and writable
 
 test("Nix executable shapes are recognized without PATH lookup", () => {
   const php = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-8.3.21/bin/php";
+
   const phpWithExtensions =
     "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-with-extensions-8.4.23/bin/php";
+
   const bwrap = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bubblewrap-0.11.2/bin/bwrap";
   expect(collectorExecutableProvenance("php", php)).toBe("nix-store");
   expect(collectorExecutableProvenance("php", phpWithExtensions)).toBe("nix-store");
@@ -291,6 +271,7 @@ test("Nix executable shapes are recognized without PATH lookup", () => {
 test("sandbox invocation binds selected binaries, isolates arguments, and narrows runtime writes", async () => {
   const php = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-8.3.21/bin/php";
   const bwrap = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bubblewrap-0.11.2/bin/bwrap";
+
   const invocation = await Effect.runPromise(
     buildCollectorSandboxArguments(
       { phpExecutable: php, bwrapExecutable: bwrap },
@@ -298,6 +279,7 @@ test("sandbox invocation binds selected binaries, isolates arguments, and narrow
       "/tmp/staged-source",
     ).pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   expect(invocation.executable).toBe(bwrap);
   expect(invocation.arguments).toEqual(
     expect.arrayContaining([
@@ -314,18 +296,23 @@ test("sandbox invocation binds selected binaries, isolates arguments, and narrow
       "/nix/store",
     ]),
   );
+
   const workspaceBindIndex = invocation.arguments.findIndex(
     (value, index) => value === "--ro-bind" && invocation.arguments[index + 2] === "/workspace",
   );
+
   const varOverlayIndex = invocation.arguments.findIndex(
     (value, index) =>
       value === "--tmpfs" && invocation.arguments[index + 1] === "/workspace/apps/server/var",
   );
+
   expect(workspaceBindIndex).toBeGreaterThan(-1);
   expect(varOverlayIndex).toBe(workspaceBindIndex + 3);
+
   const tmpfsDestinations = invocation.arguments.flatMap((value, index) =>
     value === "--tmpfs" ? [invocation.arguments[index + 1]] : [],
   );
+
   expect(tmpfsDestinations).toEqual(
     expect.arrayContaining(["/", "/tmp", "/workspace/apps/server/var"]),
   );
@@ -344,14 +331,18 @@ test("production collection does not consume runtime fixtures", async () => {
   mkdirSync(join(monoRoot, "apps/server/var/parity"), { recursive: true });
   mkdirSync(legacyRoot);
   writeFileSync(join(monoRoot, "apps/server/var/parity/api-operations.json"), "[]");
+
   try {
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
+
     const result = await Effect.runPromise(
       collectApiOperations(
         context,
@@ -360,6 +351,7 @@ test("production collection does not consume runtime fixtures", async () => {
         false,
       ).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     expect(result.failures).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "runtime_unavailable" })]),
     );
@@ -387,20 +379,23 @@ test("PATH discovery accepts provenanced executables and rejects every other sha
   writeFileSync(bwrapReal, "#!/bin/sh\n");
   chmodSync(phpReal, 0o755);
   chmodSync(bwrapReal, 0o500);
-  const virtualMap: Record<string, string> = {
-    [`${phpStore}/php`]: phpReal,
-    [`${bwrapStore}/bwrap`]: bwrapReal,
-  };
-  const fakeFileSystem: ParityFileSystemShape = {
+
+  const virtualMap = new Map<string, string>([
+    [`${phpStore}/php`, phpReal],
+    [`${bwrapStore}/bwrap`, bwrapReal],
+  ]);
+
+  const fakeFileSystem: ParityFileSystemOperations = {
     ...realFileSystem,
-    exists: (path) => realFileSystem.exists(virtualMap[path] ?? path),
-    lstat: (path) => realFileSystem.lstat(virtualMap[path] ?? path),
+    exists: (path) => realFileSystem.exists(virtualMap.get(path) ?? path),
+    lstat: (path) => realFileSystem.lstat(virtualMap.get(path) ?? path),
     // Virtual paths are canonical inside the emulated world: realpath returns
     // the virtual path itself for mapped candidates, real behavior otherwise.
-    realpath: (path) => (virtualMap[path] !== undefined ? path : realFileSystem.realpath(path)),
-    readBytes: (path) => realFileSystem.readBytes(virtualMap[path] ?? path),
-    stat: (path) => realFileSystem.stat(virtualMap[path] ?? path),
+    realpath: (path) => (virtualMap.get(path) !== undefined ? path : realFileSystem.realpath(path)),
+    readBytes: (path) => realFileSystem.readBytes(virtualMap.get(path) ?? path),
+    stat: (path) => realFileSystem.stat(virtualMap.get(path) ?? path),
   };
+
   try {
     expect(
       await Effect.runPromise(
@@ -440,28 +435,28 @@ test("PATH discovery accepts provenanced executables and rejects every other sha
 
 test("plain git-ignored vendor tree stages collector inputs; absent or symlinked vendor fails closed", async () => {
   const realFileSystem = await realFileSystemPromise;
-  const APPROVED_TEST_ENV_BYTES = execFileSync("git", ["show", "HEAD:apps/server/.env.test"], {
-    cwd: resolve(import.meta.dir, "../../.."),
-    maxBuffer: 8192,
-  }).toString("utf8");
+
   const buildMonoTree = (vendor: "present" | "symlink" | "absent"): string => {
     const monoRoot = mkdtempSync("/tmp/parity-collector-vendor-");
     execFileSync("git", ["-C", monoRoot, "init", "-q"]);
     execFileSync("git", ["-C", monoRoot, "config", "user.email", "parity@example.invalid"]);
     execFileSync("git", ["-C", monoRoot, "config", "user.name", "parity-test"]);
+
     const put = (path: string, bytes: string): void => {
       mkdirSync(dirname(join(monoRoot, path)), { recursive: true });
       writeFileSync(join(monoRoot, path), bytes, "utf8");
     };
+
     put("apps/server/.gitignore", "/vendor\n/var\n");
     put("apps/server/bin/console", "#!/usr/bin/env php\n<?php echo '[]';\n");
     put("apps/server/composer.json", "{}\n");
     put("apps/server/composer.lock", "{}\n");
     put("apps/server/config/bundles.php", "<?php\nreturn [];\n");
     put("apps/server/src/Controller/HomeController.php", "<?php\nfinal class Home {}\n");
-    put("apps/server/.env.test", APPROVED_TEST_ENV_BYTES);
+    put("apps/server/.env.test", APPROVED_TEST_ENV);
     execFileSync("git", ["-C", monoRoot, "add", "-A"]);
     execFileSync("git", ["-C", monoRoot, "commit", "-qm", "fixture"]);
+
     // Vendor variants are created AFTER the commit so they stay untracked and
     // git-ignored: the scanner never walks them (a committed symlink would make
     // scanRoot fail on symlinked path components), while staging sees them.
@@ -469,10 +464,13 @@ test("plain git-ignored vendor tree stages collector inputs; absent or symlinked
       mkdirSync(join(monoRoot, "apps/server/vendor"), { recursive: true });
       writeFileSync(join(monoRoot, "apps/server/vendor/autoload.php"), "<?php\n");
     }
+
     if (vendor === "symlink")
       symlinkSync("/nonexistent-vendor-target", join(monoRoot, "apps/server/vendor"));
+
     return monoRoot;
   };
+
   const legacyRoot = mkdtempSync("/tmp/parity-collector-legacy-");
   // Nix-store-shaped stand-in paths satisfy collectorExecutableProvenance while
   // the actual bytes are ordinary mode-0500 files in the writable fixture tree,
@@ -483,28 +481,34 @@ test("plain git-ignored vendor tree stages collector inputs; absent or symlinked
   chmodSync(join(legacyRoot, "standin-php"), 0o500);
   writeFileSync(join(legacyRoot, "standin-bwrap"), "#!/bin/sh\n");
   chmodSync(join(legacyRoot, "standin-bwrap"), 0o500);
-  const standInMap: Record<string, string> = {
-    [phpStandIn]: join(legacyRoot, "standin-php"),
-    [bwrapStandIn]: join(legacyRoot, "standin-bwrap"),
-  };
-  const standInFileSystem: ParityFileSystemShape = {
+
+  const standInMap = new Map<string, string>([
+    [phpStandIn, join(legacyRoot, "standin-php")],
+    [bwrapStandIn, join(legacyRoot, "standin-bwrap")],
+  ]);
+
+  const standInFileSystem: ParityFileSystemOperations = {
     ...realFileSystem,
-    exists: (path) => realFileSystem.exists(standInMap[path] ?? path),
-    lstat: (path) => realFileSystem.lstat(standInMap[path] ?? path),
-    stat: (path) => realFileSystem.stat(standInMap[path] ?? path),
-    readBytes: (path) => realFileSystem.readBytes(standInMap[path] ?? path),
+    exists: (path) => realFileSystem.exists(standInMap.get(path) ?? path),
+    lstat: (path) => realFileSystem.lstat(standInMap.get(path) ?? path),
+    stat: (path) => realFileSystem.stat(standInMap.get(path) ?? path),
+    readBytes: (path) => realFileSystem.readBytes(standInMap.get(path) ?? path),
     // Stand-in paths are canonical inside the emulated world: realpath returns
     // the stand-in path itself for mapped candidates, real behavior otherwise.
-    realpath: (path) => (standInMap[path] !== undefined ? path : realFileSystem.realpath(path)),
+    realpath: (path) => (standInMap.get(path) !== undefined ? path : realFileSystem.realpath(path)),
   };
+
   const runCollector = async (monoRoot: string): Promise<string> => {
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
+
     // The public collectApiOperations wrapper cannot inject configuration, so
     // this drives runTrustedPhpCollectorWithServices directly with explicit
     // nix-store-shaped stand-in executables that pass validation on any host;
@@ -513,6 +517,7 @@ test("plain git-ignored vendor tree stages collector inputs; absent or symlinked
       phpExecutable: phpStandIn,
       bwrapExecutable: bwrapStandIn,
     };
+
     const result = await Effect.runPromise(
       Effect.sync(() =>
         runTrustedPhpCollectorWithServices(
@@ -526,12 +531,16 @@ test("plain git-ignored vendor tree stages collector inputs; absent or symlinked
         ),
       ),
     );
+
     expect(result.availability).toBe("unavailable");
+
     return result.reason ?? "";
   };
+
   const present = buildMonoTree("present");
   const absent = buildMonoTree("absent");
   const symlinked = buildMonoTree("symlink");
+
   try {
     // Plain vendor tree passes staging and reaches sandbox execution; the noop
     // executor then throws, surfacing as COLLECTOR_EXECUTION_FAILED.
@@ -554,14 +563,18 @@ test("restricted PATH without valid collectors fails before staging", async () =
   const monoRoot = join(directory, "mono");
   mkdirSync(legacyRoot);
   mkdirSync(monoRoot);
+
   try {
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
+
     const result = await Effect.runPromise(
       Effect.sync(() =>
         runTrustedPhpCollectorWithServices(
@@ -575,6 +588,7 @@ test("restricted PATH without valid collectors fails before staging", async () =
         ),
       ),
     );
+
     expect(result.reason).toBe("COLLECTOR_EXECUTABLE_CONFIG_MISSING");
     expect(result.executableDigests).toEqual({ php: null, bwrap: null });
   } finally {

@@ -4,18 +4,19 @@ Lifecycle: build
 
 ## Current
 
-The [Cloudflare development provider boundary](docs/specs/cloudflare-development-provider-boundary.md)
-is frozen for local implementation. Production use remains unauthorized.
+Documentation reconciled against source and retained local evidence on 2026-09-24.
+Production still uses legacy PHP. Local implementation and acceptance do not authorize replacement.
 
-Same-repository pull-request automation now builds exact-head homepage and dashboard
-Worker Previews, probes their public documents and assets, updates one review comment,
-and deletes both previews when the pull request closes. The provider journey remains
-unobserved because no Cloudflare deployment or credential use was authorized.
+The [Cloudflare development contract](docs/specs/cloudflare-development-provider-boundary.md) remains open.
+Its schema ownership conflicts with the implementation: the contract requires Worker migrations through Hyperdrive.
+`DatabaseRuntimeLive` requires an existing schema and rejects migrations.
+Alchemy declares a cron, but the backend Worker exports only `fetch`.
+Schema initialization and scheduled delivery recovery need local implementation work before provider acceptance.
 
-The frozen provider contract says the Worker applies PostgreSQL migrations through
-Hyperdrive. The current Worker uses DatabaseRuntimeLive, which rejects migrations
-and requires an existing schema. Resolve this ownership mismatch before claiming
-the provider journey.
+The [PR preview workflow](docs/specs/worker-pr-previews.md) implements exact-head frontend builds, deployment, probes, review comments, and cleanup.
+These provider actions remain unobserved. Frontend previews do not prove authenticated full-system operation.
+The preview specification also requires workspace validation before deployment. The workflow itself does not establish that gate.
+Close this local gate before claiming preview completion.
 
 Credential migration now writes Argon2id and reads existing native scrypt and
 supported PHP bcrypt credentials. Successful sign-in upgrades an outdated hash
@@ -40,8 +41,9 @@ Provider resource qualification remains required before production use.
 The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
 
-The latest observed native runtime architecture is revision
+The earlier runtime architecture observation used revision
 `9e07114700ee5c6520d6276f7129d95184937b7c`.
+It is not the revision of all subsequent work. See [Evidence boundary](#evidence-boundary) for later scoped acceptance.
 
 Implemented native journeys include:
 
@@ -84,6 +86,24 @@ The native architecture now uses one Effect backend runtime, one PostgreSQL
 ownership layer, generated HTTP and SDK contracts, transaction-bound authority,
 atomic audit/outbox/receipt writes, and Foldkit dashboard workflows.
 
+Organization appointment creation, revision, ending, suspension, reinstatement, and native account access controls exist across the native layers.
+End-to-end acceptance of the [organization lifecycle contract](docs/specs/organization-access-lifecycle.md) remains open.
+Do not implement these operations again or infer acceptance from their presence.
+
+Schools has a scoped read-only directory. School records, contacts, department associations, and capacity maintenance remain incomplete.
+Placement demand and roster commands are separate, implemented journeys.
+Mailing lists have derived reads, not complete maintenance or provider synchronization.
+
+The Economy owner query uses shared schemas with `SqlSchema.findAll`.
+Settlement HTTP calls the complete `Economy.recordReceiptSettlement` operation.
+The service checks authority within the transaction. HTTP retains response receipts and revision preconditions.
+Local acceptance covered query privacy, exact replay, forced rollback, same-key retry, and denial after grant revocation.
+The omitted-department submission regression is also fixed. See [architecture](docs/architecture.md#domain-services) for the boundary.
+
+## Historical backup rehearsal
+
+The following counts describe earlier observations, not a fresh database measurement.
+
 A local cutover rehearsal used the private 2024-08-22 legacy backup.
 The MariaDB source account had SELECT-only grants. A separate PostgreSQL
 17 database received the native import. The driver reconciled 2,893 of
@@ -125,6 +145,14 @@ The backup has zero assignments for 2024 Høst. Its 92 assignments for 2024 Vår
 were historical when the backup was made. It cannot prove current placements
 or eventual live contents. Changes since this backup need reconciliation.
 
+The [backup reader](tools/e2e/legacy-source-snapshot.ts) covers six tables:
+users, departments, semesters, schools, school-department links, and assistant history.
+The cutover imports references, People, history, and Accounts in one target transaction.
+It explicitly leaves current assignments unimported. A newer snapshot does not extend this reader.
+The [assignment cohort](packages/database/src/current-assignment-cohort.ts) requires `synthetic: true`.
+The [receipt adapter](apps/backend/src/receipt/import-snapshot.ts) also requires synthetic source and payment-account evidence.
+Both need real-source reconciliation contracts and adapters, not removal of their safety checks.
+
 Unsupported credentials, legacy aliases, current placements, receipts, private
 files, and settlement references remain. The local backup does not prove
 current mailbox ownership or current production identity. Synthetic
@@ -143,34 +171,64 @@ and settlement references are still needed for the receipt migration.
 
 ## Next
 
-Recruitment keeps recommendation, invitation, account claim, affiliation, and
-placement separate. It does not infer an admission decision. The existing
-journeys do not complete ongoing organization, school, or recruitment maintenance.
+Resume the existing organization lifecycle contract first. Its code exists, but its acceptance remains open.
+Do not create a second specification for the same journey.
 
-The authenticated read-only audit observed autumn recruitment in all three active
-chapters and 16 pending expense claims across eight owners. Empty displayed
-rosters do not establish that external schedules are empty. Browser observations
-are not a consistent source snapshot. The six-table backup reader does not cover
-current recruitment, appointments, demand, expenses, or outstanding messages.
+| Priority | Work                                             | Acceptance gate                                                                                                                                                                                                          | Authority                                                            |
+| -------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| 1        | Complete organization lifecycle acceptance       | Real dashboard, HTTP, and PostgreSQL handover. Verify scope, suspension, term-end, replay, races, and administrator safety. Verify disabled sessions, OAuth, and recovery. Re-enable must not revive old sessions.       | Local disposable resources                                           |
+| 2        | Implement school administration                  | Scoped school, contact, department-association, and capacity changes. Verify denied and stale commands without duplicating placement demand or roster work.                                                              | Local implementation                                                 |
+| 3        | Close recruitment maintenance                    | Questionnaire authoring and interviewer/co-interviewer changes. Preserve existing conduct, reports, corrections, invitations, and onboarding.                                                                            | Local implementation                                                 |
+| 4        | Resolve remaining active operational obligations | Define necessary mailing-list controls, standalone team recruitment, reminders, no-show handling, service corrections, and coordinator reports. Implement each required outcome or obtain an explicit handover decision. | Product decisions where ownership is unresolved                      |
+| 5        | Extend real-source migration coverage            | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and its disposition.                                                                   | Local adapter work; current production access requires authorization |
+| 6        | Complete provider runtime ownership              | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism.                                                                                  | Local implementation                                                 |
+| 7        | Exercise the deployed development journey        | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR preview creation, update, probes, fork exclusion, and cleanup separately.       | Explicit provider and credential authority                           |
+| 8        | Rehearse and authorize cutover                   | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership.                                                                                                  | Separate production authority                                        |
 
-Close the remaining replacement gates in this order:
+These priorities are not a requirement to serialize independent preparation:
 
-1. Implement appointment, leadership, term-end, and offboarding administration.
-   Keep Person identity, scoped authority, and retained external-account duties separate.
-2. Implement school maintenance, questionnaire authoring, interviewer changes,
-   and mailing-list controls. Resolve standalone team recruitment and reminders.
-3. Obtain an authorized current source snapshot and reconcile active operational
-   records. Correct the known invalid account email with verified evidence.
-   Reconcile aliases and unsupported credentials. Obtain receipt files and
-   payment-account custody; reconcile settlement references separately.
-4. Resolve provider schema ownership and verify required mail, storage, recovery,
-   and Worker credential resource behavior with authorized provider access.
-5. Rehearse final reconciliation, writer transfer, recovery, and rollback.
-   Production cutover requires separate authorization.
+```text
+Operational acceptance and maintenance ----+
+Real-source adapters -> authorized data ---+--> reconciled candidate
+Provider fixes -> authorized provider run -+        |
+                                                  v
+                                      fence, final delta, rollback rehearsal
+                                                  |
+                                                  v
+                                      separately authorized writer transfer
+```
 
-Create one active file under `docs/specs/` for the next journey. Remove it when
-the accepted behavior is represented by [docs/system.md](docs/system.md), code,
-and observable checks.
+### Reconciliation prerequisites
+
+- Obtain an authorized consistent current snapshot and its watermark. Browser observations do not substitute for it.
+- Reconcile current identity and mailbox ownership. Correct the known invalid login email with verified evidence.
+- Resolve unsupported credentials and legacy aliases. Preserve post-import credentials on replay.
+- Reconcile active authority separately from Accounts, historical membership, and volunteer affiliation.
+- Obtain receipt file bytes and digests. Define encrypted payment-account custody and map owners and departments.
+- Reconcile settlement references separately. A legacy refunded flag is not evidence of payment.
+- Inventory external schedules, open cases, and pending notifications. Empty screens do not prove an empty workload.
+- Reconcile combined teaching blocks and ambiguous membership groups before imposing legacy uniqueness assumptions.
+- Define a final-delta strategy. Exact replay refuses changed source; rerunning the initial importer is not incremental migration.
+
+The earlier authenticated audit observed autumn recruitment in three active chapters and 16 pending claims across eight owners.
+Those observations are historical, not current counts or a consistent source snapshot.
+
+Recruitment keeps recommendation, invitation, account claim, affiliation, and placement separate.
+A separate admission decision needs a defined owner and lifecycle before implementation.
+
+Changelogs, articles, generic events and surveys, certificates, and nonessential statistics are not default cutover gates.
+An active core obligation cannot disappear under that exclusion. Retained data still needs an explicit archive or migration disposition.
+
+### Architecture work
+
+Close remaining service boundaries through a concrete operational journey, not a repository-wide framework rewrite.
+Placements and Substitutes still expose direct database calls from the backend.
+Use the [Economy boundary](docs/architecture.md#domain-services) as the precedent for a complete command and schema-derived query.
+No XState, EventLog, or PersistedQueue adoption follows from dependency compatibility.
+Keep acceptance obligations for a replacement in [AGENTS.md](AGENTS.md#boundary-practices).
+
+For each new journey, create one active contract under `docs/specs/`.
+After acceptance, remove that contract once durable intent, code, and observable checks cover it.
 
 ## Production gates
 
@@ -192,11 +250,18 @@ must never stand in for an explicit coordinator outcome.
 
 ## Evidence boundary
 
-Code and generated contracts describe the implemented surface. Focused checks
-and real local journeys prove only the exact behavior that they exercise.
-Neither local evidence nor this file proves production readiness.
+Code and generated contracts describe implementation. Checks prove only the behavior exercised on their exact source artifact.
+No single local result proves replacement-wide or production readiness.
 
-Historical specifications, screenshots, logs, reports, and runtime bundles were
-removed from the working tree. Git history retains tracked material. Unique
-umbrella documentation was preserved in the local checksummed history archive
-before deletion.
+| Retained acceptance            | Source snapshot                            | Observed scope                                                                                                                                                                                                                                      |
+| ------------------------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dependency and quality upgrade | `6d74709edfcacedc91263f39bcc9003ca5739c80` | 14 workspace type/build prerequisites, 194 backend tests, five SDK tests, five domain properties, lint and formatting. Native Schools browser journey used synthetic PostgreSQL state.                                                              |
+| Economy boundary               | `e3177b24aefc53e8b53b0803dd6cf2e92b0bae14` | Nine affected type/build prerequisites and 53 focused tests. Real Chromium, native authentication, generated SDK, disposable PostgreSQL, and a loopback notification sink. Query, replay, rollback, retry, revocation, and settlement observations. |
+
+These are disposable snapshot commits, not claims that the operator worktree was committed or remained unchanged.
+The retained records are `/tmp/vektor-upgrade-acceptance-cuFpfJ/acceptance.json` and `/tmp/vektor-economy-acceptance-FeFz12/acceptance.json`.
+Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
+No repository-wide all-packages test pass or deployed provider journey is claimed.
+
+This documentation refresh inspected source and retained metadata. It did not rerun application journeys, query production, or deploy providers.
+Historical tracked material remains in Git history. Earlier unique umbrella documentation was preserved in a local checksummed archive before removal.

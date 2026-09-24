@@ -4,6 +4,7 @@ export function previewSurface(pathname: string): PreviewSurface {
   if (pathname === "/health" || pathname === "/api" || pathname.startsWith("/api/")) {
     return "server";
   }
+
   if (
     pathname === "/dashboard" ||
     pathname.startsWith("/dashboard/") ||
@@ -15,5 +16,6 @@ export function previewSurface(pathname: string): PreviewSurface {
   ) {
     return "dashboard";
   }
+
   return "homepage";
 }

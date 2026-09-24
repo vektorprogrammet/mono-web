@@ -1,6 +1,7 @@
 import { unsafeDiagnostic, type UnsafeDiagnostic } from "./unsafe-diagnostics.js";
 import { dirname, join } from "node:path";
-import { Effect } from "effect";
+import { Match, Predicate, Effect, Schema, Record as Rec } from "effect";
+import { validateAcceptedIntentRegister } from "./accepted-intent-schema.js";
 import {
   canonicalJson,
   compareByteOrder,
@@ -25,11 +26,11 @@ import {
 } from "./routes.js";
 import {
   ParityCommandExecutor,
-  type ParityCommandExecutorShape,
+  type ParityCommandExecutorOperations,
   ParityExecutionEnvironment,
-  type ParityExecutionEnvironmentShape,
+  type ParityExecutionConfiguration,
   ParityFileSystem,
-  type ParityFileSystemShape,
+  type ParityFileSystemOperations,
 } from "./services.js";
 import {
   finalizeManifest,
@@ -51,8 +52,8 @@ import {
 } from "./runtime.js";
 import {
   canonicalRuntimeEvidenceBytes,
-  makeRuntimeEvidenceReceipt,
-  makeRuntimeEvidenceRegister,
+  buildRuntimeEvidenceReceipt,
+  buildRuntimeEvidenceRegister,
   runtimeEvidenceObservation,
 } from "./runtime-evidence.js";
 import {
@@ -77,7 +78,6 @@ import type {
   CollectorExecutables,
   EvidenceAuthorityEvidence,
   GeneratedArtifacts,
-  IntentAuthorityEvidence,
   InventoryEnvelope,
   InventoryRow,
   OpenApiReconciliation,
@@ -89,6 +89,7 @@ import type {
 } from "./types.js";
 
 export const PROJECTION_DIRECTORY = "artifacts/parity";
+
 export const COMMITTED_PROJECTIONS = [
   "source-manifest.json",
   "legacy-routes.json",
@@ -99,6 +100,7 @@ export const COMMITTED_PROJECTIONS = [
   "external-integrations.json",
   "user-journey-coverage.json",
 ] as const;
+
 export const FALSIFIERS = [
   "F0_deterministic_replay",
   "F1_missing_required_source",
@@ -123,17 +125,25 @@ export const FALSIFIERS = [
 ] as const;
 
 export type FalsifierId = (typeof FALSIFIERS)[number];
+
 export type RunMode = "diff" | "write" | "fixture_injection";
 
-export interface RunOptions {
-  readonly root: string;
-  readonly legacyRoot: string;
-  readonly mode: RunMode;
-  readonly falsifierId?: FalsifierId;
-  readonly intentRegisterPath?: string;
-  readonly evidenceRegisterPath?: string;
-  readonly collectorExecutables?: CollectorExecutables;
-}
+export const RunOptionsSchema = Schema.Struct({
+  root: Schema.String,
+  legacyRoot: Schema.String,
+  mode: Schema.Literals(["diff", "write", "fixture_injection"]),
+  falsifierId: Schema.optionalKey(Schema.Literals(FALSIFIERS)),
+  intentRegisterPath: Schema.optionalKey(Schema.String),
+  evidenceRegisterPath: Schema.optionalKey(Schema.String),
+  collectorExecutables: Schema.optionalKey(
+    Schema.Struct({
+      phpExecutable: Schema.String,
+      bwrapExecutable: Schema.String,
+    }),
+  ),
+});
+
+export type RunOptions = typeof RunOptionsSchema.Type;
 
 export interface RunResult {
   readonly exitCode: number;
@@ -155,15 +165,19 @@ const buildFailure = (
   source_ref_ids: sortUnique(sourceRefIds),
   accepted_intent_ref_ids: [],
 });
+
 export const reportableFailureAfterDisposition = (
   failure: ReportFailure,
   rowStatuses: ReadonlyMap<string, InventoryRow["status"]>,
 ): ReportFailure | null => {
   if (failure.row_ids.length === 0) return failure;
+
   const activeRowIds = failure.row_ids.filter(
     (rowIdValue) => rowStatuses.get(rowIdValue) !== "accounted",
   );
+
   if (activeRowIds.length === 0) return null;
+
   return activeRowIds.length === failure.row_ids.length
     ? failure
     : buildFailure(failure.status, failure.reason_code, activeRowIds, failure.source_ref_ids);
@@ -171,7 +185,9 @@ export const reportableFailureAfterDisposition = (
 
 const rowCounts = (inventories: readonly InventoryEnvelope[]): Record<string, number> => {
   const counts: Record<string, number> = {};
+
   for (const inventory of inventories) counts[inventory.inventory_kind] = inventory.rows.length;
+
   return Object.fromEntries(
     Object.entries(counts).sort(([left], [right]) => compareByteOrder(left, right)),
   );
@@ -179,13 +195,16 @@ const rowCounts = (inventories: readonly InventoryEnvelope[]): Record<string, nu
 
 const statusCounts = (inventories: readonly InventoryEnvelope[]): Record<string, number> => {
   const counts: Record<string, number> = {};
+
   for (const inventory of inventories) {
     for (const row of inventory.rows) counts[row.status] = (counts[row.status] ?? 0) + 1;
   }
+
   return Object.fromEntries(
     Object.entries(counts).sort(([left], [right]) => compareByteOrder(left, right)),
   );
 };
+
 const crossReferenceValidation = (
   manifest: SourceManifest,
   inventories: readonly InventoryEnvelope[],
@@ -193,12 +212,16 @@ const crossReferenceValidation = (
 ): boolean => {
   const sourceIds = new Set(manifest.sources.map((source) => source.source_id));
   const revisionIds = new Set(manifest.revisions.map((revision) => revision.revision_ref_id));
+
   const runtimeObservationIds = new Set(
     manifest.runtime_observations.map((observation) => observation.runtime_observation_ref_id),
   );
+
   const allRowIds = inventories.flatMap((inventory) => inventory.rows.map((row) => row.row_id));
   const rowIds = new Set(allRowIds);
+
   if (rowIds.size !== allRowIds.length) return false;
+
   if (
     inventories.some(
       (inventory) =>
@@ -206,12 +229,14 @@ const crossReferenceValidation = (
     )
   )
     return false;
+
   if (
     inventories.some(
       (inventory) => inventory.source_manifest_sha256 !== sourceDigestForManifest(manifest),
     )
   )
     return false;
+
   for (const inventory of inventories) {
     for (const row of inventory.rows) {
       if (
@@ -220,9 +245,12 @@ const crossReferenceValidation = (
         row.runtime_observation_ref_ids.some((id) => !runtimeObservationIds.has(id))
       )
         return false;
+
       if (row.mismatch.counterpart_row_ids.some((id) => !rowIds.has(id))) return false;
+
       if (row.related_row_ids.some((id) => !rowIds.has(id))) return false;
     }
+
     for (const link of inventory.links) {
       if (
         !rowIds.has(link.from_row_id) ||
@@ -231,9 +259,11 @@ const crossReferenceValidation = (
       )
         return false;
     }
+
     for (const observation of inventory.observations) {
       if (observation.source_ref_ids.some((id) => !sourceIds.has(id))) return false;
     }
+
     for (const edge of inventory.derivation_edges) {
       if (
         edge.from_ref_ids.some((id) => !sourceIds.has(id)) ||
@@ -242,42 +272,44 @@ const crossReferenceValidation = (
         return false;
     }
   }
+
   return mismatches.every((mismatch) => mismatch.row_ids.every((id) => rowIds.has(id)));
 };
 
 const mismatchKey = (mismatch: ReportMismatch): string =>
   canonicalJson({ kind: mismatch.kind, row_ids: mismatch.row_ids });
 
-const reconcileRoutes = (
-  legacy: InventoryEnvelope,
-  mono: InventoryEnvelope,
-): {
+type ReconciledRoutes = {
   readonly legacy: InventoryEnvelope;
   readonly mono: InventoryEnvelope;
   readonly mismatches: readonly ReportMismatch[];
   readonly links: InventoryEnvelope["links"];
-} => {
+};
+
+const reconcileRoutes = (legacy: InventoryEnvelope, mono: InventoryEnvelope): ReconciledRoutes => {
   const legacyBySignature = routeRowsBySignature(legacy);
   const monoBySignature = routeRowsBySignature(mono);
   const legacyRows: InventoryRow[] = legacy.rows.map((row) => row);
   const monoRows: InventoryRow[] = mono.rows.map((row) => row);
   const mismatches: ReportMismatch[] = [];
   const links: Array<InventoryEnvelope["links"][number]> = [];
+
   const counterpartByName = (
     row: InventoryRow,
     rows: readonly InventoryRow[],
   ): InventoryRow | undefined => {
-    const details = row.details as {
-      readonly route_name?: string | null;
-      readonly path_template?: string | null;
-    };
+    const details = row.details;
+
+    if (!("route_name" in details)) return undefined;
+
     if (details.route_name === null || details.route_name === undefined) return undefined;
+
     return rows.find(
       (candidate) =>
-        (candidate.details as { readonly route_name?: string | null }).route_name ===
-        details.route_name,
+        "route_name" in candidate.details && candidate.details.route_name === details.route_name,
     );
   };
+
   for (const row of legacyRows) {
     if (
       row.status === "duplicate" ||
@@ -286,21 +318,22 @@ const reconcileRoutes = (
     )
       continue;
     const exact = monoBySignature.get(row.signature) ?? [];
+
     if (exact.length > 0) {
       const counterpart = exact[0];
+
       if (counterpart !== undefined) {
         const index = legacyRows.findIndex((candidate) => candidate.row_id === row.row_id);
         legacyRows[index] = setRowMismatch(row, "none", [counterpart.row_id], "");
+
         const monoIndex = monoRows.findIndex(
           (candidate) => candidate.row_id === counterpart.row_id,
         );
-        if (monoIndex >= 0 && monoRows[monoIndex]?.status !== "duplicate")
-          monoRows[monoIndex] = setRowMismatch(
-            monoRows[monoIndex] as InventoryRow,
-            "none",
-            [row.row_id],
-            "",
-          );
+
+        const monoRow = monoRows[monoIndex];
+
+        if (monoRow !== undefined && monoRow.status !== "duplicate")
+          monoRows[monoIndex] = setRowMismatch(monoRow, "none", [row.row_id], "");
         links.push({
           relation_id: relationId("matches", row.row_id, counterpart.row_id, [
             ...row.source_ref_ids,
@@ -312,26 +345,32 @@ const reconcileRoutes = (
           source_ref_ids: sortUnique([...row.source_ref_ids, ...counterpart.source_ref_ids]),
         });
       }
+
       continue;
     }
+
     const changed = counterpartByName(row, monoRows);
     const index = legacyRows.findIndex((candidate) => candidate.row_id === row.row_id);
+
     if (changed !== undefined) {
       legacyRows[index] = setRowMismatch(row, "changed", [changed.row_id], "CHANGED_SIGNATURE");
       const monoIndex = monoRows.findIndex((candidate) => candidate.row_id === changed.row_id);
+
       if (monoIndex >= 0 && monoRows[monoIndex] !== undefined)
         monoRows[monoIndex] = setRowMismatch(
-          monoRows[monoIndex] as InventoryRow,
+          monoRows[monoIndex],
           "changed",
           [row.row_id],
           "CHANGED_SIGNATURE",
         );
+
       const mismatch: ReportMismatch = {
         kind: "changed",
         row_ids: sortUnique([row.row_id, changed.row_id]),
         disposition: "none",
         accepted_intent_ref_ids: [],
       };
+
       if (!mismatches.some((entry) => mismatchKey(entry) === mismatchKey(mismatch)))
         mismatches.push(mismatch);
     } else {
@@ -344,6 +383,7 @@ const reconcileRoutes = (
       });
     }
   }
+
   for (const row of monoRows) {
     if (
       row.status === "duplicate" ||
@@ -353,11 +393,14 @@ const reconcileRoutes = (
     )
       continue;
     const exact = legacyBySignature.get(row.signature) ?? [];
+
     if (exact.length > 0) continue;
     const changed = counterpartByName(row, legacyRows);
     const index = monoRows.findIndex((candidate) => candidate.row_id === row.row_id);
+
     if (changed !== undefined) {
       monoRows[index] = setRowMismatch(row, "changed", [changed.row_id], "CHANGED_SIGNATURE");
+
       if (
         !mismatches.some(
           (entry) =>
@@ -386,6 +429,7 @@ const reconcileRoutes = (
       });
     }
   }
+
   for (const row of legacyRows) {
     if (row.status === "duplicate")
       mismatches.push({
@@ -394,6 +438,7 @@ const reconcileRoutes = (
         disposition: "none",
         accepted_intent_ref_ids: [],
       });
+
     if (row.status === "unresolved")
       mismatches.push({
         kind: "unresolved",
@@ -401,6 +446,7 @@ const reconcileRoutes = (
         disposition: "none",
         accepted_intent_ref_ids: [],
       });
+
     if (row.status === "dead_unimported")
       mismatches.push({
         kind: "dead_unimported",
@@ -409,6 +455,7 @@ const reconcileRoutes = (
         accepted_intent_ref_ids: [],
       });
   }
+
   for (const row of monoRows) {
     if (row.status === "duplicate")
       mismatches.push({
@@ -417,6 +464,7 @@ const reconcileRoutes = (
         disposition: "none",
         accepted_intent_ref_ids: [],
       });
+
     if (row.status === "unresolved")
       mismatches.push({
         kind: "unresolved",
@@ -424,6 +472,7 @@ const reconcileRoutes = (
         disposition: "none",
         accepted_intent_ref_ids: [],
       });
+
     if (row.status === "dead_unimported")
       mismatches.push({
         kind: "dead_unimported",
@@ -432,12 +481,15 @@ const reconcileRoutes = (
         accepted_intent_ref_ids: [],
       });
   }
+
   const unique = new Map<string, ReportMismatch>();
+
   for (const mismatch of mismatches)
     unique.set(mismatchKey({ ...mismatch, row_ids: sortUnique(mismatch.row_ids) }), {
       ...mismatch,
       row_ids: sortUnique(mismatch.row_ids),
     });
+
   return {
     legacy: updateEnvelopeRows(legacy, legacyRows),
     mono: { ...updateEnvelopeRows(mono, monoRows), links },
@@ -460,7 +512,7 @@ const artifactBytes = (
   integrations: InventoryEnvelope,
   userJourneyCoverage: InventoryEnvelope,
   reconciliation: OpenApiReconciliation,
-): Record<string, string> => ({
+) => ({
   "source-manifest.json": canonicalJson(manifest),
   "legacy-routes.json": canonicalJson(legacy),
   "mono-routes.json": canonicalJson(mono),
@@ -472,32 +524,45 @@ const artifactBytes = (
   "openapi-reconciliation.json": canonicalJson(reconciliation),
 });
 
+type PrimaryFailure = { readonly status: ZeroGapReport["status"]; readonly exitCode: number };
+
 const primaryFailure = (
   failures: readonly ReportFailure[],
   projectionDiff: boolean,
-): { readonly status: ZeroGapReport["status"]; readonly exitCode: number } => {
+): PrimaryFailure => {
   if (failures.some((failure) => failure.status === "command_error"))
     return { status: "command_error", exitCode: 12 };
+
   if (failures.some((failure) => failure.status === "source_unavailable"))
     return { status: "source_unavailable", exitCode: 6 };
+
   if (failures.some((failure) => failure.status === "source_hash_drift"))
     return { status: "source_hash_drift", exitCode: 7 };
+
   if (failures.some((failure) => failure.status === "schema_invalid"))
     return { status: "schema_invalid", exitCode: 8 };
+
   if (failures.some((failure) => failure.status === "nondeterministic_output"))
     return { status: "nondeterministic_output", exitCode: 9 };
+
   if (failures.some((failure) => failure.status === "runtime_unavailable"))
     return { status: "runtime_unavailable", exitCode: 10 };
+
   if (failures.some((failure) => failure.status === "accepted_intent_invalid"))
     return { status: "accepted_intent_invalid", exitCode: 11 };
+
   if (failures.some((failure) => failure.status === "stale") || projectionDiff)
     return { status: "stale", exitCode: 5 };
+
   if (failures.some((failure) => failure.status === "duplicate"))
     return { status: "duplicate", exitCode: 4 };
+
   if (failures.some((failure) => failure.status === "unresolved"))
     return { status: "unresolved", exitCode: 3 };
+
   if (failures.some((failure) => failure.status === "gaps_found"))
     return { status: "gaps_found", exitCode: 2 };
+
   return { status: "zero_gap", exitCode: 0 };
 };
 
@@ -557,6 +622,7 @@ class UnsafeSourceProjectionError extends Error {
     super(message);
   }
 }
+
 const hasUnsafeProjectionMetadata = (
   context: ManifestContext,
   preliminary: CollectedRouteArtifacts,
@@ -571,16 +637,20 @@ const hasUnsafeProjectionMetadata = (
 
 const reportMismatchesFromRows = (rows: readonly InventoryRow[]): readonly ReportMismatch[] => {
   const unique = new Map<string, ReportMismatch>();
+
   for (const row of rows) {
     if (row.mismatch.kind === "none") continue;
+
     const mismatch: ReportMismatch = {
-      kind: row.mismatch.kind as ReportMismatch["kind"],
+      kind: row.mismatch.kind,
       row_ids: sortUnique([row.row_id, ...row.mismatch.counterpart_row_ids]),
       disposition: row.mismatch.disposition,
       accepted_intent_ref_ids: row.mismatch.accepted_intent_ref_ids,
     };
+
     unique.set(mismatchKey(mismatch), mismatch);
   }
+
   return [...unique.values()];
 };
 
@@ -601,6 +671,7 @@ const forbiddenStatesEmpty = (
     "dead_unimported",
     "absent",
   ]);
+
   return (
     crossReferencesValid &&
     reconciliation.status === "current" &&
@@ -616,8 +687,8 @@ const forbiddenStatesEmpty = (
 };
 
 const generateFromContext = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   context: ManifestContext,
   mode: RunMode,
   falsifierId: string | null = null,
@@ -641,9 +712,12 @@ const generateFromContext = (
           blobOid: intentAuthority.blobOid,
           digest: intentAuthority.digest,
         };
+
   const intentLoad = loadAcceptedIntentRegister(context, intentInput);
+
   const fixtureUnsafeProbe =
     mode === "fixture_injection" && falsifierId === "F15_secret_or_pii_input";
+
   if (
     intentLoad.issues.some((entry) => entry.reasonCode === "UNSAFE_SOURCE") &&
     !fixtureUnsafeProbe
@@ -651,6 +725,7 @@ const generateFromContext = (
     throw new UnsafeSourceProjectionError(
       "unsafe source metadata encountered during intent loading",
     );
+
   const preliminary = collectRoutesWithServices(
     fileSystem,
     commands,
@@ -660,6 +735,7 @@ const generateFromContext = (
     mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff",
     environment,
   );
+
   const preliminaryApi = collectApiOperationsWithServices(
     fileSystem,
     commands,
@@ -671,7 +747,9 @@ const generateFromContext = (
     fixtureRuntimeInput,
     environment,
   );
+
   const preliminaryC2 = collectC2(context, sha256("c2-source-manifest-pending"));
+
   if (
     (hasUnsafeProjectionMetadata(context, preliminary, preliminaryC2) ||
       preliminaryApi.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")) &&
@@ -717,67 +795,84 @@ const generateFromContext = (
         ),
       ],
     );
+
   if (runtimeEvidenceRegister !== null) {
     const existingRuntimeRefs = new Set(
       context.runtimeObservations.map((observation) => observation.runtime_observation_ref_id),
     );
+
     for (const receipt of runtimeEvidenceRegister.receipts) {
       if (!existingRuntimeRefs.has(receipt.receipt_ref_id))
         context.runtimeObservations.push(runtimeEvidenceObservation(receipt));
     }
   }
+
   const finalizedManifest = finalizeManifest(context);
+
   const manifest: SourceManifest = {
     ...finalizedManifest,
-    ...(intentAuthority === null
-      ? {}
-      : {
-          intent_authority: {
-            repository_ref: "external_intent_authority" as const,
-            authority_path: `authority://blob/${intentAuthority.blobOid}`,
-            revision_ref_id: intentAuthority.revisionRefId,
-            revision: intentAuthority.revision,
-            blob_oid: intentAuthority.blobOid,
-            digest: intentAuthority.digest,
-            immutable: true as const,
-          },
-        }),
-    ...(evidenceAuthority === null
-      ? {}
-      : {
-          evidence_authority: {
-            repository_ref: evidenceAuthority.repository_ref,
-            authority_path: evidenceAuthority.authority_path,
-            revision_ref_id: evidenceAuthority.revision_ref_id,
-            revision: evidenceAuthority.revision,
-            blob_oid: evidenceAuthority.blob_oid,
-            digest: evidenceAuthority.digest,
-            source_ref_ids: evidenceAuthority.source_ref_ids,
-            immutable: true as const,
-          },
-        }),
   };
+
+  if (!(intentAuthority === null))
+    Object.assign(manifest, {
+      intent_authority: {
+        repository_ref: "external_intent_authority" as const,
+        authority_path: `authority://blob/${intentAuthority.blobOid}`,
+        revision_ref_id: intentAuthority.revisionRefId,
+        revision: intentAuthority.revision,
+        blob_oid: intentAuthority.blobOid,
+        digest: intentAuthority.digest,
+        immutable: true as const,
+      },
+    });
+
+  if (!(evidenceAuthority === null))
+    Object.assign(manifest, {
+      evidence_authority: {
+        repository_ref: evidenceAuthority.repository_ref,
+        authority_path: evidenceAuthority.authority_path,
+        revision_ref_id: evidenceAuthority.revision_ref_id,
+        revision: evidenceAuthority.revision,
+        blob_oid: evidenceAuthority.blob_oid,
+        digest: evidenceAuthority.digest,
+        source_ref_ids: evidenceAuthority.source_ref_ids,
+        immutable: true as const,
+      },
+    });
+
   const manifestDigest = sourceDigestForManifest(manifest);
   let legacy = { ...preliminary.legacy, source_manifest_sha256: manifestDigest };
-  let mono = { ...preliminary.mono, source_manifest_sha256: manifestDigest };
+
+  let mono = {
+    ...preliminary.mono,
+    rows: preliminaryApi.routeRows,
+    source_manifest_sha256: manifestDigest,
+  };
+
   let api = { ...preliminaryApi.inventory, source_manifest_sha256: manifestDigest };
   let commandWrites = { ...preliminaryC2.commandWrites, source_manifest_sha256: manifestDigest };
+
   let scheduledBackgroundWorkflows = {
     ...preliminaryC2.schedules,
     source_manifest_sha256: manifestDigest,
   };
+
   let externalIntegrations = {
     ...preliminaryC2.integrations,
     source_manifest_sha256: manifestDigest,
   };
+
   const reconciled = reconcileRoutes(legacy, mono);
   legacy = reconciled.legacy;
   mono = reconciled.mono;
+
   if (preliminaryApi.h3RouteRows.length > 0) {
     const h3RowsById = new Map(preliminaryApi.h3RouteRows.map((row) => [row.row_id, row]));
     const existingIds = new Set(mono.rows.map((row) => row.row_id));
+
     const mergedRows = mono.rows.map((row) => {
       const h3Row = h3RowsById.get(row.row_id);
+
       return h3Row === undefined
         ? row
         : {
@@ -790,21 +885,22 @@ const generateFromContext = (
             ]),
           };
     });
+
     const additions = preliminaryApi.h3RouteRows.filter((row) => !existingIds.has(row.row_id));
     mono = {
       ...mono,
       rows: [...mergedRows, ...additions],
       observations: [...mono.observations, ...preliminaryApi.h3RouteObservations],
-      observation_kinds: [
-        ...new Set([...mono.observation_kinds, "derived_h3"]),
-      ] as typeof mono.observation_kinds,
+      observation_kinds: sortUnique([...mono.observation_kinds, "derived_h3"]),
       derivation_edges: [...mono.derivation_edges, ...preliminaryApi.h3RouteEdges],
     };
   }
+
   const reconciliation = {
     ...preliminaryApi.reconciliation,
     source_manifest_sha256: manifestDigest,
   };
+
   const preCoverageInventories = [
     legacy,
     mono,
@@ -813,7 +909,9 @@ const generateFromContext = (
     scheduledBackgroundWorkflows,
     externalIntegrations,
   ];
+
   const registerIssues = intentLoad.issues;
+
   const coverage = resolveJourneyCoverage({
     manifest,
     inventories: preCoverageInventories,
@@ -823,13 +921,32 @@ const generateFromContext = (
     runtimeEvidence: runtimeEvidenceRegister,
     requireRuntimeEvidence: mode !== "fixture_injection",
   });
-  const coveredInventories = coverage.inventories;
-  legacy = coveredInventories[0] as InventoryEnvelope;
-  mono = coveredInventories[1] as InventoryEnvelope;
-  api = coveredInventories[2] as InventoryEnvelope;
-  commandWrites = coveredInventories[3] as InventoryEnvelope;
-  scheduledBackgroundWorkflows = coveredInventories[4] as InventoryEnvelope;
-  externalIntegrations = coveredInventories[5] as InventoryEnvelope;
+
+  const [
+    coveredLegacy,
+    coveredMono,
+    coveredApi,
+    coveredCommands,
+    coveredSchedules,
+    coveredIntegrations,
+  ] = coverage.inventories;
+
+  if (
+    coveredLegacy === undefined ||
+    coveredMono === undefined ||
+    coveredApi === undefined ||
+    coveredCommands === undefined ||
+    coveredSchedules === undefined ||
+    coveredIntegrations === undefined
+  )
+    throw new Error("coverage inventory missing");
+  legacy = coveredLegacy;
+  mono = coveredMono;
+  api = coveredApi;
+  commandWrites = coveredCommands;
+  scheduledBackgroundWorkflows = coveredSchedules;
+  externalIntegrations = coveredIntegrations;
+
   const inventories = [
     legacy,
     mono,
@@ -839,8 +956,10 @@ const generateFromContext = (
     externalIntegrations,
     coverage.userJourneyCoverage,
   ];
+
   const allRows = inventories.flatMap((inventory) => inventory.rows);
   const rowStatuses = new Map(allRows.map((row) => [row.row_id, row.status]));
+
   const reportMismatches = [
     ...new Map(
       [
@@ -852,13 +971,14 @@ const generateFromContext = (
                 kind: "openapi_stale" as const,
                 row_ids: api.rows.map((row) => row.row_id),
                 disposition: "none" as const,
-                accepted_intent_ref_ids: [] as string[],
+                accepted_intent_ref_ids: [],
               },
             ]
           : []),
       ].map((entry) => [mismatchKey(entry), { ...entry, row_ids: sortUnique(entry.row_ids) }]),
     ).values(),
   ];
+
   const bytes = artifactBytes(
     manifest,
     legacy,
@@ -870,15 +990,20 @@ const generateFromContext = (
     coverage.userJourneyCoverage,
     reconciliation,
   );
+
   const failures: ReportFailure[] = [];
+
   const unavailableSources = manifest.sources.filter(
     (source) => source.availability === "unavailable",
   );
+
   const runtimeUnavailable = preliminaryApi.failures.some(
     (failure) => failure.status === "runtime_unavailable",
   );
+
   for (const source of unavailableSources) {
     if (source.failure_reason === "ABSENT_SOURCE_FAMILY") continue;
+
     if (runtimeUnavailable && source.authority_role === "mono_api_runtime_observation") continue;
     failures.push(
       buildFailure(
@@ -889,11 +1014,14 @@ const generateFromContext = (
       ),
     );
   }
+
   const unclassified = manifest.root_census.filter(
     (record) => record.classification === "unclassified",
   );
+
   for (const record of unclassified)
     failures.push(buildFailure("unresolved", "UNCLASSIFIED_SOURCE", [], record.source_ref_ids));
+
   for (const failure of preliminary.failures)
     failures.push(
       buildFailure(
@@ -908,18 +1036,24 @@ const generateFromContext = (
         [failure.source_ref_id],
       ),
     );
+
   for (const failure of reportFailuresFromApi(preliminaryApi.failures)) {
     const reportable = reportableFailureAfterDisposition(failure, rowStatuses);
+
     if (reportable !== null) failures.push(reportable);
   }
+
   for (const failure of preliminaryC2.failures) {
     const reportable = reportableFailureAfterDisposition(
       buildFailure(failure.status, failure.reasonCode, failure.rowIds, failure.sourceRefIds),
       rowStatuses,
     );
+
     if (reportable !== null) failures.push(reportable);
   }
+
   failures.push(...coverageFailuresAsReportFailures(coverage.issues));
+
   if (reconciliation.status === "stale")
     failures.push(
       buildFailure(
@@ -929,6 +1063,7 @@ const generateFromContext = (
         [],
       ),
     );
+
   if (reconciliation.status === "unresolved")
     failures.push(
       buildFailure(
@@ -938,6 +1073,7 @@ const generateFromContext = (
         [],
       ),
     );
+
   for (const row of allRows) {
     if (row.reason_codes.includes("UNSAFE_SOURCE")) {
       failures.push(
@@ -945,6 +1081,7 @@ const generateFromContext = (
       );
       continue;
     }
+
     if (row.status === "duplicate")
       failures.push(
         buildFailure(
@@ -995,6 +1132,7 @@ const generateFromContext = (
         buildFailure("gaps_found", "ABSENT_SCHEDULE", [row.row_id], row.source_ref_ids),
       );
   }
+
   const schemaValidation =
     validateSourceManifest(manifest) &&
     validateInventory(legacy) &&
@@ -1005,8 +1143,10 @@ const generateFromContext = (
     validateInventory(externalIntegrations) &&
     validateInventory(coverage.userJourneyCoverage) &&
     validateOpenApiReconciliation(reconciliation);
+
   if (!schemaValidation)
     failures.push(buildFailure("schema_invalid", "SCHEMA_VALIDATION_FAILED", [], []));
+
   const crossReferencesValid =
     crossReferenceValidation(manifest, inventories, reportMismatches) &&
     validateCrossArtifactInvariants({
@@ -1016,18 +1156,23 @@ const generateFromContext = (
       register: coverage.register,
       links: [...reconciled.links, ...coverage.links],
     });
+
   if (!crossReferencesValid)
     failures.push(buildFailure("schema_invalid", "CROSS_REFERENCE_VALIDATION_FAILED", [], []));
+
   const dedupedFailures = [
     ...new Map(failures.map((failure) => [failure.failure_id, failure])).values(),
   ].sort((left, right) => compareByteOrder(left.failure_id, right.failure_id));
+
   const primary = primaryFailure(dedupedFailures, false);
+
   const noForbidden = forbiddenStatesEmpty(
     inventories,
     reconciliation,
     dedupedFailures,
     schemaValidation && crossReferencesValid,
   );
+
   const report = reportWith({
     mode,
     falsifierId,
@@ -1047,6 +1192,7 @@ const generateFromContext = (
     crossReferenceValidation: crossReferencesValid,
     forbiddenStatesEmpty: noForbidden,
   });
+
   return {
     sourceManifest: manifest,
     legacyRoutes: legacy,
@@ -1060,14 +1206,14 @@ const generateFromContext = (
     openapiReconciliation: reconciliation,
     report,
     intentAuthority:
-      intentAuthority === null
+      intentAuthority === null || manifest.intent_authority === undefined
         ? undefined
-        : ({
+        : {
             ...manifest.intent_authority,
             authority_root: intentAuthority.authorityRoot,
             relative_path: intentAuthority.relativePath,
             bytes: intentAuthority.bytes,
-          } as IntentAuthorityEvidence),
+          },
     runtimeEvidenceRegister: runtimeEvidenceRegister ?? undefined,
     evidenceAuthority: evidenceAuthority ?? undefined,
     bytes,
@@ -1081,6 +1227,7 @@ const generateFromContext = (
     ],
   };
 };
+
 export const generateFromRootsEffect = (
   options: RunOptions,
   fixtureRuntimeInput?: ApiRuntimeFixtureInput,
@@ -1094,6 +1241,7 @@ export const generateFromRootsEffect = (
     const fileSystem = yield* ParityFileSystem;
     const commands = yield* ParityCommandExecutor;
     const executionEnvironment = yield* ParityExecutionEnvironment;
+
     if (
       (fixtureRuntimeInput !== undefined || fixtureIntentBytes !== undefined) &&
       options.mode !== "fixture_injection"
@@ -1106,7 +1254,9 @@ export const generateFromRootsEffect = (
         }),
       );
     }
+
     const context = yield* createManifestContextEffect(options.legacyRoot, options.root);
+
     const fixtureIntent: IntentSourceInput | undefined =
       fixtureIntentBytes === undefined
         ? undefined
@@ -1119,6 +1269,7 @@ export const generateFromRootsEffect = (
             blobOid: context.scans.mono.revision.revision,
             digest: sha256(fixtureIntentBytes),
           };
+
     const intentAuthority =
       options.mode === "fixture_injection"
         ? null
@@ -1136,6 +1287,7 @@ export const generateFromRootsEffect = (
               options.root,
               PROJECTION_DIRECTORY,
             );
+
     if (options.mode === "fixture_injection" && options.evidenceRegisterPath !== undefined)
       return yield* Effect.fail(
         new ParityRuntimeError({
@@ -1144,6 +1296,7 @@ export const generateFromRootsEffect = (
           message: "fixture_injection cannot consume runtime evidence authority",
         }),
       );
+
     const runtimeEvidenceAuthority =
       options.mode === "fixture_injection"
         ? null
@@ -1161,16 +1314,19 @@ export const generateFromRootsEffect = (
               options.root,
               PROJECTION_DIRECTORY,
             );
+
     if (intentAuthority !== null && runtimeEvidenceAuthority !== null)
       yield* assertIndependentAuthorityRoots(
         intentAuthority.authorityRoot,
         runtimeEvidenceAuthority.authorityRoot,
       );
+
     const evidenceAuthority =
       runtimeEvidenceAuthority === null
         ? null
         : (() => {
             const record = registerRuntimeEvidenceAuthority(context, runtimeEvidenceAuthority);
+
             return {
               ...record,
               authority_root: runtimeEvidenceAuthority.authorityRoot,
@@ -1178,6 +1334,7 @@ export const generateFromRootsEffect = (
               bytes: runtimeEvidenceAuthority.bytes,
             };
           })();
+
     return yield* Effect.try({
       try: () =>
         generateFromContext(
@@ -1203,12 +1360,15 @@ export const generateFromRootsEffect = (
         }),
     });
   });
+
 const fixtureRuntimeInputForRoot = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   root: string,
 ): ApiRuntimeFixtureInput | undefined => {
   const path = join(root, API_RUNTIME_FIXTURE_PATH);
+
   if (!fileSystem.exists(path)) return undefined;
+
   try {
     return { path: API_RUNTIME_FIXTURE_PATH, bytes: fileSystem.readBytes(path) };
   } catch {
@@ -1229,6 +1389,7 @@ const generateFixtureFromWorkspaceEffect = (
     const commands = yield* ParityCommandExecutor;
     const context = yield* createManifestContextEffect(workspace.legacyRoot, workspace.root);
     refreshFixtureIntentRegister(fileSystem, commands, workspace);
+
     const fixtureIntent: IntentSourceInput | undefined =
       workspace.intentBytes === null
         ? undefined
@@ -1241,7 +1402,9 @@ const generateFixtureFromWorkspaceEffect = (
             blobOid: context.scans.mono.revision.revision,
             digest: sha256(workspace.intentBytes),
           };
+
     const fixtureRuntimeInput = fixtureRuntimeInputForRoot(fileSystem, workspace.root);
+
     return yield* Effect.try({
       try: () =>
         generateFromContext(
@@ -1272,20 +1435,23 @@ interface FixtureExpectation {
   readonly routeName?: string;
   readonly routeAuthority?: "legacy" | "mono";
 }
+
 interface FixtureWorkspace {
   readonly directory: string;
   readonly root: string;
   readonly legacyRoot: string;
   intentBytes: Uint8Array | null;
 }
+
 const freshReplayBytes = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
-  environment: ParityExecutionEnvironmentShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
+  environment: ParityExecutionConfiguration,
   workspace: FixtureWorkspace,
   locale: string,
-): Readonly<Record<string, string>> => {
+) => {
   const fixtureInput = fixtureRuntimeInputForRoot(fileSystem, workspace.root);
+
   const childOptions = {
     options: {
       root: workspace.root,
@@ -1301,6 +1467,7 @@ const freshReplayBytes = (
           },
     fixtureIntentBytes: workspace.intentBytes === null ? null : [...workspace.intentBytes],
   };
+
   const child = commands.spawnText(
     environment.executablePath,
     [environment.cliPath, "--internal-fresh-replay", JSON.stringify(childOptions)],
@@ -1316,41 +1483,37 @@ const freshReplayBytes = (
       maxBuffer: 64 * 1024 * 1024,
     },
   );
+
   if (child.status !== 0)
     throw new Error(`fresh replay failed: ${child.stderr.trim().slice(0, 200)}`);
-  const value: unknown = JSON.parse(child.stdout);
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new Error("fresh replay artifact map is invalid");
-  const bytes: Record<string, string> = {};
-  for (const [name, contents] of Object.entries(value)) {
-    if (typeof contents !== "string") throw new Error("fresh replay artifact payload is invalid");
-    bytes[name] = contents;
-  }
-  return bytes;
+
+  return Schema.decodeUnknownSync(
+    Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
+  )(child.stdout);
 };
 
-const C0_FALSIFIERS: Partial<Record<FalsifierId, true>> = {
-  F0_deterministic_replay: true,
-  F1_missing_required_source: true,
-  F2_source_hash_drift: true,
-  F3_duplicate_legacy_route: true,
-  F4_dead_unimported_source: true,
-  F5_missing_counterpart: true,
-  F6_extra_counterpart: true,
-  F7_method_path_mismatch: true,
-  F8_openapi_stale: true,
-  F9_runtime_unavailable: true,
-  F10_static_runtime_mismatch: true,
-  F11_intent_missing_or_stale: true,
-  F12_uncovered_journey: true,
-  F13_unknown_effect: true,
-  F14_absent_schedule: true,
-  F15_secret_or_pii_input: true,
-  F16_h3_authority_copy: true,
-  F17_locale_order: true,
-  F18_stale_artifact_diff: true,
-  F19_ignore_residual_precedence: true,
-};
+const C0_FALSIFIERS = new Map<FalsifierId, boolean>([
+  ["F0_deterministic_replay", true],
+  ["F1_missing_required_source", true],
+  ["F2_source_hash_drift", true],
+  ["F3_duplicate_legacy_route", true],
+  ["F4_dead_unimported_source", true],
+  ["F5_missing_counterpart", true],
+  ["F6_extra_counterpart", true],
+  ["F7_method_path_mismatch", true],
+  ["F8_openapi_stale", true],
+  ["F9_runtime_unavailable", true],
+  ["F10_static_runtime_mismatch", true],
+  ["F11_intent_missing_or_stale", true],
+  ["F12_uncovered_journey", true],
+  ["F13_unknown_effect", true],
+  ["F14_absent_schedule", true],
+  ["F15_secret_or_pii_input", true],
+  ["F16_h3_authority_copy", true],
+  ["F17_locale_order", true],
+  ["F18_stale_artifact_diff", true],
+  ["F19_ignore_residual_precedence", true],
+]);
 
 const fixtureExpectation = (falsifierId: FalsifierId): FixtureExpectation | null => {
   switch (falsifierId) {
@@ -1595,13 +1758,15 @@ const syntheticFixtureFiles: readonly {
     ]),
   },
 ];
+
 const seedFixtureIntentRegister = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   root: string,
   legacyRoot: string,
 ): Uint8Array => {
   const context = createManifestContextWithServices(fileSystem, commands, legacyRoot, root);
+
   const route = collectRoutesWithServices(
     fileSystem,
     commands,
@@ -1610,6 +1775,7 @@ const seedFixtureIntentRegister = (
     undefined,
     true,
   );
+
   const api = collectApiOperationsWithServices(
     fileSystem,
     commands,
@@ -1620,7 +1786,9 @@ const seedFixtureIntentRegister = (
     undefined,
     fixtureRuntimeInputForRoot(fileSystem, root),
   );
+
   const c2 = collectC2(context, sha256("fixture-register-pending"));
+
   const rowsBySurface: Readonly<
     Record<
       | "legacy_route"
@@ -1633,18 +1801,14 @@ const seedFixtureIntentRegister = (
     >
   > = {
     legacy_route: route.legacy.rows,
-    mono_route: route.mono.rows,
+    mono_route: api.routeRows,
     api_operation: api.inventory.rows,
     command_write: c2.commandWrites.rows,
     schedule_background: c2.schedules.rows,
     external_integration: c2.integrations.rows,
   };
-  const steps = (
-    Object.entries(rowsBySurface) as readonly [
-      keyof typeof rowsBySurface,
-      readonly InventoryRow[],
-    ][]
-  )
+
+  const steps = Rec.toEntries(rowsBySurface)
     .map(([surface, rows]) => {
       const safeRows = rows.filter(
         (row) =>
@@ -1654,9 +1818,12 @@ const seedFixtureIntentRegister = (
           !row.signature.includes("/tmp/") &&
           !/(?:^|[^A-Za-z])(?:src|rev)-[a-f0-9]{16,}(?:$|[^A-Za-z0-9])/.test(row.signature),
       );
+
       const canonicalSignatures =
         surface === "legacy_route" ? [] : sortUnique(safeRows.map((row) => row.signature));
+
       const rowIds = surface === "api_operation" ? [] : sortUnique(rows.map((row) => row.row_id));
+
       return {
         step_id: `fixture-step-${surface}`,
         surface,
@@ -1668,9 +1835,12 @@ const seedFixtureIntentRegister = (
     })
     .filter((step) => step.canonical_signatures.length > 0 || step.row_ids.length > 0)
     .sort((left, right) => compareByteOrder(left.step_id, right.step_id));
+
   const targetCoverageRows = route.legacy.rows.slice(0, 2);
+
   if (targetCoverageRows.length < 2)
     throw new Error("fixture register has fewer than two target coverage rows");
+
   const coverageSteps = [
     ...steps,
     {
@@ -1682,16 +1852,20 @@ const seedFixtureIntentRegister = (
       runtime_evidence_ref_ids: [],
     },
   ].sort((left, right) => compareByteOrder(left.step_id, right.step_id));
+
   const sourceRefIds = context.sources
     .filter((source) => source.availability === "available")
     .map((source) => source.source_id)
     .slice(0, 1);
+
   const selectedRevisionRefIds = sortUnique([
     context.scans.legacy.revisionRefId,
     acceptedIntentRevisionRefId(context),
   ]);
+
   const intentRefId = "intent://fixture-coverage";
   const journeyRefId = "intent://fixture-journey";
+
   const intent = {
     intent_ref_id: intentRefId,
     intent_revision: "fixture-intent-v1",
@@ -1704,6 +1878,7 @@ const seedFixtureIntentRegister = (
     inventory_kinds: [],
     journey_ref_ids: [journeyRefId],
   };
+
   const journey = {
     journey_ref_id: journeyRefId,
     journey_key: "fixture-journey",
@@ -1714,58 +1889,70 @@ const seedFixtureIntentRegister = (
     steps: coverageSteps,
     coverage_scope: "user_visible" as const,
   };
+
   const register = {
     schema_version: "functional-parity-accepted-intent/v1" as const,
     intents: [{ ...intent, intent_digest: sha256(canonicalJson(intent)) }],
     journeys: [{ ...journey, journey_digest: sha256(canonicalJson(journey)) }],
   };
+
   return new TextEncoder().encode(canonicalJson(register));
 };
+
 const refreshFixtureIntentRegister = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   workspace: FixtureWorkspace,
 ): void => {
   if (workspace.intentBytes === null) return;
+
   const context = createManifestContextWithServices(
     fileSystem,
     commands,
     workspace.legacyRoot,
     workspace.root,
   );
+
   const selectedRevisionRefIds = sortUnique([
     context.scans.legacy.revisionRefId,
     acceptedIntentRevisionRefId(context),
   ]);
-  const value = JSON.parse(new TextDecoder().decode(workspace.intentBytes)) as {
-    readonly schema_version: string;
-    readonly intents: readonly Record<string, unknown>[];
-    readonly journeys: readonly Record<string, unknown>[];
-  };
+
+  const value = Schema.decodeUnknownSync(
+    Schema.fromJsonString(Schema.declare(validateAcceptedIntentRegister)),
+  )(new TextDecoder().decode(workspace.intentBytes));
+
   const intents = value.intents.map((intent) => {
     const { intent_digest: _intentDigest, ...withoutDigest } = intent;
     const next = { ...withoutDigest, selected_revision_ref_ids: selectedRevisionRefIds };
+
     return { ...next, intent_digest: sha256(canonicalJson(next)) };
   });
+
   const journeys = value.journeys.map((journey) => {
     const { journey_digest: _journeyDigest, ...withoutDigest } = journey;
     const next = { ...withoutDigest, selected_revision_ref_ids: selectedRevisionRefIds };
+
     return { ...next, journey_digest: sha256(canonicalJson(next)) };
   });
+
   workspace.intentBytes = new TextEncoder().encode(
     canonicalJson({ schema_version: value.schema_version, intents, journeys }),
   );
 };
+
 const createFixtureWorkspace = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   _options: RunOptions,
 ): FixtureWorkspace => {
   const directory = fileSystem.makeTempDirectory(
     join(fileSystem.temporaryDirectory(), "functional-parity-falsifier-"),
   );
+
   const root = join(directory, "mono");
   const legacyRoot = join(directory, "legacy");
+
   try {
     for (const fixture of syntheticFixtureFiles) {
       const targetRoot = fixture.root === "legacy" ? legacyRoot : root;
@@ -1773,6 +1960,7 @@ const createFixtureWorkspace = (
       fileSystem.makeDirectory(dirname(target), { recursive: true });
       fileSystem.writeFile(target, fixture.contents, "utf8");
     }
+
     const resourcePath = join(root, "apps/server/src/App/Api/Resource/Fixture.php");
     const resourceBytes = fileSystem.readBytes(resourcePath);
     const resourceDigest = sha256(fileSystem.readText(resourcePath)).slice("sha256:".length);
@@ -1788,38 +1976,45 @@ const createFixtureWorkspace = (
       ]),
       "utf8",
     );
+
     for (const artifactPath of [
       "tools/parity/data/security-h3/0015/current-route-inventory.json",
       "tools/parity/data/security-h3/0015/current-resource-inventory.json",
     ]) {
-      const artifact = JSON.parse(fileSystem.readText(join(root, artifactPath))) as Array<
-        Record<string, unknown>
-      >;
+      const artifact = Schema.decodeUnknownSync(
+        Schema.fromJsonString(Schema.Array(Schema.Record(Schema.String, Schema.Json))),
+      )(fileSystem.readText(join(root, artifactPath)));
+
       fileSystem.writeFile(
         join(root, artifactPath),
         JSON.stringify(artifact.map((record) => ({ ...record, source_ref_ids: [resourceRef] }))),
         "utf8",
       );
     }
+
     const intentBytes = seedFixtureIntentRegister(fileSystem, commands, root, legacyRoot);
+
     return { directory, root, legacyRoot, intentBytes };
   } catch (cause) {
     fileSystem.remove(directory, { recursive: true, force: true });
     throw cause;
   }
 };
+
 interface FixtureIntentAuthority {
   readonly directory: string;
   readonly path: string;
 }
+
 const createFixtureIntentAuthority = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   workspace: FixtureWorkspace,
 ): FixtureIntentAuthority => {
   const directory = join(workspace.directory, "intent-authority");
   fileSystem.makeDirectory(directory, { recursive: true });
   const path = join(directory, "accepted-intent.json");
+
   if (workspace.intentBytes === null) throw new Error("fixture intent authority is unavailable");
   fileSystem.writeFile(path, workspace.intentBytes);
   commands.executeBytes("git", ["-C", directory, "init", "--quiet"]);
@@ -1840,39 +2035,45 @@ const createFixtureIntentAuthority = (
     "-m",
     "fixture intent authority",
   ]);
+
   return { directory, path };
 };
+
 interface FixtureEvidenceAuthority {
   readonly directory: string;
   readonly path: string;
 }
+
 const createFixtureEvidenceAuthority = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   workspace: FixtureWorkspace,
 ): FixtureEvidenceAuthority => {
   if (workspace.intentBytes === null) throw new Error("fixture intent authority is unavailable");
-  const accepted = JSON.parse(new TextDecoder().decode(workspace.intentBytes)) as {
-    readonly journeys: readonly [
-      {
-        readonly journey_ref_id: string;
-        readonly selected_revision_ref_ids: readonly [string, string, ...string[]];
-        readonly source_ref_ids: readonly string[];
-        readonly steps: readonly { readonly step_id: string }[];
-      },
-    ];
-  };
+
+  const accepted = Schema.decodeUnknownSync(
+    Schema.fromJsonString(Schema.declare(validateAcceptedIntentRegister)),
+  )(new TextDecoder().decode(workspace.intentBytes));
+
   const journey = accepted.journeys[0];
+
   if (journey === undefined) throw new Error("fixture journey authority is unavailable");
-  const receipt = makeRuntimeEvidenceReceipt({
+
+  const receipt = buildRuntimeEvidenceReceipt({
     journey_ref_id: journey.journey_ref_id,
     step_ids: [journey.steps[0]?.step_id ?? "fixture-step"],
     legacy_revision_ref_id:
       journey.selected_revision_ref_ids.find((ref) => ref.startsWith("rev-legacy-")) ??
-      journey.selected_revision_ref_ids[0],
+      journey.selected_revision_ref_ids[0] ??
+      (() => {
+        throw new Error("fixture legacy revision is unavailable");
+      })(),
     mono_revision_ref_id:
       journey.selected_revision_ref_ids.find((ref) => ref.startsWith("rev-mono-")) ??
-      journey.selected_revision_ref_ids[1],
+      journey.selected_revision_ref_ids[1] ??
+      (() => {
+        throw new Error("fixture mono revision is unavailable");
+      })(),
     runner_source_ref_ids:
       journey.source_ref_ids.length > 0 ? journey.source_ref_ids : [`src-${"0".repeat(64)}`],
     runner_digest: sha256("fixture-runner-input"),
@@ -1882,10 +2083,14 @@ const createFixtureEvidenceAuthority = (
     result: "failed",
     artifact_digest: sha256("fixture-sanitized-artifact"),
   });
+
   const directory = join(workspace.directory, "evidence-authority");
   fileSystem.makeDirectory(directory, { recursive: true });
   const path = join(directory, "runtime-evidence.json");
-  fileSystem.writeFile(path, canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])));
+  fileSystem.writeFile(
+    path,
+    canonicalRuntimeEvidenceBytes(buildRuntimeEvidenceRegister([receipt])),
+  );
   commands.executeBytes("git", ["-C", directory, "init", "--quiet"]);
   commands.executeBytes("git", [
     "-C",
@@ -1904,10 +2109,11 @@ const createFixtureEvidenceAuthority = (
     "-m",
     "fixture runtime evidence authority",
   ]);
+
   return { directory, path };
 };
 
-const appendText = (fileSystem: ParityFileSystemShape, path: string, text: string): void => {
+const appendText = (fileSystem: ParityFileSystemOperations, path: string, text: string): void => {
   if (!fileSystem.exists(path)) throw new Error(`fixture source unavailable: ${path}`);
   fileSystem.writeFile(path, `${fileSystem.readText(path)}\n${text}\n`, "utf8");
 };
@@ -1924,12 +2130,14 @@ const c2SecurityFixtureInputs = (): readonly FixtureSourceInput[] => {
       101, 99, 114, 101, 116, 95, 118, 97, 108, 117, 101,
     ]),
   );
+
   const payload = new TextDecoder().decode(
     Uint8Array.from([
       114, 97, 119, 45, 112, 97, 121, 108, 111, 97, 100, 45, 99, 50, 45, 102, 105, 120, 116, 117,
       114, 101,
     ]),
   );
+
   const endpointSecret = new TextDecoder().decode(
     Uint8Array.from([
       84, 84, 69, 65, 77, 47, 66, 67, 72, 65, 78, 47, 65, 98, 67, 100, 69, 102, 71, 104, 73, 106,
@@ -1937,6 +2145,7 @@ const c2SecurityFixtureInputs = (): readonly FixtureSourceInput[] => {
       53,
     ]),
   );
+
   const tracked = [
     'export const call = () => fetch("https://api.example.test/v1/send?token=',
     credential,
@@ -1946,20 +2155,25 @@ const c2SecurityFixtureInputs = (): readonly FixtureSourceInput[] => {
     endpointSecret,
     '")\n',
   ].map((value) => new TextEncoder().encode(value));
+
   const ignored = [
     'export const ignored = () => fetch("https://hooks.slack.com/services/',
     endpointSecret,
     '")\n',
   ].map((value) => new TextEncoder().encode(value));
+
   const joinBytes = (parts: readonly Uint8Array[]): Uint8Array => {
     const bytes = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0));
     let offset = 0;
+
     for (const part of parts) {
       bytes.set(part, offset);
       offset += part.byteLength;
     }
+
     return bytes;
   };
+
   return [
     { path: "packages/fixture-integration.ts", bytes: joinBytes(tracked) },
     { path: "packages/sdk/dist/Slack/client.js", bytes: joinBytes(ignored) },
@@ -1967,7 +2181,7 @@ const c2SecurityFixtureInputs = (): readonly FixtureSourceInput[] => {
 };
 
 const writeFixtureSource = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   root: string,
   fixture: FixtureSourceInput,
 ): void => {
@@ -1978,16 +2192,18 @@ const writeFixtureSource = (
 
 const routeYaml = (name: string, path: string, method: string): string =>
   `${name}:\n  path: ${path}\n  defaults: { _controller: AppBundle:Fixture:index }\n  methods: [${method}]`;
+
 const monoRouteYaml = (name: string, path: string, method: string): string =>
   `${name}:\n    resource: ../src/App/Fixture/Controller/FixtureController.php\n    path: ${path}\n    methods: ['${method}']`;
 
 const mutateFixture = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   falsifierId: FalsifierId,
   workspace: FixtureWorkspace,
 ): void => {
   const legacyRouting = join(workspace.legacyRoot, "app/config/routing.yml");
   const monoRouting = join(workspace.root, "apps/server/config/routes.yaml");
+
   switch (falsifierId) {
     case "F1_missing_required_source":
       for (const name of ["routing.yml", "routing_api.yml", "routing_dev.yml"])
@@ -1996,6 +2212,7 @@ const mutateFixture = (
         recursive: true,
         force: true,
       });
+
       return;
     case "F3_duplicate_legacy_route":
       appendText(
@@ -2003,6 +2220,7 @@ const mutateFixture = (
         legacyRouting,
         `${routeYaml("fixture_duplicate", "/fixture/duplicate", "GET")}\n${routeYaml("fixture_duplicate", "/fixture/duplicate", "GET")}`,
       );
+
       return;
     case "F4_dead_unimported_source": {
       const orphan = join(workspace.legacyRoot, "src/AppBundle/Orphan/Controller");
@@ -2012,31 +2230,38 @@ const mutateFixture = (
         `<?php\nnamespace AppBundle\\Orphan\\Controller;\n/** @Route("/fixture/dead", name="fixture_dead", methods={"GET"}) */\nfinal class FixtureController { public function indexAction(): void {} }\n`,
         "utf8",
       );
+
       return;
     }
+
     case "F5_missing_counterpart":
       appendText(
         fileSystem,
         legacyRouting,
         routeYaml("fixture_missing", "/fixture/missing", "GET"),
       );
+
       return;
     case "F6_extra_counterpart":
       fileSystem.makeDirectory(join(workspace.root, "apps/server/config"), {
         recursive: true,
       });
+
       if (!fileSystem.exists(monoRouting))
         fileSystem.writeFile(monoRouting, "# fixture route declarations\n", "utf8");
       appendText(fileSystem, monoRouting, monoRouteYaml("fixture_extra", "/fixture/extra", "GET"));
+
       return;
     case "F7_method_path_mismatch":
       fileSystem.makeDirectory(join(workspace.root, "apps/server/config"), {
         recursive: true,
       });
+
       if (!fileSystem.exists(monoRouting))
         fileSystem.writeFile(monoRouting, "# fixture route declarations\n", "utf8");
       appendText(fileSystem, legacyRouting, routeYaml("fixture_changed", "/fixture/legacy", "GET"));
       appendText(fileSystem, monoRouting, monoRouteYaml("fixture_changed", "/fixture/mono", "GET"));
+
       return;
     case "F8_openapi_stale":
       fileSystem.writeFile(
@@ -2059,11 +2284,13 @@ const mutateFixture = (
         }),
         "utf8",
       );
+
       return;
     case "F9_runtime_unavailable":
       fileSystem.remove(join(workspace.root, "apps/server/var/parity/api-operations.json"), {
         force: true,
       });
+
       return;
     case "F10_static_runtime_mismatch":
       fileSystem.writeFile(
@@ -2099,20 +2326,24 @@ const mutateFixture = (
         }),
         "utf8",
       );
+
       return;
     case "F13_unknown_effect": {
       const commandPath = join(
         workspace.root,
         "apps/server/src/App/Infrastructure/Command/FixtureCommand.php",
       );
+
       const current = fileSystem.readText(commandPath);
       fileSystem.writeFile(
         commandPath,
         current.replace("$this->repository->save", "$this->delegate->perform"),
         "utf8",
       );
+
       return;
     }
+
     case "F14_absent_schedule":
       for (const relative of [
         ".github/workflows",
@@ -2126,47 +2357,48 @@ const mutateFixture = (
           force: true,
         });
       }
+
       return;
     case "F11_intent_missing_or_stale":
       workspace.intentBytes = null;
+
       return;
     case "F12_uncovered_journey": {
       if (workspace.intentBytes === null) throw new Error("fixture intent is unavailable");
-      const register = JSON.parse(new TextDecoder().decode(workspace.intentBytes)) as {
-        readonly schema_version: string;
-        readonly intents: readonly Record<string, unknown>[];
-        readonly journeys: readonly Record<string, unknown>[];
-      };
+
+      const register = Schema.decodeUnknownSync(
+        Schema.fromJsonString(Schema.declare(validateAcceptedIntentRegister)),
+      )(new TextDecoder().decode(workspace.intentBytes));
+
       const targetRowId = register.journeys
-        .flatMap((journey) => (Array.isArray(journey.steps) ? journey.steps : []))
-        .flatMap((step) => {
-          if (step === null || typeof step !== "object" || Array.isArray(step)) return [];
-          const rowIds = (step as Record<string, unknown>).row_ids;
-          return Array.isArray(rowIds) && rowIds.length > 0
-            ? rowIds.filter((value): value is string => typeof value === "string")
-            : [];
-        })[0];
+        .flatMap((journey) => journey.steps)
+        .flatMap((step) => step.row_ids)[0];
+
       if (targetRowId === undefined) throw new Error("fixture journey has no row coverage ref");
       let removed = 0;
+
       const journeys = register.journeys.map((journey) => {
-        const steps = Array.isArray(journey.steps) ? journey.steps : [];
+        const steps = journey.steps;
         let changed = false;
+
         const nextSteps = steps.map((step) => {
-          if (step === null || typeof step !== "object" || Array.isArray(step)) return step;
-          const record = step as Record<string, unknown>;
-          const rowIds = Array.isArray(record.row_ids)
-            ? record.row_ids.filter((value): value is string => typeof value === "string")
-            : [];
+          const record = step;
+          const rowIds = record.row_ids;
+
           if (!rowIds.includes(targetRowId)) return step;
           changed = true;
           removed += 1;
+
           return { ...record, row_ids: rowIds.filter((value) => value !== targetRowId) };
         });
+
         if (!changed) return journey;
         const { journey_digest: _journeyDigest, ...withoutDigest } = journey;
         const payload = { ...withoutDigest, steps: nextSteps };
+
         return { ...payload, journey_digest: sha256(canonicalJson(payload)) };
       });
+
       if (removed === 0) throw new Error("fixture coverage ref was not removed");
       workspace.intentBytes = new TextEncoder().encode(
         canonicalJson({
@@ -2175,16 +2407,25 @@ const mutateFixture = (
           journeys,
         }),
       );
+
       return;
     }
+
     case "F16_h3_authority_copy": {
       const path = join(
         workspace.root,
         "tools/parity/data/security-h3/0015/current-resource-inventory.json",
       );
-      const records = JSON.parse(fileSystem.readText(path)) as Array<Record<string, unknown>>;
+
+      const records = [
+        ...Schema.decodeUnknownSync(
+          Schema.fromJsonString(Schema.Array(Schema.Record(Schema.String, Schema.Json))),
+        )(fileSystem.readText(path)),
+      ];
+
       const sourceRefIds = records[0]?.source_ref_ids;
-      if (!Array.isArray(sourceRefIds) || sourceRefIds.some((value) => typeof value !== "string"))
+
+      if (!Array.isArray(sourceRefIds) || sourceRefIds.some((value) => !Predicate.isString(value)))
         throw new Error("fixture H3 source refs unavailable");
       records.push({
         path_template: "/fixture/h3-authority-copy",
@@ -2193,18 +2434,23 @@ const mutateFixture = (
         source_ref_ids: sourceRefIds,
       });
       fileSystem.writeFile(path, JSON.stringify(records), "utf8");
+
       return;
     }
+
     case "F15_secret_or_pii_input": {
       appendText(
         fileSystem,
         legacyRouting,
         "fixture_secret: { path: /fixture/secret, token: sk_live_fixture_secret, methods: [GET] }",
       );
+
       for (const fixture of c2SecurityFixtureInputs())
         writeFixtureSource(fileSystem, workspace.root, fixture);
+
       return;
     }
+
     case "F18_stale_artifact_diff":
       fileSystem.makeDirectory(join(workspace.root, PROJECTION_DIRECTORY), {
         recursive: true,
@@ -2214,6 +2460,7 @@ const mutateFixture = (
         "stale-generated-artifact",
         "utf8",
       );
+
       return;
     case "F19_ignore_residual_precedence": {
       const residuals = [
@@ -2221,35 +2468,40 @@ const mutateFixture = (
         "packages/sdk/dist/vendor/module.js",
         "packages/sdk/node_modules/nested/module.js",
       ];
+
       for (const relative of residuals) {
         const target = join(workspace.root, relative);
         fileSystem.makeDirectory(dirname(target), { recursive: true });
         fileSystem.writeFile(target, "export const residual = true\n", "utf8");
       }
+
       return;
     }
+
     default:
       return;
   }
 };
+
 const c2FixtureSemanticKey = (row: InventoryRow): string => {
-  const details = row.details as unknown as Record<string, unknown>;
   if (row.inventory_kind === "command_write")
     return canonicalJson([
       "command_write",
       row.authority_line,
       row.declaration_id,
-      details.owner_ref ?? null,
-      details.command_name ?? null,
+      row.details.owner_ref,
+      row.details.command_name,
     ]);
+
   if (row.inventory_kind === "schedule_background")
     return canonicalJson([
       "schedule_background",
       row.authority_line,
       row.declaration_id,
-      details.trigger_kind ?? null,
-      details.trigger_identity ?? null,
+      row.details.trigger_kind,
+      row.details.trigger_identity,
     ]);
+
   return canonicalJson([row.inventory_kind, row.authority_line, row.declaration_id]);
 };
 
@@ -2267,19 +2519,21 @@ const fixtureResultReport = (
   const allRows = [...generated.routeRows, ...generated.apiRows, ...generated.c2Rows];
   const rowIds = allRows.map((row) => row.row_id);
   const sourceRefIds = allRows.flatMap((row) => row.source_ref_ids);
+
   const matched =
     deterministic &&
     observedStatus === expectation.status &&
     observedReason === expectation.reasonCode;
-  const observedFailureStatus: ReportFailure["status"] = (
+
+  const observedFailureStatus: ReportFailure["status"] =
     matched && falsifierId === "F0_deterministic_replay"
       ? "gaps_found"
-      : generated.report.status === "falsifier_passed"
-        ? "unresolved"
-        : generated.report.status === "zero_gap"
-          ? "gaps_found"
-          : generated.report.status
-  ) as ReportFailure["status"];
+      : Match.value(generated.report.status).pipe(
+          Match.when("falsifier_passed", () => "unresolved" as const),
+          Match.whenOr("zero_gap", "projection_written", () => "gaps_found" as const),
+          Match.orElse((status) => status),
+        );
+
   const observedFailure =
     causalFailure ??
     buildFailure(
@@ -2290,6 +2544,7 @@ const fixtureResultReport = (
       rowIds,
       sourceRefIds,
     );
+
   const failures = matched
     ? [...generated.failures, observedFailure]
     : [
@@ -2297,7 +2552,9 @@ const fixtureResultReport = (
         buildFailure("command_error", "FALSIFIER_EXPECTATION_MISMATCH", rowIds, sourceRefIds),
         observedFailure,
       ];
+
   const reportStatus: ZeroGapReport["status"] = matched ? "falsifier_passed" : "command_error";
+
   const report = reportWith({
     mode: "fixture_injection",
     falsifierId,
@@ -2322,6 +2579,7 @@ const fixtureResultReport = (
     crossReferenceValidation: generated.report.verification.cross_reference_validation,
     forbiddenStatesEmpty: false,
   });
+
   return { exitCode: report.exit_code, report, artifacts: generated, projectionDiff };
 };
 
@@ -2337,7 +2595,8 @@ const runFixtureFalsifier = (
     const commands = yield* ParityCommandExecutor;
     const environment = yield* ParityExecutionEnvironment;
     const falsifierId = options.falsifierId;
-    if (falsifierId === undefined || C0_FALSIFIERS[falsifierId] !== true)
+
+    if (falsifierId === undefined || C0_FALSIFIERS.get(falsifierId) !== true)
       return yield* Effect.fail(
         new ParityRuntimeError({
           operation: "fixture_injection",
@@ -2346,6 +2605,7 @@ const runFixtureFalsifier = (
         }),
       );
     const expectation = fixtureExpectation(falsifierId);
+
     if (expectation === null)
       return yield* Effect.fail(
         new ParityRuntimeError({
@@ -2354,6 +2614,7 @@ const runFixtureFalsifier = (
           message: "fixture falsifier has no expectation",
         }),
       );
+
     const workspace = yield* Effect.try({
       try: () => createFixtureWorkspace(fileSystem, commands, options),
       catch: (cause) =>
@@ -2363,9 +2624,11 @@ const runFixtureFalsifier = (
           message: cause instanceof Error ? cause.message : "fixture source unavailable",
         }),
     });
+
     try {
       if (falsifierId === "F0_deterministic_replay") {
         const first = yield* generateFixtureFromWorkspaceEffect(options, workspace);
+
         const secondWorkspace = yield* Effect.try({
           try: () => createFixtureWorkspace(fileSystem, commands, options),
           catch: (cause) =>
@@ -2375,9 +2638,11 @@ const runFixtureFalsifier = (
               message: cause instanceof Error ? cause.message : "second replay fixture unavailable",
             }),
         });
+
         try {
           // A child process is required here: a static import cannot prove fresh module state, locale, environment, and temporary output roots.
           const firstBytes = freshReplayBytes(fileSystem, commands, environment, workspace, "C");
+
           const secondBytes = freshReplayBytes(
             fileSystem,
             commands,
@@ -2385,20 +2650,24 @@ const runFixtureFalsifier = (
             secondWorkspace,
             "sv_SE.UTF-8",
           );
+
           const expectedNames = Object.keys(first.bytes).sort(compareByteOrder);
           const firstNames = Object.keys(firstBytes).sort(compareByteOrder);
           const secondNames = Object.keys(secondBytes).sort(compareByteOrder);
+
           const closed =
             expectedNames.length === firstNames.length &&
             expectedNames.every((name, index) => name === firstNames[index]) &&
             expectedNames.length === secondNames.length &&
             expectedNames.every((name, index) => name === secondNames[index]);
+
           const deterministic =
             closed &&
             expectedNames.every(
               (name) =>
                 firstBytes[name] === secondBytes[name] && firstBytes[name] === first.bytes[name],
             );
+
           return fixtureResultReport(
             falsifierId,
             first,
@@ -2413,15 +2682,18 @@ const runFixtureFalsifier = (
           );
         }
       }
+
       if (falsifierId === "F2_source_hash_drift") {
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const source = join(workspace.legacyRoot, "app/config/routing.yml");
         appendText(fileSystem, source, routeYaml("fixture_drift", "/fixture/drift", "GET"));
         refreshFixtureIntentRegister(fileSystem, commands, workspace);
         const after = yield* generateFixtureFromWorkspaceEffect(options, workspace);
+
         const drifted =
           sourceDigestForManifest(after.sourceManifest) !==
           sourceDigestForManifest(generated.sourceManifest);
+
         return fixtureResultReport(
           falsifierId,
           after,
@@ -2431,17 +2703,21 @@ const runFixtureFalsifier = (
           drifted,
         );
       }
+
       if (falsifierId === "F11_intent_missing_or_stale") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         mutateFixture(fileSystem, falsifierId, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
+
         const causal = generated.failures.find(
           (failure) => failure.reason_code === expectation.reasonCode,
         );
+
         const deterministic =
           causal !== undefined &&
           sourceDigestForManifest(baseline.sourceManifest) !==
             sourceDigestForManifest(generated.sourceManifest);
+
         return fixtureResultReport(
           falsifierId,
           generated,
@@ -2454,19 +2730,23 @@ const runFixtureFalsifier = (
           deterministic ? (causal ?? null) : null,
         );
       }
+
       if (falsifierId === "F12_uncovered_journey") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         mutateFixture(fileSystem, falsifierId, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
+
         const causal = generated.failures.find(
           (failure) =>
             failure.reason_code === expectation.reasonCode &&
             !baseline.failures.some((previous) => previous.failure_id === failure.failure_id),
         );
+
         const changed =
           causal !== undefined &&
           baseline.bytes["user-journey-coverage.json"] !==
             generated.bytes["user-journey-coverage.json"];
+
         return fixtureResultReport(
           falsifierId,
           generated,
@@ -2479,18 +2759,22 @@ const runFixtureFalsifier = (
           changed ? (causal ?? null) : null,
         );
       }
+
       if (falsifierId === "F15_secret_or_pii_input") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         mutateFixture(fileSystem, falsifierId, workspace);
         refreshFixtureIntentRegister(fileSystem, commands, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
+
         const causal = generated.failures.find(
           (failure) => failure.reason_code === expectation.reasonCode,
         );
+
         const changed =
           causal !== undefined &&
           sourceDigestForManifest(baseline.sourceManifest) !==
             sourceDigestForManifest(generated.sourceManifest);
+
         return fixtureResultReport(
           falsifierId,
           generated,
@@ -2503,6 +2787,7 @@ const runFixtureFalsifier = (
           changed ? (causal ?? null) : null,
         );
       }
+
       if (falsifierId === "F17_locale_order") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const values = ["ä", "a", "z", "å", "A"];
@@ -2512,9 +2797,11 @@ const runFixtureFalsifier = (
         const replayBytes = canonicalJson([...values].sort(compareByteOrder));
         const hostileDiffers = canonicalJson(hostileOrder) !== canonicalBytes;
         const deterministic = hostileDiffers && canonicalBytes === replayBytes;
+
         const observation = deterministic
           ? buildFailure("stale", expectation.reasonCode, [], [])
           : null;
+
         return fixtureResultReport(
           falsifierId,
           baseline,
@@ -2525,20 +2812,26 @@ const runFixtureFalsifier = (
           observation,
         );
       }
+
       if (falsifierId === "F18_stale_artifact_diff") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const authority = createFixtureIntentAuthority(fileSystem, commands, workspace);
         const evidenceAuthority = createFixtureEvidenceAuthority(fileSystem, commands, workspace);
         const corrupted = "stale-generated-artifact";
+
         try {
           const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY);
           fileSystem.makeDirectory(projectionDirectory, { recursive: true });
+
           for (const name of COMMITTED_PROJECTIONS) {
             const bytes = baseline.bytes[name];
+
             if (bytes === undefined) throw new Error(`fixture projection missing: ${name}`);
             fileSystem.writeFile(join(projectionDirectory, name), bytes, "utf8");
           }
+
           mutateFixture(fileSystem, falsifierId, workspace);
+
           const diffResult = yield* run({
             root: workspace.root,
             legacyRoot: workspace.legacyRoot,
@@ -2546,11 +2839,14 @@ const runFixtureFalsifier = (
             evidenceRegisterPath: evidenceAuthority.path,
             mode: "diff",
           });
+
           const generated = diffResult.artifacts;
+
           const causal = diffResult.report.failures.find(
             (failure) =>
               failure.reason_code === expectation.reasonCode && failure.status === "stale",
           );
+
           const stale =
             generated !== undefined &&
             diffResult.projectionDiff &&
@@ -2558,6 +2854,7 @@ const runFixtureFalsifier = (
             corrupted !== generated?.bytes["legacy-routes.json"] &&
             canonicalJson(baseline.legacyRoutes.rows) ===
               canonicalJson(generated?.legacyRoutes.rows ?? []);
+
           return generated === undefined
             ? fixtureResultReport(
                 falsifierId,
@@ -2583,24 +2880,29 @@ const runFixtureFalsifier = (
           fileSystem.remove(evidenceAuthority.directory, { recursive: true, force: true });
         }
       }
+
       if (falsifierId === "F19_ignore_residual_precedence") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         mutateFixture(fileSystem, falsifierId, workspace);
         refreshFixtureIntentRegister(fileSystem, commands, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
+
         const residualPaths = [
           "packages/sdk/dist/module.js",
           "packages/sdk/dist/vendor/module.js",
           "packages/sdk/node_modules/nested/module.js",
         ];
+
         const residualCensus = generated.sourceManifest.root_census.filter((record) =>
           residualPaths.includes(record.path),
         );
+
         const residualIgnored =
           residualCensus.length === residualPaths.length &&
           residualCensus.every(
             (record) => record.classification === "ignored" && record.ignore_rule_id !== null,
           );
+
         const residualRefs = [...generated.routeRows, ...generated.apiRows, ...generated.c2Rows]
           .flatMap((row) => row.source_ref_ids)
           .some(
@@ -2609,13 +2911,16 @@ const runFixtureFalsifier = (
                 (source) => source.source_id === sourceRef && residualPaths.includes(source.path),
               ) !== undefined,
           );
+
         const deterministic =
           residualIgnored &&
           !residualRefs &&
           generated.externalIntegrations.rows.length === baseline.externalIntegrations.rows.length;
+
         const observation = deterministic
           ? buildFailure("stale", expectation.reasonCode, [], [])
           : null;
+
         return fixtureResultReport(
           falsifierId,
           generated,
@@ -2626,31 +2931,40 @@ const runFixtureFalsifier = (
           observation,
         );
       }
+
       if (falsifierId === "F16_h3_authority_copy") {
         mutateFixture(fileSystem, falsifierId, workspace);
         refreshFixtureIntentRegister(fileSystem, commands, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
+
         const injected = generated.apiRows.find((row) => {
-          const details = row.details as unknown as Record<string, unknown>;
-          return details.uri_template === "/fixture/h3-authority-copy";
+          return (
+            row.inventory_kind === "api_operation" &&
+            row.details.uri_template === "/fixture/h3-authority-copy"
+          );
         });
+
         const causal =
           generated.failures.find(
             (failure) =>
               failure.reason_code === expectation.reasonCode &&
               (injected === undefined || failure.row_ids.includes(injected.row_id)),
           ) ?? null;
+
         const h3InputObserved =
           injected !== undefined &&
           generated.apiOperations.derivation_edges.some((edge) =>
             edge.to_row_ids.includes(injected.row_id),
           );
+
         const h3AuthorityRejected =
           injected !== undefined &&
           injected.authority_line === "cross_line" &&
           injected.status === "unresolved" &&
           causal !== null;
+
         const passed = h3InputObserved && h3AuthorityRejected;
+
         return fixtureResultReport(
           falsifierId,
           generated,
@@ -2661,8 +2975,10 @@ const runFixtureFalsifier = (
           causal,
         );
       }
+
       const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
       const baselineFailureIds = new Set(baseline.failures.map((failure) => failure.failure_id));
+
       const baselineCausalRow =
         falsifierId === "F13_unknown_effect"
           ? baseline.c2Rows.find(
@@ -2673,39 +2989,57 @@ const runFixtureFalsifier = (
                 row.details.command_name === "fixture:send",
             )
           : undefined;
+
       const baselineRowIds = new Set(
         [...baseline.routeRows, ...baseline.apiRows, ...baseline.c2Rows].map((row) => row.row_id),
       );
+
       const baselineCausalKey =
         baselineCausalRow === undefined ? null : c2FixtureSemanticKey(baselineCausalRow);
-      const baselineCausalClean =
-        falsifierId === "F13_unknown_effect"
-          ? baselineCausalRow !== undefined &&
+
+      const baselineCausalClean = Match.value(falsifierId).pipe(
+        Match.when(
+          "F13_unknown_effect",
+          () =>
+            baselineCausalRow !== undefined &&
             baselineCausalRow.status !== "unresolved" &&
             baselineCausalRow.status !== "duplicate" &&
             !baselineCausalRow.reason_codes.includes("UNKNOWN_EFFECT") &&
-            baselineCausalRow.coverage_ref_ids.length > 0
-          : falsifierId === "F14_absent_schedule"
-            ? !baseline.c2Rows.some(
-                (row) =>
-                  row.authority_line === "mono" &&
-                  row.inventory_kind === "schedule_background" &&
-                  row.status === "absent",
-              )
-            : true;
+            baselineCausalRow.coverage_ref_ids.length > 0,
+        ),
+        Match.when(
+          "F14_absent_schedule",
+          () =>
+            !baseline.c2Rows.some(
+              (row) =>
+                row.authority_line === "mono" &&
+                row.inventory_kind === "schedule_background" &&
+                row.status === "absent",
+            ),
+        ),
+        Match.orElse(() => true as const),
+      );
+
       mutateFixture(fileSystem, falsifierId, workspace);
       refreshFixtureIntentRegister(fileSystem, commands, workspace);
       const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
+
       const routeNameOf = (row: InventoryRow): string | null => {
         if ("route_name" in row.details) return row.details.route_name;
+
         if ("operation_id" in row.details) return row.details.operation_id;
+
         if ("operation_name" in row.details) {
           const operationName = row.details.operation_name;
-          return typeof operationName === "string" ? operationName : null;
+
+          return Predicate.isString(operationName) ? operationName : null;
         }
+
         return null;
       };
+
       const generatedRows = [...generated.routeRows, ...generated.apiRows];
+
       const injectedRows =
         expectation.routeName === undefined
           ? []
@@ -2716,18 +3050,24 @@ const runFixtureFalsifier = (
                 (expectation.routeAuthority === undefined ||
                   row.authority_line === expectation.routeAuthority),
             );
+
       const injectedRowIds = new Set(injectedRows.map((row) => row.row_id));
       const injectedSourceIds = new Set(injectedRows.flatMap((row) => row.source_ref_ids));
+
       const mutationChanged =
         sourceDigestForManifest(baseline.sourceManifest) !==
           sourceDigestForManifest(generated.sourceManifest) ||
         COMMITTED_PROJECTIONS.some((name) => baseline.bytes[name] !== generated.bytes[name]);
+
       let causalFailure: ReportFailure | null = null;
+
       const generatedTarget =
         baselineCausalKey === null
           ? undefined
           : generated.c2Rows.find((row) => c2FixtureSemanticKey(row) === baselineCausalKey);
+
       let causalMatch = true;
+
       if (falsifierId === "F13_unknown_effect") {
         causalFailure =
           generatedTarget === undefined
@@ -2753,8 +3093,10 @@ const runFixtureFalsifier = (
             row.status === "absent" &&
             row.reason_codes.includes("ABSENT_SCHEDULE"),
         );
+
         const generatedTarget =
           generatedAbsentRows.length === 1 ? generatedAbsentRows[0] : undefined;
+
         causalFailure =
           generatedTarget === undefined
             ? null
@@ -2770,9 +3112,11 @@ const runFixtureFalsifier = (
           generatedTarget !== undefined &&
           causalFailure !== null;
       }
+
       const touchesInjectedIdentity = (failure: ReportFailure): boolean =>
         failure.row_ids.some((rowId) => injectedRowIds.has(rowId)) ||
         failure.source_ref_ids.some((sourceRefId) => injectedSourceIds.has(sourceRefId));
+
       const observedFailure =
         falsifierId === "F13_unknown_effect" || falsifierId === "F14_absent_schedule"
           ? causalFailure
@@ -2790,16 +3134,19 @@ const runFixtureFalsifier = (
                   failure.status === expectation.status &&
                   touchesInjectedIdentity(failure),
               ) ?? null);
+
       const observedStatus =
         causalMatch && observedFailure !== null && observedFailure !== undefined
           ? observedFailure.status
           : (observedFailure?.status ?? generated.report.status);
+
       const observedReason =
         causalMatch && observedFailure !== null && observedFailure !== undefined
           ? observedFailure.reason_code
           : causalMatch
             ? (observedFailure?.reason_code ?? generated.report.status)
             : "FALSIFIER_CAUSALITY_MISMATCH";
+
       return fixtureResultReport(
         falsifierId,
         generated,
@@ -2815,6 +3162,7 @@ const runFixtureFalsifier = (
       );
     }
   });
+
 interface ProjectionStageEffects {
   readonly readSet: typeof readProjectionSetEffect;
   readonly writeProjectionSet: typeof writeProjectionSetEffect;
@@ -2841,17 +3189,23 @@ const runTerminalStageEffect = (
 ): Effect.Effect<RunResult, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     const before = yield* observeProjectionEffect(projectionEffects, options.root, false);
+
     const unknownEntries = before.entries.filter(
-      (entry) => !COMMITTED_PROJECTIONS.includes(entry as (typeof COMMITTED_PROJECTIONS)[number]),
+      (entry) => !COMMITTED_PROJECTIONS.some((name) => name === entry),
     );
+
     const projectionDiff =
       unknownEntries.length > 0 ||
       COMMITTED_PROJECTIONS.some((name) => before.bytes[name] !== generated.bytes[name]);
+
     let failures = [...generated.failures];
+
     if (unknownEntries.length > 0)
       failures.push(buildFailure("stale", "EXTRA_PROJECTION_ENTRY", [], []));
+
     if (projectionDiff && options.mode === "diff")
       failures.push(buildFailure("stale", "STALE_ARTIFACT", [], []));
+
     const inventories = [
       generated.legacyRoutes,
       generated.monoRoutes,
@@ -2861,11 +3215,14 @@ const runTerminalStageEffect = (
       generated.externalIntegrations,
       generated.userJourneyCoverage,
     ];
+
     const reportMismatches = deriveReportMismatches(inventories, generated.openapiReconciliation);
+
     const schemaValidation =
       validateSourceManifest(generated.sourceManifest) &&
       inventories.every((inventory) => validateInventory(inventory)) &&
       validateOpenApiReconciliation(generated.openapiReconciliation);
+
     const crossReferencesValid = validateCrossArtifactInvariants({
       manifest: generated.sourceManifest,
       inventories: inventories.slice(0, 6),
@@ -2873,6 +3230,7 @@ const runTerminalStageEffect = (
       register: generated.acceptedIntentRegister ?? null,
       links: inventories.flatMap((inventory) => inventory.links),
     });
+
     const hasUnsafe =
       generated.sourceManifest.sources.some(
         (source) => source.failure_reason === "UNSAFE_SOURCE",
@@ -2881,6 +3239,7 @@ const runTerminalStageEffect = (
         row.reason_codes.includes("UNSAFE_SOURCE"),
       ) ||
       failures.some((failure) => failure.reason_code === "UNSAFE_SOURCE");
+
     const c2WriteBlocked = generated.c2Rows.some(
       (row) =>
         row.status === "unresolved" ||
@@ -2894,7 +3253,9 @@ const runTerminalStageEffect = (
         row.reason_codes.includes("ABSENT_SCHEDULE") ||
         (row.mismatch.kind === "absent" && row.mismatch.disposition !== "accepted_absent"),
     );
+
     const evidenceRequired = options.mode !== "fixture_injection";
+
     const writeDenied =
       generated.intentAuthority === undefined ||
       (evidenceRequired && generated.evidenceAuthority === undefined) ||
@@ -2903,6 +3264,7 @@ const runTerminalStageEffect = (
       failures.length > 0 ||
       !schemaValidation ||
       !crossReferencesValid;
+
     const forbiddenEmpty = (extraFailures: readonly ReportFailure[]): boolean =>
       forbiddenStatesEmpty(
         inventories,
@@ -2910,17 +3272,20 @@ const runTerminalStageEffect = (
         extraFailures,
         crossReferencesValid,
       );
+
     let report: ZeroGapReport;
+
     if (options.mode === "write" && !writeDenied) {
       const pinnedAuthority: PinnedIntentRegister = {
-        authorityRoot: generated.intentAuthority?.authority_root as string,
-        relativePath: generated.intentAuthority?.relative_path as string,
-        revisionRefId: generated.intentAuthority?.revision_ref_id as string,
-        revision: generated.intentAuthority?.revision as string,
-        blobOid: generated.intentAuthority?.blob_oid as string,
-        bytes: generated.intentAuthority?.bytes as Uint8Array,
-        digest: generated.intentAuthority?.digest as string,
+        authorityRoot: generated.intentAuthority?.authority_root,
+        relativePath: generated.intentAuthority?.relative_path,
+        revisionRefId: generated.intentAuthority?.revision_ref_id,
+        revision: generated.intentAuthority?.revision,
+        blobOid: generated.intentAuthority?.blob_oid,
+        bytes: generated.intentAuthority?.bytes,
+        digest: generated.intentAuthority?.digest,
       };
+
       const pinnedRuntimeEvidenceAuthority: PinnedRuntimeEvidenceRegister | undefined =
         generated.evidenceAuthority === undefined || generated.runtimeEvidenceRegister === undefined
           ? undefined
@@ -2934,6 +3299,7 @@ const runTerminalStageEffect = (
               digest: generated.evidenceAuthority.digest,
               register: generated.runtimeEvidenceRegister,
             };
+
       if (!validateGeneratedArtifactSet(generated)) {
         failures.push(buildFailure("schema_invalid", "REPORT_SCHEMA_VALIDATION_FAILED", [], []));
         report = reportWith({
@@ -2963,9 +3329,11 @@ const runTerminalStageEffect = (
           pinnedRuntimeEvidenceAuthority,
         );
         const after = yield* observeProjectionEffect(projectionEffects, options.root, true);
+
         const written =
           after.entries.length === COMMITTED_PROJECTIONS.length &&
           COMMITTED_PROJECTIONS.every((name) => after.bytes[name] === generated.bytes[name]);
+
         if (!written) {
           failures.push(buildFailure("schema_invalid", "PROJECTION_WRITE_NOT_OBSERVED", [], []));
           report = reportWith({
@@ -3001,7 +3369,9 @@ const runTerminalStageEffect = (
             crossReferenceValidation: crossReferencesValid,
             forbiddenStatesEmpty: forbiddenEmpty(failures),
           });
+
           const writtenBundle = { ...generated, failures, report: writeReport };
+
           if (!validateReportBundle(writtenBundle, after)) {
             failures.push(
               buildFailure("schema_invalid", "REPORT_SCHEMA_VALIDATION_FAILED", [], []),
@@ -3054,6 +3424,7 @@ const runTerminalStageEffect = (
         forbiddenStatesEmpty: forbiddenEmpty(failures),
       });
       const candidate = { ...generated, failures, report };
+
       if (!validateReportBundle(candidate, before)) {
         failures.push(buildFailure("schema_invalid", "REPORT_SCHEMA_VALIDATION_FAILED", [], []));
         report = reportWith({
@@ -3077,7 +3448,9 @@ const runTerminalStageEffect = (
         });
       }
     }
+
     const artifacts = { ...generated, failures, report };
+
     return { exitCode: report.exit_code, report, artifacts, projectionDiff };
   });
 
@@ -3101,26 +3474,31 @@ const runWithServices = (
 > =>
   Effect.gen(function* () {
     const generated = yield* services.collect(options);
+
     const terminalGenerated =
       options.mode === "write"
         ? yield* Effect.gen(function* () {
             const latestGenerated = yield* services.collect(options);
             const latestDigest = sourceDigestForManifest(latestGenerated.sourceManifest);
             const generatedDigest = sourceDigestForManifest(generated.sourceManifest);
+
             const replayBytesDiffer = Object.keys(generated.bytes).some(
               (name) => generated.bytes[name] !== latestGenerated.bytes[name],
             );
+
             const replayFailure =
               latestDigest !== generatedDigest
                 ? buildFailure("source_hash_drift", "SOURCE_HASH_DRIFT", [], [])
                 : replayBytesDiffer
                   ? buildFailure("nondeterministic_output", "NONDETERMINISTIC_OUTPUT", [], [])
                   : null;
+
             return replayFailure === null
               ? generated
               : { ...generated, failures: [...generated.failures, replayFailure] };
           })
         : generated;
+
     return yield* runTerminalStageEffect(options, terminalGenerated);
   });
 
@@ -3142,10 +3520,13 @@ export const run = (
           }),
         );
       }
+
       return yield* runFixtureFalsifier(options);
     }
+
     return yield* runWithServices(options, { collect: generateFromRootsEffect });
   });
+
 const trustedEmptyInventory = (
   inventory: InventoryEnvelope,
   sourceManifestSha256: string,
@@ -3167,18 +3548,22 @@ const trustedFixtureArtifacts = (
   const monoRoutes = trustedEmptyInventory(source.monoRoutes, sourceManifestSha256);
   const apiOperations = trustedEmptyInventory(source.apiOperations, sourceManifestSha256);
   const commandWrites = trustedEmptyInventory(source.commandWrites, sourceManifestSha256);
+
   const scheduledBackgroundWorkflows = trustedEmptyInventory(
     source.scheduledBackgroundWorkflows,
     sourceManifestSha256,
   );
+
   const externalIntegrations = trustedEmptyInventory(
     source.externalIntegrations,
     sourceManifestSha256,
   );
+
   const userJourneyCoverage = trustedEmptyInventory(
     source.userJourneyCoverage,
     sourceManifestSha256,
   );
+
   const openapiReconciliation: OpenApiReconciliation = {
     ...source.openapiReconciliation,
     source_manifest_sha256: sourceManifestSha256,
@@ -3187,6 +3572,7 @@ const trustedFixtureArtifacts = (
     only_regenerated: [],
     changed_operations: [],
   };
+
   const inventories = [
     legacyRoutes,
     monoRoutes,
@@ -3196,6 +3582,7 @@ const trustedFixtureArtifacts = (
     externalIntegrations,
     userJourneyCoverage,
   ];
+
   const bytes = artifactBytes(
     source.sourceManifest,
     legacyRoutes,
@@ -3207,6 +3594,7 @@ const trustedFixtureArtifacts = (
     userJourneyCoverage,
     openapiReconciliation,
   );
+
   const report = reportWith({
     mode: "diff",
     falsifierId: null,
@@ -3223,6 +3611,7 @@ const trustedFixtureArtifacts = (
     crossReferenceValidation: true,
     forbiddenStatesEmpty: true,
   });
+
   return {
     sourceManifest: source.sourceManifest,
     legacyRoutes,
@@ -3277,6 +3666,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
     const commands = yield* ParityCommandExecutor;
+
     return yield* Effect.acquireUseRelease(
       Effect.try({
         try: () => {
@@ -3285,6 +3675,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
             legacyRoot: ".",
             mode: "fixture_injection",
           });
+
           for (const root of [workspace.root, workspace.legacyRoot]) {
             commands.executeBytes("git", ["-C", root, "init", "--quiet"]);
             commands.executeBytes("git", [
@@ -3298,7 +3689,9 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
             commands.executeBytes("git", ["-C", root, "add", "--all"]);
             commands.executeBytes("git", ["-C", root, "commit", "--quiet", "-m", "fixture source"]);
           }
+
           refreshFixtureIntentRegister(fileSystem, commands, workspace);
+
           return workspace;
         },
         catch: (cause) =>
@@ -3313,6 +3706,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
           const authority = createFixtureIntentAuthority(fileSystem, commands, workspace);
           const evidenceAuthority = createFixtureEvidenceAuthority(fileSystem, commands, workspace);
           let retainedEvidenceDirectory: string | null = null;
+
           try {
             const pinned = yield* readPinnedIntentRegisterEffect(
               authority.path,
@@ -3320,12 +3714,14 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               workspace.root,
               PROJECTION_DIRECTORY,
             );
+
             const pinnedEvidence = yield* readPinnedRuntimeEvidenceRegisterEffect(
               evidenceAuthority.path,
               workspace.legacyRoot,
               workspace.root,
               PROJECTION_DIRECTORY,
             );
+
             const attachAuthority = (generated: GeneratedArtifacts): GeneratedArtifacts => ({
               ...generated,
               intentAuthority: {
@@ -3355,6 +3751,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               },
               runtimeEvidenceRegister: pinnedEvidence.register,
             });
+
             const collect = (
               options: RunOptions,
             ): Effect.Effect<
@@ -3366,6 +3763,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
                 workspace,
                 options.mode === "write" ? "write" : "diff",
               ).pipe(Effect.map(attachAuthority));
+
             const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY);
             retainedEvidenceDirectory = join(
               workspace.root,
@@ -3374,10 +3772,13 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
             );
             const retainedEvidencePath = join(retainedEvidenceDirectory, "receipt.json");
             fileSystem.makeDirectory(retainedEvidenceDirectory, { recursive: true });
+
             const projectionDirectoryModeBefore =
               fileSystem.lstat(projectionDirectory).mode & 0o777;
+
             fileSystem.writeFile(retainedEvidencePath, '{"result":"passed"}\n', "utf8");
             fileSystem.chmodDirectoryNoFollow(retainedEvidenceDirectory, 0o1755);
+
             const writeResult = yield* runWithServices(
               {
                 root: workspace.root,
@@ -3387,6 +3788,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               },
               { collect },
             );
+
             if (writeResult.exitCode !== 14)
               throw new Error(`fixture write did not return exit 14: ${writeResult.exitCode}`);
             commands.executeBytes("git", [
@@ -3404,6 +3806,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               "-m",
               "projection promotion",
             ]);
+
             const diffResult = yield* runWithServices(
               {
                 root: workspace.root,
@@ -3413,12 +3816,14 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               },
               { collect },
             );
+
             const beforeIdempotentWrite = Object.fromEntries(
               COMMITTED_PROJECTIONS.map((name) => [
                 name,
                 fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
               ]),
             );
+
             const idempotentWriteResult = yield* runWithServices(
               {
                 root: workspace.root,
@@ -3428,45 +3833,55 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               },
               { collect },
             );
+
             if (idempotentWriteResult.exitCode !== 14)
               throw new Error(
                 `fixture idempotent write did not return exit 14: ${idempotentWriteResult.exitCode}`,
               );
+
             const afterIdempotentWrite = Object.fromEntries(
               COMMITTED_PROJECTIONS.map((name) => [
                 name,
                 fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
               ]),
             );
+
             if (
               COMMITTED_PROJECTIONS.some(
                 (name) => beforeIdempotentWrite[name] !== afterIdempotentWrite[name],
               )
             )
               throw new Error("fixture idempotent write changed projection bytes");
+
             const projectionDirectoryEntries = fileSystem.readDirectory(
               join(workspace.root, PROJECTION_DIRECTORY),
             );
+
             const projectionEntries = projectionDirectoryEntries
               .filter((entry) => entry.isFile())
               .map((entry) => entry.name)
               .sort(compareByteOrder);
+
             const projectionSubdirectories = projectionDirectoryEntries
               .filter((entry) => entry.isDirectory())
               .map((entry) => entry.name)
               .sort(compareByteOrder);
+
             const projectionBytes = Object.fromEntries(
               COMMITTED_PROJECTIONS.map((name) => [
                 name,
                 fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
               ]),
             );
+
             const missingPath = join(projectionDirectory, "legacy-routes.json");
             const legacyProjection = projectionBytes["legacy-routes.json"];
             const monoProjection = projectionBytes["mono-routes.json"];
+
             if (legacyProjection === undefined || monoProjection === undefined)
               throw new Error("fixture projection snapshot missing");
             fileSystem.remove(missingPath);
+
             const missingDiffResult = yield* runWithServices(
               {
                 root: workspace.root,
@@ -3476,9 +3891,11 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               },
               { collect },
             );
+
             fileSystem.writeFile(missingPath, legacyProjection, "utf8");
             const differentPath = join(projectionDirectory, "mono-routes.json");
             fileSystem.writeFile(differentPath, "stale-generated-artifact", "utf8");
+
             const differentDiffResult = yield* runWithServices(
               {
                 root: workspace.root,
@@ -3488,10 +3905,12 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               },
               { collect },
             );
+
             fileSystem.writeFile(differentPath, monoProjection, "utf8");
             const retainedEvidence = fileSystem.readText(retainedEvidencePath);
             const retainedEvidenceMode = fileSystem.lstat(retainedEvidenceDirectory).mode & 0o7777;
             const projectionDirectoryModeAfter = fileSystem.lstat(projectionDirectory).mode & 0o777;
+
             return {
               writeReport: writeResult.report,
               idempotentWriteReport: idempotentWriteResult.report,

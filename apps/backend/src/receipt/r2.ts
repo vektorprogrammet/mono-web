@@ -1,4 +1,5 @@
-import { Effect, Layer, Predicate } from "effect";
+import { ReceiptFileStoreResource } from "./filesystem.js";
+import { Match, Effect, Layer, Predicate } from "effect";
 import {
   ReceiptDecodeError,
   ReceiptFileEffectConflict,
@@ -7,7 +8,7 @@ import {
   ReceiptFileService,
   type ReceiptFile,
   type ReceiptFileRequest,
-  type ReceiptFileServiceShape,
+  type ReceiptFileServiceOperations,
 } from "@vektorprogrammet/domain/receipt";
 import type { ReceiptFileStore, StagedReceiptFile } from "./filesystem.js";
 
@@ -47,11 +48,17 @@ interface Digest {
 type Existing = "missing" | "matching" | "different";
 
 const encoder = new TextEncoder();
+
 const extensionFor = (contentType: ReceiptFile["contentType"]): string =>
-  contentType === "application/pdf" ? "pdf" : contentType === "image/png" ? "png" : "jpeg";
+  Match.value(contentType).pipe(
+    Match.when("application/pdf", () => "pdf" as const),
+    Match.when("image/png", () => "png" as const),
+    Match.orElse(() => "jpeg" as const),
+  );
 
 const hexDigest = async (bytes: Uint8Array): Promise<string> => {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
+
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
@@ -73,6 +80,7 @@ const receiptFileIdentity = async (
 ): Promise<ReceiptFile> => {
   const commandDigest = await hexDigest(encoder.encode(commandId));
   const suffix = `${commandDigest.slice(0, 32)}-${digest.sha256}-${extensionFor(contentType)}`;
+
   return {
     fileRef: `staging/${suffix}`,
     objectKey: `committed/${suffix}`,
@@ -91,23 +99,29 @@ const readMatching = async (
   file: ReceiptFile,
 ): Promise<Existing> => {
   const object = await bucket.get(key);
+
   if (object === null) return "missing";
+
   if (object.size !== file.byteLength || object.httpMetadata?.contentType !== file.contentType)
     return "different";
   const bytes = new Uint8Array(await object.arrayBuffer());
   const digest = await digestBytes(bytes);
+
   return digest.byteLength === file.byteLength && digest.sha256 === file.sha256
     ? "matching"
     : "different";
 };
 
 const encodedRequest = (request: ReceiptFileRequest): string => JSON.stringify(request);
+
 const markerKeyFor = async (effectId: string): Promise<string> =>
   `effects/${await hexDigest(encoder.encode(effectId))}`;
+
 const decoder = new TextDecoder();
 
 const markerRequest = async (bucket: R2Bucket, key: string): Promise<string | null> => {
   const marker = await bucket.get(key);
+
   return marker === null ? null : decoder.decode(await marker.arrayBuffer());
 };
 
@@ -118,17 +132,22 @@ const claimEffect = async (
 ): Promise<void> => {
   const requestJson = encodedRequest(request);
   const existing = await markerRequest(bucket, markerKey);
+
   if (existing !== null) {
     if (existing !== requestJson)
       throw new ReceiptFileEffectConflict({ effectId: request.effectId });
+
     return;
   }
+
   const claimed = await bucket.put(markerKey, requestJson, {
     httpMetadata: { contentType: "application/json" },
     onlyIf: new Headers({ "if-none-match": "*" }),
   });
+
   if (claimed !== null) return;
   const winner = await markerRequest(bucket, markerKey);
+
   if (winner !== requestJson) throw new ReceiptFileEffectConflict({ effectId: request.effectId });
 };
 
@@ -141,12 +160,13 @@ const ensureFileIdentity = (file: ReceiptFile): void => {
 export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): ReceiptFileStore => {
   if (
     !Predicate.isObject(config.bucket) ||
-    typeof config.bucket.get !== "function" ||
-    typeof config.bucket.put !== "function" ||
-    typeof config.bucket.delete !== "function"
+    !Predicate.isFunction(config.bucket.get) ||
+    !Predicate.isFunction(config.bucket.put) ||
+    !Predicate.isFunction(config.bucket.delete)
   ) {
     throw new TypeError("R2 receipt bucket binding is required");
   }
+
   let failNextPromotionEffectId = config.failNextPromotionEffectId;
 
   const stageBytes = async (
@@ -156,14 +176,19 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
     maxFileBytes: number,
   ): Promise<StagedReceiptFile> => {
     const bytes = new Uint8Array(await file.arrayBuffer());
+
     if (bytes.byteLength > maxFileBytes) {
       throw new ReceiptDecodeError({ message: "receipt file exceeds configured limit" });
     }
+
     const identity = await receiptFileIdentity(commandId, contentType, await digestBytes(bytes));
     const existing = await readMatching(config.bucket, identity.fileRef, identity);
+
     if (existing === "matching") return { file: identity, created: false };
+
     if (existing === "different") throw new Error("receipt staging identity conflict");
     await config.bucket.put(identity.fileRef, bytes, { httpMetadata: { contentType } });
+
     return { file: identity, created: true };
   };
 
@@ -172,21 +197,27 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
     await config.bucket.delete(file.fileRef);
   };
 
-  const service: ReceiptFileServiceShape = {
+  const service: ReceiptFileServiceOperations = {
     stage: (file) =>
       Effect.tryPromise({
         try: async () => {
           ensureFileIdentity(file);
           const staged = await readMatching(config.bucket, file.fileRef, file);
+
           if (staged === "matching") return;
+
           if (staged === "different") {
             throw new ReceiptFileIdentityConflict({ effectId: "stage", objectKey: file.objectKey });
           }
+
           const committed = await readMatching(config.bucket, file.objectKey, file);
+
           if (committed === "matching") return;
+
           if (committed === "different") {
             throw new ReceiptFileIdentityConflict({ effectId: "stage", objectKey: file.objectKey });
           }
+
           throw notStaged("stage", file.fileRef);
         },
         catch: (cause) =>
@@ -197,28 +228,35 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
         try: async () => {
           ensureFileIdentity(request.file);
           const markerKey = await markerKeyFor(request.effectId);
-          if (request._tag === "PromoteReceiptFile") {
+
+          if (Predicate.isTagged(request, "PromoteReceiptFile")) {
             if (failNextPromotionEffectId === request.effectId) {
               failNextPromotionEffectId = undefined;
               throw notStaged(request.effectId, request.file.fileRef);
             }
+
             const committed = await readMatching(
               config.bucket,
               request.file.objectKey,
               request.file,
             );
+
             if (committed === "different") {
               throw new ReceiptFileIdentityConflict({
                 effectId: request.effectId,
                 objectKey: request.file.objectKey,
               });
             }
+
             let bytes: Uint8Array | undefined;
+
             if (committed === "missing") {
               const staged = await config.bucket.get(request.file.fileRef);
+
               if (staged === null) throw notStaged(request.effectId, request.file.fileRef);
               bytes = new Uint8Array(await staged.arrayBuffer());
               const digest = await digestBytes(bytes);
+
               if (
                 digest.byteLength !== request.file.byteLength ||
                 digest.sha256 !== request.file.sha256 ||
@@ -227,12 +265,15 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
                 throw notStaged(request.effectId, request.file.fileRef);
               }
             }
+
             await claimEffect(config.bucket, markerKey, request);
+
             if (bytes !== undefined) {
               await config.bucket.put(request.file.objectKey, bytes, {
                 httpMetadata: { contentType: request.file.contentType },
               });
             }
+
             await config.bucket.delete(request.file.fileRef);
           } else {
             const committed = await readMatching(
@@ -240,13 +281,16 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
               request.file.objectKey,
               request.file,
             );
+
             if (committed === "different") {
               throw new ReceiptFileIdentityConflict({
                 effectId: request.effectId,
                 objectKey: request.file.objectKey,
               });
             }
+
             await claimEffect(config.bucket, markerKey, request);
+
             if (committed === "matching") await config.bucket.delete(request.file.objectKey);
           }
         },
@@ -258,6 +302,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
           ) {
             return cause;
           }
+
           return notStaged(request.effectId, request.file.fileRef);
         },
       }),
@@ -267,13 +312,17 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
     service,
     readCommitted: async (file, maxFileBytes) => {
       ensureFileIdentity(file);
+
       if (file.byteLength > maxFileBytes) throw new Error("receipt file exceeds configured limit");
       const object = await config.bucket.get(file.objectKey);
+
       if (object === null || object.size !== file.byteLength || object.size > maxFileBytes) {
         throw new Error("receipt file mismatch");
       }
+
       const bytes = new Uint8Array(await object.arrayBuffer());
       const digest = await digestBytes(bytes);
+
       if (
         digest.byteLength !== file.byteLength ||
         digest.sha256 !== file.sha256 ||
@@ -281,6 +330,7 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
       ) {
         throw new Error("receipt file mismatch");
       }
+
       return bytes;
     },
     layer: Layer.succeed(ReceiptFileService)(service),
@@ -288,3 +338,6 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
     cleanupStage,
   };
 };
+
+export const R2ReceiptFileStoreLive = (config: R2ReceiptFileStoreConfig) =>
+  Layer.sync(ReceiptFileStoreResource, () => makeR2ReceiptFileStore(config));

@@ -1,3 +1,4 @@
+import { Schema, Predicate } from "effect";
 import assert from "node:assert/strict";
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
@@ -5,20 +6,35 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { readBrowserStorage } from "../browser/interview-response-state.js";
 
 const realRun = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
+
 const evidencePath = process.env.IDENTITY_EVIDENCE_BROWSER_PATH;
+
 const dashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "";
+
 const email = process.env.IDENTITY_EVIDENCE_EMAIL ?? "";
+
 const password = process.env.IDENTITY_EVIDENCE_PASSWORD ?? "";
+
 const wrongPassword = process.env.IDENTITY_EVIDENCE_WRONG_PASSWORD ?? "";
+
 const memberEmail = process.env.IDENTITY_EVIDENCE_MEMBER_EMAIL ?? "";
+
 const memberPassword = process.env.IDENTITY_EVIDENCE_MEMBER_PASSWORD ?? "";
+
 const adminScreenshotPath = process.env.IDENTITY_EVIDENCE_ADMIN_SCREENSHOT_PATH ?? "/dev/null";
+
 const memberScreenshotPath = process.env.IDENTITY_EVIDENCE_MEMBER_SCREENSHOT_PATH ?? "/dev/null";
+
 const outputPath = evidencePath ?? "/dev/null";
+
 const hardeningEvidencePath = process.env.IDENTITY_HARDENING_BROWSER_PATH ?? "/dev/null";
+
 const apiOrigin = process.env.API_URL ?? "";
+
 const sessionCookieName = "better-auth.session_token";
+
 const betterAuthSignInWindowResetMs = 10_500;
+
 const navigationPaths = [
   "/dashboard/profile",
   "/dashboard/mine-utlegg",
@@ -42,7 +58,9 @@ const navigationPaths = [
   "/dashboard/linjer",
   "/dashboard/opptaksperioder",
 ] as const;
+
 const memberNavigationPaths = navigationPaths.slice(0, 2);
+
 if (
   realRun &&
   (evidencePath === undefined ||
@@ -84,6 +102,7 @@ type BrowserAuthorityCheck = {
 
 const blockingViolations = async (page: Page) => {
   const result = await new AxeBuilder({ page }).analyze();
+
   return result.violations.filter(
     (violation) => violation.impact === "serious" || violation.impact === "critical",
   );
@@ -91,8 +110,10 @@ const blockingViolations = async (page: Page) => {
 
 const attachBrowserLedger = (context: BrowserContext, ledger: LedgerEntry[]) => {
   const started = new WeakMap<object, number>();
+
   const match = (request: { method(): string; url(): string }, status: number) => {
     const url = new URL(request.url());
+
     const entry = [...ledger]
       .reverse()
       .find(
@@ -101,11 +122,13 @@ const attachBrowserLedger = (context: BrowserContext, ledger: LedgerEntry[]) => 
           candidate.method === request.method() &&
           candidate.path === url.pathname,
       );
+
     if (entry !== undefined) {
       entry.status = status;
       entry.durationMs = Date.now() - (started.get(request) ?? Date.now());
     }
   };
+
   context.on("request", (request) => {
     const url = new URL(request.url());
     started.set(request, Date.now());
@@ -127,8 +150,10 @@ const attachBrowserLedger = (context: BrowserContext, ledger: LedgerEntry[]) => 
 const delay = (milliseconds: number) => {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, milliseconds);
+
   return promise;
 };
+
 const authorityDataPatterns = [
   {
     label: "seeded-authorization-row",
@@ -151,7 +176,7 @@ const authorityDataPatterns = [
 ] as const;
 
 const findAuthorityData = (value: string): ReadonlyArray<string> =>
-  authorityDataPatterns.filter(({ pattern }) => pattern.test(value)).map(({ label }) => label);
+  authorityDataPatterns.flatMap(({ pattern, label }) => pattern.test(value) ? [label] : []);
 
 const isLegacyOrProviderPath = (path: string): boolean =>
   /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
@@ -170,12 +195,14 @@ const observeBrowserAuthorityIsolation = async (
     page.content(),
     page.evaluate(readBrowserStorage),
   ]);
+
   const artifact = {
     bodyText,
     html,
     localStorage: browserStorage.local,
     sessionStorage: browserStorage.session,
   };
+
   const domMatches = findAuthorityData(artifact.bodyText);
   const htmlMatches = findAuthorityData(artifact.html);
   const localStorageMatches = findAuthorityData(JSON.stringify(artifact.localStorage));
@@ -189,6 +216,7 @@ const observeBrowserAuthorityIsolation = async (
   expect(sessionStorageMatches).toEqual([]);
   expect(cookieNameMatches).toEqual([]);
   expect(cookieValueMatches).toEqual([]);
+
   return {
     htmlMatches,
     checkpoint,
@@ -201,25 +229,31 @@ const observeBrowserAuthorityIsolation = async (
     cookieValueMatches,
   };
 };
+
 const observeNavigationStatuses = async (
   context: BrowserContext,
   paths: ReadonlyArray<string>,
   acceptedStatuses: ReadonlyArray<number>,
 ): Promise<ReadonlyArray<{ readonly path: string; readonly status: number }>> => {
   const statuses = [];
+
   for (const path of paths) {
     const response = await context.request.get(`${dashboardOrigin}${path}`, {
       maxRedirects: 0,
     });
+
     statuses.push({ path, status: response.status() });
   }
+
   const failures = statuses.filter(({ status }) => !acceptedStatuses.includes(status));
   expect(failures, "navigation routes must preserve the persona-specific route contract").toEqual(
     [],
   );
+
   return statuses;
 };
-const originHeaders = (origin = dashboardOrigin): Record<string, string> => ({ Origin: origin });
+
+const originHeaders = (origin = dashboardOrigin) => ({ Origin: origin });
 
 const signInContext = async (
   context: BrowserContext,
@@ -230,17 +264,20 @@ const signInContext = async (
     headers: originHeaders(),
     data: { email: signInEmail, password: signInPassword },
   });
+
   expect(response.status()).toBe(200);
 };
 
 const readSessions = async (
   context: BrowserContext,
-): Promise<ReadonlyArray<Record<string, unknown>>> => {
+): Promise<ReadonlyArray<Record<string, Schema.Json>>> => {
   const response = await context.request.get(`${apiOrigin}/api/sessions`, {
     headers: originHeaders(),
   });
+
   expect(response.status()).toBe(200);
-  const body = (await response.json()) as ReadonlyArray<Record<string, unknown>>;
+  const body = Schema.decodeUnknownSync(Schema.Array(Schema.Record(Schema.String, Schema.Json)))((await response.json()));
+
   const expectedFields = [
     "createdAt",
     "current",
@@ -250,16 +287,20 @@ const readSessions = async (
     "updatedAt",
     "userAgent",
   ];
+
   expect(body.length).toBeGreaterThan(0);
+
   for (const session of body) {
     expect(Object.keys(session).sort()).toEqual(expectedFields);
-    expect(typeof session.sessionId).toBe("string");
-    expect(typeof session.createdAt).toBe("string");
-    expect(typeof session.updatedAt).toBe("string");
-    expect(typeof session.expiresAt).toBe("string");
-    expect(typeof session.current).toBe("boolean");
+    expect(Predicate.isString(session.sessionId)).toBe(true);
+    expect(Predicate.isString(session.createdAt)).toBe(true);
+    expect(Predicate.isString(session.updatedAt)).toBe(true);
+    expect(Predicate.isString(session.expiresAt)).toBe(true);
+    expect(Predicate.isBoolean(session.current)).toBe(true);
   }
+
   expect(body.filter((session) => session.current === true)).toHaveLength(1);
+
   return body;
 };
 
@@ -298,6 +339,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
     const third = await browser.newContext();
     const member = await browser.newContext();
     const signup = await browser.newContext();
+
     try {
       await signInContext(primary, email, password);
       await signInContext(secondary, email, password);
@@ -305,7 +347,8 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       const initial = await readSessions(primary);
       expect(initial).toHaveLength(2);
       const currentSessionId = initial.find((session) => session.current === true)?.sessionId;
-      if (typeof currentSessionId !== "string") {
+
+      if (!Predicate.isString(currentSessionId)) {
         throw new Error("current session projection omitted its opaque identifier");
       }
 
@@ -315,6 +358,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         "/api/sessions:revoke-others",
         "https://untrusted.example.invalid",
       );
+
       expect(rejectedOrigin.status()).toBe(403);
       expect(await readSessions(primary)).toHaveLength(2);
 
@@ -324,20 +368,25 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       expect((await nativeMutation(primary, "POST", "/api/sessions:revoke-others")).status()).toBe(
         204,
       );
+
       const secondaryAfterRevocation = await secondary.request.get(`${apiOrigin}/api/session`, {
         headers: originHeaders(),
       });
+
       expect(secondaryAfterRevocation.status()).toBe(401);
 
       await signInContext(third, email, password);
       const afterThirdSignIn = await readSessions(primary);
       expect(afterThirdSignIn).toHaveLength(2);
+
       const thirdSessionId = afterThirdSignIn.find(
         (session) => session.current === false,
       )?.sessionId;
-      if (typeof thirdSessionId !== "string") {
+
+      if (!Predicate.isString(thirdSessionId)) {
         throw new Error("other owned session projection omitted its opaque identifier");
       }
+
       expect(
         (
           await nativeMutation(
@@ -347,16 +396,19 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
           )
         ).status(),
       ).toBe(204);
+
       const repeatedDeleted = await nativeMutation(
         primary,
         "DELETE",
         `/api/sessions/${encodeURIComponent(thirdSessionId)}`,
       );
+
       const missing = await nativeMutation(
         primary,
         "DELETE",
         "/api/sessions/missing-session-0054-1",
       );
+
       expect(repeatedDeleted.status()).toBe(404);
       expect(missing.status()).toBe(404);
       expect(await repeatedDeleted.json()).toEqual(await missing.json());
@@ -373,19 +425,23 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       const memberSessions = await readSessions(member);
       expect(memberSessions).toHaveLength(1);
       const memberSessionId = memberSessions[0]?.sessionId;
-      if (typeof memberSessionId !== "string") {
+
+      if (!Predicate.isString(memberSessionId)) {
         throw new Error("member session projection omitted its opaque identifier");
       }
+
       const memberCrossPerson = await nativeMutation(
         member,
         "DELETE",
         `/api/sessions/${encodeURIComponent(currentSessionId)}`,
       );
+
       const administratorCrossPerson = await nativeMutation(
         primary,
         "DELETE",
         `/api/sessions/${encodeURIComponent(memberSessionId)}`,
       );
+
       expect(memberCrossPerson.status()).toBe(404);
       expect(administratorCrossPerson.status()).toBe(404);
       expect(await memberCrossPerson.json()).toEqual(await administratorCrossPerson.json());
@@ -398,12 +454,14 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
           password,
         },
       });
+
       expect(signupResponse.status()).toBe(400);
       expect(await readSessions(primary)).toHaveLength(1);
 
       const [primaryCookie] = (await primary.cookies()).filter((cookie) =>
         cookie.name.endsWith("better-auth.session_token"),
       );
+
       assert.ok(primaryCookie);
       expect((await nativeMutation(primary, "POST", "/api/sessions:revoke-all")).status()).toBe(
         204,
@@ -414,14 +472,18 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       ).toBe(401);
 
       await signInContext(primary, email, password);
+
       const [replacementCookie] = (await primary.cookies()).filter((cookie) =>
         cookie.name.endsWith("better-auth.session_token"),
       );
+
       assert.ok(replacementCookie);
       expect((await nativeMutation(primary, "DELETE", "/api/session")).status()).toBe(204);
+
       const immediateReplay = await Promise.all(
         Array.from({ length: 4 }, () => replayWithCookie("GET", "/api/session", replacementCookie)),
       );
+
       expect(immediateReplay.map((response) => response.status)).toEqual([401, 401, 401, 401]);
       expect((await replayWithCookie("DELETE", "/api/session", replacementCookie)).status).toBe(
         401,
@@ -484,12 +546,13 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
     const context = await browser.newContext();
     const ledger: LedgerEntry[] = [];
     const accessibility: Record<string, number> = {};
-    const observations: Record<string, unknown> = {};
+    const observations: Record<string, Schema.Json> = {};
     const pageErrors: string[] = [];
     const browserAuthorityChecks: BrowserAuthorityCheck[] = [];
     attachBrowserLedger(context, ledger);
     const page = await context.newPage();
     page.on("pageerror", (error) => pageErrors.push(error.message));
+
     try {
       await delay(betterAuthSignInWindowResetMs);
       await page.goto("/login");
@@ -510,9 +573,11 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       browserAuthorityChecks.push(
         await observeBrowserAuthorityIsolation(context, page, "authenticated-dashboard"),
       );
+
       const sessionCookie = (await context.cookies()).find(
         (cookie) => cookie.name === sessionCookieName,
       );
+
       expect(sessionCookie).toMatchObject({
         httpOnly: true,
         sameSite: "Lax",
@@ -549,6 +614,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       attachBrowserLedger(memberContext, ledger);
       const memberPage = await memberContext.newPage();
       memberPage.on("pageerror", (error) => pageErrors.push(error.message));
+
       try {
         await memberPage.goto("/login");
         await memberPage.getByLabel("E-post").fill(memberEmail);
@@ -574,6 +640,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         );
         const memberProfilePage = await memberContext.newPage();
         memberProfilePage.on("pageerror", (error) => pageErrors.push(error.message));
+
         try {
           const profileResponse = await memberProfilePage.goto("/dashboard/profile");
           expect(profileResponse?.status()).toBe(200);
@@ -592,6 +659,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         const identityButton = memberPage.getByRole("button", {
           name: new RegExp(memberEmail),
         });
+
         await expect(identityButton).toBeVisible();
         await identityButton.click();
         await expect(memberPage.getByRole("menuitem", { name: "Profil" })).toBeVisible();
@@ -630,6 +698,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         domain: sessionCookie.domain,
         path: sessionCookie.path,
       };
+
       await page.getByRole("button", { name: new RegExp(email) }).click();
       await page.getByRole("menuitem", { name: "Logg ut" }).click();
       await page.waitForURL((url) => url.pathname === "/login", { waitUntil: "commit" });
@@ -659,16 +728,19 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       await page.goto("/login");
       await delay(betterAuthSignInWindowResetMs);
       const wrongStarted = Date.now();
+
       for (let attempt = 1; attempt <= 10; attempt += 1) {
         await page.getByLabel("E-post").fill(email);
         await page.getByLabel("Passord", { exact: true }).fill(wrongPassword);
         await page.getByRole("button", { name: "Logg inn" }).click();
+
         if (attempt <= 3) await expect(page.getByText("Feil e-post eller passord")).toBeVisible();
         else
           await expect(
             page.getByText("For mange innloggingsforsøk. Prøv igjen om 15 minutter."),
           ).toBeVisible();
       }
+
       const wrongWindowMs = Date.now() - wrongStarted;
       browserAuthorityChecks.push(
         await observeBrowserAuthorityIsolation(context, page, "rate-limited-login"),
@@ -686,6 +758,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       };
       await page.getByLabel("E-post").focus();
       const focusIds: string[] = [];
+
       for (let index = 0; index < 5; index += 1) {
         const focused = page.locator(":focus");
         focusIds.push(
@@ -693,6 +766,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         );
         await page.keyboard.press("Tab");
       }
+
       expect(focusIds).toEqual(expect.arrayContaining(["email", "password"]));
       observations.accessibility = {
         heading: "Vektorprogrammet",
@@ -703,14 +777,17 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         focusIds,
       };
       const forbidden = ledger.filter((entry) => entry.legacyOrProvider);
+
       const unexpectedDestinations = ledger.filter(
         (entry) => entry.destination === "unexpected-origin",
       );
+
       const authorityRequests = ledger.filter((entry) => entry.authorityDataMatches.length > 0);
       expect(forbidden).toEqual([]);
       expect(unexpectedDestinations).toEqual([]);
       expect(authorityRequests).toEqual([]);
       expect(pageErrors).toEqual([]);
+
       const evidence = {
         specId: "0065",
         extensionSpecId: "0056",
@@ -735,6 +812,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         },
         pageErrors,
       };
+
       await writeFile(outputPath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
     } finally {
       await context.close();

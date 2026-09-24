@@ -9,7 +9,9 @@ export const ProfileInput = S.Struct({
   profile: UserProfileResponse,
   etag: StrongETag,
 });
+
 export type ProfileInput = S.Schema.Type<typeof ProfileInput>;
+
 export const ProfileInputJson = S.fromJsonString(ProfileInput);
 
 export const ProfileCommand = S.Struct({
@@ -17,6 +19,7 @@ export const ProfileCommand = S.Struct({
   etag: StrongETag,
   ...ProfileMergePatch.fields,
 });
+
 export type ProfileCommand = S.Schema.Type<typeof ProfileCommand>;
 
 export const Model = S.Struct({
@@ -33,9 +36,10 @@ export const Model = S.Struct({
   failure: S.NullOr(ProfileBridgeFailure),
   status: S.NullOr(S.String),
 });
+
 export type Model = S.Schema.Type<typeof Model>;
 
-export const makeInitialModel = (input: ProfileInput, commandIdSeed: string): Model => ({
+export const init = (input: ProfileInput, commandIdSeed: string): Model => ({
   profile: input.profile,
   etag: input.etag,
   firstName: FieldValidation.NotValidated({ value: input.profile.firstName }),

@@ -16,6 +16,7 @@ export const ProfileLive = Layer.effect(
   Effect.gen(function* () {
     const database = yield* Database;
     const organization = yield* Organization;
+
     return Profile.of({
       readProfiles: (personIds) =>
         readPersonProfiles(personIds).pipe(

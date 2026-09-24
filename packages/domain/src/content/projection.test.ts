@@ -1,10 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { DepartmentId } from "../organization/schema.js";
+import { DepartmentId } from "../organization/schema.js";
 import { ArticleSlug, type PublishedNewsListing } from "./schema.js";
 import { filterNewsListingByDepartment } from "./projection.js";
 
-const departmentA = "department-a" as DepartmentId;
-const departmentB = "department-b" as DepartmentId;
+const departmentA = DepartmentId.make("department-a");
+
+const departmentB = DepartmentId.make("department-b");
 
 const listing: PublishedNewsListing = {
   articles: [

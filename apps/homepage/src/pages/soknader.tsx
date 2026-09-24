@@ -1,7 +1,9 @@
 import { getDevProfile } from "~/lib/dev-content";
+
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function MineSoknader() {
   const profile = getDevProfile();
+
   return (
     <div className="mb-10 flex w-full justify-center">
       <div className="col-12 text-center">

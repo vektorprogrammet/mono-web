@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { expect, it } from "@effect/vitest";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { canonicalJson } from "../tutor/evidence.js";
@@ -7,7 +8,7 @@ import {
   type ReceiptImportProvenance,
   type ReceiptQuarantineReason,
 } from "./import.js";
-import type { LegacyReceiptRow } from "./schema.js";
+import { type LegacyReceiptRow, ReceiptId } from "./schema.js";
 
 const validRow: LegacyReceiptRow = {
   sourcePrimaryKey: "legacy-1",
@@ -95,7 +96,8 @@ it("covers every row-local Receipt quarantine reason", () => {
   for (const fixture of cases) {
     const result = importLegacyReceipt(fixture.row, "receipt-1", provenance);
     expect(result._tag).toBe("QuarantinedReceiptImport");
-    if (result._tag === "QuarantinedReceiptImport") {
+
+    if (Predicate.isTagged(result, "QuarantinedReceiptImport")) {
       expect(result.reasons).toContain(fixture.reason);
     }
   }
@@ -103,47 +105,62 @@ it("covers every row-local Receipt quarantine reason", () => {
 
 it("maps the legacy refunded decision to approved without inventing settlement", () => {
   const refundDate = "2026-08-22T12:00:00.000Z";
+
   const result = importLegacyReceipt(
     { ...validRow, status: "refunded", refundDate },
     "receipt-1",
     provenance,
   );
-  expect(result).toMatchObject({
-    _tag: "AcceptedReceiptImport",
-    receipt: { status: "Approved", approvedAt: refundDate },
-  });
-  if (result._tag === "AcceptedReceiptImport") {
+
+  {
+    const observedTaggedValue = result;
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "AcceptedReceiptImport");
+    expect(observedTaggedValue).toMatchObject({
+      receipt: { status: "Approved", approvedAt: refundDate },
+    });
+  }
+
+  if (Predicate.isTagged(result, "AcceptedReceiptImport")) {
     expect(Object.hasOwn(result.receipt, "settlement")).toBe(false);
   }
 });
 
 it("quarantines an invalid destination identity without throwing", () => {
-  expect(importLegacyReceipt(validRow, "", provenance)).toMatchObject({
-    _tag: "QuarantinedReceiptImport",
-    reasons: expect.arrayContaining(["InvalidDestinationIdentity"]),
-  });
+  {
+    const observedTaggedValue = importLegacyReceipt(validRow, "", provenance);
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "QuarantinedReceiptImport");
+    expect(observedTaggedValue).toMatchObject({
+      reasons: expect.arrayContaining(["InvalidDestinationIdentity"]),
+    });
+  }
 });
 
 it("quarantines every member of duplicate source and visual identity sets", () => {
   const duplicate = {
     row: validRow,
-    receiptId: "receipt-1",
+    receiptId: ReceiptId.make("receipt-1"),
     provenance,
   };
+
   const results = importLegacyReceipts([
     duplicate,
     {
       row: { ...validRow },
-      receiptId: "receipt-2",
+      receiptId: ReceiptId.make("receipt-2"),
       provenance: { ...provenance, destinationIdentity: "receipt-2" },
     },
   ]);
+
   expect(results).toHaveLength(2);
+
   for (const result of results) {
-    expect(result).toMatchObject({
-      _tag: "QuarantinedReceiptImport",
-      reasons: expect.arrayContaining(["SourceIdentityCollision", "DuplicateVisualId"]),
-    });
+    {
+      const observedTaggedValue = result;
+      expect(observedTaggedValue).toHaveProperty(["_tag"], "QuarantinedReceiptImport");
+      expect(observedTaggedValue).toMatchObject({
+        reasons: expect.arrayContaining(["SourceIdentityCollision", "DuplicateVisualId"]),
+      });
+    }
   }
 });
 
@@ -153,6 +170,7 @@ it("emits byte-identical reconciliation decisions across repeated runs", () => {
     receiptId: `receipt-${index}`,
     provenance: { ...provenance, destinationIdentity: `receipt-${index}` },
   }));
+
   expect(canonicalJson(importLegacyReceipts(inputs))).toBe(
     canonicalJson(importLegacyReceipts(inputs)),
   );

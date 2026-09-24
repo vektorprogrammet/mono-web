@@ -1,11 +1,12 @@
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import type { CheckOptions } from "effect/unstable/arbitrary/Arbitrary";
 import { FIXTURE_COMMAND, FIXTURE_SEED_EVENTS } from "./fixture.js";
 import { ConductInterviewV1Schema, type ConductInterviewV1 } from "./schema.js";
 import { conductInterview, createTutorState } from "./tracer.js";
 
 const propertyOptions = {
-  fastCheck: { seed: 26082027, numRuns: 150 },
+  arbitrary: { seed: 26082027, runs: 150 } satisfies CheckOptions,
 } as const;
 
 const acceptedCommand = (generated: ConductInterviewV1): ConductInterviewV1 => ({
@@ -39,6 +40,7 @@ it.effect.prop(
         commandId: `${command.commandId}-terminal`,
         expectedVersion: accepted.state.events.length,
       };
+
       const terminalFailure = yield* Effect.flip(conductInterview(accepted.state, terminalCommand));
       expect(terminalFailure.reasonCode).toBe("TERMINAL_CONDUCTED");
       expect(accepted.state.events).toHaveLength(initial.events.length + 1);
@@ -55,6 +57,7 @@ it.effect.prop(
       const command = acceptedCommand(generated);
       const accepted = yield* conductInterview(initial, command);
       const stateBefore = JSON.stringify(accepted.state);
+
       const changed = {
         ...command,
         scores: {
@@ -77,6 +80,7 @@ it.effect.prop(
     Effect.gen(function* () {
       const initial = yield* createTutorState(FIXTURE_SEED_EVENTS);
       const stateBefore = JSON.stringify(initial);
+
       const command = {
         ...acceptedCommand(generated),
         expectedVersion: FIXTURE_SEED_EVENTS.length - 1,

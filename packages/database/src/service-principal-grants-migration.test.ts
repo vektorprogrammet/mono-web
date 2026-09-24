@@ -117,18 +117,23 @@ describe("service-principal grant migration", () => {
           "operator",
           "service-grant-migration-valid-request",
         );
+
         const whitespaceEventId = yield* Effect.exit(
           appendAudit(" service-grant-migration-event ", "operator", "event-request"),
         );
+
         const whitespaceActor = yield* Effect.exit(
           appendAudit("service-grant-migration-actor", "\u00a0", "actor-request"),
         );
+
         const whitespaceCorrelation = yield* Effect.exit(
           appendAudit("service-grant-migration-correlation", "operator", " correlation "),
         );
+
         const overlongEventId = yield* Effect.exit(
           appendAudit("e".repeat(161), "operator", "event-length-request"),
         );
+
         const overlongActor = yield* Effect.exit(
           appendAudit(
             "service-grant-migration-actor-length",
@@ -136,9 +141,11 @@ describe("service-principal grant migration", () => {
             "actor-length-request",
           ),
         );
+
         const overlongCorrelation = yield* Effect.exit(
           appendAudit("service-grant-migration-correlation-length", "operator", "c".repeat(161)),
         );
+
         const indexes = yield* database<{ readonly indexName: string }>`
           SELECT indexname AS "indexName"
           FROM pg_catalog.pg_indexes
@@ -149,11 +156,13 @@ describe("service-principal grant migration", () => {
             )
           ORDER BY indexname
         `;
+
         const countRows = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS count
           FROM public.service_principal_grant_audit
           WHERE grant_id = 'service-grant-migration-grant'
         `;
+
         return {
           whitespaceEventId: whitespaceEventId._tag,
           whitespaceActor: whitespaceActor._tag,

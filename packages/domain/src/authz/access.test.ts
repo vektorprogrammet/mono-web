@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Predicate, Effect, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
+  AccessEvaluation,
+  Scope,
+  ConcealmentPolicySchema,
+  CapabilityExpressionSchema,
+  CredentialOutcomeSchema,
   SCOPE_RESOLVER_IDS,
   APPROVE_RECEIPT_CAPABILITY,
   AuthorityRef,
@@ -37,7 +42,7 @@ import {
   expandAuthorityMacros,
   makeAccessSpec,
   ServicePrincipalId,
-  makeGrant,
+  decodeGrant,
   normalizeScope,
   scopeMatches,
   traceAccess,
@@ -48,17 +53,23 @@ import {
 } from "./access.js";
 
 const instant = AuthorizationInstant.make("2031-09-15T12:00:00.000Z");
+
 const personId = PersonId.make("access-person");
+
 const otherPersonId = PersonId.make("access-other-person");
+
 const alphaDepartment = DepartmentId.make("department-alpha");
+
 const betaDepartment = DepartmentId.make("department-beta");
+
 const receiptId = ResourceId.make("receipt-access");
-const personCredential: CredentialOutcome = {
-  _tag: "Accepted",
-  mechanism: { _tag: "BetterAuthCookie" },
-  principal: { _tag: "Person", personId },
+
+const personCredential: CredentialOutcome = CredentialOutcomeSchema.cases.Accepted.make({
+  mechanism: CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+  principal: PrincipalSchema.cases.Person.make({ personId }),
   evidenceRef: CredentialEvidenceRef.make("better-auth:session-1"),
-};
+});
+
 const receiptContext = (
   departmentId = alphaDepartment,
   ownerPersonId = personId,
@@ -75,10 +86,11 @@ const receiptContext = (
   },
   authorityVersion: AuthorityVersion.make("receipt:1"),
 });
+
 const receiptGrant = (scope: Grant["scope"]): Grant =>
-  makeGrant({
+  decodeGrant({
     grantId: GrantId.make("grant-receipt-access"),
-    subject: { _tag: "Person", personId },
+    subject: PrincipalSchema.cases.Person.make({ personId }),
     capability: { type: READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY },
     scope,
     startAt: AuthorizationInstant.make("2031-01-01T00:00:00.000Z"),
@@ -90,56 +102,66 @@ const receiptGrant = (scope: Grant["scope"]): Grant =>
 
 const publicAccess = makeAccessSpec({
   exposure: "External",
-  acceptedCredentials: [{ _tag: "None" }],
+  acceptedCredentials: [CredentialMechanismSchema.cases.None.make({})],
   principalKinds: ["Anonymous"],
-  capabilities: { _tag: "None" },
+  capabilities: CapabilityExpressionSchema.cases.None.make({}),
   requirements: [],
   canonicalScopeResolver: SYSTEM_PUBLIC_SCOPE_RESOLVER,
-  concealment: { _tag: "Reveal" },
+  concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
   decisionTime: "SnapshotRead",
 });
 
 const receiptCommandAccess = makeAccessSpec({
   exposure: "External",
-  acceptedCredentials: [{ _tag: "BetterAuthCookie" }],
+  acceptedCredentials: [CredentialMechanismSchema.cases.BetterAuthCookie.make({})],
   principalKinds: ["Person"],
-  capabilities: { _tag: "One", capability: { type: APPROVE_RECEIPT_CAPABILITY } },
+  capabilities: CapabilityExpressionSchema.cases.One.make({
+    capability: { type: APPROVE_RECEIPT_CAPABILITY },
+  }),
   requirements: [
     { id: RECEIPT_PENDING_REQUIREMENT, parameters: {} },
     { id: RECEIPT_APPROVER_REQUIREMENT, parameters: {} },
   ],
   canonicalScopeResolver: RECEIPT_BY_ID_SCOPE_RESOLVER,
 
-  concealment: { _tag: "Reveal" },
+  concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
   decisionTime: "Transaction",
 });
 
 describe("principal, credential, and access algebra", () => {
   it("decodes every deferred OAuth credential and the service principal independently", () => {
-    const servicePrincipal = Schema.decodeUnknownSync(PrincipalSchema)({
-      _tag: "ServicePrincipal",
-      servicePrincipalId: ServicePrincipalId.make("service-sync"),
-    });
+    const servicePrincipal = Schema.decodeUnknownSync(PrincipalSchema)(
+      PrincipalSchema.cases.ServicePrincipal.make({
+        servicePrincipalId: ServicePrincipalId.make("service-sync"),
+      }),
+    );
+
     const mechanisms = [
-      Schema.decodeUnknownSync(CredentialMechanismSchema)({ _tag: "OAuthUserBearer" }),
-      Schema.decodeUnknownSync(CredentialMechanismSchema)({ _tag: "OAuthServiceBearer" }),
+      Schema.decodeUnknownSync(CredentialMechanismSchema)(
+        CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+      ),
+      Schema.decodeUnknownSync(CredentialMechanismSchema)(
+        CredentialMechanismSchema.cases.OAuthServiceBearer.make({}),
+      ),
     ];
 
-    expect(servicePrincipal).toEqual({
-      _tag: "ServicePrincipal",
-      servicePrincipalId: "service-sync",
-    });
+    expect(servicePrincipal).toEqual(
+      PrincipalSchema.cases.ServicePrincipal.make({
+        servicePrincipalId: ServicePrincipalId.make("service-sync"),
+      }),
+    );
     expect(mechanisms.map(({ _tag }) => _tag)).toEqual(["OAuthUserBearer", "OAuthServiceBearer"]);
   });
 
   it("records the bounded 0055.1 tracer journey without credential material", () => {
     const context = receiptContext();
-    const anonymousCredential: CredentialOutcome = {
-      _tag: "Accepted",
-      mechanism: { _tag: "None" },
-      principal: { _tag: "Anonymous" },
+
+    const anonymousCredential: CredentialOutcome = CredentialOutcomeSchema.cases.Accepted.make({
+      mechanism: CredentialMechanismSchema.cases.None.make({}),
+      principal: PrincipalSchema.cases.Anonymous.make({}),
       evidenceRef: CredentialEvidenceRef.make("anonymous:none"),
-    };
+    });
+
     const publicContext: CanonicalResourceContext = {
       domainId: SYSTEM_DOMAIN_ID,
       departmentId: null,
@@ -147,7 +169,9 @@ describe("principal, credential, and access algebra", () => {
       facts: {},
       authorityVersion: AuthorityVersion.make("system:1"),
     };
+
     const publicResolution = { selection: "ExactlyOne" as const, contexts: [publicContext] };
+
     const publicDecision = evaluateAccess({
       spec: publicAccess,
       credential: anonymousCredential,
@@ -155,8 +179,10 @@ describe("principal, credential, and access algebra", () => {
       grants: [],
       authorizationInstant: instant,
     });
-    const ownerGrant = receiptGrant({ _tag: "Resource", resource: context.resource! });
+
+    const ownerGrant = receiptGrant(Scope.Resource({ resource: context.resource! }));
     const receiptResolution = { selection: "ExactlyOne" as const, contexts: [context] };
+
     const ownerDecision = evaluateAccess({
       spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
       credential: personCredential,
@@ -164,8 +190,10 @@ describe("principal, credential, and access algebra", () => {
       grants: [ownerGrant],
       authorizationInstant: instant,
     });
+
     const wrongContext = receiptContext(betaDepartment, otherPersonId);
     const wrongResolution = { selection: "ExactlyOne" as const, contexts: [wrongContext] };
+
     const wrongDecision = evaluateAccess({
       spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
       credential: personCredential,
@@ -173,11 +201,12 @@ describe("principal, credential, and access algebra", () => {
       grants: [ownerGrant],
       authorizationInstant: instant,
     });
+
     const traces = [
       traceAccess({
         declarationId: "proof.public-read",
         spec: publicAccess,
-        mechanism: { _tag: "None" },
+        mechanism: CredentialMechanismSchema.cases.None.make({}),
         credential: anonymousCredential,
         resolution: publicResolution,
         grants: [],
@@ -186,7 +215,7 @@ describe("principal, credential, and access algebra", () => {
       traceAccess({
         declarationId: "proof.protected-read",
         spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
-        mechanism: { _tag: "BetterAuthCookie" },
+        mechanism: CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
         credential: personCredential,
         resolution: receiptResolution,
         grants: [ownerGrant],
@@ -195,7 +224,7 @@ describe("principal, credential, and access algebra", () => {
       traceAccess({
         declarationId: "proof.wrong-department",
         spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
-        mechanism: { _tag: "BetterAuthCookie" },
+        mechanism: CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
         credential: personCredential,
         resolution: wrongResolution,
         grants: [ownerGrant],
@@ -243,13 +272,24 @@ describe("principal, credential, and access algebra", () => {
       }),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(ScopeSchema)({ _tag: "Tenant", tenantId: "tenant-one" }),
+      Schema.decodeUnknownSync(ScopeSchema)(
+        Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+          '{"_tag":"Tenant","tenantId":"tenant-one"}',
+        ),
+      ),
     ).toThrow();
-    expect(() => Schema.decodeUnknownSync(ScopeSchema)({ _tag: "Receipt" })).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(ScopeSchema)(
+        Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))('{"_tag":"Receipt"}'),
+      ),
+    ).toThrow();
     expect(() =>
       makeAccessSpec({
         ...publicAccess,
-        acceptedCredentials: [{ _tag: "None" }, { _tag: "BetterAuthCookie" }],
+        acceptedCredentials: [
+          CredentialMechanismSchema.cases.None.make({}),
+          CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+        ],
       }),
     ).toThrow();
     expect(() =>
@@ -263,10 +303,12 @@ describe("principal, credential, and access algebra", () => {
         ],
       }),
     ).toThrow();
-    let tooDeep: unknown = { _tag: "Global" };
+    let tooDeep: Scope = Scope.Global();
+
     for (let depth = 0; depth < 16; depth += 1) {
-      tooDeep = { _tag: "And", left: { _tag: "Global" }, right: tooDeep };
+      tooDeep = Scope.And({ left: Scope.Global(), right: tooDeep });
     }
+
     expect(() => Schema.decodeUnknownSync(ScopeSchema)(tooDeep)).toThrow();
   });
 
@@ -279,68 +321,64 @@ describe("principal, credential, and access algebra", () => {
   it("rejects an accepted credential with the wrong mechanism before authorization", () => {
     const context = receiptContext();
     const resolution = { selection: "ExactlyOne" as const, contexts: [context] };
+
     const oauthAtCookieEndpoint = evaluateAccess({
       spec: receiptCommandAccess,
-      credential: {
-        _tag: "Accepted",
-        mechanism: { _tag: "OAuthUserBearer" },
-        principal: { _tag: "Person", personId },
+      credential: CredentialOutcomeSchema.cases.Accepted.make({
+        mechanism: CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+        principal: PrincipalSchema.cases.Person.make({ personId }),
         evidenceRef: CredentialEvidenceRef.make("oauth:user"),
-      },
+      }),
       resolution,
       grants: [],
       authorizationInstant: instant,
     });
+
     const mechanismPrincipalMismatch = evaluateAccess({
       spec: receiptCommandAccess,
-      credential: {
-        _tag: "Accepted",
-        mechanism: { _tag: "BetterAuthCookie" },
-        principal: {
-          _tag: "ServicePrincipal",
+      credential: CredentialOutcomeSchema.cases.Accepted.make({
+        mechanism: CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+        principal: PrincipalSchema.cases.ServicePrincipal.make({
           servicePrincipalId: ServicePrincipalId.make("invalid-cookie-service"),
-        },
+        }),
         evidenceRef: CredentialEvidenceRef.make("cookie:invalid-principal"),
-      },
+      }),
       resolution,
       grants: [],
       authorizationInstant: instant,
     });
+
     const invitationSpec = makeAccessSpec({
       exposure: "External",
       acceptedCredentials: [
-        {
-          _tag: "ObjectCapability",
+        CredentialMechanismSchema.cases.ObjectCapability.make({
           capabilityType: INVITATION_RESPONSE_CAPABILITY,
-        },
+        }),
       ],
       principalKinds: ["CapabilityHolder"],
-      capabilities: {
-        _tag: "Any",
+      capabilities: CapabilityExpressionSchema.cases.Any.make({
         capabilities: [
           { type: INVITATION_RESPONSE_CAPABILITY },
           { type: READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY },
         ],
-      },
+      }),
       requirements: [],
       canonicalScopeResolver: SYSTEM_PUBLIC_SCOPE_RESOLVER,
-      concealment: { _tag: "Reveal" },
+      concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
       decisionTime: "SnapshotRead",
     });
+
     const wrongObjectCapabilityType = evaluateAccess({
       spec: invitationSpec,
-      credential: {
-        _tag: "Accepted",
-        mechanism: {
-          _tag: "ObjectCapability",
+      credential: CredentialOutcomeSchema.cases.Accepted.make({
+        mechanism: CredentialMechanismSchema.cases.ObjectCapability.make({
           capabilityType: READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY,
-        },
-        principal: {
-          _tag: "CapabilityHolder",
+        }),
+        principal: PrincipalSchema.cases.CapabilityHolder.make({
           capabilityId: CapabilityId.make("wrong-capability-type"),
-        },
+        }),
         evidenceRef: CredentialEvidenceRef.make("capability:wrong-type"),
-      },
+      }),
       resolution: {
         selection: "ExactlyOne",
         contexts: [
@@ -357,50 +395,51 @@ describe("principal, credential, and access algebra", () => {
       authorizationInstant: instant,
     });
 
-    expect(oauthAtCookieEndpoint).toEqual({
-      _tag: "CredentialRejected",
-      reason: "WrongMechanism",
-    });
-    expect(mechanismPrincipalMismatch).toEqual({
-      _tag: "CredentialRejected",
-      reason: "WrongMechanism",
-    });
-    expect(wrongObjectCapabilityType).toEqual({
-      _tag: "CredentialRejected",
-      reason: "WrongMechanism",
-    });
+    expect(oauthAtCookieEndpoint).toEqual(
+      AccessEvaluation.CredentialRejected({ reason: "WrongMechanism" }),
+    );
+    expect(mechanismPrincipalMismatch).toEqual(
+      AccessEvaluation.CredentialRejected({ reason: "WrongMechanism" }),
+    );
+    expect(wrongObjectCapabilityType).toEqual(
+      AccessEvaluation.CredentialRejected({ reason: "WrongMechanism" }),
+    );
   });
 
   it.effect("does not resolve scope or grants for the wrong accepted mechanism", () =>
     Effect.gen(function* () {
       let scopeReads = 0;
       let grantReads = 0;
+
       const decision = yield* evaluateAccessJourney(
         receiptCommandAccess,
         { receiptId },
         {
           now: Effect.succeed(instant),
           resolveCredential: () =>
-            Effect.succeed({
-              _tag: "Accepted" as const,
-              mechanism: { _tag: "OAuthUserBearer" as const },
-              principal: { _tag: "Person" as const, personId },
-              evidenceRef: CredentialEvidenceRef.make("oauth:wrong-endpoint"),
-            }),
+            Effect.succeed(
+              CredentialOutcomeSchema.cases.Accepted.make({
+                mechanism: CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+                principal: PrincipalSchema.cases.Person.make({ personId }),
+                evidenceRef: CredentialEvidenceRef.make("oauth:wrong-endpoint"),
+              }),
+            ),
           resolveScope: () =>
             Effect.sync(() => {
               scopeReads += 1;
+
               return { selection: "ExactlyOne" as const, contexts: [receiptContext()] };
             }),
           resolveGrants: () =>
             Effect.sync(() => {
               grantReads += 1;
+
               return [];
             }),
         },
       );
 
-      expect(decision).toEqual({ _tag: "CredentialRejected", reason: "WrongMechanism" });
+      expect(decision).toEqual(AccessEvaluation.CredentialRejected({ reason: "WrongMechanism" }));
       expect({ scopeReads, grantReads }).toEqual({ scopeReads: 0, grantReads: 0 });
     }),
   );
@@ -411,89 +450,75 @@ describe("principal, credential, and access algebra", () => {
       requirements: [{ id: RECEIPT_OWNER_REQUIREMENT, parameters: {} }],
       canonicalScopeResolver: RECEIPT_BY_ID_SCOPE_RESOLVER,
     });
+
     const decision = evaluateAccess({
       spec,
-      credential: {
-        _tag: "Accepted",
-        mechanism: { _tag: "None" },
-        principal: { _tag: "Anonymous" },
+      credential: CredentialOutcomeSchema.cases.Accepted.make({
+        mechanism: CredentialMechanismSchema.cases.None.make({}),
+        principal: PrincipalSchema.cases.Anonymous.make({}),
         evidenceRef: CredentialEvidenceRef.make("anonymous:requirement"),
-      },
+      }),
       resolution: { selection: "ExactlyOne", contexts: [receiptContext()] },
       grants: [],
       authorizationInstant: instant,
     });
 
-    expect(decision).toEqual({
-      _tag: "Deny",
-      stage: "Requirement",
-      reason: "RequirementFailed",
-    });
+    expect(decision).toEqual(
+      AccessEvaluation.Deny({ stage: "Requirement", reason: "RequirementFailed" }),
+    );
   });
 
   it("keeps Domain and Department independent and normalizes And and Or", () => {
     const context = receiptContext();
-    expect(scopeMatches({ _tag: "Domain", domainId: RECEIPT_DOMAIN_ID }, context)).toBe(true);
-    expect(scopeMatches({ _tag: "Department", departmentId: betaDepartment }, context)).toBe(false);
+    expect(scopeMatches(Scope.Domain({ domainId: RECEIPT_DOMAIN_ID }), context)).toBe(true);
+    expect(scopeMatches(Scope.Department({ departmentId: betaDepartment }), context)).toBe(false);
     expect(
       scopeMatches(
-        {
-          _tag: "And",
-          left: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
-          right: { _tag: "Department", departmentId: betaDepartment },
-        },
+        Scope.And({
+          left: Scope.Domain({ domainId: RECEIPT_DOMAIN_ID }),
+          right: Scope.Department({ departmentId: betaDepartment }),
+        }),
         context,
       ),
     ).toBe(false);
-    const domain = { _tag: "Domain" as const, domainId: RECEIPT_DOMAIN_ID };
-    expect(normalizeScope({ _tag: "Or", left: domain, right: domain })).toEqual(domain);
-    const global = { _tag: "Global" as const };
-    const department = { _tag: "Department" as const, departmentId: alphaDepartment };
+    const domain = Scope.Domain({ domainId: RECEIPT_DOMAIN_ID });
+    expect(normalizeScope(Scope.Or({ left: domain, right: domain }))).toEqual(domain);
+    const global = Scope.Global();
+    const department = Scope.Department({ departmentId: alphaDepartment });
     expect(
-      normalizeScope({
-        _tag: "And",
-        left: { _tag: "And", left: global, right: domain },
-        right: department,
-      }),
+      normalizeScope(
+        Scope.And({ left: Scope.And({ left: global, right: domain }), right: department }),
+      ),
     ).toEqual(
-      normalizeScope({
-        _tag: "And",
-        left: global,
-        right: { _tag: "And", left: domain, right: department },
-      }),
+      normalizeScope(
+        Scope.And({ left: global, right: Scope.And({ left: domain, right: department }) }),
+      ),
     );
     expect(
-      normalizeScope({
-        _tag: "Or",
-        left: { _tag: "Or", left: global, right: domain },
-        right: department,
-      }),
+      normalizeScope(
+        Scope.Or({ left: Scope.Or({ left: global, right: domain }), right: department }),
+      ),
     ).toEqual(
-      normalizeScope({
-        _tag: "Or",
-        left: global,
-        right: { _tag: "Or", left: domain, right: department },
-      }),
+      normalizeScope(
+        Scope.Or({ left: global, right: Scope.Or({ left: domain, right: department }) }),
+      ),
     );
     expect(
-      normalizeScope({
-        _tag: "Or",
-        left: domain,
-        right: { _tag: "Or", left: domain, right: department },
-      }),
-    ).toEqual(normalizeScope({ _tag: "Or", left: domain, right: department }));
+      normalizeScope(
+        Scope.Or({ left: domain, right: Scope.Or({ left: domain, right: department }) }),
+      ),
+    ).toEqual(normalizeScope(Scope.Or({ left: domain, right: department })));
     expect(
-      normalizeScope({
-        _tag: "And",
-        left: domain,
-        right: { _tag: "And", left: domain, right: department },
-      }),
-    ).toEqual(normalizeScope({ _tag: "And", left: domain, right: department }));
+      normalizeScope(
+        Scope.And({ left: domain, right: Scope.And({ left: domain, right: department }) }),
+      ),
+    ).toEqual(normalizeScope(Scope.And({ left: domain, right: department })));
   });
 
   it("allows the internal owner and returns 401 only for credential failure", () => {
     const context = receiptContext();
-    const grant = receiptGrant({ _tag: "Resource", resource: context.resource! });
+    const grant = receiptGrant(Scope.Resource({ resource: context.resource! }));
+
     const allowed = evaluateAccess({
       spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
       credential: personCredential,
@@ -501,9 +526,10 @@ describe("principal, credential, and access algebra", () => {
       grants: [grant],
       authorizationInstant: instant,
     });
+
     const rejected = evaluateAccess({
       spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
-      credential: { _tag: "Rejected", reason: "Missing" },
+      credential: CredentialOutcomeSchema.cases.Rejected.make({ reason: "Missing" }),
       resolution: { selection: "ExactlyOne", contexts: [context] },
       grants: [],
       authorizationInstant: instant,
@@ -511,17 +537,19 @@ describe("principal, credential, and access algebra", () => {
 
     expect(allowed._tag).toBe("Allow");
     expect(accessHttpStatus(allowed, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment)).toBe(200);
-    expect(rejected).toEqual({ _tag: "CredentialRejected", reason: "Missing" });
+    expect(rejected).toEqual(AccessEvaluation.CredentialRejected({ reason: "Missing" }));
     expect(accessHttpStatus(rejected, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment)).toBe(401);
   });
 
   it("does not let a global-administrator role macro bypass ownership", () => {
     const context = receiptContext(alphaDepartment, otherPersonId);
-    const globalGrant = receiptGrant({ _tag: "Global" });
+    const globalGrant = receiptGrant(Scope.Global());
+
     const grants = expandAuthorityMacros(
       [],
       [{ roleId: "global-administrator", grants: [globalGrant] }],
     );
+
     const decision = evaluateAccess({
       spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
       credential: personCredential,
@@ -530,27 +558,27 @@ describe("principal, credential, and access algebra", () => {
       authorizationInstant: instant,
     });
 
-    expect(decision).toEqual({
-      _tag: "Deny",
-      stage: "Requirement",
-      reason: "RequirementFailed",
-    });
+    expect(decision).toEqual(
+      AccessEvaluation.Deny({ stage: "Requirement", reason: "RequirementFailed" }),
+    );
     expect(accessHttpStatus(decision, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment)).toBe(403);
   });
 
   it("keeps a wrong department denial at 403 and performs no transaction effect", () => {
     const context = receiptContext(betaDepartment);
-    const grant = makeGrant({
+
+    const grant = decodeGrant({
       grantId: GrantId.make("grant-approve-alpha"),
-      subject: { _tag: "Person", personId },
+      subject: PrincipalSchema.cases.Person.make({ personId }),
       capability: { type: APPROVE_RECEIPT_CAPABILITY },
-      scope: { _tag: "Department", departmentId: alphaDepartment },
+      scope: Scope.Department({ departmentId: alphaDepartment }),
       startAt: AuthorizationInstant.make("2031-01-01T00:00:00.000Z"),
       endAt: null,
       requirements: [],
       source: AuthorityRef.make("test.receipt-approval"),
       revision: 0,
     });
+
     const decision = evaluateAccess({
       spec: receiptCommandAccess,
       credential: personCredential,
@@ -558,10 +586,12 @@ describe("principal, credential, and access algebra", () => {
       grants: [grant],
       authorizationInstant: instant,
     });
-    let transitions = 0;
-    if (decision._tag === "Allow") transitions += 1;
 
-    expect(decision).toEqual({ _tag: "Deny", stage: "Scope", reason: "NotInScope" });
+    let transitions = 0;
+
+    if (Predicate.isTagged(decision, "Allow")) transitions += 1;
+
+    expect(decision).toEqual(AccessEvaluation.Deny({ stage: "Scope", reason: "NotInScope" }));
     expect(accessHttpStatus(decision, receiptCommandAccess.concealment)).toBe(403);
     expect(transitions).toBe(0);
   });
@@ -573,10 +603,12 @@ describe("principal, credential, and access algebra", () => {
       let scopeReads = 0;
       let grantReads = 0;
       const context = receiptContext();
-      const grant = receiptGrant({ _tag: "Resource", resource: context.resource! });
+      const grant = receiptGrant(Scope.Resource({ resource: context.resource! }));
+
       const services = {
         now: Effect.sync(() => {
           attempts += 1;
+
           return AuthorizationInstant.make(
             attempts === 1 ? "2031-09-15T12:00:00.000Z" : "2031-09-15T12:00:01.000Z",
           );
@@ -584,16 +616,19 @@ describe("principal, credential, and access algebra", () => {
         resolveCredential: () =>
           Effect.sync(() => {
             credentialReads += 1;
+
             return personCredential;
           }),
         resolveScope: () =>
           Effect.sync(() => {
             scopeReads += 1;
+
             return { selection: "ExactlyOne" as const, contexts: [context] };
           }),
         resolveGrants: () =>
           Effect.sync(() => {
             grantReads += 1;
+
             return grantReads === 1 ? [grant] : [];
           }),
       };
@@ -603,6 +638,7 @@ describe("principal, credential, and access algebra", () => {
         { receiptId },
         services,
       );
+
       const retry = yield* evaluateAccessJourney(
         INTERNAL_RECEIPT_EVIDENCE_ACCESS,
         { receiptId },
@@ -610,11 +646,9 @@ describe("principal, credential, and access algebra", () => {
       );
 
       expect(first._tag).toBe("Allow");
-      expect(retry).toEqual({
-        _tag: "Deny",
-        stage: "Capability",
-        reason: "CapabilityMissing",
-      });
+      expect(retry).toEqual(
+        AccessEvaluation.Deny({ stage: "Capability", reason: "CapabilityMissing" }),
+      );
       expect({ attempts, credentialReads, scopeReads, grantReads }).toEqual({
         attempts: 2,
         credentialReads: 2,
@@ -626,24 +660,25 @@ describe("principal, credential, and access algebra", () => {
 
   it("conceals only an explicitly listed invalid object capability and allows the valid holder", () => {
     const capabilityId = CapabilityId.make("invitation-capability-instance");
-    const mechanism = {
-      _tag: "ObjectCapability" as const,
+
+    const mechanism = CredentialMechanismSchema.cases.ObjectCapability.make({
       capabilityType: INVITATION_RESPONSE_CAPABILITY,
-    };
+    });
+
     const spec = makeAccessSpec({
       exposure: "External",
       acceptedCredentials: [mechanism],
       principalKinds: ["CapabilityHolder"],
-      capabilities: {
-        _tag: "One",
+      capabilities: CapabilityExpressionSchema.cases.One.make({
         capability: { type: INVITATION_RESPONSE_CAPABILITY },
-      },
+      }),
       requirements: [],
       canonicalScopeResolver: SYSTEM_PUBLIC_SCOPE_RESOLVER,
-      concealment: { _tag: "NotFound", conceal: ["CredentialFailure"] },
+      concealment: ConcealmentPolicySchema.cases.NotFound.make({ conceal: ["CredentialFailure"] }),
       decisionTime: "SnapshotRead",
     });
-    const invitationContext: CanonicalResourceContext = {
+
+    const invitationContext = {
       domainId: SYSTEM_DOMAIN_ID,
       departmentId: null,
       resource: {
@@ -652,8 +687,12 @@ describe("principal, credential, and access algebra", () => {
       },
       facts: {},
       authorityVersion: AuthorityVersion.make("invitation:1"),
-    };
-    const rejectedCredential: CredentialOutcome = { _tag: "Rejected", reason: "Invalid" };
+    } satisfies CanonicalResourceContext;
+
+    const rejectedCredential: CredentialOutcome = CredentialOutcomeSchema.cases.Rejected.make({
+      reason: "Invalid",
+    });
+
     const rejected = evaluateAccess({
       spec,
       credential: rejectedCredential,
@@ -661,24 +700,27 @@ describe("principal, credential, and access algebra", () => {
       grants: [],
       authorizationInstant: instant,
     });
-    const principal = { _tag: "CapabilityHolder" as const, capabilityId };
-    const grant = makeGrant({
+
+    const principal = PrincipalSchema.cases.CapabilityHolder.make({ capabilityId });
+
+    const grant = decodeGrant({
       grantId: GrantId.make("grant-invitation-one"),
       subject: principal,
       capability: { type: INVITATION_RESPONSE_CAPABILITY },
-      scope: { _tag: "Resource", resource: invitationContext.resource },
+      scope: Scope.Resource({ resource: invitationContext.resource }),
       startAt: AuthorizationInstant.make("2031-01-01T00:00:00.000Z"),
       endAt: null,
       requirements: [],
       source: AuthorityRef.make("recruitment.invitation-authority"),
       revision: 0,
     });
-    const acceptedCredential: CredentialOutcome = {
-      _tag: "Accepted",
+
+    const acceptedCredential: CredentialOutcome = CredentialOutcomeSchema.cases.Accepted.make({
       mechanism,
       principal,
       evidenceRef: CredentialEvidenceRef.make("invitation:resolved-capability"),
-    };
+    });
+
     const accepted = evaluateAccess({
       spec,
       credential: acceptedCredential,
@@ -686,6 +728,7 @@ describe("principal, credential, and access algebra", () => {
       grants: [grant],
       authorizationInstant: instant,
     });
+
     const rejectedTrace = traceAccess({
       declarationId: "proof.object-capability",
       spec,
@@ -724,12 +767,13 @@ describe("principal, credential, and access algebra", () => {
       facts: {},
       authorityVersion: AuthorityVersion.make("system:1"),
     };
-    const credential: CredentialOutcome = {
-      _tag: "Accepted",
-      mechanism: { _tag: "None" },
-      principal: { _tag: "Anonymous" },
+
+    const credential: CredentialOutcome = CredentialOutcomeSchema.cases.Accepted.make({
+      mechanism: CredentialMechanismSchema.cases.None.make({}),
+      principal: PrincipalSchema.cases.Anonymous.make({}),
       evidenceRef: CredentialEvidenceRef.make("anonymous:none"),
-    };
+    });
+
     const decision = evaluateAccess({
       spec: publicAccess,
       credential,
@@ -743,7 +787,7 @@ describe("principal, credential, and access algebra", () => {
       traceAccess({
         declarationId: "proof.public-read",
         spec: publicAccess,
-        mechanism: { _tag: "None" },
+        mechanism: CredentialMechanismSchema.cases.None.make({}),
         credential,
         resolution: { selection: "ExactlyOne", contexts: [context] },
         grants: [],
@@ -769,7 +813,7 @@ it("fails known-self or absent/malformed interview identity facts and permits ex
   ] as const) {
     const result = evaluateRequirement(
       { id: RequirementId.make("recruitment.not-known-self"), parameters: {} },
-      { _tag: "Person", personId },
+      PrincipalSchema.cases.Person.make({ personId }),
       {
         domainId: DomainId.make("recruitment"),
         departmentId: alphaDepartment,
@@ -781,6 +825,7 @@ it("fails known-self or absent/malformed interview identity facts and permits ex
         facts: { linkedApplicantPersonId: linked },
       },
     );
+
     expect(result._tag).toBe(allowed ? "Satisfied" : "Failed");
   }
 });
@@ -790,6 +835,7 @@ it("accepts only listed primary or co-interviewer participants", () => {
     id: RequirementId.make("recruitment.assigned-interviewer-or-co-interviewer"),
     parameters: {},
   };
+
   const context = {
     domainId: DomainId.make("recruitment"),
     departmentId: alphaDepartment,
@@ -800,6 +846,7 @@ it("accepts only listed primary or co-interviewer participants", () => {
     authorityVersion: AuthorityVersion.make("participant-test"),
     facts: { interviewParticipantPersonIds: [personId, otherPersonId] },
   };
+
   for (const [participant, allowed] of [
     [personId, true],
     [otherPersonId, true],
@@ -807,9 +854,10 @@ it("accepts only listed primary or co-interviewer participants", () => {
   ] as const) {
     const result = evaluateRequirement(
       requirement,
-      { _tag: "Person", personId: participant },
+      PrincipalSchema.cases.Person.make({ personId: participant }),
       context,
     );
+
     expect(result._tag).toBe(allowed ? "Satisfied" : "Failed");
   }
 });

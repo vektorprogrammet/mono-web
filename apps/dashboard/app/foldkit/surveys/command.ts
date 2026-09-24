@@ -21,7 +21,7 @@ import {
   SucceededCreate,
   type Message,
 } from "./message";
-import type { SchoolSurveysFailure } from "./model";
+import { SchoolSurveysFailure } from "./model";
 
 export interface SchoolSurveysCommandFactories {
   readonly LoadCatalog: (args: { readonly requestId: number }) => Command.Command<Message>;
@@ -69,12 +69,13 @@ const failureMessage = (tag: SchoolSurveysBridgeFailure["error"]["tag"]): string
 export const failureFrom = (error: SchoolSurveysBridgeFailure): SchoolSurveysFailure => {
   const tag = error.error.tag;
   const message = failureMessage(tag);
+
   return tag === "UnauthenticatedActor" || tag === "NotInScope"
-    ? { _tag: "Denied", tag, message }
-    : { _tag: "Failed", tag, message };
+    ? SchoolSurveysFailure.cases.Denied.make({ tag, message })
+    : SchoolSurveysFailure.cases.Failed.make({ tag, message });
 };
 
-export const makeSchoolSurveysCommands = (
+export const commandsFor = (
   client: SchoolSurveysClient,
 ): SchoolSurveysCommandFactories => ({
   LoadCatalog: ({ requestId }) => ({

@@ -3,7 +3,7 @@
  *
  * @since 0.1.0
  */
-import { Context, Effect } from "effect";
+import { Data, Context, Effect } from "effect";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
 import type { DepartmentId, PersonId } from "../organization/schema.js";
 import type { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
@@ -26,18 +26,19 @@ import type {
   ReceiptSettlementQueueItem,
   ReceiptStatusTotal,
 } from "./projections.js";
-import type {
-  Receipt,
-  ReceiptActor,
-  ReceiptCommandPrincipal,
-  ReceiptFile,
-  ReceiptId,
-  ReceiptObservation,
-  ReceiptSettlementActor,
-  ReceiptSettlementEvidence,
-  ReceiptSettlementObservation,
-  ReceiptStatus,
-  ReceiptSubmissionAllocation,
+import {
+  type ReceiptSettlementCommandRequest,
+  type Receipt,
+  type ReceiptActor,
+  type ReceiptCommandPrincipal,
+  type ReceiptFile,
+  type ReceiptId,
+  type ReceiptObservation,
+  type ReceiptSettlementEvidence,
+  type ReceiptSettlementObservation,
+  type ReceiptStatus,
+  type ReceiptSubmissionAllocation,
+  type ReceiptCommandRequest,
 } from "./schema.js";
 
 export interface ReceiptTransactionResult {
@@ -55,56 +56,41 @@ export interface ReceiptSettlementTransactionResult {
   readonly outboxCount: number;
 }
 
-export type ReceiptMutationAuthorizationTarget =
-  | {
-      readonly _tag: "SubmitReceipt";
-      readonly departmentId?: DepartmentId;
-    }
-  | {
-      readonly _tag:
-        | "RevisePendingReceipt"
-        | "WithdrawPendingReceipt"
-        | "ApproveReceipt"
-        | "RejectReceipt"
-        | "ReopenRejectedReceipt";
-      readonly receiptId: string;
-    };
+type ExistingReceiptMutation = Exclude<ReceiptCommandRequest["_tag"], "SubmitReceipt">;
 
-export type ReceiptMutationAuthorization =
-  | {
-      readonly _tag: "SubmitReceipt";
+export type ReceiptMutationAuthorizationTarget = Data.TaggedEnum<
+  {
+    readonly SubmitReceipt: { readonly departmentId?: DepartmentId };
+  } & {
+    readonly [Action in ExistingReceiptMutation]: { readonly receiptId: string };
+  }
+>;
+
+export const ReceiptMutationAuthorizationTarget =
+  Data.taggedEnum<ReceiptMutationAuthorizationTarget>();
+
+export type ReceiptMutationAuthorization = Data.TaggedEnum<
+  {
+    readonly SubmitReceipt: {
       readonly principal: ReceiptCommandPrincipal;
       readonly actor: ReceiptActor;
       readonly departmentId: DepartmentId;
       readonly paymentAccountCiphertext: string;
-    }
-  | {
-      readonly _tag:
-        | "RevisePendingReceipt"
-        | "WithdrawPendingReceipt"
-        | "ApproveReceipt"
-        | "RejectReceipt"
-        | "ReopenRejectedReceipt";
+    };
+  } & {
+    readonly [Action in ExistingReceiptMutation]: {
       readonly principal: ReceiptCommandPrincipal;
       readonly actor: ReceiptActor;
       readonly current: Receipt;
     };
+  }
+>;
 
-export interface ReceiptSettlementAuthorizationTarget {
-  readonly _tag: "RecordReceiptSettlement";
-  readonly receiptId: ReceiptId;
-}
+export const ReceiptMutationAuthorization = Data.taggedEnum<ReceiptMutationAuthorization>();
 
-export interface ReceiptSettlementAuthorization {
-  readonly _tag: "RecordReceiptSettlement";
-  readonly principal: ReceiptCommandPrincipal;
-  readonly actor: ReceiptSettlementActor;
-  readonly current: Receipt;
-}
-
-export interface EconomyShape {
+export interface EconomyOperations {
   readonly executeReceipt: (
-    input: unknown,
+    input: ReceiptCommandRequest,
     principal: ReceiptCommandPrincipal,
     allocation?: ReceiptSubmissionAllocation,
   ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
@@ -118,21 +104,17 @@ export interface EconomyShape {
     principal: ReceiptCommandPrincipal,
   ) => Effect.Effect<ReceiptMutationAuthorization, ReceiptFailure>;
   readonly executeAuthorizedReceipt: (
-    input: unknown,
+    input: ReceiptCommandRequest,
     authorization: ReceiptMutationAuthorization,
     allocation?: ReceiptSubmissionAllocation,
   ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
-  /** Resolves a concealed settlement witness on the caller's transaction. */
-  readonly authorizeReceiptSettlement: (
-    target: ReceiptSettlementAuthorizationTarget,
+  /** Reads the revision under current settlement authority on the caller's transaction. */
+  readonly readReceiptSettlementRevision: (
+    receiptId: ReceiptId,
     principal: ReceiptCommandPrincipal,
-  ) => Effect.Effect<ReceiptSettlementAuthorization, ReceiptSettlementFailure>;
-  readonly executeAuthorizedReceiptSettlement: (
-    input: unknown,
-    authorization: ReceiptSettlementAuthorization,
-  ) => Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure>;
+  ) => Effect.Effect<Receipt["revision"], ReceiptSettlementFailure>;
   readonly recordReceiptSettlement: (
-    input: unknown,
+    input: ReceiptSettlementCommandRequest,
     principal: ReceiptCommandPrincipal,
   ) => Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure>;
   readonly listOwnedReceipts: (
@@ -190,6 +172,6 @@ export interface EconomyShape {
   >;
 }
 
-export class Economy extends Context.Service<Economy, EconomyShape>()(
+export class Economy extends Context.Service<Economy, EconomyOperations>()(
   "@vektorprogrammet/domain/Economy",
 ) {}

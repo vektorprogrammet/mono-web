@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import type { DepartmentId } from "../organization/schema.js";
 import { compareRfc3339Instants, normalizeRfc3339Instant } from "../time.js";
 import {
@@ -13,10 +13,11 @@ import {
   StaleAdmissionPeriodRevision,
   type AdmissionPeriodFailure,
 } from "./errors.js";
-import { makeAdmissionPeriodOutboxRequest } from "./effects.js";
+import { admissionPeriodOutboxRequest } from "./effects.js";
 import type { AdmissionPeriodOutboxRequest } from "./effects.js";
 import { admissionPeriodCommandDigest } from "./digest.js";
 import {
+  AdmissionPeriodObservationSchema,
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
   type AdmissionPeriod,
@@ -50,7 +51,11 @@ const managementActor = (
 ): Effect.Effect<void, AdmissionRoleDenied | InactiveActor> =>
   Effect.gen(function* () {
     yield* activeActor(actor);
-    if (actor._tag !== "DepartmentLeader" && actor._tag !== "GlobalAdmin") {
+
+    if (
+      !Predicate.isTagged(actor, "DepartmentLeader") &&
+      !Predicate.isTagged(actor, "GlobalAdmin")
+    ) {
       return yield* new AdmissionRoleDenied({ personId: actor.personId });
     }
   });
@@ -59,7 +64,7 @@ const departmentForCreate = (
   command: Extract<AdmissionPeriodCommand, { readonly _tag: "CreateAdmissionPeriod" }>,
   actor: AdmissionPeriodActor,
 ): Effect.Effect<DepartmentId, AdmissionPeriodFailure> => {
-  if (actor._tag === "DepartmentLeader") {
+  if (Predicate.isTagged(actor, "DepartmentLeader")) {
     if (command.departmentId !== undefined && command.departmentId !== actor.departmentId) {
       return Effect.fail(
         new AdmissionScopeDenied({
@@ -68,9 +73,12 @@ const departmentForCreate = (
         }),
       );
     }
+
     return Effect.succeed(actor.departmentId);
   }
+
   if (command.departmentId === undefined) return Effect.fail(new DepartmentRequired());
+
   return Effect.succeed(command.departmentId);
 };
 
@@ -80,9 +88,11 @@ const checkWindow = (
   semester: AdmissionSemester,
 ): Effect.Effect<void, InvalidAdmissionPeriodWindow | AdmissionWindowOutsideSemester> => {
   const ordering = compareRfc3339Instants(startAt, endAt);
+
   if (ordering === 0) {
     return Effect.fail(new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "EqualBounds" }));
   }
+
   if (ordering > 0) {
     return Effect.fail(
       new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "ReversedBounds" }),
@@ -103,6 +113,7 @@ const checkWindow = (
       }),
     );
   }
+
   return Effect.void;
 };
 
@@ -118,20 +129,14 @@ const periodIdForCreate = (
 const createdObservation = (
   commandId: typeof AdmissionPeriodCommandId.Type,
   period: AdmissionPeriod,
-): AdmissionPeriodObservation => ({
-  _tag: "Created",
-  commandId,
-  period,
-});
+): AdmissionPeriodObservation =>
+  AdmissionPeriodObservationSchema.cases.Created.make({ commandId, period });
 
 const revisedObservation = (
   commandId: typeof AdmissionPeriodCommandId.Type,
   period: AdmissionPeriod,
-): AdmissionPeriodObservation => ({
-  _tag: "Revised",
-  commandId,
-  period,
-});
+): AdmissionPeriodObservation =>
+  AdmissionPeriodObservationSchema.cases.Revised.make({ commandId, period });
 
 export const decideAdmissionPeriod = (
   existing: AdmissionPeriod | undefined,
@@ -140,6 +145,7 @@ export const decideAdmissionPeriod = (
 ): Effect.Effect<AdmissionPeriodDecision, AdmissionPeriodFailure> =>
   Effect.gen(function* () {
     yield* managementActor(context.actor);
+
     if (!isRfc3339Instant(context.now)) {
       return yield* new InvalidAdmissionPeriodWindow({
         startAt: context.now,
@@ -148,15 +154,17 @@ export const decideAdmissionPeriod = (
       });
     }
 
-    if (command._tag === "CreateAdmissionPeriod") {
+    if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
       const departmentId = yield* departmentForCreate(command, context.actor);
       yield* checkWindow(command.startAt, command.endAt, context.semester);
+
       if (existing !== undefined) {
         return yield* new AdmissionPeriodAlreadyExists({
           departmentId,
           semesterId: command.semesterId,
         });
       }
+
       const period: AdmissionPeriod = {
         id: periodIdForCreate(command, context),
         departmentId,
@@ -166,20 +174,25 @@ export const decideAdmissionPeriod = (
         revision: 0,
         lastCommandId: command.commandId,
       };
+
       return {
         period,
         observation: createdObservation(command.commandId, period),
-        outbox: [makeAdmissionPeriodOutboxRequest(command.commandId, period)],
+        outbox: [admissionPeriodOutboxRequest(command.commandId, period)],
         auditAction: "AdmissionPeriodCreated" as const,
       };
     }
 
     const current = existing;
+
     if (current === undefined) {
       return yield* new AdmissionPeriodNotFound({ admissionPeriodId: command.admissionPeriodId });
     }
-    const actorDepartment =
-      context.actor._tag === "DepartmentLeader" ? context.actor.departmentId : current.departmentId;
+
+    const actorDepartment = Predicate.isTagged(context.actor, "DepartmentLeader")
+      ? context.actor.departmentId
+      : current.departmentId;
+
     if (actorDepartment !== current.departmentId) {
       return yield* new AdmissionScopeDenied({
         personId: context.actor.personId,
@@ -187,6 +200,7 @@ export const decideAdmissionPeriod = (
         admissionPeriodId: current.id,
       });
     }
+
     if (current.revision !== command.expectedRevision) {
       return yield* new StaleAdmissionPeriodRevision({
         admissionPeriodId: current.id,
@@ -194,7 +208,9 @@ export const decideAdmissionPeriod = (
         actual: current.revision,
       });
     }
+
     yield* checkWindow(command.startAt, command.endAt, context.semester);
+
     const period: AdmissionPeriod = {
       ...current,
       startAt: normalizedInstant(command.startAt),
@@ -202,10 +218,11 @@ export const decideAdmissionPeriod = (
       revision: current.revision + 1,
       lastCommandId: command.commandId,
     };
+
     return {
       period,
       observation: revisedObservation(command.commandId, period),
-      outbox: [makeAdmissionPeriodOutboxRequest(command.commandId, period)],
+      outbox: [admissionPeriodOutboxRequest(command.commandId, period)],
       auditAction: "AdmissionPeriodRevised" as const,
     };
   });

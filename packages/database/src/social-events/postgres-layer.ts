@@ -14,6 +14,7 @@ export const SocialEventsLive = Layer.effect(
   SocialEvents,
   Effect.gen(function* () {
     const database = yield* Database;
+
     return SocialEvents.of({
       readSnapshotInstant: () =>
         readSocialEventSnapshotInstantPostgres().pipe(Effect.provideService(Database, database)),

@@ -1,10 +1,13 @@
+import { Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { expect, test, type Page, type Request } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
+
 const REAL_NATIVE_SCHEDULING_E2E = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
+
 const SCHEDULE = {
   scheduledAt: "2031-09-20T13:30:00.000Z",
   room: "K-101",
@@ -15,9 +18,11 @@ const SCHEDULE = {
 
 const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
+
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required for the native scheduling journey`);
   }
+
   return value;
 };
 
@@ -30,6 +35,7 @@ const authenticate = async (
   await page.getByLabel("E-post").fill(requiredEnvironment(emailEnvironment));
   await page.getByLabel("Passord").fill(requiredEnvironment(passwordEnvironment));
   await page.getByRole("button", { name: "Logg inn" }).click();
+
   try {
     await page.waitForURL(/\/dashboard\/?$/, { timeout: 5_000 });
   } catch (error) {
@@ -38,6 +44,7 @@ const authenticate = async (
       { cause: error },
     );
   }
+
   const sessionCookieNames = (await page.context().cookies(DASHBOARD_ORIGIN))
     .filter(
       ({ name }) =>
@@ -45,9 +52,11 @@ const authenticate = async (
     )
     .map(({ name }) => name)
     .sort();
+
   if (sessionCookieNames.length === 0) {
     throw new Error("native login did not issue a Better Auth session cookie");
   }
+
   return sessionCookieNames;
 };
 
@@ -55,12 +64,14 @@ const bridgeOperation = (request: Request): string | undefined => {
   if (request.method() !== "POST" || new URL(request.url()).pathname !== "/recruitment") {
     return undefined;
   }
+
   try {
     const payload: unknown = request.postDataJSON();
-    return typeof payload === "object" &&
+
+    return Predicate.isObjectOrArray(payload) &&
       payload !== null &&
       "operation" in payload &&
-      typeof payload.operation === "string"
+      Predicate.isString(payload.operation)
       ? payload.operation
       : undefined;
   } catch {
@@ -84,14 +95,18 @@ test.describe("Native recruitment interview scheduling", () => {
     const legacyBrowserRequests: string[] = [];
     const bearerRequests: string[] = [];
     const pageErrors: string[] = [];
+
     const observeRequests = (page: Page): void => {
       page.on("request", (request) => {
         const pathname = new URL(request.url()).pathname;
         const operation = bridgeOperation(request);
+
         if (request.headers().authorization?.startsWith("Bearer ")) {
           bearerRequests.push(pathname);
         }
+
         if (operation !== undefined) bridgeOperations.push(operation);
+
         if (
           pathname === "/interview" ||
           pathname.startsWith("/api/admin/interviews") ||
@@ -107,8 +122,10 @@ test.describe("Native recruitment interview scheduling", () => {
       baseURL: DASHBOARD_ORIGIN,
       viewport: { width: 1440, height: 900 },
     });
+
     let firstContextClosed = false;
     let leaderSessionCookieNames: ReadonlyArray<string> = [];
+
     try {
       const page = await firstContext.newPage();
       observeRequests(page);
@@ -143,20 +160,25 @@ test.describe("Native recruitment interview scheduling", () => {
       const scheduleResponse = page.waitForResponse(
         (response) => bridgeOperation(response.request()) === "scheduleInterview",
       );
+
       const freshBoardResponse = page.waitForResponse(
         (response) => bridgeOperation(response.request()) === "readSchedulingBoard",
       );
+
       await dialog.getByRole("button", { name: "Lagre og legg i kø" }).click();
       const scheduled = await scheduleResponse;
+
       if (scheduled.status() !== 200) {
         const sessionCookies = (await page.context().cookies(DASHBOARD_ORIGIN))
           .filter(({ name }) => name.includes("better-auth"))
           .map(({ name, path, sameSite, secure }) => ({ name, path, sameSite, secure }));
+
         const requestHeaders = await scheduled.request().allHeaders();
         throw new Error(
           `Scheduling mutation returned ${scheduled.status()}: ${await scheduled.text()} ${JSON.stringify(sessionCookies)} cookieHeader=${String("cookie" in requestHeaders)}`,
         );
       }
+
       const refreshed = await freshBoardResponse;
       expect(refreshed.status()).toBe(200);
       expect(await scheduled.text()).not.toContain("responseCapability");
@@ -181,6 +203,7 @@ test.describe("Native recruitment interview scheduling", () => {
       const accessibility = await new AxeBuilder({ page })
         .include('section[aria-labelledby="fs-page-title"]')
         .analyze();
+
       expect(accessibility.violations).toEqual([]);
     } finally {
       await firstContext.close();
@@ -191,7 +214,9 @@ test.describe("Native recruitment interview scheduling", () => {
       baseURL: DASHBOARD_ORIGIN,
       viewport: { width: 1440, height: 900 },
     });
+
     let interviewerSessionCookieNames: ReadonlyArray<string> = [];
+
     try {
       const page = await verificationContext.newPage();
       observeRequests(page);

@@ -8,27 +8,39 @@ import { join } from "node:path";
 // The parent onboarding lifecycle driver owns PostgreSQL, seed, backend and credentials.
 // This child owns only its production dashboard process and Playwright process.
 const root = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const manifestPath = process.env.ONBOARDING_JOURNEY_MANIFEST;
+
 assert.ok(manifestPath, "ONBOARDING_JOURNEY_MANIFEST is required");
+
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+
 const secrets = [manifest.mailboxToken, ...Object.values(manifest.persons).map((p) => p.password)];
+
 const safe = (text) => {
   let value = text.replace(/onboard_[a-f0-9]{64}/g, "[REDACTED]");
+
   for (const secret of secrets)
     if (secret?.length > 4) value = value.split(secret).join("[REDACTED]");
+
   return value;
 };
+
 const assertNoSecrets = (text) => {
   if (safe(text) !== text) throw new Error("Retained artifacts contain credentials");
 };
+
 const sanitizeArtifacts = async (directory) => {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
+
     if (entry.isDirectory() && entry.name !== "postgres") await sanitizeArtifacts(path);
     else if (/\.(?:json|txt|md|log)$/.test(entry.name) && entry.name !== "manifest.json") {
       const original = await readFile(path, "utf8");
       const cleaned = safe(original);
+
       if (cleaned !== original) await writeFile(path, cleaned, { mode: 0o600 });
       assertNoSecrets(cleaned);
     }
@@ -40,18 +52,23 @@ for (const origin of [manifest.backendOrigin, manifest.dashboardOrigin]) {
   assert.equal(url.hostname, "127.0.0.1");
   assert.equal(url.protocol, "http:");
 }
+
 const revision = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
+
 assert.equal(revision.status, 0);
+
 assert.equal(
   revision.stdout.trim(),
   manifest.revision,
   "browser must build manifest's exact revision",
 );
+
 assert.equal(
   spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).stdout.trim(),
   "",
   "browser requires a clean source tree",
 );
+
 const environment = {
   ...process.env,
   API_URL: manifest.backendOrigin,
@@ -63,16 +80,21 @@ const environment = {
   NODE_ENV: "production",
   REAL_NATIVE_IDENTITY_E2E: "1",
 };
+
 const children = new Set();
+
 let commandSequence = 0;
+
 const run = (command, args, cwd) =>
   new Promise((resolve, reject) => {
     const logPath = join(manifest.artifacts, `dashboard-command-${++commandSequence}.log`);
+
     const child = spawn(command, args, {
       cwd,
       env: environment,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
     children.add(child);
     let output = "";
     child.stdout.on("data", (value) => {
@@ -99,32 +121,43 @@ const run = (command, args, cwd) =>
       );
     });
   });
+
 const stop = async (child) => {
   if (!child || child.pid === undefined || child.exitCode !== null || child.signalCode !== null)
     return;
   const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGTERM");
   const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
+
   try {
     await exited;
   } finally {
     clearTimeout(timer);
   }
+
   assert.ok(
     child.exitCode !== null || child.signalCode !== null,
     "owned dashboard must have exited",
   );
 };
+
 const port = Number(new URL(manifest.dashboardOrigin).port);
+
 const reservation = createServer();
+
 await new Promise((resolve, reject) => {
   reservation.once("error", reject);
   reservation.listen(port, "127.0.0.1", resolve);
 });
+
 await new Promise((resolve) => reservation.close(resolve));
+
 let dashboard;
+
 let output = "";
+
 let failure;
+
 for (const signal of ["SIGTERM", "SIGINT"])
   process.once(signal, () => {
     Promise.all([...children, dashboard].map(stop)).then(
@@ -132,6 +165,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
       () => process.exit(1),
     );
   });
+
 try {
   await run("bun", ["run", "build"], join(root, "packages/sdk"));
   await run("bun", ["run", "build"], dashboardRoot);
@@ -147,14 +181,18 @@ try {
     output += value;
   });
   const deadline = Date.now() + 30000;
+
   while (true) {
     if (dashboard.exitCode !== null) throw new Error(`Dashboard exited: ${output}`);
+
     try {
       if ((await fetch(`${manifest.dashboardOrigin}/login`)).ok) break;
     } catch {}
+
     assert.ok(Date.now() < deadline, `Dashboard startup timed out: ${output}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+
   await run(
     process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
     [
@@ -176,12 +214,19 @@ try {
   await Promise.all([...children, dashboard].map(stop));
   await writeFile(join(manifest.artifacts, "dashboard-runtime.log"), safe(output), { mode: 0o600 });
 }
+
 await sanitizeArtifacts(manifest.artifacts);
+
 if (failure) throw failure;
+
 const evidencePath = join(manifest.artifacts, "browser-evidence.json");
+
 const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
+
 assertNoSecrets(JSON.stringify(evidence));
+
 assert.equal(evidence.passed, true);
+
 await writeFile(
   evidencePath,
   JSON.stringify(
@@ -194,6 +239,7 @@ await writeFile(
     2,
   ),
 );
+
 process.stdout.write(
   `${JSON.stringify({ passed: true, revision: manifest.revision, evidencePath })}\n`,
 );

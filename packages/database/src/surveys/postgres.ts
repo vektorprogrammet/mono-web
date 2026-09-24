@@ -1,5 +1,5 @@
-import { Effect, Schema } from "effect";
-import type { DatabaseShape } from "../service.js";
+import { flow, Effect, Schema } from "effect";
+import type { DatabaseOperations } from "../service.js";
 import { Database } from "../service.js";
 import {
   CloseSchoolSurveyCommand,
@@ -141,26 +141,38 @@ interface LoadedSurvey {
 
 const decodeError = (operation: string, cause: unknown): SchoolSurveyDecodeError =>
   new SchoolSurveyDecodeError({ operation, message: String(cause) });
+
 const persistenceError = (operation: string, cause: unknown): SchoolSurveyPersistenceError =>
   new SchoolSurveyPersistenceError({ operation, message: String(cause) });
+
 const validationFailure = (surveyId: string, field: string): SchoolSurveyValidationFailed =>
   new SchoolSurveyValidationFailed({ surveyId, field });
 
-const decodeForm = (value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(SchoolSurveyFormResource)(value, {
+const decodeForm = (operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(SchoolSurveyFormResource, {
+      onExcessProperty: "error",
+    }),
+    Effect.mapError((cause) => decodeError(operation, cause)),
+  );
+
+const decodeResponse = (operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(SchoolSurveyResponseResource, {
+      onExcessProperty: "error",
+    }),
+    Effect.mapError((cause) => decodeError(operation, cause)),
+  );
+
+const decodeRequest = flow(
+  Schema.decodeUnknownEffect(SubmitSchoolSurveyResponseRequest, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError(operation, cause)));
-const decodeResponse = (value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(SchoolSurveyResponseResource)(value, {
-    onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError(operation, cause)));
-const decodeRequest = (value: unknown) =>
-  Schema.decodeUnknownEffect(SubmitSchoolSurveyResponseRequest)(value, {
-    onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError("decode school-survey response request", cause)));
+  }),
+  Effect.mapError((cause) => decodeError("decode school-survey response request", cause)),
+);
 
 /** Reads one currently Open School survey and the exact eligible-school projection at this snapshot. */
-const loadSchoolSurvey = (sql: DatabaseShape, surveyId: SurveyId) =>
+const loadSchoolSurvey = (sql: DatabaseOperations, surveyId: SurveyId) =>
   Effect.gen(function* () {
     const surveyRows = yield* sql<SurveyRow>`
       SELECT
@@ -175,7 +187,9 @@ const loadSchoolSurvey = (sql: DatabaseShape, surveyId: SurveyId) =>
         AND target_audience = 'School'
         AND state = 'Open'
     `;
+
     const survey = surveyRows[0];
+
     if (survey === undefined) {
       return yield* Effect.fail(new SchoolSurveyNotFound({ surveyId: String(surveyId) }));
     }
@@ -192,6 +206,7 @@ const loadSchoolSurvey = (sql: DatabaseShape, surveyId: SurveyId) =>
       WHERE survey_id = ${surveyId}
       ORDER BY position ASC, question_id ASC
     `;
+
     const alternativeRows = yield* sql<AlternativeRow>`
       SELECT
         alternative.question_id AS "questionId",
@@ -203,9 +218,12 @@ const loadSchoolSurvey = (sql: DatabaseShape, surveyId: SurveyId) =>
       WHERE question.survey_id = ${surveyId}
       ORDER BY alternative.question_id ASC, alternative.position ASC
     `;
+
     const alternativesByQuestion = new Map<string, Array<AlternativeRow>>();
+
     for (const alternative of alternativeRows) {
       const alternatives = alternativesByQuestion.get(alternative.questionId);
+
       if (alternatives === undefined) {
         alternativesByQuestion.set(alternative.questionId, [alternative]);
       } else {
@@ -233,6 +251,7 @@ const loadSchoolSurvey = (sql: DatabaseShape, surveyId: SurveyId) =>
 
     const questions = questionRows.map((question) => {
       const alternatives = alternativesByQuestion.get(question.questionId) ?? [];
+
       if (question.kind === "Text") {
         return {
           kind: "Text" as const,
@@ -242,6 +261,7 @@ const loadSchoolSurvey = (sql: DatabaseShape, surveyId: SurveyId) =>
           required: question.required,
         };
       }
+
       return {
         kind: question.kind,
         questionId: question.questionId,
@@ -251,28 +271,28 @@ const loadSchoolSurvey = (sql: DatabaseShape, surveyId: SurveyId) =>
         alternatives: alternatives.map((alternative) => alternative.value),
       };
     });
-    const form = yield* decodeForm(
-      {
-        surveyId: survey.surveyId,
-        departmentId: survey.departmentId,
-        semesterId: survey.semesterId,
-        semesterLabel: survey.semesterLabel,
-        title: survey.title,
-        schools: schoolRows,
-        questions,
-      },
-      "decode school-survey form",
-    );
-    const storedQuestions: Array<StoredQuestion> = questionRows.map((question) => ({
-      kind: question.kind as StoredQuestion["kind"],
+
+    const form = yield* decodeForm("decode school-survey form")({
+      surveyId: survey.surveyId,
+      departmentId: survey.departmentId,
+      semesterId: survey.semesterId,
+      semesterLabel: survey.semesterLabel,
+      title: survey.title,
+      schools: schoolRows,
+      questions,
+    });
+
+    const storedQuestions: Array<StoredQuestion> = form.questions.map((question, index) => ({
+      kind: question.kind,
       questionId: question.questionId,
       required: question.required,
-      position: question.position,
+      position: questionRows[index]!.position,
       alternatives: (alternativesByQuestion.get(question.questionId) ?? []).map((alternative) => ({
         value: alternative.value,
         position: alternative.position,
       })),
     }));
+
     return {
       form,
       completionText: survey.completionText,
@@ -296,24 +316,32 @@ const normalizeAnswers = (
       const questionsById = new Map(questions.map((question) => [question.questionId, question]));
       const seenQuestionIds = new Set<string>();
       const normalizedByQuestion = new Map<string, NormalizedSchoolSurveyAnswer>();
+
       for (const [index, answer] of answers.entries()) {
         const questionId = String(answer.questionId);
         const question = questionsById.get(questionId);
+
         if (question === undefined || seenQuestionIds.has(questionId)) {
           throw validationFailure(surveyId, `answers[${index}].questionId`);
         }
+
         seenQuestionIds.add(questionId);
+
         if (answer.kind !== question.kind) {
           throw validationFailure(surveyId, `answers[${index}].kind`);
         }
+
         if (answer.kind === "Text") {
           const value = answer.value.trim();
+
           if (value === "") {
             if (question.required) {
               throw validationFailure(surveyId, `answers[${index}].value`);
             }
+
             continue;
           }
+
           normalizedByQuestion.set(questionId, {
             kind: "Text",
             questionId: answer.questionId,
@@ -321,11 +349,14 @@ const normalizeAnswers = (
           });
           continue;
         }
+
         if (answer.kind === "List" || answer.kind === "Radio") {
           const value = answer.value;
+
           if (!question.alternatives.some((alternative) => alternative.value === value)) {
             throw validationFailure(surveyId, `answers[${index}].value`);
           }
+
           normalizedByQuestion.set(questionId, {
             kind: answer.kind,
             questionId: answer.questionId,
@@ -333,16 +364,21 @@ const normalizeAnswers = (
           });
           continue;
         }
+
         const selected = new Set(answer.values);
+
         if (selected.size !== answer.values.length) {
           throw validationFailure(surveyId, `answers[${index}].values`);
         }
+
         if (selected.size === 0) {
           if (question.required) {
             throw validationFailure(surveyId, `answers[${index}].values`);
           }
+
           continue;
         }
+
         if (
           [...selected].some(
             (value) => !question.alternatives.some((alternative) => alternative.value === value),
@@ -350,6 +386,7 @@ const normalizeAnswers = (
         ) {
           throw validationFailure(surveyId, `answers[${index}].values`);
         }
+
         normalizedByQuestion.set(questionId, {
           kind: "Check",
           questionId: answer.questionId,
@@ -359,15 +396,18 @@ const normalizeAnswers = (
             .map((alternative) => alternative.value),
         });
       }
+
       for (const question of questions) {
         if (question.required && !normalizedByQuestion.has(question.questionId)) {
           throw validationFailure(surveyId, `question:${question.questionId}`);
         }
       }
+
       return [...questions]
         .sort((left, right) => left.position - right.position)
         .flatMap((question) => {
           const answer = normalizedByQuestion.get(question.questionId);
+
           return answer === undefined ? [] : [answer];
         });
     },
@@ -392,14 +432,17 @@ export const prepareSchoolSurveyResponsePostgres = (input: {
     const request = yield* decodeRequest(input.request);
     const sql = yield* Database;
     const survey = yield* loadSchoolSurvey(sql, input.surveyId);
+
     if (!survey.form.schools.some((school) => school.schoolId === request.schoolId)) {
       return yield* Effect.fail(validationFailure(String(input.surveyId), "schoolId"));
     }
+
     const answers = yield* normalizeAnswers(
       String(input.surveyId),
       survey.questions,
       request.answers,
     );
+
     return {
       surveyId: input.surveyId,
       departmentId: survey.form.departmentId,
@@ -416,6 +459,7 @@ export const persistSchoolSurveyResponsePostgres = (input: {
 }): Effect.Effect<SchoolSurveyResponseResourceValue, SchoolSurveyFailure, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const responseRows = yield* sql<ResponseRow>`
       WITH open_survey AS MATERIALIZED (
         SELECT survey_id, department_id
@@ -447,12 +491,15 @@ export const persistSchoolSurveyResponsePostgres = (input: {
           'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
         ) AS "submittedAt"
     `;
+
     const response = responseRows[0];
+
     if (response === undefined) {
       return yield* Effect.fail(
         new SchoolSurveyNotFound({ surveyId: String(input.prepared.surveyId) }),
       );
     }
+
     yield* Effect.forEach(input.prepared.answers, (answer) =>
       answer.kind === "Check"
         ? sql`
@@ -470,10 +517,11 @@ export const persistSchoolSurveyResponsePostgres = (input: {
             )
           `,
     );
-    return yield* decodeResponse(
-      { ...response, completionText: input.prepared.completionText },
-      "decode created school-survey response",
-    );
+
+    return yield* decodeResponse("decode created school-survey response")({
+      ...response,
+      completionText: input.prepared.completionText,
+    });
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("persist school-survey response", cause)),
@@ -483,7 +531,7 @@ export const persistSchoolSurveyResponsePostgres = (input: {
 const StoredCheckAnswerValues = Schema.Array(Schema.String);
 
 const readAdminSurveyWithSql = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   surveyId: SurveyId,
 ): Effect.Effect<SchoolSurveyAdminResourceValue, SchoolSurveyFailure> =>
   Effect.gen(function* () {
@@ -529,10 +577,13 @@ const readAdminSurveyWithSql = (
         definition.closed_at,
         definition.closed_by_person_id
     `;
+
     const survey = surveyRows[0];
+
     if (survey === undefined) {
       return yield* Effect.fail(new SchoolSurveyNotFound({ surveyId: String(surveyId) }));
     }
+
     const questionRows = yield* sql<QuestionRow>`
       SELECT
         question_id AS "questionId",
@@ -545,6 +596,7 @@ const readAdminSurveyWithSql = (
       WHERE survey_id = ${surveyId}
       ORDER BY position ASC, question_id ASC
     `;
+
     const alternativeRows = yield* sql<AlternativeRow>`
       SELECT
         alternative.question_id AS "questionId",
@@ -556,17 +608,22 @@ const readAdminSurveyWithSql = (
       WHERE question.survey_id = ${surveyId}
       ORDER BY alternative.question_id ASC, alternative.position ASC
     `;
+
     const alternativesByQuestion = new Map<string, Array<AlternativeRow>>();
+
     for (const alternative of alternativeRows) {
       const alternatives = alternativesByQuestion.get(alternative.questionId);
+
       if (alternatives === undefined) {
         alternativesByQuestion.set(alternative.questionId, [alternative]);
       } else {
         alternatives.push(alternative);
       }
     }
+
     const questions = questionRows.map((question) => {
       const alternatives = alternativesByQuestion.get(question.questionId) ?? [];
+
       if (question.kind === "Text") {
         return {
           kind: "Text" as const,
@@ -576,6 +633,7 @@ const readAdminSurveyWithSql = (
           required: question.required,
         };
       }
+
       return {
         kind: question.kind,
         questionId: question.questionId,
@@ -585,6 +643,7 @@ const readAdminSurveyWithSql = (
         alternatives: alternatives.map((alternative) => alternative.value),
       };
     });
+
     return yield* Schema.decodeUnknownEffect(SchoolSurveyAdminResource)(
       { ...survey, questions },
       { onExcessProperty: "error" },
@@ -598,8 +657,8 @@ const readAdminSurveyWithSql = (
   );
 
 const validateAdminScopeWithSql = (
-  sql: DatabaseShape,
-  input: unknown,
+  sql: DatabaseOperations,
+  input: SchoolSurveyAdminScopeValue,
 ): Effect.Effect<SchoolSurveyAdminScopeValue, SchoolSurveyFailure> =>
   Effect.gen(function* () {
     const scope = yield* Schema.decodeUnknownEffect(SchoolSurveyAdminScope)(input, {
@@ -607,6 +666,7 @@ const validateAdminScopeWithSql = (
     }).pipe(
       Effect.mapError((cause) => decodeError("decode School-survey administration scope", cause)),
     );
+
     const rows = yield* sql<ScopeExistsRow>`
       SELECT EXISTS (
         SELECT 1
@@ -615,6 +675,7 @@ const validateAdminScopeWithSql = (
           AND semester_id = ${scope.semesterId}
       ) AS "exists"
     `;
+
     if (rows[0]?.exists !== true) {
       return yield* Effect.fail(
         new SchoolSurveyScopeInvalid({
@@ -623,6 +684,7 @@ const validateAdminScopeWithSql = (
         }),
       );
     }
+
     return scope;
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -647,16 +709,20 @@ export const readSchoolSurveyAdminCatalogPostgres = (
           )
         ORDER BY name ASC, department_id ASC
       `;
+
       const leaderDepartmentIds = new Set(
         authority.memberships
           .filter((membership) => membership.active && membership.teamLeader)
           .map((membership) => String(membership.departmentId)),
       );
+
       const departments =
         authority.globalAdministrator === "Active"
           ? departmentRows
           : departmentRows.filter((department) => leaderDepartmentIds.has(department.departmentId));
+
       const departmentIds = new Set(departments.map((department) => department.departmentId));
+
       const semesterRows = yield* sql<AdminCatalogSemesterRow>`
         SELECT
           period.department_id AS "departmentId",
@@ -677,12 +743,15 @@ export const readSchoolSurveyAdminCatalogPostgres = (
         WHERE department.active
         ORDER BY semester.start_at DESC, semester.semester_id ASC, period.department_id ASC
       `;
+
       const semesterById = new Map<string, AdminCatalogSemesterRow>();
+
       for (const semester of semesterRows) {
         if (departmentIds.has(semester.departmentId) && !semesterById.has(semester.semesterId)) {
           semesterById.set(semester.semesterId, semester);
         }
       }
+
       return yield* Schema.decodeUnknownEffect(SchoolSurveyAdminCatalogResource)(
         {
           departments,
@@ -718,6 +787,7 @@ export const listSchoolSurveyAdminSurveysPostgres = (
   Database.use((sql) =>
     Effect.gen(function* () {
       const scope = yield* validateAdminScopeWithSql(sql, input);
+
       const rows = yield* sql<SurveyIdRow>`
         SELECT survey_id AS "surveyId"
         FROM public.native_survey_definitions
@@ -726,12 +796,14 @@ export const listSchoolSurveyAdminSurveysPostgres = (
           AND target_audience = 'School'
         ORDER BY created_at ASC NULLS FIRST, survey_id ASC
       `;
+
       const surveys = yield* Effect.forEach(rows, (row) =>
         Schema.decodeUnknownEffect(SurveyId)(row.surveyId).pipe(
           Effect.mapError((cause) => decodeError("decode School-survey list identity", cause)),
           Effect.flatMap((surveyId) => readAdminSurveyWithSql(sql, surveyId)),
         ),
       );
+
       return yield* Schema.decodeUnknownEffect(SchoolSurveyAdminListResource)(
         { ...scope, surveys },
         { onExcessProperty: "error" },
@@ -756,24 +828,30 @@ export const createSchoolSurveyAdminSurveyPostgres = (
       }).pipe(
         Effect.mapError((cause) => decodeError("decode School-survey create command", cause)),
       );
+
       const scope = yield* validateAdminScopeWithSql(sql, {
         departmentId: command.request.departmentId,
         semesterId: command.request.semesterId,
       });
+
       const replayRows = yield* sql<SurveyIdRow>`
         SELECT survey_id AS "surveyId"
         FROM public.native_survey_definitions
         WHERE creation_command_id = ${command.commandId}
       `;
+
       const replay = replayRows[0];
+
       if (replay !== undefined) {
         if (replay.surveyId !== command.surveyId) {
           return yield* Effect.fail(
             new SchoolSurveyCommandConflict({ commandId: String(command.commandId) }),
           );
         }
+
         return yield* readAdminSurveyWithSql(sql, command.surveyId);
       }
+
       yield* sql`
         INSERT INTO public.native_survey_definitions (
           survey_id,
@@ -840,6 +918,7 @@ export const createSchoolSurveyAdminSurveyPostgres = (
               ${questionIndex}
             )
           `;
+
           if (question.kind === "Text") return;
           yield* Effect.forEach(
             question.alternatives,
@@ -882,6 +961,7 @@ export const createSchoolSurveyAdminSurveyPostgres = (
           ${sql.json({ surveyId: survey.surveyId, state: survey.state, revision: survey.revision })}
         )
       `;
+
       return survey;
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
@@ -899,20 +979,25 @@ export const closeSchoolSurveyAdminSurveyPostgres = (
       const command = yield* Schema.decodeUnknownEffect(CloseSchoolSurveyCommand)(input, {
         onExcessProperty: "error",
       }).pipe(Effect.mapError((cause) => decodeError("decode School-survey close command", cause)));
+
       const replayRows = yield* sql<SurveyIdRow>`
         SELECT survey_id AS "surveyId"
         FROM public.native_survey_definitions
         WHERE close_command_id = ${command.commandId}
       `;
+
       const replay = replayRows[0];
+
       if (replay !== undefined) {
         if (replay.surveyId !== command.surveyId) {
           return yield* Effect.fail(
             new SchoolSurveyCommandConflict({ commandId: String(command.commandId) }),
           );
         }
+
         return yield* readAdminSurveyWithSql(sql, command.surveyId);
       }
+
       const updated = yield* sql<SurveyLifecycleRow>`
         UPDATE public.native_survey_definitions
         SET
@@ -927,6 +1012,7 @@ export const closeSchoolSurveyAdminSurveyPostgres = (
           AND revision = ${command.request.expectedRevision}
         RETURNING state, revision
       `;
+
       if (updated[0] === undefined) {
         const currentRows = yield* sql<SurveyLifecycleRow>`
           SELECT state, revision
@@ -934,12 +1020,15 @@ export const closeSchoolSurveyAdminSurveyPostgres = (
           WHERE survey_id = ${command.surveyId}
             AND target_audience = 'School'
         `;
+
         const current = currentRows[0];
+
         if (current === undefined) {
           return yield* Effect.fail(
             new SchoolSurveyNotFound({ surveyId: String(command.surveyId) }),
           );
         }
+
         if (current.state === "Closed") {
           return yield* Effect.fail(
             new SchoolSurveyInvalidState({
@@ -948,6 +1037,7 @@ export const closeSchoolSurveyAdminSurveyPostgres = (
             }),
           );
         }
+
         return yield* Effect.fail(
           new SchoolSurveyStaleRevision({
             surveyId: String(command.surveyId),
@@ -956,6 +1046,7 @@ export const closeSchoolSurveyAdminSurveyPostgres = (
           }),
         );
       }
+
       const survey = yield* readAdminSurveyWithSql(sql, command.surveyId);
       yield* sql`
         INSERT INTO public.school_survey_audit (
@@ -978,6 +1069,7 @@ export const closeSchoolSurveyAdminSurveyPostgres = (
           ${sql.json({ surveyId: survey.surveyId, state: survey.state, revision: survey.revision })}
         )
       `;
+
       return survey;
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
@@ -993,6 +1085,7 @@ export const readSchoolSurveyAdminResultsPostgres = (
   Database.use((sql) =>
     Effect.gen(function* () {
       const survey = yield* readAdminSurveyWithSql(sql, surveyId);
+
       const responseRows = yield* sql<SurveyResultResponseRow>`
         SELECT
           response.response_id AS "responseId",
@@ -1008,6 +1101,7 @@ export const readSchoolSurveyAdminResultsPostgres = (
         WHERE response.survey_id = ${surveyId}
         ORDER BY response.submitted_at ASC, response.response_id ASC
       `;
+
       const answerRows = yield* sql<SurveyResultAnswerRow>`
         SELECT
           answer.response_id AS "responseId",
@@ -1022,6 +1116,7 @@ export const readSchoolSurveyAdminResultsPostgres = (
         WHERE response.survey_id = ${surveyId}
         ORDER BY response.response_id ASC, question.position ASC, question.question_id ASC
       `;
+
       const answersByResponse = new Map<
         string,
         Map<
@@ -1029,6 +1124,7 @@ export const readSchoolSurveyAdminResultsPostgres = (
           { readonly answerValue: string | null; readonly answerValues: ReadonlyArray<string> }
         >
       >();
+
       for (const answer of answerRows) {
         const answerValues =
           answer.answerValues === null
@@ -1040,21 +1136,26 @@ export const readSchoolSurveyAdminResultsPostgres = (
                   decodeError("decode School-survey Check result values", cause),
                 ),
               );
+
         const answersByQuestion = answersByResponse.get(answer.responseId);
         const stored = { answerValue: answer.answerValue, answerValues };
+
         if (answersByQuestion === undefined) {
           answersByResponse.set(answer.responseId, new Map([[answer.questionId, stored]]));
         } else {
           answersByQuestion.set(answer.questionId, stored);
         }
       }
+
       const responses = responseRows.map((response) => {
         const answersByQuestion = answersByResponse.get(response.responseId);
+
         return {
           school: { schoolId: response.schoolId, name: response.name },
           submittedAt: response.submittedAt,
           answers: survey.questions.map((question) => {
             const answer = answersByQuestion?.get(String(question.questionId));
+
             if (question.kind === "Check") {
               return {
                 kind: "Check" as const,
@@ -1062,6 +1163,7 @@ export const readSchoolSurveyAdminResultsPostgres = (
                 values: answer?.answerValues ?? [],
               };
             }
+
             return {
               kind: question.kind,
               questionId: question.questionId,
@@ -1070,7 +1172,9 @@ export const readSchoolSurveyAdminResultsPostgres = (
           }),
         };
       });
+
       const responseCount = responseRows.length;
+
       return yield* Schema.decodeUnknownEffect(SchoolSurveyResultsResource)(
         {
           survey: { ...survey, responseCount },

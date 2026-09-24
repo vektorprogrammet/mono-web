@@ -167,8 +167,9 @@ export const DeleteOwnedSessionEndpoint = HttpApiEndpoint.delete(
 
 export const RevokeOtherSessionsEndpoint = HttpApiEndpoint.post(
   "revokeOtherSessions",
-  "/api/sessions::revoke-others",
+  "/api/sessions:revoke-others",
   {
+    params: {},
     headers: IdempotencyHeaders,
     success: noContentMutationResponse(),
     error: endpointProblemResponses(SystemRevokeOtherSessionsProblem),
@@ -193,8 +194,9 @@ export const RevokeOtherSessionsEndpoint = HttpApiEndpoint.post(
 
 export const RevokeAllSessionsEndpoint = HttpApiEndpoint.post(
   "revokeAllSessions",
-  "/api/sessions::revoke-all",
+  "/api/sessions:revoke-all",
   {
+    params: {},
     headers: IdempotencyHeaders,
     success: noContentMutationResponse(),
     error: endpointProblemResponses(SystemRevokeAllSessionsProblem),

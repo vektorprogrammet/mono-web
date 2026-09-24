@@ -13,7 +13,9 @@ import {
 } from "./bridge";
 
 type SocialEventScope = S.Schema.Type<typeof SocialEventScopeResource>;
+
 type SocialEventList = S.Schema.Type<typeof SocialEventListResource>;
+
 type SocialEvent = S.Schema.Type<typeof SocialEventResource>;
 
 export interface SocialEventsOperations {
@@ -56,7 +58,9 @@ const bridgeRequest = <A>(
               body: S.encodeSync(SocialEventsBridgeOperationJson)(operation),
             },
       );
-      const payload = (await response.json().catch(() => null)) as unknown;
+
+      const payload = (await response.json().catch(() => null));
+
       return { response, payload };
     },
     catch: () => socialEventsBridgeFailure("Network"),
@@ -70,6 +74,7 @@ const bridgeRequest = <A>(
           Effect.flatMap(Effect.fail),
         );
       }
+
       return S.decodeUnknownEffect(schema)(payload, {
         onExcessProperty: "error",
       }).pipe(Effect.mapError(() => socialEventsBridgeFailure("SocialEventsDecodeError")));

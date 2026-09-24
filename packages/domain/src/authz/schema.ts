@@ -1,4 +1,4 @@
-import { Data, Effect, Schema } from "effect";
+import { flow, Predicate, Data, Effect, Schema } from "effect";
 import { DomainId, ResourceRefSchema, ServicePrincipalId } from "./access.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
@@ -12,27 +12,35 @@ const TrimmedNonEmpty = Schema.String.pipe(
 );
 
 export const AuthzRevisionSchema = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+
 export type AuthzRevision = typeof AuthzRevisionSchema.Type;
 
 export const AuthzRuleId = TrimmedNonEmpty.pipe(Schema.brand("AuthzRuleId"));
+
 export type AuthzRuleId = typeof AuthzRuleId.Type;
 
 export const AuthzTagId = TrimmedNonEmpty.pipe(Schema.brand("AuthzTagId"));
+
 export type AuthzTagId = typeof AuthzTagId.Type;
 
 export const AuthzTagAssignmentId = TrimmedNonEmpty.pipe(Schema.brand("AuthzTagAssignmentId"));
+
 export type AuthzTagAssignmentId = typeof AuthzTagAssignmentId.Type;
 
 export const AuthzTagNameSchema = TrimmedNonEmpty;
+
 export type AuthzTagName = typeof AuthzTagNameSchema.Type;
+
 export const AuthzCapabilityIdSchema = Schema.Literals([
   "approveReceipt",
   "submitReceipt",
   "reviewApplicants",
 ]);
+
 export type AuthzCapabilityId = typeof AuthzCapabilityIdSchema.Type;
 
 export const AuthzRuleEffectKindSchema = Schema.Literals(["delegate", "requirement"]);
+
 export type AuthzRuleEffectKind = typeof AuthzRuleEffectKindSchema.Type;
 
 export const AuthzEvidenceSlotSchema = Schema.Literals([
@@ -40,17 +48,20 @@ export const AuthzEvidenceSlotSchema = Schema.Literals([
   "EconomyGlobalReceiptApprovalGrant",
   "EconomyPaymentAuthority",
 ]);
+
 export type AuthzEvidenceSlot = typeof AuthzEvidenceSlotSchema.Type;
 
 export const EconomyDepartmentApprovalDelegateParamsSchema = Schema.Struct({
   slot: Schema.Literals(["EconomyDepartmentApprovalGrant"]),
 });
+
 export type EconomyDepartmentApprovalDelegateParams =
   typeof EconomyDepartmentApprovalDelegateParamsSchema.Type;
 
 export const EconomyGlobalReceiptApprovalDelegateParamsSchema = Schema.Struct({
   slot: Schema.Literals(["EconomyGlobalReceiptApprovalGrant"]),
 });
+
 export type EconomyGlobalReceiptApprovalDelegateParams =
   typeof EconomyGlobalReceiptApprovalDelegateParamsSchema.Type;
 
@@ -58,6 +69,7 @@ export const EconomyPaymentAuthorityDelegateParamsSchema = Schema.Struct({
   slot: Schema.Literals(["EconomyPaymentAuthority"]),
   paymentAccountCiphertext: TrimmedNonEmpty,
 });
+
 export type EconomyPaymentAuthorityDelegateParams =
   typeof EconomyPaymentAuthorityDelegateParamsSchema.Type;
 
@@ -67,12 +79,14 @@ export const ReceiptPendingRequirementParamsSchema = Schema.Struct({
   requirementId: Schema.Literals(["receipts.pending"]),
   parameters: EmptyRequirementParametersSchema,
 });
+
 export type ReceiptPendingRequirementParams = typeof ReceiptPendingRequirementParamsSchema.Type;
 
 export const ReceiptApproverRelationshipRequirementParamsSchema = Schema.Struct({
   requirementId: Schema.Literals(["receipts.approver-relationship"]),
   parameters: EmptyRequirementParametersSchema,
 });
+
 export type ReceiptApproverRelationshipRequirementParams =
   typeof ReceiptApproverRelationshipRequirementParamsSchema.Type;
 
@@ -81,6 +95,7 @@ export const AuthzRuleSubjectSchema = Schema.TaggedUnion({
   Tag: { tagId: AuthzTagId },
   ServicePrincipal: { servicePrincipalId: ServicePrincipalId },
 });
+
 export type AuthzRuleSubject = typeof AuthzRuleSubjectSchema.Type;
 
 export const AuthzRuleScopeSchema = Schema.TaggedUnion({
@@ -89,6 +104,7 @@ export const AuthzRuleScopeSchema = Schema.TaggedUnion({
   Department: { departmentId: DepartmentId },
   Resource: { resource: ResourceRefSchema },
 });
+
 export type AuthzRuleScope = typeof AuthzRuleScopeSchema.Type;
 
 export type AuthzCapabilityDeclaration = {
@@ -121,6 +137,7 @@ export const CAPABILITY_IDS = {
 } as const satisfies Record<AuthzCapabilityId, AuthzCapabilityDeclaration>;
 
 export const AuthzLockModeSchema = Schema.Literals(["None", "ForShare"]);
+
 export type AuthzLockMode = typeof AuthzLockModeSchema.Type;
 
 /**
@@ -135,6 +152,7 @@ export const AUTHZ_LOCK_PROTOCOL = {
     "public.authz_rules",
   ],
 } as const;
+
 const AuthzRuleCommonFields = {
   ruleId: AuthzRuleId,
   subject: AuthzRuleSubjectSchema,
@@ -189,13 +207,14 @@ export const AuthzRuleSchema = Schema.Union([
   Schema.check(
     Schema.makeFilter(
       (rule) => {
-        if (rule.subject._tag !== "ServicePrincipal") {
-          return rule.scope._tag !== "Resource";
+        if (!Predicate.isTagged(rule.subject, "ServicePrincipal")) {
+          return !Predicate.isTagged(rule.scope, "Resource");
         }
+
         return (
           rule.capabilityId === "approveReceipt" &&
           rule.effectKind === "requirement" &&
-          rule.scope._tag === "Resource" &&
+          Predicate.isTagged(rule.scope, "Resource") &&
           rule.scope.resource.kind === "receipt" &&
           (rule.params.requirementId === "receipts.pending" ||
             rule.params.requirementId === "receipts.approver-relationship")
@@ -212,6 +231,7 @@ export const AuthzRuleSchema = Schema.Union([
     ),
   ),
 );
+
 export type AuthzRule = typeof AuthzRuleSchema.Type;
 
 export const AuthzTagSchema = Schema.Struct({
@@ -219,6 +239,7 @@ export const AuthzTagSchema = Schema.Struct({
   name: AuthzTagNameSchema,
   revision: AuthzRevisionSchema,
 });
+
 export type AuthzTag = typeof AuthzTagSchema.Type;
 
 const orderedInterval = Schema.makeFilter(
@@ -235,6 +256,7 @@ export const AuthzTagAssignmentSchema = Schema.Struct({
   endAt: Schema.NullOr(Rfc3339InstantSchema),
   revision: AuthzRevisionSchema,
 }).pipe(Schema.check(orderedInterval));
+
 export type AuthzTagAssignment = typeof AuthzTagAssignmentSchema.Type;
 
 export const EndAuthzRuleInputSchema = Schema.Struct({
@@ -242,12 +264,14 @@ export const EndAuthzRuleInputSchema = Schema.Struct({
   endAt: Rfc3339InstantSchema,
   expectedRevision: AuthzRevisionSchema,
 });
+
 export type EndAuthzRuleInput = typeof EndAuthzRuleInputSchema.Type;
 
 export const RemoveAuthzRuleInputSchema = Schema.Struct({
   ruleId: AuthzRuleId,
   expectedRevision: AuthzRevisionSchema,
 });
+
 export type RemoveAuthzRuleInput = typeof RemoveAuthzRuleInputSchema.Type;
 
 export const EndAuthzTagAssignmentInputSchema = Schema.Struct({
@@ -255,18 +279,21 @@ export const EndAuthzTagAssignmentInputSchema = Schema.Struct({
   endAt: Rfc3339InstantSchema,
   expectedRevision: AuthzRevisionSchema,
 });
+
 export type EndAuthzTagAssignmentInput = typeof EndAuthzTagAssignmentInputSchema.Type;
 
 export const RemoveAuthzTagAssignmentInputSchema = Schema.Struct({
   assignmentId: AuthzTagAssignmentId,
   expectedRevision: AuthzRevisionSchema,
 });
+
 export type RemoveAuthzTagAssignmentInput = typeof RemoveAuthzTagAssignmentInputSchema.Type;
 
 export const RemoveAuthzTagInputSchema = Schema.Struct({
   tagId: AuthzTagId,
   expectedRevision: AuthzRevisionSchema,
 });
+
 export type RemoveAuthzTagInput = typeof RemoveAuthzTagInputSchema.Type;
 
 export type AuthzValidationEntity =
@@ -295,19 +322,19 @@ export class AuthzValidationError extends Data.TaggedError("AuthzValidationError
 const validationError = (entity: AuthzValidationEntity, cause: unknown) =>
   new AuthzValidationError({ entity, message: String(cause) });
 
-export const decodeAuthzRule = (input: unknown): Effect.Effect<AuthzRule, AuthzValidationError> =>
-  Schema.decodeUnknownEffect(AuthzRuleSchema)(input, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) => validationError("AuthzRule", cause)),
-  );
+export const decodeAuthzRule = flow(
+  Schema.decodeUnknownEffect(AuthzRuleSchema, { onExcessProperty: "error" }),
+  Effect.mapError((cause) => validationError("AuthzRule", cause)),
+);
 
-export const decodeAuthzTag = (input: unknown): Effect.Effect<AuthzTag, AuthzValidationError> =>
-  Schema.decodeUnknownEffect(AuthzTagSchema)(input, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) => validationError("AuthzTag", cause)),
-  );
+export const decodeAuthzTag = flow(
+  Schema.decodeUnknownEffect(AuthzTagSchema, { onExcessProperty: "error" }),
+  Effect.mapError((cause) => validationError("AuthzTag", cause)),
+);
 
-export const decodeAuthzTagAssignment = (
-  input: unknown,
-): Effect.Effect<AuthzTagAssignment, AuthzValidationError> =>
-  Schema.decodeUnknownEffect(AuthzTagAssignmentSchema)(input, {
+export const decodeAuthzTagAssignment = flow(
+  Schema.decodeUnknownEffect(AuthzTagAssignmentSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)));
+  }),
+  Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)),
+);

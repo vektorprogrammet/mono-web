@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
@@ -12,39 +13,71 @@ import {
 } from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const composeFile = join(repositoryRoot, "docker-compose.yml");
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const specPath = join(dashboardRoot, "e2e/real-interview-response.spec.ts");
+
 const recordingDriverPath = fileURLToPath(
   new URL("../../../tools/e2e/record-native-recruitment-invitation-response.ts", import.meta.url),
 );
+
 const dashboardPort = 5174;
+
 const backendPort = 8797;
+
 const postgresPort = 55432;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
+
 const composeProject = `mono-web-native-invitation-response-0051-${process.pid}`;
+
 const commandTimeoutMs = 300_000;
+
 const shutdownTimeoutMs = 5_000;
+
 const nixPostgresPackage = "nixpkgs#postgresql_17";
+
 const fixedClock = "2031-09-15T12:00:00.000Z";
+
 const responseDeliveredAt = "2031-09-15T12:01:00.000Z";
+
 const leaderEmail = "lina.lagleder@example.invalid";
+
 const interviewerEmail = "irene.intervjuer@example.invalid";
+
 const personaPassword = "native-invitation-response-0051-secret";
+
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
 const departmentId = "department-native-invitation-response-0051";
+
 const semesterId = "semester-native-invitation-response-0051";
+
 const admissionPeriodId = "admission-period-native-invitation-response-0051";
+
 const fieldOfStudyId = "field-native-invitation-response-0051";
+
 const leaderPersonId = "person-native-invitation-response-leader-0051";
+
 const interviewerPersonId = "person-native-invitation-response-member-0051";
+
 const recruitmentTeamId = "team-native-invitation-response-0051";
+
 const interviewSchemaId = "interview-schema-native-invitation-response-0051";
+
 const invitationCapabilityHeader = "x-recruitment-invitation-capability";
 
 const responseCases = [
@@ -121,7 +154,9 @@ const rawCapabilitiesByCase = Object.fromEntries(
       .digest("base64url"),
   ]),
 );
+
 const rawCapabilities = Object.values(rawCapabilitiesByCase);
+
 if (
   rawCapabilities.length !== 3 ||
   new Set(rawCapabilities).size !== 3 ||
@@ -129,6 +164,7 @@ if (
 ) {
   throw new Error("Native invitation-response capability generation violated the frozen syntax");
 }
+
 const capabilityDigestsByCase = Object.fromEntries(
   responseCases.map(({ key }) => [
     key,
@@ -305,7 +341,9 @@ const recordingDriverSource = await readFile(recordingDriverPath, "utf8");
 
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+
 const postgresTopology = dockerAvailable ? "docker" : "local";
+
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
@@ -317,9 +355,10 @@ function assertNoRawCapability(value, label) {
     ? value.toString("utf8")
     : value instanceof Uint8Array
       ? Buffer.from(value).toString("utf8")
-      : typeof value === "string"
+      : Predicate.isString(value)
         ? value
         : JSON.stringify(value);
+
   if (containsRawCapability(text)) {
     throw new Error(`${label} contained a raw invitation capability`);
   }
@@ -328,9 +367,11 @@ function assertNoRawCapability(value, label) {
 function makeLeakScanner() {
   let tail = "";
   let leaked = false;
+
   return {
     observe(chunk) {
       const text = `${tail}${Buffer.from(chunk).toString("utf8")}`;
+
       if (containsRawCapability(text)) leaked = true;
       tail = text.slice(-42);
     },
@@ -340,7 +381,9 @@ function makeLeakScanner() {
 
 function boundedFailureDiagnostics(output) {
   const combined = `${output.stdout}\n${output.stderr}`.trim();
+
   if (combined.length === 0) return "";
+
   return combined.replace(/[A-Za-z0-9_-]{32,}/g, "[redacted]").slice(-4_000);
 }
 
@@ -353,10 +396,13 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
+
+      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
+
         return;
       }
+
       rejectPort(new Error(`Could not inspect loopback port ${port}`));
     });
   });
@@ -364,24 +410,28 @@ function assertPortAvailable(port) {
 
 async function waitForPortRelease(port) {
   let lastError;
+
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       await assertPortAvailable(port);
+
       return;
     } catch (error) {
       lastError = error;
       await sleep(100);
     }
   }
+
   throw lastError;
 }
 
 function signalProcessGroup(child, signal) {
   if (child.pid === undefined) return;
+
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw error;
     }
   }
@@ -395,28 +445,34 @@ function runCommand(command, args, options) {
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
     });
+
     const stdout = [];
     const stderr = [];
     const scanner = makeLeakScanner();
     child.stdout.on("data", (chunk) => {
       scanner.observe(chunk);
+
       if (options.captureOutput === true) stdout.push(chunk);
     });
     child.stderr.on("data", (chunk) => {
       scanner.observe(chunk);
+
       if (options.captureOutput === true) stderr.push(chunk);
     });
 
     let settled = false;
+
     const timeout = setTimeout(() => {
       signalProcessGroup(child, "SIGTERM");
       const hardKill = setTimeout(() => signalProcessGroup(child, "SIGKILL"), shutdownTimeoutMs);
       hardKill.unref();
+
       if (!settled) {
         settled = true;
         rejectCommand(new Error(`${options.label} timed out`));
       }
     }, commandTimeoutMs);
+
     timeout.unref();
 
     child.once("error", () => {
@@ -429,18 +485,24 @@ function runCommand(command, args, options) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+
       if (scanner.leaked()) {
         rejectCommand(new Error(`${options.label} emitted a raw invitation capability`));
+
         return;
       }
+
       const output = {
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
+
       if (code === 0) {
         resolveCommand(options.captureOutput === true ? output : undefined);
+
         return;
       }
+
       const diagnostics = boundedFailureDiagnostics(output);
       rejectCommand(
         new Error(
@@ -460,6 +522,7 @@ function startProcess(command, args, options) {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
+
   const scanner = makeLeakScanner();
   let stdout = "";
   let stderr = "";
@@ -474,6 +537,7 @@ function startProcess(command, args, options) {
   child.once("error", () => undefined);
   child.rawCapabilityObserved = scanner.leaked;
   child.diagnostics = () => (scanner.leaked() ? "" : boundedFailureDiagnostics({ stdout, stderr }));
+
   return child;
 }
 
@@ -488,38 +552,49 @@ function processHasExited(child) {
 async function stopProcess(child) {
   if (child === undefined || child.pid === undefined || processHasExited(child)) return;
   const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
+
   if (processHasExited(child)) return;
   signalProcessGroup(child, "SIGTERM");
+
   const stopped = await Promise.race([
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (stopped) return;
   signalProcessGroup(child, "SIGKILL");
+
   const killed = await Promise.race([
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (!killed) throw new Error(`Process group ${child.pid} did not exit after SIGKILL`);
 }
 
 async function waitForHttp(url, child, label) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     if (processHasExited(child)) throw new Error(`${label} exited before readiness`);
+
     try {
       const response = await fetch(url, { redirect: "manual" });
+
       if (response.status >= 200 && response.status < 500) return;
     } catch {
       // Readiness is retried until the bounded deadline.
     }
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 }
 
 async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     try {
       const args =
@@ -540,19 +615,23 @@ async function waitForPostgres(environment) {
               "receipt_proof",
             ]
           : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+
       const options = {
         cwd: repositoryRoot,
         env: environment,
         label: "Disposable invitation-response PostgreSQL readiness check",
         captureOutput: true,
       };
+
       if (postgresTopology === "docker") await runCommand("docker", args, options);
       else await runNixPostgres("pg_isready", args, options);
+
       return;
     } catch {
       await sleep(250);
     }
   }
+
   throw new Error("Disposable invitation-response PostgreSQL did not become ready");
 }
 
@@ -617,11 +696,13 @@ async function stopLocalPostgres(dataRoot, environment) {
 async function pathExists(path) {
   try {
     await access(path);
+
     return true;
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return false;
     }
+
     throw error;
   }
 }
@@ -664,12 +745,14 @@ async function runPsql(sql, environment, label) {
           "-c",
           sql,
         ];
+
   const options = {
     cwd: repositoryRoot,
     env: environment,
     label,
     captureOutput: true,
   };
+
   return postgresTopology === "docker"
     ? runCommand("docker", args, options)
     : runNixPostgres("psql", args, options);
@@ -677,60 +760,73 @@ async function runPsql(sql, environment, label) {
 
 const hasObjectKey = (value, key) => {
   if (Array.isArray(value)) return value.some((item) => hasObjectKey(item, key));
-  if (value === null || typeof value !== "object") return false;
+
+  if (value === null || !Predicate.isObjectOrArray(value)) return false;
+
   return Object.entries(value).some(
     ([entryKey, entryValue]) => entryKey === key || hasObjectKey(entryValue, key),
   );
 };
+
 const sessionCookieNames = new Set([
   "better-auth.session_token",
   "__Secure-better-auth.session_token",
 ]);
+
 const hasSessionCookie = (cookieHeader) =>
-  typeof cookieHeader === "string" &&
+  Predicate.isString(cookieHeader) &&
   cookieHeader.split(";").some((pair) => {
     const separator = pair.indexOf("=");
+
     return separator > 0 && sessionCookieNames.has(pair.slice(0, separator).trim());
   });
 
 const parseJsonBody = (bytes) => {
   if (bytes.byteLength === 0) return undefined;
+
   try {
     return JSON.parse(bytes.toString("utf8"));
   } catch {
     return undefined;
   }
 };
+
 async function startRecordingProxy(targetOrigin, actorsByCapability) {
   const records = [];
+
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const path = new URL(request.url ?? "/", targetOrigin).pathname;
     const chunks = [];
+
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
     const requestJson = parseJsonBody(requestBytes);
     const capabilityHeader = request.headers[invitationCapabilityHeader];
+
     const capabilityValue = Array.isArray(capabilityHeader)
       ? capabilityHeader[0]
       : capabilityHeader;
+
     const invitationActor =
-      typeof capabilityValue === "string"
+      Predicate.isString(capabilityValue)
         ? (actorsByCapability.get(capabilityValue) ?? null)
         : null;
+
     const nonCapabilityHeaders = Object.entries(request.headers)
       .filter(([name]) => name !== invitationCapabilityHeader)
       .map(([, value]) => (Array.isArray(value) ? value.join(",") : (value ?? "")))
       .join("\n");
+
     const record = {
       method,
       path,
       sessionCookieAuth: hasSessionCookie(request.headers.cookie),
       authorizationHeaderPresent: request.headers.authorization !== undefined,
       invitationActor,
-      requestHasInvitationCapability: typeof capabilityValue === "string",
+      requestHasInvitationCapability: Predicate.isString(capabilityValue),
       requestInvitationCapabilityValid:
-        typeof capabilityValue === "string" && invitationActor !== null,
+        Predicate.isString(capabilityValue) && invitationActor !== null,
       requestHasResponseCapabilityField:
         hasObjectKey(requestJson, "responseCapability") ||
         hasObjectKey(requestJson, "invitationCapability") ||
@@ -741,10 +837,10 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
         containsRawCapability(nonCapabilityHeaders),
       requestJson,
       idempotencyKey:
-        typeof request.headers["idempotency-key"] === "string"
+        Predicate.isString(request.headers["idempotency-key"])
           ? request.headers["idempotency-key"]
           : null,
-      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
       responseHasResponseCapabilityField: false,
       responseRawCapability: false,
       responseJson: null,
@@ -752,10 +848,12 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
       responseContentType: null,
       status: 0,
     };
+
     records.push(record);
 
     try {
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (
           value === undefined ||
@@ -763,24 +861,28 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
         ) {
           continue;
         }
+
         if (Array.isArray(value)) {
           for (const item of value) headers.append(name, item);
         } else {
           headers.set(name, value);
         }
       }
+
       const upstream = await fetch(new URL(request.url ?? "/", targetOrigin), {
         method,
         headers,
         body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
+
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       const responseJson = parseJsonBody(responseBytes);
+
       const responseHeaders = [...upstream.headers.entries()]
-        .filter(([name]) => name !== invitationCapabilityHeader)
-        .map(([name, value]) => `${name}:${value}`)
+        .flatMap(([name, value]) => name !== invitationCapabilityHeader ? [`${name}:${value}`] : [])
         .join("\n");
+
       record.status = upstream.status;
       record.responseJson = responseJson ?? null;
       record.responseEtag = upstream.headers.get("etag");
@@ -795,6 +897,7 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
         containsRawCapability(responseBytes.toString("utf8")) ||
         containsRawCapability(responseHeaders);
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers.entries()) {
         if (
           ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
@@ -802,7 +905,9 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
           continue;
         response.setHeader(name, value);
       }
+
       const setCookie = upstream.headers.getSetCookie();
+
       if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
@@ -813,6 +918,7 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
       response.end('{"error":"native invitation-response evidence proxy failed"}');
     }
   });
+
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", () => {
@@ -821,11 +927,14 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
     });
   });
   const address = server.address();
-  if (address === null || typeof address === "string") {
+
+  if (address === null || Predicate.isString(address)) {
     server.close();
     throw new Error("Native invitation-response evidence proxy did not bind a loopback port");
   }
+
   let closed = false;
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     port: address.port,
@@ -837,7 +946,7 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
       await new Promise((resolveClose, rejectClose) => {
         server.close((error) =>
           error === undefined ||
-          (typeof error === "object" &&
+          (Predicate.isObjectOrArray(error) &&
             error !== null &&
             "code" in error &&
             error.code === "ERR_SERVER_NOT_RUNNING")
@@ -848,6 +957,7 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
     },
   };
 }
+
 const nativeProblemKeys = ["code", "detail", "status", "title", "type"];
 
 const nativeMutationHeaders = (capability, etag, evidenceKey) => ({
@@ -862,14 +972,15 @@ async function expectNativeProblem(path, init, expectedStatus, expectedCode) {
   const responseText = await response.text();
   assertNoRawCapability(responseText, `Native ${expectedCode} response`);
   const problem = JSON.parse(responseText);
+
   if (
     response.status !== expectedStatus ||
     !response.headers.get("content-type")?.startsWith("application/problem+json") ||
     problem?.status !== expectedStatus ||
     problem?.code !== expectedCode ||
     problem?.type !== `urn:vektorprogrammet:problem:v0.2:${expectedCode}` ||
-    typeof problem?.title !== "string" ||
-    typeof problem?.detail !== "string" ||
+    !Predicate.isString(problem?.title) ||
+    !Predicate.isString(problem?.detail) ||
     JSON.stringify(Object.keys(problem).sort()) !== JSON.stringify(nativeProblemKeys)
   ) {
     throw new Error(
@@ -878,10 +989,11 @@ async function expectNativeProblem(path, init, expectedStatus, expectedCode) {
         contentType: response.headers.get("content-type"),
         code: problem?.code,
         type: problem?.type,
-        keys: problem === null || typeof problem !== "object" ? [] : Object.keys(problem).sort(),
+        keys: problem === null || !Predicate.isObjectOrArray(problem) ? [] : Object.keys(problem).sort(),
       })}`,
     );
   }
+
   return {
     status: response.status,
     code: problem.code,
@@ -893,18 +1005,23 @@ async function expectNativeProblem(path, init, expectedStatus, expectedCode) {
 
 async function exerciseNativeBoundaryFailures() {
   const capability = rawCapabilitiesByCase["requested-new-time"];
+
   const read = await fetch(new URL("/api/recruitment/invitation-response", backendOrigin), {
     headers: { [invitationCapabilityHeader]: capability },
   });
+
   const readText = await read.text();
   assertNoRawCapability(readText, "Native pending invitation boundary read");
   const etag = read.headers.get("etag");
+
   if (read.status !== 200 || etag === null) {
     throw new Error("Native boundary rehearsal could not read the pending invitation");
   }
+
   const basePath = "/api/recruitment/invitation-response:request-new-time";
   const malformedCapability = "A".repeat(43);
   const overlongMessage = "x ".repeat(1_000_000);
+
   return {
     unknownCapability: await expectNativeProblem(
       "/api/recruitment/invitation-response",
@@ -922,7 +1039,7 @@ async function exerciseNativeBoundaryFailures() {
       400,
       "request.malformed",
     ),
-    capabilityShapedMessage: await expectNativeProblem(
+    capabilityTokenMessage: await expectNativeProblem(
       basePath,
       {
         method: "POST",
@@ -961,13 +1078,15 @@ async function exerciseNonReplayableRepeat(records) {
       record.path === responseCases[0].commandPath &&
       record.status === 204,
   );
+
   if (
     original === undefined ||
-    typeof original.idempotencyKey !== "string" ||
-    typeof original.ifMatch !== "string"
+    !Predicate.isString(original.idempotencyKey) ||
+    !Predicate.isString(original.ifMatch)
   ) {
     throw new Error("Non-replay rehearsal could not locate the accepted invitation command");
   }
+
   const response = await fetch(new URL(original.path, backendOrigin), {
     method: "POST",
     headers: {
@@ -978,9 +1097,11 @@ async function exerciseNonReplayableRepeat(records) {
     },
     body: JSON.stringify(original.requestJson ?? {}),
   });
+
   const body = Buffer.from(await response.arrayBuffer());
   assertNoRawCapability(body.toString("utf8"), "Non-replayable invitation repeat");
   const problem = parseJsonBody(body);
+
   if (
     response.status !== 409 ||
     problem?.code !== "invitation.already-responded" ||
@@ -988,6 +1109,7 @@ async function exerciseNonReplayableRepeat(records) {
   ) {
     throw new Error("A repeated invitation command replayed instead of returning typed conflict");
   }
+
   return {
     status: response.status,
     code: problem.code,
@@ -1000,15 +1122,19 @@ async function exerciseNonReplayableRepeat(records) {
 
 function summarizeNativeContracts(records) {
   const invitationRecords = records.filter(({ invitationActor }) => invitationActor !== null);
+
   const reads = invitationRecords.filter(
     ({ method, path }) => method === "GET" && path === "/api/recruitment/invitation-response",
   );
+
   const successfulMutations = invitationRecords.filter(
     ({ method, status }) => method === "POST" && status === 204,
   );
+
   const terminalConflicts = invitationRecords.filter(
     ({ method, status }) => method === "POST" && status === 409,
   );
+
   return {
     readObservation: {
       statuses: [...new Set(reads.map(({ status }) => status))],
@@ -1038,8 +1164,10 @@ function summarizeNativeContracts(records) {
 
 const parseJsonOutput = (result, label) => {
   const source = result.stdout.trim();
+
   if (source.length === 0) throw new Error(`${label} returned no JSON evidence`);
   assertNoRawCapability(source, label);
+
   try {
     return JSON.parse(source);
   } catch {
@@ -1049,12 +1177,15 @@ const parseJsonOutput = (result, label) => {
 
 async function readJsonFile(path, label) {
   let source;
+
   try {
     source = await readFile(path, "utf8");
   } catch {
     throw new Error(`${label} is missing`);
   }
+
   assertNoRawCapability(source, label);
+
   try {
     return JSON.parse(source);
   } catch {
@@ -1089,6 +1220,7 @@ async function warmDashboardClient(environment, capability) {
       await browser.close();
     }
   `;
+
   await runCommand(
     process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
     ["--input-type=module", "--eval", source],
@@ -1103,6 +1235,7 @@ async function warmDashboardClient(environment, capability) {
 
 async function readResponseEvidence(environment) {
   const invitationIds = responseCases.map(({ invitationId }) => `'${invitationId}'`).join(", ");
+
   const result = await runPsql(
     `
       SELECT COALESCE(json_agg(entry ORDER BY ordinal), '[]'::json)::text
@@ -1201,6 +1334,7 @@ async function readResponseEvidence(environment) {
     environment,
     "Native invitation-response PostgreSQL evidence read",
   );
+
   return parseJsonOutput(result, "Native invitation-response PostgreSQL evidence read");
 }
 
@@ -1217,6 +1351,7 @@ async function assertCanonicalDatabasePrivacy(environment) {
     environment,
     "Canonical invitation-response privacy read",
   );
+
   assertNoRawCapability(result.stdout, "Canonical PostgreSQL rows");
 }
 
@@ -1230,8 +1365,10 @@ function assertSeedEvidence(evidence) {
   if (!Array.isArray(evidence) || evidence.length !== responseCases.length) {
     throw new Error("PostgreSQL seed did not contain three complete invitation graphs");
   }
+
   for (const responseCase of responseCases) {
     const row = evidence.find(({ key }) => key === responseCase.key);
+
     if (
       row?.invitationId !== responseCase.invitationId ||
       row?.interviewId !== responseCase.interviewId ||
@@ -1251,6 +1388,7 @@ function assertSeedEvidence(evidence) {
     ) {
       throw new Error("A seeded invitation was not a complete Pending authority graph");
     }
+
     assertEqual(
       row.schedule,
       {
@@ -1270,8 +1408,10 @@ function assertCommittedEvidence(evidence) {
   if (!Array.isArray(evidence) || evidence.length !== responseCases.length) {
     throw new Error("Committed PostgreSQL response evidence was incomplete");
   }
+
   for (const responseCase of responseCases) {
     const row = evidence.find(({ key }) => key === responseCase.key);
+
     if (
       row?.invitationId !== responseCase.invitationId ||
       row?.interviewId !== responseCase.interviewId ||
@@ -1313,6 +1453,7 @@ function assertCommittedEvidence(evidence) {
     ) {
       throw new Error("Committed response, audit, or outbox evidence violated atomic state laws");
     }
+
     assertEqual(
       row.schedule,
       {
@@ -1332,9 +1473,11 @@ function assertDeliveredEvidence(evidence, committedEvidence) {
   if (!Array.isArray(evidence) || evidence.length !== responseCases.length) {
     throw new Error("Post-interpretation PostgreSQL evidence was incomplete");
   }
+
   for (const responseCase of responseCases) {
     const before = committedEvidence.find(({ key }) => key === responseCase.key);
     const after = evidence.find(({ key }) => key === responseCase.key);
+
     if (
       after?.invitationId !== responseCase.invitationId ||
       after?.interviewId !== responseCase.interviewId ||
@@ -1354,8 +1497,10 @@ function assertDeliveredEvidence(evidence, committedEvidence) {
     ) {
       throw new Error("Response interpretation changed authoritative response or schedule state");
     }
+
     if (responseCase.expectedOutboxCount === 1) {
       const delivery = after.outbox[0];
+
       if (
         delivery?.effectId !== `recruitment-invitation-response:${responseCase.invitationId}:1` ||
         delivery?.effectType !== "SendInterviewInvitationResponse" ||
@@ -1374,6 +1519,7 @@ function assertDeliveredEvidence(evidence, committedEvidence) {
         throw new Error("Approved response notification did not reach Delivered database state");
       }
     }
+
     assertEqual(after.schedule, before?.schedule, `Post-delivery schedule ${responseCase.key}`);
   }
 }
@@ -1401,6 +1547,7 @@ function assertBrowserEvidence(browser) {
     { actor: "DepartmentLeader", operation: "readSchedulingBoard" },
     { actor: "Member", operation: "readSchedulingBoard" },
   ];
+
   if (
     browser?.topology !== "native-postgresql-foldkit-chromium" ||
     browser?.applicantContexts?.isolatedFromStaff !== true ||
@@ -1435,9 +1582,11 @@ function assertBrowserEvidence(browser) {
       "Browser evidence did not prove the complete native invitation-response journey",
     );
   }
+
   const accepted = browser.applicantCases.find(({ key }) => key === "accepted");
   const rejected = browser.applicantCases.find(({ key }) => key === "rejected");
   const requested = browser.applicantCases.find(({ key }) => key === "requested-new-time");
+
   for (const [entry, state] of [
     [accepted, "Accepted"],
     [rejected, "Rejected"],
@@ -1465,14 +1614,15 @@ function assertBrowserEvidence(browser) {
       throw new Error("An applicant browser context did not prove fresh-read response semantics");
     }
   }
+
   if (
     requested?.invalidBlank?.clientCommandBlocked !== true ||
     requested?.invalidBlank?.bridgeStatus !== 422 ||
     requested?.invalidBlank?.freshReadStatus !== 200 ||
     requested?.invalidBlank?.preservedState !== "Pending" ||
-    requested?.capabilityShapedMessage?.clientCommandBlocked !== true ||
-    requested?.capabilityShapedMessage?.bridgeFetchAttempted !== false ||
-    requested?.capabilityShapedMessage?.preservedState !== "Pending" ||
+    requested?.capabilityTokenMessage?.clientCommandBlocked !== true ||
+    requested?.capabilityTokenMessage?.bridgeFetchAttempted !== false ||
+    requested?.capabilityTokenMessage?.preservedState !== "Pending" ||
     browser?.staffContexts?.observations?.DepartmentLeader?.freshReadStatus !== 200 ||
     JSON.stringify(browser?.staffContexts?.observations?.DepartmentLeader?.sessionCookieNames) !==
       JSON.stringify(["better-auth.session_token"]) ||
@@ -1498,6 +1648,7 @@ function assertNativeTransport(records) {
   const readPath = "/api/recruitment/invitation-response";
   const boardPath = "/api/recruitment/interviews";
   const profilePath = "/api/profile";
+
   const expected = [
     {
       method: "GET",
@@ -1660,6 +1811,7 @@ function assertNativeTransport(records) {
       authorizationHeaderPresent: false,
     },
   ];
+
   const allowedPaths = new Set([
     "/api/auth/sign-in/email",
     "/api/session",
@@ -1668,6 +1820,7 @@ function assertNativeTransport(records) {
     boardPath,
     ...responseCases.map(({ commandPath }) => commandPath),
   ]);
+
   const nativeRecords = records.filter(({ path }) =>
     [
       readPath,
@@ -1676,6 +1829,7 @@ function assertNativeTransport(records) {
       ...responseCases.map(({ commandPath }) => commandPath),
     ].includes(path),
   );
+
   assertEqual(
     nativeRecords
       .filter(({ invitationActor }) => invitationActor !== null)
@@ -1700,15 +1854,19 @@ function assertNativeTransport(records) {
     "Native applicant invitation-response transport order",
   );
   const staffRecords = nativeRecords.filter(({ invitationActor }) => invitationActor === null);
+
   if (
     staffRecords.filter(({ path }) => path === profilePath).length < 2 ||
     staffRecords.filter(({ path }) => path === boardPath).length < 2
   ) {
     throw new Error("Native invitation-response transport omitted independent staff reads");
   }
+
   for (let index = 0; index < nativeRecords.length; index += 1) {
     const record = nativeRecords[index];
+
     if (record?.invitationActor === null) continue;
+
     if (record?.method === "GET" && record.path === readPath) {
       if (
         JSON.stringify(Object.keys(record.responseJson ?? {}).sort()) !==
@@ -1722,9 +1880,12 @@ function assertNativeTransport(records) {
       ) {
         throw new Error("Invitation read did not match the generated v0.2 observation contract");
       }
+
       continue;
     }
+
     if (record?.method !== "POST") continue;
+
     const sourceRead = nativeRecords
       .slice(0, index)
       .filter(
@@ -1734,9 +1895,11 @@ function assertNativeTransport(records) {
           candidate.invitationActor === record.invitationActor,
       )
       .at(-1);
+
     const expectedBodyKeys = record.path === responseCases[0].commandPath ? [] : ["message"];
+
     if (
-      typeof record.idempotencyKey !== "string" ||
+      !Predicate.isString(record.idempotencyKey) ||
       record.ifMatch !== sourceRead?.responseEtag ||
       JSON.stringify(Object.keys(record.requestJson ?? {}).sort()) !==
         JSON.stringify(expectedBodyKeys)
@@ -1745,6 +1908,7 @@ function assertNativeTransport(records) {
         "Invitation mutation omitted its Idempotency-Key, source ETag, or exact body",
       );
     }
+
     if (record.status === 204) {
       if (
         record.responseJson !== null ||
@@ -1753,8 +1917,10 @@ function assertNativeTransport(records) {
       ) {
         throw new Error("Invitation mutation did not return the generated 204 response contract");
       }
+
       continue;
     }
+
     if (
       record.status !== 409 ||
       !record.responseContentType?.startsWith("application/problem+json") ||
@@ -1762,12 +1928,13 @@ function assertNativeTransport(records) {
       record.responseJson?.code !== "invitation.already-responded" ||
       record.responseJson?.type !==
         "urn:vektorprogrammet:problem:v0.2:invitation.already-responded" ||
-      typeof record.responseJson?.title !== "string" ||
-      typeof record.responseJson?.detail !== "string"
+      !Predicate.isString(record.responseJson?.title) ||
+      !Predicate.isString(record.responseJson?.detail)
     ) {
       throw new Error("Repeated invitation mutation did not return RFC 9457 Problem Details");
     }
   }
+
   const retiredRouteUsed = records.some(
     ({ path }) =>
       path === "/api/me" ||
@@ -1775,6 +1942,7 @@ function assertNativeTransport(records) {
       path === "/api/admin/recruitment/interviews/scheduling-board" ||
       path.startsWith("/api/recruitment/invitation-response/"),
   );
+
   if (
     retiredRouteUsed ||
     records.some(
@@ -1807,7 +1975,7 @@ function assertRecordingEvidence(recording, committedEvidence, deliveredEvidence
       (result) =>
         result?.result !== "Delivered" ||
         result?.claim?.attempts !== 1 ||
-        typeof result?.claim?.effectId !== "string" ||
+        !Predicate.isString(result?.claim?.effectId) ||
         result.claim.effectId.length === 0 ||
         result?.notificationEvidence?.effectId !== result?.claim?.effectId,
     ) ||
@@ -1816,13 +1984,16 @@ function assertRecordingEvidence(recording, committedEvidence, deliveredEvidence
   ) {
     throw new Error("Recording NotificationGateway response evidence was incomplete");
   }
+
   const expectedNotificationCases = responseCases.filter(
     ({ expectedOutboxCount }) => expectedOutboxCount === 1,
   );
+
   for (const responseCase of expectedNotificationCases) {
     const request = recording.responseRequests.find(
       (candidate) => candidate?.responseState === responseCase.finalState,
     );
+
     if (
       request?._tag !== "SendInterviewInvitationResponse" ||
       request?.effectId !== `recruitment-invitation-response:${responseCase.invitationId}:1` ||
@@ -1841,8 +2012,10 @@ function assertRecordingEvidence(recording, committedEvidence, deliveredEvidence
         "Recording gateway did not observe an approved response notification request",
       );
     }
+
     const before = committedEvidence.find(({ key }) => key === responseCase.key);
     const after = deliveredEvidence.find(({ key }) => key === responseCase.key);
+
     if (
       !before?.outbox?.some(({ effectId }) => effectId === request.effectId) ||
       !after?.outbox?.some(
@@ -1852,6 +2025,7 @@ function assertRecordingEvidence(recording, committedEvidence, deliveredEvidence
       throw new Error("Recording response request did not identify its delivered database effect");
     }
   }
+
   assertEqual(
     recording.results.map(({ claim }) => claim.effectId).sort(),
     recording.responseRequests.map(({ effectId }) => effectId).sort(),
@@ -1865,18 +2039,21 @@ const receiptRequested = () =>
     "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
     "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
     "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+  ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
 
 async function prepareReceiptInputs(playwrightOutput) {
   if (!receiptRequested()) return undefined;
+
   const fixtureInputBytes = Buffer.concat([
     Buffer.from(seedSql, "utf8"),
     Buffer.from("\n-- native response recording driver --\n", "utf8"),
     Buffer.from(recordingDriverSource, "utf8"),
   ]);
+
   const artifactBytes = sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8"));
   assertNoRawCapability(fixtureInputBytes, "Runtime evidence fixture input");
   assertNoRawCapability(artifactBytes, "Sanitized Playwright artifact");
+
   return { fixtureInputBytes, artifactBytes };
 }
 
@@ -1910,6 +2087,7 @@ async function main() {
     mkdir(stagingRoot, { recursive: true }),
     mkdir(committedRoot, { recursive: true }),
   ]);
+
   const identitySeedPersons = [
     {
       personId: leaderPersonId,
@@ -1931,6 +2109,7 @@ async function main() {
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
+
   const apiEnvironment = {
     ...baseEnvironment,
     BACKEND_HOST: "127.0.0.1",
@@ -1957,15 +2136,18 @@ async function main() {
   let evidence;
   let receiptInputs;
   let cleaned = false;
+
   const cleanup = async () => {
     if (cleaned) return;
     cleaned = true;
     const cleanupErrors = [];
+
     try {
       await stopProcess(dashboardProcess);
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (proxy !== undefined) {
       try {
         await proxy.close();
@@ -1973,11 +2155,13 @@ async function main() {
         cleanupErrors.push(error);
       }
     }
+
     try {
       await stopProcess(apiProcess);
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (postgresStarted) {
       try {
         if (postgresTopology === "docker") {
@@ -2006,11 +2190,13 @@ async function main() {
         cleanupErrors.push(error);
       }
     }
+
     try {
       await rm(temporaryRoot, { recursive: true, force: true });
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (cleanupErrors.length > 0) {
       throw new AggregateError(cleanupErrors, "Native invitation-response topology cleanup failed");
     }
@@ -2019,14 +2205,17 @@ async function main() {
   const handleSignal = (signal) => {
     void cleanup().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
   };
+
   const handleInterrupt = () => handleSignal("SIGINT");
   const handleTermination = () => handleSignal("SIGTERM");
   process.once("SIGINT", handleInterrupt);
   process.once("SIGTERM", handleTermination);
 
   let primaryError;
+
   try {
     postgresStarted = true;
+
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
@@ -2072,6 +2261,7 @@ async function main() {
       backendOrigin,
       new Map(responseCases.map(({ key }) => [rawCapabilitiesByCase[key], key])),
     );
+
     const dashboardEnvironment = {
       ...baseEnvironment,
       API_URL: proxy.origin,
@@ -2087,6 +2277,7 @@ async function main() {
       HOST: "127.0.0.1",
       PORT: String(dashboardPort),
     };
+
     const playwrightEnvironment = {
       ...dashboardEnvironment,
       INVITATION_RESPONSE_E2E_ACCEPTED_CAPABILITY: rawCapabilitiesByCase.accepted,
@@ -2133,7 +2324,9 @@ async function main() {
       "--workers=1",
       "--retries=0",
     ];
+
     if (receiptRequested()) playwrightArgs.push("--reporter=json");
+
     const playwright = await runCommand(
       process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
       playwrightArgs,
@@ -2144,16 +2337,20 @@ async function main() {
         captureOutput: true,
       },
     );
+
     assertNoRawCapability(playwright.stdout, "Playwright reporter output");
     assertNoRawCapability(playwright.stderr, "Playwright diagnostic output");
+
     const browser = await readJsonFile(
       browserEvidencePath,
       "Native invitation-response browser evidence",
     );
+
     assertBrowserEvidence(browser);
     assertNativeTransport(proxy.records);
     const nativeContractObservations = summarizeNativeContracts(proxy.records);
     const nonReplayableRepeat = await exerciseNonReplayableRepeat(proxy.records);
+
     if (apiProcess.rawCapabilityObserved() || dashboardProcess.rawCapabilityObserved()) {
       throw new Error("A native process log contained a raw invitation capability");
     }
@@ -2161,16 +2358,19 @@ async function main() {
     const committedEvidence = await readResponseEvidence(baseEnvironment);
     assertCommittedEvidence(committedEvidence);
     await assertCanonicalDatabasePrivacy(baseEnvironment);
+
     const recordingResult = await runCommand("bun", [recordingDriverPath], {
       cwd: repositoryRoot,
       env: { ...baseEnvironment, BACKEND_PG_URL: postgresUrl },
       label: "Recording invitation-response NotificationGateway interpreter",
       captureOutput: true,
     });
+
     const recording = parseJsonOutput(
       recordingResult,
       "Recording invitation-response NotificationGateway interpreter",
     );
+
     const deliveredEvidence = await readResponseEvidence(baseEnvironment);
     assertDeliveredEvidence(deliveredEvidence, committedEvidence);
     assertRecordingEvidence(recording, committedEvidence, deliveredEvidence);
@@ -2262,20 +2462,21 @@ async function main() {
                 authorizationHeaderPresent,
                 invitationActor,
                 responseCode:
-                  responseJson !== null && typeof responseJson.code === "string"
+                  responseJson !== null && Predicate.isString(responseJson.code)
                     ? responseJson.code
                     : null,
               }),
             ),
           );
+
     const processDiagnostics = [
       ["backend", apiProcess?.diagnostics?.()],
       ["dashboard", dashboardProcess?.diagnostics?.()],
       ["transport", transportDiagnostics],
     ]
-      .filter(([, diagnostics]) => typeof diagnostics === "string" && diagnostics.length > 0)
-      .map(([label, diagnostics]) => `${label}:\n${diagnostics}`)
+      .flatMap(([label, diagnostics]) => Predicate.isString(diagnostics) && diagnostics.length > 0 ? [`${label}:\n${diagnostics}`] : [])
       .join("\n");
+
     primaryError =
       processDiagnostics.length === 0
         ? error
@@ -2285,14 +2486,19 @@ async function main() {
   }
 
   const releasedPorts = [dashboardPort, backendPort, postgresPort];
+
   if (proxy?.port !== undefined) releasedPorts.push(proxy.port);
   let cleanupError;
+
   try {
     await cleanup();
+
     if (await pathExists(temporaryRoot)) {
       throw new Error("Native invitation-response cleanup left the temporary root behind");
     }
+
     await Promise.all(releasedPorts.map((port) => waitForPortRelease(port)));
+
     if (
       apiProcess?.rawCapabilityObserved?.() === true ||
       dashboardProcess?.rawCapabilityObserved?.() === true
@@ -2312,10 +2518,13 @@ async function main() {
       "Native invitation-response journey and cleanup failed",
     );
   }
+
   if (primaryError !== undefined) throw primaryError;
+
   if (cleanupError !== undefined) throw cleanupError;
 
   await emitReceipts(receiptInputs);
+
   const finalEvidence = {
     ...evidence,
     cleanup: {
@@ -2324,6 +2533,7 @@ async function main() {
       portsReleased: releasedPorts,
     },
   };
+
   const serializedEvidence = `${JSON.stringify(finalEvidence)}\n`;
   assertNoRawCapability(serializedEvidence, "Printed native invitation-response evidence");
   process.stdout.write(serializedEvidence);

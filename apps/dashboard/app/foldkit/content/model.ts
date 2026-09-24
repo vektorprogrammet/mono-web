@@ -22,6 +22,7 @@ export const ContentFailureTag = S.Literals([
   "Network",
   "Configuration",
 ]);
+
 export type ContentFailureTag = S.Schema.Type<typeof ContentFailureTag>;
 
 /** Typed safe failure rendered as denial or failure banners. */
@@ -29,6 +30,7 @@ export const ContentFailure = S.TaggedUnion({
   Denied: { tag: ContentFailureTag, message: S.String },
   Failed: { tag: ContentFailureTag, message: S.String },
 });
+
 export type ContentFailure = S.Schema.Type<typeof ContentFailure>;
 
 const EditorValues = S.Struct({
@@ -42,9 +44,10 @@ export const KnownDepartmentSchema = S.Struct({
   departmentId: DepartmentId,
   name: S.String,
 });
+
 export type KnownDepartment = S.Schema.Type<typeof KnownDepartmentSchema>;
 
-export const makeEditorValues = (): S.Schema.Type<typeof EditorValues> => ({
+export const emptyEditor = (): S.Schema.Type<typeof EditorValues> => ({
   title: "",
   bodyHtml: "",
   departmentIds: [],
@@ -71,15 +74,16 @@ export const Model = S.Struct({
   knownDepartments: S.Array(KnownDepartmentSchema),
   banner: S.NullOr(ContentFailure),
 });
+
 export type Model = S.Schema.Type<typeof Model>;
 
-export const makeInitialModel = (): Model => ({
+export const init = (): Model => ({
   workspace: ContentWorkspaceData.Loading(),
   requestId: 1,
   retryCount: 0,
   selectedArticleId: null,
   selectedEtag: null,
-  editor: makeEditorValues(),
+  editor: emptyEditor(),
   dirty: false,
   pendingCommand: null,
   departmentFilter: null,
@@ -88,4 +92,5 @@ export const makeInitialModel = (): Model => ({
 });
 
 export const ContentWorkspaceData = AsyncData.Schema(ContentWorkspaceSchema, ContentFailure);
+
 export type { ContentWorkspace };

@@ -32,11 +32,16 @@ const pin: AuthorityPin = {
 const operation = (
   operationId: string,
   security?: readonly Record<string, readonly string[]>[],
-) => ({
-  operationId,
-  ...(security === undefined ? {} : { security }),
-  responses: { "200": { description: "ok" } },
-});
+) => {
+  const output = {
+    operationId,
+    responses: { "200": { description: "ok" } },
+  };
+
+  if (!(security === undefined)) Object.assign(output, { security });
+
+  return output;
+};
 
 const openApi = (
   ids: readonly string[],
@@ -44,18 +49,23 @@ const openApi = (
     readonly rootSecurity?: readonly Record<string, readonly string[]>[];
     readonly sharedPath?: boolean;
   } = {},
-): string =>
-  JSON.stringify({
+): string => {
+  const document = {
     openapi: "3.1.0",
     info: { title: "test", version: "1" },
-    ...(options.rootSecurity === undefined ? {} : { security: options.rootSecurity }),
     paths: Object.fromEntries(
       ids.map((id, index) => [
         options.sharedPath ? "/api/shared" : `/api/${index}`,
         { get: operation(id) },
       ]),
     ),
-  });
+  };
+
+  if (options.rootSecurity !== undefined)
+    Object.assign(document, { security: options.rootSecurity });
+
+  return JSON.stringify(document);
+};
 
 const catalog = (
   backend: Backend,
@@ -72,7 +82,7 @@ const catalog = (
 const witness = (
   witnessId: string,
   operationCatalog: AtomicOperationCatalog,
-  shape: "single" | "chain",
+  topology: "single" | "chain",
 ): ImplementationWitness => {
   const operationNodes = operationCatalog.operations.map((item, index) => ({
     node_id: `${witnessId}-operation-${index}`,
@@ -82,14 +92,16 @@ const witness = (
     realizes_stage_ids: index === 0 ? ["stage-write"] : ["stage-read"],
     predicate_refs: index === 0 ? ["predicate://authorized"] : [],
   }));
+
   const observation = {
     node_id: `${witnessId}-observation`,
     kind: "local_observation" as const,
     observation_kind: "persistence" as const,
     assertion_ids: ["assertion-outcome"],
   };
+
   const edges =
-    shape === "chain" && operationNodes.length > 1
+    topology === "chain" && operationNodes.length > 1
       ? [
           {
             edge_id: `${witnessId}-data`,
@@ -117,6 +129,7 @@ const witness = (
             relation: "read_after_write" as const,
           },
         ];
+
   return {
     witness_id: witnessId,
     purpose: "accepted",
@@ -133,10 +146,12 @@ const witness = (
   };
 };
 
+type SemanticFixture = { readonly register: AcceptedIntentV2; readonly intent: CapabilityIntent };
+
 const semanticFixture = (
   legacyCatalog: AtomicOperationCatalog,
   nativeCatalog: AtomicOperationCatalog,
-): { readonly register: AcceptedIntentV2; readonly intent: CapabilityIntent } => {
+): SemanticFixture => {
   const implementations: readonly ImplementationDefinition[] = [
     {
       backend: "legacy_symfony",
@@ -157,6 +172,7 @@ const semanticFixture = (
       ],
     },
   ];
+
   const withoutDigest = {
     intent_ref_id: "intent://test:composition:v1",
     intent_revision: "composition-v1",
@@ -212,10 +228,12 @@ const semanticFixture = (
     ],
     implementations,
   };
+
   const intent: CapabilityIntent = {
     ...withoutDigest,
     intent_digest: sha256(canonicalJson(withoutDigest)),
   };
+
   return {
     intent,
     register: {
@@ -286,8 +304,10 @@ const evidence = (
     const implementation = intent.implementations.find(
       (candidate) => candidate.backend === item.backend,
     )!;
+
     const nodes = implementation.witnesses.flatMap((item) => item.nodes);
     const witnessId = implementation.witnesses[0]!.witness_id;
+
     const claims = [
       ...nodes.flatMap((node) =>
         node.kind === "operation"
@@ -320,6 +340,7 @@ const evidence = (
         freshness_id: "freshness-read",
       }),
     ].filter((item) => !omittedKinds.includes(item.kind));
+
     return {
       receipt_ref_id: stableId("receipt", { backend: item.backend, intent: intent.intent_ref_id }),
       backend: item.backend,
@@ -338,13 +359,16 @@ const evidence = (
       claims,
     };
   });
+
   const value: CapabilityEvidenceV2 = {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-capability-runtime-evidence/v2",
     source_authority: pin,
     receipts,
   };
+
   expect(validateCapabilityEvidenceV2(value)).toBe(true);
+
   return value;
 };
 
@@ -388,12 +412,14 @@ test("extractor preserves root inheritance, OR alternatives, AND requirements, a
       "/public": { get: operation("security.public", []) },
     },
   });
+
   const result = extractAtomicOperationCatalog({
     backend: "native_effect",
     openapiBytes: bytes,
     generatorRef: "test",
     sourceRevisionRef: "test",
   });
+
   const byId = new Map(result.operations.map((item) => [item.operation_id, item.security]));
   expect(byId.get("security.inherit")).toMatchObject({ effective_from: "root", mode: "required" });
   expect(byId.get("security.inherit")!.alternatives).toHaveLength(2);
@@ -405,6 +431,18 @@ test("extractor preserves root inheritance, OR alternatives, AND requirements, a
   expect(byId.get("security.public")).toMatchObject({ mode: "none", alternatives: [] });
 });
 
+test("schema canonicalization preserves prototype-named properties", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      ["__proto__"]: { type: "string" },
+      constructor: { type: "number" },
+    },
+  };
+
+  expect(canonicalizeOpenApiSchema(schema, schema)).toEqual(schema);
+});
+
 test("schema references canonicalize to a stable resolved representation", () => {
   const root = {
     components: {
@@ -413,6 +451,7 @@ test("schema references canonicalize to a stable resolved representation", () =>
       },
     },
   };
+
   expect(canonicalizeOpenApiSchema(root, { $ref: "#/components/schemas/Value" })).toEqual({
     $resolved: canonicalizeOpenApiSchema(root, root.components.schemas.Value),
   });
@@ -424,6 +463,7 @@ test("extractor rejects missing and duplicate operation identifiers", () => {
     info: { title: "missing", version: "1" },
     paths: { "/a": { get: { responses: { "200": { description: "ok" } } } } },
   });
+
   expect(() =>
     extractAtomicOperationCatalog({
       backend: "native_effect",
@@ -432,11 +472,13 @@ test("extractor rejects missing and duplicate operation identifiers", () => {
       sourceRevisionRef: "test",
     }),
   ).toThrow("MISSING_OPERATION_ID:GET /a");
+
   const duplicate = JSON.stringify({
     openapi: "3.1.0",
     info: { title: "duplicate", version: "1" },
     paths: { "/a": { get: operation("same") }, "/b": { post: operation("same") } },
   });
+
   expect(() =>
     extractAtomicOperationCatalog({
       backend: "native_effect",
@@ -453,16 +495,19 @@ test("legacy reconciliation rejects ambiguous mappings and explicit security con
     info: { title: "legacy", version: "1" },
     paths: { "/api/things": { get: operation("thing.get") } },
   };
+
   expect(() =>
     enrichLegacyOpenApi(document, [
       metadata({ operation_id: "one" }),
       metadata({ operation_id: "two" }),
     ]),
   ).toThrow("AMBIGUOUS_METADATA_MAPPING:GET /api/things");
+
   const secured = {
     ...document,
     paths: { "/api/things": { get: operation("thing.get", [{ JWT: [] }]) } },
   };
+
   expect(() =>
     enrichLegacyOpenApi(secured, [metadata({ security_expression: "PUBLIC_ACCESS" })]),
   ).toThrow("SECURITY_METADATA_CONFLICT:thing.get");
@@ -472,6 +517,7 @@ test("different finite operation graphs are equivalent when current claims warra
   const legacy = catalog("legacy_symfony", ["legacy.execute"]);
   const native = catalog("native_effect", ["native.start", "native.read"]);
   const { register, intent } = semanticFixture(legacy, native);
+
   const report = compareCapabilityIntent(
     register,
     intent,
@@ -479,6 +525,7 @@ test("different finite operation graphs are equivalent when current claims warra
     native,
     evidence(intent, [legacy, native]),
   );
+
   expect(report.equivalence).toBe("equivalent");
   expect(report.legacy.claim).toBe("supported");
   expect(report.native.claim).toBe("supported");
@@ -489,9 +536,11 @@ test("equal route sets are not equivalent when one witness omits an outcome", ()
   const legacy = catalog("legacy_symfony", ["shared.execute"], { sharedPath: true });
   const native = catalog("native_effect", ["shared.execute"], { sharedPath: true });
   const fixture = semanticFixture(legacy, native);
+
   const nativeImplementation = fixture.intent.implementations.find(
     (item) => item.backend === "native_effect",
   )!;
+
   const incompleteNative = {
     ...nativeImplementation,
     witnesses: nativeImplementation.witnesses.map((item) => ({
@@ -499,13 +548,16 @@ test("equal route sets are not equivalent when one witness omits an outcome", ()
       satisfies: { ...item.satisfies, assertion_ids: [] },
     })),
   };
+
   const intent = {
     ...fixture.intent,
     implementations: fixture.intent.implementations.map((item) =>
       item.backend === "native_effect" ? incompleteNative : item,
     ),
   };
+
   const register = { ...fixture.register, intents: [intent] };
+
   const report = compareCapabilityIntent(
     register,
     intent,
@@ -513,6 +565,7 @@ test("equal route sets are not equivalent when one witness omits an outcome", ()
     native,
     evidence(intent, [legacy, native]),
   );
+
   expect(report.equivalence).toBe("not_equivalent");
   expect(report.native.claim).toBe("unsupported");
   expect(report.native.diagnostics.map((item) => item.code)).toContain("MISSING_OUTCOME");
@@ -522,6 +575,7 @@ test("missing authorization, effect, and freshness claims remain unknown", () =>
   const legacy = catalog("legacy_symfony", ["legacy.execute"]);
   const native = catalog("native_effect", ["native.execute"]);
   const { register, intent } = semanticFixture(legacy, native);
+
   const report = compareCapabilityIntent(
     register,
     intent,
@@ -533,6 +587,7 @@ test("missing authorization, effect, and freshness claims remain unknown", () =>
       ["authorization_observed", "effect_requested", "fresh_read_observed"],
     ),
   );
+
   expect(report.equivalence).toBe("unknown");
   expect(report.native.missing_claim_kinds).toEqual([
     "authorization_observed",
@@ -553,6 +608,7 @@ test("claim scope and operation provenance are validated against each backend wi
   const native = catalog("native_effect", ["native.execute"]);
   const { register, intent } = semanticFixture(legacy, native);
   const valid = evidence(intent, [legacy, native]);
+
   const invalidScope: CapabilityEvidenceV2 = {
     ...valid,
     receipts: valid.receipts.map((receipt) =>
@@ -568,6 +624,7 @@ test("claim scope and operation provenance are validated against each backend wi
         : receipt,
     ),
   };
+
   expect(validateCapabilityEvidenceV2(invalidScope)).toBe(true);
   const scopeReport = compareCapabilityIntent(register, intent, legacy, native, invalidScope);
   expect(scopeReport.equivalence).toBe("unknown");
@@ -581,6 +638,7 @@ test("claim scope and operation provenance are validated against each backend wi
         : receipt,
     ),
   };
+
   const staleReport = compareCapabilityIntent(register, intent, legacy, native, staleOperation);
   expect(staleReport.equivalence).toBe("unknown");
   expect(staleReport.native.evidence_status).toBe("stale");
@@ -593,10 +651,12 @@ test("graph validation rejects duplicates, dangling edges, and cycles across edg
   const { register, intent } = semanticFixture(legacy, native);
   const implementation = intent.implementations[0]!;
   const original = implementation.witnesses[0]!;
+
   const nodes = [
     ...original.nodes,
     { ...original.nodes[0]!, predicate_refs: ["predicate://missing"] },
   ];
+
   const cyclic: ImplementationDefinition = {
     ...implementation,
     witnesses: [
@@ -625,6 +685,7 @@ test("graph validation rejects duplicates, dangling edges, and cycles across edg
       },
     ],
   };
+
   const details = validateIntentGraph(register, intent, cyclic, legacy).map((item) => item.detail);
   expect(details).toEqual(
     expect.arrayContaining([
@@ -642,11 +703,14 @@ test("a large operation vocabulary loses to a smaller complete composition", () 
     "legacy_symfony",
     Array.from({ length: 64 }, (_, index) => `legacy.${index}`),
   );
+
   const native = catalog("native_effect", ["native.complete"]);
   const fixture = semanticFixture(legacy, native);
+
   const legacyImplementation = fixture.intent.implementations.find(
     (item) => item.backend === "legacy_symfony",
   )!;
+
   const incompleteLegacy = {
     ...legacyImplementation,
     witnesses: legacyImplementation.witnesses.map((item) => ({
@@ -654,13 +718,16 @@ test("a large operation vocabulary loses to a smaller complete composition", () 
       satisfies: { ...item.satisfies, effect_ids: [] },
     })),
   };
+
   const intent = {
     ...fixture.intent,
     implementations: fixture.intent.implementations.map((item) =>
       item.backend === "legacy_symfony" ? incompleteLegacy : item,
     ),
   };
+
   const register = { ...fixture.register, intents: [intent] };
+
   const report = compareCapabilityIntent(
     register,
     intent,
@@ -668,6 +735,7 @@ test("a large operation vocabulary loses to a smaller complete composition", () 
     native,
     evidence(intent, [legacy, native]),
   );
+
   expect(report.equivalence).toBe("not_equivalent");
   expect(report.legacy.claim).toBe("unsupported");
   expect(report.native.claim).toBe("supported");
@@ -694,6 +762,7 @@ test("v1 receipts retain journey execution facts but cannot become v2 claim evid
       },
     ],
   };
+
   const migrated = migrateRuntimeEvidenceV1(value);
   expect(migrated).toEqual([
     {
@@ -711,6 +780,7 @@ test("v1 receipts retain journey execution facts but cannot become v2 claim evid
 test("artifact generation is deterministic and retains explicit migration gaps", () => {
   const digest = "4".repeat(64);
   const source = `src-${"5".repeat(64)}`;
+
   const acceptedV1 = {
     schema_version: "functional-parity-accepted-intent/v1",
     intents: [],
@@ -737,6 +807,7 @@ test("artifact generation is deterministic and retains explicit migration gaps",
       },
     ],
   };
+
   const evidenceV1 = {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-runtime-evidence/v1",
@@ -757,8 +828,10 @@ test("artifact generation is deterministic and retains explicit migration gaps",
       },
     ],
   };
+
   const legacyBytes = openApi(["legacy.execute"]);
   const nativeBytes = openApi(["native.execute"]);
+
   const input = {
     legacyOpenApiBytes: legacyBytes,
     nativeOpenApiBytes: nativeBytes,
@@ -768,6 +841,7 @@ test("artifact generation is deterministic and retains explicit migration gaps",
     evidencePin: { ...pin, source_schema_version: "functional-parity-runtime-evidence/v1" },
     sourceRevisionRef: "test-revision",
   };
+
   const first = generateCapabilityArtifacts(input);
   const second = generateCapabilityArtifacts(input);
   expect(first.bytes).toEqual(second.bytes);

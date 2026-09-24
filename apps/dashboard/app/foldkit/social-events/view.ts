@@ -1,4 +1,5 @@
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { Predicate } from "effect";
+import { IdempotencyKey, DepartmentId, SemesterId } from "@vektorprogrammet/http-api";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   ChangedDescription,
@@ -15,7 +16,7 @@ import {
   SubmittedCreate,
   type Message,
 } from "./message";
-import type { Model } from "./model";
+import { type Model, ListState, ScopeState } from "./model";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("nb-NO", {
   dateStyle: "medium",
@@ -34,27 +35,34 @@ export const audienceLabel = (audience: "TeamMembers" | "AssistantsAndTeamMember
 export const timeLabel = (startAt: string, observedAt: string): string | null => {
   const start = new Date(startAt).getTime();
   const observed = new Date(observedAt).getTime();
+
   if (!Number.isFinite(start) || !Number.isFinite(observed)) return null;
+
   if (start < observed) return "Har vært";
+
   return start < observed + 7 * 24 * 60 * 60 * 1000 ? "Skjer innen en uke" : null;
 };
 
 const formatInstant = (instant: string): string => {
   const value = new Date(instant);
+
   return Number.isFinite(value.getTime()) ? dateTimeFormatter.format(value) : instant;
 };
 
 const semesterLabel = (semester: { readonly startAt: string; readonly endAt: string }): string => {
   const start = new Date(semester.startAt);
   const end = new Date(semester.endAt);
+
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
     return `${semester.startAt} – ${semester.endAt}`;
   }
+
   return `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
 };
 
 const failureBanner = (model: Model, h: HtmlBuilder<Message>): Html => {
   if (model.failure === null) return h.empty;
+
   return h.section(
     [h.Class("social-events__banner social-events__banner--error"), h.Role("alert")],
     [
@@ -77,7 +85,7 @@ const successBanner = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.p(
             [],
             [
-              model.list._tag === "Loading"
+              ListState.guards.Loading(model.list)
                 ? "Den oppdaterte arrangementlisten hentes nå."
                 : "Arrangementlisten er oppdatert fra serveren.",
             ],
@@ -87,13 +95,13 @@ const successBanner = (model: Model, h: HtmlBuilder<Message>): Html =>
     : h.empty;
 
 const scopeFailure = (model: Model, h: HtmlBuilder<Message>): Html =>
-  model.scope._tag === "Failure"
+  ScopeState.guards.Failure(model.scope)
     ? h.section(
         [h.Class("social-events__error"), h.Role("alert")],
         [
           h.h2(
             [],
-            [model.scope.error._tag === "Denied" ? "Ingen tilgang" : "Kunne ikke hente scope"],
+            [Predicate.isTagged(model.scope.error, "Denied") ? "Ingen tilgang" : "Kunne ikke hente scope"],
           ),
           h.p([], [model.scope.error.message]),
           h.button(
@@ -105,19 +113,21 @@ const scopeFailure = (model: Model, h: HtmlBuilder<Message>): Html =>
     : h.empty;
 
 const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
-  if (model.list._tag === "Idle") {
+  if (ListState.guards.Idle(model.list)) {
     return h.section(
       [h.Class("social-events__empty"), h.Role("status")],
       [h.h2([], ["Velg avdeling og semester"]), h.p([], ["Velg et scope for å se arrangementer."])],
     );
   }
-  if (model.list._tag === "Loading") {
+
+  if (ListState.guards.Loading(model.list)) {
     return h.section(
       [h.Class("social-events__loading"), h.Role("status"), h.AriaLive("polite")],
       ["Henter arrangementer …"],
     );
   }
-  if (model.list._tag === "Failure") {
+
+  if (ListState.guards.Failure(model.list)) {
     return h.section(
       [h.Class("social-events__error"), h.Role("alert")],
       [
@@ -139,12 +149,16 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
   }
 
   const list = model.list.data;
-  const scope = model.scope._tag === "Success" ? model.scope.data : null;
+  const scope = ScopeState.guards.Success(model.scope) ? model.scope.data : null;
+
   const department =
     scope?.departments.find((candidate) => candidate.departmentId === list.departmentId) ?? null;
+
   const semester =
     scope?.semesters.find((candidate) => candidate.semesterId === list.semesterId) ?? null;
+
   const events = list.events;
+
   if (events.length === 0) {
     return h.section(
       [h.Class("social-events__empty"), h.Role("status")],
@@ -201,14 +215,17 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
                 [],
                 events.map((event) => {
                   const label = timeLabel(event.startAt, list.observedAt);
+
                   const eventDepartment =
                     scope?.departments.find(
                       (candidate) => candidate.departmentId === event.departmentId,
                     ) ?? null;
+
                   const eventSemester =
                     scope?.semesters.find(
                       (candidate) => candidate.semesterId === event.semesterId,
                     ) ?? null;
+
                   return h.tr(
                     [h.DataAttribute("event-id", String(event.eventId))],
                     [
@@ -258,20 +275,24 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
 };
 
 const workspace = (model: Model, h: HtmlBuilder<Message>): Html => {
-  if (model.scope._tag === "Loading" || model.scope._tag === "Idle") {
+  if (ScopeState.guards.Loading(model.scope) || ScopeState.guards.Idle(model.scope)) {
     return h.section(
       [h.Class("social-events__loading"), h.Role("status"), h.AriaLive("polite")],
       ["Henter tilgjengelige avdelinger og semestre …"],
     );
   }
-  if (model.scope._tag === "Failure") return scopeFailure(model, h);
+
+  if (ScopeState.guards.Failure(model.scope)) return scopeFailure(model, h);
 
   const scope = model.scope.data;
   const disabled = model.pendingCommand !== null;
+
   const commandId = IdempotencyKey.make(
     `socialevents-${model.commandSeed}-${model.commandSequence}`,
   );
-  const listPending = model.list._tag === "Idle" || model.list._tag === "Loading";
+
+  const listPending = ListState.guards.Idle(model.list) || ListState.guards.Loading(model.list);
+
   return h.div(
     [h.Class("social-events__ready")],
     [
@@ -296,7 +317,7 @@ const workspace = (model: Model, h: HtmlBuilder<Message>): Html => {
                   h.Value(model.draft.departmentId ?? ""),
                   h.Disabled(disabled),
                   h.OnChange((value) =>
-                    SelectedDepartment({ departmentId: value === "" ? null : (value as never) }),
+                    SelectedDepartment({ departmentId: value === "" ? null : (DepartmentId.make(value)) }),
                   ),
                 ],
                 [
@@ -318,7 +339,7 @@ const workspace = (model: Model, h: HtmlBuilder<Message>): Html => {
                   h.Value(model.draft.semesterId ?? ""),
                   h.Disabled(disabled),
                   h.OnChange((value) =>
-                    SelectedSemester({ semesterId: value === "" ? null : (value as never) }),
+                    SelectedSemester({ semesterId: value === "" ? null : (SemesterId.make(value)) }),
                   ),
                 ],
                 [

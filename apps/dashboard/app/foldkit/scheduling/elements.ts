@@ -3,16 +3,21 @@ import { createBrowserRecruitmentClient } from "../recruitment/browser-client";
 import { embedScheduling } from "./main";
 
 const SCHEDULING_ELEMENT = "vektor-recruitment-scheduling";
+
 const SCHEDULING_INPUT_ATTRIBUTE = "scheduling-input";
+
 const makeIdempotencyKeySeed = (): typeof IdempotencyKey.Type => {
   const bytes = window.crypto.getRandomValues(new Uint8Array(32));
   let seed = "";
+
   for (const byte of bytes) seed += byte.toString(16).padStart(2, "0");
+
   return IdempotencyKey.make(seed);
 };
 
 const registerSchedulingElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
+
   if (customElements.get(SCHEDULING_ELEMENT) !== undefined) return;
 
   customElements.define(

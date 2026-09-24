@@ -13,6 +13,7 @@ import {
 } from "./bridge";
 
 export const SchoolSurveysRequestId = S.Int.check(S.isGreaterThanOrEqualTo(1));
+
 export type SchoolSurveysRequestId = S.Schema.Type<typeof SchoolSurveysRequestId>;
 
 export const SchoolSurveysFailureTag = S.Literals([
@@ -27,6 +28,7 @@ export const SchoolSurveysFailureTag = S.Literals([
   "Configuration",
   "InvalidDraft",
 ]);
+
 export type SchoolSurveysFailureTag = S.Schema.Type<typeof SchoolSurveysFailureTag>;
 
 export const SchoolSurveysFailure = S.TaggedUnion({
@@ -48,6 +50,7 @@ export const SchoolSurveysFailure = S.TaggedUnion({
     message: S.String,
   },
 });
+
 export type SchoolSurveysFailure = S.Schema.Type<typeof SchoolSurveysFailure>;
 
 export const QuestionDraft = S.Struct({
@@ -58,6 +61,7 @@ export const QuestionDraft = S.Struct({
   required: S.Boolean,
   alternatives: S.Array(S.String),
 });
+
 export type QuestionDraft = S.Schema.Type<typeof QuestionDraft>;
 
 export const SurveyDraft = S.Struct({
@@ -68,6 +72,7 @@ export const SurveyDraft = S.Struct({
   resultsVisibility: SurveyResultsVisibility,
   questions: S.Array(QuestionDraft),
 });
+
 export type SurveyDraft = S.Schema.Type<typeof SurveyDraft>;
 
 export const CatalogState = S.TaggedUnion({
@@ -76,6 +81,7 @@ export const CatalogState = S.TaggedUnion({
   Success: { data: SchoolSurveyAdminCatalogResource },
   Failure: { error: SchoolSurveysFailure },
 });
+
 export type CatalogState = S.Schema.Type<typeof CatalogState>;
 
 export const ListState = S.TaggedUnion({
@@ -84,6 +90,7 @@ export const ListState = S.TaggedUnion({
   Success: { data: SchoolSurveyAdminListResource },
   Failure: { error: SchoolSurveysFailure },
 });
+
 export type ListState = S.Schema.Type<typeof ListState>;
 
 export const ResultsState = S.TaggedUnion({
@@ -92,9 +99,11 @@ export const ResultsState = S.TaggedUnion({
   Success: { data: SchoolSurveyResultsResource },
   Failure: { error: SchoolSurveysFailure, surveyId: SurveyId },
 });
+
 export type ResultsState = S.Schema.Type<typeof ResultsState>;
 
 export const PendingCommand = S.Literals(["Create", "Close"]);
+
 export type PendingCommand = S.Schema.Type<typeof PendingCommand>;
 
 export const RetriableCreate = S.Struct({
@@ -125,9 +134,10 @@ export const Model = S.Struct({
   banner: S.NullOr(SchoolSurveysFailure),
   successMessage: S.NullOr(S.String),
 });
+
 export type Model = S.Schema.Type<typeof Model>;
 
-export const makeQuestionDraft = (draftId: number, kind: QuestionDraft["kind"]): QuestionDraft => ({
+export const questionDraft = (draftId: number, kind: QuestionDraft["kind"]): QuestionDraft => ({
   draftId,
   kind,
   label: "",
@@ -136,7 +146,7 @@ export const makeQuestionDraft = (draftId: number, kind: QuestionDraft["kind"]):
   alternatives: kind === "Text" ? [] : ["", ""],
 });
 
-export const makeDraft = (): SurveyDraft => ({
+export const emptyDraft = (): SurveyDraft => ({
   departmentId: null,
   semesterId: null,
   title: "",
@@ -145,12 +155,12 @@ export const makeDraft = (): SurveyDraft => ({
   questions: [],
 });
 
-export const makeInitialModel = (): Model => ({
-  catalog: { _tag: "Loading", requestId: 1 },
-  list: { _tag: "Idle" },
+export const init = (): Model => ({
+  catalog: CatalogState.cases.Loading.make({ requestId: 1 }),
+  list: ListState.cases.Idle.make({}),
   detail: null,
-  results: { _tag: "Idle" },
-  draft: makeDraft(),
+  results: ResultsState.cases.Idle.make({}),
+  draft: emptyDraft(),
   selectedSurveyId: null,
   requestSequence: 1,
   questionSequence: 1,

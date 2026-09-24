@@ -1,8 +1,11 @@
-import { Database, type DatabaseShape } from "../service.js";
-import { Effect, Schema } from "effect";
+import { Database, type DatabaseOperations } from "../service.js";
+import { flow, Effect, Schema } from "effect";
+import { SqlSchema } from "effect/unstable/sql";
 import {
+  Receipt,
   ReceiptNotFound,
   ReceiptPersistenceError,
+  ReceiptStatusSchema,
   ReceiptSettlementEvidenceSelectSchema,
   type ReceiptSettlementEvidence,
 } from "@vektorprogrammet/domain/receipt";
@@ -19,17 +22,18 @@ import type {
 const projectionError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
 
-const decodeSettlementEvidence = (
-  row: unknown,
-): Effect.Effect<ReceiptSettlementEvidence, ReceiptPersistenceError> =>
-  Schema.decodeUnknownEffect(ReceiptSettlementEvidenceSelectSchema)(row, {
+const decodeSettlementEvidence = flow(
+  Schema.decodeUnknownEffect(ReceiptSettlementEvidenceSelectSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => projectionError("decode Receipt settlement evidence", cause)));
+  }),
+  Effect.mapError((cause) => projectionError("decode Receipt settlement evidence", cause)),
+);
+
 const selectSettlementEvidence = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   receiptId: string,
 ): Effect.Effect<ReceiptSettlementEvidence | undefined, ReceiptPersistenceError> =>
-  sql<Record<string, unknown>>`
+  sql`
     SELECT
       settlement_id AS "settlementId",
       receipt_id AS "receiptId",
@@ -58,6 +62,7 @@ export const listAssistantReceipts = (
 ): Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     return yield* sql<ReceiptListItem>`
     SELECT receipt_id AS "receiptId", visual_id AS "visualId",
       owner_person_id AS "ownerPersonId", department_id AS "departmentId",
@@ -83,6 +88,7 @@ export const listApproverReceipts = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const statusPredicate = status === undefined ? sql`TRUE` : sql`status = ${status}`;
+
     return yield* sql<ReceiptListItem>`
       SELECT receipt_id AS "receiptId", visual_id AS "visualId",
         owner_person_id AS "ownerPersonId", department_id AS "departmentId",
@@ -108,6 +114,7 @@ export const receiptStatusTotals: Effect.Effect<
   Database
 > = Effect.gen(function* () {
   const sql = yield* Database;
+
   return yield* sql<ReceiptStatusTotal>`
     SELECT status, count(*)::text AS "receiptCount", coalesce(sum(amount_ore), 0)::text AS "amountOre"
     FROM economy_receipts
@@ -120,18 +127,32 @@ export const receiptStatusTotals: Effect.Effect<
   );
 });
 
-interface OwnedReceiptProjectionRow extends Omit<OwnedReceiptProjectionItem, "settlement"> {
-  readonly settlement: unknown | null;
-}
+const findOwnedReceiptProjection = SqlSchema.findAll({
+  Request: Schema.Struct({
+    ownerPersonId: Schema.String,
+    status: Schema.optional(ReceiptStatusSchema),
+  }),
+  Result: Schema.Struct({
+    receiptId: Receipt.fields.receiptId,
+    visualId: Receipt.fields.visualId,
+    ownerPersonId: Receipt.fields.ownerPersonId,
+    departmentId: Receipt.fields.departmentId,
+    amountOre: Schema.String,
+    currency: Receipt.fields.currency,
+    description: Receipt.fields.description,
+    receiptDate: Receipt.fields.receiptDate,
+    submittedAt: Receipt.fields.submittedAt,
+    status: Receipt.fields.status,
+    approvedAt: Receipt.fields.approvedAt,
+    revision: Receipt.fields.revision,
+    settlement: Schema.Unknown,
+  }),
+  execute: ({ ownerPersonId, status }) =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      const statusPredicate = status === undefined ? sql`TRUE` : sql`receipt.status = ${status}`;
 
-export const listOwnedReceiptProjection = (
-  ownerPersonId: string,
-  status?: ReceiptListItem["status"],
-): Effect.Effect<ReadonlyArray<OwnedReceiptProjectionItem>, ReceiptPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-    const statusPredicate = status === undefined ? sql`TRUE` : sql`receipt.status = ${status}`;
-    const rows = yield* sql<OwnedReceiptProjectionRow>`
+      return yield* sql`
       SELECT
         receipt.receipt_id AS "receiptId",
         receipt.visual_id AS "visualId",
@@ -168,10 +189,24 @@ export const listOwnedReceiptProjection = (
         AND ${statusPredicate}
       ORDER BY receipt.submitted_at DESC, receipt.receipt_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(projectionError("list owned receipt projection", cause)),
+        ),
+      );
+    }),
+});
+
+export const listOwnedReceiptProjection = (
+  ownerPersonId: string,
+  status?: ReceiptListItem["status"],
+): Effect.Effect<ReadonlyArray<OwnedReceiptProjectionItem>, ReceiptPersistenceError, Database> =>
+  Effect.gen(function* () {
+    const rows = yield* findOwnedReceiptProjection({ ownerPersonId, status }).pipe(
+      Effect.catchTag("SchemaError", (cause) =>
         Effect.fail(projectionError("list owned receipt projection", cause)),
       ),
     );
+
     return yield* Effect.forEach(
       rows,
       (row): Effect.Effect<OwnedReceiptProjectionItem, ReceiptPersistenceError> =>
@@ -201,6 +236,7 @@ export const readReceiptLifecycleEvidence = (
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const receipts = yield* sql<ReceiptLifecycleFileProjection>`
       SELECT file_ref AS "fileRef", file_object_key AS "objectKey",
         file_content_type AS "contentType", file_byte_length::text AS "byteLength",
@@ -208,9 +244,12 @@ export const readReceiptLifecycleEvidence = (
       FROM economy_receipts
       WHERE receipt_id = ${receiptId} AND owner_person_id = ${ownerPersonId}
     `;
+
     const receipt = receipts[0];
+
     if (receipt === undefined) return yield* Effect.fail(new ReceiptNotFound({ receiptId }));
     const settlement = yield* selectSettlementEvidence(sql, receiptId);
+
     const outbox = yield* sql<ReceiptLifecycleOutboxProjection>`
       SELECT effect_id AS "effectId", effect_type AS "effectType",
         command_id AS "commandId", receipt_id AS "receiptId", ordinal, status, attempts,
@@ -219,6 +258,7 @@ export const readReceiptLifecycleEvidence = (
       WHERE receipt_id = ${receiptId}
       ORDER BY command_id, ordinal
     `;
+
     const audit = yield* sql<ReceiptLifecycleAuditProjection>`
       SELECT command_id AS "commandId", receipt_id AS "receiptId",
         action, receipt_revision AS "receiptRevision"
@@ -226,6 +266,7 @@ export const readReceiptLifecycleEvidence = (
       WHERE receipt_id = ${receiptId}
       ORDER BY occurred_at, command_id
     `;
+
     return {
       receiptId,
       file: {

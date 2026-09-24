@@ -5,7 +5,7 @@
  */
 import { Config, Effect, Option } from "effect";
 
-const optionalString = (name: string) => Config.option(Config.string(name));
+const optionalString = (name: string) => Config.option(Config.String(name));
 
 const configuredApiUrl = Config.all([
   optionalString("API_URL"),
@@ -42,4 +42,5 @@ export const sdkRuntimeConfig = Config.all({
 const configured = sdkRuntimeConfig.pipe(Effect.runSync);
 
 export const apiUrl: string | undefined = configured.apiUrl;
+
 export const isFixtureMode: boolean = configured.isFixtureMode;

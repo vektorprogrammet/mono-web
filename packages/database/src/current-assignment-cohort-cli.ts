@@ -10,6 +10,7 @@ import { DatabaseLive } from "./layers.js";
 import { databaseHealth } from "./service.js";
 
 const invalidSnapshot = () => new CurrentAssignmentFailure("InvalidSnapshot");
+
 export const currentAssignmentForbiddenAmbientConfigurationKeys = [
   "DATABASE_URL",
   "BACKEND_PG_URL",
@@ -58,9 +59,11 @@ export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
   )
     throw invalidSnapshot();
   rejectCurrentAssignmentAmbientConfiguration(process.env, invalidSnapshot);
+
   const input = decodeCurrentAssignmentSnapshot(
     await readPrivateCohortJson(process.env.CURRENT_ASSIGNMENT_INPUT, invalidSnapshot),
   );
+
   const url = disposableCurrentAssignmentDatabaseUrl(process.env.CURRENT_ASSIGNMENT_PG_URL);
   await Effect.runPromise(
     databaseHealth.pipe(
@@ -68,6 +71,7 @@ export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
     ),
   );
   const pool = new Pool({ connectionString: url, max: 2 });
+
   try {
     process.stdout.write(JSON.stringify(await importCurrentAssignmentCohort(pool, input)) + "\n");
   } finally {

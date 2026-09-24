@@ -2,39 +2,50 @@ import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "./service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Economy } from "@vektorprogrammet/domain/receipt";
+import {
+  ReceiptId,
+  ReceiptSettlementCommandRequestSchema,
+  Economy,
+} from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/database/receipt";
-import { Effect, Layer } from "effect";
+import { Predicate, Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
+
 const runtime = makeControlledTestRuntime(
   Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))),
 );
 
 const ownerPersonId = PersonId.make("settlement-test-owner");
+
 const settlerPersonId = PersonId.make("settlement-test-settler");
+
 const deniedPersonId = PersonId.make("settlement-test-denied");
+
 const departmentId = DepartmentId.make("settlement-test-department");
+
 const authorizationInstant = "2038-06-15T12:00:00.000Z";
+
 const paymentDestination = "ciphertext:v1:settlement-test-destination";
 
 const principal = (personId: PersonId) => ({ personId, authorizationInstant });
+
 const command = (
   commandId: string,
   receiptId: string,
   expectedRevision: number,
   externalReference: string,
-) => ({
-  _tag: "RecordReceiptSettlement" as const,
-  commandId,
-  receiptId,
-  expectedRevision,
-  externalAuthority: "settlement-test-bank",
-  externalReference,
-  settledAt: "2038-06-15T11:00:00.000Z",
-});
+) =>
+  ReceiptSettlementCommandRequestSchema.cases.RecordReceiptSettlement.make({
+    commandId,
+    receiptId: ReceiptId.make(receiptId),
+    expectedRevision,
+    externalAuthority: "settlement-test-bank",
+    externalReference,
+    settledAt: "2038-06-15T11:00:00.000Z",
+  });
 
 afterAll(async () => {
   await runtime.dispose();
@@ -121,15 +132,18 @@ describe("Receipt settlement evidence in PGlite", () => {
           command("settlement-test-command-1", "settlement-test-receipt-1", 0, "reference-1"),
           principal(settlerPersonId),
         );
+
         const immutableUpdate = yield* Effect.exit(database`
           UPDATE public.economy_receipt_settlements
           SET external_reference = 'mutated-reference'
           WHERE settlement_id = ${recorded.settlement.settlementId}
         `);
+
         const replay = yield* economy.recordReceiptSettlement(
           command("settlement-test-command-1", "settlement-test-receipt-1", 0, "reference-1"),
           principal(settlerPersonId),
         );
+
         const changedReplay = yield* Effect.flip(
           economy.recordReceiptSettlement(
             command(
@@ -141,30 +155,35 @@ describe("Receipt settlement evidence in PGlite", () => {
             principal(settlerPersonId),
           ),
         );
+
         const duplicateReference = yield* Effect.flip(
           economy.recordReceiptSettlement(
             command("settlement-test-command-2", "settlement-test-receipt-2", 0, "reference-1"),
             principal(settlerPersonId),
           ),
         );
+
         const staleRevision = yield* Effect.flip(
           economy.recordReceiptSettlement(
             command("settlement-test-command-3", "settlement-test-receipt-3", 0, "reference-3"),
             principal(settlerPersonId),
           ),
         );
+
         const unapproved = yield* Effect.flip(
           economy.recordReceiptSettlement(
             command("settlement-test-command-4", "settlement-test-receipt-5", 0, "reference-5"),
             principal(settlerPersonId),
           ),
         );
+
         const concealedAuthority = yield* Effect.flip(
           economy.recordReceiptSettlement(
             command("settlement-test-command-5", "settlement-test-receipt-2", 0, "reference-2"),
             principal(deniedPersonId),
           ),
         );
+
         const concurrent = yield* Effect.all(
           [
             economy
@@ -202,16 +221,20 @@ describe("Receipt settlement evidence in PGlite", () => {
           ],
           { concurrency: "unbounded" },
         );
+
         const queue = yield* economy.listReceiptsForSettlement(
           settlerPersonId,
           authorizationInstant,
         );
+
         const owned = yield* economy.listOwnedReceipts(ownerPersonId);
+
         const finance = yield* economy.readReceiptSettlementForFinance(
           "settlement-test-receipt-1",
           settlerPersonId,
           authorizationInstant,
         );
+
         const outbox = yield* database<{
           readonly effectType: string;
           readonly commandId: string;
@@ -223,6 +246,7 @@ describe("Receipt settlement evidence in PGlite", () => {
           FROM public.economy_receipt_outbox
           WHERE command_id = 'settlement-test-command-1'
         `;
+
         const audit = yield* database<{
           readonly commandId: string;
           readonly action: string;
@@ -248,7 +272,7 @@ describe("Receipt settlement evidence in PGlite", () => {
           unapproved: unapproved._tag,
           concealedAuthority: concealedAuthority._tag,
           concurrent: concurrent.map((result) =>
-            result._tag === "Success" ? "Accepted" : result.error._tag,
+            Predicate.isTagged(result, "Success") ? "Accepted" : result.error._tag,
           ),
           queue: queue.map(({ receiptId }) => receiptId),
           ownerSettlement: owned.find(({ receiptId }) => receiptId === "settlement-test-receipt-1")

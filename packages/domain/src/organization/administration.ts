@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { flow, Predicate, Effect, Schema } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { OrganizationDecodeError, OrganizationRoleDenied } from "./errors.js";
 import {
@@ -7,9 +7,6 @@ import {
   CreateTeamCommandSchema,
   OrganizationActorSchema,
   OrganizationCreateCommandSchema,
-  type CreateDepartmentCommand,
-  type CreateFieldOfStudyCommand,
-  type CreateTeamCommand,
   type OrganizationActor,
   type OrganizationCommandId,
   type OrganizationCreateCommand,
@@ -27,40 +24,40 @@ import {
 const decodeError = (operation: string, cause: unknown) =>
   new OrganizationDecodeError({ operation, message: String(cause) });
 
-export const decodeOrganizationActor = (
-  input: unknown,
-): Effect.Effect<OrganizationActor, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(OrganizationActorSchema)(input, {
+export const decodeOrganizationActor = flow(
+  Schema.decodeUnknownEffect(OrganizationActorSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError("decode organization actor", cause)));
+  }),
+  Effect.mapError((cause) => decodeError("decode organization actor", cause)),
+);
 
-export const decodeCreateDepartmentCommand = (
-  input: unknown,
-): Effect.Effect<CreateDepartmentCommand, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(CreateDepartmentCommandSchema)(input, {
+export const decodeCreateDepartmentCommand = flow(
+  Schema.decodeUnknownEffect(CreateDepartmentCommandSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError("decode CreateDepartment command", cause)));
+  }),
+  Effect.mapError((cause) => decodeError("decode CreateDepartment command", cause)),
+);
 
-export const decodeCreateTeamCommand = (
-  input: unknown,
-): Effect.Effect<CreateTeamCommand, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(CreateTeamCommandSchema)(input, {
+export const decodeCreateTeamCommand = flow(
+  Schema.decodeUnknownEffect(CreateTeamCommandSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError("decode CreateTeam command", cause)));
+  }),
+  Effect.mapError((cause) => decodeError("decode CreateTeam command", cause)),
+);
 
-export const decodeCreateFieldOfStudyCommand = (
-  input: unknown,
-): Effect.Effect<CreateFieldOfStudyCommand, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(CreateFieldOfStudyCommandSchema)(input, {
+export const decodeCreateFieldOfStudyCommand = flow(
+  Schema.decodeUnknownEffect(CreateFieldOfStudyCommandSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError("decode CreateFieldOfStudy command", cause)));
+  }),
+  Effect.mapError((cause) => decodeError("decode CreateFieldOfStudy command", cause)),
+);
 
-export const decodeOrganizationCreateCommand = (
-  input: unknown,
-): Effect.Effect<OrganizationCreateCommand, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(OrganizationCreateCommandSchema)(input, {
+export const decodeOrganizationCreateCommand = flow(
+  Schema.decodeUnknownEffect(OrganizationCreateCommandSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError("decode organization create command", cause)));
+  }),
+  Effect.mapError((cause) => decodeError("decode organization create command", cause)),
+);
 
 export const organizationCommandBytes = (command: OrganizationCreateCommand): Uint8Array =>
   canonicalJsonBytes(command);
@@ -90,6 +87,7 @@ export function organizationEntityIdForCommand(
   commandId: OrganizationCommandId,
 ): DepartmentIdType | TeamIdType | FieldOfStudyIdType {
   const digest = organizationEntityDigest(entityKind, commandId);
+
   switch (entityKind) {
     case "Department":
       return DepartmentId.make(`department-${digest}`);
@@ -112,7 +110,7 @@ export const fieldOfStudyIdForCommand = (commandId: OrganizationCommandId): Fiel
 export const authorizeOrganizationActor = (
   actor: OrganizationActor,
 ): Effect.Effect<void, OrganizationRoleDenied> =>
-  actor._tag === "OrganizationAdministrator"
+  Predicate.isTagged(actor, "OrganizationAdministrator")
     ? Effect.void
     : Effect.fail(
         new OrganizationRoleDenied({

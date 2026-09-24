@@ -49,6 +49,7 @@ export function TabMenu<T extends string>({
               activeTab === tab
                 ? "font-semibold text-vektor-darkblue"
                 : "hover:text-vektor-light-blue";
+
             return (
               <div key={tab}>
                 <DropdownMenuLabel
@@ -76,6 +77,7 @@ export function TabMenu<T extends string>({
           activeTab === tab
             ? "bg-vektor-darkblue text-white hover:bg-vektor-darkblue"
             : "bg-transparent hover:bg-vektor-light-blue dark:text-white";
+
         return (
           <div key={tab}>
             <Button

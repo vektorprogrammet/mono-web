@@ -1,17 +1,17 @@
+import { RecruitmentInterviewConductObservationSchema } from "../../packages/domain/src/recruitment/schema.js";
 /**0103 observer: reuse0101's real finalized conduct and owned production runtime. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
-const { Schema } = createRequire(new URL("../../packages/database/package.json", import.meta.url))(
-  "effect",
-);
+
 import {
   InterviewReport,
   InterviewReportQuery,
   InterviewReportRow,
 } from "../../packages/domain/src/recruitment/report.js";
+import { Match, Predicate, Schema } from "effect";
 
 const ids = {
   person: "report-coordinator-0103",
@@ -25,6 +25,7 @@ const ids = {
   otherDepartment: "report-other-department-0103",
   otherTeam: "report-other-team-0103",
 };
+
 const fixtures = [
   { key: "low", recommendation: "Nei", scores: [1, 2, 0] },
   { key: "tie-a", recommendation: "Ja", scores: [8, 8, 8] },
@@ -34,6 +35,7 @@ const fixtures = [
   { key: "closed", recommendation: "Ja", scores: [1, 1, 1] },
   { key: "foreign", recommendation: "Nei", scores: [2, 2, 2] },
 ] as const;
+
 export function validateInterviewReportFixture() {
   for (const period of [ids.period, ids.closed, ids.empty, ids.foreign])
     for (const recommendation of ["all", "Ja", "Kanskje", "Nei", "not-recorded"])
@@ -46,6 +48,7 @@ export function validateInterviewReportFixture() {
             sort,
             direction,
           });
+
   for (const f of fixtures)
     Schema.decodeUnknownSync(InterviewReportRow)({
       interviewId: `report-interview-${f.key}`,
@@ -76,20 +79,25 @@ type Options = {
   auditPage: (page: any, state: string) => Promise<void>;
   recordGate: (...observations: string[]) => void;
 };
+
 export async function seedInterviewReportCoordinator(o: { pool: any; secrets: string[] }) {
   const { pool, secrets } = o;
-  const clone = async (table: string, where: string, values: Record<string, unknown>) =>
+
+  const clone = async (table: string, where: string, values: Schema.JsonObject) =>
     pool.query(
       `INSERT INTO ${table} SELECT (jsonb_populate_record(NULL::${table},to_jsonb(s)||$1::jsonb)).* FROM ${table} s WHERE ${where} ON CONFLICT DO NOTHING`,
       [JSON.stringify(values)],
     );
+
   const ids = {
     person: "report-coordinator-0103",
     member: "report-coordinator-membership-0103",
     department: "department-native-conduct-0063",
     team: "team-native-conduct-0063",
   } as const;
+
   const email = "coordinator.report@example.invalid";
+
   if (!secrets.includes(email)) secrets.push(email);
   await clone("public.person_profiles", "person_id='journey-conduct-leader-0063'", {
     person_id: ids.person,
@@ -127,17 +135,21 @@ export async function observeInterviewReport(o: Options) {
   const require = createRequire(join(o.root, "apps/dashboard/package.json"));
   const { expect } = require("@playwright/test");
   const gates: string[] = [];
+
   const record = (...observations: string[]) => {
     gates.push(...observations);
     o.recordGate(...observations);
   };
+
   await seedInterviewReportCoordinator({ pool, secrets: o.secrets });
   const email = "coordinator.report@example.invalid";
-  const clone = async (table: string, where: string, values: Record<string, unknown>) =>
+
+  const clone = async (table: string, where: string, values: Schema.JsonObject) =>
     pool.query(
       `INSERT INTO ${table} SELECT (jsonb_populate_record(NULL::${table},to_jsonb(s)||$1::jsonb)).* FROM ${table} s WHERE ${where}`,
       [JSON.stringify(values)],
     );
+
   await clone("public.organization_departments", `department_id='${ids.department}'`, {
     department_id: ids.otherDepartment,
     name: "Other report department",
@@ -157,6 +169,7 @@ export async function observeInterviewReport(o: Options) {
     "field_of_study_id='field-native-conduct-0063'",
     { field_of_study_id: "report-other-field-0103", department_id: ids.otherDepartment },
   );
+
   for (const [period, year, department] of [
     [ids.closed, 2024, ids.department],
     [ids.empty, 2023, ids.department],
@@ -175,6 +188,7 @@ export async function observeInterviewReport(o: Options) {
       end_at: `${year}-03-01T00:00:00Z`,
     });
   }
+
   await clone("public.organization_departments", `department_id='${ids.department}'`, {
     department_id: "report-empty-department",
     name: "Empty report department",
@@ -189,10 +203,12 @@ export async function observeInterviewReport(o: Options) {
     department_id: "report-empty-department",
     name: "Empty report",
   });
+
   for (const f of fixtures) {
     const applicant = `report-applicant-${f.key}`,
       application = `report-application-${f.key}`,
       interview = `report-interview-${f.key}`;
+
     const department = f.key === "foreign" ? ids.otherDepartment : ids.department;
     await clone("public.admission_applicants", "applicant_id='applicant-native-conduct-a-0063'", {
       applicant_id: applicant,
@@ -211,8 +227,11 @@ export async function observeInterviewReport(o: Options) {
         field_of_study_id:
           f.key === "foreign" ? "report-other-field-0103" : "field-native-conduct-0063",
         applicant_id: applicant,
-        admission_period_id:
-          f.key === "closed" ? ids.closed : f.key === "foreign" ? ids.foreign : ids.period,
+        admission_period_id: Match.value(f.key).pipe(
+          Match.when("closed", () => ids.closed),
+          Match.when("foreign", () => ids.foreign),
+          Match.orElse(() => ids.period),
+        ),
         department_id: department,
       },
     );
@@ -233,6 +252,7 @@ export async function observeInterviewReport(o: Options) {
       },
     );
   }
+
   const link = async (key: string, client = pool) => {
     const invitation = `report-link-${key}`;
     await client.query(
@@ -250,20 +270,26 @@ export async function observeInterviewReport(o: Options) {
       [`report-applicant-${key}`, ids.person, invitation],
     );
   };
+
   await link("known-self");
+
   const signIn = await fetch(`${api}/api/auth/sign-in/email`, {
     method: "POST",
     headers: { origin: ui, "content-type": "application/json" },
     body: JSON.stringify({ email, password: o.password }),
   });
+
   assert.equal(signIn.status, 200);
+
   const cookie = signIn.headers
     .getSetCookie()
     .map((v) => v.split(";")[0])
     .join("; ");
+
   assert.ok(cookie);
   o.secrets.push(cookie, ...cookie.split("; ").map((v) => v.slice(v.indexOf("=") + 1)));
   assert.equal((await signIn.json()).user.id, ids.person);
+
   const get = (
     query: Record<string, string> = {},
     session = cookie,
@@ -272,16 +298,20 @@ export async function observeInterviewReport(o: Options) {
     fetch(`${api}/api/recruitment/interview-report?${new URLSearchParams(query)}`, {
       headers: { cookie: session, origin: ui, ...extra },
     });
+
   const read = async (query: Record<string, string> = {}): Promise<InterviewReport> => {
     const response = await get(query);
+
     if (response.status !== 200) {
       const problem = await response.json().catch(() => ({}));
+
       const authority = (
         await pool.query(
           `SELECT m.membership_id,m.is_team_leader,m.is_suspended,m.end_at,t.team_id,t.active team_active,d.department_id,d.active department_active FROM public.organization_memberships m JOIN public.organization_teams t USING(team_id) JOIN public.organization_departments d USING(department_id) WHERE m.person_id=$1`,
           [ids.person],
         )
       ).rows;
+
       throw new Error(
         JSON.stringify({
           gate: "report read",
@@ -292,18 +322,23 @@ export async function observeInterviewReport(o: Options) {
         }),
       );
     }
+
     assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+
     return Schema.decodeUnknownSync(InterviewReport)(await response.json(), {
       onExcessProperty: "error",
     });
   };
+
   const snapshot = async () => {
     const tables = (
       await pool.query(
         `SELECT schemaname,tablename FROM pg_tables WHERE schemaname IN ('public','auth') ORDER BY schemaname,tablename`,
       )
     ).rows;
+
     const hashes = [];
+
     for (const t of tables)
       hashes.push([
         `${t.schemaname}.${t.tablename}`,
@@ -313,8 +348,10 @@ export async function observeInterviewReport(o: Options) {
           )
         ).rows[0].hash,
       ]);
+
     return hashes;
   };
+
   const before = await snapshot();
   const unselected = await read();
   assert.equal(unselected.selectedPeriodId, null);
@@ -322,25 +359,30 @@ export async function observeInterviewReport(o: Options) {
   assert.ok(unselected.periods.some((p) => p.id === ids.closed));
   assert.ok(!unselected.periods.some((p) => p.id === ids.foreign));
   const { createPromiseClient } = require("@vektorprogrammet/sdk");
+
   const sdkResult = await createPromiseClient(api, {
     cookie,
     origin: ui,
   }).recruitment.readInterviewReport({
     query: Schema.decodeUnknownSync(InterviewReportQuery)({ admissionPeriodId: ids.period }),
   });
+
   const report: InterviewReport = Schema.decodeUnknownSync(InterviewReport)(sdkResult.body, {
     onExcessProperty: "error",
   });
+
   const sqlRows = (
     await pool.query(
       `SELECT i.interview_id FROM public.recruitment_interviews i JOIN public.admission_applications a USING(application_id) JOIN public.recruitment_interview_conducts c USING(interview_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) WHERE a.admission_period_id=$1 AND (l.person_id IS NULL OR l.person_id<>$2) ORDER BY i.interview_id`,
       [ids.period, ids.person],
     )
   ).rows;
+
   assert.deepEqual(
     report.rows.map((r) => r.interviewId).sort(),
     sqlRows.map((r: any) => r.interview_id),
   );
+
   if (o.correctionMode) {
     assert.equal(
       report.rows.find((row) => row.interviewId === "interview-recommendation-history")
@@ -350,6 +392,7 @@ export async function observeInterviewReport(o: Options) {
   } else {
     assert.ok(report.rows.some((r) => r.recommendation === null));
   }
+
   for (const row of report.rows) {
     assert.deepEqual(
       Object.keys(row).sort(),
@@ -365,6 +408,7 @@ export async function observeInterviewReport(o: Options) {
         "suitability",
       ].sort(),
     );
+
     const persisted = (
       await pool.query(
         `SELECT
@@ -384,6 +428,7 @@ export async function observeInterviewReport(o: Options) {
         [row.interviewId],
       )
     ).rows[0];
+
     assert.deepEqual(
       [row.explanatoryPower, row.roleModel, row.suitability, row.recommendation],
       [
@@ -394,75 +439,90 @@ export async function observeInterviewReport(o: Options) {
       ],
     );
   }
+
   for (const filter of ["Ja", "Kanskje", "Nei", "not-recorded"]) {
     const filtered = await read({ admissionPeriodId: ids.period, recommendation: filter });
     assert.deepEqual(
       filtered.rows,
       report.rows.filter((r) => (r.recommendation ?? "not-recorded") === filter),
     );
+
     if (o.correctionMode && filter === "not-recorded") {
       assert.equal(filtered.rows.length, 0);
     } else {
       assert.ok(filtered.rows.length > 0);
     }
   }
+
   for (const filter of ["Returning", "Unknown"]) {
     const filtered = await read({ admissionPeriodId: ids.period, participation: filter });
     assert.deepEqual(
       filtered.rows,
       report.rows.filter((r) => r.participation === filter),
     );
+
     if (o.correctionMode && filter === "Returning") {
       assert.equal(filtered.rows.length, 0);
     } else {
       assert.ok(filtered.rows.length > 0);
     }
   }
+
   for (const sort of ["applicant", "recommendation", "total"])
     for (const direction of ["asc", "desc"]) {
       const rows = (await read({ admissionPeriodId: ids.period, sort, direction })).rows;
+
       const values = rows.map((r) =>
-        sort === "total"
-          ? r.explanatoryPower + r.roleModel + r.suitability
-          : sort === "recommendation"
-            ? (r.recommendation ?? "Ikke registrert")
-            : `${r.lastName} ${r.firstName}`,
+        Match.value(sort).pipe(
+          Match.when("total", () => r.explanatoryPower + r.roleModel + r.suitability),
+          Match.when("recommendation", () => r.recommendation ?? "Ikke registrert"),
+          Match.orElse(() => `${r.lastName} ${r.firstName}`),
+        ),
       );
+
       for (let i = 1; i < values.length; i++) {
         assert.ok(
           direction === "asc" ? values[i - 1]! <= values[i]! : values[i - 1]! >= values[i]!,
         );
+
         if (values[i - 1] === values[i]) assert.ok(rows[i - 1]!.interviewId < rows[i]!.interviewId);
       }
     }
+
   assert.equal((await read({ admissionPeriodId: ids.closed })).rows.length, 1);
   assert.equal((await read({ admissionPeriodId: ids.empty })).rows.length, 0);
   assert.equal((await get({ admissionPeriodId: ids.foreign })).status, 403);
   assert.equal((await get({}, "")).status, 401);
   assert.equal((await get({}, o.ordinaryCookie)).status, 403);
+
   const assignedDetailResponse = await fetch(
     `${api}/api/recruitment/interviews/interview-native-conduct-a-0063`,
     { headers: { cookie: o.ordinaryCookie, origin: ui } },
   );
+
   assert.equal(assignedDetailResponse.status, 200, await assignedDetailResponse.clone().text());
-  const assignedDetail = (await assignedDetailResponse.json()) as {
-    readonly expectedRevision?: unknown;
-    readonly revision?: unknown;
-    readonly answers?: unknown;
-    readonly score?: unknown;
-    readonly recommendation?: unknown;
-  };
+
+  const assignedDetail = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
+    await assignedDetailResponse.json(),
+  );
+
   const assignedETag = assignedDetailResponse.headers.get("etag");
-  assert.equal(typeof assignedETag, "string");
-  assert.equal(typeof assignedDetail.revision, "number");
+  assert.ok(Predicate.isString(assignedETag));
+  assert.ok(Predicate.isNumber(assignedDetail.revision));
   assert.ok(Array.isArray(assignedDetail.answers));
-  assert.ok(typeof assignedDetail.score === "object" && assignedDetail.score !== null);
-  assert.ok(["Ja", "Kanskje", "Nei"].includes(assignedDetail.recommendation as string));
+  assert.ok(
+    (assignedDetail.score === null || Predicate.isObjectOrArray(assignedDetail.score)) &&
+      assignedDetail.score !== null,
+  );
+  assert.notEqual(assignedDetail.recommendation, null);
+
   const coordinatorDetailResponse = await fetch(
     `${api}/api/recruitment/interviews/interview-native-conduct-a-0063`,
     { headers: { cookie, origin: ui } },
   );
+
   assert.equal(coordinatorDetailResponse.status, 403, await coordinatorDetailResponse.text());
+
   const coordinatorCorrectionResponse = await fetch(
     `${api}/api/recruitment/interviews/interview-native-conduct-a-0063:correct`,
     {
@@ -471,7 +531,7 @@ export async function observeInterviewReport(o: Options) {
         cookie,
         origin: ui,
         "content-type": "application/json",
-        "if-match": assignedETag as string,
+        "if-match": assignedETag,
         "idempotency-key": "report-coordinator-correction-denied-0103",
       },
       body: JSON.stringify({
@@ -482,6 +542,7 @@ export async function observeInterviewReport(o: Options) {
       }),
     },
   );
+
   assert.equal(
     coordinatorCorrectionResponse.status,
     403,
@@ -499,12 +560,13 @@ export async function observeInterviewReport(o: Options) {
     ).status,
     403,
   );
-  for (const bad of [
-    { departmentId: ids.department },
-    { sort: "bogus" },
-    { recommendation: "" },
-  ] as Array<Record<string, string>>)
-    assert.ok([400, 422].includes((await get(bad)).status));
+
+  for (const [key, value] of [
+    ["departmentId", ids.department],
+    ["sort", "bogus"],
+    ["recommendation", ""],
+  ] as const)
+    assert.ok([400, 422].includes((await get({ [key]: value })).status));
   assert.deepEqual(await snapshot(), before);
   record(
     "real ordinary-interviewer conduct reported to non-assigned leader; exact population/projection/history/SQL and closed/empty periods; sort/filter/ties; no report writes; raw conduct remains denied",
@@ -527,12 +589,15 @@ export async function observeInterviewReport(o: Options) {
   const priorEtag = (await get({ admissionPeriodId: ids.period })).headers.get("etag");
   const oldCondition = priorEtag ?? "*";
   const authorityDenials: Array<{ condition: string; status: number; code: string }> = [];
+
   const denyMutation = async (setup: string, restore: string) => {
     await pool.query(setup);
     const baseline = await snapshot();
+
     const denial = await get({ admissionPeriodId: ids.period }, cookie, {
       "if-none-match": oldCondition,
     });
+
     const status = denial.status;
     assert.ok([401, 403].includes(status));
     const code = (await denial.json()).code;
@@ -541,6 +606,7 @@ export async function observeInterviewReport(o: Options) {
     assert.deepEqual(await snapshot(), baseline);
     await pool.query(restore);
   };
+
   for (const [field, bad, good] of [
     ["is_suspended", "true", "false"],
     ["end_at", "'2026-02-01'", "NULL"],
@@ -590,6 +656,7 @@ export async function observeInterviewReport(o: Options) {
 
   let concurrentReadStatus: number | undefined;
   const locker = await pool.connect();
+
   try {
     await locker.query("BEGIN");
     await locker.query(
@@ -598,6 +665,7 @@ export async function observeInterviewReport(o: Options) {
     const pid = (await locker.query("SELECT pg_backend_pid() pid")).rows[0].pid;
     const waiting = get({ admissionPeriodId: ids.period });
     let blocked = false;
+
     for (let n = 0; n < 100; n++) {
       blocked =
         (
@@ -606,9 +674,11 @@ export async function observeInterviewReport(o: Options) {
             [pid],
           )
         ).rows[0].n > 0;
+
       if (blocked) break;
       await new Promise((r) => setTimeout(r, 50));
     }
+
     assert.ok(blocked, "report held by authoritative applicant custody");
     await link("race", locker);
     await locker.query("COMMIT");
@@ -616,10 +686,12 @@ export async function observeInterviewReport(o: Options) {
     const response = await waiting;
     concurrentReadStatus = response.status;
     assert.ok([200, 409, 503].includes(response.status));
+
     if (response.status === 200)
       assert.ok(
         !(await response.json()).rows.some((r: any) => r.interviewId === "report-interview-race"),
       );
+
     for (const filter of ["all", "Ja", "Nei", "Kanskje", "not-recorded"])
       assert.ok(
         !(await read({ admissionPeriodId: ids.period, recommendation: filter })).rows.some((r) =>
@@ -631,6 +703,7 @@ export async function observeInterviewReport(o: Options) {
     await locker.query("ROLLBACK");
     locker.release();
   }
+
   record(
     "known self excluded from every filter/count; absent/different links eligible; actual concurrent link/read custody excludes newly known self",
   );
@@ -639,6 +712,7 @@ export async function observeInterviewReport(o: Options) {
   const errors: string[] = [];
   const expectedFaults: string[] = [];
   let intentionalReadFailure = false;
+
   try {
     for (const part of cookie.split("; ")) {
       const n = part.indexOf("=");
@@ -652,6 +726,7 @@ export async function observeInterviewReport(o: Options) {
         },
       ]);
     }
+
     const page = await context.newPage();
     page.on("pageerror", () => errors.push("pageerror"));
     page.on("console", (m: any) => {
@@ -665,8 +740,10 @@ export async function observeInterviewReport(o: Options) {
     await page.goto(`${ui}/dashboard/intervjuer`);
     await page.getByRole("link", { name: "Fullførte intervjuer", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Velg en opptaksperiode");
+
     const submit = async () => {
       const fields = new URLSearchParams();
+
       for (const name of [
         "admissionPeriodId",
         "recommendation",
@@ -685,13 +762,16 @@ export async function observeInterviewReport(o: Options) {
         "false",
       );
     };
+
     await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.period);
     await submit();
     const expected = (await read({ admissionPeriodId: ids.period })).rows.length;
     await expect(page.getByRole("status")).toHaveText(`${expected} fullførte intervjuer`);
+
     const assertRendered = async () => {
       const query = Object.fromEntries(new URL(page.url()).searchParams);
       const expectedRows = (await read(query)).rows;
+
       const expectedCells = expectedRows.map((r) => [
         `${r.firstName} ${r.lastName}`,
         r.participation === "Returning" ? "Tilbakevendende" : "Ukjent",
@@ -701,6 +781,7 @@ export async function observeInterviewReport(o: Options) {
         String(r.suitability),
         String(r.explanatoryPower + r.roleModel + r.suitability),
       ]);
+
       await expect
         .poll(async () =>
           page.locator("tbody tr").evaluateAll((elements: any[]) =>
@@ -713,7 +794,9 @@ export async function observeInterviewReport(o: Options) {
         )
         .toEqual(expectedCells);
     };
+
     await assertRendered();
+
     for (const label of ["Søker", "Anbefaling", "Sum"]) {
       for (let n = 0; n < 2; n++) {
         const control = page.getByRole("link", { name: label, exact: true });
@@ -732,6 +815,7 @@ export async function observeInterviewReport(o: Options) {
         await assertRendered();
       }
     }
+
     await page.getByLabel("Anbefaling", { exact: true }).focus();
     await page.keyboard.press("End");
     await expect(page.getByLabel("Anbefaling", { exact: true })).toHaveValue("not-recorded");
@@ -740,11 +824,13 @@ export async function observeInterviewReport(o: Options) {
     await expect(page.getByRole("status")).toHaveText(
       `${o.correctionMode ? 0 : 1} fullførte intervjuer`,
     );
+
     if (o.correctionMode) {
       await expect(page.locator("tbody tr")).toHaveCount(0);
     } else {
       await expect(page.locator("tbody")).toContainText("Ikke registrert");
     }
+
     const selectedUrl = page.url();
     await page.reload();
     assert.equal(page.url(), selectedUrl);
@@ -778,6 +864,7 @@ export async function observeInterviewReport(o: Options) {
     await pool.query(
       "ALTER TABLE public.recruitment_interview_conducts RENAME TO report_temporarily_unavailable_conducts",
     );
+
     try {
       await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.period);
       await page.getByRole("button", { name: "Vis rapport", exact: true }).click();
@@ -790,6 +877,7 @@ export async function observeInterviewReport(o: Options) {
         "ALTER TABLE public.report_temporarily_unavailable_conducts RENAME TO recruitment_interview_conducts",
       );
     }
+
     await page.getByRole("button", { name: "Prøv igjen", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText(`${expected} fullførte intervjuer`);
     intentionalReadFailure = false;
@@ -801,25 +889,32 @@ export async function observeInterviewReport(o: Options) {
     let settle!: (result: { fulfilled: boolean; fetchStatus: number | null }) => void;
     let terminal!: (result: { kind: "finished" | "failed"; error: string | null }) => void;
     let heldRequest: any;
+
     const settled = new Promise<{ fulfilled: boolean; fetchStatus: number | null }>((resolve) => {
       settle = resolve;
     });
+
     const terminated = new Promise<{ kind: "finished" | "failed"; error: string | null }>(
       (resolve) => {
         terminal = resolve;
       },
     );
+
     const finished = (request: any) => {
       if (request === heldRequest) terminal({ kind: "finished", error: null });
     };
+
     const failed = (request: any) => {
       if (request === heldRequest)
         terminal({ kind: "failed", error: request.failure()?.errorText ?? null });
     };
+
     page.on("requestfinished", finished);
     page.on("requestfailed", failed);
+
     const bounded = async <T>(promise: Promise<T>, gate: string): Promise<T> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
+
       try {
         return await Promise.race([
           promise,
@@ -831,6 +926,7 @@ export async function observeInterviewReport(o: Options) {
         clearTimeout(timer);
       }
     };
+
     let supersededResponse:
       | {
           fulfilled: boolean;
@@ -839,24 +935,30 @@ export async function observeInterviewReport(o: Options) {
           error: string | null;
         }
       | undefined;
+
     const hold = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const arrived = new Promise<void>((resolve) => {
       captured = resolve;
     });
+
     const observedNavigations: Array<{ path: string; period: string | null }> = [];
     await page.route("**/*", async (route: any) => {
       const requested = new URL(route.request().url());
+
       if (requested.pathname.includes("rapport"))
         observedNavigations.push({
           path: requested.pathname,
           period: requested.searchParams.get("admissionPeriodId"),
         });
+
       if (requested.searchParams.get("admissionPeriodId") === ids.closed) {
         assert.equal(heldRequest, undefined, "only one superseded request may be held");
         heldRequest = route.request();
         let fetchStatus: number | null = null;
+
         try {
           const response = await route.fetch();
           fetchStatus = response.status();
@@ -871,6 +973,7 @@ export async function observeInterviewReport(o: Options) {
         }
       } else await route.continue();
     });
+
     try {
       await page.getByLabel("Opptaksperiode", { exact: true }).selectOption(ids.closed);
       await page.getByRole("button", { name: "Vis rapport", exact: true }).click();
@@ -896,7 +999,9 @@ export async function observeInterviewReport(o: Options) {
       const termination = await bounded(terminated, "superseded browser request did not terminate");
       supersededResponse = { ...fulfillment, ...termination };
       assert.equal(fulfillment.fetchStatus, 200, "held response must be a real successful report");
+
       if (termination.kind === "failed") assert.equal(termination.error, "net::ERR_ABORTED");
+
       if (!fulfillment.fulfilled)
         assert.deepEqual(termination, { kind: "failed", error: "net::ERR_ABORTED" });
       await expect(page).toHaveURL(
@@ -918,11 +1023,13 @@ export async function observeInterviewReport(o: Options) {
       page.off("requestfinished", finished);
       page.off("requestfailed", failed);
     }
+
     assert.deepEqual(await snapshot(), baseline);
     assert.deepEqual(errors, []);
     record(
       "production navigation/keyboard sorts/filter/count/reload, historical/empty period, desktop/mobile Axe and viewport; real SQL failure/retry and superseded-period navigation; no report writes",
     );
+
     const evidence = {
       specId: "0103",
       revision: o.revision,
@@ -937,15 +1044,19 @@ export async function observeInterviewReport(o: Options) {
       conditionalRequest: { priorEtag, ifNoneMatch: oldCondition },
       scope: "all completed native, not first-time-only; local synthetic; no effects",
     };
+
     await writeFile(join(o.artifacts, "report-evidence.json"), JSON.stringify(evidence, null, 2));
+
     return evidence;
   } catch (error) {
     const pages = context.pages();
     const current = pages[pages.length - 1];
+
     if (current) {
       await current
         .screenshot({ path: join(o.artifacts, "report-browser-failure.png") })
         .catch(() => {});
+
       let detail = JSON.stringify({
         revision: o.revision,
         gates,
@@ -955,9 +1066,11 @@ export async function observeInterviewReport(o: Options) {
         status: await current.getByRole("status").allTextContents(),
         alerts: await current.getByRole("alert").allTextContents(),
       });
+
       for (const secret of o.secrets) detail = detail.replaceAll(secret, "[redacted]");
       await writeFile(join(o.artifacts, "report-browser-failure.json"), detail);
     }
+
     throw error;
   } finally {
     await context.close();

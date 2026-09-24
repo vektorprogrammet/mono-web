@@ -1,22 +1,32 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defineConfig, devices } from "@playwright/test";
+import { type LaunchOptions, defineConfig, devices } from "@playwright/test";
 
 const port = 8787;
+
 const localHost = "p000.vektor.phibkro.org";
+
 const baseURL = `http://127.0.0.1:${port}`;
+
 export const HOMEPAGE_PLAYWRIGHT_INPUTS = {
   origin: baseURL,
   host: localHost,
   stage: "p000",
   viewport: { width: 1440, height: 900 },
 } as const;
+
 const artifactRoot =
   process.env.PUBLIC_APPLICATION_PLAYWRIGHT_ARTIFACT_ROOT ??
   join(tmpdir(), "monoweb-homepage-dev-0011");
+
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+
 const externallyManagedServer =
   process.env.REAL_PUBLIC_APPLICATION_E2E === "1";
+
+const launchOptions: LaunchOptions = { args: [`--host-resolver-rules=MAP ${localHost} 127.0.0.1`] };
+
+if (chromiumExecutablePath) launchOptions.executablePath = chromiumExecutablePath;
 
 export default defineConfig({
   timeout: 60_000,
@@ -42,10 +52,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: {
-        launchOptions: {
-          args: [`--host-resolver-rules=MAP ${localHost} 127.0.0.1`],
-          ...(chromiumExecutablePath ? { executablePath: chromiumExecutablePath } : {}),
-        },
+        launchOptions: launchOptions,
       },
     },
   ],

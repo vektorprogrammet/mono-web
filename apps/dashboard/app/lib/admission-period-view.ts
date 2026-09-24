@@ -1,7 +1,5 @@
-import {
-  nativeProblemFrom as decodeNativeProblem,
-  type NativeProblemSummary as DecodedNativeProblem,
-} from "./native-problem";
+import { Predicate, Schema, Data, flow } from "effect";
+import { nativeProblemFrom as decodeNativeProblem, type NativeProblemSummary as DecodedNativeProblem, nativeFailureFrom } from "./native-problem";
 import { AdmissionPeriodId } from "@vektorprogrammet/http-api"
 import {
   AdmissionPeriodManagementItem,
@@ -12,7 +10,7 @@ import {
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
+
 
 export type AdmissionPeriodUiErrorField = "semesterId" | "departmentId" | "startAt" | "endAt";
 
@@ -31,11 +29,11 @@ export type AdmissionPeriodUiErrorTag =
   | "AdmissionPeriodNetworkError"
   | "UnknownAdmissionPeriodError";
 
-export type AdmissionPeriodUiError = {
-  readonly _tag: AdmissionPeriodUiErrorTag;
-  readonly message: string;
-  readonly field?: AdmissionPeriodUiErrorField;
-};
+export type AdmissionPeriodUiError = Data.TaggedEnum<{
+  [Tag in AdmissionPeriodUiErrorTag]: { readonly message: string; readonly field?: AdmissionPeriodUiErrorField };
+}>;
+
+export const AdmissionPeriodUiError = Data.taggedEnum<AdmissionPeriodUiError>();
 
 export type AdmissionPeriodDraft = {
   readonly semesterId: string;
@@ -117,6 +115,8 @@ type ParsedReviseCommand = {
 
 export type ParsedAdmissionPeriodCommand = ParsedCreateCommand | ParsedReviseCommand;
 
+const ParsedAdmissionPeriodCommand = Data.taggedEnum<ParsedAdmissionPeriodCommand>();
+
 export type AdmissionPeriodFormParseResult =
   | { readonly value: ParsedAdmissionPeriodCommand }
   | { readonly failure: AdmissionPeriodMutationFailure };
@@ -124,6 +124,7 @@ export type AdmissionPeriodFormParseResult =
 const identifierText = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
 );
+
 const localInstantText = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)),
 );
@@ -146,22 +147,23 @@ const reviseFormSchema = Schema.Struct({
   endAt: localInstantText,
 });
 
-const createFields: Readonly<Record<string, true>> = {
+const createFields = {
   _intent: true,
   commandId: true,
   semesterId: true,
   departmentId: true,
   startAt: true,
   endAt: true,
-};
-const reviseFields: Readonly<Record<string, true>> = {
+} as const;
+
+const reviseFields = {
   _intent: true,
   commandId: true,
   admissionPeriodId: true,
   etag: true,
   startAt: true,
   endAt: true,
-};
+} as const;
 
 const errorMessages: Record<AdmissionPeriodUiErrorTag, string> = {
   UnauthenticatedActor: "Du må logge inn før du kan administrere opptaksperioder.",
@@ -185,8 +187,9 @@ const errorMessages: Record<AdmissionPeriodUiErrorTag, string> = {
 const validationField = (
   problem: DecodedNativeProblem,
 ): AdmissionPeriodUiErrorField | undefined => {
-  if (problem.validation === undefined) return undefined;
+  if (!("validation" in problem)) return undefined;
   const pointer = problem.validation.errors[0]?.pointer;
+
   switch (pointer) {
     case "/semesterId":
       return "semesterId";
@@ -203,35 +206,37 @@ const validationField = (
 
 const firstText = (form: FormData, name: string): string => {
   const value = form.get(name);
-  return typeof value === "string" ? value : "";
+
+  return Predicate.isString(value) ? value : "";
 };
 
 const formError = (
   field?: AdmissionPeriodUiErrorField,
   message = errorMessages.AdmissionPeriodFormError,
-): AdmissionPeriodUiError => ({
-  _tag: "AdmissionPeriodFormError",
-  message,
-  field,
-});
+): AdmissionPeriodUiError => (AdmissionPeriodUiError.AdmissionPeriodFormError({message,
+field}));
 
 const exactRecord = (
   form: FormData,
   allowedFields: Readonly<Record<string, true>>,
 ): Record<string, string> | undefined => {
   const record: Record<string, string> = {};
+
   for (const [name, value] of form.entries()) {
-    if (allowedFields[name] !== true || typeof value !== "string" || name in record) {
+    if (allowedFields[name] !== true || !Predicate.isString(value) || name in record) {
       return undefined;
     }
+
     record[name] = value.trim();
   }
+
   return record;
 };
 
 const utcInstant = (localInstant: string): string | undefined => {
   const isoInstant = `${localInstant}:00.000Z`;
   const date = new Date(isoInstant);
+
   return Number.isFinite(date.getTime()) && date.toISOString() === isoInstant
     ? isoInstant
     : undefined;
@@ -249,28 +254,34 @@ export function parseAdmissionPeriodForm(
       startAt: firstText(form, "startAt"),
       endAt: firstText(form, "endAt"),
     };
+
     const admissionPeriodId = firstText(form, "admissionPeriodId").trim();
     let etag: StrongETagValue | undefined;
+
     try {
       etag = Schema.decodeUnknownSync(StrongETag)(firstText(form, "etag").trim());
     } catch {
       etag = undefined;
     }
+
     const failure = (error: AdmissionPeriodUiError): AdmissionPeriodFormParseResult => ({
       failure: {
         intent: "revise",
         admissionPeriodId,
-        ...(etag === undefined ? {} : { etag }),
+        etag: etag === undefined ? undefined : etag,
         commandId,
         draft,
         error,
       },
     });
+
     const record = exactRecord(form, reviseFields);
+
     if (record === undefined) return failure(formError());
     record.commandId = commandId;
 
     let decoded: typeof reviseFormSchema.Type;
+
     try {
       decoded = Schema.decodeUnknownSync(reviseFormSchema)(record, {
         onExcessProperty: "error",
@@ -281,12 +292,15 @@ export function parseAdmissionPeriodForm(
 
     const startAt = utcInstant(decoded.startAt);
     const endAt = utcInstant(decoded.endAt);
+
     if (startAt === undefined) return failure(formError("startAt"));
+
     if (endAt === undefined || Date.parse(startAt) >= Date.parse(endAt)) {
       return failure(formError("endAt", errorMessages.InvalidAdmissionPeriodWindow));
     }
 
     let payload: typeof AdmissionPeriodMergePatch.Type;
+
     try {
       payload = Schema.decodeUnknownSync(AdmissionPeriodMergePatch)(
         { startAt, endAt },
@@ -297,14 +311,11 @@ export function parseAdmissionPeriodForm(
     }
 
     return {
-      value: {
-        _tag: "ReviseAdmissionPeriod",
-        commandId: decoded.commandId,
-        admissionPeriodId: decoded.admissionPeriodId,
-        etag: decoded.etag,
-        payload,
-        draft,
-      },
+      value: ParsedAdmissionPeriodCommand.ReviseAdmissionPeriod({ commandId: decoded.commandId,
+      admissionPeriodId: decoded.admissionPeriodId,
+      etag: decoded.etag,
+      payload,
+      draft, }),
     };
   }
 
@@ -314,19 +325,24 @@ export function parseAdmissionPeriodForm(
     startAt: firstText(form, "startAt"),
     endAt: firstText(form, "endAt"),
   };
+
   const failure = (error: AdmissionPeriodUiError): AdmissionPeriodFormParseResult => ({
     failure: { intent: "create", commandId, draft, error },
   });
+
   if (intent !== "create") return failure(formError());
   const record = exactRecord(form, createFields);
+
   if (record === undefined) return failure(formError());
   record.commandId = commandId;
+
   const normalized = {
     ...record,
     departmentId: record.departmentId === "" ? undefined : record.departmentId,
   };
 
   let decoded: typeof createFormSchema.Type;
+
   try {
     decoded = Schema.decodeUnknownSync(createFormSchema)(normalized, {
       onExcessProperty: "error",
@@ -337,19 +353,22 @@ export function parseAdmissionPeriodForm(
 
   const startAt = utcInstant(decoded.startAt);
   const endAt = utcInstant(decoded.endAt);
+
   if (startAt === undefined) return failure(formError("startAt"));
+
   if (endAt === undefined || Date.parse(startAt) >= Date.parse(endAt)) {
     return failure(formError("endAt", errorMessages.InvalidAdmissionPeriodWindow));
   }
 
   let payload: typeof CreateAdmissionPeriodRequest.Type;
+
   try {
     payload = Schema.decodeUnknownSync(CreateAdmissionPeriodRequest)(
       {
         semesterId: decoded.semesterId,
         startAt,
         endAt,
-        ...(decoded.departmentId === undefined ? {} : { departmentId: decoded.departmentId }),
+        departmentId: decoded.departmentId === undefined ? undefined : decoded.departmentId,
       },
       { onExcessProperty: "error" },
     );
@@ -358,12 +377,9 @@ export function parseAdmissionPeriodForm(
   }
 
   return {
-    value: {
-      _tag: "CreateAdmissionPeriod",
-      commandId: decoded.commandId,
-      payload,
-      draft,
-    },
+    value: ParsedAdmissionPeriodCommand.CreateAdmissionPeriod({ commandId: decoded.commandId,
+    payload,
+    draft, }),
   };
 }
 
@@ -381,6 +397,7 @@ export function mapAdmissionPeriodView(
 ): AdmissionPeriodView {
   const startDate = new Date(period.startAt);
   const endDate = new Date(period.endAt);
+
   if (
     !rfc3339Instant.test(period.startAt) ||
     !Number.isFinite(startDate.getTime()) ||
@@ -389,6 +406,7 @@ export function mapAdmissionPeriodView(
   ) {
     throw new TypeError("Admission-period API returned an invalid instant");
   }
+
   return {
     id: period.id,
     departmentId: period.departmentId,
@@ -404,22 +422,20 @@ export function mapAdmissionPeriodView(
   };
 }
 
-export function isAdmissionPeriodUnauthorizedError(error: unknown): boolean {
-  const code = decodeNativeProblem(error)?.code;
+export const isAdmissionPeriodUnauthorizedError = flow(decodeNativeProblem, (decodedProblem): boolean => {
+  const code = decodedProblem?.code;
+
   return code === "credential.missing" || code === "credential.invalid";
-}
+})
 
 const admissionError = (
   _tag: AdmissionPeriodUiErrorTag,
   field?: AdmissionPeriodUiErrorField,
-): AdmissionPeriodUiError => ({
-  _tag,
-  message: errorMessages[_tag],
-  field,
-});
+): AdmissionPeriodUiError => AdmissionPeriodUiError[_tag]({message: errorMessages[_tag], field});
 
-export function mapAdmissionPeriodError(error: unknown): AdmissionPeriodUiError {
-  const problem = decodeNativeProblem(error);
+export const mapAdmissionPeriodError = flow(nativeFailureFrom, (error): AdmissionPeriodUiError => {
+  const problem = error instanceof Error || error instanceof Response ? undefined : error;
+
   if (problem === undefined) {
     return error instanceof Error
       ? admissionError("AdmissionPeriodNetworkError")
@@ -456,8 +472,6 @@ export function mapAdmissionPeriodError(error: unknown): AdmissionPeriodUiError 
     case "validation.no-change":
     case "validation.field-not-deletable":
       return admissionError("AdmissionPeriodDecodeError", validationField(problem));
-    case "body.invalid-json":
-    case "body.missing":
     case "idempotency-key.invalid":
     case "media-type.unsupported":
     case "precondition.invalid":
@@ -468,4 +482,4 @@ export function mapAdmissionPeriodError(error: unknown): AdmissionPeriodUiError 
     default:
       return admissionError("UnknownAdmissionPeriodError");
   }
-}
+})

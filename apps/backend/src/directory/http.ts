@@ -7,13 +7,13 @@ import {
   directoryRowInScope,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
-import { Profile } from "@vektorprogrammet/domain/profile";
+import { ProfileDecodeError, Profile } from "@vektorprogrammet/domain/profile";
 import {
   ExternalNativeApi,
   ListPeopleEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { Effect, Option, Schema } from "effect";
+import { Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import type { OrganizationResolutionError } from "../authority.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
@@ -40,15 +40,7 @@ export interface DirectoryApiHttpOptions {
   >;
 }
 
-type TaggedHttpError = Error & { readonly _tag: string };
-
-const taggedError = (tag: string): TaggedHttpError => {
-  const error = new Error(tag) as TaggedHttpError;
-  Object.defineProperty(error, "_tag", { value: tag, enumerable: true });
-  return error;
-};
-
-const privateJsonResponse = (body: unknown): Response =>
+const privateJsonResponse = (body: Schema.Json): Response =>
   new Response(JSON.stringify(body), {
     status: 200,
     headers: {
@@ -82,10 +74,15 @@ const errorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(cause.code, cause.status);
   }
+
   const tag =
-    cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
+    cause !== null &&
+    (cause === null || Predicate.isObjectOrArray(cause)) &&
+    "_tag" in cause &&
+    Predicate.isString(cause._tag)
       ? cause._tag
       : "ProfilePersistenceError";
+
   switch (tag) {
     case "UnauthenticatedActor":
       return nativeProblemResponse("credential.invalid", 401, {
@@ -106,40 +103,44 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) =>
     if (new URL(request.url).search !== "") {
       return nativeProblemResponse("directory.cursor-malformed", 422);
     }
+
     // One captured authorizationInstant drives the gate and every row
     // derivation; Profile and Organization read one database snapshot.
     const authority = yield* input.resolveAuthority(request);
     const decision = resolveDirectoryGateScope(authority);
-    if (decision._tag === "Deny") {
+
+    if (Predicate.isTagged(decision, "Deny")) {
       return yield* Effect.fail(
         decision.reason === "AuthorityInactive"
-          ? taggedError("InactiveActor")
-          : taggedError("NotInScope"),
+          ? new HttpSemanticFailure("authority.denied", 403)
+          : new HttpSemanticFailure("authority.denied", 403),
       );
     }
+
     const scope = decision.value;
-    const contexts =
-      scope._tag === "AllDepartments"
-        ? [
-            genericContext({
-              domainId: "profile",
-              authorityVersion: `directory:${authority.evaluatedAt}`,
-            }),
-          ]
-        : scope.departmentIds.map((departmentId) =>
-            genericContext({
-              domainId: "profile",
-              departmentId,
-              authorityVersion: `directory:${authority.evaluatedAt}`,
-            }),
-          );
-    const grantScopes =
-      scope._tag === "AllDepartments"
-        ? [{ _tag: "Global" as const }]
-        : scope.departmentIds.map((departmentId) => ({
-            _tag: "Department" as const,
+
+    const contexts = !Predicate.isTagged(scope, "Departments")
+      ? [
+          genericContext({
+            domainId: "profile",
+            authorityVersion: `directory:${authority.evaluatedAt}`,
+          }),
+        ]
+      : scope.departmentIds.map((departmentId) =>
+          genericContext({
+            domainId: "profile",
             departmentId,
-          }));
+            authorityVersion: `directory:${authority.evaluatedAt}`,
+          }),
+        );
+
+    const grantScopes = !Predicate.isTagged(scope, "Departments")
+      ? [{ _tag: "Global" as const }]
+      : scope.departmentIds.map((departmentId) => ({
+          _tag: "Department" as const,
+          departmentId,
+        }));
+
     yield* authorizePersonNativeOperation({
       request,
       personId: authority.personId,
@@ -148,22 +149,28 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) =>
       grantScopes,
       now: authority.evaluatedAt,
     });
+
     const response = yield* Effect.gen(function* () {
       const organization = yield* Organization;
       const profile = yield* Profile;
       const activePeople: Array<typeof DirectoryEntrySchema.Type> = [];
       const inactivePeople: Array<typeof DirectoryEntrySchema.Type> = [];
       let cursor: string | undefined;
+
       while (true) {
         const page = yield* profile.readDirectoryPage({ limit: DIRECTORY_PAGE_LIMIT, cursor });
+
         if (page.entries.length > 0) {
           const facts = yield* organization.deriveDirectoryFacts(
             page.entries.map((entry) => entry.personId),
             authority.evaluatedAt,
           );
+
           for (const entry of page.entries) {
             const fact = facts.get(entry.personId);
+
             if (fact === undefined || !directoryRowInScope(scope, fact.departments)) continue;
+
             const row = {
               personId: entry.personId,
               firstName: entry.firstName,
@@ -174,18 +181,24 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) =>
               departments: [...fact.departmentNames],
               isActive: fact.isActive,
             };
+
             if (fact.isActive) activePeople.push(row);
             else inactivePeople.push(row);
           }
         }
+
         if (page.nextCursor === undefined) break;
         cursor = page.nextCursor;
       }
+
       return yield* Schema.decodeUnknownEffect(DirectoryResponseSchema)(
         { activePeople, inactivePeople, nextCursor: cursor ?? null },
         { onExcessProperty: "error" },
-      ).pipe(Effect.mapError(() => taggedError("ProfileDecodeError")));
+      ).pipe(
+        Effect.mapError(() => new ProfileDecodeError({ message: "Invalid directory response" })),
+      );
     });
+
     return privateJsonResponse(response);
   });
 

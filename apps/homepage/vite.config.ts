@@ -12,16 +12,18 @@ import {
 } from "./vite-digests.ts";
 
 const projectRoot = fileURLToPath(new URL("./", import.meta.url));
+
 const cloudflarePlugins =
   process.env.ALCHEMY_CLOUDFLARE_VITE_INJECTED === "1"
     ? []
     : cloudflare({ viteEnvironment: { name: "ssr" } });
 
-function buildIdentity(): { commit: string; digest: string; routeDigest: string } {
+function buildIdentity() {
   const status = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
     cwd: projectRoot,
     encoding: "utf8",
   });
+
   if (status.trim()) {
     throw new Error("Homepage build requires a clean git worktree");
   }
@@ -30,11 +32,13 @@ function buildIdentity(): { commit: string; digest: string; routeDigest: string 
     cwd: projectRoot,
     encoding: "utf8",
   }).trim();
+
   if (!/^[0-9a-f]{40}$/.test(commit)) {
     throw new Error("Homepage build requires a full verified git commit SHA");
   }
 
   const inputs = buildHomepageDigestInputs(projectRoot);
+
   return {
     commit,
     digest: computeContentDigest(DEV_CONTENT, inputs.assetManifest),

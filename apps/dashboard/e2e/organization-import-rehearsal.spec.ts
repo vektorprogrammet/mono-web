@@ -1,25 +1,37 @@
+import { Predicate } from "effect";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 const required = (name: string): string => {
   const value = process.env[name];
+
   if (value === undefined || value.length === 0) throw new Error(`${name} is required`);
+
   return value;
 };
 
 const expectedDepartmentName = "Spec 0067 Department";
+
 const expectedTeamName = "Spec 0067 Team";
+
 const expectedMemberName = "Imported Member";
+
 const expectedAdminName = "Spec Administrator";
+
 const expectedMemberEmail = "imported-member.0067@example.invalid";
+
 const expectedAdminEmail = "organization-import-admin.0067@example.invalid";
+
 const expectedMemberPhone = "+4700006731";
+
 const expectedAdminPhone = "+4700000067";
 
 const sha256Text = (value: string): string =>
   createHash("sha256").update(value, "utf8").digest("hex");
+
 const maximumDiagnosticEntries = 128;
+
 const maximumDiagnosticTextLength = 2_000;
 
 type DiagnosticOrigin = "dashboard-loopback" | "api-proxy-loopback";
@@ -40,13 +52,16 @@ interface DiagnosticFinalPageState {
 
 const redactDiagnosticText = (value: string, sensitiveValues: ReadonlyArray<string>): string => {
   let redacted = value;
+
   for (const sensitive of sensitiveValues) {
     if (sensitive.length > 0) redacted = redacted.replaceAll(sensitive, "<redacted>");
   }
+
   redacted = redacted.replace(
     /[\p{L}\p{N}.!#$%&'*+/=?^_`{|}~-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/giu,
     "<redacted-contact>",
   );
+
   return redacted.slice(0, maximumDiagnosticTextLength);
 };
 
@@ -59,6 +74,7 @@ const readFinalPageState = async (
   sensitiveValues: ReadonlyArray<string>,
 ): Promise<DiagnosticFinalPageState> => {
   let path = "";
+
   if (page !== undefined) {
     try {
       path = new URL(page.url()).pathname;
@@ -66,6 +82,7 @@ const readFinalPageState = async (
       path = "";
     }
   }
+
   const fallback = {
     path: redactDiagnosticText(path, sensitiveValues),
     customElementDefined: false,
@@ -74,10 +91,13 @@ const readFinalPageState = async (
     headings: [],
     alerts: [],
   } satisfies DiagnosticFinalPageState;
+
   if (page === undefined) return fallback;
+
   try {
     const host = page.locator("vektor-team-catalog").first();
     const container = host.locator("#foldkit-organization-catalog").first();
+
     const [
       customElementDefined,
       hostCount,
@@ -109,6 +129,7 @@ const readFinalPageState = async (
         maximumDiagnosticEntries,
       ),
     ]);
+
     return {
       path: fallback.path,
       customElementDefined,
@@ -133,28 +154,33 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
   const sessionToken = required("ORGANIZATION_IMPORT_REHEARSAL_SESSION_TOKEN");
   const evidencePath = required("ORGANIZATION_IMPORT_REHEARSAL_BROWSER_EVIDENCE_PATH");
   const authorizationInstant = required("ORGANIZATION_IMPORT_REHEARSAL_AUTHORIZATION_INSTANT");
+
   const nativeApiPathInput: unknown = JSON.parse(
     required("ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS"),
   );
+
   if (
     !Array.isArray(nativeApiPathInput) ||
-    nativeApiPathInput.some((path) => typeof path !== "string")
+    nativeApiPathInput.some((path) => !Predicate.isString(path))
   ) {
     throw new Error("ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS must be a string array");
   }
+
   const nativeApiPaths = new Set<string>(nativeApiPathInput);
   test("renders the fresh native Organization projections without external requests", async ({
     browserName,
     playwright,
   }, testInfo) => {
-    const allowedOrigins: Record<string, true> = {
+    const allowedOrigins = {
       [dashboardOrigin]: true,
     };
+
     const classifyBrowserRequestOrigin = (url: URL): DiagnosticOrigin =>
       url.origin === dashboardOrigin &&
       (url.pathname === "/api" || url.pathname.startsWith("/api/"))
         ? "api-proxy-loopback"
         : "dashboard-loopback";
+
     const diagnosticSensitiveValues = [
       sessionToken,
       expectedMemberEmail,
@@ -162,33 +188,41 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
       expectedMemberPhone,
       expectedAdminPhone,
     ] as const;
+
     const requests: Array<{
       readonly method: string;
       readonly origin: "api-proxy-loopback";
       readonly path: string;
       readonly resourceType: string;
     }> = [];
+
     const diagnosticRequests: Array<{
       readonly method: string;
       readonly origin: DiagnosticOrigin;
       readonly path: string;
       readonly resourceType: string;
     }> = [];
+
     const failedResponses: Array<{
       readonly origin: DiagnosticOrigin;
       readonly path: string;
       readonly status: number;
     }> = [];
+
     const rejectedDestinations: string[] = [];
+
     const unexpectedApiRequests: Array<{
       readonly method: string;
       readonly path: string;
     }> = [];
+
     const pageErrors: string[] = [];
+
     const consoleMessages: Array<{
       readonly type: string;
       readonly text: string;
     }> = [];
+
     let ownedBrowser: Browser | undefined;
     let context: BrowserContext | undefined;
     let page: Page | undefined;
@@ -197,24 +231,30 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
     let evidenceWriteFailed = false;
     let evidenceWriteFailure: unknown;
     const dependencyOptimizerFailure = Promise.withResolvers<never>();
+
     try {
       ownedBrowser = await playwright[browserName].launch(testInfo.project.use.launchOptions);
       context = await ownedBrowser.newContext();
       await context.route("**/*", async (route) => {
         const request = route.request();
         const url = new URL(request.url());
+
         if (url.protocol === "data:" || url.protocol === "blob:") {
           await route.continue();
+
           return;
         }
+
         if (allowedOrigins[url.origin] !== true) {
           appendDiagnostic(
             rejectedDestinations,
             redactDiagnosticText(url.origin, diagnosticSensitiveValues),
           );
           await route.abort("blockedbyclient");
+
           return;
         }
+
         const diagnosticOrigin = classifyBrowserRequestOrigin(url);
         appendDiagnostic(diagnosticRequests, {
           method: redactDiagnosticText(request.method(), diagnosticSensitiveValues),
@@ -222,6 +262,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           path: redactDiagnosticText(url.pathname, diagnosticSensitiveValues),
           resourceType: redactDiagnosticText(request.resourceType(), diagnosticSensitiveValues),
         });
+
         if (
           diagnosticOrigin === "dashboard-loopback" &&
           url.pathname.startsWith("/node_modules/.vite/")
@@ -230,8 +271,10 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
             new Error("production dashboard requested a Vite dependency optimizer asset"),
           );
           await route.abort("blockedbyclient");
+
           return;
         }
+
         if (diagnosticOrigin === "api-proxy-loopback") {
           const observation = {
             method: request.method(),
@@ -239,16 +282,20 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
             path: url.pathname,
             resourceType: request.resourceType(),
           };
+
           requests.push(observation);
+
           if (!nativeApiPaths.has(url.pathname) || request.method() !== "GET") {
             appendDiagnostic(unexpectedApiRequests, {
               method: redactDiagnosticText(request.method(), diagnosticSensitiveValues),
               path: redactDiagnosticText(url.pathname, diagnosticSensitiveValues),
             });
             await route.abort("blockedbyclient");
+
             return;
           }
         }
+
         await route.continue();
       });
       await context.addCookies([
@@ -275,6 +322,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           type: redactDiagnosticText(message.type(), diagnosticSensitiveValues),
           text,
         });
+
         if (/Outdated Optimize Dep/iu.test(text)) {
           dependencyOptimizerFailure.reject(
             new Error("production dashboard observed a residual Vite dependency optimizer failure"),
@@ -283,12 +331,14 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
       });
       page.on("response", (response) => {
         const url = new URL(response.url());
+
         if (allowedOrigins[url.origin] !== true || response.status() < 400) return;
         appendDiagnostic(failedResponses, {
           origin: classifyBrowserRequestOrigin(url),
           path: redactDiagnosticText(url.pathname, diagnosticSensitiveValues),
           status: response.status(),
         });
+
         if (url.origin === dashboardOrigin && response.status() === 504) {
           dependencyOptimizerFailure.reject(
             new Error("production dashboard returned a residual HTTP 504 response"),
@@ -312,32 +362,40 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
             waitUntil: "domcontentloaded",
           });
           await expect(page.getByRole("heading", { name: "Brukere" }).first()).toBeVisible();
+
           const importedMemberRow = page
             .getByRole("row")
             .filter({ hasText: "Imported" })
             .filter({ hasText: "Member" });
+
           await expect(importedMemberRow).toHaveCount(1);
           await expect(importedMemberRow).toContainText(expectedDepartmentName);
           await expect(importedMemberRow).toContainText(expectedMemberEmail);
           await page.getByRole("tab", { name: "Inaktive Brukere" }).click();
+
           const administratorRow = page
             .getByRole("row")
             .filter({ hasText: "Spec" })
             .filter({ hasText: "Administrator" });
+
           await expect(administratorRow).toHaveCount(1);
           await expect(administratorRow).toContainText(expectedAdminEmail);
+
           const legacyOrganizationRequests = requests.filter(({ path }) =>
             /legacy|php|graphql/iu.test(path),
           ).length;
+
           const viteDependencyRequests = diagnosticRequests.filter(
             ({ origin, path }) =>
               origin === "dashboard-loopback" && path.startsWith("/node_modules/.vite/"),
           ).length;
+
           const dependencyOptimizerFailures =
             failedResponses.filter(
               ({ origin, status }) => origin === "dashboard-loopback" && status === 504,
             ).length +
             consoleMessages.filter(({ text }) => /Outdated Optimize Dep/iu.test(text)).length;
+
           expect(pageErrors).toEqual([]);
           expect(legacyOrganizationRequests).toBe(0);
           expect(rejectedDestinations).toEqual([]);
@@ -353,6 +411,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
       testFailure = cause;
     } finally {
       const finalPageState = await readFinalPageState(page, diagnosticSensitiveValues);
+
       if (context !== undefined) {
         try {
           await context.close();
@@ -363,6 +422,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           }
         }
       }
+
       if (ownedBrowser !== undefined) {
         try {
           await ownedBrowser.close();
@@ -373,18 +433,22 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           }
         }
       }
+
       const legacyOrganizationRequests = requests.filter(({ path }) =>
         /legacy|php|graphql/iu.test(path),
       ).length;
+
       const viteDependencyRequests = diagnosticRequests.filter(
         ({ origin, path }) =>
           origin === "dashboard-loopback" && path.startsWith("/node_modules/.vite/"),
       ).length;
+
       const dependencyOptimizerFailures =
         failedResponses.filter(
           ({ origin, status }) => origin === "dashboard-loopback" && status === 504,
         ).length +
         consoleMessages.filter(({ text }) => /Outdated Optimize Dep/iu.test(text)).length;
+
       const evidence = failed
         ? {
             status: "Failed",
@@ -426,6 +490,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
             dependencyOptimizerFailures,
             status: "Observed",
           };
+
       try {
         await writeFile(evidencePath, `${JSON.stringify(evidence)}\n`, {
           encoding: "utf8",
@@ -436,7 +501,9 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
         evidenceWriteFailure = cause;
       }
     }
+
     if (failed) throw testFailure;
+
     if (evidenceWriteFailed) throw evidenceWriteFailure;
   });
 }

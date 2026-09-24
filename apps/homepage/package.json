@@ -18,7 +18,7 @@
     "e2e:test:ui": "playwright test --ui",
     "e2e:show-report": "playwright show-report",
     "e2e:install": "playwright install",
-    "e2e:applicant:real": "node e2e/run-real-public-applicant-admission.mjs",
+    "e2e:applicant:real": "bun e2e/run-real-public-applicant-admission.mjs",
     "e2e:contact:real": "node e2e/run-real-public-contact-message.mjs",
     "lint": "oxlint",
     "format": "oxfmt --write",
@@ -55,7 +55,7 @@
     "tailwind-merge": "^3.0.2",
     "tailwindcss": "^4.0.17",
     "tailwindcss-animate": "^1.0.7",
-    "typescript": "^5.8.2",
+    "typescript": "7.0.2",
     "vaul": "^1.1.2",
     "vite": "^8.0.7"
   },
@@ -67,7 +67,7 @@
     "@types/node": "^22.13.14",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
-    "vitest": "^3.1.1"
+    "vitest": "catalog:effect-v4"
   },
   "browserslist": {
     "production": [

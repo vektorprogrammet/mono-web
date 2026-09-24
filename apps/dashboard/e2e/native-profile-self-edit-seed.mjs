@@ -5,21 +5,31 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const databaseRoot = join(repositoryRoot, "packages", "database");
+
 const require = createRequire(join(repositoryRoot, "packages/database/package.json"));
+
 const { Pool } = require("pg");
+
 const postgresUrl = process.env.PROFILE_E2E_PG_URL;
+
 const dashboardOrigin = process.env.PROFILE_E2E_DASHBOARD_ORIGIN ?? "http://127.0.0.1:5194";
+
 assert.ok(postgresUrl, "PROFILE_E2E_PG_URL is required");
+
 const parsed = new URL(postgresUrl);
+
 assert.ok(
   ["postgres:", "postgresql:"].includes(parsed.protocol),
   "Profile seed requires PostgreSQL",
 );
+
 assert.ok(
   ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsed.hostname),
   "Profile seed requires loopback PostgreSQL",
 );
+
 assert.match(
   decodeURIComponent(parsed.pathname.slice(1)),
   /^profile_e2e_0064$/u,
@@ -33,8 +43,11 @@ export const profilePerson = {
   email: "profile-before-0064@example.invalid",
   password: "profile-e2e-0064-disposable-password",
 };
+
 const departmentId = "profile-self-edit-department-0064";
+
 const teamId = "profile-self-edit-team-0064";
+
 const membershipId = "profile-self-edit-membership-0064";
 
 const identity = spawnSync("bun", ["run", "identity:seed"], {
@@ -50,7 +63,9 @@ const identity = spawnSync("bun", ["run", "identity:seed"], {
   },
   encoding: "utf8",
 });
+
 assert.equal(identity.status, 0, `identity:seed failed:\n${identity.stdout}\n${identity.stderr}`);
+
 const identityEvidence = JSON.parse(identity.stdout.trim().split("\n").at(-1));
 
 const pool = new Pool({
@@ -59,6 +74,7 @@ const pool = new Pool({
   max: 1,
   application_name: "native-profile-self-edit-seed-0064",
 });
+
 try {
   await pool.query("BEGIN");
   await pool.query("DELETE FROM organization_memberships WHERE membership_id = $1", [membershipId]);
@@ -87,6 +103,7 @@ try {
     [membershipId, profilePerson.personId, teamId],
   );
   await pool.query("COMMIT");
+
   const { rows } = await pool.query(
     `SELECT
       (SELECT count(*)::int FROM auth."user" WHERE id = $1) AS users,
@@ -98,6 +115,7 @@ try {
       to_regclass('public.person_contact_profiles') IS NOT NULL AS person_contacts`,
     [profilePerson.personId, membershipId],
   );
+
   assert.deepEqual(rows[0], {
     users: 1,
     profiles: 1,

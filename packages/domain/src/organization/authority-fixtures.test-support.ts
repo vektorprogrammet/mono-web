@@ -28,11 +28,12 @@ export interface Spec0055OrganizationAuthorityFixtures {
 }
 
 /** Shared accepted/rejected fixtures from the frozen spec 0055 mapper truth table. */
-export const makeSpec0055OrganizationAuthorityFixtures = (
+export const spec0055OrganizationAuthorityFixtures = (
   ids: Spec0055OrganizationAuthorityFixtureIds,
 ): Spec0055OrganizationAuthorityFixtures => {
   const departmentId = DepartmentId.make(ids.departmentId);
   const teamId = TeamId.make(ids.teamId);
+
   return {
     administrator: {
       personId: PersonId.make(ids.persons.administrator),

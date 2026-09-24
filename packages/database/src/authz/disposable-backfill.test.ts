@@ -1,8 +1,12 @@
+import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { canonicalJsonBytes } from "@vektorprogrammet/domain/evidence";
-import { RECEIPT_DOMAIN_ID } from "@vektorprogrammet/domain/authz";
-import { authorDisposableAuthzBackfill } from "./disposable-backfill.js";
+import { AuthzRuleScopeSchema, RECEIPT_DOMAIN_ID } from "@vektorprogrammet/domain/authz";
+import {
+  DisposableAuthzRuleSubjectAuthoringSchema,
+  authorDisposableAuthzBackfill,
+} from "./disposable-backfill.js";
 
 const startAt = "2032-01-01T00:00:00.000Z";
 
@@ -25,12 +29,14 @@ const validAuthoring = () => ({
   ],
   rulesBySubject: [
     {
-      subject: { _tag: "Tag", tagName: "Payment delegates" },
+      subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Tag.make({
+        tagName: "Payment delegates",
+      }),
       rules: [
         {
           capabilityId: "submitReceipt",
           effectKind: "delegate",
-          scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+          scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
           params: {
             paymentAccountCiphertext: "ciphertext-disposable-payment",
             slot: "EconomyPaymentAuthority",
@@ -41,12 +47,16 @@ const validAuthoring = () => ({
       ],
     },
     {
-      subject: { _tag: "Person", personId: "authz-backfill-person-a" },
+      subject: DisposableAuthzRuleSubjectAuthoringSchema.cases.Person.make({
+        personId: PersonId.make("authz-backfill-person-a"),
+      }),
       rules: [
         {
           capabilityId: "approveReceipt",
           effectKind: "delegate",
-          scope: { _tag: "Department", departmentId: "authz-backfill-department" },
+          scope: AuthzRuleScopeSchema.cases.Department.make({
+            departmentId: DepartmentId.make("authz-backfill-department"),
+          }),
           params: { slot: "EconomyDepartmentApprovalGrant" },
           startAt,
           endAt: null,
@@ -54,7 +64,7 @@ const validAuthoring = () => ({
         {
           capabilityId: "approveReceipt",
           effectKind: "delegate",
-          scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+          scope: AuthzRuleScopeSchema.cases.Domain.make({ domainId: RECEIPT_DOMAIN_ID }),
           params: { slot: "EconomyGlobalReceiptApprovalGrant" },
           startAt,
           endAt: null,
@@ -66,6 +76,7 @@ const validAuthoring = () => ({
 
 const reversedAuthoring = () => {
   const input = validAuthoring();
+
   return {
     ...input,
     tags: [...input.tags].reverse(),
@@ -89,6 +100,7 @@ describe("disposable authorization backfill authoring", () => {
       expect(forward.assignments.map((assignment) => assignment.assignmentId)).toEqual(
         forward.assignments.map((assignment) => assignment.assignmentId).toSorted(),
       );
+
       for (const group of forward.rulesBySubject) {
         expect(group.rules.map((rule) => rule.ruleId)).toEqual(
           group.rules.map((rule) => rule.ruleId).toSorted(),
@@ -101,8 +113,10 @@ describe("disposable authorization backfill authoring", () => {
     Effect.gen(function* () {
       const input = validAuthoring();
       const personGroup = input.rulesBySubject[1];
+
       if (personGroup === undefined) throw new Error("missing fixture person rule group");
       const firstRule = personGroup.rules[0];
+
       if (firstRule === undefined) throw new Error("missing fixture rule");
 
       const invalidInputs: ReadonlyArray<unknown> = [
@@ -142,6 +156,7 @@ describe("disposable authorization backfill authoring", () => {
   it.effect("rejects absent tag references before producing a plan", () =>
     Effect.gen(function* () {
       const input = validAuthoring();
+
       const failure = yield* Effect.flip(
         authorDisposableAuthzBackfill({
           ...input,
@@ -152,8 +167,8 @@ describe("disposable authorization backfill authoring", () => {
         }),
       );
 
+      expect(failure).toHaveProperty("_tag", "DisposableAuthzBackfillMissingReference");
       expect(failure).toMatchObject({
-        _tag: "DisposableAuthzBackfillMissingReference",
         referenceKind: "Tag",
         referenceId: "Payment delegates",
       });
@@ -163,9 +178,11 @@ describe("disposable authorization backfill authoring", () => {
   it.effect("has no production mode and requires the literal disposable marker", () =>
     Effect.gen(function* () {
       const input = validAuthoring();
+
       const falseMarker = yield* Effect.flip(
         authorDisposableAuthzBackfill({ ...input, disposable: false }),
       );
+
       const productionMode = yield* Effect.flip(
         authorDisposableAuthzBackfill({ ...input, mode: "production" }),
       );

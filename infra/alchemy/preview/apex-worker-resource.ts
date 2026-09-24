@@ -4,6 +4,7 @@ import { APEX_IDENTITY } from "./identity.ts";
 import { APEX_STATELESS_BINDING_NAMES } from "./state-contract.ts";
 
 const apexWorkerMain = new URL("./apex-worker.ts", import.meta.url).pathname;
+
 export const PASSWORD_RESET_SENDER = `noreply@${APEX_IDENTITY.zoneName}`;
 
 /**

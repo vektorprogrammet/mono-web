@@ -1,85 +1,33 @@
+import { HttpApi, OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
-import {
-  ApproveReceiptEndpoint,
-  InternalReceiptsApi,
-  ListReceiptsEndpoint,
-  ListReceiptsForApprovalEndpoint,
-  ListReceiptsForSettlementEndpoint,
-  ReadReceiptEvidenceEndpoint,
-  ReadReceiptFileEndpoint,
-  ReadReceiptFileForApprovalEndpoint,
-  ReadReceiptSettlementForFinanceEndpoint,
-  ReceiptsApi,
-  RejectReceiptEndpoint,
-  ReopenReceiptEndpoint,
-  ReviseReceiptEndpoint,
-  SettleReceiptEndpoint,
-  SubmitReceiptEndpoint,
-  WithdrawReceiptEndpoint,
-} from "../src/receipts.js";
+import { ReceiptsApi } from "../src/receipts.js";
 
-const outwardPath = (path: string): string =>
-  path.replace(/:receiptId(?:\(\[\^:\]\+\))?/u, "{receiptId}").replaceAll("::", ":");
+const ReceiptContractApi = HttpApi.make("receipt-contract").add(ReceiptsApi);
 
 describe("frozen receipt route contract", () => {
-  it("projects the suffix-regex declarations to the exact thirteen public outward routes", () => {
-    const routes = [
-      [ReadReceiptFileEndpoint, "GET", "/api/receipts/{receiptId}/file", "readReceiptFile"],
-      [
-        ReadReceiptFileForApprovalEndpoint,
-        "GET",
-        "/api/receipt-approval-queue/{receiptId}/file",
-        "readReceiptFileForApproval",
-      ],
-      [SubmitReceiptEndpoint, "POST", "/api/receipts", "submitReceipt"],
-      [ReviseReceiptEndpoint, "PATCH", "/api/receipts/{receiptId}", "reviseReceipt"],
-      [WithdrawReceiptEndpoint, "POST", "/api/receipts/{receiptId}:withdraw", "withdrawReceipt"],
-      [ListReceiptsEndpoint, "GET", "/api/receipts", "listReceipts"],
-      [
-        ListReceiptsForApprovalEndpoint,
-        "GET",
-        "/api/receipt-approval-queue",
-        "listReceiptsForApproval",
-      ],
-      [ApproveReceiptEndpoint, "POST", "/api/receipts/{receiptId}:approve", "approveReceipt"],
-      [RejectReceiptEndpoint, "POST", "/api/receipts/{receiptId}:reject", "rejectReceipt"],
-      [ReopenReceiptEndpoint, "POST", "/api/receipts/{receiptId}:reopen", "reopenReceipt"],
-      [
-        ListReceiptsForSettlementEndpoint,
-        "GET",
-        "/api/receipt-settlement-queue",
-        "listReceiptsForSettlement",
-      ],
-      [
-        ReadReceiptSettlementForFinanceEndpoint,
-        "GET",
-        "/api/receipt-settlement-queue/{receiptId}",
-        "readReceiptSettlementForFinance",
-      ],
-      [SettleReceiptEndpoint, "POST", "/api/receipts/{receiptId}:settle", "settleReceipt"],
-    ] as const;
+  it("publishes the thirteen outward receipt operations without internal evidence routes", () => {
+    const document = OpenApi.fromApi(ReceiptContractApi);
 
-    expect(routes.map(([endpoint]) => [endpoint.method, outwardPath(endpoint.path)])).toEqual(
-      routes.map(([, method, path]) => [method, path]),
+    const operations = Object.entries(document.paths).flatMap(([path, item]) =>
+      Object.keys(item).map((method) => `${method.toUpperCase()} ${path}`),
     );
-    const registrations = routes.map(
-      ([endpoint]) => `${endpoint.method} ${outwardPath(endpoint.path)}`,
-    );
-    expect(new Set(registrations).size).toBe(registrations.length);
-    expect(Object.keys(ReceiptsApi.endpoints).sort()).toEqual(
-      routes.map(([, , , name]) => name).sort(),
-    );
-  });
 
-  it("keeps internal.readReceiptEvidence outside the public receipt group", () => {
-    expect({
-      method: ReadReceiptEvidenceEndpoint.method,
-      path: outwardPath(ReadReceiptEvidenceEndpoint.path),
-    }).toEqual({
-      method: "GET",
-      path: "/api/receipt-lifecycle-evidence-records/{receiptId}",
-    });
-    expect(Object.keys(InternalReceiptsApi.endpoints)).toEqual(["readReceiptEvidence"]);
-    expect(Object.keys(ReceiptsApi.endpoints)).not.toContain("readReceiptEvidence");
+    expect(operations.sort()).toEqual(
+      [
+        "GET /api/receipts/{receiptId}/file",
+        "GET /api/receipt-approval-queue/{receiptId}/file",
+        "POST /api/receipts",
+        "PATCH /api/receipts/{receiptId}",
+        "POST /api/receipts/{receiptId}:withdraw",
+        "GET /api/receipts",
+        "GET /api/receipt-approval-queue",
+        "POST /api/receipts/{receiptId}:approve",
+        "POST /api/receipts/{receiptId}:reject",
+        "POST /api/receipts/{receiptId}:reopen",
+        "GET /api/receipt-settlement-queue",
+        "GET /api/receipt-settlement-queue/{receiptId}",
+        "POST /api/receipts/{receiptId}:settle",
+      ].sort(),
+    );
   });
 });

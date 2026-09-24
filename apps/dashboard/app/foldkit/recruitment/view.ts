@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { InterviewSchemaId,
 type RecruitmentAssignmentBoard,
 RecruitmentInterviewerOptionSchema, } from "@vektorprogrammet/http-api"
@@ -23,9 +24,11 @@ const dateTime = new Intl.DateTimeFormat("nb-NO", {
 });
 
 type AssignmentBoard = RecruitmentAssignmentBoard;
+
 const decodeInterviewerPersonId = S.decodeUnknownSync(
   RecruitmentInterviewerOptionSchema.fields.personId,
 );
+
 const decodeInterviewSchemaId = S.decodeUnknownSync(InterviewSchemaId);
 
 type Candidate = AssignmentBoard["candidates"][number];
@@ -244,12 +247,15 @@ const boardView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
 
 const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
   const board = AsyncData.getData(model.board);
+
   const interviewers: AssignmentBoard["interviewers"] =
-    board._tag === "Some" ? board.value.interviewers : [];
+    Predicate.isTagged(board, "Some") ? board.value.interviewers : [];
+
   const interviewSchemas: AssignmentBoard["interviewSchemas"] =
-    board._tag === "Some" ? board.value.interviewSchemas : [];
+    Predicate.isTagged(board, "Some") ? board.value.interviewSchemas : [];
+
   const candidate =
-    board._tag === "Some" && model.selectedApplicationId !== null
+    Predicate.isTagged(board, "Some") && model.selectedApplicationId !== null
       ? board.value.candidates.find((item) => item.applicationId === model.selectedApplicationId)
       : undefined;
 
@@ -397,6 +403,7 @@ const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html 
     toParentMessage: (message) => GotAssignmentDialogMessage({ message }),
   });
 };
+
 const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
   h.section(
     [h.Class("foldkit-recruitment"), h.AriaLabelledBy("fr-page-title")],
@@ -422,7 +429,7 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
   );
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
-  model._tag === "Ready"
+  Predicate.isTagged(model, "Ready")
     ? readyView(model, h)
     : h.section(
         [h.Class("foldkit-recruitment fr-error fr-error--fatal"), h.Role("alert")],

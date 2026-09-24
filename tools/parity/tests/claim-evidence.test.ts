@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Schema } from "effect";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -9,7 +10,6 @@ import {
   validateCapabilityEvidenceV2,
   validateIntentGraph,
   type AcceptedIntentV2,
-  type AtomicOperationCatalog,
   type AuthorityPin,
   type Backend,
 } from "../src/capability-parity.js";
@@ -27,12 +27,14 @@ import {
 } from "../src/claim-evidence.js";
 import { canonicalJson, compareByteOrder, sha256, stableId } from "../src/canonical.js";
 
-const legacyCatalog = JSON.parse(
-  readFileSync(resolve(import.meta.dir, "../data/capability-parity/atomic-legacy.json"), "utf8"),
-) as AtomicOperationCatalog;
-const nativeCatalog = JSON.parse(
-  readFileSync(resolve(import.meta.dir, "../data/capability-parity/atomic-native.json"), "utf8"),
-) as AtomicOperationCatalog;
+const legacyCatalog = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.declare(validateAtomicOperationCatalog)),
+)(readFileSync(resolve(import.meta.dir, "../data/capability-parity/atomic-legacy.json"), "utf8"));
+
+const nativeCatalog = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.declare(validateAtomicOperationCatalog)),
+)(readFileSync(resolve(import.meta.dir, "../data/capability-parity/atomic-native.json"), "utf8"));
+
 const catalogs: ClaimEvidenceCatalogs = { legacy: legacyCatalog, native: nativeCatalog };
 
 const authorityPin: AuthorityPin = {
@@ -45,6 +47,7 @@ const authorityPin: AuthorityPin = {
 };
 
 const sourceRef = (value: string): string => `src-${sha256(value).slice("sha256:".length)}`;
+
 const revisionRefs = ["rev-legacy-fixture", "rev-mono-fixture"] as const;
 
 interface ExternalJourneyFixtureInput {
@@ -64,6 +67,7 @@ const externalJourneyFixture = (input: ExternalJourneyFixtureInput) => {
     expected_contract_ref: "design-spec:0078",
     runtime_evidence_ref_ids: [],
   }));
+
   const withoutDigest = {
     journey_ref_id: input.ref,
     journey_key: input.key,
@@ -74,6 +78,7 @@ const externalJourneyFixture = (input: ExternalJourneyFixtureInput) => {
     steps,
     coverage_scope: input.coverage,
   };
+
   return { ...withoutDigest, journey_digest: sha256(canonicalJson(withoutDigest)) };
 };
 
@@ -141,6 +146,7 @@ const externalIntentFixture = (() => {
       steps: ["load-applicant-list", "assign-interview", "fresh-read-applicant-list"],
     }),
   ];
+
   const intents = journeys.map((journey) => {
     const withoutDigest = {
       intent_ref_id: journey.journey_ref_id,
@@ -154,8 +160,10 @@ const externalIntentFixture = (() => {
       inventory_kinds: [],
       journey_ref_ids: [journey.journey_ref_id],
     };
+
     return { ...withoutDigest, intent_digest: sha256(canonicalJson(withoutDigest)) };
   });
+
   return {
     schema_version: "functional-parity-accepted-intent/v1" as const,
     intents,
@@ -165,6 +173,7 @@ const externalIntentFixture = (() => {
 
 const migratedFixture = (): AcceptedIntentV2 => {
   const migrated = migrateAcceptedIntentV1(externalIntentFixture, authorityPin);
+
   return {
     ...migrated,
     predicates: [
@@ -197,6 +206,7 @@ const satisfiedObservations = (
     ...(backendPlan.unsatisfied.precondition_ids ?? []),
     ...(backendPlan.unsatisfied.rejection_ids ?? []),
   ]);
+
   return backendPlan.observations.filter((observation) =>
     [
       observation.assertion_id,
@@ -229,11 +239,15 @@ const receiptRefFor = (
   receiptRefs.find((entry) => entry.intent_ref_id === intentRefId && entry.backend === backend)!
     .receipt_ref_id;
 
-const reviewedIntentRefs = TARGET_INTENT_REFS.slice(0, 3) as readonly ReviewedTargetIntentRef[];
+const reviewedIntentRefs = TARGET_INTENT_REFS.filter(
+  (ref): ref is ReviewedTargetIntentRef =>
+    ref !== "intent://journey:recruitment:applicant-assignment:v1",
+);
 
 const registerFixture = () => {
   const migrated = migratedFixture();
   const receiptRefs = fixedReceiptRefs();
+
   return {
     migrated,
     receiptRefs,
@@ -266,21 +280,22 @@ test("claim observation plan binds stable node and witness identifiers to commit
     path_template: "/api/application-options",
   });
 
-  const expectedMethodByClaim: Partial<Record<string, ClaimObservationMethod>> = {
-    journey_executed: "bounded_exit_status",
-    operation_observed: "exact_http_operation",
-    authorization_observed: "authorization_boundary_request",
-    boundary_observation: "user_visible_boundary_read",
-    rejection_observed: "invalid_transition_with_state_readback",
-    persistence_observed: "fresh_database_readback",
-    effect_requested: "ordered_durable_outbox_readback",
-    fresh_read_observed: "second_fresh_http_read",
-  };
+  const expectedMethodByClaim = new Map<string, ClaimObservationMethod>([
+    ["journey_executed", "bounded_exit_status"],
+    ["operation_observed", "exact_http_operation"],
+    ["authorization_observed", "authorization_boundary_request"],
+    ["boundary_observation", "user_visible_boundary_read"],
+    ["rejection_observed", "invalid_transition_with_state_readback"],
+    ["persistence_observed", "fresh_database_readback"],
+    ["effect_requested", "ordered_durable_outbox_readback"],
+    ["fresh_read_observed", "second_fresh_http_read"],
+  ]);
 
   for (const target of first) {
     expect(Object.values(target.semantic_ids).every((identifiers) => identifiers.length > 0)).toBe(
       true,
     );
+
     for (const backend of backendValues) {
       const backendPlan = target.backends[backend];
       expect(backendPlan.witness_ids).toEqual({
@@ -289,11 +304,14 @@ test("claim observation plan binds stable node and witness identifiers to commit
         rejection: `${target.slug}-${backend}-rejection`,
       });
       const catalog = backend === "legacy_symfony" ? legacyCatalog : nativeCatalog;
+
       for (const node of backendPlan.operation_nodes) {
         expect(node.node_id).toBe(`${target.slug}-${backend}-${node.operation_semantic}`);
+
         const operation = catalog.operations.find(
           (candidate) => candidate.operation_ref_id === node.operation_ref_id,
         );
+
         expect(operation).toBeDefined();
         expect({
           method: node.method,
@@ -305,14 +323,16 @@ test("claim observation plan binds stable node and witness identifiers to commit
           digest: operation!.provenance.canonical_operation_sha256,
         });
       }
+
       expect(new Set(backendPlan.operation_nodes.map((entry) => entry.node_id)).size).toBe(
         backendPlan.operation_nodes.length,
       );
       expect(new Set(backendPlan.observations.map((entry) => entry.observation_id)).size).toBe(
         backendPlan.observations.length,
       );
+
       for (const observation of backendPlan.observations) {
-        expect(observation.observation_method).toBe(expectedMethodByClaim[observation.kind]);
+        expect(observation.observation_method).toBe(expectedMethodByClaim.get(observation.kind));
       }
     }
   }
@@ -324,6 +344,7 @@ test("claim observation plan binds stable node and witness identifiers to commit
       ),
     ),
   );
+
   expect([...plannedKinds].sort(compareByteOrder)).toEqual(
     [
       "authorization_observed",
@@ -360,6 +381,7 @@ test("accepted-intent builder replaces only the three reviewed targets and retai
     expect(intent.side_effects.length).toBeGreaterThan(0);
     expect(intent.rejections.length).toBeGreaterThan(0);
     expect(intent.freshness.length).toBeGreaterThan(0);
+
     for (const implementation of intent.implementations) {
       const catalog = implementation.backend === "legacy_symfony" ? legacyCatalog : nativeCatalog;
       expect(validateIntentGraph(register, intent, implementation, catalog)).toEqual([]);
@@ -379,9 +401,11 @@ test("accepted-intent builder replaces only the three reviewed targets and retai
   const sourceApplicant = migrated.intents.find(
     (intent) => intent.intent_ref_id === "intent://journey:parity:applicant_admission:v1",
   )!;
+
   const reviewedApplicant = register.intents.find(
     (intent) => intent.intent_ref_id === "intent://journey:parity:applicant_admission:v1",
   )!;
+
   expect(reviewedApplicant.source_v1_selection).toEqual(sourceApplicant.source_v1_selection);
   expect(
     register.intents.find(
@@ -394,9 +418,11 @@ test("accepted-intent builder replaces only the three reviewed targets and retai
   const migratedNegative = migrated.intents.find(
     (intent) => intent.intent_ref_id === "intent://journey:recruitment:applicant-assignment:v1",
   )!;
+
   const negative = register.intents.find(
     (intent) => intent.intent_ref_id === "intent://journey:recruitment:applicant-assignment:v1",
   )!;
+
   expect(negative).toEqual(migratedNegative);
   expect(negative.semantic_stages).toEqual([]);
   expect(negative.required_preconditions).toEqual([]);
@@ -412,9 +438,11 @@ test("accepted-intent builder replaces only the three reviewed targets and retai
 test("receipt builder maps only artifact observation ids into scope-valid v2 claims", () => {
   const { register, receiptRefs } = registerFixture();
   const plans = claimEvidencePlan(catalogs);
+
   const receipts = plans.flatMap((plan) =>
     backendValues.map((backend) => {
       const backendPlan = plan.backends[backend];
+
       return buildCapabilityEvidenceReceipt({
         accepted_intent: register,
         catalogs,
@@ -433,6 +461,7 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
       });
     }),
   );
+
   const evidence = buildCapabilityRuntimeEvidenceV2(authorityPin, receipts);
   expect(validateCapabilityEvidenceV2(evidence)).toBe(true);
   expect(canonicalJson(evidence)).toBe(
@@ -446,13 +475,16 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
 
   for (const receipt of evidence.receipts) {
     const intent = register.intents.find((entry) => entry.intent_ref_id === receipt.intent_ref_id)!;
+
     const implementation = intent.implementations.find(
       (entry) => entry.backend === receipt.backend,
     )!;
+
     expect(receipt.implementation_digest).toBe(sha256(canonicalJson(implementation)));
     const plan = plans.find((entry) => entry.intent_ref_id === receipt.intent_ref_id)!;
     const plannedObservations = satisfiedObservations(plan.backends[receipt.backend]);
     expect(receipt.claims).toHaveLength(plannedObservations.length);
+
     for (const claim of receipt.claims) {
       expect(
         plannedObservations.some(
@@ -486,6 +518,7 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
     ],
     "intent://composition:receipts:owner-scoped-approval:v1": ["EFFECT_DECLARATION_MISSING"],
   };
+
   for (const intentRefId of reviewedIntentRefs) {
     const intent = register.intents.find((entry) => entry.intent_ref_id === intentRefId)!;
     const row = compareCapabilityIntent(register, intent, legacyCatalog, nativeCatalog, evidence);
@@ -494,6 +527,7 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
     expect(row.native.evidence_status).toBe("current");
     const diagnosticCodes = new Set(row.diagnostics.map((diagnostic) => diagnostic.code));
     expect(diagnosticCodes.has("CLAIM_SCOPE_INVALID")).toBe(false);
+
     for (const code of expectedStructuralCodes[intentRefId]) {
       expect(diagnosticCodes.has(code)).toBe(true);
     }
@@ -502,7 +536,9 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
   const applicantPlan = plans.find(
     (entry) => entry.intent_ref_id === "intent://journey:parity:applicant_admission:v1",
   )!;
+
   const observedSubset = applicantPlan.backends.native_effect.observations.slice(0, 2);
+
   const partial = buildCapabilityEvidenceReceipt({
     accepted_intent: register,
     catalogs,
@@ -516,6 +552,7 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
     result: "failed",
     exit_code: 9,
   });
+
   expect(partial.result).toBe("failed");
   expect(partial.exit_code).toBe(9);
   expect(partial.claims).toHaveLength(2);

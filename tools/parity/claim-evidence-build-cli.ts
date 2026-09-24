@@ -27,16 +27,18 @@ import { canonicalJson, sha256, stableId } from "./src/canonical.js";
 import {
   JourneyObservationArtifactSchema,
   type JourneyObservationArtifact,
-  type NativeJourneyRunManifest,
+  NativeJourneyRunManifestSchema,
 } from "./src/journey-evidence.js";
 import {
   LegacyJourneyObservationArtifactSchema,
   type LegacyJourneyObservationArtifact,
-  type LegacyJourneyRunManifest,
+  LegacyJourneyRunManifestSchema,
   type LegacyJourneyRunRecord,
 } from "./src/legacy-journey-evidence.js";
 import { inspectJsonMembers, isJsonObject } from "./src/json-safety.js";
-import { Schema } from "effect";
+import { Predicate, Schema } from "effect";
+
+const decodeJsonText = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
 
 interface Options {
   readonly evidenceRoot: string;
@@ -47,24 +49,30 @@ interface Options {
 
 const parseArguments = (arguments_: readonly string[]): Options => {
   const values = new Map<string, string>();
+
   for (let index = 0; index < arguments_.length; index += 2) {
     const name = arguments_[index];
     const value = arguments_[index + 1];
+
     if (name === undefined || value === undefined || !name.startsWith("--")) {
       throw new Error("CLAIM_EVIDENCE_BUILD_ARGUMENTS_INVALID");
     }
+
     values.set(name, value);
   }
+
   const evidenceRoot = values.get("--evidence-root");
   const intentAuthority = values.get("--intent-authority");
   const legacyManifest = values.get("--legacy-manifest") ?? null;
   const runtimeAuthority = values.get("--runtime-authority");
+
   const recognized = [
     "--evidence-root",
     "--intent-authority",
     "--legacy-manifest",
     "--runtime-authority",
   ];
+
   if (
     [...values.keys()].some((name) => !recognized.includes(name)) ||
     evidenceRoot === undefined ||
@@ -73,6 +81,7 @@ const parseArguments = (arguments_: readonly string[]): Options => {
   ) {
     throw new Error("CLAIM_EVIDENCE_BUILD_ARGUMENTS_INVALID");
   }
+
   return {
     evidenceRoot: resolve(evidenceRoot),
     intentAuthority: resolve(intentAuthority),
@@ -81,10 +90,12 @@ const parseArguments = (arguments_: readonly string[]): Options => {
   };
 };
 
-const parseJson = (bytes: string, label: string): unknown => {
+const parseJson = (bytes: string, label: string): Schema.Json => {
   if (inspectJsonMembers(bytes) !== "valid") throw new Error(`${label}:JSON_INVALID`);
-  const value = JSON.parse(bytes) as unknown;
+  const value = decodeJsonText(bytes);
+
   if (canonicalJson(value) !== bytes) throw new Error(`${label}:JSON_NONCANONICAL`);
+
   return value;
 };
 
@@ -93,34 +104,44 @@ const git = async (cwd: string, arguments_: readonly string[]): Promise<string> 
     stderr: "pipe",
     stdout: "pipe",
   });
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
+
   if (exitCode !== 0) throw new Error(`CLAIM_EVIDENCE_GIT_FAILED:${stderr.trim()}`);
+
   return stdout.trim();
 };
 
-const pinExternalAuthority = async (path: string, value: unknown): Promise<AuthorityPin> => {
+const pinExternalAuthority = async (path: string, value: Schema.Json): Promise<AuthorityPin> => {
   const repositoryRoot = await git(dirname(path), ["rev-parse", "--show-toplevel"]);
   const authorityPath = relative(repositoryRoot, path).replaceAll("\\", "/");
+
   if (authorityPath.length === 0 || authorityPath.startsWith("../")) {
     throw new Error("CLAIM_EVIDENCE_AUTHORITY_PATH_INVALID");
   }
+
   if ((await git(repositoryRoot, ["status", "--porcelain"])) !== "") {
     throw new Error("CLAIM_EVIDENCE_EXTERNAL_AUTHORITY_DIRTY");
   }
+
   const revision = await git(repositoryRoot, ["rev-parse", "HEAD"]);
+
   const [blobOid, liveBlobOid, bytes] = await Promise.all([
     git(repositoryRoot, ["rev-parse", `${revision}:${authorityPath}`]),
     git(repositoryRoot, ["hash-object", authorityPath]),
     readFile(path, "utf8"),
   ]);
+
   if (blobOid !== liveBlobOid) throw new Error("CLAIM_EVIDENCE_EXTERNAL_AUTHORITY_DRIFT");
-  if (!isJsonObject(value) || typeof value.schema_version !== "string") {
+
+  if (!isJsonObject(value) || !Predicate.isString(value.schema_version)) {
     throw new Error("CLAIM_EVIDENCE_EXTERNAL_AUTHORITY_SCHEMA_MISSING");
   }
+
   return {
     authority_path: authorityPath,
     blob_oid: blobOid,
@@ -131,8 +152,9 @@ const pinExternalAuthority = async (path: string, value: unknown): Promise<Autho
   };
 };
 
-const decodeCatalog = (value: unknown, label: string): AtomicOperationCatalog => {
+const decodeCatalog = (value: Schema.Json, label: string): AtomicOperationCatalog => {
   if (!validateAtomicOperationCatalog(value)) throw new Error(`${label}:ATOMIC_SCHEMA_INVALID`);
+
   return value;
 };
 
@@ -141,9 +163,12 @@ const requirePlan = (
   intentRefId: string,
 ): ClaimIntentEvidencePlan => {
   const plan = plans.find((entry) => entry.intent_ref_id === intentRefId);
+
   if (plan === undefined) throw new Error(`CLAIM_EVIDENCE_PLAN_MISSING:${intentRefId}`);
+
   return plan;
 };
+
 type BuildTimeJourneyArtifact =
   | { readonly backend: "legacy_symfony"; readonly value: LegacyJourneyObservationArtifact }
   | { readonly backend: "native_effect"; readonly value: JourneyObservationArtifact };
@@ -153,6 +178,7 @@ const backendPlanFor = (plan: ClaimIntentEvidencePlan, backend: Backend) =>
 
 const includesSemantic = (values: readonly string[], semanticId: string | null): boolean => {
   if (semanticId === null) return true;
+
   return values.includes(semanticId);
 };
 
@@ -164,11 +190,14 @@ const methodObserved = (
   run: { readonly result: string },
 ): boolean => {
   const backendPlan = backendPlanFor(plan, backend);
+
   if (artifact.backend !== backend) return false;
   const observations = artifact.value.observations;
+
   const operation = backendPlan.operation_nodes.find(
     (entry) => entry.node_id === observation.node_id,
   );
+
   const matching =
     operation === undefined
       ? []
@@ -176,19 +205,23 @@ const methodObserved = (
           (entry) =>
             entry.method === operation.method && entry.path_template === operation.path_template,
         );
+
   switch (observation.observation_method) {
     case "bounded_exit_status":
       return run.result === "passed";
     case "exact_http_operation":
       if (operation === undefined) return false;
+
       if (operation.witness_id === backendPlan.witness_ids.accepted) {
         return matching.some((entry) => entry.status >= 200 && entry.status < 300);
       }
+
       if (operation.witness_id === backendPlan.witness_ids.authorization) {
         return matching.some(
           (entry) => entry.status === 401 || entry.status === 403 || entry.status === 404,
         );
       }
+
       return operation.operation_semantic.includes("readback")
         ? matching.some((entry) => entry.status >= 200 && entry.status < 300)
         : matching.some((entry) => entry.status >= 400);
@@ -257,6 +290,7 @@ const methodObserved = (
       return false;
   }
 };
+
 const isUnsatisfiedObservation = (
   observation: ClaimObservationPlanEntry,
   unsatisfied: ClaimBackendEvidencePlan["unsatisfied"],
@@ -282,11 +316,13 @@ const observedIds = (
     if (isUnsatisfiedObservation(observation, backendPlanFor(plan, backend).unsatisfied)) {
       return [];
     }
+
     if (!methodObserved(observation, plan, backend, artifact, run)) {
       throw new Error(
         `CLAIM_EVIDENCE_METHOD_NOT_OBSERVED:${plan.intent_ref_id}:${observation.observation_method}:${observation.observation_id}`,
       );
     }
+
     return [observation.observation_id];
   });
 
@@ -309,18 +345,23 @@ const legacyRequestedEffectObserved = (
       return false;
   }
 };
+
 const readArtifactFile = async (
   evidenceRoot: string,
   run: { readonly artifact_pointer: string; readonly intent_ref_id: string },
 ): Promise<string> => {
   const artifactPath = resolve(evidenceRoot, run.artifact_pointer);
+
   if (!artifactPath.startsWith(`${evidenceRoot}/`)) {
     throw new Error("CLAIM_EVIDENCE_ARTIFACT_PATH_INVALID");
   }
+
   const artifactBytes = await readFile(artifactPath, "utf8");
+
   if (sha256(artifactBytes) !== run.artifact_digest) {
     throw new Error(`CLAIM_EVIDENCE_ARTIFACT_DRIFT:${run.intent_ref_id}`);
   }
+
   return artifactBytes;
 };
 
@@ -336,18 +377,24 @@ const buildNativeReceipt = async (
   if (run.runner_digest !== runnerDigest) {
     throw new Error(`CLAIM_EVIDENCE_RUNNER_DRIFT:${run.intent_ref_id}`);
   }
+
   const plan = requirePlan(plans, run.intent_ref_id);
   const artifactBytes = await readArtifactFile(options.evidenceRoot, run);
+
   const artifact = Schema.decodeUnknownSync(JourneyObservationArtifactSchema, {
     onExcessProperty: "error",
   })(parseJson(artifactBytes, "journey artifact"));
+
   if (artifact.intent_ref_id !== run.intent_ref_id) {
     throw new Error(`CLAIM_EVIDENCE_ARTIFACT_INTENT_MISMATCH:${run.intent_ref_id}`);
   }
+
   const receiptRef = receiptRefs.find(
     (entry) => entry.intent_ref_id === plan.intent_ref_id && entry.backend === "native_effect",
   );
+
   if (receiptRef === undefined) throw new Error("CLAIM_EVIDENCE_RECEIPT_REF_MISSING");
+
   return buildCapabilityEvidenceReceipt({
     accepted_intent: acceptedIntent,
     artifact_digest: run.artifact_digest,
@@ -381,18 +428,24 @@ const buildLegacyReceipt = async (
   if (run.runner_digest !== runnerDigest) {
     throw new Error(`CLAIM_EVIDENCE_RUNNER_DRIFT:${run.intent_ref_id}`);
   }
+
   const plan = requirePlan(plans, run.intent_ref_id);
   const artifactBytes = await readArtifactFile(options.evidenceRoot, run);
+
   const artifact = Schema.decodeUnknownSync(LegacyJourneyObservationArtifactSchema, {
     onExcessProperty: "error",
   })(parseJson(artifactBytes, "legacy journey artifact"));
+
   if (artifact.intent_ref_id !== run.intent_ref_id) {
     throw new Error(`CLAIM_EVIDENCE_ARTIFACT_INTENT_MISMATCH:${run.intent_ref_id}`);
   }
+
   const receiptRef = receiptRefs.find(
     (entry) => entry.intent_ref_id === plan.intent_ref_id && entry.backend === "legacy_symfony",
   );
+
   if (receiptRef === undefined) throw new Error("CLAIM_EVIDENCE_RECEIPT_REF_MISSING");
+
   return buildCapabilityEvidenceReceipt({
     accepted_intent: acceptedIntent,
     artifact_digest: run.artifact_digest,
@@ -417,6 +470,7 @@ const buildLegacyReceipt = async (
 const main = async (): Promise<void> => {
   const options = parseArguments(process.argv.slice(2));
   const repositoryRoot = resolve(import.meta.dir, "../..");
+
   const [legacyBytes, nativeBytes, intentBytes, runtimeBytes, manifestBytes, runnerBytes] =
     await Promise.all([
       readFile(resolve(options.evidenceRoot, "atomic-legacy.json"), "utf8"),
@@ -426,41 +480,57 @@ const main = async (): Promise<void> => {
       readFile(resolve(options.evidenceRoot, "native-run-manifest.json"), "utf8"),
       readFile(resolve(import.meta.dir, "src/journey-evidence.ts")),
     ]);
+
   if (options.legacyManifest !== null) {
     // Kept for argument compatibility; the manifest itself lives in the evidence root.
   }
+
   const legacyManifestBytes =
     options.legacyManifest === null ? null : await readFile(options.legacyManifest, "utf8");
+
   const legacyRunnerBytes =
     options.legacyManifest === null
       ? null
       : await readFile(resolve(import.meta.dir, "src/legacy-journey-evidence.ts"));
+
   const catalogs: ClaimEvidenceCatalogs = {
     legacy: decodeCatalog(parseJson(legacyBytes, "atomic legacy"), "atomic legacy"),
     native: decodeCatalog(parseJson(nativeBytes, "atomic native"), "atomic native"),
   };
+
   const intentV1 = parseJson(intentBytes, "intent authority");
   const runtimeV1 = parseJson(runtimeBytes, "runtime authority");
-  const manifest = parseJson(manifestBytes, "native run manifest") as NativeJourneyRunManifest;
+
+  const manifest = Schema.decodeUnknownSync(NativeJourneyRunManifestSchema)(
+    parseJson(manifestBytes, "native run manifest"),
+  );
+
   if (manifest.schema_version !== "claim-specific-journey-run/v1") {
     throw new Error("CLAIM_EVIDENCE_RUN_MANIFEST_SCHEMA_INVALID");
   }
+
   const legacyManifest =
     legacyManifestBytes === null || legacyRunnerBytes === null
       ? null
-      : (parseJson(legacyManifestBytes, "legacy run manifest") as LegacyJourneyRunManifest);
+      : Schema.decodeUnknownSync(LegacyJourneyRunManifestSchema)(
+          parseJson(legacyManifestBytes, "legacy run manifest"),
+        );
+
   if (
     legacyManifest !== null &&
     legacyManifest.schema_version !== "claim-specific-legacy-journey-run/v1"
   ) {
     throw new Error("CLAIM_EVIDENCE_LEGACY_RUN_MANIFEST_SCHEMA_INVALID");
   }
+
   const [intentSourcePin, runtimeSourcePin] = await Promise.all([
     pinExternalAuthority(options.intentAuthority, intentV1),
     pinExternalAuthority(options.runtimeAuthority, runtimeV1),
   ]);
+
   const migrated = migrateAcceptedIntentV1(intentV1, intentSourcePin);
   const plans = claimEvidencePlan(catalogs);
+
   const receiptRefs: readonly ClaimEvidenceReceiptRef[] = plans.flatMap((plan) =>
     (["legacy_symfony", "native_effect"] as const).map((backend) => ({
       backend,
@@ -472,16 +542,21 @@ const main = async (): Promise<void> => {
       }),
     })),
   );
+
   const acceptedIntent = buildClaimSpecificAcceptedIntentV2(migrated, catalogs, receiptRefs);
+
   if (!validateAcceptedIntentV2(acceptedIntent)) {
     throw new Error("CLAIM_EVIDENCE_ACCEPTED_INTENT_SCHEMA_INVALID");
   }
+
   const runnerDigest = sha256(runnerBytes);
+
   const nativeReceipts = await Promise.all(
     manifest.native.map((run) =>
       buildNativeReceipt(acceptedIntent, catalogs, plans, receiptRefs, options, runnerDigest, run),
     ),
   );
+
   const legacyReceipts =
     legacyManifest === null
       ? []
@@ -498,11 +573,14 @@ const main = async (): Promise<void> => {
             ),
           ),
         );
+
   const receipts = [...nativeReceipts, ...legacyReceipts];
   const runtimeEvidence = buildCapabilityRuntimeEvidenceV2(runtimeSourcePin, receipts);
+
   if (!validateCapabilityEvidenceV2(runtimeEvidence)) {
     throw new Error("CLAIM_EVIDENCE_RUNTIME_REGISTER_SCHEMA_INVALID");
   }
+
   const acceptedBytes = canonicalJson(acceptedIntent);
   const evidenceBytes = canonicalJson(runtimeEvidence);
   const acceptedPath = resolve(options.evidenceRoot, "accepted-intent-v2.json");
@@ -512,6 +590,7 @@ const main = async (): Promise<void> => {
     writeFile(evidencePath, evidenceBytes, "utf8"),
   ]);
   const legacyRunnerDigest = legacyRunnerBytes === null ? null : sha256(legacyRunnerBytes);
+
   const generationReceipt = {
     artifact_digests: Object.fromEntries(
       [...manifest.native, ...(legacyManifest?.legacy ?? [])]
@@ -546,6 +625,7 @@ const main = async (): Promise<void> => {
     receipt_ref_ids: receipts.map((receipt) => receipt.receipt_ref_id).sort(),
     schema_version: "claim-specific-evidence-generation-receipt/v1",
   };
+
   await writeFile(
     resolve(options.evidenceRoot, "claim-evidence-generation-receipt.json"),
     canonicalJson(generationReceipt),

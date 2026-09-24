@@ -27,11 +27,14 @@ const visit = (
   visited: Set<CapabilityName>,
 ): void => {
   if (visiting.has(capability)) throw new Error(`capability cycle at ${capability}`);
+
   if (visited.has(capability)) return;
   visiting.add(capability);
+
   for (const dependency of capabilityAuthorityDependencies[capability]) {
     visit(dependency, visiting, visited);
   }
+
   visiting.delete(capability);
   visited.add(capability);
 };
@@ -61,6 +64,7 @@ const implementedCapabilityLayers = {
 describe("logical capability dependencies", () => {
   it("keeps the capability graph acyclic", () => {
     const visited = new Set<CapabilityName>();
+
     for (const capability of capabilityNames) visit(capability, new Set(), visited);
     expect(visited.size).toBe(capabilityNames.length);
   });

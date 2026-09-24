@@ -1,24 +1,15 @@
+import { Predicate } from "effect";
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema as S } from "effect";
-import * as fc from "effect/testing/FastCheck";
+import { Arbitrary } from "effect/unstable/arbitrary";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { InvitationResponseClient } from "./browser-client";
-import { InvitationResponseObservationSchema } from "./bridge";
-import { makeInterviewCommands } from "./command";
-import {
-  ConfirmedInvitation,
-  FailedInvitationResponse,
-  FailedReadInvitationResponse,
-  OpenedInvitationResponse,
-  RejectedInvitation,
-  RequestedNewInvitationTime,
-  SucceededInvitationResponse,
-  SucceededReadInvitationResponse,
-  UpdatedResponseMessage,
-} from "./message";
-import { InvitationResponseData, Model, makeInitialModel } from "./model";
-import { makeUpdate } from "./update";
+import { InvitationResponseObservationSchema, InvitationBridgeFailureSchema } from "./bridge";
+import { commandsFor } from "./command";
+import { ConfirmedInvitation, FailedInvitationResponse, FailedReadInvitationResponse, RejectedInvitation, RequestedNewInvitationTime, SucceededInvitationResponse, SucceededReadInvitationResponse, UpdatedResponseMessage, Message } from "./message";
+import { InvitationResponseData, Model, init } from "./model";
+import { updateFor } from "./update";
 
 const decodeObservation = (
   responseState: "Pending" | "Accepted" | "Rejected" | "RequestedNewTime",
@@ -34,7 +25,9 @@ const decodeObservation = (
     },
     { onExcessProperty: "error" },
   );
+
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
+
 const nextEtag = StrongETag.make(`"vkr2.${"B".repeat(43)}"`);
 
 const dormantClient: InvitationResponseClient = {
@@ -45,106 +38,34 @@ const dormantClient: InvitationResponseClient = {
     requestNewInvitationTime: () => Effect.die("not executed by transition tests"),
   },
 };
-const update = makeUpdate(makeInterviewCommands(dormantClient));
+
+const update = updateFor(commandsFor(dormantClient));
 
 const pendingModel = (): Model => ({
-  ...makeInitialModel(),
+  ...init(),
   invitationResponse: InvitationResponseData.Success({ data: decodeObservation("Pending") }),
   requestId: 1,
   etag,
 });
 
-const bridgeFailure = {
-  _tag: "InvitationAlreadyResponded",
+const bridgeFailure = InvitationBridgeFailureSchema.cases.InvitationAlreadyResponded.make({
   message: "Invitation already responded",
-} as const;
-
-const responseStateArbitrary = fc.constantFrom(
-  "Pending" as const,
-  "Accepted" as const,
-  "Rejected" as const,
-  "RequestedNewTime" as const,
-);
-const observationArbitrary = responseStateArbitrary.map(decodeObservation);
-const requestIdArbitrary = fc.integer({ min: 0, max: 1_000 });
-const actionArbitrary = fc.constantFrom(
-  "Confirm" as const,
-  "Reject" as const,
-  "RequestNewTime" as const,
-);
-const failureArbitrary = fc
-  .tuple(
-    fc.constantFrom(
-      "InvitationNotFound" as const,
-      "InvitationAlreadyResponded" as const,
-      "InvitationDecodeError" as const,
-      "InvitationUnavailable" as const,
-    ),
-    fc.string({ maxLength: 128 }),
-  )
-  .map(([_tag, message]) => ({ _tag, message }));
-const invitationDataArbitrary = fc.oneof(
-  fc.constant(InvitationResponseData.Idle()),
-  fc.constant(InvitationResponseData.Loading()),
-  observationArbitrary.map((data) => InvitationResponseData.Refreshing({ data })),
-  failureArbitrary.map((error) => InvitationResponseData.Failure({ error })),
-  fc
-    .tuple(observationArbitrary, failureArbitrary)
-    .map(([data, error]) => InvitationResponseData.Stale({ data, error })),
-  observationArbitrary.map((data) => InvitationResponseData.Success({ data })),
-);
-const modelArbitrary = fc.record({
-  responseMessage: fc
-    .string({ maxLength: 2_100 })
-    .map((value) => FieldValidation.NotValidated({ value })),
-  invitationResponse: invitationDataArbitrary,
-  selectedAction: fc.oneof(fc.constant(null), actionArbitrary),
-  requestId: requestIdArbitrary,
-  failure: fc.oneof(fc.constant(null), failureArbitrary),
-  etag: fc.constantFrom(etag, nextEtag, null),
-  validationFeedback: fc.oneof(fc.constant(null), fc.string({ maxLength: 128 })),
 });
-const messageArbitrary = fc.oneof(
-  fc.constant(OpenedInvitationResponse()),
-  requestIdArbitrary.chain((requestId) =>
-    fc
-      .tuple(observationArbitrary, fc.constantFrom(etag, nextEtag))
-      .map(([observation, etag]) =>
-        SucceededReadInvitationResponse({ requestId, observation, etag }),
-      ),
-  ),
-  requestIdArbitrary.chain((requestId) =>
-    failureArbitrary.map((failure) => FailedReadInvitationResponse({ requestId, failure })),
-  ),
-  fc.string({ maxLength: 2_100 }).map((value) => UpdatedResponseMessage({ value })),
-  fc.constant(ConfirmedInvitation()),
-  fc.constant(RejectedInvitation()),
-  fc.constant(RequestedNewInvitationTime()),
-  fc
-    .tuple(
-      requestIdArbitrary,
-      actionArbitrary,
-      observationArbitrary,
-      fc.constantFrom(etag, nextEtag),
-    )
-    .map(([requestId, action, observation, etag]) =>
-      SucceededInvitationResponse({ requestId, action, observation, etag }),
-    ),
-  fc
-    .tuple(requestIdArbitrary, actionArbitrary, failureArbitrary)
-    .map(([requestId, action, failure]) =>
-      FailedInvitationResponse({ requestId, action, failure }),
-    ),
-);
+
+const modelArbitrary = Arbitrary.schema(Model);
+
+const messageArbitrary = Arbitrary.schema(Message);
+
 
 it("loads every native response state through a current read observation", () => {
   for (const responseState of ["Pending", "Accepted", "Rejected", "RequestedNewTime"] as const) {
     const loading: Model = {
-      ...makeInitialModel(),
+      ...init(),
       invitationResponse: InvitationResponseData.Loading(),
       requestId: 1,
     };
-    const [next] = update(
+
+    const { model: next } = update(
       loading,
       SucceededReadInvitationResponse({
         requestId: 1,
@@ -152,6 +73,7 @@ it("loads every native response state through a current read observation", () =>
         etag,
       }),
     );
+
     expect(next.invitationResponse._tag).toBe("Success");
   }
 });
@@ -164,12 +86,13 @@ it("emits response transitions only from Pending", () => {
         data: decodeObservation(responseState),
       }),
     };
+
     for (const attempted of [
       ConfirmedInvitation(),
       RejectedInvitation(),
       RequestedNewInvitationTime(),
     ]) {
-      const [next, commands] = update(terminal, attempted);
+      const { model: next, commands = [] } = update(terminal, attempted);
       expect(next).toBe(terminal);
       expect(commands).toEqual([]);
     }
@@ -178,13 +101,14 @@ it("emits response transitions only from Pending", () => {
 
 it("keeps the pending observation until a confirm command completes its fresh read", async () => {
   const initial = pendingModel();
-  const [inFlight, commands] = update(initial, ConfirmedInvitation());
+  const { model: inFlight, commands = [] } = update(initial, ConfirmedInvitation());
 
   expect(inFlight.selectedAction).toBe("Confirm");
   expect(inFlight.invitationResponse).toBe(initial.invitationResponse);
   expect(commands).toHaveLength(1);
 
   const operations: string[] = [];
+
   const client: InvitationResponseClient = {
     recruitment: {
       confirmInvitation: () =>
@@ -194,13 +118,15 @@ it("keeps the pending observation until a confirm command completes its fresh re
       readInvitationResponse: () =>
         Effect.sync(() => {
           operations.push("read");
+
           return { observation: decodeObservation("Accepted"), etag: nextEtag };
         }),
       rejectInvitation: () => Effect.die("not used"),
       requestNewInvitationTime: () => Effect.die("not used"),
     },
   };
-  const command = makeInterviewCommands(client).ConfirmInvitation({ requestId: 7, etag });
+
+  const command = commandsFor(client).ConfirmInvitation({ requestId: 7, etag });
   const result = await Effect.runPromise(command.effect);
 
   expect(operations).toEqual(["confirm", "read"]);
@@ -213,7 +139,7 @@ it("keeps the pending observation until a confirm command completes its fresh re
     }),
   );
 
-  const [completed] = update(
+  const { model: completed } = update(
     inFlight,
     SucceededInvitationResponse({
       requestId: inFlight.requestId,
@@ -222,16 +148,18 @@ it("keeps the pending observation until a confirm command completes its fresh re
       etag: nextEtag,
     }),
   );
+
   expect(completed.selectedAction).toBeNull();
   expect(completed.etag).toBe(nextEtag);
   const completedObservation = AsyncData.getData(completed.invitationResponse);
   expect(completedObservation._tag).toBe("Some");
-  if (completedObservation._tag !== "Some") throw new Error("expected a current observation");
+
+  if (!Predicate.isTagged(completedObservation, "Some")) throw new Error("expected a current observation");
   expect(completedObservation.value).toEqual(decodeObservation("Accepted"));
 });
 
 it("allows a blank rejection message and normalizes it to absent", () => {
-  const [next, commands] = update(pendingModel(), RejectedInvitation());
+  const { model: next, commands = [] } = update(pendingModel(), RejectedInvitation());
 
   expect(next.selectedAction).toBe("Reject");
   expect(commands).toHaveLength(1);
@@ -239,36 +167,38 @@ it("allows a blank rejection message and normalizes it to absent", () => {
 });
 
 it("requires a bounded message only when requesting a new time", () => {
-  const [blank, blankCommands] = update(pendingModel(), RequestedNewInvitationTime());
+  const { model: blank, commands: blankCommands = [] } = update(pendingModel(), RequestedNewInvitationTime());
   expect(blank.validationFeedback).toBe("Skriv en melding før du ber om nytt tidspunkt.");
   expect(blankCommands).toEqual([]);
 
   const overlongMessage = Array.from({ length: 2_001 }, (_, index) =>
     index % 43 === 42 ? " " : "x",
   ).join("");
+
   const tooLong = {
     ...pendingModel(),
     responseMessage: FieldValidation.NotValidated({ value: overlongMessage }),
   };
-  const [invalidReject, invalidRejectCommands] = update(tooLong, RejectedInvitation());
-  const [invalidNewTime, invalidNewTimeCommands] = update(tooLong, RequestedNewInvitationTime());
+
+  const { model: invalidReject, commands: invalidRejectCommands = [] } = update(tooLong, RejectedInvitation());
+  const { model: invalidNewTime, commands: invalidNewTimeCommands = [] } = update(tooLong, RequestedNewInvitationTime());
   expect(invalidReject.validationFeedback).toContain("2000");
   expect(invalidRejectCommands).toEqual([]);
   expect(invalidNewTime.validationFeedback).toBeNull();
-  expect(invalidNewTime.responseMessage).toMatchObject({
-    _tag: "Invalid",
-    errors: expect.arrayContaining([expect.stringContaining("2000")]),
-  });
+  expect(invalidNewTime.responseMessage).toHaveProperty("_tag", "Invalid");
+expect(invalidNewTime.responseMessage).toMatchObject({ errors: expect.arrayContaining([expect.stringContaining("2000")]) });
   expect(invalidNewTimeCommands).toEqual([]);
 
   const validMaximumMessage = Array.from({ length: 2_000 }, (_, index) =>
     index % 43 === 42 ? " " : "x",
   ).join("");
+
   const valid = {
     ...pendingModel(),
     responseMessage: FieldValidation.NotValidated({ value: `  ${validMaximumMessage}  ` }),
   };
-  const [requested, commands] = update(valid, RequestedNewInvitationTime());
+
+  const { model: requested, commands = [] } = update(valid, RequestedNewInvitationTime());
   expect(requested.selectedAction).toBe("RequestNewTime");
   expect(commands[0]?.args).toEqual({
     requestId: requested.requestId,
@@ -284,50 +214,46 @@ it("clears capability-shaped messages before rendering or creating a browser com
   ];
 
   for (const rawMessage of rawMessages) {
-    const [sanitized] = update(pendingModel(), UpdatedResponseMessage({ value: rawMessage }));
-    expect(sanitized.responseMessage).toMatchObject({
-      _tag: "Invalid",
-      value: "",
-      errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]),
-    });
+    const { model: sanitized } = update(pendingModel(), UpdatedResponseMessage({ value: rawMessage }));
+    expect(sanitized.responseMessage).toHaveProperty("_tag", "Invalid");
+expect(sanitized.responseMessage).toMatchObject({ value: "", errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]) });
 
-    const [next, commands] = update(sanitized, RequestedNewInvitationTime());
+    const { model: next, commands = [] } = update(sanitized, RequestedNewInvitationTime());
     expect(next).toBe(sanitized);
     expect(commands).toEqual([]);
 
-    const [rejected, rejectCommands] = update(
+    const { model: rejected, commands: rejectCommands = [] } = update(
       {
         ...pendingModel(),
         responseMessage: FieldValidation.NotValidated({ value: rawMessage }),
       },
       RejectedInvitation(),
     );
-    expect(rejected.responseMessage).toMatchObject({
-      _tag: "Invalid",
-      value: "",
-      errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]),
-    });
+
+    expect(rejected.responseMessage).toHaveProperty("_tag", "Invalid");
+expect(rejected.responseMessage).toMatchObject({ value: "", errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]) });
     expect(rejectCommands).toEqual([]);
   }
 });
 
 it("excludes every competing action while one command is in flight", () => {
-  const [inFlight] = update(pendingModel(), ConfirmedInvitation());
+  const { model: inFlight } = update(pendingModel(), ConfirmedInvitation());
 
   for (const competing of [
     ConfirmedInvitation(),
     RejectedInvitation(),
     RequestedNewInvitationTime(),
   ]) {
-    const [next, commands] = update(inFlight, competing);
+    const { model: next, commands = [] } = update(inFlight, competing);
     expect(next).toBe(inFlight);
     expect(commands).toEqual([]);
   }
 });
 
 it("preserves typed failures without replacing the current observation", () => {
-  const [inFlight] = update(pendingModel(), ConfirmedInvitation());
-  const [failed] = update(
+  const { model: inFlight } = update(pendingModel(), ConfirmedInvitation());
+
+  const { model: failed } = update(
     inFlight,
     FailedInvitationResponse({
       requestId: inFlight.requestId,
@@ -347,6 +273,7 @@ it("rejects stale read, command success, and command failure observations", () =
     selectedAction: "Confirm" as const,
     requestId: 4,
   };
+
   const staleMessages = [
     SucceededReadInvitationResponse({
       requestId: 3,
@@ -370,15 +297,16 @@ it("rejects stale read, command success, and command failure observations", () =
   ];
 
   for (const stale of staleMessages) {
-    const [next, commands] = update(current, stale);
+    const { model: next, commands = [] } = update(current, stale);
     expect(next).toBe(current);
     expect(commands).toEqual([]);
   }
 });
 
 it("does not adopt a fresh read that contradicts the completed operation", () => {
-  const [inFlight] = update(pendingModel(), ConfirmedInvitation());
-  const [next] = update(
+  const { model: inFlight } = update(pendingModel(), ConfirmedInvitation());
+
+  const { model: next } = update(
     inFlight,
     SucceededInvitationResponse({
       requestId: inFlight.requestId,
@@ -399,8 +327,8 @@ it.prop(
     message: messageArbitrary,
   },
   ({ model, message }) => {
-    const [next] = update(model, message);
-    expect(() => S.decodeUnknownSync(Model)(next)).not.toThrow();
+    const { model: next } = update(model, message);
+    expect(S.is(Model)(next)).toBe(true);
   },
-  { fastCheck: { seed: 26082028, numRuns: 150 } },
+  { arbitrary: { seed: 26082028, runs: 150 } },
 );

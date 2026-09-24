@@ -22,21 +22,30 @@ const denied = () =>
   nativeProblemResponse("credential.invalid", 401, {
     "www-authenticate": 'ContactSSR realm="native-contact"',
   });
+
 const tokenMatches = (supplied: string | null, expected: string): boolean => {
   if (supplied === null) return false;
   const left = Buffer.from(supplied);
   const right = Buffer.from(expected);
+
   return left.length === right.length && timingSafeEqual(left, right);
 };
-const failure = (error: unknown): Response => {
+
+const failure = (cause: unknown): Response => {
+  const error = cause;
+
   if (error instanceof HttpSemanticFailure) return nativeProblemResponse(error.code, error.status);
+
   if (error instanceof ContactFailure) {
     if (error.reason === "InvalidRecipient") return nativeProblemResponse("validation.failed", 422);
+
     if (error.reason === "RateLimited")
       return nativeProblemResponse("rate-limit.exceeded", 429, { "retry-after": "3600" });
   }
+
   return nativeProblemResponse("contact.unavailable", 503);
 };
+
 export const makeContactHandler = (config: ContactConfig | undefined) => {
   const delivery = Layer.succeed(
     ContactDelivery,
@@ -57,12 +66,16 @@ export const makeContactHandler = (config: ContactConfig | undefined) => {
             ).pipe(Effect.mapError(() => new ContactFailure({ reason: "Unavailable" }))),
     }),
   );
+
   const services = Layer.merge(ContactQuotaLive, delivery);
+
   return (request: Request) =>
     Effect.gen(function* () {
       if (config === undefined) return nativeProblemResponse("contact.unavailable", 503);
+
       if (!tokenMatches(request.headers.get(CONTACT_BACKEND_HEADER), config.backendToken))
         return denied();
+
       const ip = yield* Effect.sync(() => {
         try {
           return Schema.decodeUnknownSync(ContactVisitorIp)(request.headers.get(CONTACT_IP_HEADER));
@@ -70,23 +83,30 @@ export const makeContactHandler = (config: ContactConfig | undefined) => {
           return undefined;
         }
       });
+
       if (ip === undefined) return denied();
+
       if (!/^application\/json(?:\s*;|$)/iu.test(request.headers.get("content-type") ?? ""))
         return nativeProblemResponse("media-type.unsupported", 415);
       const input = yield* readBoundedJson(request, 65_536);
+
       const message = yield* Effect.try({
         try: () => Schema.decodeUnknownSync(ContactMessage)(input, { onExcessProperty: "error" }),
         catch: () => new HttpSemanticFailure("validation.failed", 422),
       });
+
       yield* submitContact(message, ip).pipe(Effect.provide(services));
+
       return new Response(null, {
         status: 201,
         headers: { "cache-control": "no-store", vary: "Origin" },
       });
     }).pipe(Effect.match({ onFailure: failure, onSuccess: (response) => response }));
 };
+
 export const ContactApiHandlers = (config: ContactConfig | undefined) => {
   const handle = makeContactHandler(config);
+
   return HttpApiBuilder.group(ExternalNativeApi, "contact", (handlers) =>
     handlers.handleRaw("submitContactMessage", ({ request }) =>
       toHttpApiResponse(request, handle, failure),

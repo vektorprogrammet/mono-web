@@ -1,3 +1,4 @@
+import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
 /** 0108 owned synthetic PostgreSQL historical assistant service journey. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -6,7 +7,7 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Effect, Redacted } from "effect";
+import { Schema, flow, Predicate, Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { databaseHealth } from "@vektorprogrammet/database";
 import {
@@ -17,6 +18,7 @@ import { DatabaseLive } from "../src/layers.js";
 import { importPersonCohort } from "../src/person-cohort.js";
 
 const root = resolve(import.meta.dirname, "../../..");
+
 const command = (name: string, args: ReadonlyArray<string>) =>
   execFileSync(name, args, {
     cwd: root,
@@ -24,28 +26,35 @@ const command = (name: string, args: ReadonlyArray<string>) =>
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 60_000,
   });
+
 const pause = (milliseconds: number) =>
   new Promise<void>((resolvePause) => setTimeout(resolvePause, milliseconds));
+
 const freePort = async (): Promise<number> => {
   const server = createServer();
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
-  assert.ok(address && typeof address === "object");
+  assert.ok(address && !Predicate.isString(address));
   const port = address.port;
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+
   return port;
 };
+
 const waitForPostgres = async (pool: Pool): Promise<void> => {
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
       await pool.query("SELECT 1");
+
       return;
     } catch {
       await pause(100);
     }
   }
+
   throw new Error("owned PostgreSQL readiness timeout");
 };
+
 const stop = async (child: ChildProcess): Promise<void> => {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolveStop, reject) => {
@@ -57,18 +66,27 @@ const stop = async (child: ChildProcess): Promise<void> => {
     child.kill("SIGTERM");
   });
 };
-const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+);
 
 for (const key of ["HISTORICAL_SERVICE_PG_URL", "HISTORICAL_SERVICE_INPUT", "DATABASE_URL"])
   assert.equal(process.env[key], undefined, `${key} ambient configuration prohibited`);
 
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-historical-service-0108-"));
+
 const pgdata = join(artifacts, "postgres");
+
 const inputFile = join(artifacts, "historical-service.json");
+
 const backup = join(artifacts, "historical-service.dump");
+
 const children: ChildProcess[] = [];
+
 let pool: Pool | undefined;
-let evidence: Record<string, unknown> | undefined;
+
+let evidence: Record<string, Schema.Json> | undefined;
 
 try {
   const port = await freePort();
@@ -82,11 +100,13 @@ try {
     "--no-locale",
     "--encoding=UTF8",
   ]);
+
   const postgres = spawn(
     "postgres",
     ["-D", pgdata, "-p", String(port), "-h", "127.0.0.1", "-k", artifacts],
     { stdio: "ignore" },
   );
+
   children.push(postgres);
   const adminUrl = `postgres://postgres@127.0.0.1:${port}/postgres`;
   pool = new Pool({ connectionString: adminUrl });
@@ -126,11 +146,13 @@ try {
       ('person-valid-link', 'valid-link@example.invalid', '+47 900 20 001'),
       ('person-missing-evidence', 'missing-evidence@example.invalid', '+47 900 20 002')
   `);
+
   const schools = (
     await pool.query<{ school_id: string; name: string }>(
       `SELECT school_id::text, name FROM public.schools_directory_schools ORDER BY school_id`,
     )
   ).rows;
+
   const schoolA = Number(schools[0]!.school_id);
   const schoolB = Number(schools[1]!.school_id);
 
@@ -145,6 +167,7 @@ try {
     "concurrent",
     "rollback",
   ];
+
   const personOccurrences = reconciledSources.map((sourceUserId) => ({
     occurrenceId: `person-${sourceUserId}`,
     row: {
@@ -156,6 +179,7 @@ try {
       phone: "+47 999 00 000",
     },
   }));
+
   const personMappings = reconciledSources.map((sourceUserId) =>
     sourceUserId === "valid-link"
       ? {
@@ -181,6 +205,7 @@ try {
           },
         },
   );
+
   const personReport = await importPersonCohort(pool, {
     sourceRepository: "synthetic-legacy",
     sourceRevision: "synthetic-person-source-0108",
@@ -190,6 +215,7 @@ try {
     occurrences: personOccurrences,
     mappings: personMappings,
   });
+
   assert.equal(personReport.accepted, reconciledSources.length);
 
   type SourceRow = {
@@ -202,6 +228,7 @@ try {
     block: "Bolk 1" | "Bolk 2" | "Bolk 1, Bolk 2";
     day: "Mandag" | "Tirsdag" | "Onsdag" | "Torsdag" | "Fredag";
   };
+
   type Mapping = {
     sourceHistoryId: string;
     sourceUserId: string;
@@ -214,8 +241,10 @@ try {
     schoolId: number;
     evidenceRef: string;
   };
+
   const occurrences: Array<{ occurrenceId: string; row: unknown }> = [];
   const mappings: Mapping[] = [];
+
   const row = (
     sourceHistoryId: string,
     sourceUserId: string,
@@ -231,6 +260,7 @@ try {
     day: "Mandag",
     ...overrides,
   });
+
   const mapping = (
     source: SourceRow,
     personId: string,
@@ -248,6 +278,7 @@ try {
     evidenceRef: `history-${source.sourceHistoryId}`,
     ...overrides,
   });
+
   const add = (
     sourceHistoryId: string,
     sourceUserId: string,
@@ -258,10 +289,11 @@ try {
     const source = row(sourceHistoryId, sourceUserId, rowOverrides);
     occurrences.push({ occurrenceId: `occ-${sourceHistoryId}`, row: source });
     mappings.push(mapping(source, personId, mappingOverrides));
+
     return source;
   };
 
-  add("valid-link", "valid-link", "person-valid-link");
+  const acceptedSource = add("valid-link", "valid-link", "person-valid-link");
   add(
     "valid-both",
     "valid-both",
@@ -290,9 +322,11 @@ try {
     { block: "Bolk 2" },
     { departmentId: "department-b" },
   );
+
   const duplicateSource = add("duplicate-source", "duplicate-source", "person-duplicate-source", {
     block: "Bolk 2",
   });
+
   occurrences.push({ occurrenceId: "occ-duplicate-source-second", row: { ...duplicateSource } });
   add("duplicate-target-a", "duplicate-target", "person-duplicate-target", { block: "Bolk 2" });
   add("duplicate-target-b", "duplicate-target", "person-duplicate-target", { block: "Bolk 2" });
@@ -311,8 +345,10 @@ try {
     occurrences,
     mappings,
   };
+
   await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
   await chmod(inputFile, 0o600);
+
   const currentState = async () =>
     (
       await pool!.query(
@@ -325,9 +361,11 @@ try {
         ) AS facts`,
       )
     ).rows[0].facts;
+
   const currentBefore = digest(await currentState());
-  const runCli = (): unknown =>
-    JSON.parse(
+
+  const runCli = (): Schema.Json =>
+    Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
       execFileSync(
         process.execPath,
         ["run", "packages/database/runtime/historical-service-cohort-main.ts"],
@@ -411,6 +449,7 @@ try {
   );
 
   const concurrentRow = row("concurrent", "concurrent", { block: "Bolk 2" });
+
   const concurrentSnapshot = {
     ...snapshot,
     sourceRevision: "synthetic-history-source-0108-concurrent",
@@ -418,10 +457,12 @@ try {
     occurrences: [{ occurrenceId: "occ-concurrent", row: concurrentRow }],
     mappings: [mapping(concurrentRow, "person-concurrent")],
   };
+
   const concurrent = await Promise.all([
     importHistoricalServiceCohort(pool, concurrentSnapshot),
     importHistoricalServiceCohort(pool, concurrentSnapshot),
   ]);
+
   assert.deepEqual(concurrent[0], concurrent[1]);
   assert.equal(concurrent[0].accepted, 1);
   assert.equal(
@@ -446,15 +487,18 @@ try {
         ) AS facts`,
       )
     ).rows[0].facts;
+
   const factsBeforeConflict = digest(await facts(pool));
   await assert.rejects(
     importHistoricalServiceCohort(pool, { ...snapshot, sourceRevision: "changed-source" }),
     (cause) => cause instanceof HistoricalServiceFailure && cause.code === "SnapshotConflict",
   );
+
   const changedAcceptedRow = {
-    ...(snapshot.occurrences[0]!.row as SourceRow),
+    ...acceptedSource,
     day: "Tirsdag" as const,
   };
+
   await assert.rejects(
     importHistoricalServiceCohort(pool, {
       ...snapshot,
@@ -467,12 +511,14 @@ try {
   assert.equal(digest(await facts(pool)), factsBeforeConflict, "conflicts changed persisted facts");
 
   const targetConflictRow = row("target-conflict", "valid-link");
+
   const targetConflict = await importHistoricalServiceCohort(pool, {
     ...snapshot,
     snapshotId: "historical-service-0108-target-conflict",
     occurrences: [{ occurrenceId: "occ-target-conflict", row: targetConflictRow }],
     mappings: [mapping(targetConflictRow, "person-valid-link")],
   });
+
   assert.deepEqual(targetConflict.occurrences, [
     { occurrenceId: "occ-target-conflict", disposition: "Quarantined", reason: "TargetConflict" },
   ]);
@@ -516,9 +562,11 @@ try {
   const restoredFactsExpected = await facts(pool);
   command("pg_dump", ["--dbname", databaseUrl, "--format=custom", "--file", backup]);
   assert.ok((await stat(backup)).size > 0);
+
   const backupChecksum = createHash("sha256")
     .update(await readFile(backup))
     .digest("hex");
+
   const admin = new Pool({ connectionString: adminUrl });
   await admin.query("CREATE DATABASE historical_service_restored");
   await admin.end();
@@ -531,7 +579,7 @@ try {
   evidence = {
     contract: "0108",
     sourceRevision: command("git", ["rev-parse", "HEAD"]).trim(),
-    report,
+    report: canonicalJsonValue(report),
     concurrentFirstImport: true,
     currentStateUnchanged: true,
     changedSnapshotRejected: true,
@@ -550,9 +598,11 @@ try {
   };
 } finally {
   if (pool) await pool.end().catch(() => undefined);
+
   for (const child of children.reverse()) await stop(child).catch(() => undefined);
   await rm(artifacts, { recursive: true, force: true });
 }
 
 assert.ok(evidence, "rehearsal must complete before evidence is emitted");
+
 process.stdout.write(JSON.stringify(evidence, null, 2) + "\n");

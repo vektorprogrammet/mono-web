@@ -1,21 +1,21 @@
 import { Schema as S } from "effect";
 import { Runtime } from "foldkit";
-import { DashboardInputJson, Model, makeInitialModel, makeInvalidInputModel } from "./model";
+import { DashboardInputJson, Model, init, invalidInputModel } from "./model";
 import "./styles.css";
 import { update } from "./update";
 import { view } from "./view";
 
 const initialModelFrom = (serializedInput: string | null): Model => {
-  if (serializedInput === null) return makeInvalidInputModel();
+  if (serializedInput === null) return invalidInputModel();
 
   try {
-    return makeInitialModel(
+    return init(
       S.decodeUnknownSync(DashboardInputJson)(serializedInput, {
         onExcessProperty: "error",
       }),
     );
   } catch {
-    return makeInvalidInputModel();
+    return invalidInputModel();
   }
 };
 
@@ -29,7 +29,7 @@ export const embedDashboard = (
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => [initialModelFrom(serializedInput), []],
+    init: () => ({ model: initialModelFrom(serializedInput), commands: [] }),
     update,
     view,
     devTools,
@@ -52,5 +52,6 @@ export const embedDashboard = (
   });
 
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 };

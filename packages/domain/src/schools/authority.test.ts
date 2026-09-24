@@ -1,3 +1,5 @@
+import { deny, allow } from "../authz/decision.js";
+import { SchoolDirectoryScopeSchema } from "./schema.js";
 import { describe, expect, it } from "vitest";
 import {
   OrganizationAuthorityInstantSchema,
@@ -9,6 +11,7 @@ import { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/sc
 import { resolveSchoolsDirectoryScope } from "./authority.js";
 
 const authorizationInstant = OrganizationAuthorityInstantSchema.make("2032-01-01T00:00:00.000Z");
+
 const personId = PersonId.make("schools-reader");
 
 const membership = (
@@ -36,10 +39,9 @@ const authority = (
 
 describe("Schools directory authority at one injected instant", () => {
   it("grants an active global administrator every department and unassigned schools", () => {
-    expect(resolveSchoolsDirectoryScope(authority("Active", []))).toEqual({
-      _tag: "Allow",
-      value: { _tag: "All" },
-    });
+    expect(resolveSchoolsDirectoryScope(authority("Active", []))).toEqual(
+      allow(SchoolDirectoryScopeSchema.cases.All.make({})),
+    );
   });
 
   it("unions every active membership without giving leadership extra authority", () => {
@@ -52,34 +54,30 @@ describe("Schools directory authority at one injected instant", () => {
           membership("oslo-ended", "oslo", false, true),
         ]),
       ),
-    ).toEqual({
-      _tag: "Allow",
-      value: {
-        _tag: "DepartmentIds",
-        departmentIds: ["bergen", "trondheim"],
-      },
-    });
+    ).toEqual(
+      allow(
+        SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+          departmentIds: [DepartmentId.make("bergen"), DepartmentId.make("trondheim")],
+        }),
+      ),
+    );
   });
 
   it("denies memberships that exist but are all inactive", () => {
     expect(
       resolveSchoolsDirectoryScope(authority("Absent", [membership("ended", "bergen", false)])),
-    ).toEqual({ _tag: "Deny", reason: "AuthorityInactive" });
+    ).toEqual(deny("AuthorityInactive"));
   });
 
   it("denies an ended or future administrator grant with no active membership", () => {
-    expect(resolveSchoolsDirectoryScope(authority("Inactive", []))).toEqual({
-      _tag: "Deny",
-      reason: "AuthorityInactive",
-    });
+    expect(resolveSchoolsDirectoryScope(authority("Inactive", []))).toEqual(
+      deny("AuthorityInactive"),
+    );
   });
 
   it("distinguishes a person with no Organization authority record", () => {
     const projection = authority("Absent", []);
     expect(projection.evaluatedAt).toBe(authorizationInstant);
-    expect(resolveSchoolsDirectoryScope(projection)).toEqual({
-      _tag: "Deny",
-      reason: "NotInScope",
-    });
+    expect(resolveSchoolsDirectoryScope(projection)).toEqual(deny("NotInScope"));
   });
 });

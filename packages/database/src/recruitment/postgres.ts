@@ -1,13 +1,19 @@
-import { Admissions, type AdmissionsShape } from "@vektorprogrammet/domain/admissions";
+import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
 import type { AdmissionPeriodProjection } from "@vektorprogrammet/domain/admission-period";
-import { Database, type DatabaseShape } from "../service.js";
-import { Organization, type OrganizationShape } from "@vektorprogrammet/domain/organization";
+import { Database, type DatabaseOperations } from "../service.js";
+import { Organization, type OrganizationOperations } from "@vektorprogrammet/domain/organization";
 import { DepartmentId, PersonId, type Membership } from "@vektorprogrammet/domain/organization";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
-import { Profile, type ProfileShape } from "@vektorprogrammet/domain/profile";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Effect, Schema } from "effect";
+import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
 import {
+  canonicalJsonValue,
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/evidence";
+import { flow, Predicate, Effect, Schema } from "effect";
+import {
+  RecruitmentAssignmentObservationSchema,
   RecruitmentAdmissionPeriodNotFound,
   RecruitmentAmbiguousAdmissionPeriod,
   RecruitmentApplicationAlreadyAssigned,
@@ -37,7 +43,6 @@ import {
   RecruitmentAssignmentBoardSchema,
   RecruitmentAssignmentCandidateSchema,
   RecruitmentAssignmentCommandSchema,
-  RecruitmentAssignmentObservationSchema,
   RecruitmentAssignmentResultSchema,
   RecruitmentInterview,
   type RecruitmentInterviewValue,
@@ -58,7 +63,9 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { personProfileDisplayName } from "@vektorprogrammet/domain/profile";
 import type { RecruitmentFailure } from "@vektorprogrammet/domain/recruitment";
+
 type DepartmentLeaderActor = Extract<RecruitmentActor, { readonly _tag: "DepartmentLeader" }>;
+
 type AuthorizedRecruitmentAssignmentContext = Omit<RecruitmentAssignmentContext, "actor"> & {
   readonly actor: DepartmentLeaderActor;
 };
@@ -147,6 +154,7 @@ const InterviewSchemaRowSchema = Schema.Struct({
   active: Schema.Boolean,
   revision: Schema.Number,
 });
+
 const InterviewQuestionRowSchema = Schema.Struct({
   questionId: Schema.String,
   ordinal: Schema.Number,
@@ -188,8 +196,9 @@ const persistenceError = (operation: string, cause?: unknown): RecruitmentPersis
     message: cause instanceof Error ? cause.message : "recruitment persistence failed",
   });
 
-const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(
       (cause) =>
         new RecruitmentDecodeError({
@@ -201,12 +210,12 @@ const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown, o
 const decodeQuery = (
   query: RecruitmentAssignmentBoardQuery,
 ): Effect.Effect<RecruitmentAssignmentBoardQuery, RecruitmentDecodeError> =>
-  decode(RecruitmentAssignmentBoardQuerySchema, query, "assignment board query");
+  decode(RecruitmentAssignmentBoardQuerySchema, "assignment board query")(query);
 
 const decodeCommand = (
   command: RecruitmentAssignmentCommand,
 ): Effect.Effect<RecruitmentAssignmentCommand, RecruitmentDecodeError> =>
-  decode(RecruitmentAssignmentCommandSchema, command, "assignment command");
+  decode(RecruitmentAssignmentCommandSchema, "assignment command")(command);
 
 const checkContext = (
   actor: RecruitmentActor,
@@ -215,32 +224,39 @@ const checkContext = (
 ): Effect.Effect<DepartmentLeaderActor, RecruitmentFailure> =>
   Effect.gen(function* () {
     if (!actor.active) return yield* new RecruitmentInactiveActor({ personId: actor.personId });
-    if (actor._tag !== "DepartmentLeader") {
+
+    if (!Predicate.isTagged(actor, "DepartmentLeader")) {
       return yield* new RecruitmentRoleDenied({ personId: actor.personId });
     }
+
     if (!isRecruitmentNow(now)) {
       return yield* new RecruitmentInvalidContext({ message: "now must be an RFC3339 instant" });
     }
+
     if (interviewId !== undefined && interviewId.trim().length === 0) {
       return yield* new RecruitmentInvalidContext({ message: "interviewId must be non-empty" });
     }
+
     return actor;
   });
 
 const currentPeriod = (
-  admissions: AdmissionsShape,
+  admissions: AdmissionsOperations,
   departmentId: DepartmentId,
   now: string,
 ): Effect.Effect<AdmissionPeriodProjection, RecruitmentFailure> =>
   Effect.gen(function* () {
     const periods = yield* admissions.listOpenAdmissionPeriods(now);
     const scoped = periods.filter((period) => period.departmentId === departmentId);
+
     if (scoped.length === 0) {
       return yield* new RecruitmentAdmissionPeriodNotFound({ departmentId });
     }
+
     if (scoped.length > 1) {
       return yield* new RecruitmentAmbiguousAdmissionPeriod({ departmentId });
     }
+
     return scoped[0]!;
   });
 
@@ -250,26 +266,29 @@ const membershipActiveAt = (membership: Membership, now: string): boolean =>
   !membership.isSuspended;
 
 const liveInterviewerIds = (
-  organization: OrganizationShape,
+  organization: OrganizationOperations,
   departmentId: DepartmentId,
   now: string,
 ): Effect.Effect<ReadonlyArray<PersonId>, RecruitmentFailure> =>
   Effect.gen(function* () {
     const teams = yield* organization.listTeams(departmentId);
-    const ids = new Set<string>();
+    const ids = new Set<PersonId>();
+
     for (const team of teams) {
       if (!team.active) continue;
       const memberships = yield* organization.listMembershipsForTeam(team.teamId);
+
       for (const membership of memberships) {
         if (membershipActiveAt(membership, now)) ids.add(membership.personId);
       }
     }
-    return [...ids].sort().map((personId) => personId as PersonId);
+
+    return [...ids].sort();
   });
 
 const interviewerOptions = (
-  organization: OrganizationShape,
-  profile: ProfileShape,
+  organization: OrganizationOperations,
+  profile: ProfileOperations,
   departmentId: DepartmentId,
   now: string,
 ): Effect.Effect<ReadonlyArray<RecruitmentInterviewerOption>, RecruitmentFailure> =>
@@ -277,14 +296,16 @@ const interviewerOptions = (
     const ids = yield* liveInterviewerIds(organization, departmentId, now);
     const profiles = yield* profile.readProfiles(ids);
     const options: RecruitmentInterviewerOption[] = [];
+
     for (const item of profiles) {
       const option = yield* decode(
         RecruitmentInterviewerOptionSchema,
-        { personId: item.personId, displayName: personProfileDisplayName(item) },
         "interviewer option",
-      );
+      )({ personId: item.personId, displayName: personProfileDisplayName(item) });
+
       options.push(option);
     }
+
     return options.sort(
       (left, right) =>
         left.displayName.localeCompare(right.displayName) ||
@@ -293,7 +314,7 @@ const interviewerOptions = (
   });
 
 const readInterviewSchemas = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
 ): Effect.Effect<ReadonlyArray<RecruitmentInterviewSchemaOption>, RecruitmentFailure> =>
   Effect.gen(function* () {
     const rows = yield* sql<InterviewSchemaRow>`
@@ -310,10 +331,12 @@ const readInterviewSchemas = (
         Effect.fail(persistenceError("read interview schemas", cause)),
       ),
     );
+
     const options: RecruitmentInterviewSchemaOption[] = [];
+
     for (const row of rows) {
-      const decodedRow = yield* decode(InterviewSchemaRowSchema, row, "interview schema row");
-      const schema = yield* decode(InterviewSchema, decodedRow, "interview schema");
+      const decodedRow = yield* decode(InterviewSchemaRowSchema, "interview schema row")(row);
+      const schema = yield* decode(InterviewSchema, "interview schema")(decodedRow);
       options.push({
         interviewSchemaId: schema.interviewSchemaId,
         name: schema.name,
@@ -322,11 +345,12 @@ const readInterviewSchemas = (
         revision: schema.revision,
       });
     }
+
     return options;
   });
 
 const readBoardRows = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   periodId: string,
   departmentId: DepartmentId,
 ): Effect.Effect<ReadonlyArray<ApplicationBoardRow>, RecruitmentFailure> =>
@@ -369,12 +393,14 @@ const candidateForRow = (
   schemaById: ReadonlyMap<string, RecruitmentInterviewSchemaOption>,
 ): Effect.Effect<RecruitmentAssignmentCandidate, RecruitmentFailure> =>
   Effect.gen(function* () {
-    const decodedRow = yield* decode(ApplicationBoardRowSchema, row, "assignment application row");
+    const decodedRow = yield* decode(ApplicationBoardRowSchema, "assignment application row")(row);
+
     const interviewer =
       decodedRow.interviewerPersonId === null
         ? null
         : (() => {
             const profile = profileById.get(decodedRow.interviewerPersonId);
+
             return profile === undefined
               ? null
               : {
@@ -382,10 +408,12 @@ const candidateForRow = (
                   displayName: personProfileDisplayName(profile),
                 };
           })();
+
     const interviewSchema =
       decodedRow.interviewSchemaId === null
         ? null
         : (schemaById.get(decodedRow.interviewSchemaId) ?? null);
+
     const candidate = {
       applicationId: decodedRow.applicationId,
       applicantId: decodedRow.applicantId,
@@ -404,56 +432,61 @@ const candidateForRow = (
       interviewSchema,
       scheduledAt: decodedRow.scheduledAt,
     };
-    return yield* decode(RecruitmentAssignmentCandidateSchema, candidate, "assignment candidate");
+
+    return yield* decode(RecruitmentAssignmentCandidateSchema, "assignment candidate")(candidate);
   });
 
 const assignmentBoard = (
   query: RecruitmentAssignmentBoardQuery,
   context: RecruitmentReadAssignmentBoardContext,
-  sql: DatabaseShape,
-  admissions: AdmissionsShape,
-  organization: OrganizationShape,
-  profile: ProfileShape,
+  sql: DatabaseOperations,
+  admissions: AdmissionsOperations,
+  organization: OrganizationOperations,
+  profile: ProfileOperations,
 ): Effect.Effect<RecruitmentAssignmentBoard, RecruitmentFailure> =>
   Effect.gen(function* () {
     const decodedQuery = yield* decodeQuery(query);
     const actor = yield* checkContext(context.actor, context.now);
     const period = yield* currentPeriod(admissions, actor.departmentId, context.now);
+
     const interviewers = yield* interviewerOptions(
       organization,
       profile,
       actor.departmentId,
       context.now,
     );
+
     const allSchemas = yield* readInterviewSchemas(sql);
     const schemas = allSchemas.filter((schema) => schema.active);
     const rows = yield* readBoardRows(sql, period.id, actor.departmentId);
     const personIds = new Set<string>(interviewers.map((item) => item.personId));
+
     for (const row of rows)
       if (row.interviewerPersonId !== null) personIds.add(row.interviewerPersonId);
     const profiles = yield* profile.readProfiles([...personIds].map((id) => PersonId.make(id)));
     const profileById = new Map(profiles.map((item) => [item.personId, item]));
     const schemaById = new Map(allSchemas.map((item) => [item.interviewSchemaId, item]));
     const candidates: RecruitmentAssignmentCandidate[] = [];
+
     for (const row of rows) {
       if (decodedQuery.status === "new" && row.interviewId !== null) continue;
       candidates.push(yield* candidateForRow(row, profileById, schemaById));
     }
+
     return yield* decode(
       RecruitmentAssignmentBoardSchema,
-      {
-        admissionPeriodId: period.id,
-        departmentId: period.departmentId,
-        candidates,
-        interviewers,
-        interviewSchemas: schemas,
-      },
       "assignment board",
-    );
+    )({
+      admissionPeriodId: period.id,
+      departmentId: period.departmentId,
+      candidates,
+      interviewers,
+      interviewSchemas: schemas,
+    });
   });
 
 const readAssignmentApplication = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   applicationId: string,
 ): Effect.Effect<AssignmentApplicationRow | undefined, RecruitmentFailure> =>
   sql<AssignmentApplicationRow>`
@@ -469,7 +502,7 @@ const readAssignmentApplication = (
     Effect.flatMap((rows) =>
       rows[0] === undefined
         ? Effect.succeed(undefined)
-        : decode(AssignmentApplicationRowSchema, rows[0], "assignment application"),
+        : decode(AssignmentApplicationRowSchema, "assignment application")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("lock assignment application", cause)),
@@ -477,7 +510,7 @@ const readAssignmentApplication = (
   );
 
 const readStoredReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: string,
 ): Effect.Effect<StoredReceiptRow | undefined, RecruitmentFailure> =>
   sql<StoredReceiptRow>`
@@ -493,7 +526,7 @@ const readStoredReceipt = (
     Effect.flatMap((rows) =>
       rows[0] === undefined
         ? Effect.succeed(undefined)
-        : decode(StoredReceiptRowSchema, rows[0], "assignment command receipt"),
+        : decode(StoredReceiptRowSchema, "assignment command receipt")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read assignment receipt", cause)),
@@ -501,7 +534,7 @@ const readStoredReceipt = (
   );
 
 const readInterviewForApplication = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   applicationId: string,
 ): Effect.Effect<StoredInterviewRow | undefined, RecruitmentFailure> =>
   sql<StoredInterviewRow>`
@@ -522,7 +555,7 @@ const readInterviewForApplication = (
     Effect.flatMap((rows) =>
       rows[0] === undefined
         ? Effect.succeed(undefined)
-        : decode(StoredInterviewRowSchema, rows[0], "stored recruitment interview"),
+        : decode(StoredInterviewRowSchema, "stored recruitment interview")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read application interview", cause)),
@@ -530,7 +563,7 @@ const readInterviewForApplication = (
   );
 
 const readInterviewSchema = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   interviewSchemaId: string,
 ): Effect.Effect<InterviewSchemaValue | undefined, RecruitmentFailure> =>
   sql<InterviewSchemaRow>`
@@ -547,8 +580,11 @@ const readInterviewSchema = (
     Effect.flatMap((rows) =>
       rows[0] === undefined
         ? Effect.succeed(undefined)
-        : decode(InterviewSchemaRowSchema, rows[0], "interview schema row").pipe(
-            Effect.flatMap((row) => decode(InterviewSchema, row, "interview schema")),
+        : decode(
+            InterviewSchemaRowSchema,
+            "interview schema row",
+          )(rows[0]).pipe(
+            Effect.flatMap((row) => decode(InterviewSchema, "interview schema")(row)),
           ),
     ),
 
@@ -556,6 +592,7 @@ const readInterviewSchema = (
       Effect.fail(persistenceError("read interview schema", cause)),
     ),
   );
+
 const questionsUnavailable = (
   interviewSchemaId: string,
   reason: string,
@@ -566,7 +603,7 @@ const questionsUnavailable = (
   });
 
 const readQuestionSource = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   interviewSchemaId: string,
   questionCount: number,
 ): Effect.Effect<ReadonlyArray<InterviewQuestionDefinition>, RecruitmentFailure> =>
@@ -591,33 +628,35 @@ const readQuestionSource = (
             `expected ${questionCount} questions but found ${rows.length}`,
           );
         }
+
         const questions: Array<InterviewQuestionDefinition> = [];
+
         for (const row of rows) {
           const decodedRow = yield* decode(
             InterviewQuestionRowSchema,
-            row,
             "interview question source row",
-          ).pipe(
+          )(row).pipe(
             Effect.mapError(() =>
               questionsUnavailable(interviewSchemaId, "invalid question source row"),
             ),
           );
+
           const question = yield* decode(
             InterviewQuestionDefinitionSchema,
-            decodedRow,
             "interview question definition",
-          ).pipe(
+          )(decodedRow).pipe(
             Effect.mapError(() =>
               questionsUnavailable(interviewSchemaId, "invalid question definition"),
             ),
           );
+
           questions.push(question);
         }
+
         return yield* decode(
           RecruitmentInterviewQuestionSourceSchema,
-          questions,
           "interview question source",
-        ).pipe(
+        )(questions).pipe(
           Effect.mapError(() =>
             questionsUnavailable(interviewSchemaId, "question source is not complete"),
           ),
@@ -628,8 +667,9 @@ const readQuestionSource = (
       Effect.fail(questionsUnavailable(interviewSchemaId, "question source unavailable")),
     ),
   );
+
 const readQuestionSnapshotCount = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   interviewId: string,
 ): Effect.Effect<number, RecruitmentFailure> =>
   sql<{ readonly interviewId: string }>`
@@ -646,7 +686,7 @@ const readQuestionSnapshotCount = (
   );
 
 const writeQuestionSnapshots = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   interview: RecruitmentInterviewValue,
   questions: ReadonlyArray<InterviewQuestionDefinition>,
 ): Effect.Effect<void, RecruitmentFailure> =>
@@ -654,17 +694,17 @@ const writeQuestionSnapshots = (
     for (const question of questions) {
       const snapshot = yield* decode(
         RecruitmentInterviewQuestionSnapshot,
-        {
-          interviewId: interview.interviewId,
-          questionId: question.questionId,
-          ordinal: question.ordinal,
-          prompt: question.prompt,
-          helpText: question.helpText,
-          kind: question.kind,
-          alternatives: question.alternatives,
-        },
         "interview question snapshot",
-      );
+      )({
+        interviewId: interview.interviewId,
+        questionId: question.questionId,
+        ordinal: question.ordinal,
+        prompt: question.prompt,
+        helpText: question.helpText,
+        kind: question.kind,
+        alternatives: question.alternatives,
+      });
+
       yield* sql`
         INSERT INTO public.recruitment_interview_question_snapshots (
           interview_id,
@@ -697,22 +737,21 @@ const buildInterview = (
 ): Effect.Effect<RecruitmentInterviewValue, RecruitmentFailure> =>
   decode(
     RecruitmentInterview,
-    {
-      interviewId: row.interviewId,
-      applicationId: row.applicationId,
-      departmentId: row.departmentId,
-      interviewerPersonId: row.interviewerPersonId,
-      coInterviewerPersonId: row.coInterviewerPersonId,
-      interviewSchemaId: row.interviewSchemaId,
-      assignedByPersonId: row.assignedByPersonId,
-      assignedAt: row.assignedAt,
-      revision: row.revision,
-    },
     "recruitment interview",
-  );
+  )({
+    interviewId: row.interviewId,
+    applicationId: row.applicationId,
+    departmentId: row.departmentId,
+    interviewerPersonId: row.interviewerPersonId,
+    coInterviewerPersonId: row.coInterviewerPersonId,
+    interviewSchemaId: row.interviewSchemaId,
+    assignedByPersonId: row.assignedByPersonId,
+    assignedAt: row.assignedAt,
+    revision: row.revision,
+  });
 
 const writeInterview = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: RecruitmentAssignmentCommand,
   context: AuthorizedRecruitmentAssignmentContext,
 ): Effect.Effect<RecruitmentInterviewValue, RecruitmentFailure> =>
@@ -750,9 +789,10 @@ const writeInterview = (
     Effect.flatMap((rows) =>
       rows[0] === undefined
         ? Effect.fail(persistenceError("insert recruitment interview"))
-        : decode(StoredInterviewRowSchema, rows[0], "inserted recruitment interview").pipe(
-            Effect.flatMap(buildInterview),
-          ),
+        : decode(
+            StoredInterviewRowSchema,
+            "inserted recruitment interview",
+          )(rows[0]).pipe(Effect.flatMap(buildInterview)),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("insert recruitment interview", cause)),
@@ -760,7 +800,7 @@ const writeInterview = (
   );
 
 const writeReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: RecruitmentAssignmentCommand,
   observation: RecruitmentAssignmentObservation,
   interview: RecruitmentInterviewValue,
@@ -774,8 +814,8 @@ const writeReceipt = (
     ) VALUES (
       ${command.commandId},
       ${digest},
-      ${sql.json(JSON.parse(canonicalJson(command)))},
-      ${sql.json(observation)},
+      ${sql.json(canonicalJsonValue(JSON.parse(canonicalJson(command))))},
+      ${sql.json(canonicalJsonValue(observation))},
       ${interview.applicationId},
       ${interview.interviewId},
       ${now}
@@ -788,7 +828,7 @@ const writeReceipt = (
   );
 
 const writeAudit = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: RecruitmentAssignmentCommand,
   interview: RecruitmentInterviewValue,
   now: string,
@@ -823,10 +863,10 @@ const writeAudit = (
 const assignmentInTransaction = (
   command: RecruitmentAssignmentCommand,
   context: AuthorizedRecruitmentAssignmentContext,
-  sql: DatabaseShape,
-  admissions: AdmissionsShape,
-  organization: OrganizationShape,
-  profile: ProfileShape,
+  sql: DatabaseOperations,
+  admissions: AdmissionsOperations,
+  organization: OrganizationOperations,
+  profile: ProfileOperations,
   digest: string,
 ): Effect.Effect<RecruitmentAssignmentResult, RecruitmentFailure> =>
   Effect.gen(function* () {
@@ -843,9 +883,11 @@ const assignmentInTransaction = (
       ),
     );
     const application = yield* readAssignmentApplication(sql, command.applicationId);
+
     if (application === undefined) {
       return yield* new RecruitmentApplicationNotFound({ applicationId: command.applicationId });
     }
+
     if (application.departmentId !== context.actor.departmentId) {
       return yield* new RecruitmentScopeDenied({
         personId: context.actor.personId,
@@ -853,7 +895,9 @@ const assignmentInTransaction = (
         applicationId: command.applicationId,
       });
     }
+
     const period = yield* currentPeriod(admissions, context.actor.departmentId, context.now);
+
     if (application.admissionPeriodId !== period.id) {
       return yield* new RecruitmentScopeDenied({
         personId: context.actor.personId,
@@ -861,19 +905,23 @@ const assignmentInTransaction = (
         applicationId: command.applicationId,
       });
     }
+
     const storedReceipt = yield* readStoredReceipt(sql, command.commandId);
+
     if (storedReceipt !== undefined) {
       if (storedReceipt.applicationId !== command.applicationId) {
         return yield* persistenceError("validate assignment receipt application linkage");
       }
+
       if (storedReceipt.commandSha256 !== digest) {
         return yield* new RecruitmentAssignmentCommandConflict({ commandId: command.commandId });
       }
+
       const observation = yield* decode(
         RecruitmentAssignmentObservationSchema,
-        storedReceipt.observationJson,
         "stored assignment observation",
-      );
+      )(storedReceipt.observationJson);
+
       if (
         observation.interview.applicationId !== storedReceipt.applicationId ||
         observation.interview.interviewId !== storedReceipt.interviewId ||
@@ -881,80 +929,101 @@ const assignmentInTransaction = (
       ) {
         return yield* persistenceError("validate assignment receipt observation linkage");
       }
+
       return yield* decode(
         RecruitmentAssignmentResultSchema,
-        { observation, replayed: true },
         "assignment replay result",
-      );
+      )({ observation, replayed: true });
     }
+
     const existing = yield* readInterviewForApplication(sql, command.applicationId);
     const interviewSchema = yield* readInterviewSchema(sql, command.interviewSchemaId);
+
     if (interviewSchema === undefined) {
       return yield* new RecruitmentInterviewSchemaNotFound({
         interviewSchemaId: command.interviewSchemaId,
       });
     }
+
     if (!interviewSchema.active) {
       return yield* new RecruitmentInterviewSchemaInactive({
         interviewSchemaId: command.interviewSchemaId,
       });
     }
+
     if (existing !== undefined) {
       const existingSchema = yield* readInterviewSchema(sql, existing.interviewSchemaId);
+
       if (existingSchema === undefined) {
         return yield* questionsUnavailable(
           existing.interviewSchemaId,
           "assigned interview references a missing schema",
         );
       }
+
       const existingQuestions = yield* readQuestionSource(
         sql,
         existing.interviewSchemaId,
         existingSchema.questionCount,
       );
+
       const snapshotCount = yield* readQuestionSnapshotCount(sql, existing.interviewId);
+
       if (snapshotCount !== existingQuestions.length) {
         return yield* questionsUnavailable(
           existing.interviewSchemaId,
           "assigned interview has no complete question snapshot",
         );
       }
+
       return yield* new RecruitmentApplicationAlreadyAssigned({
         applicationId: command.applicationId,
         interviewId: RecruitmentInterviewId.make(existing.interviewId),
       });
     }
+
     const questions = yield* readQuestionSource(
       sql,
       command.interviewSchemaId,
       interviewSchema.questionCount,
     );
+
     const eligibleIds = yield* liveInterviewerIds(
       organization,
       context.actor.departmentId,
       context.now,
     );
+
     if (!eligibleIds.some((personId) => personId === command.interviewerPersonId)) {
       return yield* new RecruitmentInterviewerNotEligible({
         personId: command.interviewerPersonId,
         departmentId: context.actor.departmentId,
       });
     }
+
     yield* profile.readProfiles([command.interviewerPersonId]);
     const interview = yield* writeInterview(sql, command, context);
     yield* writeQuestionSnapshots(sql, interview, questions);
-    const observation = yield* decode(
-      RecruitmentAssignmentObservationSchema,
-      { _tag: "ApplicantAssigned", commandId: command.commandId, interview },
-      "assignment observation",
+
+    const observation = yield* RecruitmentAssignmentObservationSchema.makeEffect({
+      commandId: command.commandId,
+      interview,
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new RecruitmentDecodeError({
+            message: cause instanceof Error ? cause.message : `invalid ${"assignment observation"}`,
+          }),
+      ),
     );
+
     yield* writeReceipt(sql, command, observation, interview, context.now, digest);
     yield* writeAudit(sql, command, interview, context.now);
+
     return yield* decode(
       RecruitmentAssignmentResultSchema,
-      { observation, replayed: false },
       "assignment result",
-    );
+    )({ observation, replayed: false });
   });
 
 export const readAssignmentBoard = (
@@ -968,13 +1037,14 @@ export const readAssignmentBoard = (
   Effect.gen(function* () {
     const decodedContext = yield* decode(
       RecruitmentActorSchema,
-      context.actor,
       "recruitment actor",
-    );
+    )(context.actor);
+
     const sql = yield* Database;
     const admissions = yield* Admissions;
     const organization = yield* Organization;
     const profile = yield* Profile;
+
     return yield* assignmentBoard(
       query,
       { actor: decodedContext, now: context.now },
@@ -995,17 +1065,19 @@ export const assignApplicant = (
 > =>
   Effect.gen(function* () {
     const decodedCommand = yield* decodeCommand(command);
+
     const decodedContext = yield* decode(
       RecruitmentActorSchema,
-      context.actor,
       "recruitment actor",
-    );
+    )(context.actor);
+
     const actor = yield* checkContext(decodedContext, context.now, context.interviewId);
     const sql = yield* Database;
     const admissions = yield* Admissions;
     const organization = yield* Organization;
     const profile = yield* Profile;
     const digest = sha256Hex(canonicalJsonBytes(decodedCommand));
+
     return yield* sql
       .withTransaction(
         assignmentInTransaction(

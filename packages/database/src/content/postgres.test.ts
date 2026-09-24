@@ -1,656 +1,507 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
-import type { OrganizationPersonAuthority } from "@vektorprogrammet/domain/organization";
-import { DepartmentNotFound } from "@vektorprogrammet/domain/organization";
-import type { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { Organization } from "@vektorprogrammet/domain/organization";
-import { Profile } from "@vektorprogrammet/domain/profile";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { Effect, Layer, Predicate } from "effect";
+import {
+  ArticleId,
+  ContentCommandId,
+  CreateArticleDraftInputSchema,
+  PublishArticleInputSchema,
+  UnpublishArticleInputSchema,
+} from "@vektorprogrammet/domain/content";
+import {
+  DepartmentId,
+  OrganizationAuthorityInstantSchema,
+  PersonId,
+} from "@vektorprogrammet/domain/organization";
+import { Database } from "../service.js";
+import { DatabaseTest } from "../layers.js";
+import { OrganizationLive } from "../organization/postgres-layer.js";
+import { ProfileLive } from "../profile/postgres-layer.js";
+import { makeControlledTestRuntime } from "../../test/runtime.js";
+import { readPublishedArticlePostgres } from "./news.js";
 import {
   createDraftPostgres,
   publishPostgres,
   readArticleDetailPostgres,
   readWorkspacePostgres,
+  unpublishPostgres,
 } from "./postgres.js";
 
-const personId = "workspace-editor" as PersonId;
-const ownDepartmentId = "department-own" as DepartmentId;
-const outsideDepartmentId = "department-outside" as DepartmentId;
-const unknownDepartmentId = "department-unknown" as DepartmentId;
-const authorizationInstant =
-  "2030-01-01T00:00:00.000Z" as OrganizationPersonAuthority["evaluatedAt"];
+const personId = PersonId.make("workspace-editor");
 
-const authority: OrganizationPersonAuthority = {
-  personId,
-  evaluatedAt: authorizationInstant,
-  globalAdministrator: "Absent",
-  memberships: [
-    {
-      membershipId: "workspace-membership" as never,
-      teamId: "workspace-team" as never,
-      departmentId: ownDepartmentId,
-      active: true,
-      teamLeader: false,
-    },
-  ],
-};
+const administratorId = PersonId.make("workspace-administrator");
 
-const makeDatabase = (
-  execute: (
-    statement: string,
-    values: ReadonlyArray<unknown>,
-  ) => Effect.Effect<ReadonlyArray<unknown>, unknown>,
-): DatabaseShape => {
-  const sql = ((strings: TemplateStringsArray, ...values: ReadonlyArray<unknown>) =>
-    execute(strings.join("?"), values)) as unknown as DatabaseShape;
-  return Object.assign(sql, {
-    withTransaction: <A, E, R>(program: Effect.Effect<A, E, R>) => program,
-    json: (value: unknown) => value as never,
-    in: () => ({}) as never,
-  });
-};
+const ownDepartmentId = DepartmentId.make("department-own");
 
-const database = makeDatabase(() => Effect.succeed([]));
+const outsideDepartmentId = DepartmentId.make("department-outside");
 
-const organization = {
-  resolvePersonAuthorityForRead: () => Effect.succeed(authority),
-  readDepartment: (departmentId: DepartmentId) =>
-    departmentId === unknownDepartmentId
-      ? Effect.fail(new DepartmentNotFound({ departmentId }))
-      : Effect.succeed({ departmentId } as never),
-} as never;
+const unknownDepartmentId = DepartmentId.make("department-unknown");
+
+const authorizationInstant = OrganizationAuthorityInstantSchema.make("2030-01-01T00:00:00.000Z");
+
+const articleId = ArticleId.make(71);
+
+const createCommand = CreateArticleDraftInputSchema.make({
+  commandId: ContentCommandId.make("content-create-replay"),
+  title: "Replay article",
+  bodyHtml: "<p>Stored body</p>",
+  departmentIds: [ownDepartmentId],
+  sticky: false,
+});
+
+const createInput = { command: createCommand, personId, authorizationInstant };
+
+const runtime = makeControlledTestRuntime(
+  ProfileLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest())))),
+);
+
+beforeAll(
+  () =>
+    runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        yield* sql`
+      INSERT INTO person_profiles (person_id, first_name, last_name)
+      VALUES (${personId}, 'Erik', 'Redaktør'),
+        (${administratorId}, 'Ada', 'Administrator'), ('another-editor', 'Another', 'Editor')
+    `;
+        yield* sql`
+      INSERT INTO organization_departments (department_id, name, short_name, email, city)
+      VALUES (${ownDepartmentId}, 'Own Department', 'OWN', 'own@example.invalid', 'Oslo'),
+        (${outsideDepartmentId}, 'Outside Department', 'OUT', 'outside@example.invalid', 'Bergen')
+    `;
+        yield* sql`
+      INSERT INTO organization_teams (team_id, department_id, name)
+      VALUES ('workspace-team', ${ownDepartmentId}, 'Own Team'),
+        ('outside-team', ${outsideDepartmentId}, 'Outside Team')
+    `;
+        yield* sql`
+      INSERT INTO organization_memberships (membership_id, person_id, team_id, start_at)
+      VALUES ('workspace-membership', ${personId}, 'workspace-team', '2028-01-01T00:00:00.000Z')
+    `;
+        yield* sql`
+      INSERT INTO organization_global_administrator_grants (grant_id, person_id, start_at)
+      VALUES ('content-administrator-grant', ${administratorId}, '2028-01-01T00:00:00.000Z')
+    `;
+      }),
+    ),
+  15_000,
+);
+
+beforeEach(() =>
+  runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      yield* sql`
+      TRUNCATE content_publication_audit, content_publication_command_receipts,
+        content_article_departments, content_article_versions, content_articles RESTART IDENTITY
+    `;
+      yield* sql`DELETE FROM organization_memberships WHERE membership_id = 'outside-membership'`;
+      yield* sql`
+      UPDATE organization_memberships SET end_at = NULL, is_team_leader = FALSE
+      WHERE membership_id = 'workspace-membership'
+    `;
+      yield* sql`
+      INSERT INTO content_articles (
+        article_id, title, slug, body_html, sticky, created_by_person_id,
+        created_at, updated_at, revision
+      ) OVERRIDING SYSTEM VALUE VALUES (
+        ${articleId}, 'Eksakt kladd', 'eksakt-kladd', '<p>Private arbeidskopibytes</p>', FALSE,
+        ${personId}, '2030-01-01T00:00:00.000Z', '2030-01-01T01:00:00.000Z', 3
+      )
+    `;
+      yield* sql`
+      INSERT INTO content_article_departments (article_id, department_id)
+      VALUES (${articleId}, ${ownDepartmentId})
+    `;
+    }),
+  ),
+);
+
+afterAll(() => runtime.dispose());
 
 describe("content workspace department scope", () => {
-  it.effect("returns typed NotInScope for a known department outside the actor authority", () =>
-    Effect.gen(function* () {
-      const failure = yield* Effect.flip(
+  it("returns typed NotInScope for a known department outside the actor authority", async () => {
+    const failure = await runtime.runPromise(
+      Effect.flip(
         readWorkspacePostgres({
           personId,
           authorizationInstant,
           query: { departmentId: outsideDepartmentId },
-        }).pipe(
-          Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
-          Effect.provideService(Profile, {} as never),
-        ),
-      );
-      expect(failure._tag).toBe("NotInScope");
-    }),
-  );
+        }),
+      ),
+    );
 
-  it.effect("keeps an unknown department distinct as DepartmentNotFound", () =>
-    Effect.gen(function* () {
-      const failure = yield* Effect.flip(
+    expect(failure._tag).toBe("NotInScope");
+  });
+
+  it("keeps an unknown department distinct as DepartmentNotFound", async () => {
+    const failure = await runtime.runPromise(
+      Effect.flip(
         readWorkspacePostgres({
           personId,
           authorizationInstant,
           query: { departmentId: unknownDepartmentId },
-        }).pipe(
-          Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
-          Effect.provideService(Profile, {} as never),
-        ),
-      );
-      expect(failure._tag).toBe("DepartmentNotFound");
-      if (failure._tag === "DepartmentNotFound") {
-        expect(failure.departmentId).toBe(unknownDepartmentId);
-      }
-    }),
-  );
+        }),
+      ),
+    );
+
+    expect(failure._tag).toBe("DepartmentNotFound");
+
+    if (!Predicate.isTagged(failure, "DepartmentNotFound")) {
+      throw new Error("Expected a missing department failure");
+    }
+
+    expect(failure.departmentId).toBe(unknownDepartmentId);
+  });
 });
+
 describe("content article detail authority", () => {
-  const storedDetail = {
-    articleId: 71,
-    title: "Eksakt kladd",
-    slug: "eksakt-kladd",
-    bodyHtml: "<p>Private arbeidskopibytes</p>",
-    sticky: false,
-    createdByPersonId: personId,
-    createdAt: "2030-01-01T00:00:00.000Z",
-    updatedAt: "2030-01-01T01:00:00.000Z",
-    currentVersionNumber: null,
-    revision: 4,
-  } as const;
-
-  const detailDatabase = makeDatabase((statement) =>
-    Effect.succeed(
-      statement.includes("FROM public.content_articles AS article")
-        ? [storedDetail]
-        : statement.includes("FROM public.content_article_departments")
-          ? [{ articleId: storedDetail.articleId, departmentId: ownDepartmentId }]
-          : [],
-    ),
-  );
-
-  it.effect("returns body and revision without the private creator id", () =>
-    Effect.gen(function* () {
-      const detail = yield* readArticleDetailPostgres({
-        articleId: storedDetail.articleId as never,
+  it("returns body and revision without the private creator id", async () => {
+    const detail = await runtime.runPromise(
+      readArticleDetailPostgres({
+        articleId,
         personId,
         authorizationInstant,
-      }).pipe(
-        Effect.provideService(Database, detailDatabase),
-        Effect.provideService(Organization, organization),
-        Effect.provideService(Profile, {
-          readProfiles: () => Effect.succeed([{ firstName: "Erik", lastName: "Redaktør" }]),
-        } as never),
-      );
+      }),
+    );
 
-      expect(detail).toEqual({
-        articleId: 71,
-        title: "Eksakt kladd",
-        slug: "eksakt-kladd",
-        status: "Draft",
-        bodyHtml: "<p>Private arbeidskopibytes</p>",
-        sticky: false,
-        createdAt: "2030-01-01T00:00:00.000Z",
-        updatedAt: "2030-01-01T01:00:00.000Z",
-        currentVersionNumber: null,
-        revision: 4,
-        departmentIds: [ownDepartmentId],
-        canRevise: true,
-        canPublish: false,
-        authorDisplayName: "Erik Redaktør",
-      });
-      expect("createdByPersonId" in detail).toBe(false);
-    }),
-  );
-  it.effect("blocks the member author from revising their published article", () =>
-    Effect.gen(function* () {
-      const publishedOwnDatabase = makeDatabase((statement) =>
-        Effect.succeed(
-          statement.includes("FROM public.content_articles AS article")
-            ? [{ ...storedDetail, currentVersionNumber: 1 }]
-            : statement.includes("FROM public.content_article_departments")
-              ? [{ articleId: storedDetail.articleId, departmentId: ownDepartmentId }]
-              : [],
-        ),
-      );
-      const failure = yield* Effect.flip(
-        readArticleDetailPostgres({
-          articleId: storedDetail.articleId as never,
-          personId,
-          authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, publishedOwnDatabase),
-          Effect.provideService(Organization, organization),
-          Effect.provideService(Profile, {} as never),
-        ),
-      );
-      expect(failure._tag).toBe("DraftNotOwned");
-    }),
-  );
+    expect(detail).toEqual({
+      articleId,
+      title: "Eksakt kladd",
+      slug: "eksakt-kladd",
+      status: "Draft",
+      bodyHtml: "<p>Private arbeidskopibytes</p>",
+      sticky: false,
+      createdAt: "2030-01-01T00:00:00.000Z",
+      updatedAt: "2030-01-01T01:00:00.000Z",
+      currentVersionNumber: null,
+      revision: 4,
+      departmentIds: [ownDepartmentId],
+      canRevise: true,
+      canPublish: false,
+      authorDisplayName: "Erik Redaktør",
+    });
+    expect("createdByPersonId" in detail).toBe(false);
+  });
 
-  it.effect("maps absence and foreign drafts to typed failures", () =>
-    Effect.gen(function* () {
-      const missing = yield* Effect.flip(
-        readArticleDetailPostgres({
-          articleId: 999 as never,
-          personId,
+  it("blocks the member author from revising their published article", async () => {
+    const failure = await runtime.runPromise(
+      Effect.gen(function* () {
+        yield* publishPostgres({
+          command: PublishArticleInputSchema.make({
+            commandId: ContentCommandId.make("publish-own-article"),
+            articleId,
+          }),
+          personId: administratorId,
           authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
-          Effect.provideService(Profile, {} as never),
-        ),
-      );
-      expect(missing._tag).toBe("ArticleNotFound");
+        });
 
-      const foreignDatabase = makeDatabase((statement) =>
-        Effect.succeed(
-          statement.includes("FROM public.content_articles AS article")
-            ? [{ ...storedDetail, createdByPersonId: "another-editor" }]
-            : statement.includes("FROM public.content_article_departments")
-              ? [{ articleId: storedDetail.articleId, departmentId: ownDepartmentId }]
-              : [],
-        ),
-      );
-      const denied = yield* Effect.flip(
-        readArticleDetailPostgres({
-          articleId: storedDetail.articleId as never,
-          personId,
-          authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, foreignDatabase),
-          Effect.provideService(Organization, organization),
-          Effect.provideService(Profile, {} as never),
-        ),
-      );
-      expect(denied._tag).toBe("DraftNotOwned");
-    }),
-  );
+        return yield* Effect.flip(
+          readArticleDetailPostgres({ articleId, personId, authorizationInstant }),
+        );
+      }),
+    );
+
+    expect(failure._tag).toBe("DraftNotOwned");
+  });
+
+  it("maps absence and foreign drafts to typed failures", async () => {
+    const observed = await runtime.runPromise(
+      Effect.gen(function* () {
+        const missing = yield* Effect.flip(
+          readArticleDetailPostgres({
+            articleId: ArticleId.make(999),
+            personId,
+            authorizationInstant,
+          }),
+        );
+
+        const sql = yield* Database;
+        yield* sql`UPDATE content_articles SET created_by_person_id = 'another-editor' WHERE article_id = ${articleId}`;
+
+        const denied = yield* Effect.flip(
+          readArticleDetailPostgres({ articleId, personId, authorizationInstant }),
+        );
+
+        return { missing, denied };
+      }),
+    );
+
+    expect(observed.missing._tag).toBe("ArticleNotFound");
+    expect(observed.denied._tag).toBe("DraftNotOwned");
+  });
 });
 
 describe("content command receipts and sequencing", () => {
-  const createCommand = {
-    commandId: "content-create-replay",
-    title: "Replay article",
-    bodyHtml: "<p>Stored body</p>",
-    departmentIds: [ownDepartmentId],
-    sticky: false,
-  } as const;
-  const storedDraft = {
-    articleId: 41,
-    title: "Replay article",
-    slug: "replay-article",
-    bodyHtml: "<p>Stored body</p>",
-    sticky: false,
-    createdAt: "2030-01-01T00:00:00.000Z",
-    updatedAt: "2030-01-01T00:00:00.000Z",
-    currentVersionNumber: null,
-    revision: 0,
-  } as const;
-  const createDigest = sha256Hex(canonicalJsonBytes(createCommand));
+  it("returns the strict stored draft for an identical create replay after authority expires", async () => {
+    const observed = await runtime.runPromise(
+      Effect.gen(function* () {
+        const created = yield* createDraftPostgres(createInput);
+        const sql = yield* Database;
+        yield* sql`
+        UPDATE organization_memberships SET end_at = '2029-01-01T00:00:00.000Z'
+        WHERE membership_id = 'workspace-membership'
+      `;
+        const replayed = yield* createDraftPostgres(createInput);
 
-  it.effect("returns the strict stored draft for an identical create replay", () =>
-    Effect.gen(function* () {
-      let authorityReads = 0;
-      const replayDatabase = makeDatabase((statement) =>
-        Effect.succeed(
-          statement.includes("FROM public.content_publication_command_receipts")
-            ? [
-                {
-                  commandId: createCommand.commandId,
-                  kind: "CreateDraft",
-                  payloadSha256: createDigest,
-                  resultJson: storedDraft,
-                },
-              ]
-            : [],
-        ),
-      );
-      const replayed = yield* createDraftPostgres({
-        command: createCommand as never,
-        personId,
-        authorizationInstant,
-      }).pipe(
-        Effect.provideService(Database, replayDatabase),
-        Effect.provideService(Organization, {
-          resolvePersonAuthorityForRead: () => {
-            authorityReads += 1;
-            return Effect.succeed(authority);
-          },
-        } as never),
-      );
+        const counts = yield* sql<{ readonly articles: number; readonly audits: number }>`
+        SELECT (SELECT count(*)::integer FROM content_articles WHERE slug = 'replay-article') AS articles,
+          (SELECT count(*)::integer FROM content_publication_audit WHERE command_id = ${createCommand.commandId}) AS audits
+      `;
 
-      expect(replayed).toEqual(storedDraft);
-      expect(authorityReads).toBe(0);
-    }),
-  );
+        return { created, replayed, counts };
+      }),
+    );
 
-  it.effect("rejects command id reuse across a different command kind", () =>
-    Effect.gen(function* () {
-      const reusedKindDatabase = makeDatabase((statement) =>
-        Effect.succeed(
-          statement.includes("FROM public.content_publication_command_receipts")
-            ? [
-                {
-                  commandId: createCommand.commandId,
-                  kind: "Publish",
-                  payloadSha256: createDigest,
-                  resultJson: storedDraft,
-                },
-              ]
-            : [],
-        ),
-      );
-      const failure = yield* Effect.flip(
-        createDraftPostgres({
-          command: createCommand as never,
-          personId,
-          authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, reusedKindDatabase),
-          Effect.provideService(Organization, {} as never),
-        ),
-      );
+    expect(observed.replayed).toEqual(observed.created);
+    expect(observed.counts).toEqual([{ articles: 1, audits: 1 }]);
+  });
 
-      expect(failure._tag).toBe("CommandConflict");
-    }),
-  );
+  it("rejects command id reuse across a different command kind", async () => {
+    const failure = await runtime.runPromise(
+      Effect.gen(function* () {
+        const created = yield* createDraftPostgres(createInput);
 
-  it.effect("rejects command id reuse with different canonical command bytes", () =>
-    Effect.gen(function* () {
-      const reusedBytesDatabase = makeDatabase((statement) =>
-        Effect.succeed(
-          statement.includes("FROM public.content_publication_command_receipts")
-            ? [
-                {
-                  commandId: createCommand.commandId,
-                  kind: "CreateDraft",
-                  payloadSha256: createDigest,
-                  resultJson: storedDraft,
-                },
-              ]
-            : [],
-        ),
-      );
-      const failure = yield* Effect.flip(
-        createDraftPostgres({
-          command: { ...createCommand, title: "Different canonical bytes" } as never,
-          personId,
-          authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, reusedBytesDatabase),
-          Effect.provideService(Organization, {} as never),
-        ),
-      );
+        return yield* Effect.flip(
+          publishPostgres({
+            command: PublishArticleInputSchema.make({
+              commandId: createCommand.commandId,
+              articleId: created.articleId,
+            }),
+            personId: administratorId,
+            authorizationInstant,
+          }),
+        );
+      }),
+    );
 
-      expect(failure._tag).toBe("CommandConflict");
-    }),
-  );
+    expect(failure._tag).toBe("CommandConflict");
+  });
 
-  it.effect("rejects excess properties in a stored create observation", () =>
-    Effect.gen(function* () {
-      const invalidObservationDatabase = makeDatabase((statement) =>
-        Effect.succeed(
-          statement.includes("FROM public.content_publication_command_receipts")
-            ? [
-                {
-                  commandId: createCommand.commandId,
-                  kind: "CreateDraft",
-                  payloadSha256: createDigest,
-                  resultJson: { ...storedDraft, privateLeak: "must fail closed" },
-                },
-              ]
-            : [],
-        ),
-      );
-      const failure = yield* Effect.flip(
-        createDraftPostgres({
-          command: createCommand as never,
-          personId,
-          authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, invalidObservationDatabase),
-          Effect.provideService(Organization, {} as never),
-        ),
-      );
+  it("rejects command id reuse with different canonical command bytes", async () => {
+    const failure = await runtime.runPromise(
+      Effect.gen(function* () {
+        yield* createDraftPostgres(createInput);
 
-      expect(failure._tag).toBe("ContentPersistenceError");
-    }),
-  );
+        return yield* Effect.flip(
+          createDraftPostgres({
+            command: CreateArticleDraftInputSchema.make({
+              ...createCommand,
+              title: "Different canonical bytes",
+            }),
+            personId,
+            authorizationInstant,
+          }),
+        );
+      }),
+    );
 
-  it.effect("maps a lost unique-slug insertion race to SlugConflict", () =>
-    Effect.gen(function* () {
-      const uniqueRaceDatabase = makeDatabase((statement) => {
-        if (statement.includes("INSERT INTO public.content_articles")) {
-          return Effect.fail({
-            _tag: "SqlError",
-            cause: { code: "23505", constraint: "content_articles_slug_unique" },
+    expect(failure._tag).toBe("CommandConflict");
+  });
+
+  it("rejects excess properties in a stored create observation", async () => {
+    const failure = await runtime.runPromise(
+      Effect.gen(function* () {
+        yield* createDraftPostgres(createInput);
+        const sql = yield* Database;
+        yield* sql`
+        UPDATE content_publication_command_receipts
+        SET result_json = result_json || ${sql.json({ privateLeak: "must fail closed" })}
+        WHERE command_id = ${createCommand.commandId}
+      `;
+
+        return yield* Effect.flip(createDraftPostgres(createInput));
+      }),
+    );
+
+    expect(failure._tag).toBe("ContentPersistenceError");
+  });
+
+  it("maps a unique-slug insertion conflict to SlugConflict", async () => {
+    const failure = await runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        // Force the conflict after the real slug scan, at the actual unique index.
+        yield* sql.unsafe(`
+        CREATE FUNCTION test_content_slug_conflict() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN NEW.slug := 'eksakt-kladd'; RETURN NEW; END;
+        $$
+      `);
+        yield* sql.unsafe(`
+        CREATE TRIGGER test_content_slug_conflict BEFORE INSERT ON content_articles
+        FOR EACH ROW EXECUTE FUNCTION test_content_slug_conflict()
+      `);
+
+        try {
+          return yield* Effect.flip(createDraftPostgres(createInput));
+        } finally {
+          yield* sql.unsafe("DROP TRIGGER test_content_slug_conflict ON content_articles");
+          yield* sql.unsafe("DROP FUNCTION test_content_slug_conflict()");
+        }
+      }),
+    );
+
+    expect(failure._tag).toBe("SlugConflict");
+  });
+
+  it("continues immutable version numbering after the published pointer is cleared", async () => {
+    const observed = await runtime.runPromise(
+      Effect.gen(function* () {
+        for (const versionNumber of [1, 2, 3]) {
+          yield* publishPostgres({
+            command: PublishArticleInputSchema.make({
+              commandId: ContentCommandId.make(`publish-version-${versionNumber}`),
+              articleId,
+            }),
+            personId: administratorId,
+            authorizationInstant,
           });
         }
-        return Effect.succeed([]);
-      });
-      const administratorAuthority: OrganizationPersonAuthority = {
-        personId,
-        evaluatedAt: authorizationInstant,
-        globalAdministrator: "Active",
-        memberships: [],
-      };
-      const failure = yield* Effect.flip(
-        createDraftPostgres({
-          command: {
-            ...createCommand,
-            commandId: "content-create-slug-race",
-            departmentIds: [],
-          } as never,
-          personId,
+
+        yield* unpublishPostgres({
+          command: UnpublishArticleInputSchema.make({
+            commandId: ContentCommandId.make("unpublish-third-version"),
+            articleId,
+          }),
+          personId: administratorId,
           authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, uniqueRaceDatabase),
-          Effect.provideService(Organization, {
-            resolvePersonAuthorityForRead: () => Effect.succeed(administratorAuthority),
-          } as never),
-        ),
-      );
+        });
 
-      expect(failure._tag).toBe("SlugConflict");
-    }),
-  );
-
-  it.effect("issues a republish version from immutable MAX rather than the cleared pointer", () =>
-    Effect.gen(function* () {
-      let selectedImmutableMaximum = false;
-      const republishDatabase = makeDatabase((statement) => {
-        if (statement.includes("FROM public.content_publication_command_receipts")) {
-          return Effect.succeed([]);
-        }
-        if (
-          statement.includes("FROM public.content_articles AS article") &&
-          statement.includes("FOR UPDATE")
-        ) {
-          return Effect.succeed([
-            {
-              articleId: 41,
-              createdByPersonId: personId,
-              title: "Republish article",
-              slug: "republish-article",
-              bodyHtml: "<p>body</p>",
-              sticky: false,
-              createdAt: "2030-01-01T00:00:00.000Z",
-              updatedAt: "2030-01-01T00:00:00.000Z",
-              currentVersionNumber: null,
-              revision: 5,
-            },
-          ]);
-        }
-        if (statement.includes("MAX(version_number)")) {
-          selectedImmutableMaximum = true;
-          return Effect.succeed([{ nextVersionNumber: 4 }]);
-        }
-        if (statement.includes("INSERT INTO public.content_article_versions")) {
-          return Effect.succeed([{ publishedAt: "2030-01-02T00:00:00.000Z" }]);
-        }
-        return Effect.succeed([]);
-      });
-      const administratorAuthority: OrganizationPersonAuthority = {
-        personId,
-        evaluatedAt: authorizationInstant,
-        globalAdministrator: "Active",
-        memberships: [],
-      };
-      const observation = yield* publishPostgres({
-        command: { commandId: "content-republish-four", articleId: 41 } as never,
-        personId,
-        authorizationInstant,
-      }).pipe(
-        Effect.provideService(Database, republishDatabase),
-        Effect.provideService(Organization, {
-          resolvePersonAuthorityForRead: () => Effect.succeed(administratorAuthority),
-        } as never),
-      );
-
-      expect(selectedImmutableMaximum).toBe(true);
-      expect(observation.versionNumber).toBe(4);
-    }),
-  );
-  it.effect("sanitizes a preexisting working copy before publication", () =>
-    Effect.gen(function* () {
-      let publishedBody: string | undefined;
-      const publishDatabase = makeDatabase((statement, values) => {
-        if (statement.includes("FROM public.content_publication_command_receipts")) {
-          return Effect.succeed([]);
-        }
-        if (
-          statement.includes("FROM public.content_articles AS article") &&
-          statement.includes("FOR UPDATE")
-        ) {
-          return Effect.succeed([
-            {
-              articleId: 41,
-              createdByPersonId: personId,
-              title: "Preexisting article",
-              slug: "preexisting-article",
-              bodyHtml: "<p>before</p><script>alert(1)</script><p>after</p>",
-              sticky: false,
-              createdAt: "2030-01-01T00:00:00.000Z",
-              updatedAt: "2030-01-01T00:00:00.000Z",
-              currentVersionNumber: null,
-              revision: 5,
-            },
-          ]);
-        }
-        if (statement.includes("MAX(version_number)")) {
-          return Effect.succeed([{ nextVersionNumber: 1 }]);
-        }
-        if (statement.includes("INSERT INTO public.content_article_versions")) {
-          publishedBody = values[4] as string;
-          return Effect.succeed([{ publishedAt: "2030-01-02T00:00:00.000Z" }]);
-        }
-        return Effect.succeed([]);
-      });
-      const administratorAuthority: OrganizationPersonAuthority = {
-        personId,
-        evaluatedAt: authorizationInstant,
-        globalAdministrator: "Active",
-        memberships: [],
-      };
-
-      yield* publishPostgres({
-        command: { commandId: "content-publish-sanitizes-body", articleId: 41 } as never,
-        personId,
-        authorizationInstant,
-      }).pipe(
-        Effect.provideService(Database, publishDatabase),
-        Effect.provideService(Organization, {
-          resolvePersonAuthorityForRead: () => Effect.succeed(administratorAuthority),
-        } as never),
-      );
-
-      expect(publishedBody).toBe("<p>before</p><p>after</p>");
-    }),
-  );
-  it.effect("rejects an unsafe preexisting working copy before immutable insertion", () =>
-    Effect.gen(function* () {
-      let immutableInsertAttempted = false;
-      const publishDatabase = makeDatabase((statement) => {
-        if (statement.includes("FROM public.content_publication_command_receipts")) {
-          return Effect.succeed([]);
-        }
-        if (
-          statement.includes("FROM public.content_articles AS article") &&
-          statement.includes("FOR UPDATE")
-        ) {
-          return Effect.succeed([
-            {
-              articleId: 41,
-              createdByPersonId: personId,
-              title: "Unsafe article",
-              slug: "unsafe-article",
-              bodyHtml: '<p><a href="java&#x73;cript:alert(1)">unsafe</a></p>',
-              sticky: false,
-              createdAt: "2030-01-01T00:00:00.000Z",
-              updatedAt: "2030-01-01T00:00:00.000Z",
-              currentVersionNumber: null,
-              revision: 5,
-            },
-          ]);
-        }
-        if (statement.includes("MAX(version_number)")) {
-          return Effect.succeed([{ nextVersionNumber: 1 }]);
-        }
-        if (statement.includes("INSERT INTO public.content_article_versions")) {
-          immutableInsertAttempted = true;
-        }
-        return Effect.succeed([]);
-      });
-      const administratorAuthority: OrganizationPersonAuthority = {
-        personId,
-        evaluatedAt: authorizationInstant,
-        globalAdministrator: "Active",
-        memberships: [],
-      };
-
-      const failure = yield* Effect.flip(
-        publishPostgres({
-          command: { commandId: "content-publish-rejects-unsafe-body", articleId: 41 } as never,
-          personId,
+        const unpublished = yield* readArticleDetailPostgres({
+          articleId,
+          personId: administratorId,
           authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, publishDatabase),
-          Effect.provideService(Organization, {
-            resolvePersonAuthorityForRead: () => Effect.succeed(administratorAuthority),
-          } as never),
-        ),
-      );
+        });
 
-      expect(failure._tag).toBe("ContentDecodeError");
-      expect(immutableInsertAttempted).toBe(false);
-    }),
-  );
+        const republished = yield* publishPostgres({
+          command: PublishArticleInputSchema.make({
+            commandId: ContentCommandId.make("republish-fourth-version"),
+            articleId,
+          }),
+          personId: administratorId,
+          authorizationInstant,
+        });
+
+        const sql = yield* Database;
+
+        const versions = yield* sql<{ readonly versionNumber: number }>`
+        SELECT version_number AS "versionNumber" FROM content_article_versions
+        WHERE article_id = ${articleId} ORDER BY version_number
+      `;
+
+        return { unpublished, republished, versions };
+      }),
+    );
+
+    expect(observed.unpublished.currentVersionNumber).toBeNull();
+    expect(observed.republished.versionNumber).toBe(4);
+    expect(observed.versions).toEqual([
+      { versionNumber: 1 },
+      { versionNumber: 2 },
+      { versionNumber: 3 },
+      { versionNumber: 4 },
+    ]);
+  });
+
+  it("sanitizes a preexisting working copy before publication", async () => {
+    const published = await runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        yield* sql`
+        UPDATE content_articles SET body_html = '<p>before</p><script>alert(1)</script><p>after</p>'
+        WHERE article_id = ${articleId}
+      `;
+        yield* publishPostgres({
+          command: PublishArticleInputSchema.make({
+            commandId: ContentCommandId.make("publish-sanitized-body"),
+            articleId,
+          }),
+          personId: administratorId,
+          authorizationInstant,
+        });
+
+        return yield* readPublishedArticlePostgres("eksakt-kladd");
+      }),
+    );
+
+    expect(published.bodyHtml).toBe("<p>before</p><p>after</p>");
+  });
+
+  it("rejects an unsafe preexisting working copy without immutable writes", async () => {
+    const observed = await runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        yield* sql`
+        UPDATE content_articles SET body_html = ${'<p><a href="java&#x73;cript:alert(1)">unsafe</a></p>'}
+        WHERE article_id = ${articleId}
+      `;
+
+        const failure = yield* Effect.flip(
+          publishPostgres({
+            command: PublishArticleInputSchema.make({
+              commandId: ContentCommandId.make("publish-unsafe-body"),
+              articleId,
+            }),
+            personId: administratorId,
+            authorizationInstant,
+          }),
+        );
+
+        const counts = yield* sql<{ readonly versions: number; readonly audits: number }>`
+        SELECT (SELECT count(*)::integer FROM content_article_versions) AS versions,
+          (SELECT count(*)::integer FROM content_publication_audit) AS audits
+      `;
+
+        return { failure, counts };
+      }),
+    );
+
+    expect(observed.failure._tag).toBe("ContentDecodeError");
+    expect(observed.counts).toEqual([{ versions: 0, audits: 0 }]);
+  });
 });
 
 describe("content create department authority", () => {
-  it.effect("prevents a publisher from selecting an active non-leader membership", () =>
-    Effect.gen(function* () {
-      const publisherAuthority: OrganizationPersonAuthority = {
-        personId,
-        evaluatedAt: authorizationInstant,
-        globalAdministrator: "Absent",
-        memberships: [
-          {
-            membershipId: "leader-own" as never,
-            teamId: "leader-team" as never,
-            departmentId: ownDepartmentId,
-            active: true,
-            teamLeader: true,
-          },
-          {
-            membershipId: "member-outside" as never,
-            teamId: "member-team" as never,
-            departmentId: outsideDepartmentId,
-            active: true,
-            teamLeader: false,
-          },
-        ],
-      };
-      const scopedDatabase = makeDatabase(() => Effect.succeed([]));
-      const failure = yield* Effect.flip(
+  it("prevents a publisher from selecting an active non-leader membership", async () => {
+    const failure = await runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        yield* sql`
+        UPDATE organization_memberships SET is_team_leader = TRUE
+        WHERE membership_id = 'workspace-membership'
+      `;
+        yield* sql`
+        INSERT INTO organization_memberships (membership_id, person_id, team_id, start_at)
+        VALUES ('outside-membership', ${personId}, 'outside-team', '2028-01-01T00:00:00.000Z')
+      `;
+
+        return yield* Effect.flip(
+          createDraftPostgres({
+            command: CreateArticleDraftInputSchema.make({
+              ...createCommand,
+              departmentIds: [outsideDepartmentId],
+            }),
+            personId,
+            authorizationInstant,
+          }),
+        );
+      }),
+    );
+
+    expect(failure._tag).toBe("NotInScope");
+  });
+
+  it("requires non-administrators to select at least one department", async () => {
+    const failure = await runtime.runPromise(
+      Effect.flip(
         createDraftPostgres({
-          command: {
-            commandId: "content-create-widening",
-            title: "No widening",
-            bodyHtml: "<p>body</p>",
-            departmentIds: [outsideDepartmentId],
-          } as never,
+          command: CreateArticleDraftInputSchema.make({ ...createCommand, departmentIds: [] }),
           personId,
           authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, scopedDatabase),
-          Effect.provideService(Organization, {
-            resolvePersonAuthorityForRead: () => Effect.succeed(publisherAuthority),
-          } as never),
-        ),
-      );
+        }),
+      ),
+    );
 
-      expect(failure._tag).toBe("NotInScope");
-    }),
-  );
-
-  it.effect("requires non-administrators to select at least one department", () =>
-    Effect.gen(function* () {
-      const scopedDatabase = makeDatabase(() => Effect.succeed([]));
-      const failure = yield* Effect.flip(
-        createDraftPostgres({
-          command: {
-            commandId: "content-create-empty-scope",
-            title: "No empty scope",
-            bodyHtml: "<p>body</p>",
-            departmentIds: [],
-          } as never,
-          personId,
-          authorizationInstant,
-        }).pipe(
-          Effect.provideService(Database, scopedDatabase),
-          Effect.provideService(Organization, {
-            resolvePersonAuthorityForRead: () => Effect.succeed(authority),
-          } as never),
-        ),
-      );
-
-      expect(failure._tag).toBe("NotInScope");
-    }),
-  );
+    expect(failure._tag).toBe("NotInScope");
+  });
 });

@@ -5,4 +5,5 @@ import { DomainNodeLive, nodeArguments, setNodeExitCode } from "./node.js";
 const exitCode = await Effect.runPromise(
   main(nodeArguments()).pipe(Effect.provide(DomainNodeLive)),
 );
+
 setNodeExitCode(exitCode);

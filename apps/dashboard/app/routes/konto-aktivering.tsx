@@ -8,36 +8,46 @@ import { createAuthenticatedClient } from "../lib/api.server";
 import { hasAuthenticatedSession, requireAuth } from "../lib/auth.server";
 import { nativeProblemFrom } from "../lib/native-problem";
 import type { Route } from "./+types/konto-aktivering";
+
 const privateData = <T,>(value: T, status = 200) =>
   data(value, {
     status,
     headers: { "cache-control": "private, no-store", "referrer-policy": "no-referrer" },
   });
+
 export async function loader({ request }: Route.LoaderArgs) {
   return privateData({ signedIn: await hasAuthenticatedSession(request) });
 }
+
 export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
+
   try {
     const mode = form.get("mode");
     const password = form.get("password");
+
     if (mode === "NewAccount" && password !== form.get("confirmation"))
       return privateData({ ok: false, message: "Passordene må være like." }, 422);
+
     const payload = Schema.decodeUnknownSync(OnboardingClaim)(
       mode === "NewAccount"
         ? { mode, token: form.get("token"), password }
         : { mode, token: form.get("token") },
     );
+
     const cookie = payload.mode === "ExistingAccount" ? await requireAuth(request) : "";
     const client = createAuthenticatedClient(cookie, request);
+
     if (payload.mode === "NewAccount") await client.onboarding.claim({ payload });
     else await client.onboarding.claim({ payload });
+
     return privateData({
       ok: true,
       message: "Kontoen er knyttet til søknaden. Logg inn og be om tilknytning under Assistenter.",
     });
   } catch (error) {
     const problem = nativeProblemFrom(error);
+
     return privateData(
       {
         ok: false,
@@ -50,16 +60,21 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 }
+
 const subscribe = (changed: () => void) => {
   window.addEventListener("hashchange", changed);
+
   return () => window.removeEventListener("hashchange", changed);
 };
+
 const snapshot = () => window.location.hash.slice(1);
+
 export default function ClaimAccount() {
   const { signedIn } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const token = useSyncExternalStore(subscribe, snapshot, () => "");
   const busy = fetcher.state !== "idle";
+
   return (
     <main className="mx-auto max-w-lg space-y-5 p-6">
       <h1 className="text-2xl font-semibold">Knytt søknaden til din konto</h1>

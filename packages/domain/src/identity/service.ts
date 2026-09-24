@@ -17,7 +17,7 @@ import type {
  * Implementations must resolve every session to the canonical PersonId that
  * exists in person_profiles - the auth schema holds no separate identity space.
  */
-export interface IdentityShape {
+export interface IdentityOperations {
   /** Verifies credentials and issues a Better Auth session. */
   readonly signIn: (input: IdentitySignInInput) => Promise<IdentitySignInSuccess>;
   /**
@@ -58,7 +58,7 @@ export interface IdentityShape {
   readonly signOut: (cookieHeader: string | undefined) => Promise<IdentitySessionMutationSuccess>;
 }
 
-export class Identity extends Context.Service<Identity, IdentityShape>()(
+export class Identity extends Context.Service<Identity, IdentityOperations>()(
   "@vektorprogrammet/domain/Identity",
 ) {}
 

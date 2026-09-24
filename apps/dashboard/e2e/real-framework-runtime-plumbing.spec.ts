@@ -1,7 +1,10 @@
+import { Schema, Predicate } from "effect";
 import { expect, test, type Page } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
+
 const viewerUsername = "framework-runtime-0032";
+
 const viewerPassword = "framework-runtime-password-0032";
 
 async function loginWithApi(page: Page): Promise<string> {
@@ -9,10 +12,12 @@ async function loginWithApi(page: Page): Promise<string> {
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     data: { username: viewerUsername, password: viewerPassword },
   });
+
   expect(response.status()).toBe(200);
-  const payload = (await response.json()) as { token?: unknown };
-  expect(typeof payload.token).toBe("string");
-  return payload.token as string;
+  const payload = Schema.decodeUnknownSync(Schema.Struct({ token: Schema.String }))((await response.json()));
+  expect(Predicate.isString(payload.token)).toBe(true);
+
+  return payload.token;
 }
 
 function requireFrameworkRuntimeMode(): void {
@@ -39,24 +44,28 @@ test.describe("Real Symfony framework runtime plumbing journey", () => {
     const entrypoint = await page.request.get(`${apiOrigin}/api/`, {
       headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
     });
+
     expect(entrypoint.status()).toBe(200);
     expect((await entrypoint.text()).length).toBeGreaterThan(0);
 
     const context = await page.request.get(`${apiOrigin}/api/contexts/Article`, {
       headers: { Accept: "application/ld+json", Authorization: `Bearer ${token}` },
     });
+
     expect(context.status()).toBe(200);
     expect((await context.text()).length).toBeGreaterThan(0);
 
     const validationErrors = await page.request.get(`${apiOrigin}/api/validation_errors/1`, {
       headers: { Accept: "application/ld+json", Authorization: `Bearer ${token}` },
     });
+
     expect([200, 404]).toContain(validationErrors.status());
     expect((await validationErrors.text()).length).toBeGreaterThan(0);
 
     const errors = await page.request.get(`${apiOrigin}/api/errors/400`, {
       headers: { Accept: "application/ld+json", Authorization: `Bearer ${token}` },
     });
+
     expect([200, 400]).toContain(errors.status());
     expect((await errors.text()).length).toBeGreaterThan(0);
 

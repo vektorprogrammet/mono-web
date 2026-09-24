@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Database } from "./service.js";
-import { Effect, ManagedRuntime, Redacted } from "effect";
+import { Predicate, Effect, ManagedRuntime, Redacted } from "effect";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
@@ -31,6 +31,7 @@ const inventory = [
   "recruitment_interview_lifecycle_command_receipts",
   "recruitment_interview_lifecycle_audit",
 ] as const;
+
 const schedulingTables = [
   "recruitment_interview_schedules",
   "recruitment_invitations",
@@ -38,15 +39,19 @@ const schedulingTables = [
   "recruitment_schedule_audit",
   "recruitment_invitation_outbox",
 ] as const;
+
 const betterAuthTables = ["user", "session", "account", "verification"] as const;
+
 const nativeFunctions = [
   "prevent_content_publication_audit_mutation",
   "prevent_recruitment_interview_question_snapshot_mutation",
   "prevent_recruitment_interview_lifecycle_mutation",
 ] as const;
+
 const schemaBoundaryMigrationIndex = databaseMigrationDefinitions.findIndex(
   ({ id }) => id === "22_native-domain-schema-boundary",
 );
+
 assert.notEqual(schemaBoundaryMigrationIndex, -1);
 
 const databaseUrl = (name: string): string => {
@@ -58,6 +63,7 @@ const databaseUrl = (name: string): string => {
     parsed.hostname === "" || ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsed.hostname),
   );
   assert.match(decodeURIComponent(parsed.pathname.slice(1)), /schema-boundary/u);
+
   return value;
 };
 
@@ -66,6 +72,7 @@ const query = async <T extends QueryResultRow = QueryResultRow>(
   text: string,
   values: unknown[] = [],
 ) => (await client.query<T>(text, values)).rows;
+
 const runRegisteredMigrations = async (url: string) => {
   const execute: ExecuteMigration = (source) =>
     Effect.gen(function* () {
@@ -73,6 +80,7 @@ const runRegisteredMigrations = async (url: string) => {
       yield* sql.unsafe("SET LOCAL search_path TO auth, public");
       yield* sql.unsafe(source);
     });
+
   await Effect.runPromise(
     runDatabaseMigrations(execute).pipe(
       Effect.provide(
@@ -91,6 +99,7 @@ const runHistoricalSources = async (pool: Pool) => {
   for (const { url } of databaseMigrationDefinitions.slice(0, schemaBoundaryMigrationIndex)) {
     const source = await readFile(url, "utf8");
     const client = await pool.connect();
+
     try {
       await client.query("BEGIN");
       await client.query("SET LOCAL search_path TO auth, public");
@@ -103,7 +112,9 @@ const runHistoricalSources = async (pool: Pool) => {
       client.release();
     }
   }
+
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
     await client.query(`
@@ -113,6 +124,7 @@ const runHistoricalSources = async (pool: Pool) => {
         name text NOT NULL
       )
     `);
+
     for (const [index, { name }] of databaseMigrationDefinitions
       .slice(0, schemaBoundaryMigrationIndex)
       .entries()) {
@@ -121,6 +133,7 @@ const runHistoricalSources = async (pool: Pool) => {
         [index + 1, name],
       );
     }
+
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -131,7 +144,9 @@ const runHistoricalSources = async (pool: Pool) => {
 };
 
 const relationName = (schema: "auth" | "public", table: string) => `"${schema}"."${table}"`;
+
 type CatalogRelation = { table_name: string; schema_name: string };
+
 type CatalogEvidence = {
   relations: CatalogRelation[];
   scheduling: CatalogRelation[];
@@ -144,6 +159,7 @@ type CatalogEvidence = {
     function_body: string;
   }>;
 };
+
 type TableMetadata = {
   columns: QueryResultRow[];
   identity: QueryResultRow[];
@@ -154,6 +170,7 @@ type TableMetadata = {
   triggers: Array<{ trigger_name: string; definition: string; function_oid: string }>;
   rules: QueryResultRow[];
 };
+
 type TableEvidence = {
   table: string;
   count: string;
@@ -163,12 +180,14 @@ type TableEvidence = {
 
 const tableEvidence = async (client: PoolClient, schema: "auth" | "public", table: string) => {
   const relation = relationName(schema, table);
+
   const rows = await query<{ count: string; digest: string }>(
     client,
     `SELECT count(*)::text AS count,
             md5(COALESCE(string_agg(to_jsonb(row_data)::text, ',' ORDER BY to_jsonb(row_data)::text), '')) AS digest
        FROM ${relation} AS row_data`,
   );
+
   return rows[0]!;
 };
 
@@ -187,6 +206,7 @@ const metadataEvidence = async (
   `,
     [schema, table],
   );
+
   const identity = await query(
     client,
     `
@@ -197,6 +217,7 @@ const metadataEvidence = async (
     `,
     [schema, table],
   );
+
   const sequenceOwnership = await query(
     client,
     `
@@ -226,6 +247,7 @@ const metadataEvidence = async (
     `,
     [schema, table],
   );
+
   const dependencies = await query(
     client,
     `
@@ -248,6 +270,7 @@ const metadataEvidence = async (
     `,
     [`${schema}.${table}`],
   );
+
   const constraints = await query(
     client,
     `
@@ -261,6 +284,7 @@ const metadataEvidence = async (
   `,
     [schema, `${schema}.${table}`],
   );
+
   const indexes = await query(
     client,
     `
@@ -271,6 +295,7 @@ const metadataEvidence = async (
   `,
     [schema, table],
   );
+
   const triggers = await query<{
     trigger_name: string;
     definition: string;
@@ -288,6 +313,7 @@ const metadataEvidence = async (
   `,
     [schema, table],
   );
+
   const rules = await query(
     client,
     `
@@ -298,6 +324,7 @@ const metadataEvidence = async (
   `,
     [schema, table],
   );
+
   return {
     columns,
     identity,
@@ -324,6 +351,7 @@ const catalogEvidence = async (client: PoolClient): Promise<CatalogEvidence> => 
   `,
     [[...inventory]],
   );
+
   const auth = await query<{ table_name: string }>(
     client,
     `
@@ -335,6 +363,7 @@ const catalogEvidence = async (client: PoolClient): Promise<CatalogEvidence> => 
   `,
     [[...betterAuthTables]],
   );
+
   const scheduling = await query<{ table_name: string; schema_name: string }>(
     client,
     `
@@ -347,6 +376,7 @@ const catalogEvidence = async (client: PoolClient): Promise<CatalogEvidence> => 
     `,
     [[...schedulingTables]],
   );
+
   const publicAuth = await query<{ table_name: string }>(
     client,
     `
@@ -358,6 +388,7 @@ const catalogEvidence = async (client: PoolClient): Promise<CatalogEvidence> => 
     `,
     [[...betterAuthTables]],
   );
+
   const identityLink = await query<{ linked: boolean }>(
     client,
     `
@@ -368,6 +399,7 @@ const catalogEvidence = async (client: PoolClient): Promise<CatalogEvidence> => 
      LIMIT 1
     `,
   );
+
   const functions = await query<{
     function_name: string;
     schema_name: string;
@@ -384,6 +416,7 @@ const catalogEvidence = async (client: PoolClient): Promise<CatalogEvidence> => 
     `,
     [[...nativeFunctions]],
   );
+
   return { relations, scheduling, auth, publicAuth, identityLink, functions };
 };
 
@@ -537,31 +570,37 @@ const evidenceForSchema = async (
   schema: "auth" | "public",
 ): Promise<TableEvidence[]> => {
   const rows: TableEvidence[] = [];
+
   for (const table of inventory)
     rows.push({
       table,
       ...(await tableEvidence(client, schema, table)),
       metadata: await metadataEvidence(client, schema, table),
     });
+
   return rows;
 };
+
 type SchemaEvidence = {
   catalog: CatalogEvidence;
   tables: TableEvidence[];
 };
+
 const normalizeSql = (value: string) =>
   value.replace(/\b(?:auth|public)\./g, "").replace(/,(?:auth|public)(?=[,)])/g, ",");
+
 const normalizeMetadataRecord = (record: QueryResultRow) =>
   Object.fromEntries(
     Object.entries(record).map(([key, value]) => [
       key,
       key.endsWith("_schema") && (value === "auth" || value === "public")
         ? ""
-        : typeof value === "string"
+        : Predicate.isString(value)
           ? normalizeSql(value)
           : value,
     ]),
   );
+
 const comparableTables = (tables: TableEvidence[]) =>
   tables.map(({ table, count, digest, metadata }) => ({
     table,
@@ -581,6 +620,7 @@ const comparableTables = (tables: TableEvidence[]) =>
       rules: metadata.rules.map(normalizeMetadataRecord),
     },
   }));
+
 const triggerTargets = (tables: TableEvidence[]) =>
   tables
     .flatMap(({ table, metadata }) =>
@@ -610,6 +650,7 @@ const assertImmutableMutations = async (client: PoolClient) => {
     `UPDATE public.recruitment_interview_lifecycle_audit SET command_id = command_id`,
     `DELETE FROM public.recruitment_interview_lifecycle_audit`,
   ];
+
   for (const statement of mutations) await assert.rejects(() => client.query(statement));
 };
 
@@ -621,46 +662,54 @@ const runNormalDatabaseRead = async (url: string) => {
       maxConnections: 1,
     }),
   );
+
   try {
     return await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
+
         const organizationWrite = yield* database<{ readonly grantId: string }>`
           UPDATE public.organization_global_administrator_grants
           SET revision = revision + 1
           WHERE grant_id = 'schema-boundary-grant'
           RETURNING grant_id AS "grantId"
         `;
+
         const paymentWrite = yield* database<{ readonly paymentAuthorityId: string }>`
           UPDATE public.economy_payment_authorities
           SET revision = revision + 1
           WHERE payment_authority_id = 'schema-boundary-payment'
           RETURNING payment_authority_id AS "paymentAuthorityId"
         `;
+
         const teamInterestWrite = yield* database<{ readonly registrationId: string }>`
           UPDATE public.organization_team_interest_registrations
           SET submitter_name = 'Schema Runtime Submitter', revision = revision + 1
           WHERE submitter_email = 'schema-submitter@example.invalid'
           RETURNING registration_id AS "registrationId"
         `;
+
         const schoolWrite = yield* database<{ readonly schoolId: number }>`
           UPDATE public.schools_directory_schools
           SET contact_person = 'Schema Runtime Contact'
           WHERE email = 'schema-school@example.invalid'
           RETURNING school_id AS "schoolId"
         `;
+
         const articleWrite = yield* database<{ readonly articleId: number }>`
           UPDATE public.content_articles
           SET title = 'Schema Runtime Article'
           WHERE slug = 'schema-article'
           RETURNING article_id AS "articleId"
         `;
+
         const schemaQuestionWrite = yield* database<{ readonly questionId: string }>`
           UPDATE public.recruitment_interview_schema_questions
           SET prompt = 'Schema runtime question'
           WHERE question_id = 'schema-boundary-question'
           RETURNING question_id AS "questionId"
         `;
+
         const reads = yield* database<{
           readonly organizationGrantCount: string;
           readonly paymentAuthorityCount: string;
@@ -699,6 +748,7 @@ const runNormalDatabaseRead = async (url: string) => {
             (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_command_receipts) AS "lifecycleReceiptCount",
             (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_audit) AS "lifecycleAuditCount"
         `;
+
         return {
           reads,
           writes: [
@@ -721,22 +771,27 @@ const main = async () => {
   const freshUrl = databaseUrl("SCHEMA_BOUNDARY_FRESH_DATABASE_URL");
   const upgradeUrl = databaseUrl("SCHEMA_BOUNDARY_UPGRADE_DATABASE_URL");
   const collisionUrl = databaseUrl("SCHEMA_BOUNDARY_COLLISION_DATABASE_URL");
+
   const freshPool = new Pool({
     connectionString: freshUrl,
     max: 1,
   });
+
   const upgradePool = new Pool({
     connectionString: upgradeUrl,
     max: 1,
   });
+
   const collisionPool = new Pool({
     connectionString: collisionUrl,
     max: 1,
   });
+
   try {
     await runRegisteredMigrations(freshUrl);
     const freshClient = await freshPool.connect();
     let freshCatalog: CatalogEvidence;
+
     try {
       await seedParents(freshClient);
       await freshClient.query("SET search_path TO auth, public");
@@ -746,6 +801,7 @@ const main = async () => {
     } finally {
       freshClient.release();
     }
+
     const normalRuntimeEvidence = await runNormalDatabaseRead(freshUrl);
     assert.deepEqual(
       normalRuntimeEvidence.writes.map((rows) => rows.length),
@@ -760,6 +816,7 @@ const main = async () => {
     await runHistoricalSources(upgradePool);
     const upgradeClient = await upgradePool.connect();
     let before: SchemaEvidence;
+
     try {
       await seedParents(upgradeClient);
       await upgradeClient.query("SET search_path TO auth, public");
@@ -772,9 +829,11 @@ const main = async () => {
     } finally {
       upgradeClient.release();
     }
+
     await runRegisteredMigrations(upgradeUrl);
     const afterClient = await upgradePool.connect();
     let after: SchemaEvidence;
+
     try {
       after = {
         catalog: await catalogEvidence(afterClient),
@@ -798,8 +857,10 @@ const main = async () => {
       await afterClient.query("SET search_path TO auth, public");
       await afterClient.query("CREATE TABLE auth.content_articles (article_id bigint NOT NULL)");
       await afterClient.query("INSERT INTO auth.content_articles VALUES (1)");
+
       const readInventory = async () => {
         const rows = [];
+
         for (const table of inventory)
           rows.push({
             table,
@@ -808,8 +869,10 @@ const main = async () => {
               `SELECT count(*)::text AS count FROM public."${table}"`,
             ),
           });
+
         return rows;
       };
+
       const authFirst = await readInventory();
       await afterClient.query("SET search_path TO public");
       const publicFirst = await readInventory();
@@ -819,13 +882,16 @@ const main = async () => {
     } finally {
       afterClient.release();
     }
+
     await runRegisteredMigrations(upgradeUrl);
     const secondClient = await upgradePool.connect();
+
     try {
       const afterSecond: SchemaEvidence = {
         catalog: await catalogEvidence(secondClient),
         tables: await evidenceForSchema(secondClient, "public"),
       };
+
       assertCatalog(afterSecond.catalog, "public", true);
       assert.deepEqual(afterSecond.catalog, after.catalog);
       assert.deepEqual(comparableTables(afterSecond.tables), comparableTables(after.tables));
@@ -847,6 +913,7 @@ const main = async () => {
     collisionClient.release();
     await assert.rejects(() => runRegisteredMigrations(collisionUrl));
     const rollbackClient = await collisionPool.connect();
+
     try {
       const rollback = await catalogEvidence(rollbackClient);
       assert.deepEqual(
@@ -895,6 +962,7 @@ const main = async () => {
     } finally {
       rollbackClient.release();
     }
+
     process.stdout.write(
       `${JSON.stringify({
         passed: true,

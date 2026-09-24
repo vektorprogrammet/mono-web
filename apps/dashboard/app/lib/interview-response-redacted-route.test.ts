@@ -1,7 +1,8 @@
+import { routeArgs } from "../../test/native-http";
 import { describe, expect, it } from "vitest";
 import { loader } from "../routes/interview-response.redacted";
 
-const load = (url: string) => loader({ request: new Request(url) } as never);
+const load = (url: string) => loader(routeArgs(new Request(url), {}));
 
 const thrownResponse = (url: string): Response => {
   try {
@@ -10,6 +11,7 @@ const thrownResponse = (url: string): Response => {
     if (error instanceof Response) return error;
     throw error;
   }
+
   throw new Error("invalid redacted invitation binding was accepted");
 };
 
@@ -24,6 +26,7 @@ describe("redacted invitation response route", () => {
 
   it("rejects missing, malformed, duplicate, and excess interaction parameters", () => {
     const interactionId = "b".repeat(32);
+
     const invalidUrls = [
       "http://dashboard.test/interview-response/redacted",
       "http://dashboard.test/interview-response/redacted?interactionId=malformed",

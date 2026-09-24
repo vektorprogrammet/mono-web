@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Schema, Data, Effect } from "effect";
 import {
   type ConductInterviewV1,
   decodeConductInterviewV1,
@@ -146,6 +146,8 @@ export interface DuplicateResult {
 
 export type ConductInterviewResult = AcceptedResult | DuplicateResult;
 
+export const ConductInterviewResult = Data.taggedEnum<ConductInterviewResult>();
+
 const streamEqual = (left: StreamKey, right: StreamKey): boolean =>
   left.personId === right.personId &&
   left.cycle.departmentId === right.cycle.departmentId &&
@@ -190,12 +192,15 @@ export const foldEvents = (
       if (eventIds.has(event.eventId)) {
         return yield* Effect.fail(new DuplicateEvent(event.eventId));
       }
+
       if (event.streamVersion !== expectedVersion) {
         return yield* Effect.fail(new OutOfOrderEvent("STREAM_VERSION_GAP"));
       }
+
       if (previousOccurredAt !== undefined && event.occurredAt < previousOccurredAt) {
         return yield* Effect.fail(new OutOfOrderEvent("OCCURRED_AT_REWIND"));
       }
+
       if (stream === undefined) {
         stream = event.stream;
         correlationId = event.correlationId;
@@ -204,6 +209,7 @@ export const foldEvents = (
       } else if (event.correlationId !== correlationId) {
         return yield* Effect.fail(new StreamMismatch("EVENT_CORRELATION"));
       }
+
       if (expectedType === "Terminal" || event.eventType !== expectedType) {
         return yield* Effect.fail(new InvalidTransition("CANONICAL_SEQUENCE", "T-INT-1"));
       }
@@ -214,6 +220,7 @@ export const foldEvents = (
     }
 
     const firstEvent = events[0];
+
     if (firstEvent === undefined || stream === undefined || correlationId === undefined) {
       return yield* Effect.fail(new InvalidTransition("EMPTY_STREAM", undefined));
     }
@@ -250,6 +257,7 @@ const projectionStatus = (eventType: EventType): ProjectionStatus => {
 
 export const projectFoldedState = (folded: FoldedState): Projection => {
   const lastEvent = folded.events[folded.events.length - 1];
+
   if (lastEvent === undefined) {
     throw new Error("cannot project an empty folded state");
   }
@@ -269,6 +277,7 @@ export const projectFoldedState = (folded: FoldedState): Projection => {
       conductedAt: lastEvent.payload.scores.conductedAt,
     };
   }
+
   return base;
 };
 
@@ -307,7 +316,7 @@ const observationFor = (
 
 export const conductInterview = (
   state: TutorState,
-  input: unknown,
+  input: Schema.Json,
 ): Effect.Effect<ConductInterviewResult, TutorFailure> =>
   Effect.gen(function* () {
     const command = yield* decodeConductInterviewV1(input);
@@ -316,32 +325,38 @@ export const conductInterview = (
 
     if (receipt !== undefined) {
       if (receipt.commandBytes === commandBytes) {
-        return {
-          _tag: "DuplicateResult",
+        return ConductInterviewResult.DuplicateResult({
           state,
           observation: receipt.observation,
           observationBytes: receipt.observationBytes,
-        };
+        });
       }
+
       return yield* Effect.fail(new DuplicateCommandConflict(command.commandId));
     }
 
     const folded = yield* foldEvents(state.events);
+
     if (!streamEqual(state.stream, folded.stream)) {
       return yield* Effect.fail(new StreamMismatch("STATE_STREAM"));
     }
+
     if (!streamEqual(command.stream, folded.stream)) {
       return yield* Effect.fail(new StreamMismatch("COMMAND_STREAM"));
     }
+
     if (command.correlationId !== folded.correlationId) {
       return yield* Effect.fail(new StreamMismatch("COMMAND_CORRELATION"));
     }
+
     if (command.expectedVersion !== folded.events.length) {
       return yield* Effect.fail(new StaleState(command.expectedVersion, folded.events.length));
     }
+
     if (folded.nextEventType === "Terminal") {
       return yield* Effect.fail(new InvalidTransition("TERMINAL_CONDUCTED", "T-INT-2"));
     }
+
     if (folded.nextEventType !== "InterviewConducted") {
       return yield* Effect.fail(new InvalidTransition("CONDUCT_REQUIRES_ACCEPTED", "T-INT-1"));
     }
@@ -350,6 +365,7 @@ export const conductInterview = (
     const nextEvents = [...folded.events, event];
     const nextFolded = yield* foldEvents(nextEvents);
     const projection = projectFoldedState(nextFolded);
+
     const descriptor: Descriptor = {
       descriptorVersion: 1,
       kind: "InterviewConductedDescriptor",
@@ -358,8 +374,10 @@ export const conductInterview = (
       correlationId: command.correlationId,
       idempotencyKey: `post-commit:${event.eventId}`,
     };
+
     const observation = observationFor(command, event, projection, descriptor);
     const observationBytes = canonicalJson(observation);
+
     const nextState: TutorState = {
       stream: nextFolded.stream,
       events: nextFolded.events,
@@ -374,10 +392,9 @@ export const conductInterview = (
       ],
     };
 
-    return {
-      _tag: "AcceptedResult",
+    return ConductInterviewResult.AcceptedResult({
       state: nextState,
       observation,
       observationBytes,
-    };
+    });
   });

@@ -5,10 +5,12 @@ import { resolveReceiptOwnerDashboardTopology } from "../playwright.config";
 describe("Receipt owner Playwright topology", () => {
   it("resolves primary and isolated foreign login navigation under the canonical base", () => {
     const dashboardOrigin = "http://127.0.0.1:15174";
+
     const environment = {
       REAL_RECEIPT_OWNER_E2E: "1",
       DASHBOARD_ORIGIN: dashboardOrigin,
     };
+
     const topology = resolveReceiptOwnerDashboardTopology(environment);
     const foreignBaseURL = dashboardBaseUrl(dashboardOrigin, environment);
 

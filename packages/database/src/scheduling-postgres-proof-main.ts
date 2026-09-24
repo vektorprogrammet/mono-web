@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { Cause, Config, Effect, Layer, Redacted } from "effect";
+import { Predicate, Cause, Config, Effect, Layer, Redacted } from "effect";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
-import { Database, type DatabaseShape } from "./service.js";
+import { Database, type DatabaseOperations } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
@@ -59,17 +59,17 @@ const hasFailureTag = (
     | { readonly _tag: "Failure"; readonly cause: Cause.Cause<unknown> },
   tag: string,
 ): boolean =>
-  result._tag === "Failure" &&
+  Predicate.isTagged(result, "Failure") &&
   result.cause.reasons.some(
     (reason) =>
       Cause.isFailReason(reason) &&
-      typeof reason.error === "object" &&
+      (reason.error === null || Predicate.isObjectOrArray(reason.error)) &&
       reason.error !== null &&
       "_tag" in reason.error &&
       reason.error._tag === tag,
   );
 
-const resetCohort = (sql: DatabaseShape) =>
+const resetCohort = (sql: DatabaseOperations) =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
@@ -137,7 +137,7 @@ const resetCohort = (sql: DatabaseShape) =>
     }),
   );
 
-const seedCohort = (sql: DatabaseShape) =>
+const seedCohort = (sql: DatabaseOperations) =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
@@ -332,14 +332,17 @@ const proof = Effect.gen(function* () {
     ],
     { concurrency: "unbounded" },
   );
+
   const differentCommandsAccepted = differentCommandResults.filter(
-    (result) => result._tag === "Success" && !result.value.replayed,
+    (result) => Predicate.isTagged(result, "Success") && !result.value.replayed,
   ).length;
+
   const staleRevisionRejections = differentCommandResults.filter((result) =>
     hasFailureTag(result, "RecruitmentInterviewStaleRevision"),
   ).length;
 
   const replayContext = makeContext(cohort.replayInvitationId, "r".repeat(43));
+
   const identicalCommandResults = yield* Effect.all(
     [
       Effect.exit(recruitment.scheduleInterview(replayCommand, replayContext)),
@@ -347,15 +350,19 @@ const proof = Effect.gen(function* () {
     ],
     { concurrency: "unbounded" },
   );
+
   const identicalCommandsAccepted = identicalCommandResults.filter(
-    (result) => result._tag === "Success" && !result.value.replayed,
+    (result) => Predicate.isTagged(result, "Success") && !result.value.replayed,
   ).length;
+
   const identicalCommandsReplayed = identicalCommandResults.filter(
-    (result) => result._tag === "Success" && result.value.replayed,
+    (result) => Predicate.isTagged(result, "Success") && result.value.replayed,
   ).length;
+
   const identicalObservations = identicalCommandResults.flatMap((result) =>
-    result._tag === "Success" ? [result.value.observation] : [],
+    Predicate.isTagged(result, "Success") ? [result.value.observation] : [],
   );
+
   const exactReplayObservation =
     identicalObservations[0] !== undefined &&
     identicalObservations[1] !== undefined &&
@@ -484,27 +491,33 @@ const proof = Effect.gen(function* () {
     linkedRows: 2,
     partialRows: 0,
   });
+
   return evidence;
 });
 
 export const program = Effect.gen(function* () {
-  const databaseUrl = yield* Config.redacted("DATABASE_URL");
+  const databaseUrl = yield* Config.Redacted("DATABASE_URL");
+
   const databaseLayer = DatabaseLive({
     url: Redacted.make(Redacted.value(databaseUrl)),
     applicationName: "recruitment-scheduling-postgres-proof-0050",
     maxConnections: 4,
   });
+
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
   const profileLayer = ProfileLive.pipe(
     Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
   );
+
   const supportLayer = Layer.mergeAll(
     databaseLayer,
     admissionsLayer,
     organizationLayer,
     profileLayer,
   );
+
   const recruitmentLayer = RecruitmentLive.pipe(Layer.provide(supportLayer));
   const evidence = yield* proof.pipe(Effect.provide(Layer.merge(supportLayer, recruitmentLayer)));
   const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));

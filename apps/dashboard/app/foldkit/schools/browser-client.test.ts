@@ -3,7 +3,7 @@ import { SchoolDirectorySchema } from "@vektorprogrammet/http-api"
 import { Effect, Fiber, Schema as S } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserSchoolsDirectoryClient } from "./browser-client";
-import { SchoolDirectoryData, makeInitialModel, type Model } from "./model";
+import { SchoolDirectoryData, init, type Model } from "./model";
 
 const directory = {
   activeSchools: [
@@ -21,11 +21,7 @@ const directory = {
   inactiveSchools: [],
 };
 
-const jsonResponse = (value: unknown, status = 200): Response =>
-  new Response(JSON.stringify(value), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
+
 
 describe("Schools directory browser client", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -40,7 +36,7 @@ describe("Schools directory browser client", () => {
   });
 
   it("sends one credentialed native request with optional department narrowing", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(directory));
+    fetchMock.mockResolvedValueOnce(Response.json(directory));
 
     const result = await Effect.runPromise(
       createBrowserSchoolsDirectoryClient().directory.listSchools({
@@ -65,11 +61,14 @@ describe("Schools directory browser client", () => {
       const signal = init?.signal ?? undefined;
       requestSignal = signal;
       started.resolve();
+
       return new Promise<Response>((_resolve, reject) => {
         if (signal === undefined) {
           reject(new Error("missing abort signal"));
+
           return;
         }
+
         signal.addEventListener(
           "abort",
           () => {
@@ -80,13 +79,16 @@ describe("Schools directory browser client", () => {
         );
       });
     });
+
     const existingModel: Model = {
-      ...makeInitialModel(),
+      ...init(),
       directory: SchoolDirectoryData.Success({
         data: S.decodeUnknownSync(SchoolDirectorySchema)(directory),
       }),
     };
+
     let renderedModel: Model = existingModel;
+
     const fiber = Effect.runFork(
       createBrowserSchoolsDirectoryClient()
         .directory.listSchools({})
@@ -112,7 +114,7 @@ describe("Schools directory browser client", () => {
   });
 
   it("strictly rejects excess response fields", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ ...directory, legacyCapacity: {} }));
+    fetchMock.mockResolvedValueOnce(Response.json({ ...directory, legacyCapacity: {} }));
 
     const failure = await Effect.runPromise(
       createBrowserSchoolsDirectoryClient().directory.listSchools({}).pipe(Effect.flip),
@@ -122,7 +124,7 @@ describe("Schools directory browser client", () => {
   });
 
   it("preserves a typed Schools rejection returned by the authenticated bridge", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { tag: "AuthorityInactive" } }, 403));
+    fetchMock.mockResolvedValueOnce(Response.json({ error: { tag: "AuthorityInactive" } }, { status: 403 }));
 
     const failure = await Effect.runPromise(
       createBrowserSchoolsDirectoryClient().directory.listSchools({}).pipe(Effect.flip),

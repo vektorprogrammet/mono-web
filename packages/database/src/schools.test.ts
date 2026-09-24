@@ -6,7 +6,7 @@ import {
   OrganizationAuthorityInstantSchema,
   PersonId,
 } from "@vektorprogrammet/domain/organization";
-import { Schools } from "@vektorprogrammet/domain/schools";
+import { SchoolDirectoryScopeSchema, Schools } from "@vektorprogrammet/domain/schools";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
@@ -15,6 +15,7 @@ import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
+
 const runtime = makeControlledTestRuntime(
   SchoolsLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(databaseLayer)))),
 );
@@ -37,6 +38,7 @@ describe("Schools application migration in PGlite", () => {
           )
         `;
         yield* database.migrate;
+
         const migrationRows = yield* database<{
           readonly migrationId: number;
           readonly name: string;
@@ -47,15 +49,18 @@ describe("Schools application migration in PGlite", () => {
           FROM vektorprogrammet_schema_migrations AS migration
           WHERE migration.migration_id = 19
         `;
+
         const schoolRows = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
           FROM public.schools_directory_schools AS school
           WHERE school.name = 'Replay School'
         `;
+
         yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.name = 'Replay School'
         `;
+
         return {
           revision: database.schemaRevision,
           migrationRows,
@@ -83,6 +88,7 @@ describe("Schools application migration in PGlite", () => {
             'schools-fk@example.invalid', 'Bergen'
           )
         `;
+
         const schools = yield* database<{ readonly schoolId: string }>`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
@@ -92,6 +98,7 @@ describe("Schools application migration in PGlite", () => {
           )
           RETURNING school_id::text AS "schoolId"
         `;
+
         const schoolId = schools[0]!.schoolId;
         yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
@@ -104,12 +111,14 @@ describe("Schools application migration in PGlite", () => {
             VALUES (9007199254740991, 'schools-fk-department')
           `,
         );
+
         const missingDepartmentFailure = yield* Effect.flip(
           database`
             INSERT INTO public.schools_directory_departments (school_id, department_id)
             VALUES (${schoolId}::bigint, 'schools-missing-department')
           `,
         );
+
         const restrictFailure = yield* Effect.flip(
           database`
             DELETE FROM organization_departments AS department
@@ -121,11 +130,13 @@ describe("Schools application migration in PGlite", () => {
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${schoolId}::bigint
         `;
+
         const associations = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
           FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${schoolId}::bigint
         `;
+
         yield* database`
           DELETE FROM organization_departments AS department
           WHERE department.department_id = 'schools-fk-department'
@@ -181,6 +192,7 @@ describe("Schools application migration in PGlite", () => {
             'member'
           )
         `;
+
         const inserted = yield* database<{ readonly schoolId: string }>`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
@@ -190,15 +202,18 @@ describe("Schools application migration in PGlite", () => {
           )
           RETURNING school_id::text AS "schoolId"
         `;
+
         yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES (${inserted[0]!.schoolId}::bigint, ${departmentId})
         `;
+
         const directory = yield* readSchoolsDirectory(
           personId,
           OrganizationAuthorityInstantSchema.make("2032-01-01T00:00:00.000Z"),
           {},
         );
+
         yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${inserted[0]!.schoolId}::bigint
@@ -215,6 +230,7 @@ describe("Schools application migration in PGlite", () => {
           DELETE FROM organization_departments AS department
           WHERE department.department_id = ${departmentId}
         `;
+
         return directory;
       }),
     );
@@ -261,6 +277,7 @@ describe("Schools application migration in PGlite", () => {
               'schools-full-b@example.invalid', 'Trondheim'
             )
         `;
+
         const inserted = yield* database<{
           readonly schoolId: string;
           readonly email: string;
@@ -294,9 +311,11 @@ describe("Schools application migration in PGlite", () => {
             email AS "email",
             name AS "name"
         `;
+
         const idByEmail = new Map(
           inserted.map((row) => [row.email, Number(row.schoolId)] as const),
         );
+
         yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES
@@ -308,27 +327,39 @@ describe("Schools application migration in PGlite", () => {
         `;
 
         const directory = yield* schools.listDirectory({
-          scope: { _tag: "All" },
+          scope: SchoolDirectoryScopeSchema.cases.All.make({}),
         });
+
         const scoped = yield* schools.listDirectory({
-          scope: { _tag: "DepartmentIds", departmentIds: [departmentA, departmentB] },
+          scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+            departmentIds: [departmentA, departmentB],
+          }),
         });
+
         const shared = scoped.activeSchools.find(
           (school) => school.email === "shared@example.invalid",
         );
+
         const narrowed = yield* schools.listDirectory({
-          scope: { _tag: "DepartmentIds", departmentIds: [departmentA, departmentB] },
+          scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+            departmentIds: [departmentA, departmentB],
+          }),
           departmentId: departmentA,
         });
+
         const narrowedShared = narrowed.activeSchools.find(
           (school) => school.email === "shared@example.invalid",
         );
+
         const exceededScopeTag = yield* Effect.flip(
           schools.listDirectory({
-            scope: { _tag: "DepartmentIds", departmentIds: [departmentA] },
+            scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+              departmentIds: [departmentA],
+            }),
             departmentId: departmentB,
           }),
         ).pipe(Effect.map((failure) => failure._tag));
+
         const fullSchoolIds = [
           ...directory.activeSchools.map((school) => school.schoolId),
           ...directory.inactiveSchools.map((school) => school.schoolId),

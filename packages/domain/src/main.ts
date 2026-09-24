@@ -55,9 +55,11 @@ const USAGE = [
 
 const valueAfter = (args: ReadonlyArray<string>, index: number, option: string): string => {
   const value = args[index + 1];
+
   if (value === undefined || value.startsWith("--")) {
     throw new CliError("MISSING_OPTION_VALUE", `missing option value for ${option}`);
   }
+
   return value;
 };
 
@@ -70,8 +72,10 @@ const parseArgs = (args: ReadonlyArray<string>): CliOptions => {
   let output: string | undefined;
   let fixtures = false;
   let help = false;
+
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+
     if (arg === "--help" || arg === "-h") {
       help = true;
     } else if (arg === "--fixtures") {
@@ -90,9 +94,11 @@ const parseArgs = (args: ReadonlyArray<string>): CliOptions => {
       index += 1;
     } else if (arg === "--format") {
       const selected = valueAfter(args, index, arg);
+
       if (selected !== "json" && selected !== "markdown") {
         throw new CliError("INVALID_FORMAT", "format must be json or markdown");
       }
+
       format = selected;
       index += 1;
     } else if (arg === "--output") {
@@ -102,9 +108,11 @@ const parseArgs = (args: ReadonlyArray<string>): CliOptions => {
       throw new CliError("UNKNOWN_OPTION", `unknown option ${arg}`);
     }
   }
+
   if (!help && !fixtures && dataDir === undefined) {
     throw new CliError("MISSING_DATA_DIR", "--data-dir is required unless --fixtures is used");
   }
+
   return { dataDir, personAuthorityFile, snapshotId, snapshotHash, format, output, fixtures, help };
 };
 
@@ -118,43 +126,56 @@ export const main = (args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const options = yield* Effect.try({
       try: () => parseArgs(args),
-      catch: (cause) => cause,
+      catch: (cause) => (cause instanceof CliError ? cause : new Cause.UnknownError(cause)),
     });
+
     if (options.help) {
       yield* emit(USAGE, options.output);
+
       return 0;
     }
+
     if (options.fixtures) {
       const fixtures = yield* runSyntheticFixtures();
       const all = allFixturesPass(fixtures);
       yield* emit(JSON.stringify({ fixtures, all, pii: "none" }, null, 2), options.output);
+
       return all ? 0 : 1;
     }
+
     const dataset = yield* loadDataset(options.dataDir ?? "");
+
     const personAuthority =
       options.personAuthorityFile === undefined
         ? undefined
         : yield* loadPersonAuthority(options.personAuthorityFile);
+
     const result = runSDep2Team(dataset, {
       snapshotId: options.snapshotId,
       snapshotHash: options.snapshotHash,
       personAuthority,
     });
+
     const report = createMachineReport(result);
+
     const rendered =
       options.format === "markdown" ? renderMarkdown(report) : JSON.stringify(report, null, 2);
+
     yield* emit(rendered, options.output);
+
     return report.status === "PASS" && !report.drift ? 0 : 1;
   }).pipe(
     Effect.catchCause((cause) => {
       const failure = Cause.findError(cause);
       const error = Result.isSuccess(failure) ? failure.success : undefined;
+
       const safeError =
         error instanceof DatasetInputError
           ? { code: error.code, file: error.file, message: error.message }
           : error instanceof CliError
             ? { code: error.code, file: error.file, message: error.message }
             : { code: "COMMAND_ERROR", file: "cli", message: "command failed" };
+
       return writeStandardError(`${JSON.stringify({ error: safeError })}\n`).pipe(Effect.as(1));
     }),
   );

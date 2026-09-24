@@ -1,22 +1,34 @@
+import { Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { expect, test, type Request } from "@playwright/test";
 
 const dashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5194";
+
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8800";
+
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
+
 const evidencePath = process.env.RECRUITMENT_E2E_BROWSER_EVIDENCE_PATH;
+
 const expectedLeaderPersonId =
   process.env.RECRUITMENT_E2E_LEADER_PERSON_ID ?? "journey-rec-leader-0049";
 
 const leaderEmail = "lina.leader@example.invalid";
+
 const leaderPassword = "journey-secret-0123456789abcdef";
+
 const applicantName = "Sofie Søker";
+
 const interviewerName = "Irene Intervjuer";
+
 const interviewerOptions = ["Velg intervjuer", "Ida Intervjuer", interviewerName, "Lina Lagleder"];
+
 const schemaOptionLabel = "Førstegangsintervju (8 spørsmål)";
+
 const schemaOptions = ["Velg intervjuskjema", schemaOptionLabel];
+
 const journeys = [
   {
     journeyRefId: "intent://journey:recruitment:applicant-assignment:v1",
@@ -39,11 +51,13 @@ const bridgeOperation = (request: Request): string | undefined => {
   if (new URL(request.url()).pathname !== "/recruitment" || request.method() !== "POST") {
     return undefined;
   }
+
   const payload: unknown = request.postDataJSON();
-  return typeof payload === "object" &&
+
+  return Predicate.isObjectOrArray(payload) &&
     payload !== null &&
     "operation" in payload &&
-    typeof payload.operation === "string"
+    Predicate.isString(payload.operation)
     ? payload.operation
     : undefined;
 };
@@ -53,6 +67,7 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     page,
   }) => {
     test.skip(!nativeIdentityMode, "requires the real native Identity topology");
+
     if (evidencePath === undefined || evidencePath.length === 0) {
       throw new Error("RECRUITMENT_E2E_BROWSER_EVIDENCE_PATH is required");
     }
@@ -61,11 +76,13 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
       operation: string;
       authorizationHeaderPresent: boolean;
     }> = [];
+
     const bridgeResponses: Array<{
       operation: string;
       status: number;
       authorizationHeaderPresent: boolean;
     }> = [];
+
     const legacyBrowserRequests: string[] = [];
     const externalBrowserRequests: string[] = [];
     const pageErrors: string[] = [];
@@ -74,28 +91,35 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("request", (request) => {
       const url = new URL(request.url());
+
       if (!["data:", "blob:"].includes(url.protocol) && url.origin !== dashboardOrigin) {
         externalBrowserRequests.push(`${request.method()} ${url.origin}${url.pathname}`);
       }
+
       const legacyPaths = [
         "/api/admin/applications",
         "/api/admin/users",
         "/api/admin/interviews/schemas",
         "/api/admin/interviews/assign",
       ];
+
       if (
         legacyPaths.some((path) => url.pathname === path || url.pathname.startsWith(`${path}/`))
       ) {
         legacyBrowserRequests.push(`${request.method()} ${url.pathname}${url.search}`);
       }
+
       const headers = request.headers();
+
       if (
         headers.authorization !== undefined ||
         headers.cookie?.split(";").some((value) => value.trim().startsWith("jwt_token="))
       ) {
         rawAuthenticationLeak = true;
       }
+
       const operation = bridgeOperation(request);
+
       if (operation !== undefined) {
         bridgeRequests.push({
           operation,
@@ -106,6 +130,7 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     page.on("response", (response) => {
       const request = response.request();
       const operation = bridgeOperation(request);
+
       if (operation !== undefined) {
         bridgeResponses.push({
           operation,
@@ -127,6 +152,7 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
       ({ name }) =>
         name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
     );
+
     expect(sessionCookies).toHaveLength(1);
     expect(sessionCookies[0]?.name).toBe("better-auth.session_token");
     expect(sessionCookies[0]?.value ?? "").not.toBe("");
@@ -146,11 +172,13 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
       .getByRole("row")
       .filter({ hasText: applicantName })
       .filter({ hasText: "Ikke tildelt" });
+
     await expect(applicantRow).toBeVisible();
 
     const newFilterResponse = page.waitForResponse(
       (response) => bridgeOperation(response.request()) === "readAssignmentBoard",
     );
+
     await page.getByRole("button", { name: "Nye søkere" }).click();
     expect((await newFilterResponse).status()).toBe(200);
     await expect(applicantRow).toBeVisible();
@@ -172,11 +200,13 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     const assignResponse = page.waitForResponse(
       (response) => bridgeOperation(response.request()) === "createApplicationInterview",
     );
+
     const freshNewFilterResponse = page.waitForResponse(
       (response) =>
         bridgeOperation(response.request()) === "readAssignmentBoard" &&
         bridgeRequests.some(({ operation }) => operation === "createApplicationInterview"),
     );
+
     await dialog.getByRole("button", { name: "Tildel intervju", exact: true }).click();
     expect((await assignResponse).status()).toBe(200);
     expect((await freshNewFilterResponse).status()).toBe(200);
@@ -190,12 +220,15 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     const allFilterResponse = page.waitForResponse(
       (response) => bridgeOperation(response.request()) === "readAssignmentBoard",
     );
+
     await page.getByRole("button", { name: "Alle søkere" }).click();
     expect((await allFilterResponse).status()).toBe(200);
+
     const assignedRow = page
       .getByRole("row")
       .filter({ hasText: applicantName })
       .filter({ hasText: "Ikke kontaktet" });
+
     await expect(assignedRow).toBeVisible();
     await expect(assignedRow).toContainText(interviewerName);
     await expect(assignedRow).not.toContainText("Ikke tildelt");
@@ -203,6 +236,7 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     const accessibility = await new AxeBuilder({ page })
       .include('section[aria-labelledby="fr-page-title"]')
       .analyze();
+
     expect(accessibility.violations).toEqual([]);
     expect(bridgeRequests.map(({ operation }) => operation)).toEqual([
       "readAssignmentBoard",

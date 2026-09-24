@@ -1,5 +1,5 @@
 import { Database } from "../service.js";
-import { Effect, Schema } from "effect";
+import { Match, Effect, Schema } from "effect";
 import {
   ReceiptAuxiliaryEffects,
   ReceiptFileService,
@@ -8,10 +8,8 @@ import {
   type ClaimedReceiptOutbox,
   type ReceiptAuxiliaryEffectConflict,
   type ReceiptDeliveryUnavailable,
-  type ReceiptAuxiliaryRequest,
   type ReceiptFileFailure,
-  type ReceiptFileRequest,
-  type ReceiptOutboxDeliveryResult,
+  ReceiptOutboxDeliveryResult,
   type ReceiptOutboxRequest,
 } from "@vektorprogrammet/domain/receipt";
 
@@ -26,6 +24,7 @@ interface ClaimedOutboxRow {
 interface CountRow {
   readonly count: string;
 }
+
 interface ClaimIdRow {
   readonly claim_id: string;
 }
@@ -54,6 +53,7 @@ export const claimNextReceiptOutbox = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const receiptScope = receiptId ?? null;
+
     const rows = yield* sql
       .withTransaction(
         sql<ClaimedOutboxRow>`
@@ -102,14 +102,18 @@ export const claimNextReceiptOutbox = (
           Effect.fail(persistenceError("claim Receipt outbox", cause)),
         ),
       );
+
     const row = rows[0];
+
     if (row === undefined) return undefined;
+
     const request = yield* Schema.decodeUnknownEffect(ReceiptOutboxRequestSchema)(
       row.payload_json,
       {
         onExcessProperty: "error",
       },
     ).pipe(Effect.mapError((cause) => persistenceError("decode Receipt outbox request", cause)));
+
     if (request.effectId !== row.effect_id || request.commandId !== row.command_id) {
       return yield* Effect.fail(
         new ReceiptPersistenceError({
@@ -118,6 +122,7 @@ export const claimNextReceiptOutbox = (
         }),
       );
     }
+
     return {
       effectId: row.effect_id,
       commandId: row.command_id,
@@ -133,6 +138,7 @@ export const completeReceiptOutbox = (
 ): Effect.Effect<void, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<{ readonly effect_id: string }>`
     UPDATE economy_receipt_outbox SET
       status = 'Delivered', claim_id = NULL, claimed_at = NULL, last_failure_tag = NULL
@@ -145,6 +151,7 @@ export const completeReceiptOutbox = (
         Effect.fail(persistenceError("complete Receipt outbox", cause)),
       ),
     );
+
     yield* requireSingleUpdate(rows, "complete Receipt outbox");
   });
 
@@ -154,6 +161,7 @@ export const failReceiptOutbox = (
 ): Effect.Effect<void, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<{ readonly effect_id: string }>`
     UPDATE economy_receipt_outbox SET
       status = 'Failed', claim_id = NULL, claimed_at = NULL,
@@ -167,6 +175,7 @@ export const failReceiptOutbox = (
         Effect.fail(persistenceError("fail Receipt outbox", cause)),
       ),
     );
+
     yield* requireSingleUpdate(rows, "fail Receipt outbox");
   });
 
@@ -177,6 +186,7 @@ export const listStaleReceiptOutboxClaimIds = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const receiptScope = receiptId ?? null;
+
     const rows = yield* sql
       .withTransaction(
         sql<ClaimIdRow>`
@@ -195,6 +205,7 @@ export const listStaleReceiptOutboxClaimIds = (
           Effect.fail(persistenceError("list stale Receipt outbox claims", cause)),
         ),
       );
+
     return rows.map((row) => row.claim_id);
   });
 
@@ -204,6 +215,7 @@ export const recoverStaleReceiptOutbox = (
 ): Effect.Effect<number, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<CountRow>`
     WITH recovered AS (
       UPDATE economy_receipt_outbox SET
@@ -220,6 +232,7 @@ export const recoverStaleReceiptOutbox = (
         Effect.fail(persistenceError("recover stale Receipt outbox", cause)),
       ),
     );
+
     return Number(rows[0]?.count ?? "0");
   });
 
@@ -231,19 +244,22 @@ const interpretReceiptOutbox = (
   ReceiptFileFailure | ReceiptAuxiliaryEffectConflict | ReceiptDeliveryUnavailable,
   ReceiptFileService | ReceiptAuxiliaryEffects
 > => {
-  switch (request._tag) {
-    case "PromoteReceiptFile":
-    case "DeleteReceiptFile":
-      return ReceiptFileService.use(({ apply }) => apply(request as ReceiptFileRequest));
-    case "NotifyEconomyReceiptSubmitted":
-    case "NotifyReceiptApproved":
-    case "NotifyReceiptRejected":
-    case "NotifyReceiptSettled":
-    case "WriteReceiptAudit":
-      return ReceiptAuxiliaryEffects.use(({ apply }) =>
-        apply(request as ReceiptAuxiliaryRequest, claimId),
-      );
-  }
+  return Match.value(request).pipe(
+    Match.tag("PromoteReceiptFile", "DeleteReceiptFile", (request) => {
+      return ReceiptFileService.use(({ apply }) => apply(request));
+    }),
+    Match.tag(
+      "NotifyEconomyReceiptSubmitted",
+      "NotifyReceiptApproved",
+      "NotifyReceiptRejected",
+      "NotifyReceiptSettled",
+      "WriteReceiptAudit",
+      (request) => {
+        return ReceiptAuxiliaryEffects.use(({ apply }) => apply(request, claimId));
+      },
+    ),
+    Match.exhaustive,
+  );
 };
 
 export const deliverNextReceiptOutbox = (
@@ -257,16 +273,19 @@ export const deliverNextReceiptOutbox = (
 > =>
   Effect.gen(function* () {
     const claim = yield* claimNextReceiptOutbox(claimId, claimedAt, receiptId);
-    if (claim === undefined) return { _tag: "Idle" as const };
+
+    if (claim === undefined) return ReceiptOutboxDeliveryResult.Idle();
 
     return yield* interpretReceiptOutbox(claim.request, claim.claimId).pipe(
       Effect.matchEffect({
         onFailure: (failure) =>
           failReceiptOutbox(claim, failure._tag).pipe(
-            Effect.as({ _tag: "Failed" as const, claim, failureTag: failure._tag }),
+            Effect.as(ReceiptOutboxDeliveryResult.Failed({ claim, failureTag: failure._tag })),
           ),
         onSuccess: () =>
-          completeReceiptOutbox(claim).pipe(Effect.as({ _tag: "Delivered" as const, claim })),
+          completeReceiptOutbox(claim).pipe(
+            Effect.as(ReceiptOutboxDeliveryResult.Delivered({ claim })),
+          ),
       }),
     );
   });

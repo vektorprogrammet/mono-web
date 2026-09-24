@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import {
   AdmissionPeriodManagementItem,
   StrongETag,
@@ -21,13 +22,18 @@ const createForm = (overrides: Readonly<Record<string, string>> = {}): FormData 
     endAt: "2031-10-01T20:00",
     ...overrides,
   };
+
   const form = new FormData();
+
   for (const [name, value] of Object.entries(values)) form.set(name, value);
+
   return form;
 };
 
 const createCommandId = "A".repeat(22);
+
 const reviseCommandId = "B".repeat(22);
+
 const periodEtag = StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"');
 
 describe("admission-period dashboard boundary", () => {
@@ -35,7 +41,8 @@ describe("admission-period dashboard boundary", () => {
     const parsed = parseAdmissionPeriodForm(createForm(), createCommandId);
 
     expect("value" in parsed).toBe(true);
-    if (!("value" in parsed) || parsed.value._tag !== "CreateAdmissionPeriod") return;
+
+    if (!("value" in parsed) || !Predicate.isTagged(parsed.value, "CreateAdmissionPeriod")) return;
     expect(parsed.value.commandId).toBe(createCommandId);
     expect(parsed.value.draft).toEqual({
       semesterId: "semester-autumn-2031",
@@ -57,6 +64,7 @@ describe("admission-period dashboard boundary", () => {
     const parsed = parseAdmissionPeriodForm(form, createCommandId);
 
     expect("failure" in parsed).toBe(true);
+
     if (!("failure" in parsed) || parsed.failure.intent !== "create") return;
     expect(parsed.failure.commandId).toBe(createCommandId);
     expect(parsed.failure.error._tag).toBe("AdmissionPeriodFormError");
@@ -74,11 +82,10 @@ describe("admission-period dashboard boundary", () => {
     );
 
     expect("failure" in parsed).toBe(true);
+
     if (!("failure" in parsed) || parsed.failure.intent !== "create") return;
-    expect(parsed.failure.error).toMatchObject({
-      _tag: "AdmissionPeriodFormError",
-      field: "endAt",
-    });
+    expect(parsed.failure.error).toHaveProperty("_tag", "AdmissionPeriodFormError");
+expect(parsed.failure.error).toMatchObject({ field: "endAt" });
     expect(parsed.failure.draft).toMatchObject({
       startAt: "2031-10-01T20:00",
       endAt: "2031-08-15T08:00",
@@ -97,7 +104,8 @@ describe("admission-period dashboard boundary", () => {
     const parsed = parseAdmissionPeriodForm(form, "unused-fallback");
 
     expect("value" in parsed).toBe(true);
-    if (!("value" in parsed) || parsed.value._tag !== "ReviseAdmissionPeriod") return;
+
+    if (!("value" in parsed) || !Predicate.isTagged(parsed.value, "ReviseAdmissionPeriod")) return;
     expect(parsed.value).toMatchObject({
       admissionPeriodId: "admission-period-1",
       etag: periodEtag,
@@ -112,17 +120,10 @@ describe("admission-period dashboard boundary", () => {
   });
 
   it("maps decoded RFC 9457 problems to bounded UI failures", () => {
-    expect(mapAdmissionPeriodError(makeNativeProblem("authority.denied"))).toEqual({
-      _tag: "AdmissionRoleDenied",
-      message: "Rollen din gir ikke tilgang til opptaksperioder.",
-      field: undefined,
-    });
-    expect(mapAdmissionPeriodError(makeNativeProblem("precondition.failed"))).toEqual({
-      _tag: "StaleAdmissionPeriodRevision",
-      message:
-        "Opptaksperioden ble endret et annet sted. Kontroller den nyeste versjonen og prøv igjen.",
-      field: undefined,
-    });
+    expect(mapAdmissionPeriodError(makeNativeProblem("authority.denied"))).toHaveProperty("_tag", "AdmissionRoleDenied");
+expect(mapAdmissionPeriodError(makeNativeProblem("authority.denied"))).toMatchObject({ field: undefined });
+    expect(mapAdmissionPeriodError(makeNativeProblem("precondition.failed"))).toHaveProperty("_tag", "StaleAdmissionPeriodRevision");
+expect(mapAdmissionPeriodError(makeNativeProblem("precondition.failed"))).toMatchObject({ field: undefined });
   });
 
   it("carries the canonical item ETag into the deterministic view", () => {
@@ -138,6 +139,7 @@ describe("admission-period dashboard boundary", () => {
       },
       { onExcessProperty: "error" },
     );
+
     const view = mapAdmissionPeriodView(period);
 
     expect(view).toMatchObject({

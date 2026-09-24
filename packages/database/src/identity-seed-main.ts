@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Database } from "./service.js";
 import { createLocalAccountIssuer } from "better-auth";
-import { Effect, Redacted, Schema } from "effect";
+import { Cause, Effect, Redacted, Schema } from "effect";
 import { Pool } from "pg";
-import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
+import {
+  NativeAuthEngine,
+  NativeAuthEngineLive,
+  AuthPoolLive,
+  type AuthEngine,
+  type AuthEngineConfig,
+} from "./auth-engine.js";
+import { Layer } from "effect";
 import { DatabaseLive } from "./layers.js";
 
 /**
@@ -24,13 +31,15 @@ import { DatabaseLive } from "./layers.js";
  *   bun run identity:seed
  */
 
-interface SeedPerson {
-  readonly personId: string;
-  readonly firstName: string;
-  readonly lastName: string;
-  readonly email: string;
-  readonly password: string;
-}
+const SeedPerson = Schema.Struct({
+  personId: Schema.NonEmptyString,
+  firstName: Schema.NonEmptyString,
+  lastName: Schema.NonEmptyString,
+  email: Schema.NonEmptyString,
+  password: Schema.String.pipe(Schema.check(Schema.isMinLength(12))),
+});
+
+type SeedPerson = typeof SeedPerson.Type;
 
 const defaultSeedUrl = "postgres://postgres@127.0.0.1:45121/postgres";
 
@@ -48,27 +57,8 @@ const assertLoopbackDatabaseUrl = (postgresUrl: string): void => {
 
 const parsePersons = (raw: string | undefined): ReadonlyArray<SeedPerson> => {
   assert.ok(raw !== undefined && raw.length > 0, "IDENTITY_SEED_PERSONS is required");
-  const decoded: unknown = JSON.parse(raw);
-  assert.ok(Array.isArray(decoded), "IDENTITY_SEED_PERSONS must be a JSON array");
-  return decoded.map((entry) => {
-    const person = entry as Record<string, unknown>;
-    const read = (field: string): string => {
-      const value: unknown = person[field];
-      assert.equal(typeof value, "string", `seed person.${field} must be a string`);
-      const stringValue = value as string;
-      assert.ok(stringValue.length > 0, `seed person.${field} must not be empty`);
-      return stringValue;
-    };
-    const password = read("password");
-    assert.ok(password.length >= 12, "seed person.password must satisfy minPasswordLength (12)");
-    return {
-      personId: read("personId"),
-      firstName: read("firstName"),
-      lastName: read("lastName"),
-      email: read("email"),
-      password,
-    };
-  });
+
+  return Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(SeedPerson)))(raw);
 };
 
 const applyMigrations = (postgresUrl: string) =>
@@ -76,6 +66,7 @@ const applyMigrations = (postgresUrl: string) =>
     Effect.gen(function* () {
       const database = yield* Database;
       yield* database.health;
+
       return database.schemaRevision;
     }).pipe(
       Effect.provide(
@@ -89,7 +80,7 @@ const applyMigrations = (postgresUrl: string) =>
   );
 
 const seedPerson = async (
-  engine: ReturnType<typeof makeAuthEngine>,
+  engine: AuthEngine,
   observer: Pool,
   person: SeedPerson,
 ): Promise<{ readonly personId: string; readonly action: "created" | "skipped" }> => {
@@ -104,6 +95,7 @@ const seedPerson = async (
     `SELECT count(*)::text AS count FROM auth."user" WHERE id = $1 OR email = $2`,
     [person.personId, person.email],
   );
+
   if (existing.rows[0]?.count !== "0") {
     return { personId: person.personId, action: "skipped" };
   }
@@ -137,6 +129,7 @@ const seedPerson = async (
       JSON.stringify({ outcomeCode: "account-provisioned", affectedSessionCount: 0 }),
     ],
   );
+
   return { personId: person.personId, action: "created" };
 };
 
@@ -149,12 +142,14 @@ export const program = Effect.gen(function* () {
   const trustedOrigins = Schema.decodeUnknownSync(
     Schema.fromJsonString(Schema.Array(Schema.String)),
   )(process.env.NATIVE_IDENTITY_TRUSTED_ORIGINS);
+
   assert.ok(trustedOrigins.length > 0, "NATIVE_IDENTITY_TRUSTED_ORIGINS is required");
   const deployment = process.env.NATIVE_IDENTITY_DEPLOYMENT;
   assert.ok(
     deployment === "local" || deployment === "preview" || deployment === "production",
     "NATIVE_IDENTITY_DEPLOYMENT is required",
   );
+
   const config: AuthEngineConfig = {
     postgresUrl,
     secret: process.env.BETTER_AUTH_SECRET ?? "identity-seed-disposable-secret-0123456789abcdef",
@@ -166,6 +161,7 @@ export const program = Effect.gen(function* () {
     trustedOrigins,
     secureCookies: deployment !== "local",
   };
+
   const outcomes = yield* Effect.acquireUseRelease(
     Effect.sync(
       () =>
@@ -177,44 +173,27 @@ export const program = Effect.gen(function* () {
         }),
     ),
     (observer) =>
-      Effect.acquireUseRelease(
-        Effect.sync(() => makeAuthEngine(config)),
-        (engine) =>
+      NativeAuthEngine.pipe(
+        Effect.flatMap((engine) =>
           Effect.tryPromise({
             try: async () => {
               const seeded = [];
+
               for (const person of persons) {
                 seeded.push(await seedPerson(engine, observer, person));
               }
+
               return seeded;
             },
-            catch: (cause) => cause,
+            catch: (cause) => new Cause.UnknownError(cause),
           }),
-        (engine) =>
-          Effect.tryPromise({
-            try: async () => {
-              const context = await engine.$context;
-              const options: unknown = context.options;
-              const dbPool =
-                typeof options === "object" && options !== null && "dbPool" in options
-                  ? options.dbPool
-                  : undefined;
-              if (
-                typeof dbPool === "object" &&
-                dbPool !== null &&
-                "end" in dbPool &&
-                typeof dbPool.end === "function"
-              ) {
-                await dbPool.end.call(dbPool);
-              }
-            },
-            catch: (cause) => cause,
-          }),
+        ),
+        Effect.provide(NativeAuthEngineLive(config).pipe(Layer.provide(AuthPoolLive(config)))),
       ),
     (observer) =>
       Effect.tryPromise({
         try: () => observer.end(),
-        catch: (cause) => cause,
+        catch: (cause) => new Cause.UnknownError(cause),
       }),
   );
 

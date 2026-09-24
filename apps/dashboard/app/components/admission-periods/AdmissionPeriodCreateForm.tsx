@@ -24,8 +24,10 @@ const describedBy = (
 
 export function AdmissionPeriodCreateForm({ failure, notice, semesterIds, departmentIds }: Props) {
   const navigation = useNavigation();
+
   const isSubmitting =
     navigation.state !== "idle" && navigation.formData?.get("_intent") === "create";
+
   const draft = failure?.draft;
 
   return (

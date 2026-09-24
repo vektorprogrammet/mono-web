@@ -11,7 +11,9 @@ export const unsafeDiagnosticCategories = [
   "effect_row",
   "api_failure",
 ] as const;
+
 export type UnsafeDiagnosticCategory = (typeof unsafeDiagnosticCategories)[number];
+
 export const UnsafeDiagnosticSchema = Schema.Struct({
   category: Schema.Literals(unsafeDiagnosticCategories),
   record_index: Schema.Number,
@@ -23,6 +25,7 @@ export const UnsafeDiagnosticSchema = Schema.Struct({
     }),
   ),
 });
+
 export type UnsafeDiagnostic = typeof UnsafeDiagnosticSchema.Type;
 
 // Never include symbols, payloads or unchecked paths. Indices still locate a

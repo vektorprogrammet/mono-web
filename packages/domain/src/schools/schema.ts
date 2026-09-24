@@ -13,6 +13,7 @@ const text = (maxLength: number) =>
   );
 
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+
 const Count = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 export const SchoolId = Schema.Int.pipe(
@@ -22,6 +23,7 @@ export const SchoolId = Schema.Int.pipe(
   ),
   Schema.brand("SchoolId"),
 );
+
 export type SchoolId = typeof SchoolId.Type;
 
 export const SchoolCapacityId = Schema.Int.pipe(
@@ -31,13 +33,17 @@ export const SchoolCapacityId = Schema.Int.pipe(
   ),
   Schema.brand("SchoolCapacityId"),
 );
+
 export type SchoolCapacityId = typeof SchoolCapacityId.Type;
 
 export const SchoolLanguageSchema = Schema.Literals(["Norwegian", "International"]);
+
 export type SchoolLanguage = typeof SchoolLanguageSchema.Type;
 
 export const SchoolName = text(255);
+
 const SchoolContactPerson = text(255);
+
 const SchoolEmail = text(255).pipe(
   Schema.check(
     Schema.makeFilter((value) => /^[^@\s]+@[^@\s]+$/u.test(value), {
@@ -45,6 +51,7 @@ const SchoolEmail = text(255).pipe(
     }),
   ),
 );
+
 const SchoolPhone = text(255);
 
 /** Canonical external teaching-school record owned by Schools. */
@@ -102,10 +109,15 @@ export class School extends Model.Class<School>("Schools.School")({
 }) {}
 
 export type SchoolSelect = typeof School.Encoded;
+
 export type SchoolInsert = typeof School.insert.Encoded;
+
 export type SchoolUpdate = typeof School.update.Encoded;
+
 export type SchoolJson = typeof School.json.Type;
+
 export type SchoolJsonCreate = typeof School.jsonCreate.Type;
+
 export type SchoolJsonUpdate = typeof School.jsonUpdate.Type;
 
 /** Canonical many-to-many association; the two references are its identity. */
@@ -124,11 +136,17 @@ export class SchoolDepartment extends Model.Class<SchoolDepartment>("Schools.Sch
   }),
   revision: Model.GeneratedByDb(Revision),
 }) {}
+
 export type SchoolDepartmentSelect = typeof SchoolDepartment.Encoded;
+
 export type SchoolDepartmentInsert = typeof SchoolDepartment.insert.Encoded;
+
 export type SchoolDepartmentUpdate = typeof SchoolDepartment.update.Encoded;
+
 export type SchoolDepartmentJson = typeof SchoolDepartment.json.Type;
+
 export type SchoolDepartmentJsonCreate = typeof SchoolDepartment.jsonCreate.Type;
+
 export type SchoolDepartmentJsonUpdate = typeof SchoolDepartment.jsonUpdate.Type;
 
 /** Frozen canonical capacity shape for a later capacity journey. */
@@ -196,17 +214,24 @@ export class SchoolCapacityPlan extends Model.Class<SchoolCapacityPlan>(
   }),
   revision: Model.GeneratedByDb(Revision),
 }) {}
+
 export type SchoolCapacityPlanSelect = typeof SchoolCapacityPlan.Encoded;
+
 export type SchoolCapacityPlanInsert = typeof SchoolCapacityPlan.insert.Encoded;
+
 export type SchoolCapacityPlanUpdate = typeof SchoolCapacityPlan.update.Encoded;
+
 export type SchoolCapacityPlanJson = typeof SchoolCapacityPlan.json.Type;
+
 export type SchoolCapacityPlanJsonCreate = typeof SchoolCapacityPlan.jsonCreate.Type;
+
 export type SchoolCapacityPlanJsonUpdate = typeof SchoolCapacityPlan.jsonUpdate.Type;
 
 export const SchoolDirectoryDepartmentSchema = Schema.Struct({
   departmentId: DepartmentId,
   name: Schema.String,
 });
+
 export type SchoolDirectoryDepartment = typeof SchoolDirectoryDepartmentSchema.Type;
 
 const compareText = (left: string, right: string): number =>
@@ -249,6 +274,7 @@ export const SchoolDirectoryEntrySchema = Schema.Struct({
     },
   ],
 });
+
 export type SchoolDirectoryEntry = typeof SchoolDirectoryEntrySchema.Type;
 
 export const SchoolDirectorySchema = Schema.Struct({
@@ -259,17 +285,21 @@ export const SchoolDirectorySchema = Schema.Struct({
     Schema.makeFilter(
       (directory) => {
         if (directory.activeSchools.some((school) => !school.isActive)) return false;
+
         if (directory.inactiveSchools.some((school) => school.isActive)) return false;
+
         const schoolIds = [
           ...directory.activeSchools.map((school) => school.schoolId),
           ...directory.inactiveSchools.map((school) => school.schoolId),
         ];
+
         return new Set(schoolIds).size === schoolIds.length;
       },
       { message: "one correctly partitioned directory entry per school" },
     ),
   ),
 );
+
 export type SchoolDirectory = typeof SchoolDirectorySchema.Type;
 
 const DepartmentScopeIds = Schema.Array(DepartmentId).pipe(
@@ -285,15 +315,18 @@ export const SchoolDirectoryScopeSchema = Schema.TaggedUnion({
   All: {},
   DepartmentIds: { departmentIds: DepartmentScopeIds },
 });
+
 export type SchoolDirectoryScope = typeof SchoolDirectoryScopeSchema.Type;
 
 export const SchoolDirectoryQuerySchema = Schema.Struct({
   departmentId: Schema.optional(DepartmentId),
 });
+
 export type SchoolDirectoryQuery = typeof SchoolDirectoryQuerySchema.Type;
 
 export const SchoolDirectoryListInputSchema = Schema.Struct({
   scope: SchoolDirectoryScopeSchema,
   ...SchoolDirectoryQuerySchema.fields,
 });
+
 export type SchoolDirectoryListInput = typeof SchoolDirectoryListInputSchema.Type;

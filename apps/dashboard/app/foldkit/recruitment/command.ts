@@ -30,7 +30,7 @@ export interface RecruitmentCommands {
   }) => Command.Command<Message>;
 }
 
-export const makeRecruitmentCommands = (
+export const commandsFor = (
   client: RecruitmentAssignmentClient,
 ): RecruitmentCommands => {
   const LoadAssignmentBoard = Command.define("LoadAssignmentBoard", {

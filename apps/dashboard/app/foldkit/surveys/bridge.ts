@@ -35,11 +35,13 @@ export const SchoolSurveysBridgeErrorTag = S.Literals([
   "Network",
   "Configuration",
 ]);
+
 export type SchoolSurveysBridgeErrorTag = S.Schema.Type<typeof SchoolSurveysBridgeErrorTag>;
 
 export const SchoolSurveysBridgeFailure = S.Struct({
   error: S.Struct({ tag: SchoolSurveysBridgeErrorTag }),
 });
+
 export type SchoolSurveysBridgeFailure = S.Schema.Type<typeof SchoolSurveysBridgeFailure>;
 
 export const schoolSurveysBridgeFailure = (
@@ -50,12 +52,14 @@ export const SchoolSurveyListInput = S.Struct({
   departmentId: CreateSchoolSurveyRequest.fields.departmentId,
   semesterId: CreateSchoolSurveyRequest.fields.semesterId,
 });
+
 export type SchoolSurveyListInput = S.Schema.Type<typeof SchoolSurveyListInput>;
 
 export const SchoolSurveyCreateCommand = S.Struct({
   commandId: IdempotencyKey,
   ...CreateSchoolSurveyRequest.fields,
 });
+
 export type SchoolSurveyCreateCommand = S.Schema.Type<typeof SchoolSurveyCreateCommand>;
 
 export const SchoolSurveyCloseCommand = S.Struct({
@@ -63,17 +67,21 @@ export const SchoolSurveyCloseCommand = S.Struct({
   surveyId: SurveyId,
   ...CloseSchoolSurveyRequest.fields,
 });
+
 export type SchoolSurveyCloseCommand = S.Schema.Type<typeof SchoolSurveyCloseCommand>;
 
 const ListOperation = S.Struct({ operation: S.Literal("list"), query: SchoolSurveyListInput });
+
 const CreateOperation = S.Struct({
   operation: S.Literal("create"),
   ...SchoolSurveyCreateCommand.fields,
 });
+
 const CloseOperation = S.Struct({
   operation: S.Literal("close"),
   ...SchoolSurveyCloseCommand.fields,
 });
+
 const ResultsOperation = S.Struct({ operation: S.Literal("results"), surveyId: SurveyId });
 
 export const SchoolSurveysBridgeOperation = S.Union([
@@ -82,5 +90,7 @@ export const SchoolSurveysBridgeOperation = S.Union([
   CloseOperation,
   ResultsOperation,
 ]);
+
 export type SchoolSurveysBridgeOperation = S.Schema.Type<typeof SchoolSurveysBridgeOperation>;
+
 export const SchoolSurveysBridgeOperationJson = S.fromJsonString(SchoolSurveysBridgeOperation);

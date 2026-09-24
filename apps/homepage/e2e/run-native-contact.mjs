@@ -11,39 +11,63 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+
 const root = fileURLToPath(new URL("../../../", import.meta.url));
+
 const homepage = join(root, "apps/homepage");
+
 const require = createRequire(import.meta.url);
+
 const domainRequire = createRequire(join(root, "packages/domain/package.json"));
+
 const databaseRequire = createRequire(join(root, "packages/database/package.json"));
+
 const { Address4, Address6 } = domainRequire("ip-address");
+
 const wranglerRequire = createRequire(require.resolve("wrangler/package.json"));
+
 const { Miniflare, convertV4MiniflareOptions } = wranglerRequire("miniflare");
+
 const { Pool } = databaseRequire("pg");
+
 const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+
 assert.equal(
   execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim(),
   "",
   "run committed clean content",
 );
+
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-contact-0043-"));
+
 const children = [];
+
 const servers = [];
+
 let mf;
+
 let pool;
+
 let browser;
+
 let evidence;
+
 const tokens = {
   ingress: randomBytes(32).toString("hex"),
   backend: randomBytes(32).toString("hex"),
   delivery: randomBytes(32).toString("hex"),
 };
+
 const secretValues = Object.values(tokens);
+
 const safe = (text) =>
   secretValues.reduce((value, secret) => value.replaceAll(secret, "[redacted]"), String(text));
+
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const run = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { cwd: root, encoding: "utf8", timeout: 60_000, ...opts });
+
 const start = (cmd, args, env) => {
   const child = spawn(cmd, args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
@@ -54,8 +78,10 @@ const start = (cmd, args, env) => {
     output = (output + safe(chunk)).slice(-20_000);
   });
   children.push({ child, output: () => output });
+
   return child;
 };
+
 const listen = (server, desiredPort = 0) =>
   new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -64,32 +90,46 @@ const listen = (server, desiredPort = 0) =>
       resolve(server.address().port);
     });
   });
+
 const port = async () => {
   const s = createServer();
   const p = await listen(s);
   await new Promise((r) => s.close(r));
+
   return p;
 };
+
 const ready = async (url) => {
   for (let n = 0; n < 150; n++) {
     try {
       const r = await fetch(url);
+
       if (r.ok) return;
     } catch {}
+
     await delay(200);
   }
+
   throw new Error(`Startup failed ${url}\n${children.map((c) => c.output()).join("\n")}`);
 };
+
 const canonical = (ip) => {
   if (Address4.isValid(ip)) return new Address4(ip).correctForm();
   const v6 = new Address6(ip);
+
   return v6.isMapped4() ? v6.to4().correctForm() : v6.correctForm();
 };
+
 const records = [];
+
 const workerOutbound = [];
+
 let mode = "accept";
+
 let redirectContact = false;
+
 let redirectHits = 0;
+
 const message = {
   departmentId: "contact-aas",
   name: "Ola Kontakt",
@@ -97,11 +137,14 @@ const message = {
   subject: "Kontaktprøve",
   message: "Når starter opptaket?",
 };
+
 const gates = [];
+
 const checkpoint = (message) => {
   gates.push(message);
   console.log(JSON.stringify({ phase: message }));
 };
+
 const bounded = (promise, milliseconds, label) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${label} timed out`)), milliseconds);
@@ -116,6 +159,7 @@ const bounded = (promise, milliseconds, label) =>
       },
     );
   });
+
 try {
   const redirectPort = await listen(
     createServer((_request, response) => {
@@ -123,6 +167,7 @@ try {
       response.writeHead(500).end();
     }),
   );
+
   const redirectOrigin = `http://127.0.0.1:${redirectPort}`;
   const pgPort = await port();
   const backendPort = await port();
@@ -139,6 +184,7 @@ try {
   );
   const pgUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
   pool = new Pool({ connectionString: pgUrl });
+
   for (let n = 0; ; n++) {
     try {
       await pool.query("SELECT 1");
@@ -148,29 +194,42 @@ try {
       await delay(100);
     }
   }
+
   const sink = createServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${tokens.delivery}`) {
       res.writeHead(401).end();
+
       return;
     }
+
     let body = "";
+
     for await (const chunk of req) body += chunk;
+
     if (mode === "reject") {
       res.writeHead(503).end();
+
       return;
     }
+
     records.push(JSON.parse(body));
+
     if (mode === "timeout") {
       await delay(1500);
+
       if (!res.destroyed) res.writeHead(201).end();
+
       return;
     }
+
     if (mode === "pending") await delay(400);
     res.writeHead(201).end();
   });
+
   const sinkPort = await listen(sink);
   const deliveryUrl = `http://127.0.0.1:${sinkPort}/deliver`;
   assert.equal(new URL(deliveryUrl).hostname, "127.0.0.1");
+
   const baseEnv = {
     ...process.env,
     BACKEND_HOST: "127.0.0.1",
@@ -192,6 +251,7 @@ try {
     CONTACT_DELIVERY_URL: deliveryUrl,
     CONTACT_DELIVERY_TIMEOUT_MS: "800",
   };
+
   // No inherited application transport destination can turn this run into external delivery.
   delete baseEnv.PUBLIC_APPLICATION_EFFECT_ENDPOINT;
   delete baseEnv.PUBLIC_APPLICATION_EFFECT_TOKEN;
@@ -220,6 +280,7 @@ try {
       cf: false,
       outboundService: async (request) => {
         const url = new URL(request.url);
+
         if (url.origin === redirectOrigin) {
           return fetch(url, {
             method: request.method,
@@ -227,23 +288,26 @@ try {
             redirect: "manual",
           });
         }
+
         if (url.origin !== backendOrigin) throw new Error("Local Worker outbound origin rejected");
+
         if (redirectContact && request.method === "POST") {
           return new Response(null, { status: 307, headers: { location: redirectOrigin } });
         }
-        const response = await fetch(url, {
-          method: request.method,
-          headers: request.headers,
-          redirect: "manual",
-          ...(["GET", "HEAD"].includes(request.method)
-            ? {}
-            : { body: await request.arrayBuffer() }),
-        });
+
+        const requestOptions1 = { method: request.method,
+headers: request.headers,
+redirect: "manual" };
+
+if (!(["GET", "HEAD"].includes(request.method))) Object.assign(requestOptions1, { body: await request.arrayBuffer() });
+const response = await fetch(url, requestOptions1);
+
         workerOutbound.push({
           method: request.method,
           path: url.pathname,
           status: response.status,
         });
+
         return response;
       },
       assets: {
@@ -259,9 +323,11 @@ try {
     }),
   );
   await bounded(mf.ready, 30_000, "built Worker startup");
+
   const workerHealth = await mf.dispatchFetch("http://p000.vektor.phibkro.org/health", {
     headers: { host: "p000.vektor.phibkro.org" },
   });
+
   if (workerHealth.status !== 200)
     throw new Error(
       `Built Worker health returned ${workerHealth.status}: ${safe(await workerHealth.text())}`,
@@ -272,9 +338,11 @@ try {
   assert.match(provenance.contentDigest, /^sha256:[a-f0-9]{64}$/);
   checkpoint("built Worker commit and route/content digests observed");
   let backendCommands = 0;
+
   const ingress = createServer(async (req, res) => {
     try {
       const headers = new Headers();
+
       for (const [key, value] of Object.entries(req.headers))
         if (
           value !== undefined &&
@@ -295,33 +363,43 @@ try {
       headers.set("x-vektor-contact-ip", canonical(req.socket.remoteAddress));
       const chunks = [];
       let size = 0;
+
       for await (const chunk of req) {
         size += chunk.length;
+
         if (size > 65_536) {
           res.writeHead(413).end();
+
           return;
         }
+
         chunks.push(chunk);
       }
+
       if (req.method === "POST") backendCommands++;
-      const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url}`, {
-        method: req.method,
-        headers,
-        ...(["GET", "HEAD"].includes(req.method) ? {} : { body: Buffer.concat(chunks) }),
-      });
+
+      const requestOptions2 = { method: req.method,
+headers };
+
+if (!(["GET", "HEAD"].includes(req.method))) Object.assign(requestOptions2, { body: Buffer.concat(chunks) });
+const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url}`, requestOptions2);
+
       res.writeHead(response.status, Object.fromEntries(response.headers));
       res.end(Buffer.from(await response.arrayBuffer()));
     } catch {
       res.writeHead(502).end("Local ingress failed");
     }
   });
+
   await listen(ingress, ingressPort);
   const origin = `http://127.0.0.1:${ingressPort}`;
+
   const headers = (ip, token = tokens.backend) => ({
     "content-type": "application/json",
     "x-vektor-contact-ip": ip,
     "x-vektor-contact-backend": token,
   });
+
   const post = (payload = message, ip = "192.0.2.1", token = tokens.backend) =>
     fetch(`${backendOrigin}/api/contact-messages`, {
       method: "POST",
@@ -329,18 +407,23 @@ try {
       body: JSON.stringify(payload),
       redirect: "error",
     });
+
   const count = async () =>
     Number(
       (await pool.query("SELECT coalesce(sum(attempts),0) AS n FROM public.contact_rate_windows"))
         .rows[0].n,
     );
+
   const clear = async () => pool.query("TRUNCATE public.contact_rate_windows");
+
   for (const token of ["", tokens.ingress, "wrong"]) {
     assert.equal((await post(message, "192.0.2.1", token)).status, 401);
   }
+
   for (const ip of ["192.0.2.1/32", "::ffff:192.0.2.1", "192.0.2.1,192.0.2.2"]) {
     assert.equal((await post(message, ip)).status, 400);
   }
+
   assert.equal(await count(), 0);
   assert.equal(records.length, 0);
   checkpoint(
@@ -350,16 +433,20 @@ try {
   assert.equal((await post({ ...message, to: "attacker@example.org" })).status, 422);
   assert.equal((await post({ ...message, message: "x".repeat(70_000) })).status, 413);
   assert.equal(await count(), 0);
+
   for (const departmentId of ["unknown", "contact-inactive", "contact-invalid-email"]) {
     assert.equal((await post({ ...message, departmentId })).status, 422);
   }
+
   assert.equal(await count(), 3);
   assert.equal(records.length, 0);
   await clear();
   checkpoint("invalid input rejects; recipient rejection consumes decoded attempts");
   await post();
+
   const initialExpiry = (await pool.query("SELECT expires_at FROM public.contact_rate_windows"))
     .rows[0].expires_at;
+
   await post();
   assert.equal(
     (
@@ -408,6 +495,7 @@ try {
   const context = await browser.newContext({ locale: "nb-NO" });
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
+
     return ["127.0.0.1", "p000.vektor.phibkro.org"].includes(url.hostname)
       ? route.continue()
       : route.abort();
@@ -432,25 +520,30 @@ try {
     .getByRole("link", { name: "Bergen", exact: true })
     .click();
   await expect(page.getByRole("link", { name: "bergen@example.org", exact: true })).toBeVisible();
+
   const fill = async () => {
     await page.getByLabel("Ditt navn").fill(message.name);
     await page.getByLabel("Din e-post").fill(message.email);
     await page.getByLabel("Emne", { exact: true }).fill(message.subject);
     await page.getByLabel("Melding", { exact: true }).fill(message.message);
   };
+
   const axe = async (label) => {
     const result = await new AxeBuilder({ page })
       .include('nav[aria-label="Velg avdeling"]')
       .include("main")
       .analyze();
+
     assert.deepEqual(result.violations, [], `axe ${label}`);
   };
+
   await axe("initial");
   await fill();
   mode = "pending";
   const beforeBrowser = records.length;
   const beforeCommands = backendCommands;
   await page.getByRole("button", { name: "Send melding", exact: true }).click();
+
   try {
     await expect(
       page.getByRole("button", { name: "Sender melding...", exact: true }),
@@ -470,6 +563,7 @@ try {
     );
     throw error;
   }
+
   await page.locator('button[type="submit"]').evaluate((button) => button.click());
   await expect(page.getByRole("status")).toHaveText("Meldingen er sendt.");
   assert.equal(records.length, beforeBrowser + 1);
@@ -498,15 +592,18 @@ try {
   await expect(page.getByLabel("Melding", { exact: true })).toHaveValue(message.message);
   assert.equal(records.length, beforeDraft);
   await axe("rejected");
+
   // A full-page screenshot preserves a scrolled sticky header's viewport offset.
   // Keep the actual scrolled observation separately before producing a top-of-page capture.
   const rejectionGeometry = () =>
     page.evaluate(() => {
       const alert = document.querySelector('[role="alert"]');
       const header = document.querySelector(".sticky.top-2.z-50");
+
       if (!(alert instanceof HTMLElement) || !(header instanceof HTMLElement)) {
         throw new Error("Contact feedback or shared sticky header not found");
       }
+
       return {
         scrollY: window.scrollY,
         viewportHeight: window.innerHeight,
@@ -514,6 +611,7 @@ try {
         alert: alert.getBoundingClientRect().toJSON(),
       };
     });
+
   const scrolledRejection = await rejectionGeometry();
   assert.ok(
     scrolledRejection.alert.top >= scrolledRejection.header.bottom &&
@@ -537,9 +635,11 @@ try {
     "built Worker browser department select/send/pending/clear/draft retention and axe states",
   );
   redirectContact = true;
+
   const redirectResult = page.waitForResponse(
     (response) => response.request().method() === "POST" && response.url().includes("/kontakt/"),
   );
+
   await page.getByRole("button", { name: "Send melding", exact: true }).click();
   await (await redirectResult).finished();
   await expect(page.getByRole("button", { name: "Send melding", exact: true })).toBeEnabled();
@@ -553,6 +653,7 @@ try {
   checkpoint("actual Worker rejects injected307 without contacting second loopback receiver");
   mode = "accept";
   await clear();
+
   const rawForm = (localAddress) =>
     new Promise((resolve, reject) => {
       const body = new URLSearchParams({
@@ -562,6 +663,7 @@ try {
         message: message.message,
         departmentId: "contact-aas",
       }).toString();
+
       const req = httpRequest(
         `${origin}/kontakt/bergen`,
         {
@@ -581,13 +683,16 @@ try {
           res.on("end", () => resolve({ status: res.statusCode, text }));
         },
       );
+
       req.on("error", reject);
       req.end(body);
     });
+
   for (let n = 0; n < 5; n++) assert.match((await rawForm("127.0.0.1")).text, /Meldingen er sendt/);
   assert.match((await rawForm("127.0.0.1")).text, /for mange meldinger/);
   assert.match((await rawForm("127.0.0.2")).text, /Meldingen er sendt/);
   checkpoint("socket-derived ingress ignores spoofed headers and preserves distinct visitors");
+
   const direct = await mf.dispatchFetch("http://p000.vektor.phibkro.org/kontakt/bergen", {
     method: "POST",
     headers: {
@@ -598,6 +703,7 @@ try {
     },
     body: new URLSearchParams(message).toString(),
   });
+
   assert.doesNotMatch(await direct.text(), /Meldingen er sendt/);
   checkpoint("wrong-hop Worker credential rejected");
   await clear();
@@ -630,18 +736,22 @@ try {
   await browser?.close();
   await mf?.dispose();
   await pool?.end();
+
   for (const server of servers) {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(() => resolve()));
   }
+
   for (const { child } of children.reverse()) {
     if (child.exitCode === null && child.signalCode === null) {
       await new Promise((resolve, reject) => {
         const killTimer = setTimeout(() => child.kill("SIGKILL"), 5000);
+
         const deadline = setTimeout(
           () => reject(new Error("Owned child exit not confirmed; preserving database")),
           15_000,
         );
+
         child.once("exit", () => {
           clearTimeout(killTimer);
           clearTimeout(deadline);
@@ -651,10 +761,12 @@ try {
       });
     }
   }
+
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
 }
 
 assert.ok(evidence, "success requires completed observations");
+
 await writeFile(
   join(artifacts, "evidence.json"),
   JSON.stringify(
@@ -666,6 +778,7 @@ await writeFile(
     2,
   ),
 );
+
 console.log(
   JSON.stringify({ passed: true, revision, gates, evidence: join(artifacts, "evidence.json") }),
 );

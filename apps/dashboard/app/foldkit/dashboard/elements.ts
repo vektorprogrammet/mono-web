@@ -1,6 +1,7 @@
 import { embedDashboard } from "./main";
 
 const DASHBOARD_ELEMENT = "vektor-foldkit-dashboard";
+
 const DASHBOARD_INPUT_ATTRIBUTE = "dashboard-input";
 
 export const registerDashboardElement = (): void => {

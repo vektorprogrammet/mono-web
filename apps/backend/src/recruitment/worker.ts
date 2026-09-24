@@ -38,6 +38,7 @@ export const runRecruitmentInvitationWorker = (
   positiveInteger(options.pollIntervalMilliseconds, "poll interval");
   positiveInteger(options.staleClaimMilliseconds, "stale claim interval");
   let claimSequence = 0;
+
   const tick = Effect.gen(function* () {
     const now = options.now();
     const claimedBefore = new Date(Date.parse(now) - options.staleClaimMilliseconds).toISOString();
@@ -55,6 +56,7 @@ export const runRecruitmentInvitationWorker = (
     );
     yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
   });
+
   return Effect.sync(() => options.onStart?.()).pipe(
     Effect.andThen(Effect.forever(tick)),
     Effect.ensuring(Effect.sync(() => options.onStop?.())),

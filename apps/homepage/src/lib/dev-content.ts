@@ -24,6 +24,7 @@ export type TeamContent = {
   readonly image: string;
   readonly imageAlt: string;
 };
+
 export type DevTeamMember = {
   readonly id: string;
   readonly name: string;
@@ -81,7 +82,9 @@ export type DevRouteCensus = {
 };
 
 const localSponsorImage = "/images/vektor-logo.svg";
+
 const localCardImage = "/images/teacher2.png";
+
 const localContactImage = "/images/vektor-logo-circle.svg";
 
 export const DEV_CONTENT = {
@@ -441,7 +444,9 @@ export type DevTeamId = (typeof DEV_CONTENT.teams)[number]["id"];
 
 export function getDevTeamMembers(teamId: DevTeamId): readonly DevTeamMember[] {
   const team = DEV_CONTENT.teams.find((item) => item.id === teamId);
+
   if (!team) throw new Error(`Unknown DEV CONTENT team: ${teamId}`);
+
   return createDevTeamMembers(team);
 }
 
@@ -453,7 +458,9 @@ export type DevProfileContent = {
 
 export function getDevProfile(): DevProfileContent {
   const team = DEV_CONTENT.teams[0];
+
   if (!team) throw new Error("DEV CONTENT must define a profile projection");
+
   return {
     name: "DEV Member",
     image: team.image,
@@ -466,11 +473,13 @@ for (const sponsor of DEV_CONTENT.sponsors) {
     throw new Error(`DEV CONTENT sponsor image must be local: ${sponsor.id}`);
   }
 }
+
 for (const team of DEV_CONTENT.teams) {
   if (!team.url.startsWith("/") || !team.image.startsWith("/")) {
     throw new Error(`DEV CONTENT team projection must be local: ${team.id}`);
   }
 }
+
 for (const department of DEV_CONTENT.departments) {
   if (!department.image.startsWith("/")) {
     throw new Error(`DEV CONTENT department image must be local: ${department.id}`);

@@ -1,28 +1,27 @@
+import { Scope } from "../authz/access.js";
 import { expect, it } from "@effect/vitest";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
-import type { ReceiptActor, ReceiptFile } from "./schema.js";
-import { decideReceipt } from "./update.js";
+import type { CheckOptions } from "effect/unstable/arbitrary/Arbitrary";
+import { ReceiptId, type ReceiptActor, type ReceiptFile, ApprovalScopeSchema } from "./schema.js";
+import { AuthorizedReceiptCommandSchema, decideReceipt } from "./update.js";
 
 const propertyOptions = {
-  fastCheck: { seed: 22082034, numRuns: 100 },
+  arbitrary: { seed: 22082034, runs: 100 } satisfies CheckOptions,
 } as const;
 
 const owner: ReceiptActor = {
   personId: PersonId.make("property-owner"),
   departmentId: DepartmentId.make("property-department"),
   active: true,
-  approvalScope: { _tag: "None" },
+  approvalScope: ApprovalScopeSchema.cases.None.make({}),
 };
 
 const approver: ReceiptActor = {
   personId: PersonId.make("property-approver"),
   departmentId: DepartmentId.make("property-department"),
   active: true,
-  approvalScope: {
-    _tag: "Department",
-    departmentId: DepartmentId.make("property-department"),
-  },
+  approvalScope: Scope.Department({ departmentId: DepartmentId.make("property-department") }),
 };
 
 const file: ReceiptFile = {
@@ -34,22 +33,22 @@ const file: ReceiptFile = {
 };
 
 const context = {
-  receiptId: "property-receipt",
+  receiptId: ReceiptId.make("property-receipt"),
   visualId: "PROPERTY-1",
   now: "2026-08-20T12:00:00.000Z",
 };
 
-const submit = (amount: number) => ({
-  _tag: "SubmitReceipt" as const,
-  commandId: "property-submit",
-  actor: owner,
-  departmentId: owner.departmentId,
-  paymentAccountCiphertext: "ciphertext:v1:property-account",
-  description: "Property receipt",
-  amountOre: amount,
-  receiptDate: "2026-08-20",
-  file,
-});
+const submit = (amount: number) =>
+  AuthorizedReceiptCommandSchema.cases.SubmitReceipt.make({
+    commandId: "property-submit",
+    actor: owner,
+    departmentId: owner.departmentId,
+    paymentAccountCiphertext: "ciphertext:v1:property-account",
+    description: "Property receipt",
+    amountOre: amount,
+    receiptDate: "2026-08-20",
+    file,
+  });
 
 const positiveAmount = (generated: number): number => (Math.abs(generated) % 1_000_000_000) + 1;
 
@@ -59,10 +58,10 @@ it.effect.prop(
   ({ amount }) =>
     Effect.gen(function* () {
       const submitted = yield* decideReceipt(undefined, submit(positiveAmount(amount)), context);
+
       const revised = yield* decideReceipt(
         submitted.receipt,
-        {
-          _tag: "RevisePendingReceipt",
+        AuthorizedReceiptCommandSchema.cases.RevisePendingReceipt.make({
           commandId: "property-revise",
           actor: owner,
           receiptId: submitted.receipt.receiptId,
@@ -71,9 +70,10 @@ it.effect.prop(
           amountOre: positiveAmount(amount) + 1,
           receiptDate: "2026-08-21",
           file,
-        },
+        }),
         { ...context, now: "2026-08-20T12:01:00.000Z" },
       );
+
       expect(revised.receipt).toMatchObject({
         receiptId: submitted.receipt.receiptId,
         visualId: submitted.receipt.visualId,
@@ -93,39 +93,42 @@ it.effect.prop(
   ({ amount }) =>
     Effect.gen(function* () {
       const terminalCommands = [
-        { _tag: "WithdrawPendingReceipt" as const, actor: owner },
-        { _tag: "ApproveReceipt" as const, actor: approver },
-        { _tag: "RejectReceipt" as const, actor: approver },
+        { command: AuthorizedReceiptCommandSchema.cases.WithdrawPendingReceipt, actor: owner },
+        { command: AuthorizedReceiptCommandSchema.cases.ApproveReceipt, actor: approver },
+        { command: AuthorizedReceiptCommandSchema.cases.RejectReceipt, actor: approver },
       ];
+
       for (const [index, terminal] of terminalCommands.entries()) {
         const submitted = yield* decideReceipt(
           undefined,
           { ...submit(positiveAmount(amount)), commandId: `property-submit-${index}` },
           { ...context, receiptId: `property-receipt-${index}`, visualId: `PROPERTY-${index}` },
         );
+
         const result = yield* decideReceipt(
           submitted.receipt,
-          {
-            ...terminal,
+          terminal.command.make({
+            actor: terminal.actor,
             commandId: `property-terminal-${index}`,
             receiptId: submitted.receipt.receiptId,
             expectedRevision: 0,
-          },
+          }),
           context,
         );
+
         const secondTransition = yield* Effect.exit(
           decideReceipt(
             result.receipt,
-            {
-              _tag: "WithdrawPendingReceipt",
+            AuthorizedReceiptCommandSchema.cases.WithdrawPendingReceipt.make({
               commandId: `property-reopen-${index}`,
               actor: owner,
               receiptId: result.receipt.receiptId,
               expectedRevision: 1,
-            },
+            }),
             context,
           ),
         );
+
         expect(secondTransition._tag).toBe("Failure");
         expect(result.receipt.revision).toBe(1);
       }

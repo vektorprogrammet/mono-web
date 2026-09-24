@@ -10,7 +10,7 @@ import { timingSafeEqual } from "node:crypto";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Identity } from "@vektorprogrammet/domain/identity";
-import { Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
+import { Match, Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
 import { HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
 import {
@@ -21,6 +21,7 @@ import {
 } from "../authority.js";
 import type { ContactConfig } from "../contact/config.js";
 import { nativeProblemResponse } from "../http-semantics.js";
+
 /**
  * Flattens one Effect-native Web transport operation into an HTTP API response.
  * The caller supplies the group's frozen error translation while the handler's
@@ -43,21 +44,23 @@ const issueAtHeader = (
   leafTag?: SchemaIssue.Leaf["_tag"],
   path: ReadonlyArray<PropertyKey> = [],
 ): boolean => {
-  switch (issue._tag) {
-    case "Filter":
-    case "Encoding":
+  return Match.value(issue).pipe(
+    Match.tag("Filter", "Encoding", (issue) => {
       return issueAtHeader(issue.issue, headerName, leafTag, path);
-    case "Pointer":
+    }),
+    Match.tag("Pointer", (issue) => {
       return issueAtHeader(issue.issue, headerName, leafTag, [...path, ...issue.path]);
-    case "Composite":
-    case "AnyOf":
+    }),
+    Match.tag("Composite", "AnyOf", (issue) => {
       return issue.issues.some((nested) => issueAtHeader(nested, headerName, leafTag, path));
-    default:
+    }),
+    Match.orElse((issue) => {
       return (
         path.some((segment) => segment === headerName) &&
         (leafTag === undefined || issue._tag === leafTag)
       );
-  }
+    }),
+  );
 };
 
 /** Maps automatic request decoding failures to the frozen transport problem families. */
@@ -68,17 +71,22 @@ export const requestSchemaErrorResponse = (error: HttpApiError.HttpApiSchemaErro
         ? nativeProblemResponse("precondition.required", 428)
         : nativeProblemResponse("precondition.invalid", 400);
     }
+
     if (issueAtHeader(error.cause.issue, "if-none-match")) {
       return nativeProblemResponse("precondition.invalid", 400);
     }
+
     if (issueAtHeader(error.cause.issue, "idempotency-key")) {
       return nativeProblemResponse("idempotency-key.invalid", 400);
     }
+
     return nativeProblemResponse("header.malformed", 400);
   }
+
   if (error.kind === "Params" || error.kind === "Query") {
     return nativeProblemResponse("request.malformed", 400);
   }
+
   return nativeProblemResponse("internal.error", 500);
 };
 
@@ -106,9 +114,11 @@ const sessionSecurityLayer = Layer.effect(
               Effect.provideService(Identity, identity),
             ),
           );
+
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
             return rejectedCredential('VektorSession realm="native-api"');
           }
+
           return yield* httpEffect;
         }),
     }),
@@ -120,15 +130,18 @@ const personSecurityLayer = Layer.effect(
   Effect.gen(function* () {
     const identity = yield* Identity;
     const oauthCredentialAuthority = yield* OAuthCredentialAuthority;
+
     return PersonSecurity.of({
       cookieHeader: (httpEffect, { credential }) =>
         Effect.gen(function* () {
           const cookieHeader = Redacted.value(credential);
           const request = yield* HttpServerRequest.HttpServerRequest;
+
           const webRequest = new Request(new URL(request.url, "http://native-api.invalid"), {
             method: request.method,
             headers: request.headers,
           });
+
           const authentication = yield* Effect.result(
             request.headers.authorization !== undefined
               ? resolveRequestPerson(webRequest).pipe(
@@ -139,59 +152,72 @@ const personSecurityLayer = Layer.effect(
                   Effect.provideService(Identity, identity),
                 ),
           );
+
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
             return rejectedCredential(
               'VektorSession realm="native-api", Bearer realm="native-api"',
             );
           }
+
           return yield* httpEffect;
         }),
       oauthUserBearer: (httpEffect) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
+
           const webRequest = new Request(new URL(request.url, "http://native-api.invalid"), {
             method: request.method,
             headers: request.headers,
           });
+
           const authentication = yield* Effect.result(
             resolveRequestPerson(webRequest).pipe(
               Effect.provideService(Identity, identity),
               Effect.provideService(OAuthCredentialAuthority, oauthCredentialAuthority),
             ),
           );
+
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
             return rejectedCredential(
               'VektorSession realm="native-api", Bearer realm="native-api"',
             );
           }
+
           return yield* httpEffect;
         }),
     });
   }),
 );
+
 const personOrServiceSecurityLayer = Layer.effect(
   PersonOrServiceSecurity,
   Effect.gen(function* () {
     const identity = yield* Identity;
     const oauthCredentialAuthority = yield* OAuthCredentialAuthority;
+
     const authenticate = <A, E, R>(httpEffect: Effect.Effect<A, E, R>) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
+
         const webRequest = new Request(new URL(request.url, "http://native-api.invalid"), {
           method: request.method,
           headers: request.headers,
         });
+
         const authentication = yield* Effect.result(
           resolveRequestCredentialAtInstant(webRequest, "Either").pipe(
             Effect.provideService(Identity, identity),
             Effect.provideService(OAuthCredentialAuthority, oauthCredentialAuthority),
           ),
         );
+
         if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
           return rejectedCredential('VektorSession realm="native-api", Bearer realm="native-api"');
         }
+
         return yield* httpEffect;
       });
+
     return PersonOrServiceSecurity.of({
       cookieHeader: authenticate,
       oauthUserBearer: authenticate,
@@ -214,12 +240,14 @@ const invitationCapabilitySecurityLayer = Layer.succeed(
 
 const contactSsrSecurityLayer = (contact: ContactConfig | undefined) => {
   const expected = contact === undefined ? undefined : Buffer.from(contact.backendToken);
+
   return Layer.succeed(
     ContactSsrSecurity,
     ContactSsrSecurity.of({
       contactBackend: (httpEffect, { credential }) => {
         if (expected === undefined) return httpEffect;
         const supplied = Buffer.from(Redacted.value(credential));
+
         return supplied.length === expected.length && timingSafeEqual(supplied, expected)
           ? httpEffect
           : Effect.succeed(rejectedCredential('ContactSSR realm="native-contact"'));
@@ -238,7 +266,7 @@ const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
  * transaction-scoped authorization so command authority is re-evaluated under
  * the serializable transaction that commits the command.
  */
-export const makeNativeHttpApiMiddlewareLayer = (contact?: ContactConfig) =>
+export const nativeHttpApiMiddlewareLayer = (contact?: ContactConfig) =>
   Layer.mergeAll(
     contactSsrSecurityLayer(contact),
     sessionSecurityLayer,
@@ -249,4 +277,4 @@ export const makeNativeHttpApiMiddlewareLayer = (contact?: ContactConfig) =>
   );
 
 /** Shared default for focused contract tests without configured contact delivery. */
-export const NativeHttpApiMiddlewareLive = makeNativeHttpApiMiddlewareLayer();
+export const NativeHttpApiMiddlewareLive = nativeHttpApiMiddlewareLayer();

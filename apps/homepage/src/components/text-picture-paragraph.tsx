@@ -9,6 +9,7 @@ interface TextPictureParagraphProps {
     alt: string;
   };
 }
+
 export interface TextPictureParagraphApiProps {
   title: string;
   text: string;

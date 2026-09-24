@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@radix-ui/react-collapsible";
 import { Separator } from "@radix-ui/react-separator";
 import {
@@ -80,6 +81,7 @@ function UserMenu({
   };
 }) {
   const isMobile = useSidebar();
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -141,6 +143,7 @@ function UserMenu({
     </SidebarMenu>
   );
 }
+
 const mainLinks = [
   {
     title: "Opptak",
@@ -236,6 +239,7 @@ const mainLinks = [
     ],
   },
 ];
+
 const adminLinks = [
   {
     title: "Team",
@@ -428,6 +432,7 @@ function StatusMenu({
 function Breadcrumbs() {
   const { pathname } = useLocation();
   const paths = pathname.split("/").filter((path) => path);
+
   const Paths = paths.map((path, index, arr) => {
     const fullPath = arr.slice(0, index + 1).join("/");
 
@@ -464,6 +469,7 @@ function Breadcrumbs() {
 function ThemeToggle() {
   const { resolved, setTheme } = useTheme();
   const isDark = resolved === "dark";
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
@@ -510,25 +516,29 @@ export function DashboardShellLayout() {
     let active = true;
     void import("../lib/preview-role-override").then((module) => {
       const role = module.readRoleOverride();
+
       if (active) {
         setPreviewIsAdmin(role === null ? undefined : module.roleToRenderFlags(role).isAdmin);
       }
     });
+
     return () => {
       active = false;
     };
   }, []);
   const effectiveIsAdmin = previewIsAdmin ?? isAdmin;
+
   if (
     matches.some(
       ({ handle }) =>
-        typeof handle === "object" &&
+        Predicate.isObjectOrArray(handle) &&
         handle !== null &&
         "dashboardShell" in handle &&
         handle.dashboardShell === "owned",
     )
   )
     return <Outlet />;
+
   return (
     <SidebarProvider>
       <aside data-dashboard-shell>

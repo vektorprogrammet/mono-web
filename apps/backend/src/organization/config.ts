@@ -12,10 +12,13 @@ export interface OrganizationApiConfig {
 
 const parseMaxBodyBytes = (raw: string | undefined): number => {
   const value = raw ?? "16384";
+
   if (!/^\d+$/u.test(value)) {
     throw new Error("ORGANIZATION_MAX_BODY_BYTES must be a positive safe integer");
   }
+
   const parsed = Number(value);
+
   try {
     return Schema.decodeUnknownSync(BoundedBodyBytesSchema)(parsed);
   } catch {
@@ -23,7 +26,7 @@ const parseMaxBodyBytes = (raw: string | undefined): number => {
   }
 };
 
-export const makeOrganizationApiConfig = (
+export const decodeOrganizationApiConfig = (
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): OrganizationApiConfig => ({
   maxBodyBytes: parseMaxBodyBytes(env.ORGANIZATION_MAX_BODY_BYTES),

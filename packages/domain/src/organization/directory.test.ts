@@ -1,6 +1,8 @@
+import { deny, allow } from "../authz/decision.js";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import {
+  DirectoryGateScope,
   accumulateOrganizationDirectoryFacts,
   directoryRowInScope,
   resolveDirectoryGateScope,
@@ -11,8 +13,11 @@ import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
 import type { OrganizationAuthorityMembership } from "./authority.js";
 
 const instant = "2026-08-24T12:00:00.000Z" as const;
+
 const departmentA = DepartmentId.make("department-a");
+
 const departmentB = DepartmentId.make("department-b");
+
 const person = PersonId.make("person-1");
 
 const membership = (
@@ -50,6 +55,7 @@ describe("accumulateOrganizationDirectoryFacts", () => {
       ],
       grants: [],
     });
+
     const fact = facts.get(person);
     expect(fact).toEqual({
       departments: [departmentA, departmentB],
@@ -66,6 +72,7 @@ describe("accumulateOrganizationDirectoryFacts", () => {
       memberships: [{ personId: person, departmentId: departmentA, active: false }],
       grants: [],
     });
+
     expect(endedBeforeInstant.get(person)?.isActive).toBe(false);
     expect(endedBeforeInstant.get(person)?.departments).toEqual([departmentA]);
   });
@@ -75,6 +82,7 @@ describe("accumulateOrganizationDirectoryFacts", () => {
       grantStatus: "Active",
       membershipActive: false,
     });
+
     expect(fact(facts)).toEqual({
       departments: [departmentA],
       departmentNames: [],
@@ -88,6 +96,7 @@ describe("accumulateOrganizationDirectoryFacts", () => {
       grantStatus: undefined,
       membershipActive: true,
     });
+
     expect(fact(facts).globalAdministrator).toBe("Absent");
     expect(fact(facts).isActive).toBe(true);
   });
@@ -97,6 +106,7 @@ describe("accumulateOrganizationDirectoryFacts", () => {
       grantStatus: "Inactive",
       membershipActive: false,
     });
+
     expect(fact(facts).globalAdministrator).toBe("Inactive");
     expect(fact(facts).isActive).toBe(false);
   });
@@ -109,10 +119,9 @@ describe("resolveDirectoryGateScope", () => {
   ) => ({ personId: person, evaluatedAt: instant, globalAdministrator, memberships });
 
   it("admits an active global administrator to all departments", () => {
-    expect(resolveDirectoryGateScope(authority("Active", []))).toEqual({
-      _tag: "Allow",
-      value: { _tag: "AllDepartments" },
-    });
+    expect(resolveDirectoryGateScope(authority("Active", []))).toEqual(
+      allow(DirectoryGateScope.AllDepartments()),
+    );
   });
 
   it("unions the leader departments of a cross-department leader", () => {
@@ -124,10 +133,10 @@ describe("resolveDirectoryGateScope", () => {
         membership("m4", person, departmentB, false, true),
       ]),
     );
-    expect(scope).toEqual({
-      _tag: "Allow",
-      value: { _tag: "Departments", departmentIds: [departmentA, departmentB] },
-    });
+
+    expect(scope).toEqual(
+      allow(DirectoryGateScope.Departments({ departmentIds: [departmentA, departmentB] })),
+    );
   });
 
   it("denies a plain member with AuthorityInactive", () => {
@@ -135,7 +144,7 @@ describe("resolveDirectoryGateScope", () => {
       resolveDirectoryGateScope(
         authority("Absent", [membership("m1", person, departmentA, true, false)]),
       ),
-    ).toEqual({ _tag: "Deny", reason: "AuthorityInactive" });
+    ).toEqual(deny("AuthorityInactive"));
   });
 
   it("denies an inactive leader with AuthorityInactive", () => {
@@ -143,21 +152,15 @@ describe("resolveDirectoryGateScope", () => {
       resolveDirectoryGateScope(
         authority("Absent", [membership("m1", person, departmentA, false, true)]),
       ),
-    ).toEqual({ _tag: "Deny", reason: "AuthorityInactive" });
+    ).toEqual(deny("AuthorityInactive"));
   });
 
   it("denies an inactive administrator with AuthorityInactive", () => {
-    expect(resolveDirectoryGateScope(authority("Inactive", []))).toEqual({
-      _tag: "Deny",
-      reason: "AuthorityInactive",
-    });
+    expect(resolveDirectoryGateScope(authority("Inactive", []))).toEqual(deny("AuthorityInactive"));
   });
 
   it("denies a person with no Organization authority record with NotInScope", () => {
-    expect(resolveDirectoryGateScope(authority("Absent", []))).toEqual({
-      _tag: "Deny",
-      reason: "NotInScope",
-    });
+    expect(resolveDirectoryGateScope(authority("Absent", []))).toEqual(deny("NotInScope"));
   });
 });
 
@@ -169,22 +172,23 @@ describe("directoryRowInScope", () => {
       globalAdministrator: "Absent",
       memberships: [membership("m1", person, departmentA, true, true)],
     });
-    if (scope._tag !== "Allow") throw new Error("expected allowed leader scope");
+
+    if (!Predicate.isTagged(scope, "Allow")) throw new Error("expected allowed leader scope");
     expect(directoryRowInScope(scope.value, [departmentA])).toBe(true);
     expect(directoryRowInScope(scope.value, [departmentA, departmentB])).toBe(true);
     expect(directoryRowInScope(scope.value, [])).toBe(false);
   });
 
   it("matches every row under the all-departments scope", () => {
-    expect(directoryRowInScope({ _tag: "AllDepartments" }, [])).toBe(true);
-    expect(directoryRowInScope({ _tag: "AllDepartments" }, [departmentB])).toBe(true);
+    expect(directoryRowInScope(DirectoryGateScope.AllDepartments(), [])).toBe(true);
+    expect(directoryRowInScope(DirectoryGateScope.AllDepartments(), [departmentB])).toBe(true);
   });
 });
 
 describe("directory cursors", () => {
   it.effect("round-trips the last sort tuple", () =>
     Effect.gen(function* () {
-      const tuple = { lastName: "Ærø", firstName: "Ada", personId: "person-42" };
+      const tuple = { lastName: "Ærø", firstName: "Ada", personId: PersonId.make("person-42") };
       const decoded = yield* decodeDirectoryCursor(encodeDirectoryCursor(tuple));
       expect(decoded).toEqual(tuple);
     }),
@@ -198,6 +202,7 @@ describe("directory cursors", () => {
         Buffer.from(JSON.stringify(["v9", "a", "b", "c"]), "utf8").toString("base64"),
         Buffer.from(JSON.stringify("v1"), "utf8").toString("base64"),
       ];
+
       for (const cursor of malformed) {
         const failure = yield* Effect.flip(decodeDirectoryCursor(cursor));
         expect(failure._tag).toBe("ProfileDecodeError");
@@ -208,7 +213,9 @@ describe("directory cursors", () => {
 
 function fact(map: OrganizationDirectoryFacts) {
   const result = map.get(person);
+
   if (result === undefined) throw new Error("missing fact");
+
   return result;
 }
 

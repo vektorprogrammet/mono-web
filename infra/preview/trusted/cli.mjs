@@ -31,7 +31,9 @@ import {
 import { initializeLedger, readLedger } from "./ledger.mjs";
 
 const ROOT = dirname(new URL(import.meta.url).pathname);
+
 const DIGEST_TOOL = resolve(ROOT, "digest.mjs");
+
 const VERIFY_TOOL = resolve(ROOT, "verify.mjs");
 
 function runTool(tool, args) {
@@ -39,14 +41,18 @@ function runTool(tool, args) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
+
   if (result.status !== 0)
     throw new Error(result.stderr.trim() || `${tool} exited ${result.status}`);
+
   return JSON.parse(result.stdout);
 }
 
 function readResources(path) {
   const resources = JSON.parse(readFileSync(path, "utf8"));
+
   if (!Array.isArray(resources)) throw new Error("resources must be an array");
+
   return resources;
 }
 
@@ -64,6 +70,7 @@ function inputDigests(args) {
 
 export function validateInputs(args) {
   const identity = identityFromArgs(args);
+
   const result = {
     schema: "preview-trusted-inputs/v1",
     identity: serializeIdentity(identity),
@@ -72,12 +79,15 @@ export function validateInputs(args) {
     providerMutation: false,
     credentialBoundary: "provider credentials are unavailable to credential-free validation",
   };
+
   if (args["plan-only"] === false || args["plan-only"] === "false") result.providerMutation = true;
+
   return result;
 }
 
 export function packageSource(args) {
   const headSha = requireSha(requireOption(args, "head-sha"));
+
   const result = runTool(DIGEST_TOOL, [
     "--head-sha",
     headSha,
@@ -85,6 +95,7 @@ export function packageSource(args) {
     args.repository ?? IDENTITY.repository,
     ...(args.output ? ["--output", args.output] : []),
   ]);
+
   return result;
 }
 
@@ -100,19 +111,23 @@ export function verifySource(args) {
     args.repository ?? IDENTITY.repository,
     ...(args.output ? ["--output", args.output] : []),
   ]);
+
   return result;
 }
 
 export function packageOwnership(args) {
   const identity = identityFromArgs(args);
   const digests = inputDigests(args);
+
   const manifest = createOwnershipManifest({
     identity,
     ...digests,
     resources: readResources(requireOption(args, "resources")),
   });
+
   const output = requireOption(args, "output");
   writeFileSync(output, canonicalJson(manifest), { encoding: "utf8", mode: 0o600 });
+
   return {
     manifestDigest: manifest.manifestDigest,
     resourceCount: manifest.resources.length,
@@ -123,20 +138,33 @@ export function packageOwnership(args) {
 function lifecycle(args, operation) {
   const store = requireOption(args, "store");
   const identity = identityFromArgs(args);
+
   if (operation === "plan" || operation === "deploy" || operation === "destroy")
     return buildPlan(args, operation);
+
   if (operation === "init") return initializeLedger(store, identity);
+
   if (operation === "read") return readLedger(store, identity);
+
   if (operation === "request") return request(store, identity);
+
   if (operation === "validate-state") return validate(store, identity);
+
   if (operation === "seed-ready") return seedReady(store, identity);
+
   if (operation === "planned") return planned(store, identity);
+
   if (operation === "begin-apply") return beginApply(store, identity, inputDigests(args));
+
   if (operation === "seeded") return seeded(store, identity);
+
   if (operation === "live") return live(store, identity);
+
   if (operation === "retire") return retire(store, identity);
+
   if (operation === "absent")
     return absent(store, identity, { manifestDigest: args["manifest-digest"] });
+
   if (operation === "reconcile") return reconcile(store, identity);
   throw new Error(`unknown trusted lifecycle operation: ${operation}`);
 }
@@ -144,8 +172,10 @@ function lifecycle(args, operation) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const operation = args._[0];
+
   if (!operation) throw new Error("command is required");
   let result;
+
   if (operation === "validate") result = validateInputs(args);
   else if (operation === "package") result = packageSource(args);
   else if (operation === "verify") result = verifySource(args);

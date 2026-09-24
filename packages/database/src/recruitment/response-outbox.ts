@@ -1,12 +1,12 @@
-import { Admissions, type AdmissionsShape } from "@vektorprogrammet/domain/admissions";
+import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { Profile, type ProfileShape } from "@vektorprogrammet/domain/profile";
+import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { Effect, Schema } from "effect";
+import { flow, Data, Predicate, Effect, Schema } from "effect";
 import { RecruitmentPersistenceError } from "@vektorprogrammet/domain/recruitment";
 import {
   RecruitmentInvitationResponseOutboxRequestSchema,
@@ -110,6 +110,9 @@ export type RecruitmentInvitationResponseDeliveryResult =
       readonly failureTag: string;
     };
 
+export const RecruitmentInvitationResponseDeliveryResult =
+  Data.taggedEnum<RecruitmentInvitationResponseDeliveryResult>();
+
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
   new RecruitmentPersistenceError({
     operation,
@@ -117,21 +120,15 @@ const persistenceError = (operation: string, cause?: unknown): RecruitmentPersis
       cause instanceof Error ? cause.message : "recruitment response outbox persistence failed",
   });
 
-type DecodeOutcome<A> =
-  | { readonly _tag: "Decoded"; readonly value: A }
-  | { readonly _tag: "Invalid" };
-
-const decodeForClaim = <A>(
-  schema: Schema.ConstraintDecoder<A, never>,
-  value: unknown,
-): Effect.Effect<DecodeOutcome<A>> =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+const decodeForClaim = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.map((decoded) => ({ _tag: "Decoded" as const, value: decoded })),
     Effect.catch(() => Effect.succeed({ _tag: "Invalid" as const })),
   );
 
 const quarantineResponseClaim = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   effectId: string,
   claimId: string,
   failureTag: string,
@@ -153,13 +150,14 @@ const quarantineResponseClaim = (
         Effect.fail(persistenceError("quarantine invitation response claim", cause)),
       ),
     );
+
     if (rows.length !== 1 || rows[0]?.effectId !== effectId) {
       return yield* persistenceError("quarantine missing invitation response claim");
     }
   });
 
 const quarantineAndSkip = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   row: Pick<ClaimedInvitationResponseRow, "effectId" | "claimId">,
   failureTag: string,
 ): Effect.Effect<undefined, RecruitmentPersistenceError> =>
@@ -171,6 +169,7 @@ const canonicalEnvelopeMatches = (
   canonical: typeof CanonicalInvitationResponseRowSchema.Type,
 ): boolean => {
   const expectedEffectId = `recruitment-invitation-response:${canonical.auditInvitationId}:${canonical.auditResponseRevision}`;
+
   return (
     row.effectType === "SendInterviewInvitationResponse" &&
     row.ordinal === 0 &&
@@ -200,9 +199,9 @@ const canonicalEnvelopeMatches = (
 };
 
 const claimInTransaction = (
-  sql: DatabaseShape,
-  admissions: AdmissionsShape,
-  profile: ProfileShape,
+  sql: DatabaseOperations,
+  admissions: AdmissionsOperations,
+  profile: ProfileOperations,
   claimId: string,
   claimedAt: string,
 ): Effect.Effect<ClaimedRecruitmentInvitationResponse | undefined, RecruitmentPersistenceError> =>
@@ -247,27 +246,34 @@ const claimInTransaction = (
         Effect.fail(persistenceError("claim invitation response outbox", cause)),
       ),
     );
+
     const rawRow = rows[0];
+
     if (rawRow === undefined) return undefined;
-    const decodedRow = yield* decodeForClaim(ClaimedInvitationResponseRowSchema, rawRow);
-    if (decodedRow._tag === "Invalid") {
+    const decodedRow = yield* decodeForClaim(ClaimedInvitationResponseRowSchema)(rawRow);
+
+    if (!Predicate.isTagged(decodedRow, "Decoded")) {
       return yield* quarantineAndSkip(
         sql,
         { effectId: rawRow.effectId, claimId },
         "RecruitmentDecodeError",
       );
     }
+
     const row = decodedRow.value;
+
     if (row.claimId !== claimId) {
       return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
     }
-    const decodedRequest = yield* decodeForClaim(
-      RecruitmentInvitationResponseOutboxRequestSchema,
+
+    const decodedRequest = yield* decodeForClaim(RecruitmentInvitationResponseOutboxRequestSchema)(
       row.payloadJson,
     );
-    if (decodedRequest._tag === "Invalid") {
+
+    if (!Predicate.isTagged(decodedRequest, "Decoded")) {
       return yield* quarantineAndSkip(sql, row, "RecruitmentDecodeError");
     }
+
     const request = decodedRequest.value;
 
     const canonicalRows = yield* sql<CanonicalInvitationResponseRow>`
@@ -323,33 +329,39 @@ const claimInTransaction = (
         Effect.fail(persistenceError("read canonical invitation response envelope", cause)),
       ),
     );
+
     if (canonicalRows.length !== 1) {
       return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
     }
-    const decodedCanonical = yield* decodeForClaim(
-      CanonicalInvitationResponseRowSchema,
+
+    const decodedCanonical = yield* decodeForClaim(CanonicalInvitationResponseRowSchema)(
       canonicalRows[0],
     );
+
     if (
-      decodedCanonical._tag === "Invalid" ||
+      !Predicate.isTagged(decodedCanonical, "Decoded") ||
       !canonicalEnvelopeMatches(row, request, decodedCanonical.value)
     ) {
       return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
     }
+
     const canonical = decodedCanonical.value;
 
     const applicantRead = yield* admissions.readApplicantContacts([canonical.applicationId]).pipe(
       Effect.map((contacts) => ({ _tag: "Read" as const, contacts })),
       Effect.catch((failure) =>
-        failure._tag === "PublicApplicationPersistenceError"
+        Predicate.isTagged(failure, "PublicApplicationPersistenceError")
           ? Effect.fail(persistenceError("read response applicant contact", failure))
           : Effect.succeed({ _tag: "Missing" as const }),
       ),
     );
-    if (applicantRead._tag === "Missing" || applicantRead.contacts.length !== 1) {
+
+    if (Predicate.isTagged(applicantRead, "Missing") || applicantRead.contacts.length !== 1) {
       return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
     }
+
     const applicant = applicantRead.contacts[0];
+
     if (
       applicant === undefined ||
       applicant.applicationId !== canonical.applicationId ||
@@ -361,15 +373,18 @@ const claimInTransaction = (
     const interviewerRead = yield* profile.readContacts([canonical.interviewerPersonId]).pipe(
       Effect.map((contacts) => ({ _tag: "Read" as const, contacts })),
       Effect.catch((failure) =>
-        failure._tag === "ProfilePersistenceError"
+        Predicate.isTagged(failure, "ProfilePersistenceError")
           ? Effect.fail(persistenceError("read response interviewer contact", failure))
           : Effect.succeed({ _tag: "Missing" as const }),
       ),
     );
-    if (interviewerRead._tag === "Missing" || interviewerRead.contacts.length !== 1) {
+
+    if (Predicate.isTagged(interviewerRead, "Missing") || interviewerRead.contacts.length !== 1) {
       return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
     }
+
     const interviewer = interviewerRead.contacts[0];
+
     if (
       interviewer === undefined ||
       interviewer.personId !== canonical.interviewerPersonId ||
@@ -399,6 +414,7 @@ export const claimNextRecruitmentInvitationResponse = (
     const admissions = yield* Admissions;
     const sql = yield* Database;
     const profile = yield* Profile;
+
     return yield* sql
       .withTransaction(claimInTransaction(sql, admissions, profile, claimId, claimedAt))
       .pipe(
@@ -414,6 +430,7 @@ export const completeRecruitmentInvitationResponse = (
 ): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<{ readonly effectId: string }>`
       UPDATE recruitment_invitation_response_outbox
       SET status = 'Delivered',
@@ -431,6 +448,7 @@ export const completeRecruitmentInvitationResponse = (
         Effect.fail(persistenceError("complete invitation response claim", cause)),
       ),
     );
+
     if (rows[0]?.effectId !== claim.effectId) {
       return yield* persistenceError("complete missing invitation response claim");
     }
@@ -442,6 +460,7 @@ export const failRecruitmentInvitationResponse = (
 ): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<{ readonly effectId: string }>`
       UPDATE recruitment_invitation_response_outbox
       SET status = 'Failed',
@@ -457,6 +476,7 @@ export const failRecruitmentInvitationResponse = (
         Effect.fail(persistenceError("fail invitation response claim", cause)),
       ),
     );
+
     if (rows[0]?.effectId !== claim.effectId) {
       return yield* persistenceError("fail missing invitation response claim");
     }
@@ -489,6 +509,7 @@ export const recoverStaleRecruitmentInvitationResponses = (
 ): Effect.Effect<number, RecruitmentPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<{ readonly effectId: string }>`
       UPDATE recruitment_invitation_response_outbox
       SET status = 'Failed',
@@ -503,6 +524,7 @@ export const recoverStaleRecruitmentInvitationResponses = (
         Effect.fail(persistenceError("recover stale invitation response claims", cause)),
       ),
     );
+
     return rows.length;
   });
 
@@ -523,18 +545,28 @@ export const deliverNextRecruitmentInvitationResponse = (
       RecruitmentPersistenceError,
       Admissions | Database | NotificationGateway | Profile
     > => {
-      if (claim === undefined) return Effect.succeed({ _tag: "Idle" as const });
+      if (claim === undefined)
+        return Effect.succeed(RecruitmentInvitationResponseDeliveryResult.Idle());
+
       return Effect.gen(function* () {
         const gateway = yield* NotificationGateway;
+
         return yield* gateway.deliverInterviewInvitationResponse(claim.request).pipe(
           Effect.matchEffect({
             onFailure: (failure) =>
               failRecruitmentInvitationResponse(claim, failure._tag).pipe(
-                Effect.as({ _tag: "Failed" as const, claim, failureTag: failure._tag }),
+                Effect.as(
+                  RecruitmentInvitationResponseDeliveryResult.Failed({
+                    claim,
+                    failureTag: failure._tag,
+                  }),
+                ),
               ),
             onSuccess: (evidence) =>
               completeRecruitmentInvitationResponse(claim, evidence).pipe(
-                Effect.as({ _tag: "Delivered" as const, claim, evidence }),
+                Effect.as(
+                  RecruitmentInvitationResponseDeliveryResult.Delivered({ claim, evidence }),
+                ),
               ),
           }),
         );

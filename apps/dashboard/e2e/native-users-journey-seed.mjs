@@ -32,20 +32,24 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const databaseRoot = join(repositoryRoot, "packages", "database");
 
 // `pg` is a dependency of the database package; resolve from there so this
 // dashboard-side support script adds no new package dependency.
 const require = createRequire(join(repositoryRoot, "packages/database/package.json"));
+
 const { Pool } = require("pg");
 
 const postgresUrl =
   process.env.JOURNEY_SEED_PG_URL ?? "postgres://postgres@127.0.0.1:45157/directory_journey";
 
 const parsedUrl = new URL(postgresUrl);
+
 if (!["postgres:", "postgresql:"].includes(parsedUrl.protocol)) {
   throw new Error("JOURNEY_SEED_PG_URL must use PostgreSQL");
 }
+
 if (!["127.0.0.1", "localhost", "::1"].includes(parsedUrl.hostname)) {
   throw new Error("journey seed is restricted to loopback PostgreSQL");
 }
@@ -97,15 +101,21 @@ export const journeyPersons = {
 };
 
 const trondheimDepartmentId = "department-journey-0057-trondheim";
+
 const osloDepartmentId = "department-journey-0057-oslo";
+
 const trondheimItTeamId = "team-journey-0057-trondheim-it";
+
 const trondheimLeaderTeamId = "team-journey-0057-trondheim-leder";
+
 const osloItTeamId = "team-journey-0057-oslo-it";
 
 // Membership/grant windows bracket the journey clock (2026). The ended
 // membership ends strictly before now so the person lands under Inaktive.
 const activeStartAt = "2026-01-01T00:00:00.000Z";
+
 const endedStartAt = "2024-06-01T00:00:00.000Z";
+
 const endedEndAt = "2026-08-01T00:00:00.000Z";
 
 const seedSql = `
@@ -201,6 +211,7 @@ const runIdentitySeed = () => {
     },
     encoding: "utf8",
   });
+
   assert(result.status === 0, `identity:seed failed:\n${result.stdout}\n${result.stderr}`);
   process.stdout.write(`identity:seed: ${result.stdout.trim().split("\n").pop()}\n`);
 };
@@ -267,6 +278,7 @@ async function main() {
           '${journeyPersons.leader.personId}',
           '${journeyPersons.osloOnly.personId}')) AS users
     `);
+
     const counts = checks.rows[0];
     assert(Number(counts.departments) >= 2, "two active departments");
     assert(Number(counts.teams) >= 3, "three live teams");

@@ -27,6 +27,7 @@ test("unsafe projection diagnostics identify a source without copying rejected m
     ["source-1"],
     [source("src/Controller.php")],
   );
+
   expect(diagnostic).toEqual({
     category: "effect_failure",
     record_index: 3,

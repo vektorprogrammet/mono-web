@@ -65,7 +65,7 @@ export interface SchedulingCommands {
   }) => Command.Command<Message>;
 }
 
-export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCommands => {
+export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
   const LoadSchedulingBoard = Command.define("LoadSchedulingBoard", {
     args: { requestId: SchedulingRequestId },
     messages: [SucceededLoadSchedulingBoard, FailedLoadSchedulingBoard],

@@ -1,14 +1,18 @@
+import { Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
+
 const REAL_RECRUITMENT_E2E = process.env.REAL_RECRUITMENT_E2E === "1";
 
 const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
+
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required for the native recruitment journey`);
   }
+
   return value;
 };
 
@@ -36,11 +40,12 @@ test.describe("Native recruitment applicant assignment", () => {
     page.on("request", (request) => {
       if (new URL(request.url()).pathname !== "/recruitment" || request.method() !== "POST") return;
       const payload: unknown = request.postDataJSON();
+
       if (
-        typeof payload === "object" &&
+        Predicate.isObjectOrArray(payload) &&
         payload !== null &&
         "operation" in payload &&
-        typeof payload.operation === "string"
+        Predicate.isString(payload.operation)
       ) {
         bridgeOperations.push(payload.operation);
       }
@@ -63,10 +68,12 @@ test.describe("Native recruitment applicant assignment", () => {
     await expect(dialog).toBeVisible();
     await dialog.getByLabel("Intervjuer").selectOption({ label: interviewerName });
     const schemaSelect = dialog.getByLabel("Intervjuskjema");
+
     const schemaValue = await schemaSelect
       .locator("option")
       .filter({ hasText: schemaName })
       .getAttribute("value");
+
     if (schemaValue === null) throw new Error("seeded interview schema option was absent");
     await schemaSelect.selectOption(schemaValue);
     await dialog.getByRole("button", { name: "Tildel intervju", exact: true }).click();
@@ -84,6 +91,7 @@ test.describe("Native recruitment applicant assignment", () => {
     const accessibility = await new AxeBuilder({ page })
       .include('section[aria-labelledby="fr-page-title"]')
       .analyze();
+
     expect(accessibility.violations).toEqual([]);
   });
 });

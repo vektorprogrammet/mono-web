@@ -11,16 +11,17 @@ import {
   OAUTH_NATIVE_API_RESOURCE,
   type OAuthProviderRuntimeConfig,
 } from "@vektorprogrammet/database";
-import { makeAdmissionApiConfig, type AdmissionApiConfig } from "./admission/config.js";
-import { makeOrganizationApiConfig, type OrganizationApiConfig } from "./organization/config.js";
-import { makeReceiptApiConfig, type ReceiptApiConfig } from "./receipt/config.js";
-import { makeRecruitmentApiConfig, type RecruitmentApiConfig } from "./recruitment/config.js";
+import { decodeAdmissionApiConfig, type AdmissionApiConfig } from "./admission/config.js";
+import { decodeOrganizationApiConfig, type OrganizationApiConfig } from "./organization/config.js";
+import { decodeReceiptApiConfig, type ReceiptApiConfig } from "./receipt/config.js";
+import { recruitmentApiConfig, type RecruitmentApiConfig } from "./recruitment/config.js";
 import {
-  makeNativeSessionBoundaryPolicy,
+  decodeNativeSessionBoundaryPolicy,
   type NativeSessionBoundaryPolicy,
 } from "./session-security.js";
 
 import { contactConfig, type ContactConfig } from "./contact/config.js";
+import { Predicate } from "effect";
 
 export interface PublicApplicationEffectConfig {
   readonly endpoint: URL;
@@ -57,19 +58,22 @@ export interface BackendConfig {
   readonly schoolServiceDispatchNotifications?: SchoolServiceDispatchNotificationConfig;
 }
 
-const nonEmpty = (value: unknown, field: string): string => {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`${field} is required`);
+const nonEmpty = (value: string | undefined, field: string): string => {
+  if (!Predicate.isString(value) || value.length === 0) throw new Error(`${field} is required`);
+
   return value;
 };
 
 const exactOrigin = (raw: string | undefined, field: string): string => {
   const value = nonEmpty(raw, field);
   let url: URL;
+
   try {
     url = new URL(value);
   } catch {
     throw new Error(`${field} must be an absolute origin`);
   }
+
   if (
     url.origin !== value ||
     url.pathname !== "/" ||
@@ -82,10 +86,13 @@ const exactOrigin = (raw: string | undefined, field: string): string => {
   ) {
     throw new Error(`${field} must be one exact origin without a trailing slash`);
   }
+
   const local = url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port !== "";
+
   if (url.protocol !== "https:" && !local) {
     throw new Error(`${field} must use https or fixed-port http://127.0.0.1`);
   }
+
   return value;
 };
 
@@ -96,14 +103,17 @@ const internalSourceNetworks = (
     .split(",")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
+
   if (
     values.some((value) => !/^(?:\d{1,3}\.){3}\d{1,3}\/(?:[0-9]|[12][0-9]|3[0-2])$/u.test(value))
   ) {
     throw new Error("OAUTH_INTERNAL_SOURCE_NETWORKS must contain comma-separated IPv4 CIDRs");
   }
+
   if (env.BACKEND_INGRESS === "internal" && values.length === 0) {
     throw new Error("OAUTH_INTERNAL_SOURCE_NETWORKS is required for internal ingress");
   }
+
   return values;
 };
 
@@ -113,12 +123,15 @@ export const decodeOAuthBackendConfig = (
 ): Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks"> => {
   const canonicalOrigin = exactOrigin(env.OAUTH_CANONICAL_ORIGIN, "OAUTH_CANONICAL_ORIGIN");
   const dashboardOrigin = exactOrigin(env.OAUTH_DASHBOARD_ORIGIN, "OAUTH_DASHBOARD_ORIGIN");
+
   if (!trustedOrigins.includes(dashboardOrigin)) {
     throw new Error("OAUTH_DASHBOARD_ORIGIN must be a trusted first-party origin");
   }
+
   if (env.OAUTH_NATIVE_API_RESOURCE !== OAUTH_NATIVE_API_RESOURCE) {
     throw new Error(`OAUTH_NATIVE_API_RESOURCE must be ${OAUTH_NATIVE_API_RESOURCE}`);
   }
+
   return {
     oauth: {
       canonicalOrigin,
@@ -131,44 +144,56 @@ export const decodeOAuthBackendConfig = (
 
 const loopbackHost = (value: string | undefined): string => {
   const host = value ?? "127.0.0.1";
+
   if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
     throw new Error("BACKEND_HOST must be loopback");
   }
+
   return host;
 };
 
 const parsePort = (value: string | undefined): number => {
   const raw = value ?? "8790";
+
   if (!/^\d+$/.test(raw)) throw new Error("BACKEND_PORT must be an integer");
   const port = Number(raw);
+
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     throw new Error("BACKEND_PORT is outside the valid range");
   }
+
   return port;
 };
 
 const positiveInteger = (raw: string | undefined, fallback: number, field: string): number => {
   const value = raw ?? String(fallback);
+
   if (!/^\d+$/.test(value)) throw new Error(`${field} must be an integer`);
   const parsed = Number(value);
+
   if (!Number.isSafeInteger(parsed) || parsed < 1) {
     throw new Error(`${field} must be a positive safe integer`);
   }
+
   return parsed;
 };
 
 const providerEndpoint = (raw: string): URL => {
   const endpoint = new URL(raw);
+
   const loopback =
     endpoint.hostname === "127.0.0.1" ||
     endpoint.hostname === "localhost" ||
     endpoint.hostname === "::1";
+
   if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
     throw new Error("PUBLIC_APPLICATION_EFFECT_ENDPOINT must use HTTPS unless it targets loopback");
   }
+
   if (endpoint.username.length > 0 || endpoint.password.length > 0) {
     throw new Error("PUBLIC_APPLICATION_EFFECT_ENDPOINT must not contain credentials");
   }
+
   return endpoint;
 };
 
@@ -178,23 +203,29 @@ const publicApplicationEffectConfig = (
   const mode = env.PUBLIC_APPLICATION_EFFECT_MODE;
   const endpoint = env.PUBLIC_APPLICATION_EFFECT_ENDPOINT;
   const token = env.PUBLIC_APPLICATION_EFFECT_TOKEN;
+
   if (mode === "disabled") {
     if (endpoint !== undefined || token !== undefined) {
       throw new Error(
         "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN require PUBLIC_APPLICATION_EFFECT_MODE=http",
       );
     }
+
     return undefined;
   }
+
   if (mode !== "http") {
     throw new Error("PUBLIC_APPLICATION_EFFECT_MODE must be disabled or http");
   }
+
   if (endpoint === undefined || token === undefined || token.length === 0) {
     throw new Error(
       "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN are required in http mode",
     );
   }
+
   const parsed = providerEndpoint(endpoint);
+
   return {
     endpoint: parsed,
     token,
@@ -216,22 +247,25 @@ const publicApplicationEffectConfig = (
   };
 };
 
-export const makeBackendConfig = (
+export const decodeBackendConfig = (
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): BackendConfig => {
-  const admission = makeAdmissionApiConfig(env);
-  const receipt = makeReceiptApiConfig(env);
-  const sessionBoundary = makeNativeSessionBoundaryPolicy(env);
+  const admission = decodeAdmissionApiConfig(env);
+  const receipt = decodeReceiptApiConfig(env);
+  const sessionBoundary = decodeNativeSessionBoundaryPolicy(env);
   const effects = publicApplicationEffectConfig(env);
   const schoolServiceNotifications = schoolServiceNotificationConfig(env);
   const schoolServiceDispatchNotifications = schoolServiceDispatchNotificationConfig(env);
   const postgresUrl = nonEmpty(env.BACKEND_PG_URL, "BACKEND_PG_URL");
   const secret = nonEmpty(env.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET");
+
   if (secret.length < 32) {
     throw new Error("BETTER_AUTH_SECRET must be at least 32 characters");
   }
+
   const oauth = decodeOAuthBackendConfig(env, sessionBoundary.trustedOrigins);
-  return {
+
+  const config: BackendConfig = {
     contact: contactConfig(env),
     onboarding: onboardingDeliveryConfig(env),
     host: loopbackHost(env.BACKEND_HOST),
@@ -247,12 +281,17 @@ export const makeBackendConfig = (
     },
     admission,
     receipt,
-    recruitment: makeRecruitmentApiConfig(admission),
-    organization: makeOrganizationApiConfig(env),
-    ...(effects === undefined ? {} : { publicApplicationEffects: effects }),
-    ...(schoolServiceNotifications === undefined ? {} : { schoolServiceNotifications }),
-    ...(schoolServiceDispatchNotifications === undefined
-      ? {}
-      : { schoolServiceDispatchNotifications }),
+    recruitment: recruitmentApiConfig(admission),
+    organization: decodeOrganizationApiConfig(env),
   };
+
+  if (effects !== undefined) Object.assign(config, { publicApplicationEffects: effects });
+
+  if (schoolServiceNotifications !== undefined)
+    Object.assign(config, { schoolServiceNotifications });
+
+  if (schoolServiceDispatchNotifications !== undefined)
+    Object.assign(config, { schoolServiceDispatchNotifications });
+
+  return config;
 };

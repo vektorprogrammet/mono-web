@@ -1,3 +1,4 @@
+import { DepartmentId } from "../organization/schema.js";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { School, SchoolCapacityPlan, SchoolDepartment, SchoolDirectorySchema } from "./schema.js";
@@ -58,15 +59,17 @@ it.effect("strictly decodes the exact full directory and its partition laws", ()
       phone: "+47 900 00 000",
       language: "Norwegian" as const,
       departments: [
-        { departmentId: "bergen", name: "Bergen" },
-        { departmentId: "trondheim", name: "Trondheim" },
+        { departmentId: DepartmentId.make("bergen"), name: "Bergen" },
+        { departmentId: DepartmentId.make("trondheim"), name: "Trondheim" },
       ],
       isActive: true,
     };
+
     const directory = yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(
       { activeSchools: [entry], inactiveSchools: [] },
       { onExcessProperty: "error" },
     );
+
     expect(directory.activeSchools[0]?.schoolId).toBe(1);
 
     const excessFailure = yield* Effect.flip(
@@ -78,6 +81,7 @@ it.effect("strictly decodes the exact full directory and its partition laws", ()
         { onExcessProperty: "error" },
       ),
     );
+
     expect(String(excessFailure)).toContain("capacity");
 
     const partitionFailure = yield* Effect.flip(
@@ -86,6 +90,7 @@ it.effect("strictly decodes the exact full directory and its partition laws", ()
         inactiveSchools: [entry],
       }),
     );
+
     expect(String(partitionFailure)).toContain("partitioned");
 
     const departmentOrderFailure = yield* Effect.flip(
@@ -102,6 +107,7 @@ it.effect("strictly decodes the exact full directory and its partition laws", ()
         { onExcessProperty: "error" },
       ),
     );
+
     expect(String(departmentOrderFailure)).toContain("departmentId");
   }),
 );

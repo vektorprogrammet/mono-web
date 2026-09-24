@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import contract from "../../../infra/preview/routes/route-contract.json";
 
 const baseURL = process.env.PREVIEW_BASE_URL ?? "https://p20.vektor.phibkro.org";
+
 const forbiddenHost = "vektorprogrammet.no";
 
 function screenshotId(routeId: string): string {
@@ -25,6 +26,7 @@ test.describe("p20 preview route contract", () => {
 
       const initialResponse = await page.request.get(url, { maxRedirects: 0 });
       expect(initialResponse.status()).toBe(route.expected.status);
+
       if (route.expected.redirectTo) {
         const location = initialResponse.headers().location;
         expect(location).toBeDefined();
@@ -32,6 +34,7 @@ test.describe("p20 preview route contract", () => {
       }
 
       const response = await page.goto(url, { waitUntil: "networkidle" });
+
       if (route.expected.status < 300) {
         expect(response?.status()).toBe(route.expected.status);
         expect(response?.url()).toContain(new URL(route.path, baseURL).pathname);
@@ -42,6 +45,7 @@ test.describe("p20 preview route contract", () => {
 
       const body = await page.locator("body").innerText();
       expect(body.trim()).not.toBe("");
+
       if (route.expected.basicState === "authorization-denied") {
         expect(initialResponse.status()).toBe(302);
       } else if (route.expected.basicState === "not-found") {
@@ -49,15 +53,18 @@ test.describe("p20 preview route contract", () => {
       } else if (route.expected.basicState === "validation-safe") {
         expect(initialResponse.status()).toBe(200);
       }
+
       expect(forbiddenRequests).toEqual([]);
       expect(consoleErrors).toEqual([]);
       expect(pageErrors).toEqual([]);
 
       const id = screenshotId(route.id);
+
       if (route.visual.desktop) {
         await page.setViewportSize({ width: 1440, height: 900 });
         await page.screenshot({ path: testInfo.outputPath(`${id}-desktop.png`), fullPage: true });
       }
+
       if (route.visual.mobile) {
         await page.setViewportSize({ width: 390, height: 844 });
         await page.screenshot({ path: testInfo.outputPath(`${id}-mobile.png`), fullPage: true });

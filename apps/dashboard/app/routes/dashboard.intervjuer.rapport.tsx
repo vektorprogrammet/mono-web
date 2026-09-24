@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { Schema } from "effect";
 import { Form, Link, data, useLoaderData, useNavigation } from "react-router";
 import { InterviewReport,
@@ -10,10 +11,12 @@ import { Button } from "../components/ui/button";
 import type { Route } from "./+types/dashboard.intervjuer.rapport";
 
 const responseHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } as const;
+
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const params = new URL(request.url).searchParams;
   let query: InterviewReportQuery;
+
   try {
     for (const key of params.keys())
       if (params.getAll(key).length !== 1) throw new Error("duplicate query");
@@ -23,28 +26,35 @@ export async function loader({ request }: Route.LoaderArgs) {
   } catch {
     throw new Response("Ugyldig rapportvalg", { status: 400, headers: responseHeaders });
   }
+
   try {
     const result = await createAuthenticatedClient(cookie, request).recruitment.readInterviewReport(
       { query },
     );
+
     const report = Schema.decodeUnknownSync(InterviewReport)(result.body, {
       onExcessProperty: "error",
     });
+
     return data({ report, failed: false as const, query }, { headers: responseHeaders });
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);
-    if (failure._tag === "Unauthorized") throw await expiredSessionRedirect(request);
-    if (failure._tag === "Forbidden")
+
+    if (Predicate.isTagged(failure, "Unauthorized")) throw await expiredSessionRedirect(request);
+
+    if (Predicate.isTagged(failure, "Forbidden"))
       throw new Response("Du har ikke tilgang til denne rapporten.", {
         status: 403,
         headers: responseHeaders,
       });
+
     return data(
       { report: null, failed: true as const, query },
       { headers: responseHeaders, status: 503 },
     );
   }
 }
+
 export const headers = () => ({
   "Cache-Control": "no-store",
   "Referrer-Policy": "no-referrer",
@@ -52,22 +62,28 @@ export const headers = () => ({
 
 const periodLabel = (period: InterviewReport["periods"][number]) =>
   `${new Date(period.startAt).toLocaleDateString("nb-NO", { timeZone: "UTC" })} – ${new Date(period.endAt).toLocaleDateString("nb-NO", { timeZone: "UTC" })}`;
+
 export default function CompletedInterviewReportRoute() {
   const { report, failed, query } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const pending = navigation.state !== "idle";
   const selectedPeriod = report?.periods.find((period) => period.id === report.selectedPeriodId);
+
   const sortHref = (sort: "applicant" | "recommendation" | "total") => {
     const params = new URLSearchParams();
+
     if (report?.selectedPeriodId) params.set("admissionPeriodId", report.selectedPeriodId);
     params.set("recommendation", report?.recommendation ?? "all");
     params.set("participation", report?.participation ?? "all");
     params.set("sort", sort);
     params.set("direction", report?.sort === sort && report.direction === "asc" ? "desc" : "asc");
+
     return `?${params}`;
   };
+
   const sortState = (sort: string): "ascending" | "descending" | "none" =>
     report?.sort === sort ? (report.direction === "asc" ? "ascending" : "descending") : "none";
+
   return (
     <section
       className="mx-auto grid w-full max-w-6xl gap-6 p-4"

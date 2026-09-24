@@ -4,7 +4,13 @@ import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period"
 import { ResourceId, ResourceKind } from "@vektorprogrammet/domain/authz";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { Organization } from "@vektorprogrammet/domain/organization";
-import { OwnProfile, Profile, UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
+import {
+  ProfilePersistenceError,
+  OwnProfile,
+  Profile,
+  UpdateOwnProfileCommand,
+  ProfileCommandId,
+} from "@vektorprogrammet/domain/profile";
 import {
   ExternalNativeApi,
   ProfileMergePatch,
@@ -13,7 +19,7 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
-import { Effect, Option, Schema } from "effect";
+import { Cause, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   profileRoleFrom,
@@ -61,6 +67,7 @@ export interface ProfileApiHttpOptions {
 }
 
 const UserRole = Schema.Literals(["ROLE_ADMIN", "ROLE_TEAM_LEADER", "ROLE_TEAM_MEMBER"]);
+
 type UserRole = typeof UserRole.Type;
 
 const UserProfile = Schema.Struct({
@@ -74,39 +81,10 @@ const UserProfile = Schema.Struct({
   contactRevision: OwnProfile.fields.contactRevision,
 });
 
-type ProfileHttpErrorTag =
-  | "UnauthenticatedActor"
-  | "AuthorityInactive"
-  | "NotInScope"
-  | "ProfileDecodeError"
-  | "ProfileNotFound"
-  | "ProfileContactNotFound"
-  | "ProfileStaleRevision"
-  | "ProfileCommandConflict"
-  | "ProfilePersistenceError";
-
-const ProfileHttpErrorTag = Schema.Literals([
-  "UnauthenticatedActor",
-  "AuthorityInactive",
-  "NotInScope",
-  "ProfileDecodeError",
-  "ProfileNotFound",
-  "ProfileContactNotFound",
-  "ProfileStaleRevision",
-  "ProfileCommandConflict",
-  "ProfilePersistenceError",
-]);
-
-type TaggedHttpError = Error & { readonly _tag: ProfileHttpErrorTag };
-
-const taggedError = (tag: ProfileHttpErrorTag): TaggedHttpError => {
-  const error = new Error(tag) as TaggedHttpError;
-  Object.defineProperty(error, "_tag", { value: tag, enumerable: true });
-  return error;
-};
+type TaggedHttpError = HttpSemanticFailure;
 
 const jsonResponse = (
-  body: unknown,
+  body: Schema.Json,
   status = 200,
   extraHeaders: Readonly<Record<string, string>> = {},
 ): Response =>
@@ -120,11 +98,14 @@ const jsonResponse = (
   });
 
 const errorResponse = (cause: unknown): Response => {
+  while (Cause.isUnknownError(cause)) cause = cause.cause;
+
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(cause.code, cause.status);
   }
-  const tag =
-    cause !== null && typeof cause === "object" && "_tag" in cause ? String(cause._tag) : "";
+
+  const tag = cause instanceof Error && "_tag" in cause ? String(cause._tag) : "";
+
   switch (tag) {
     case "UnauthenticatedActor":
     case "IdentitySessionNotFound":
@@ -156,24 +137,15 @@ interface ProfileActor {
   readonly role: UserRole;
 }
 
-const profileError = (cause: unknown): TaggedHttpError => {
-  if (cause !== null && typeof cause === "object" && "_tag" in cause) {
-    return cause as TaggedHttpError;
-  }
-  return taggedError("ProfilePersistenceError");
-};
-
-const actorFor = (request: Request, input: ProfileApiHttpOptions) =>
-  input.resolveActor(request).pipe(Effect.catch((cause) => Effect.fail(profileError(cause))));
+const actorFor = (request: Request, input: ProfileApiHttpOptions) => input.resolveActor(request);
 
 const transactionProfileAuthorityFor = (request: Request) =>
-  resolveRequestPersonAuthorityInTransaction(request, {}).pipe(
-    Effect.catch((cause) => Effect.fail(profileError(cause))),
-  );
+  resolveRequestPersonAuthorityInTransaction(request, {});
 
 const decodePatch = (request: Request) =>
   Effect.gen(function* () {
     const contentType = request.headers.get("content-type") ?? "";
+
     if (!/^application\/merge-patch\+json(?:\s*;|$)/iu.test(contentType)) {
       return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
     }
@@ -182,16 +154,21 @@ const decodePatch = (request: Request) =>
       try: () => request.json(),
       catch: () => new HttpSemanticFailure("request.malformed", 400),
     });
+
     const patch = yield* Schema.decodeUnknownEffect(ProfileMergePatch)(body, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+
     const fields = ["firstName", "lastName", "email", "phone"] as const;
+
     if (!fields.some((field) => Object.hasOwn(patch, field))) {
       return yield* Effect.fail(new HttpSemanticFailure("validation.no-change", 422));
     }
+
     if (fields.some((field) => Object.hasOwn(patch, field) && patch[field] === null)) {
       return yield* Effect.fail(new HttpSemanticFailure("validation.field-not-deletable", 422));
     }
+
     return patch;
   });
 
@@ -214,13 +191,19 @@ const strictProfileResponse = (
         contactRevision: profile.contactRevision,
       },
       { onExcessProperty: "error" },
-    ).pipe(Effect.mapError(() => taggedError("ProfilePersistenceError")));
+    ).pipe(
+      Effect.mapError(
+        () => new ProfilePersistenceError({ operation: "HTTP", message: "Profile unavailable" }),
+      ),
+    );
+
     const etag = deriveProfileStrongETag({
       personId: profile.personId,
       nameRevision: profile.nameRevision,
       contactRevision: profile.contactRevision,
       representationRevision,
     });
+
     const decision = yield* Effect.try({
       try: () =>
         evaluateReadPreconditions({
@@ -234,14 +217,18 @@ const strictProfileResponse = (
               : [request.headers.get("if-none-match")!],
           ),
         }),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
     });
-    if (decision._tag === "Failed") {
+
+    if (Predicate.isTagged(decision, "Failed")) {
       return nativeProblemResponse(decision.code, decision.status);
     }
-    if (decision._tag === "NotModified") {
+
+    if (Predicate.isTagged(decision, "NotModified")) {
       return notModifiedResponse({ etag, cacheControl: PRIVATE_NO_STORE, vary: "Origin" });
     }
+
     return jsonResponse(decoded, 200, { etag, "cache-control": PRIVATE_NO_STORE });
   });
 
@@ -249,6 +236,7 @@ const readOwnProfile = (request: Request, input: ProfileApiHttpOptions) =>
   Effect.gen(function* () {
     const actor = yield* actorFor(request, input);
     const now = new Date().toISOString();
+
     const personResource = {
       _tag: "Resource" as const,
       resource: {
@@ -256,6 +244,7 @@ const readOwnProfile = (request: Request, input: ProfileApiHttpOptions) =>
         id: ResourceId.make(actor.personId),
       },
     };
+
     yield* authorizePersonNativeOperation({
       spec: Option.getOrThrow(reflectAccessSpec(ReadOwnProfileEndpoint)),
       request,
@@ -276,6 +265,7 @@ const readOwnProfile = (request: Request, input: ProfileApiHttpOptions) =>
       now,
     });
     const source = yield* readOwnProfileHttpSourcePostgres(actor.personId);
+
     return yield* strictProfileResponse(
       request,
       source.profile,
@@ -297,29 +287,31 @@ const updateOwnProfile = (request: Request) =>
           request.headers.get("if-match") === null ? [] : [request.headers.get("if-match")!],
         ),
       }),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
     });
+
     const patch = yield* decodePatch(request);
     const operationId = "profile.updateOwnProfile";
+
     const result = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const resolved = yield* transactionProfileAuthorityFor(request);
         const roleDecision = profileRoleFrom(resolved.authority);
-        if (roleDecision._tag === "Deny") {
+
+        if (Predicate.isTagged(roleDecision, "Deny")) {
           return yield* Effect.fail(
-            taggedError(
-              roleDecision.reason === "Unauthenticated"
-                ? "UnauthenticatedActor"
-                : roleDecision.reason === "AuthorityInactive"
-                  ? "AuthorityInactive"
-                  : "NotInScope",
-            ),
+            roleDecision.reason === "Unauthenticated"
+              ? new UnauthenticatedActor({ message: "Authentication required" })
+              : new HttpSemanticFailure("authority.denied", 403),
           );
         }
+
         const actor: ProfileActor = {
           personId: resolved.authority.personId,
           role: roleDecision.value,
         };
+
         const personResource = {
           _tag: "Resource" as const,
           resource: {
@@ -327,6 +319,7 @@ const updateOwnProfile = (request: Request) =>
             id: ResourceId.make(actor.personId),
           },
         };
+
         yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(UpdateOwnProfileEndpoint)),
           credential: resolved.credential,
@@ -348,21 +341,26 @@ const updateOwnProfile = (request: Request) =>
         });
         const currentSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
         const current = currentSource.profile;
+
         const currentETag = deriveProfileStrongETag({
           personId: current.personId,
           nameRevision: current.nameRevision,
           contactRevision: current.contactRevision,
           representationRevision: currentSource.representationRevision,
         });
+
         const precondition = yield* Effect.try({
           try: () => evaluateMutationPrecondition(currentETag, ifMatch),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
         });
-        if (precondition._tag === "Failed") {
+
+        if (Predicate.isTagged(precondition, "Failed")) {
           return yield* Effect.fail(
             new HttpSemanticFailure(precondition.code, precondition.status),
           );
         }
+
         const derived = yield* Effect.try({
           try: () =>
             deriveHttpIdentity({
@@ -371,8 +369,10 @@ const updateOwnProfile = (request: Request) =>
               normalizedTarget: "/api/profile",
               idempotencyKey,
             }),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
         });
+
         return {
           identity: {
             identitySha256: derived.identitySha256,
@@ -383,19 +383,19 @@ const updateOwnProfile = (request: Request) =>
             Effect.gen(function* () {
               yield* profileService.updateOwnProfile({
                 actorPersonId: actor.personId,
-                command: {
-                  _tag: "UpdateOwnProfile",
-                  commandId: derived.commandId as unknown as UpdateOwnProfileCommand["commandId"],
+                command: UpdateOwnProfileCommand.make({
+                  commandId: ProfileCommandId.make(derived.commandId),
                   expectedNameRevision: current.nameRevision,
                   expectedContactRevision: current.contactRevision,
                   firstName: patch.firstName ?? current.firstName,
                   lastName: patch.lastName ?? current.lastName,
                   email: patch.email ?? current.email,
                   phone: patch.phone ?? current.phone,
-                },
+                }),
               });
               const updatedSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
               const updated = updatedSource.profile;
+
               const body = {
                 personId: updated.personId,
                 firstName: updated.firstName,
@@ -406,12 +406,14 @@ const updateOwnProfile = (request: Request) =>
                 nameRevision: updated.nameRevision,
                 contactRevision: updated.contactRevision,
               };
+
               const etag = deriveProfileStrongETag({
                 personId: updated.personId,
                 nameRevision: updated.nameRevision,
                 contactRevision: updated.contactRevision,
                 representationRevision: updatedSource.representationRevision,
               });
+
               return {
                 status: 200,
                 mediaType: "application/json",
@@ -423,6 +425,7 @@ const updateOwnProfile = (request: Request) =>
         };
       }),
     );
+
     return nativeCommandOutcomeResponse(result);
   });
 

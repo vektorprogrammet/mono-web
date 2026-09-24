@@ -1,3 +1,5 @@
+import { RecruitmentBridgeFailure } from "../recruitment/bridge";
+import { Predicate } from "effect";
 import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
 import {
   IdempotencyKey,
@@ -7,10 +9,10 @@ import {
   type ScheduleInterviewRequest,
 } from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
-import { AsyncData, Command } from "foldkit";
+import { AsyncData } from "foldkit";
 import { describe, expect, it } from "vitest";
 import type { RecruitmentClient } from "../recruitment/browser-client";
-import { makeSchedulingCommands } from "./command";
+import { commandsFor } from "./command";
 import {
   ChangedAnswer,
   ChangedRecommendation,
@@ -31,17 +33,16 @@ import {
   UpdatedRoom,
   UpdatedScheduledAt,
 } from "./message";
-import { ConductData, makeInitialModel, type Model, type ReadyModel } from "./model";
-import { makeUpdate } from "./update";
+import { ConductData, init, type Model, type ReadyModel, LoadedSchedulingInput } from "./model";
+import { updateFor } from "./update";
 import { responseLabel } from "./view";
 
-const decodeBoard = (value: unknown) =>
-  S.decodeUnknownSync(SchedulingBoard)(value, {
-    onExcessProperty: "error",
-  });
+const decodeBoard = S.decodeUnknownSync(SchedulingBoard, { onExcessProperty: "error" });
+
 const decodeResult = S.decodeUnknownSync(ScheduleInterviewResponse);
 
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
+
 const rawInterview = {
   interviewId: "recruitment-interview-50",
   applicationId: "recruitment-application-50",
@@ -116,29 +117,29 @@ const inertClient: RecruitmentClient = {
   correctInterviewAssessment: () => Effect.die("not executed by transition tests"),
   },
 };
-const commands = makeSchedulingCommands(inertClient);
-const update = makeUpdate(commands);
 
-type SchedulingUpdate = (
-  model: Model,
-  message: Message,
-) => readonly [Model, ReadonlyArray<Command.Command<Message>>];
+const commands = commandsFor(inertClient);
+
+const update = updateFor(commands);
+
+type SchedulingUpdate = typeof update;
 
 const ready = (model: Model): ReadyModel => {
-  if (model._tag !== "Ready") throw new Error("expected a ready scheduling model");
+  if (!Predicate.isTagged(model, "Ready")) throw new Error("expected a ready scheduling model");
+
   return model;
 };
 
 const initialModel = (): ReadyModel =>
   ready(
-    makeInitialModel(
-      { _tag: "Loaded", board: unscheduledBoard },
+    init(
+      LoadedSchedulingInput.make({ board: unscheduledBoard }),
       IdempotencyKey.make("scheduling-test-command"),
     ),
   );
 
 const advance = (transition: SchedulingUpdate, model: Model, message: Message): ReadyModel =>
-  ready(transition(model, message)[0]);
+  ready(transition(model, message).model);
 
 const conductDetail = S.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)({
   interviewId: "recruitment-interview-50",
@@ -175,12 +176,14 @@ const conductDetail = S.decodeUnknownSync(RecruitmentInterviewConductObservation
   canFinalize: true,
   canCancel: true,
 });
+
 const validDraft = (transition: SchedulingUpdate): ReadyModel => {
   let model = advance(
     transition,
     initialModel(),
     OpenedSchedule({ interviewId: unscheduledBoard.interviews[0]!.interviewId }),
   );
+
   model = advance(transition, model, UpdatedScheduledAt({ value: "2031-09-14T15:00:00+02:00" }));
   model = advance(transition, model, UpdatedRoom({ value: "Rom 50" }));
   model = advance(transition, model, UpdatedCampus({ value: "Gløshaugen" }));
@@ -189,6 +192,7 @@ const validDraft = (transition: SchedulingUpdate): ReadyModel => {
     model,
     UpdatedMapLink({ value: "https://maps.example.invalid/interview-50" }),
   );
+
   return advance(transition, model, UpdatedMessage({ value: "Vi ser frem til å møte deg." }));
 };
 
@@ -233,19 +237,21 @@ const responseBoard = decodeBoard({
 describe("Foldkit scheduling transitions", () => {
   it("projects every invitation response label and only provided response messages", () => {
     const model = ready(
-      makeInitialModel(
-        { _tag: "Loaded", board: responseBoard },
+      init(
+        LoadedSchedulingInput.make({ board: responseBoard }),
         IdempotencyKey.make("response-test-command-01"),
       ),
     );
+
     const board = AsyncData.getData(model.board);
     expect(board._tag).toBe("Some");
-    if (board._tag !== "Some") throw new Error("expected the response board observation");
+
+    if (!Predicate.isTagged(board, "Some")) throw new Error("expected the response board observation");
 
     expect(
       board.value.interviews.map((interview) => ({
         label: responseLabel(interview.responseState),
-        ...(interview.responseMessage === null ? {} : { message: interview.responseMessage }),
+        message: interview.responseMessage ?? undefined,
       })),
     ).toEqual([
       { label: "Venter på svar" },
@@ -285,19 +291,19 @@ describe("Foldkit scheduling transitions", () => {
       OpenedSchedule({ interviewId: unscheduledBoard.interviews[0]!.interviewId }),
     );
 
-    const [invalid, emitted] = update(opened, SubmittedSchedule());
+    const { model: invalid, commands: emitted = [] } = update(opened, SubmittedSchedule());
 
     expect(ready(invalid).scheduleError).toBe("Kontroller feltene og prøv igjen.");
     expect(emitted).toEqual([]);
   });
 
   it("emits exactly one first submit and blocks a duplicate while pending", () => {
-    const [pending, emitted] = update(validDraft(update), SubmittedSchedule());
+    const { model: pending, commands: emitted = [] } = update(validDraft(update), SubmittedSchedule());
 
     expect(ready(pending).isScheduling).toBe(true);
     expect(emitted).toHaveLength(1);
 
-    const [unchanged, duplicate] = update(pending, SubmittedSchedule());
+    const { model: unchanged, commands: duplicate = [] } = update(pending, SubmittedSchedule());
     expect(unchanged).toBe(pending);
     expect(duplicate).toEqual([]);
   });
@@ -305,6 +311,7 @@ describe("Foldkit scheduling transitions", () => {
   it("uses a fresh scheduling-board read as the only success state replacement", async () => {
     let postCalls = 0;
     let readCalls = 0;
+
     let observedInput: {
       readonly params: { readonly interviewId: string };
       readonly headers: {
@@ -313,16 +320,19 @@ describe("Foldkit scheduling transitions", () => {
       };
       readonly payload: ScheduleInterviewRequest;
     } | null = null;
+
     const postObservationSchedule = {
       ...freshSchedule,
       room: "POST observation room",
     };
+
     const client: RecruitmentClient = {
       recruitment: {
         scheduleInterview: (input) =>
           Effect.sync(() => {
             postCalls += 1;
             observedInput = input;
+
             return decodeResult({
               interviewId: input.params.interviewId,
               schedule: postObservationSchedule,
@@ -333,6 +343,7 @@ describe("Foldkit scheduling transitions", () => {
         readSchedulingBoard: () =>
           Effect.sync(() => {
             readCalls += 1;
+
             return freshBoard;
           }),
         readAssignmentBoard: () => Effect.die("not executed by transition tests"),
@@ -343,16 +354,19 @@ describe("Foldkit scheduling transitions", () => {
       correctInterviewAssessment: () => Effect.die("not executed by transition tests"),
       },
     };
-    const flowUpdate = makeUpdate(makeSchedulingCommands(client));
-    const [pending, emitted] = flowUpdate(validDraft(flowUpdate), SubmittedSchedule());
+
+    const flowUpdate = updateFor(commandsFor(client));
+    const { model: pending, commands: emitted = [] } = flowUpdate(validDraft(flowUpdate), SubmittedSchedule());
     const pendingBoard = AsyncData.getData(ready(pending).board);
 
     expect(pendingBoard._tag).toBe("Some");
-    if (pendingBoard._tag !== "Some") throw new Error("expected the initial board observation");
+
+    if (!Predicate.isTagged(pendingBoard, "Some")) throw new Error("expected the initial board observation");
     expect(pendingBoard.value).toEqual(unscheduledBoard);
 
     const successMessage = await Effect.runPromise(emitted[0]!.effect);
-    if (successMessage._tag !== "SucceededSchedule") {
+
+    if (!Predicate.isTagged(successMessage, "SucceededSchedule")) {
       throw new Error("expected a fresh scheduling-board success observation");
     }
 
@@ -370,11 +384,12 @@ describe("Foldkit scheduling transitions", () => {
       postObservationSchedule.room,
     );
 
-    const [completed] = flowUpdate(pending, successMessage);
+    const { model: completed } = flowUpdate(pending, successMessage);
     const completedModel = ready(completed);
     const completedBoard = AsyncData.getData(completedModel.board);
     expect(completedBoard._tag).toBe("Some");
-    if (completedBoard._tag !== "Some") throw new Error("expected the fresh board observation");
+
+    if (!Predicate.isTagged(completedBoard, "Some")) throw new Error("expected the fresh board observation");
     expect(completedBoard.value).toEqual(freshBoard);
     expect(completedModel.feedback).toBe(
       "Intervjuet er planlagt. Invitasjonen er lagt i kø for sending.",
@@ -390,15 +405,18 @@ describe("Foldkit scheduling transitions", () => {
       conductGeneration: 7,
       answers: [{ questionId: "question-text", answer: "Draft answer" }],
     } satisfies ReadyModel;
+
     const changed = advance(
       update,
       current,
       ChangedAnswer({ questionId: "question-text", answer: "Edited draft" }),
     );
-    const [refreshingModel] = update(changed, RequestedBoardRefresh());
+
+    const { model: refreshingModel } = update(changed, RequestedBoardRefresh());
     const refreshing = ready(refreshingModel);
     const newerEtag = StrongETag.make(`"vkr2.${"B".repeat(43)}"`);
-    const [unchanged, effects] = update(
+
+    const { model: unchanged, commands: effects = [] } = update(
       refreshing,
       SucceededConduct({
         requestId: refreshing.conductRequestId,
@@ -426,25 +444,30 @@ describe("Foldkit scheduling transitions", () => {
       }),
       isConducting: false,
     } satisfies ReadyModel;
+
     const messages = [
       ChangedAnswer({ questionId: "question-text", answer: "Edited answer" }),
       ChangedRecommendation({ value: "Kanskje" }),
       ChangedScore({ axis: "suitability", value: "9" }),
     ];
+
     for (const message of messages) {
-      const [next, effects] = update(refreshing, message);
+      const { model: next, commands: effects = [] } = update(refreshing, message);
       expect(next).toBe(refreshing);
       expect(effects).toEqual([]);
     }
   });
 
   it("ignores stale load and schedule request observations", () => {
-    const [pending] = update(validDraft(update), SubmittedSchedule());
+    const { model: pending } = update(validDraft(update), SubmittedSchedule());
+
     const current = {
       ...ready(pending),
       boardRequestId: ready(pending).boardRequestId + 1,
     };
+
     const staleRequestId = ready(pending).boardRequestId;
+
     const staleMessages = [
       SucceededLoadSchedulingBoard({ requestId: staleRequestId, board: freshBoard }),
       FailedLoadSchedulingBoard({ requestId: staleRequestId, message: "stale load" }),
@@ -453,7 +476,7 @@ describe("Foldkit scheduling transitions", () => {
     ];
 
     for (const message of staleMessages) {
-      const [next, emitted] = update(current, message);
+      const { model: next, commands: emitted = [] } = update(current, message);
       expect(next).toBe(current);
       expect(emitted).toEqual([]);
     }
@@ -465,6 +488,7 @@ describe("0101 explicit recommendation draft", () => {
     const initial = initialModel();
     expect(initial.recommendation).toBeNull();
     const chosen = advance(update, initial, ChangedRecommendation({ value: "Kanskje" }));
+
     const draft = {
       ...chosen,
       selectedInterviewId: unscheduledBoard.interviews[0]!.interviewId,
@@ -472,15 +496,17 @@ describe("0101 explicit recommendation draft", () => {
       isConducting: true,
       pendingConductAction: "Finalize" as const,
     };
-    const [next, effects] = update(
+
+    const { model: next, commands: effects = [] } = update(
       draft,
       FailedFinalize({
         requestId: draft.conductRequestId,
         generation: draft.conductGeneration,
         interviewId: unscheduledBoard.interviews[0]!.interviewId,
-        failure: { _tag: "Conflict", message: "Changed remotely" },
+        failure: RecruitmentBridgeFailure.cases.Conflict.make({message: "Changed remotely"}),
       }),
     );
+
     const kept = ready(next);
     expect(kept.recommendation).toBe("Kanskje");
     expect(kept.answers).toEqual(draft.answers);

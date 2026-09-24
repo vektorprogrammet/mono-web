@@ -21,13 +21,16 @@ export const VALID_TRANSITIONS = Object.freeze({
 export function assertTransition(from, to) {
   assertState(from);
   assertState(to);
+
   if (!VALID_TRANSITIONS[from]?.includes(to)) throw new Error(`illegal preview transition: ${from} -> ${to}`);
 }
 
 export function readOwnership(path) {
   const manifest = JSON.parse(readFileSync(path, "utf8"));
+
   if (manifest.schema !== "preview-ownership/v1") throw new Error("unsupported ownership manifest schema");
   assertNoForbiddenHost(manifest, "ownership manifest");
+
   return manifest;
 }
 
@@ -38,11 +41,13 @@ function commonInputs(args) {
   const seedDigest = requireDigest(requireOption(args, "seed-digest"), "seedDigest");
   const routeContractDigest = requireDigest(requireOption(args, "route-contract-digest"), "routeContractDigest");
   const ownershipManifest = requireOption(args, "ownership-manifest");
+
   return { identity, sourceDigest, imageDigest, seedDigest, routeContractDigest, ownershipManifest };
 }
 
 export function buildPlan(args, action = "plan") {
   const inputs = commonInputs(args);
+
   const command = buildAlchemyCommand({
     action,
     identity: inputs.identity,
@@ -53,6 +58,7 @@ export function buildPlan(args, action = "plan") {
     routeContractDigest: inputs.routeContractDigest,
     remoteState: args["remote-state"] ?? "vektor/p20",
   });
+
   const plan = {
     schema: "preview-lifecycle-plan/v1",
     action,
@@ -69,55 +75,65 @@ export function buildPlan(args, action = "plan") {
     exactContainer: inputs.identity.containerName,
     credentialBoundary: action === "plan" ? "none" : "trusted-environment-only",
   };
+
   assertNoForbiddenHost(plan, "lifecycle plan");
+
   return Object.freeze(plan);
 }
 
 export function request(path, identity, patch = {}) {
   const current = readLedger(path, identity);
   assertTransition(current.state, "Requested");
+
   return transitionLedger(path, identity, "Requested", { ...patch, sourceHeadSha: identity.headSha });
 }
 
 export function validate(path, identity, patch = {}) {
   const current = readLedger(path, identity);
   assertTransition(current.state, "Validating");
+
   return transitionLedger(path, identity, "Validating", { ...patch, sourceHeadSha: identity.headSha });
 }
 
 export function seedReady(path, identity, patch = {}) {
   const current = readLedger(path, identity);
   assertTransition(current.state, "SeedReady");
+
   return transitionLedger(path, identity, "SeedReady", patch);
 }
 
 export function planned(path, identity, patch = {}) {
   const current = readLedger(path, identity);
   assertTransition(current.state, "Planned");
+
   return transitionLedger(path, identity, "Planned", patch);
 }
 
 export function beginApply(path, identity, patch = {}) {
   const current = readLedger(path, identity);
   assertTransition(current.state, "Applying");
+
   return incrementAttempt(path, identity, patch);
 }
 
 export function seeded(path, identity, patch = {}) {
   const current = readLedger(path, identity);
   assertTransition(current.state, "Seeding");
+
   return transitionLedger(path, identity, "Seeding", patch);
 }
 
 export function live(path, identity, patch = {}) {
   const current = readLedger(path, identity);
   assertTransition(current.state, "Live");
+
   return transitionLedger(path, identity, "Live", { ...patch, attemptStatus: "Live" });
 }
 
 export function retire(path, identity, patch = {}) {
   const current = readLedger(path, identity);
   assertTransition(current.state, "Retiring");
+
   return transitionLedger(path, identity, "Retiring", patch);
 }
 
@@ -126,27 +142,35 @@ export function absent(path, identity, patch = {}) {
   assertTransition(current.state, "Absent");
   const next = transitionLedger(path, identity, "Absent", { ...patch, attemptStatus: current.attemptCount > 0 ? "Complete" : "None", terminalCleanupObservation: patch.terminalCleanupObservation ?? "required" });
   writeTombstone(path, identity, { generation: next.generation, terminalState: "Absent", attemptCount: next.attemptCount, manifestDigest: patch.manifestDigest });
+
   return next;
 }
 
 export function reconcile(path, identity, patch = {}) {
   const current = readLedger(path, identity);
+
   if (current.state === "Absent") return { mode: "plan-only", reason: "No active stage", ledger: current };
+
   if (current.state === "NeedsOperator" || current.state === "Failed") return { mode: "plan-only", reason: `Ledger state ${current.state} requires explicit operator action`, ledger: current };
+
   if (["Applying", "Seeding", "Live", "Retiring"].includes(current.state)) {
     const next = current.state === "Retiring" ? current : retire(path, identity, patch);
+
     return { mode: "teardown-required", ledger: next };
   }
+
   return { mode: "resume-required", ledger: current };
 }
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const operation = args._[0];
+
   if (!operation) throw new Error("lifecycle operation is required");
   const path = requireOption(args, "store");
   const identity = identityFromArgs(args);
   let result;
+
   if (operation === "plan") result = buildPlan(args, "plan");
   else if (operation === "deploy") result = buildPlan(args, "deploy");
   else if (operation === "destroy") result = buildPlan(args, "destroy");

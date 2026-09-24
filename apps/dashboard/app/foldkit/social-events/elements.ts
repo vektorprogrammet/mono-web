@@ -5,6 +5,7 @@ export const SOCIAL_EVENTS_ELEMENT = "vektor-social-events-workspace";
 
 export const registerSocialEventsElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
+
   if (customElements.get(SOCIAL_EVENTS_ELEMENT) !== undefined) return;
 
   customElements.define(
@@ -17,6 +18,7 @@ export const registerSocialEventsElement = (): void => {
         if (this.#dispose !== undefined) return;
         this.#container.id = "foldkit-social-events";
         this.replaceChildren(this.#container);
+
         try {
           this.#dispose = embedSocialEvents(this.#container, {
             client: createBrowserSocialEventsClient(),

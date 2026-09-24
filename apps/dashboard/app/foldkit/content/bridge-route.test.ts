@@ -1,151 +1,92 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ArticleDetailExample, DepartmentExample } from "@vektorprogrammet/http-api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { conditionalReadHeaders, nativeProblemResponse, nativeSessionResponse, privateReadHeaders, routeArgs, sessionCookie } from "../../../test/native-http";
 
-const mocks = vi.hoisted(() => ({
-  workspaceFailure: undefined as unknown,
-  createFailure: undefined as unknown,
-  readFailure: undefined as unknown,
-  readCalls: [] as Array<unknown>,
-  createCalls: [] as Array<unknown>,
-}));
-
-vi.mock("../../lib/auth.server", () => ({
-  requireAuth: async () => "better-auth.session_token=content-test",
-}));
-
-vi.mock("../../lib/api.server", () => ({
-  createAuthenticatedClient: () => ({
-    content: {
-      readContentWorkspace: async () => {
-        if (mocks.workspaceFailure !== undefined) throw mocks.workspaceFailure;
-        return { body: { entries: [] } };
-      },
-      readArticle: async (input: { params: { articleId: unknown } }) => {
-        mocks.readCalls.push(input.params.articleId);
-        if (mocks.readFailure !== undefined) throw mocks.readFailure;
-        return {
-          body: { articleId: input.params.articleId },
-          headers: { etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' },
-        };
-      },
-      createArticle: async (command: unknown) => {
-        mocks.createCalls.push(command);
-        if (mocks.createFailure !== undefined) throw mocks.createFailure;
-        return {
-          body: {},
-          headers: { etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' },
-        };
-      },
-    },
-    organization: {
-      listDepartments: async () => ({
-        body: [
-          { departmentId: "department-a", name: "Trondheim", active: true },
-          { departmentId: "department-b", name: "Bergen", active: true },
-          { departmentId: "department-old", name: "Tidligere", active: false },
-        ],
-      }),
-    },
-  }),
-}));
+vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
 import { action, loader } from "../../routes/__foldkit.content";
 
-const loadWorkspace = () =>
-  loader({ request: new Request("http://dashboard.test/content") } as never);
+const article = { ...ArticleDetailExample, articleId: 7 };
 
-const createDraft = (departmentId: string, operation: string = "createDraft") =>
-  action({
-    request: new Request("http://dashboard.test/content", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        operation,
-        commandId: "AAAAAAAAAAAAAAAAAAAAAA",
-        title: "Tittel",
-        bodyHtml: "<p>Brødtekst</p>",
-        departmentIds: [departmentId],
-      }),
-    }),
-  } as never);
+const departments = [
+  { ...DepartmentExample, departmentId: "department-a", name: "Trondheim" },
+  { ...DepartmentExample, departmentId: "department-b", name: "Bergen" },
+  { ...DepartmentExample, departmentId: "department-old", name: "Tidligere", active: false },
+];
 
-const readArticle = (articleId: unknown, extra: Record<string, unknown> = {}) =>
-  action({
-    request: new Request("http://dashboard.test/content", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ operation: "readArticle", articleId, ...extra }),
-    }),
-  } as never);
+const requests: Request[] = [];
+
+let workspaceResponse = () => Response.json({ entries: [] }, { headers: privateReadHeaders });
+
+let createResponse = () => nativeProblemResponse("authority.denied");
+
+const loadWorkspace = () => loader(routeArgs(new Request("http://dashboard.test/content", { headers: { cookie: sessionCookie } }), {}));
+
+const post = (body: string) => action(routeArgs(new Request("http://dashboard.test/content", {
+  method: "POST", headers: { "content-type": "application/json", cookie: sessionCookie }, body,
+}), {}));
+
+beforeEach(() => {
+  requests.length = 0;
+  workspaceResponse = () => Response.json({ entries: [] }, { headers: privateReadHeaders });
+  createResponse = () => nativeProblemResponse("authority.denied");
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    requests.push(request.clone());
+    const path = new URL(request.url).pathname;
+
+    if (path === "/api/session") return nativeSessionResponse();
+
+    if (path === "/api/departments") return Response.json(departments, { headers: { ...conditionalReadHeaders, "cache-control": "public, max-age=60, s-maxage=300, must-revalidate" } });
+
+    if (path === "/api/content/articles/7") return Response.json(article, { headers: conditionalReadHeaders });
+
+    if (path === "/api/content/articles" && request.method === "POST") return createResponse();
+
+    if (path === "/api/content/articles") return workspaceResponse();
+    throw new Error(`Unexpected content request: ${path}`);
+  }));
+});
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("Content bridge denial decoding", () => {
-  beforeEach(() => {
-    mocks.workspaceFailure = undefined;
-    mocks.createFailure = undefined;
-    mocks.readFailure = undefined;
-    mocks.readCalls.length = 0;
-    mocks.createCalls.length = 0;
-  });
-
-  it("maps an RFC 9457 authority denial across the bridge", async () => {
-    mocks.workspaceFailure = { code: "authority.denied" };
-
+  it("maps canonical authority denial across the real SDK boundary", async () => {
+    workspaceResponse = () => nativeProblemResponse("authority.denied");
     const result = await loadWorkspace();
-
     expect(result.init?.status).toBe(403);
     expect(result.data).toEqual({ error: { tag: "NotInScope" } });
   });
-
-  it("rejects arbitrary tags and unknown RFC 9457 codes", async () => {
-    for (const failure of [{ _tag: "AuthorityInactive" }, { code: "made-up.failure" }]) {
-      mocks.workspaceFailure = failure;
-      const result = await loadWorkspace();
-
-      expect(result.init?.status).toBe(503);
-      expect(result.data).toEqual({ error: { tag: "ContentPersistenceError" } });
-    }
-  });
-
-  it("returns a separate active department bootstrap when the workspace is empty", async () => {
+  it.each(['{"_tag":"AuthorityInactive"}', '{"code":"made-up.failure"}'])("does not grant authority to malformed problem bytes %s", async body => {
+    workspaceResponse = () => new Response(body, { status: 403, headers: { "content-type": "application/problem+json", "cache-control": "no-store", vary: "Origin" } });
     const result = await loadWorkspace();
-
-    expect(result.data).toEqual({
-      workspace: { entries: [] },
-      knownDepartments: [
-        { departmentId: "department-a", name: "Trondheim" },
-        { departmentId: "department-b", name: "Bergen" },
-      ],
-    });
+    expect(result.init?.status).toBe(503);
+    expect(result.data).toEqual({ error: { tag: "ContentPersistenceError" } });
   });
-
-  it("does not let the option list widen server authority", async () => {
+  it("returns only active department choices even when the workspace is empty", async () => {
+    const result = await loadWorkspace();
+    expect(result.data).toEqual({ workspace: { entries: [] }, knownDepartments: [{ departmentId: "department-a", name: "Trondheim" }, { departmentId: "department-b", name: "Bergen" }] });
+  });
+  it("does not let a visible department choice override server authority", async () => {
     await loadWorkspace();
-    mocks.createFailure = { code: "authority.denied" };
-
-    const result = await createDraft("department-b");
-
+    const result = await post(JSON.stringify({ operation: "createDraft", commandId: "AAAAAAAAAAAAAAAAAAAAAA", title: "Tittel", bodyHtml: "<p>Brødtekst</p>", departmentIds: ["department-b"], sticky: false }));
     expect(result.init?.status).toBe(403);
     expect(result.data).toEqual({ error: { tag: "NotInScope" } });
-    expect(mocks.createCalls).toHaveLength(1);
+    const request = requests.find(request => request.method === "POST");
+    expect(await request!.json()).toMatchObject({ departmentIds: ["department-b"] });
   });
-  it("dispatches only a strict private article-detail command", async () => {
-    const result = await readArticle(7);
-    expect(result.data).toEqual({
-      body: { articleId: 7 },
-      etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
-    });
-    expect(mocks.readCalls).toEqual([7]);
-
-    const polluted = await readArticle(7, { createdByPersonId: "person-secret" });
+  it("reads private detail but rejects caller-supplied authority fields before HTTP dispatch", async () => {
+    const result = await post('{"operation":"readArticle","articleId":7}');
+    expect(result.data).toEqual({ body: article, etag: conditionalReadHeaders.etag });
+    const before = requests.filter(request => new URL(request.url).pathname === "/api/content/articles/7").length;
+    const polluted = await post('{"operation":"readArticle","articleId":7,"createdByPersonId":"person-secret"}');
     expect(polluted.init?.status).toBe(422);
     expect(polluted.data).toEqual({ error: { tag: "ContentDecodeError" } });
-    expect(mocks.readCalls).toEqual([7]);
+    expect(requests.filter(request => new URL(request.url).pathname === "/api/content/articles/7")).toHaveLength(before);
   });
-
-  it("strictly rejects unknown bridge operations before calling the SDK", async () => {
-    const result = await createDraft("department-a", "saveDraft");
-
+  it("rejects unknown operations without a content write", async () => {
+    const result = await post('{"operation":"saveDraft","articleId":7}');
     expect(result.init?.status).toBe(422);
-    expect(result.data).toEqual({ error: { tag: "ContentDecodeError" } });
-    expect(mocks.createCalls).toEqual([]);
+    expect(requests.some(request => request.method === "POST")).toBe(false);
   });
 });

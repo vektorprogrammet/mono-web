@@ -24,12 +24,19 @@ import {
 const runtime = makeControlledTestRuntime(DatabaseTest());
 
 const departmentId = DepartmentId.make("school-survey-postgres-department");
+
 const semesterId = SemesterId.make(`school-survey-postgres-semester-${"s".repeat(101)}`);
+
 const managerPersonId = PersonId.make("school-survey-postgres-manager");
+
 const volunteerPersonId = PersonId.make("school-survey-postgres-volunteer");
+
 const surveyId = SurveyId.make("survey_123e4567-e89b-12d3-a456-426614174000");
+
 const createdAt = "2035-09-22T10:00:00.000Z";
+
 const importedListAlternative = "\tTwo";
+
 const importedSurveyId = SurveyId.make("survey_imported_without_native_provenance");
 
 const questionId = (position: number) => SurveyQuestionId.make(`${surveyId}_q_${position}`);
@@ -130,6 +137,7 @@ describe("School-survey PostgreSQL administration", () => {
                 person_id, department_id, status, revision
               ) VALUES (${volunteerPersonId}, ${departmentId}, 'Active', 1)
             `;
+
             const schoolRows = yield* sql<{ readonly schoolId: number }>`
               INSERT INTO public.schools_directory_schools (
                 school_id, name, contact_person, email, phone, language, active
@@ -145,7 +153,9 @@ describe("School-survey PostgreSQL administration", () => {
               )
               RETURNING school_id::double precision AS "schoolId"
             `;
+
             const schoolId = schoolRows[0]?.schoolId;
+
             if (schoolId === undefined)
               return yield* Effect.die("school seed did not return an ID");
             yield* sql`
@@ -160,38 +170,47 @@ describe("School-survey PostgreSQL administration", () => {
                 ${schoolId}, 'Monday', 1, '1', TRUE, 1
               )
             `;
+
             const authority = {
               personId: managerPersonId,
               evaluatedAt: createdAt,
               globalAdministrator: "Active" as const,
               memberships: [],
             };
+
             const catalog = yield* readSchoolSurveyAdminCatalogPostgres(authority).pipe(
               Effect.provideService(Database, sql),
             );
+
             const created = yield* createSchoolSurveyAdminSurveyPostgres(createCommand).pipe(
               Effect.provideService(Database, sql),
             );
+
             const replayed = yield* createSchoolSurveyAdminSurveyPostgres(createCommand).pipe(
               Effect.provideService(Database, sql),
             );
+
             yield* sql`
               UPDATE public.school_survey_question_alternatives
               SET value = ${importedListAlternative}
               WHERE alternative_id = ${`${questionId(1)}_a_1`}
             `;
+
             const listed = yield* listSchoolSurveyAdminSurveysPostgres({
               departmentId,
               semesterId,
             }).pipe(Effect.provideService(Database, sql));
+
             const firstPrepared = yield* prepareSchoolSurveyResponsePostgres({
               surveyId,
               request: responseRequest(schoolId, "first response"),
             }).pipe(Effect.provideService(Database, sql));
+
             const secondPrepared = yield* prepareSchoolSurveyResponsePostgres({
               surveyId,
               request: responseRequest(schoolId, "second response"),
             }).pipe(Effect.provideService(Database, sql));
+
             yield* persistSchoolSurveyResponsePostgres({
               responseId: SurveyResponseId.make("survey_response_a"),
               prepared: firstPrepared,
@@ -200,6 +219,7 @@ describe("School-survey PostgreSQL administration", () => {
               responseId: SurveyResponseId.make("survey_response_b"),
               prepared: secondPrepared,
             }).pipe(Effect.provideService(Database, sql));
+
             const stale = yield* Effect.flip(
               closeSchoolSurveyAdminSurveyPostgres({
                 commandId: SchoolSurveyCommandId.make("school-survey-postgres-stale-close"),
@@ -209,6 +229,7 @@ describe("School-survey PostgreSQL administration", () => {
                 request: { expectedRevision: 7 },
               }).pipe(Effect.provideService(Database, sql)),
             );
+
             const closed = yield* closeSchoolSurveyAdminSurveyPostgres({
               commandId: SchoolSurveyCommandId.make("school-survey-postgres-close"),
               surveyId,
@@ -216,6 +237,7 @@ describe("School-survey PostgreSQL administration", () => {
               occurredAt: "2035-09-22T10:10:00.000Z",
               request: { expectedRevision: 0 },
             }).pipe(Effect.provideService(Database, sql));
+
             const repeated = yield* Effect.flip(
               closeSchoolSurveyAdminSurveyPostgres({
                 commandId: SchoolSurveyCommandId.make("school-survey-postgres-repeated-close"),
@@ -225,24 +247,29 @@ describe("School-survey PostgreSQL administration", () => {
                 request: { expectedRevision: 1 },
               }).pipe(Effect.provideService(Database, sql)),
             );
+
             const closedForm = yield* Effect.flip(
               readSchoolSurveyFormPostgres(surveyId).pipe(Effect.provideService(Database, sql)),
             );
+
             const closedPrepare = yield* Effect.flip(
               prepareSchoolSurveyResponsePostgres({
                 surveyId,
                 request: responseRequest(schoolId, "after closure"),
               }).pipe(Effect.provideService(Database, sql)),
             );
+
             const closedWrite = yield* Effect.flip(
               persistSchoolSurveyResponsePostgres({
                 responseId: SurveyResponseId.make("survey_response_after_close"),
                 prepared: firstPrepared,
               }).pipe(Effect.provideService(Database, sql)),
             );
+
             const results = yield* readSchoolSurveyAdminResultsPostgres(surveyId).pipe(
               Effect.provideService(Database, sql),
             );
+
             const auditRows = yield* sql<{
               readonly action: string;
               readonly surveyRevision: number;
@@ -252,11 +279,13 @@ describe("School-survey PostgreSQL administration", () => {
               WHERE survey_id = ${surveyId}
               ORDER BY audit_id ASC
             `;
+
             const responseCountRows = yield* sql<{ readonly count: number }>`
               SELECT count(*)::integer AS count
               FROM public.school_survey_responses
               WHERE survey_id = ${surveyId}
             `;
+
             yield* sql`
               INSERT INTO public.native_survey_definitions (
                 survey_id, department_id, semester_id, semester_label, title, completion_text,
@@ -266,6 +295,7 @@ describe("School-survey PostgreSQL administration", () => {
                 'Imported survey', 'Thank you.', 'School'
               )
             `;
+
             return {
               catalog,
               created,
@@ -323,16 +353,18 @@ describe("School-survey PostgreSQL administration", () => {
     });
     expect(evidence.replayed).toEqual(evidence.created);
     expect(evidence.listed.surveys).toHaveLength(1);
-    expect(evidence.stale).toMatchObject({ _tag: "SchoolSurveyStaleRevision", actualRevision: 0 });
+    expect(evidence.stale).toHaveProperty("_tag", "SchoolSurveyStaleRevision");
+    expect(evidence.stale).toMatchObject({ actualRevision: 0 });
     expect(evidence.closed).toMatchObject({
       state: "Closed",
       revision: 1,
       closedByPersonId: managerPersonId,
     });
-    expect(evidence.repeated).toMatchObject({ _tag: "SchoolSurveyInvalidState", state: "Closed" });
-    expect(evidence.closedForm).toMatchObject({ _tag: "SchoolSurveyNotFound" });
-    expect(evidence.closedPrepare).toMatchObject({ _tag: "SchoolSurveyNotFound" });
-    expect(evidence.closedWrite).toMatchObject({ _tag: "SchoolSurveyNotFound" });
+    expect(evidence.repeated).toHaveProperty("_tag", "SchoolSurveyInvalidState");
+    expect(evidence.repeated).toMatchObject({ state: "Closed" });
+    expect(evidence.closedForm).toHaveProperty("_tag", "SchoolSurveyNotFound");
+    expect(evidence.closedPrepare).toHaveProperty("_tag", "SchoolSurveyNotFound");
+    expect(evidence.closedWrite).toHaveProperty("_tag", "SchoolSurveyNotFound");
     expect(evidence.responseCount).toBe(2);
     expect(evidence.auditRows).toEqual([
       { action: "Created", surveyRevision: 0 },

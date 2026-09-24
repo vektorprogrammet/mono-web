@@ -1,6 +1,9 @@
 # Worker PR previews
 
-Status: frozen for implementation, 2026-09-23.
+Status: frontend preview automation exists in source. Workspace-gate and deployed-provider acceptance remain open.
+
+The workflow builds the frontends but does not itself establish the full workspace-validation gate required below.
+[STATE.md](../../STATE.md#next) records the acceptance work. Provider actions still require explicit authority.
 
 ## Goal
 

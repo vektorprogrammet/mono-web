@@ -1,12 +1,20 @@
+import { Schema, Predicate } from "effect";
 import { expect, test, type Page, type Request } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
+
 const leaderUsername = "recruitment-leader-0029";
+
 const leaderPassword = "recruitment-e2e-0029";
+
 const interviewerUsername = "recruitment-interviewer-0029";
+
 const interviewerPassword = "recruitment-e2e-0029";
+
 const applicantName = "Søker 0029";
+
 const responseCapability = "recruitment_response_0029";
+
 const schedule = {
   datetime: "2026-09-14T15:00:00+02:00",
   room: "Rom 29",
@@ -19,14 +27,17 @@ const schedule = {
 
 function redactTokenBody(rawBody: string): string {
   try {
-    const parsed = JSON.parse(rawBody) as { token?: unknown };
-    if (parsed && typeof parsed === "object" && "token" in parsed) {
+    const parsed = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.mutableKey(Schema.Json)))(JSON.parse(rawBody));
+
+    if ("token" in parsed) {
       parsed.token = "<redacted>";
+
       return JSON.stringify(parsed);
     }
   } catch {
     // Keep non-JSON error responses intact for diagnosis.
   }
+
   return rawBody;
 }
 
@@ -44,6 +55,7 @@ async function probeLoginFailure(
       },
       data: { username, password },
     });
+
     return {
       status: response.status(),
       body: redactTokenBody(await response.text()),
@@ -58,6 +70,7 @@ async function probeLoginFailure(
 
 async function diagnoseDashboardAuth(page: Page, stage: string): Promise<string> {
   const rawCookies = await page.context().cookies();
+
   const cookies = rawCookies.map((cookie) => ({
     name: cookie.name,
     value: "<redacted>",
@@ -67,17 +80,20 @@ async function diagnoseDashboardAuth(page: Page, stage: string): Promise<string>
     httpOnly: cookie.httpOnly,
     sameSite: cookie.sameSite,
   }));
+
   const jwtCookie = rawCookies.find((cookie) => cookie.name === "jwt_token");
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (jwtCookie) headers.Authorization = `Bearer ${jwtCookie.value}`;
+  const headers = new Headers({ Accept: "application/json" });
+
+  if (jwtCookie) headers.set("Authorization", `Bearer ${jwtCookie.value}`);
 
   const probes = await Promise.all(
     ["/api/me", "/api/me/dashboard"].map(async (endpoint) => {
       try {
         const response = await page.request.get(`${apiOrigin}${endpoint}`, {
           timeout: 10_000,
-          headers,
+          headers: Object.fromEntries(headers),
         });
+
         return {
           endpoint,
           status: response.status(),
@@ -98,6 +114,7 @@ async function diagnoseDashboardAuth(page: Page, stage: string): Promise<string>
     body: diagnosticBody,
     contentType: "application/json",
   });
+
   return diagnosticBody;
 }
 
@@ -105,8 +122,10 @@ async function diagnoseDashboardAuth(page: Page, stage: string): Promise<string>
 function bridgeOperation(request: Request): string | null {
   try {
     const body = request.postDataJSON();
-    if (typeof body !== "object" || body === null || !("operation" in body)) return null;
-    return typeof body.operation === "string" ? body.operation : null;
+
+    if (!Predicate.isObjectOrArray(body) || body === null || !("operation" in body)) return null;
+
+    return Predicate.isString(body.operation) ? body.operation : null;
   } catch {
     return null;
   }
@@ -118,6 +137,7 @@ async function login(page: Page, username: string, password: string): Promise<vo
   await page.getByLabel("Brukernavn eller e-post").fill(username);
   await page.getByLabel("Passord").fill(password);
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
+
   try {
     await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
   } catch (error) {
@@ -183,12 +203,14 @@ test.describe("Real Symfony interview scheduling", () => {
         new URL(request.url()).pathname === "/interview" &&
         bridgeOperation(request) === "scheduleInterview",
     );
+
     const scheduleResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         new URL(response.url()).pathname === "/interview" &&
         bridgeOperation(response.request()) === "scheduleInterview",
     );
+
     await page.getByRole("button", { name: "Lagre og send", exact: true }).click();
     const [request, response] = await Promise.all([scheduleRequest, scheduleResponse]);
     const bridgePayload = request.postDataJSON();
@@ -198,21 +220,26 @@ test.describe("Real Symfony interview scheduling", () => {
     });
     expect(bridgePayload.interviewId).toEqual(expect.any(Number));
     const bridgeResponseBody = await response.text();
+
     if (response.status() !== 200) {
       const jwtCookie = (await page.context().cookies()).find((cookie) => cookie.name === "jwt_token");
-      const directHeaders: Record<string, string> = {
+
+      const directHeaders = new Headers({
         Accept: "application/json",
         "Content-Type": "application/json",
-      };
-      if (jwtCookie) directHeaders.Authorization = `Bearer ${jwtCookie.value}`;
+      });
+
+      if (jwtCookie) directHeaders.set("Authorization", `Bearer ${jwtCookie.value}`);
 
       let directStatus = 0;
       let directBody = "";
+
       try {
         const directResponse = await page.request.post(
           `${apiOrigin}/api/admin/interviews/${bridgePayload.interviewId}/schedule`,
-          { headers: directHeaders, data: schedule, timeout: 10_000 },
+          { headers: Object.fromEntries(directHeaders), data: schedule, timeout: 10_000 },
         );
+
         directStatus = directResponse.status();
         directBody = redactTokenBody(await directResponse.text());
       } catch (error) {
@@ -242,9 +269,10 @@ test.describe("Real Symfony interview scheduling", () => {
         `Interview scheduling bridge returned ${response.status()}: ${redactTokenBody(bridgeResponseBody)}; direct Symfony returned ${directStatus}: ${directBody}`,
       );
     }
+
     expect(response.status()).toBe(200);
 
-    const scheduleResult = JSON.parse(bridgeResponseBody) as unknown;
+    const scheduleResult = Schema.decodeUnknownSync(Schema.Json)(JSON.parse(bridgeResponseBody));
     expect(scheduleResult).toBeNull();
 
     await expect(page.getByText("Intervjuet er planlagt og invitert.", { exact: true })).toBeVisible();
@@ -267,12 +295,14 @@ test.describe("Real Symfony interview scheduling", () => {
     const interviewerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const interviewerPage = await interviewerContext.newPage();
     await login(interviewerPage, interviewerUsername, interviewerPassword);
+
     const freshRead = interviewerPage.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         new URL(response.url()).pathname === "/interview" &&
         bridgeOperation(response.request()) === "listInterviews",
     );
+
     await openInterviewDashboard(interviewerPage);
     expect((await freshRead).status()).toBe(200);
     const freshCard = interviewerPage.getByRole("article").filter({ hasText: applicantName });

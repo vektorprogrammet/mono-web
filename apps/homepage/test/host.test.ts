@@ -73,6 +73,7 @@ describe("homepage stage and host contract", () => {
     ]) {
       expect(() => homepageDomain(stage)).toThrow();
     }
+
     for (const host of [
       "localhost",
       "vektorprogrammet.no",

@@ -1,37 +1,35 @@
-import { expect, it } from "@effect/vitest";
+import { afterAll, expect, it } from "vitest";
 import { Effect } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
+import { SchoolDirectoryScopeSchema } from "@vektorprogrammet/domain/schools";
+import { Database } from "../service.js";
+import { DatabaseTest } from "../layers.js";
+import { makeControlledTestRuntime } from "../../test/runtime.js";
 import { listSchoolDirectoryPostgres } from "./postgres.js";
 
-it.effect("rejects an excess field from the persisted directory row", () =>
-  Effect.gen(function* () {
-    const row = {
-      schoolId: "1",
-      name: "Strict School",
-      contactPerson: "Strict Contact",
-      email: "strict@example.invalid",
-      phone: "+47 900 00 020",
-      language: "Norwegian",
-      departments: [{ departmentId: "bergen", name: "Bergen" }],
-      isActive: true,
-      capacity: { monday: 2 },
-    };
-    const statement = ((_strings: TemplateStringsArray) => Effect.succeed([row])) as unknown as {
-      (
-        _strings: TemplateStringsArray,
-        ..._values: ReadonlyArray<unknown>
-      ): Effect.Effect<ReadonlyArray<typeof row>>;
-      in: (_column: string, _values: ReadonlyArray<unknown>) => unknown;
-    };
-    statement.in = () => ({ _tag: "ScopeFragment" });
-    const failure = yield* Effect.flip(
-      listSchoolDirectoryPostgres({ scope: { _tag: "All" } }).pipe(
-        Effect.provideService(Database, statement as unknown as DatabaseShape),
-      ),
-    );
-    expect(failure._tag).toBe("SchoolsDecodeError");
-    if (failure._tag !== "SchoolsDecodeError") return;
-    expect(failure.operation).toBe("decode Schools directory rows");
-    expect(failure.message).toContain("capacity");
-  }),
-);
+const runtime = makeControlledTestRuntime(DatabaseTest());
+
+afterAll(() => runtime.dispose());
+
+it("rejects a persisted school that fails the directory schema", async () => {
+  const observed = await runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      // PostgreSQL btrim accepts a tab; the domain requires visible name text.
+      yield* sql`
+        INSERT INTO schools_directory_schools (
+          name, contact_person, email, phone, language, active
+        ) VALUES (${"\t"}, 'Strict Contact', 'strict@example.invalid',
+          '+47 900 00 020', 'Norwegian', TRUE)
+      `;
+      const scope = SchoolDirectoryScopeSchema.cases.All.make({});
+      const failure = yield* Effect.flip(listSchoolDirectoryPostgres({ scope }));
+      yield* sql`UPDATE schools_directory_schools SET name = 'Strict School'`;
+      const repaired = yield* listSchoolDirectoryPostgres({ scope });
+
+      return { failure, repaired };
+    }),
+  );
+
+  expect(observed.failure._tag).toBe("SchoolsDecodeError");
+  expect(observed.repaired.activeSchools[0]?.name).toBe("Strict School");
+}, 15_000);

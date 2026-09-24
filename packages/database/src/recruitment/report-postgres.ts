@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Predicate, Effect, Schema } from "effect";
 import { Database } from "../service.js";
 import { listAdmissionPeriodsForManagement } from "../admission-period/postgres.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
@@ -24,6 +24,7 @@ export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
   Effect.gen(function* () {
     const organization = yield* Organization;
     const authority = yield* organization.resolvePersonAuthority(personId, now);
+
     const departments = [
       ...new Set(
         authority.memberships
@@ -31,14 +32,17 @@ export const resolveInterviewReportLeader = (personId: PersonId, now: string) =>
           .map((member) => member.departmentId),
       ),
     ];
+
     if (departments.length !== 1) return yield* new RecruitmentRoleDenied({ personId });
     const decision = mapOrganizationAuthorityToRecruitmentActor(authority, departments[0]!);
+
     if (
-      decision._tag === "Deny" ||
-      decision.value._tag !== "DepartmentLeader" ||
+      Predicate.isTagged(decision, "Deny") ||
+      !Predicate.isTagged(decision.value, "DepartmentLeader") ||
       !decision.value.active
     )
       return yield* new RecruitmentRoleDenied({ personId });
+
     return decision.value;
   });
 
@@ -52,12 +56,15 @@ export const readCompletedInterviewReport = (
     const query = yield* Schema.decodeUnknownEffect(InterviewReportQuery)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError(() => new RecruitmentDecodeError({ message: "invalid report query" })));
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           const actor = yield* resolveInterviewReportLeader(personId, now);
           const periods = yield* listAdmissionPeriodsForManagement({ actor, now });
+
           if (
             query.admissionPeriodId !== undefined &&
             !periods.some((period) => period.id === query.admissionPeriodId)
@@ -67,6 +74,7 @@ export const readCompletedInterviewReport = (
               departmentId: actor.departmentId,
             });
           let rows: ReadonlyArray<InterviewReportRow> = [];
+
           if (query.admissionPeriodId !== undefined) {
             const candidates = yield* sql<{ interviewId: string; applicantId: string }>`
         SELECT i.interview_id AS "interviewId", a.applicant_id AS "applicantId"
@@ -76,8 +84,10 @@ export const readCompletedInterviewReport = (
         WHERE a.department_id=${actor.departmentId} AND i.department_id=${actor.departmentId}
           AND a.admission_period_id=${query.admissionPeriodId}
         ORDER BY a.applicant_id, i.interview_id`;
+
             for (const applicantId of [...new Set(candidates.map((row) => row.applicantId))].sort())
               yield* lockOnboardingApplicant(applicantId);
+
             // 0037 versions applicant rows when links are inserted: old serializable
             // snapshots abort; READ COMMITTED gets the fresh link after lock acquisition.
             const observations = yield* sql<{
@@ -108,6 +118,7 @@ export const readCompletedInterviewReport = (
         LEFT JOIN public.applicant_account_links l USING(applicant_id)
         WHERE a.department_id=${actor.departmentId} AND i.department_id=${actor.departmentId}
           AND a.admission_period_id=${query.admissionPeriodId}`;
+
             const candidateIds = new Set(candidates.map((row) => row.interviewId));
             rows = yield* Schema.decodeUnknownEffect(Schema.Array(InterviewReportRow))(
               observations
@@ -124,6 +135,7 @@ export const readCompletedInterviewReport = (
               ),
             );
           }
+
           return {
             departmentId: actor.departmentId,
             periods,

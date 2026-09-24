@@ -17,7 +17,9 @@ import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { operationAnnotations, PersonSecurity } from "./common.js";
 import { DirectoryListPeopleProblem, DirectoryListSchoolsProblem } from "./endpoint-problems.js";
 import { endpointProblemResponses, privateReadResponse } from "./http-semantics.js";
+
 export { SchoolDirectoryDepartmentSchema, SchoolDirectorySchema, SchoolId };
+
 export type { SchoolDirectory, SchoolDirectoryDepartment, SchoolDirectoryEntry };
 
 /**

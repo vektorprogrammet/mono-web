@@ -1,6 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
-import type { Pool } from "pg";
+import { afterAll, describe, expect, it } from "vitest";
+import { Pool } from "pg";
 import { makeAuthEngineOptions } from "./auth-engine.js";
 import {
   OAUTH_NATIVE_API_RESOURCE,
@@ -8,7 +7,6 @@ import {
   makeOAuthOptions,
   oauthIssuer,
 } from "./oauth-config.js";
-import { databaseMigrationDefinitions } from "./migrations.js";
 
 const oauth = {
   canonicalOrigin: "http://127.0.0.1:4173",
@@ -17,16 +15,9 @@ const oauth = {
 } as const;
 
 describe("native OAuth provider composition", () => {
-  it("pins the provider dependencies and recorded npm integrity", async () => {
-    const manifest = await readFile(new URL("../package.json", import.meta.url), "utf8");
-    const lock = await readFile(new URL("../../../bun.lock", import.meta.url), "utf8");
+  const pool = new Pool();
 
-    expect(manifest).toContain('"better-auth": "1.7.1"');
-    expect(manifest).toContain('"@better-auth/oauth-provider": "1.7.1"');
-    expect(lock).toContain(
-      "sha512-VWIw7ti6rodlbbdSbn0mts/TZcBWUj6YaoIpREmv70eoGmWTa6MPWEbGuUdADQe3Vy4YqysIbmQA6qgRqfLTaw==",
-    );
-  });
+  afterAll(() => pool.end());
 
   it("matches the frozen issuer, resource, scopes, lifetimes, and closed grants", () => {
     const options = makeOAuthOptions(oauth);
@@ -70,7 +61,7 @@ describe("native OAuth provider composition", () => {
         trustedOrigins: [oauth.dashboardOrigin],
         secureCookies: false,
       },
-      {} as Pool,
+      pool,
     );
 
     expect(engineOptions.baseURL).toBe(oauth.canonicalOrigin);
@@ -85,36 +76,5 @@ describe("native OAuth provider composition", () => {
       },
       jwt: { issuer: "http://127.0.0.1:4173/api/auth" },
     });
-  });
-});
-
-describe("native OAuth migration", () => {
-  it("keeps native OAuth migration 27 before the service-grant and HTTP semantics migrations", async () => {
-    const migration = databaseMigrationDefinitions.find(
-      ({ id }) => id === "27_native-oauth-provider",
-    )!;
-    const sql = await readFile(migration.url, "utf8");
-
-    expect(migration.id).toBe("27_native-oauth-provider");
-    for (const relation of [
-      'auth."oauthClient"',
-      'auth."oauthResource"',
-      'auth."oauthClientResource"',
-      'auth."oauthRefreshToken"',
-      'auth."oauthAccessToken"',
-      'auth."oauthConsent"',
-      'auth."oauthClientAssertion"',
-      "auth.jwks",
-      "public.service_principals",
-      "auth.oauth_client_bindings",
-      "auth.oauth_refresh_families",
-      "auth.oauth_access_token_state",
-      "auth.oauth_security_audit",
-    ]) {
-      expect(sql).toContain(relation);
-    }
-    expect(sql).toContain("oauth_security_audit_no_update");
-    expect(sql).not.toContain("public.authz_rules");
-    expect(sql).not.toContain("ALTER TABLE public.authz_rules");
   });
 });

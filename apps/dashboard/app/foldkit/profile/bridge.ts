@@ -1,71 +1,64 @@
-import { Schema as S } from "effect";
+import { nativeProblemFrom } from "../../lib/native-problem";
+import { Schema as S, flow } from "effect";
+
 
 export const ProfileRequestId = S.Int.check(S.isGreaterThanOrEqualTo(0));
 
-export const ProfileBridgeFailure = S.Struct({
-  _tag: S.Literals([
-    "Unauthorized",
-    "Forbidden",
-    "NotFound",
-    "Validation",
-    "Conflict",
-    "Network",
-    "RateLimited",
-    "Configuration",
-  ]),
-  message: S.String,
+export const ProfileBridgeFailure = S.TaggedUnion({
+"Unauthorized": { message: S.String },
+"Forbidden": { message: S.String },
+"NotFound": { message: S.String },
+"Validation": { message: S.String },
+"Conflict": { message: S.String },
+"Network": { message: S.String },
+"RateLimited": { message: S.String },
+"Configuration": { message: S.String }
 });
+
 export type ProfileBridgeFailure = S.Schema.Type<typeof ProfileBridgeFailure>;
 
-// Tags arrive either as native Effect tags (capitalized, e.g.
-// "ProfileCommandConflict") or as public SDK error types from the
-// promise boundary (lowercase, e.g. "conflict"). Match both.
-const errorTag = (error: unknown): string => {
-  if (typeof error !== "object" || error === null) return "";
-  if ("code" in error && typeof error.code === "string") return error.code;
-  if ("_tag" in error && typeof error._tag === "string") return error._tag;
-  if ("tag" in error && typeof error.tag === "string") return error.tag;
-  return "";
-};
-
-export const toProfileBridgeFailure = (error: unknown): ProfileBridgeFailure => {
-  const tag = errorTag(error);
+export const toProfileBridgeFailure = flow(nativeProblemFrom, (problem): ProfileBridgeFailure => {
+ const tag = problem?.code ?? "";
 
   if (tag === "credential.missing" || tag === "credential.invalid") {
-    return { _tag: "Unauthorized", message: "Sesjonen har utløpt. Logg inn på nytt." };
+    return ProfileBridgeFailure.cases.Unauthorized.make({ message: "Sesjonen har utløpt. Logg inn på nytt." });
   }
-  if (tag === "authority.denied" || tag === "scope.not-found") {
-    return { _tag: "Forbidden", message: "Du mangler tillatelse til å endre profilen." };
+
+  if (tag === "authority.denied") {
+    return ProfileBridgeFailure.cases.Forbidden.make({ message: "Du mangler tillatelse til å endre profilen." });
   }
+
   if (tag === "resource.not-found") {
-    return { _tag: "NotFound", message: "Fant ikke profildataene." };
+    return ProfileBridgeFailure.cases.NotFound.make({ message: "Fant ikke profildataene." });
   }
-  if (tag.startsWith("precondition.") || tag.startsWith("idempotency.") || tag === "conflict") {
-    return {
-      _tag: "Conflict",
+
+  if (tag.startsWith("precondition.") || tag.startsWith("idempotency.")) {
+    return ProfileBridgeFailure.cases.Conflict.make({
       message: "Profilen er endret av en annen. Last siden på nytt for å se de nyeste verdiene.",
-    };
+    });
   }
+
   if (tag === "idempotency.response-expired") {
-    return {
-      _tag: "Conflict",
+    return ProfileBridgeFailure.cases.Conflict.make({
       message: "Lagringen kunne ikke spilles av. Prøv på nytt.",
-    };
+    });
   }
+
   if (tag.startsWith("validation.") || tag === "request.malformed") {
-    return {
-      _tag: "Validation",
+    return ProfileBridgeFailure.cases.Validation.make({
       message: "Serveren godtok ikke verdienne. Kontroller feltene og prøv igjen.",
-    };
+    });
   }
+
   if (tag === "rate-limit.exceeded") {
-    return {
-      _tag: "RateLimited",
+    return ProfileBridgeFailure.cases.RateLimited.make({
       message: "For mange forespørsler. Vent litt og prøv på nytt.",
-    };
+    });
   }
+
   if (tag === "dependency.unavailable" || tag === "internal.error") {
-    return { _tag: "Configuration", message: "Tjenesten er feilkonfigurert." };
+    return ProfileBridgeFailure.cases.Configuration.make({ message: "Tjenesten er feilkonfigurert." });
   }
-  return { _tag: "Network", message: "Kunne ikke lagre profilen. Prøv på nytt." };
-};
+
+  return ProfileBridgeFailure.cases.Network.make({ message: "Kunne ikke lagre profilen. Prøv på nytt." });
+});

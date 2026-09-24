@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { SurveyId } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { useEffect, useRef } from "react";
@@ -16,7 +17,9 @@ const invalidSurveyResponse = () => new Response(null, { status: 404 });
 const surveyIdFrom = (value: string | undefined) => {
   const routeValue = value === undefined ? undefined : schoolSurveyIdFromPathSegment(value);
   const decoded = Schema.decodeUnknownOption(SurveyId)(routeValue);
-  if (decoded._tag === "None") throw invalidSurveyResponse();
+
+  if (Predicate.isTagged(decoded, "None")) throw invalidSurveyResponse();
+
   return decoded.value;
 };
 
@@ -34,9 +37,11 @@ const failureMessage = (failure: "Validation" | "Conflict" | "Unavailable") => {
 export async function loader({ params }: Route.LoaderArgs) {
   const surveyId = surveyIdFrom(params.surveyId);
   const result = await loadSchoolSurvey(surveyId);
-  if (result._tag === "Failed") {
+
+  if (Predicate.isTagged(result, "Failed")) {
     throw new Response(null, { status: result.failure === "NotFound" ? 404 : 503 });
   }
+
   return { surveyId, form: result.form, commandId: crypto.randomUUID() };
 }
 
@@ -44,7 +49,8 @@ export async function action({ params, request }: Route.ActionArgs) {
   const surveyId = surveyIdFrom(params.surveyId);
   const submittedForm = await request.formData();
   const loaded = await loadSchoolSurvey(surveyId);
-  if (loaded._tag === "Failed") {
+
+  if (Predicate.isTagged(loaded, "Failed")) {
     return {
       success: false as const,
       draft: schoolSurveyDraftFromForm(submittedForm),
@@ -55,7 +61,9 @@ export async function action({ params, request }: Route.ActionArgs) {
           : failureMessage("Unavailable"),
     };
   }
+
   const parsed = parseSchoolSurveySubmission(submittedForm, loaded.form);
+
   if (parsed.payload === undefined || parsed.commandId === undefined) {
     return {
       success: false as const,
@@ -64,14 +72,17 @@ export async function action({ params, request }: Route.ActionArgs) {
       message: "Kontroller feltene som er markert.",
     };
   }
+
   const result = await submitSchoolSurveyResponse({
     surveyId,
     commandId: parsed.commandId,
     payload: parsed.payload,
   });
-  if (result._tag === "Submitted") {
+
+  if (Predicate.isTagged(result, "Submitted")) {
     return { success: true as const, completionText: result.completionText };
   }
+
   return {
     success: false as const,
     draft: parsed.draft,
@@ -98,9 +109,13 @@ const FieldError = ({
 
 const questionControlId = (questionId: string) =>
   `survey-question-${encodeURIComponent(questionId)}`;
+
 const questionErrorId = (questionId: string) => `${questionControlId(questionId)}-error`;
+
 const questionHelpId = (questionId: string) => `${questionControlId(questionId)}-help`;
+
 const questionField = (questionId: string) => `question:${questionId}`;
+
 const fieldErrorFor = (
   fieldErrors: Readonly<Record<string, string>> | undefined,
   field: string,
@@ -202,12 +217,14 @@ export default function SchoolSurveyRoute() {
           const helpId = questionHelpId(questionId);
           const error = fieldErrorFor(failed?.fieldErrors, questionId);
           const values = failed?.draft.answers[questionId] ?? [];
+
           const describedBy = [
             question.help === null ? undefined : helpId,
             error === undefined ? undefined : errorId,
           ]
             .filter((value): value is string => value !== undefined)
             .join(" ");
+
           return (
             <fieldset
               key={questionId}
@@ -279,6 +296,7 @@ export default function SchoolSurveyRoute() {
                 >
                   {question.alternatives.map((alternative, index) => {
                     const alternativeId = `${controlId}-${index}`;
+
                     return (
                       <label
                         key={alternative}
@@ -309,6 +327,7 @@ export default function SchoolSurveyRoute() {
                 >
                   {question.alternatives.map((alternative, index) => {
                     const alternativeId = `${controlId}-${index}`;
+
                     return (
                       <label
                         key={alternative}

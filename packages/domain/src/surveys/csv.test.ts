@@ -1,3 +1,4 @@
+import { DepartmentId } from "../organization/schema.js";
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { encodeSchoolSurveyResultsCsv } from "./csv.js";
@@ -7,7 +8,7 @@ const result = Schema.decodeSync(SchoolSurveyResultsResource)(
   {
     survey: {
       surveyId: "survey_123e4567-e89b-12d3-a456-426614174000",
-      departmentId: "survey-department",
+      departmentId: DepartmentId.make("survey-department"),
       semesterId: "survey-semester",
       semesterLabel: "Survey semester",
       title: "School feedback",

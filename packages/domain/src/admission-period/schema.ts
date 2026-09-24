@@ -3,30 +3,35 @@
  *
  * @since 0.1.0
  */
-import { type Effect, Schema } from "effect";
+import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
+
 export { Rfc3339InstantSchema, isRfc3339Instant } from "../time.js";
 
 const NonEmptyIdSchema = Schema.NonEmptyString;
 
 export const AdmissionPeriodId = NonEmptyIdSchema.pipe(Schema.brand("AdmissionPeriodId"));
+
 export type AdmissionPeriodId = typeof AdmissionPeriodId.Type;
 
 export const AdmissionFieldOfStudyId = NonEmptyIdSchema.pipe(
   Schema.brand("AdmissionFieldOfStudyId"),
 );
+
 export type AdmissionFieldOfStudyId = typeof AdmissionFieldOfStudyId.Type;
 
 export const AdmissionPeriodCommandId = NonEmptyIdSchema.pipe(
   Schema.brand("AdmissionPeriodCommandId"),
 );
+
 export type AdmissionPeriodCommandId = typeof AdmissionPeriodCommandId.Type;
 
 export const AdmissionPeriodEffectId = NonEmptyIdSchema.pipe(
   Schema.brand("AdmissionPeriodEffectId"),
 );
+
 export type AdmissionPeriodEffectId = typeof AdmissionPeriodEffectId.Type;
 
 export const RevisionSchema = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
@@ -132,8 +137,11 @@ export class AdmissionPeriod extends Model.Class<AdmissionPeriod>("AdmissionPeri
 }) {}
 
 export const AdmissionPeriodSchema = AdmissionPeriod;
+
 export const AdmissionSemesterSchema = AdmissionSemester;
+
 export const AdmissionDepartmentSchema = AdmissionDepartment;
+
 export const AdmissionFieldOfStudySchema = AdmissionFieldOfStudy;
 
 export const AdmissionPeriodActorSchema = Schema.TaggedUnion({
@@ -152,9 +160,11 @@ export const AdmissionPeriodActorSchema = Schema.TaggedUnion({
     active: Schema.Boolean,
   },
 });
+
 export type AdmissionPeriodActor = typeof AdmissionPeriodActorSchema.Type;
 
 const AdmissionPeriodCreateFields = AdmissionPeriod.jsonCreate.fields;
+
 const AdmissionPeriodUpdateFields = AdmissionPeriod.jsonUpdate.fields;
 
 const CreateAdmissionPeriodFields = {
@@ -167,6 +177,7 @@ const CreateAdmissionPeriodFields = {
 
 /** Exact create command body; department is omitted for department-scoped actors. */
 export const CreateAdmissionPeriodInputSchema = Schema.Struct(CreateAdmissionPeriodFields);
+
 export type CreateAdmissionPeriodInput = typeof CreateAdmissionPeriodInputSchema.Type;
 
 const ReviseAdmissionPeriodFields = {
@@ -178,27 +189,29 @@ const ReviseAdmissionPeriodFields = {
 };
 
 export const ReviseAdmissionPeriodInputSchema = Schema.Struct(ReviseAdmissionPeriodFields);
+
 export type ReviseAdmissionPeriodInput = typeof ReviseAdmissionPeriodInputSchema.Type;
 
 export const AdmissionPeriodCommandSchema = Schema.TaggedUnion({
   CreateAdmissionPeriod: CreateAdmissionPeriodFields,
   ReviseAdmissionPeriod: ReviseAdmissionPeriodFields,
 });
+
 export type AdmissionPeriodCommand = typeof AdmissionPeriodCommandSchema.Type;
 
 export const AdmissionPeriodProjectionSchema = Schema.Struct({
   ...AdmissionPeriod.json.fields,
   eligible: Schema.Boolean,
 });
+
 export type AdmissionPeriodProjection = typeof AdmissionPeriodProjectionSchema.Type;
 
-const CreatedObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["Created"]),
+const CreatedObservationSchema = Schema.TaggedStruct("Created", {
   commandId: AdmissionPeriodCommandId,
   period: AdmissionPeriod,
 });
-const RevisedObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["Revised"]),
+
+const RevisedObservationSchema = Schema.TaggedStruct("Revised", {
   commandId: AdmissionPeriodCommandId,
   period: AdmissionPeriod,
 });
@@ -221,28 +234,30 @@ export const AdmissionPeriodObservationSchema = Schema.TaggedUnion({
     reason: NonEmptyIdSchema,
   },
 });
+
 export type AdmissionPeriodObservation = typeof AdmissionPeriodObservationSchema.Type;
 
 export const AdmissionPeriodListSchema = Schema.Array(AdmissionPeriodProjectionSchema);
+
 export type AdmissionPeriodList = typeof AdmissionPeriodListSchema.Type;
 
-export const decodeAdmissionPeriodCommand = (
-  input: unknown,
-): Effect.Effect<AdmissionPeriodCommand, Schema.SchemaError> =>
-  Schema.decodeUnknownEffect(AdmissionPeriodCommandSchema)(input, {
+export const decodeAdmissionPeriodCommand = Schema.decodeUnknownEffect(
+  AdmissionPeriodCommandSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);
 
-export const decodeCreateAdmissionPeriodInput = (
-  input: unknown,
-): Effect.Effect<CreateAdmissionPeriodInput, Schema.SchemaError> =>
-  Schema.decodeUnknownEffect(CreateAdmissionPeriodInputSchema)(input, {
+export const decodeCreateAdmissionPeriodInput = Schema.decodeUnknownEffect(
+  CreateAdmissionPeriodInputSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);
 
-export const decodeReviseAdmissionPeriodInput = (
-  input: unknown,
-): Effect.Effect<ReviseAdmissionPeriodInput, Schema.SchemaError> =>
-  Schema.decodeUnknownEffect(ReviseAdmissionPeriodInputSchema)(input, {
+export const decodeReviseAdmissionPeriodInput = Schema.decodeUnknownEffect(
+  ReviseAdmissionPeriodInputSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);

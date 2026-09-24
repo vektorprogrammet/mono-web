@@ -46,6 +46,7 @@ function FieldError({
   readonly error: PublicApplicationErrorView | undefined;
 }) {
   const message = error?.fieldErrors?.[field];
+
   if (!message) return null;
 
   return (
@@ -63,6 +64,7 @@ function errorDescription(
   const ids = [error?.fieldErrors?.[field] ? `${field}-error` : undefined, extraId]
     .filter((id): id is string => id !== undefined)
     .join(" ");
+
   return ids || undefined;
 }
 
@@ -210,11 +212,14 @@ export function PublicApplicationForm({
   const selectedDepartment = loaderData.catalog.departments.find(
     (department) => department.departmentId === departmentId,
   );
+
   const submissionError =
     actionData?.success === false ? actionData.failure.error : undefined;
+
   const commandIdKey = submissionError?.resetCommandId
     ? `reset-${actionData?.success === false ? actionData.failure.commandId : ""}`
     : "stable-command";
+
   const commandIdDefault = submissionError?.resetCommandId
     ? ""
     : actionData?.success === false
@@ -224,10 +229,13 @@ export function PublicApplicationForm({
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const commandIdInput = event.currentTarget.elements.namedItem("commandId");
+
     if (!(commandIdInput instanceof HTMLInputElement)) return;
+
     if (commandIdInput.value === "") {
       commandIdInput.value = globalThis.crypto.randomUUID();
     }
+
     void submit(event.currentTarget, { method: "post" });
   };
 

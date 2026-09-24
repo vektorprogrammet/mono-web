@@ -1,7 +1,9 @@
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { Cause, Effect } from "effect";
+import { Predicate, Cause, Effect } from "effect";
 import {
+  ReceiptId,
+  ReceiptCommandRequestSchema,
   ReceiptAuxiliaryEffects,
   ReceiptFileService,
   type ReceiptFileRecordingSnapshot,
@@ -15,13 +17,14 @@ import {
   recoverStaleReceiptOutbox,
 } from "./outbox.js";
 import { executeReceiptCommand } from "./postgres.js";
-import { ReceiptId, ReceiptVisualId, type ReceiptFile } from "@vektorprogrammet/domain/receipt";
+import { ReceiptVisualId, type ReceiptFile } from "@vektorprogrammet/domain/receipt";
 
 interface OutboxStateRow {
   readonly status: string;
   readonly count: string;
   readonly attempts: string;
 }
+
 interface SchemaDefinitionRow {
   readonly kind: string;
   readonly name: string;
@@ -100,6 +103,7 @@ const raceFile: ReceiptFile = {
   byteLength: 384,
   sha256: "e".repeat(64),
 };
+
 const identicalFile: ReceiptFile = {
   fileRef: "staged/proof-file-concurrent-identical",
   objectKey: "receipts/proof-file-concurrent-identical",
@@ -117,6 +121,7 @@ const conflictFile: ReceiptFile = {
 };
 
 const ownerPersonId = PersonId.make("file-proof-owner");
+
 const approverPersonId = PersonId.make("file-proof-approver");
 
 interface ReceiptFileProofCommandContext {
@@ -163,6 +168,7 @@ const submit = (
   now: string,
 ) => {
   const commandContext = context(receiptId, visualId, now);
+
   return executeReceiptCommand(
     submitCommand(commandId, "Receipt file proof", file),
     principal(ownerPersonId, now),
@@ -176,11 +182,11 @@ const hasFailureTag = (
     | { readonly _tag: "Failure"; readonly cause: Cause.Cause<unknown> },
   tag: string,
 ): boolean =>
-  result._tag === "Failure" &&
+  Predicate.isTagged(result, "Failure") &&
   result.cause.reasons.some(
     (reason) =>
       Cause.isFailReason(reason) &&
-      typeof reason.error === "object" &&
+      (reason.error === null || Predicate.isObjectOrArray(reason.error)) &&
       reason.error !== null &&
       "_tag" in reason.error &&
       reason.error._tag === tag,
@@ -263,6 +269,7 @@ export const runReceiptFileProof = (
         'file-proof-department', '2026-01-01T00:00:00.000Z'
       );
     `);
+
     const schemaDefinition = () =>
       sql<SchemaDefinitionRow>`
         SELECT 'constraint' AS kind, constraint_row.conname AS name,
@@ -279,6 +286,7 @@ export const runReceiptFileProof = (
           AND index_row.tablename IN ('economy_receipts', 'economy_receipt_outbox')
         ORDER BY kind, name
       `;
+
     const freshSchema = yield* schemaDefinition();
     yield* sql`
       DELETE FROM vektorprogrammet_schema_migrations
@@ -315,9 +323,11 @@ export const runReceiptFileProof = (
     `);
     yield* sql.migrate;
     const upgradedSchema = yield* schemaDefinition();
+
     if (JSON.stringify(freshSchema) !== JSON.stringify(upgradedSchema)) {
       throw new Error("fresh and upgraded Receipt schemas differ");
     }
+
     yield* files.stage(original);
     yield* files.stage(replacement);
     yield* files.stage(raceFile);
@@ -334,16 +344,15 @@ export const runReceiptFileProof = (
     const submitDelivery = yield* drain(3, "claim-submit", "2026-08-20T16:01:00.000Z");
 
     yield* executeReceiptCommand(
-      {
-        _tag: "RevisePendingReceipt",
+      ReceiptCommandRequestSchema.cases.RevisePendingReceipt.make({
         commandId: "file-proof-revise",
-        receiptId: "file-proof-receipt",
+        receiptId: ReceiptId.make("file-proof-receipt"),
         expectedRevision: 0,
         description: "Receipt file proof replacement",
         amountOre: 13_000,
         receiptDate: "2026-08-20",
         file: replacement,
-      },
+      }),
       principal(ownerPersonId, "2026-08-20T16:02:00.000Z"),
     );
 
@@ -351,18 +360,23 @@ export const runReceiptFileProof = (
       "claim-stale-dead-process",
       "2026-08-20T16:03:00.000Z",
     );
+
     if (staleClaim === undefined) throw new Error("expected replacement promote claim");
+
     const staleClaimIds = yield* listStaleReceiptOutboxClaimIds(
       "2026-08-20T16:04:00.000Z",
       "file-proof-receipt",
     );
+
     if (!staleClaimIds.includes(staleClaim.claimId)) {
       throw new Error("stale Receipt outbox claim was not explicitly discovered");
     }
+
     const recovered = yield* recoverStaleReceiptOutbox(
       staleClaim.claimId,
       "2026-08-20T16:04:00.000Z",
     );
+
     yield* Effect.sync(() => {
       if (recovered !== 1) throw new Error("expected one stale Receipt outbox claim");
     });
@@ -375,24 +389,27 @@ export const runReceiptFileProof = (
     });
 
     yield* failNextFileEffect("file-proof-revise:PromoteReceiptFile");
+
     const failedDelivery = yield* deliverNextReceiptOutbox(
       "claim-replacement-failure",
       "2026-08-20T16:05:00.000Z",
     );
+
     const currentAfterFailure = yield* fileSnapshot;
+
     const replacementDelivery = yield* deliverNextReceiptOutbox(
       "claim-replacement-retry",
       "2026-08-20T16:06:00.000Z",
     );
+
     const reviseRemainder = yield* drain(2, "claim-revise", "2026-08-20T16:07:00.000Z");
 
     yield* executeReceiptCommand(
-      {
-        _tag: "WithdrawPendingReceipt",
+      ReceiptCommandRequestSchema.cases.WithdrawPendingReceipt.make({
         commandId: "file-proof-withdraw",
-        receiptId: "file-proof-receipt",
+        receiptId: ReceiptId.make("file-proof-receipt"),
         expectedRevision: 1,
-      },
+      }),
       principal(ownerPersonId, "2026-08-20T16:08:00.000Z"),
     );
     const withdrawDelivery = yield* drain(2, "claim-withdraw", "2026-08-20T16:09:00.000Z");
@@ -404,11 +421,13 @@ export const runReceiptFileProof = (
       raceFile,
       "2026-08-20T16:10:00.000Z",
     );
+
     const raceContext = context(
       "file-proof-race-receipt",
       "FILE-PROOF-2",
       "2026-08-20T16:11:00.000Z",
     );
+
     const workerClaims = yield* Effect.all(
       [
         claimNextReceiptOutbox("claim-worker-a", "2026-08-20T16:10:30.000Z"),
@@ -416,47 +435,51 @@ export const runReceiptFileProof = (
       ],
       { concurrency: "unbounded" },
     );
+
     const workerClaim = workerClaims.find((claim) => claim !== undefined);
+
     if (
       workerClaim === undefined ||
       workerClaims.filter((claim) => claim !== undefined).length !== 1
     ) {
       throw new Error("concurrent Receipt outbox claims were not exclusive");
     }
+
     const workerClaimsRecovered = yield* recoverStaleReceiptOutbox(
       workerClaim.claimId,
       "2026-08-20T16:10:31.000Z",
     );
+
     if (workerClaimsRecovered !== 1) {
       throw new Error("exclusive Receipt outbox claim was not recoverable");
     }
+
     const [approve, reject] = yield* Effect.all(
       [
         Effect.exit(
           executeReceiptCommand(
-            {
-              _tag: "ApproveReceipt",
+            ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
               commandId: "file-proof-race-approve",
-              receiptId: "file-proof-race-receipt",
+              receiptId: ReceiptId.make("file-proof-race-receipt"),
               expectedRevision: 0,
-            },
+            }),
             principal(approverPersonId, raceContext.now),
           ),
         ),
         Effect.exit(
           executeReceiptCommand(
-            {
-              _tag: "RejectReceipt",
+            ReceiptCommandRequestSchema.cases.RejectReceipt.make({
               commandId: "file-proof-race-reject",
-              receiptId: "file-proof-race-receipt",
+              receiptId: ReceiptId.make("file-proof-race-receipt"),
               expectedRevision: 0,
-            },
+            }),
             principal(approverPersonId, raceContext.now),
           ),
         ),
       ],
       { concurrency: "unbounded" },
     );
+
     const [raceDrainA, raceDrainB] = yield* Effect.all(
       [
         drain(5, "claim-race-a", "2026-08-20T16:12:00.000Z"),
@@ -464,26 +487,32 @@ export const runReceiptFileProof = (
       ],
       { concurrency: "unbounded" },
     );
+
     const raceDelivery = [...raceDrainA, ...raceDrainB];
+
     const concurrentDrainClaims = raceDelivery.flatMap((result) =>
-      result._tag === "Idle" ? [] : [result.claim.claimId],
+      "claim" in result ? [result.claim.claimId] : [],
     );
+
     if (
       concurrentDrainClaims.length === 0 ||
       new Set(concurrentDrainClaims).size !== concurrentDrainClaims.length
     ) {
       throw new Error("simultaneous Receipt outbox drains reused a claim identity");
     }
+
     const identicalContext = context(
       "file-proof-concurrent-identical-receipt",
       "FILE-PROOF-3",
       "2026-08-20T16:13:00.000Z",
     );
+
     const identicalCommand = submitCommand(
       "file-proof-concurrent-identical",
       "Concurrent identical submission",
       identicalFile,
     );
+
     const identicalCommandResults = yield* Effect.all(
       [
         Effect.exit(
@@ -503,6 +532,7 @@ export const runReceiptFileProof = (
       ],
       { concurrency: "unbounded" },
     );
+
     const identicalCommandDelivery = yield* drain(
       3,
       "claim-concurrent-identical",
@@ -514,6 +544,7 @@ export const runReceiptFileProof = (
       "FILE-PROOF-4",
       "2026-08-20T16:15:00.000Z",
     );
+
     const conflictingCommandResults = yield* Effect.all(
       [
         Effect.exit(
@@ -541,6 +572,7 @@ export const runReceiptFileProof = (
       ],
       { concurrency: "unbounded" },
     );
+
     const conflictingCommandDelivery = yield* drain(
       3,
       "claim-concurrent-conflict",
@@ -548,20 +580,25 @@ export const runReceiptFileProof = (
     );
 
     const sameCommandAccepted = identicalCommandResults.filter(
-      (result) => result._tag === "Success" && !result.value.replayed,
+      (result) => Predicate.isTagged(result, "Success") && !result.value.replayed,
     ).length;
+
     const sameCommandReplayed = identicalCommandResults.filter(
-      (result) => result._tag === "Success" && result.value.replayed,
+      (result) => Predicate.isTagged(result, "Success") && result.value.replayed,
     ).length;
+
     const conflictingCommandAccepted = conflictingCommandResults.filter(
-      (result) => result._tag === "Success" && !result.value.replayed,
+      (result) => Predicate.isTagged(result, "Success") && !result.value.replayed,
     ).length;
+
     const conflictingCommandConflicts = conflictingCommandResults.filter((result) =>
       hasFailureTag(result, "DuplicateReceiptCommandConflict"),
     ).length;
+
     if (sameCommandAccepted !== 1 || sameCommandReplayed !== 1) {
       throw new Error("concurrent identical Receipt commands did not replay exactly once");
     }
+
     if (conflictingCommandAccepted !== 1 || conflictingCommandConflicts !== 1) {
       throw new Error("concurrent conflicting Receipt commands did not fail exactly once");
     }
@@ -575,6 +612,7 @@ export const runReceiptFileProof = (
 
     const snapshot = yield* fileSnapshot;
     const auxiliary = yield* auxiliaryEffectIds;
+
     const allDeliveries = [
       ...submitDelivery,
       failedDelivery,
@@ -585,43 +623,61 @@ export const runReceiptFileProof = (
       ...identicalCommandDelivery,
       ...conflictingCommandDelivery,
     ];
-    const delivered = allDeliveries.filter((result) => result._tag === "Delivered").length;
-    const failed = allDeliveries.filter((result) => result._tag === "Failed").length;
+
+    const delivered = allDeliveries.filter((result) =>
+      Predicate.isTagged(result, "Delivered"),
+    ).length;
+
+    const failed = allDeliveries.filter((result) => Predicate.isTagged(result, "Failed")).length;
+
     const promoteIndex = snapshot.events.findIndex(
       (event) => event.effectId === "file-proof-revise:PromoteReceiptFile",
     );
+
     const deleteIndex = snapshot.events.findIndex(
       (event) => event.effectId === "file-proof-revise:DeleteReceiptFile",
     );
+
     const orderedReplacement = promoteIndex >= 0 && deleteIndex >= 0 && promoteIndex < deleteIndex;
+
     const currentPreservedOnFailure =
-      failedDelivery._tag === "Failed" &&
+      Predicate.isTagged(failedDelivery, "Failed") &&
       currentAfterFailure.current.length === 1 &&
       currentAfterFailure.current[0]?.objectKey === original.objectKey;
+
     const replacementReclaimed =
-      failedDelivery._tag === "Failed" &&
+      Predicate.isTagged(failedDelivery, "Failed") &&
       failedDelivery.claim.claimId === "claim-replacement-failure";
+
     const replacementDelivered =
-      replacementDelivery._tag === "Delivered" &&
+      Predicate.isTagged(replacementDelivery, "Delivered") &&
       replacementDelivery.claim.claimId === "claim-replacement-retry";
+
     const duplicateFileEffects =
       snapshot.events.length - new Set(snapshot.events.map((event) => event.effectId)).size;
+
     const resolutionResults = [approve, reject];
-    const acceptedResolutions = resolutionResults.filter(
-      (result) => result._tag === "Success",
+
+    const acceptedResolutions = resolutionResults.filter((result) =>
+      Predicate.isTagged(result, "Success"),
     ).length;
-    const rejectedResolutions = resolutionResults.filter(
-      (result) => result._tag === "Failure",
+
+    const rejectedResolutions = resolutionResults.filter((result) =>
+      Predicate.isTagged(result, "Failure"),
     ).length;
+
     if (acceptedResolutions !== 1 || rejectedResolutions !== 1) {
       throw new Error("concurrent Receipt resolves did not produce exactly one winner");
     }
+
     if (!orderedReplacement || !currentPreservedOnFailure) {
       throw new Error("Receipt replacement file ordering or failure isolation was violated");
     }
+
     if (!replacementReclaimed || !replacementDelivered) {
       throw new Error("stale Receipt outbox claim was not reclaimed and delivered");
     }
+
     return {
       specId: "0034",
       sourceRevision: "463d98c88e3ac89cbe6c4de28e449e69eca0a532",

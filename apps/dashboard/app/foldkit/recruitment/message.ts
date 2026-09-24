@@ -3,35 +3,45 @@ import { InterviewSchemaId,
 RecruitmentInterviewerOptionSchema, } from "@vektorprogrammet/http-api"
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
-import { m } from "foldkit/message";
+import { taggedStruct } from "foldkit/schema";
 import { RecruitmentAssignmentBoardSchema, RecruitmentBoardStatus } from "./bridge";
 import { RecruitmentBoardRequestId } from "./model";
 
-export const SelectedFilter = m("SelectedFilter", { status: RecruitmentBoardStatus });
-export const SucceededLoadBoard = m("SucceededLoadBoard", {
+export const SelectedFilter = taggedStruct("SelectedFilter", { status: RecruitmentBoardStatus });
+
+export const SucceededLoadBoard = taggedStruct("SucceededLoadBoard", {
   requestId: RecruitmentBoardRequestId,
   board: RecruitmentAssignmentBoardSchema,
 });
-export const FailedLoadBoard = m("FailedLoadBoard", {
+
+export const FailedLoadBoard = taggedStruct("FailedLoadBoard", {
   requestId: RecruitmentBoardRequestId,
   message: S.String,
 });
-export const OpenedAssignment = m("OpenedAssignment", {
+
+export const OpenedAssignment = taggedStruct("OpenedAssignment", {
   applicationId: PublicApplicationIdSchema,
 });
-export const ClosedAssignment = m("ClosedAssignment");
-export const SelectedInterviewer = m("SelectedInterviewer", {
+
+export const ClosedAssignment = taggedStruct("ClosedAssignment", {});
+
+export const SelectedInterviewer = taggedStruct("SelectedInterviewer", {
   personId: RecruitmentInterviewerOptionSchema.fields.personId,
 });
-export const SelectedSchema = m("SelectedSchema", {
+
+export const SelectedSchema = taggedStruct("SelectedSchema", {
   interviewSchemaId: InterviewSchemaId,
 });
-export const SubmittedAssignment = m("SubmittedAssignment");
-export const SucceededAssignment = m("SucceededAssignment", {
+
+export const SubmittedAssignment = taggedStruct("SubmittedAssignment", {});
+
+export const SucceededAssignment = taggedStruct("SucceededAssignment", {
   board: RecruitmentAssignmentBoardSchema,
 });
-export const FailedAssignment = m("FailedAssignment", { message: S.String });
-export const GotAssignmentDialogMessage = m("GotAssignmentDialogMessage", {
+
+export const FailedAssignment = taggedStruct("FailedAssignment", { message: S.String });
+
+export const GotAssignmentDialogMessage = taggedStruct("GotAssignmentDialogMessage", {
   message: Dialog.Message,
 });
 
@@ -48,4 +58,5 @@ export const Message = S.Union([
   FailedAssignment,
   GotAssignmentDialogMessage,
 ]);
+
 export type Message = S.Schema.Type<typeof Message>;

@@ -70,6 +70,7 @@ export function assertPreviewIdentity(value: {
   ) {
     throw new Error("Preview identity does not match the frozen p20 contract");
   }
+
   if (value.hostname.includes(PREVIEW_IDENTITY.forbiddenHost)) {
     throw new Error("Preview identity contains the forbidden production host");
   }
@@ -77,5 +78,6 @@ export function assertPreviewIdentity(value: {
 
 export function resourceName(kind: PreviewResourceKind): string {
   const suffix = kind === "container" ? "container" : kind;
+
   return `${PREVIEW_IDENTITY.resourcePrefix}-${suffix}`;
 }

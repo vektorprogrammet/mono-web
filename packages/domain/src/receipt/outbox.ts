@@ -1,3 +1,4 @@
+import { Data } from "effect";
 import type { ReceiptOutboxRequest } from "./effects.js";
 
 export interface ClaimedReceiptOutbox {
@@ -17,3 +18,5 @@ export type ReceiptOutboxDeliveryResult =
       readonly claim: ClaimedReceiptOutbox;
       readonly failureTag: string;
     };
+
+export const ReceiptOutboxDeliveryResult = Data.taggedEnum<ReceiptOutboxDeliveryResult>();

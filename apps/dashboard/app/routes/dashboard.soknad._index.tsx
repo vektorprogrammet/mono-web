@@ -1,8 +1,5 @@
-import type {
-  ApplicantProgressItem,
-  ApplicantProgressResponse,
-  ApplicantProgressState,
-} from "@vektorprogrammet/http-api";
+import { Predicate } from "effect";
+import type { ApplicantProgressItem, ApplicantProgressState } from "@vektorprogrammet/http-api";
 import { data, Link, useLoaderData } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
@@ -17,18 +14,23 @@ const responseHeaders = {
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
+
   try {
     const response = await client.admissions.readApplicantProgress();
+
     return data(
-      { progress: response.body as ApplicantProgressResponse, unavailable: false as const },
+      { progress: response.body, unavailable: false as const },
       { headers: responseHeaders },
     );
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
+
     if (problem === undefined) throw cause;
+
     if (problem?.code === "credential.missing" || problem?.code === "credential.invalid") {
       throw await expiredSessionRedirect(request);
     }
+
     return data(
       { progress: null, unavailable: true as const },
       { status: 503, headers: responseHeaders },
@@ -115,10 +117,12 @@ const dateTimeFormatter = new Intl.DateTimeFormat("nb-NO", {
 });
 
 function Schedule({ progress }: { readonly progress: ApplicantProgressState }) {
-  if (progress._tag !== "InvitedToInterview" && progress._tag !== "InterviewAccepted") {
+  if (!Predicate.isTagged(progress, "InvitedToInterview") && !Predicate.isTagged(progress, "InterviewAccepted")) {
     return null;
   }
+
   const { schedule } = progress;
+
   return (
     <dl className="mt-4 grid gap-2 rounded-md border bg-muted/30 p-4 sm:grid-cols-2">
       <div>
@@ -155,11 +159,13 @@ function Schedule({ progress }: { readonly progress: ApplicantProgressState }) {
 
 function ProgressSteps({ progress }: { readonly progress: ApplicantProgressState }) {
   const presentation = statePresentation[progress._tag];
+
   return (
     <ol aria-label="Søknadsprosess" className="mt-6 grid gap-3 md:grid-cols-4 lg:grid-cols-7">
       {steps.map((label, index) => {
         const completed = !presentation.cancelled && index < presentation.step;
         const current = index === presentation.step;
+
         return (
           <li
             key={label}
@@ -188,9 +194,11 @@ function ProgressSteps({ progress }: { readonly progress: ApplicantProgressState
 
 function ApplicationCard({ application }: { readonly application: ApplicantProgressItem }) {
   const presentation = statePresentation[application.progress._tag];
+
   const canRequestAffiliation =
-    application.progress._tag === "InterviewCompleted" ||
-    application.progress._tag === "ReturningRegistrationCompleted";
+    Predicate.isTagged(application.progress, "InterviewCompleted") ||
+    Predicate.isTagged(application.progress, "ReturningRegistrationCompleted");
+
   return (
     <article
       className="rounded-lg border bg-card p-5 shadow-sm"
@@ -232,6 +240,7 @@ function ApplicationCard({ application }: { readonly application: ApplicantProgr
 
 export default function ApplicantProgressPage() {
   const result = useLoaderData<typeof loader>();
+
   if (result.unavailable) {
     return (
       <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
@@ -242,6 +251,7 @@ export default function ApplicantProgressPage() {
       </div>
     );
   }
+
   return (
     <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <h1 className="text-2xl font-semibold">Min søknad</h1>

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { reactRouter } from "@react-router/dev/vite";
 import { foldkit } from "@foldkit/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type Plugin, AliasOptions, ServerOptions } from "vite";
 import { dashboardMount } from "./dashboard-base.ts";
 
 const defaultProfileImagePath = fileURLToPath(
@@ -33,32 +33,32 @@ export const previewDevtoolsBuildEnabled = (
   environment: NodeJS.ProcessEnv,
 ): boolean => command === "serve" || environment.VITE_PREVIEW_DEVTOOLS === "true";
 
-export default defineConfig(({ command }) => ({
-  base: dashboardMount(process.env),
-  // Local serve enables the capability automatically. A build requires the
-  // explicit preview flag; production leaves it unset/false, so Rollup removes
-  // the complete dynamic-import graph before emitting client or server assets.
-  define: {
-    "import.meta.env.VITE_PREVIEW_DEVTOOLS": JSON.stringify(
-      previewDevtoolsBuildEnabled(command, process.env) ? "true" : "false",
-    ),
-  },
-  plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
-  resolve: {
-    alias: {
-      "@/components": "/app/components",
-      "@/hooks": "/app/hooks",
-      "@/lib": "/app/lib",
-      "@/ui": "/app/components/ui",
-      ...(process.env.ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH === undefined
-        ? {}
-        : {
-            "@vektorprogrammet/sdk/effect":
-              process.env.ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH,
-          }),
+export default defineConfig(({ command }) => {
+  const alias: AliasOptions = {
+    "@/components": "/app/components",
+    "@/hooks": "/app/hooks",
+    "@/lib": "/app/lib",
+    "@/ui": "/app/components/ui",
+  };
+
+  const rehearsalSdk = process.env.ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH;
+
+  if (rehearsalSdk !== undefined) alias["@vektorprogrammet/sdk/effect"] = rehearsalSdk;
+
+  const server: ServerOptions = { strictPort: true };
+
+  if (process.env.API_URL) server.proxy = { "/api": { target: process.env.API_URL } };
+
+  return {
+    base: dashboardMount(process.env),
+    // Local serve enables devtools; builds require the explicit preview flag.
+    define: {
+      "import.meta.env.VITE_PREVIEW_DEVTOOLS": JSON.stringify(
+        previewDevtoolsBuildEnabled(command, process.env) ? "true" : "false",
+      ),
     },
-  },
-  server: {
-    strictPort: true,
-  },
-}));
+    plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
+    resolve: { alias },
+    server,
+  };
+});

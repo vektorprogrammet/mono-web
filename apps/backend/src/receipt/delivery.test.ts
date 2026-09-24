@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect, Exit } from "effect";
 import { receiptDeliveryConfig } from "./delivery.js";
 import { deliverJson } from "../delivery/http.js";
+
 const env = {
   RECEIPT_DELIVERY_URL: "http://127.0.0.1:9911/accept",
   RECEIPT_DELIVERY_TOKEN: "synthetic-token",
@@ -9,12 +10,14 @@ const env = {
   RECEIPT_DELIVERY_SENDER: "economy@example.invalid",
   RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: JSON.stringify({ trondheim: "finance@example.invalid" }),
 };
+
 describe("receipt acknowledged transport boundary", () => {
   it("distinguishes disabled from invalid partial configuration without leaking secrets", () => {
     expect(receiptDeliveryConfig({})).toBeUndefined();
     expect(() => receiptDeliveryConfig({ RECEIPT_DELIVERY_TOKEN: "private-value" })).toThrow(
       "Invalid receipt delivery configuration",
     );
+
     for (const endpoint of [
       "http://example.com",
       "https://user:pass@example.com",
@@ -24,6 +27,7 @@ describe("receipt acknowledged transport boundary", () => {
     ]) {
       expect(() => receiptDeliveryConfig({ ...env, RECEIPT_DELIVERY_URL: endpoint })).toThrow();
     }
+
     for (const timeout of ["0", "30001", "NaN"])
       expect(() =>
         receiptDeliveryConfig({ ...env, RECEIPT_DELIVERY_TIMEOUT_MS: timeout }),
@@ -45,6 +49,7 @@ describe("receipt acknowledged transport boundary", () => {
             authorization: "Bearer synthetic-token",
             "idempotency-key": "stable",
           });
+
           return new Response(null, { status: 202 });
         },
         { "idempotency-key": "stable" },

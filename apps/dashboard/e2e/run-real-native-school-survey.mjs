@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -16,26 +17,45 @@ import { schoolSurveyIdFromPathSegment, schoolSurveyPath } from "../app/lib/scho
 import { handleDashboardWorkerRequest } from "../workers/dashboard-worker.ts";
 
 const { Client } = pg;
+
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const contractPath = join(repositoryRoot, "docs/system.md");
+
 const manifestPath =
   process.env.SCHOOL_SURVEY_EVIDENCE_MANIFEST_PATH ??
   join(repositoryRoot, "artifacts/runtime/school-survey.json");
+
 const postgresPort = 45370;
+
 const backendPort = 45371;
+
 const proxyPort = 45372;
+
 const dashboardPort = 5174;
+
 const apexPort = 45373;
+
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/school_survey_e2e_0111`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const apiOrigin = `http://127.0.0.1:${proxyPort}`;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const apexOrigin = `http://127.0.0.1:${apexPort}`;
+
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
 const commandTimeoutMs = 600_000;
 
 const ids = {
@@ -58,9 +78,11 @@ const ids = {
   noPlacement: 811105,
   stale: 811106,
 };
+
 const surveyDocumentPath = schoolSurveyPath(ids.survey);
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 const withTimeout = (promise, milliseconds, label) =>
   Promise.race([
     promise,
@@ -77,11 +99,13 @@ const run = (command, args, { cwd = repositoryRoot, env = process.env, label }) 
     timeout: commandTimeoutMs,
     killSignal: "SIGKILL",
   });
+
   if (result.status !== 0) {
     throw new Error(
       `${label} failed (${String(result.status)}):\n${result.stdout ?? ""}\n${result.stderr ?? ""}`,
     );
   }
+
   return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 };
 
@@ -92,23 +116,30 @@ const start = (command, args, { cwd, env, label }) => {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
+
   const output = [];
+
   const capture = (chunk) => {
     output.push(String(chunk));
+
     if (output.length > 400) output.shift();
   };
+
   child.stdout.on("data", capture);
   child.stderr.on("data", capture);
+
   return { child, label, output };
 };
 
 const stop = async (handle) => {
   if (handle === undefined || handle.child.exitCode !== null) return;
+
   try {
     process.kill(-handle.child.pid, "SIGTERM");
   } catch (cause) {
     if (cause?.code !== "ESRCH") throw cause;
   }
+
   await Promise.race([
     new Promise((resolve) => handle.child.once("exit", resolve)),
     delay(5_000).then(() => {
@@ -140,6 +171,7 @@ const waitForPort = (port, label) =>
           });
           socket.once("error", () => resolve(false));
         });
+
         if (ready) return;
         await delay(100);
       }
@@ -154,10 +186,12 @@ const waitForHttp = (url, label, init) =>
       while (true) {
         try {
           const response = await fetch(url, init);
+
           if (response.ok) return;
         } catch {
           // The owned process is still starting.
         }
+
         await delay(150);
       }
     })(),
@@ -168,11 +202,14 @@ const waitForHttp = (url, label, init) =>
 const readRequestBody = async (request) => {
   const chunks = [];
   let length = 0;
+
   for await (const chunk of request) {
     length += chunk.length;
+
     if (length > 2_000_000) throw new Error("recorded request exceeded 2 MB");
     chunks.push(chunk);
   }
+
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 };
 
@@ -181,18 +218,23 @@ const startRecordingProxy = async (ledger, control) => {
     const url = new URL(request.url ?? "/", apiOrigin);
     const body = await readRequestBody(request);
     const headers = new Headers();
+
     for (const [name, value] of Object.entries(request.headers)) {
       if (value === undefined || ["connection", "content-length", "host"].includes(name)) continue;
+
       if (Array.isArray(value)) {
         for (const item of value) headers.append(name, item);
       } else {
         headers.set(name, value);
       }
     }
+
     let requestJson = null;
+
     if (body !== undefined && headers.get("content-type")?.includes("json")) {
       requestJson = JSON.parse(body.toString("utf8"));
     }
+
     const entry = {
       sequence: ledger.length + 1,
       method: request.method ?? "GET",
@@ -207,13 +249,17 @@ const startRecordingProxy = async (ledger, control) => {
       responseHeaders: {},
       responseJson: null,
     };
+
     ledger.push(entry);
+
     try {
       const failSurveyRead =
         control.failNextSurveyRead &&
         request.method === "GET" &&
         url.pathname.startsWith("/api/surveys/");
+
       if (failSurveyRead) control.failNextSurveyRead = false;
+
       const upstream = failSurveyRead
         ? new Response(
             JSON.stringify({
@@ -238,13 +284,17 @@ const startRecordingProxy = async (ledger, control) => {
             body,
             redirect: "manual",
           });
+
       const bytes = Buffer.from(await upstream.arrayBuffer());
       entry.status = upstream.status;
       entry.responseHeaders = Object.fromEntries(upstream.headers.entries());
+
       if (bytes.length > 0 && upstream.headers.get("content-type")?.includes("json")) {
         entry.responseJson = JSON.parse(bytes.toString("utf8"));
       }
+
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers) {
         if (
           [
@@ -257,9 +307,12 @@ const startRecordingProxy = async (ledger, control) => {
         ) {
           continue;
         }
+
         response.setHeader(name, value);
       }
+
       const cookies = upstream.headers.getSetCookie();
+
       if (cookies.length > 0) response.setHeader("set-cookie", cookies);
       response.end(bytes);
     } catch (cause) {
@@ -267,10 +320,12 @@ const startRecordingProxy = async (ledger, control) => {
       response.end(JSON.stringify({ error: String(cause) }));
     }
   });
+
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(proxyPort, "127.0.0.1", resolve);
   });
+
   return server;
 };
 
@@ -280,9 +335,11 @@ const closeServer = (server) =>
     : new Promise((resolve, reject) =>
         server.close((cause) => (cause === undefined ? resolve() : reject(cause))),
       );
+
 const relayWorkerResponse = async (upstream, response) => {
   const bytes = Buffer.from(await upstream.arrayBuffer());
   response.statusCode = upstream.status;
+
   for (const [name, value] of upstream.headers) {
     if (
       [
@@ -295,9 +352,12 @@ const relayWorkerResponse = async (upstream, response) => {
     ) {
       continue;
     }
+
     response.setHeader(name, value);
   }
+
   const cookies = upstream.headers.getSetCookie();
+
   if (cookies.length > 0) response.setHeader("set-cookie", cookies);
   response.end(bytes);
 };
@@ -308,12 +368,13 @@ const forwardApexDashboardRequest = (request) => {
   headers.delete("host");
   headers.delete("content-length");
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : request.body;
+
   return fetch(new URL(`${source.pathname}${source.search}`, dashboardOrigin), {
     method: request.method,
     headers,
     body,
     redirect: "manual",
-    ...(body === undefined ? {} : { duplex: "half" }),
+    duplex: body === undefined ? undefined : "half",
   });
 };
 
@@ -323,6 +384,7 @@ const startApexDispatcher = async (ledger) => {
       const url = new URL(request.url);
       let assetMiss = false;
       let applicationPath = null;
+
       const forwarded = await handleDashboardWorkerRequest(
         request,
         {
@@ -331,6 +393,7 @@ const startApexDispatcher = async (ledger) => {
           ASSETS: {
             fetch: async (assetRequest) => {
               const pathname = new URL(assetRequest.url).pathname;
+
               if (
                 pathname.startsWith("/assets/") ||
                 pathname.startsWith("/images/") ||
@@ -338,16 +401,20 @@ const startApexDispatcher = async (ledger) => {
               ) {
                 return forwardApexDashboardRequest(assetRequest);
               }
+
               assetMiss = true;
+
               return new Response(null, { status: 404 });
             },
           },
         },
         async (applicationRequest) => {
           applicationPath = new URL(applicationRequest.url).pathname;
+
           return forwardApexDashboardRequest(applicationRequest);
         },
       );
+
       ledger.push({
         method: request.method,
         path: url.pathname,
@@ -361,23 +428,29 @@ const startApexDispatcher = async (ledger) => {
         previewStage: forwarded.headers.get("x-mono-web-stage"),
         previewHost: forwarded.headers.get("x-mono-web-host"),
       });
+
       return forwarded;
     },
   };
+
   const server = createServer(async (request, response) => {
     try {
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (value === undefined || name === "connection" || name === "host") continue;
+
         if (Array.isArray(value)) {
           for (const item of value) headers.append(name, item);
         } else {
           headers.set(name, value);
         }
       }
+
       headers.set("host", APEX_IDENTITY.hostname);
       const body = await readRequestBody(request);
       const source = new URL(request.url ?? "/", `https://${APEX_IDENTITY.hostname}`);
+
       const upstream = await apexWorker.fetch(
         new Request(source, {
           method: request.method,
@@ -401,27 +474,32 @@ const startApexDispatcher = async (ledger) => {
           PREVIEW_HOST: APEX_IDENTITY.hostname,
         },
       );
+
       await relayWorkerResponse(upstream, response);
     } catch (cause) {
       response.writeHead(502, { "content-type": "application/problem+json" });
       response.end(JSON.stringify({ error: String(cause) }));
     }
   });
+
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(apexPort, "127.0.0.1", resolve);
   });
+
   return server;
 };
 
 const connect = async () => {
   const client = new Client({ connectionString: postgresUrl });
   await client.connect();
+
   return client;
 };
 
 const query = async (text, values = []) => {
   const client = await connect();
+
   try {
     return await client.query(text, values);
   } finally {
@@ -436,18 +514,21 @@ const api = async (method, path, options = {}) => {
     key,
     contentType = body === undefined && rawBody === undefined ? undefined : "application/json",
   } = options;
-  const response = await fetch(`${apiOrigin}${path}`, {
-    method,
-    headers: {
-      ...(contentType === undefined ? {} : { "content-type": contentType }),
-      ...(key === undefined ? {} : { "idempotency-key": key }),
-    },
-    redirect: "manual",
-    ...(body === undefined && rawBody === undefined
-      ? {}
-      : { body: rawBody ?? JSON.stringify(body) }),
-  });
+
+  const headers = new Headers();
+
+  if (contentType !== undefined) headers.set("content-type", contentType);
+
+  if (key !== undefined) headers.set("idempotency-key", key);
+
+  const init = { method, headers, redirect: "manual" };
+
+  if (rawBody !== undefined || body !== undefined) init.body = rawBody ?? JSON.stringify(body);
+
+  const response = await fetch(`${apiOrigin}${path}`, init);
+
   const bytes = Buffer.from(await response.arrayBuffer());
+
   return {
     status: response.status,
     headers: Object.fromEntries(response.headers.entries()),
@@ -457,6 +538,7 @@ const api = async (method, path, options = {}) => {
         : JSON.parse(bytes.toString("utf8")),
   };
 };
+
 const replayableHeaders = (headers) =>
   Object.fromEntries(
     Object.entries(headers).filter(
@@ -466,11 +548,13 @@ const replayableHeaders = (headers) =>
   );
 
 const submitPath = `/api/surveys/public/${ids.survey}/responses`;
+
 const assertProblem = (result, status, code) => {
   assert.equal(result.status, status);
   assert.equal(result.body?.code, code);
   assert.equal(result.headers["cache-control"], "no-store");
   assert.equal(result.headers.vary, "Origin");
+
   if (code === "validation.failed") {
     assert.equal(result.body?.validation?.truncated, false);
     assert.equal(Array.isArray(result.body?.validation?.errors), true);
@@ -497,6 +581,7 @@ const counts = async () => {
       (SELECT count(*)::int FROM public.native_http_idempotency_receipts
        WHERE operation_id = 'surveys.submitSchoolSurveyResponse') AS receipts
   `);
+
   return result.rows[0];
 };
 
@@ -509,6 +594,7 @@ const responseAnswers = async (responseId) => {
       ORDER BY question.position ASC`,
     [responseId],
   );
+
   return result.rows;
 };
 
@@ -605,6 +691,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const initialForm = await api("GET", `/api/surveys/public/${ids.survey}`);
   assert.equal(initialForm.status, 200);
   assert.equal(initialForm.headers["cache-control"], "no-store");
+
   for (const opaqueId of ["survey.data", "survey/%/æ"]) {
     const path = schoolSurveyPath(opaqueId);
     const segment = path.slice("/undersokelse/".length);
@@ -613,6 +700,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     assert.notEqual(segment, "..");
     assert.equal(segment.endsWith(".data"), false);
   }
+
   for (const invalidSurveyId of [".", ".."]) {
     await assert.rejects(
       query(
@@ -625,6 +713,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
       (cause) => cause?.code === "23514",
     );
   }
+
   assert.equal(initialForm.headers.vary, "Origin");
   assert.deepEqual(
     initialForm.body.schools.map((school) => school.schoolId),
@@ -639,15 +728,19 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const pageErrors = [];
   const browserApiOrigins = [];
   const browserApiPaths = [];
+
   const desktopContext = await browser.newContext({
     baseURL: apexOrigin,
     viewport: { width: 1280, height: 900 },
   });
+
   const desktopPage = await desktopContext.newPage();
   desktopPage.on("pageerror", (error) => pageErrors.push(error.message));
   desktopPage.on("request", (request) => {
     const url = new URL(request.url());
+
     if (url.pathname.startsWith("/api/")) browserApiPaths.push(url.pathname);
+
     if (url.origin === apiOrigin || url.origin === backendOrigin) {
       browserApiOrigins.push(url.origin);
     }
@@ -687,11 +780,13 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   await desktopPage.getByRole("checkbox", { name: "Første" }).check();
   await desktopPage.getByRole("checkbox", { name: "Andre" }).check();
   proxyControl.failNextSurveyRead = true;
+
   const unavailableResponsePromise = desktopPage.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
       new URL(response.url()).pathname.startsWith(surveyDocumentPath),
   );
+
   await desktopPage.getByRole("button", { name: "Send inn" }).click();
   assert.equal((await unavailableResponsePromise).status(), 200);
   await desktopPage.getByRole("heading", { name: "Skjemaet har feil" }).waitFor();
@@ -720,11 +815,13 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   assert.equal(await desktopPage.getByRole("checkbox", { name: "Andre" }).isChecked(), true);
   assert.deepEqual(await counts(), { responses: 0, answers: 0, receipts: 0 });
   await desktopPage.getByLabel("Velg fra liste").selectOption("");
+
   const rejectedResponsePromise = desktopPage.waitForResponse(
     (response) =>
       response.request().method() === "POST" &&
       new URL(response.url()).pathname.startsWith(surveyDocumentPath),
   );
+
   await desktopPage.getByRole("button", { name: "Send inn" }).click();
   const rejectedResponse = await rejectedResponsePromise;
   assert.equal(
@@ -759,6 +856,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     baseURL: apexOrigin,
     viewport: { width: 390, height: 844 },
   });
+
   const mobilePage = await mobileContext.newPage();
   await mobilePage.goto(`/undersokelse/${ids.survey}`);
   await mobilePage.getByRole("heading", { name: "Tilbakemelding for skoler" }).waitFor();
@@ -816,6 +914,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const browserSubmission = ledger
     .filter((entry) => entry.method === "POST" && entry.path === submitPath && entry.status === 201)
     .at(-1);
+
   assert.notEqual(
     browserSubmission,
     undefined,
@@ -849,6 +948,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     body: browserSubmission.requestJson,
     key: browserSubmission.idempotencyKey,
   });
+
   assert.equal(replay.status, 201);
   assert.deepEqual(replay.body, browserSubmission.responseJson);
   assert.deepEqual(
@@ -859,13 +959,16 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
 
   const reorderedReplay = structuredClone(browserSubmission.requestJson);
   reorderedReplay.answers.reverse();
+
   for (const answer of reorderedReplay.answers) {
     if (answer.kind === "Check") answer.values.reverse();
   }
+
   const reordered = await api("POST", submitPath, {
     body: reorderedReplay,
     key: browserSubmission.idempotencyKey,
   });
+
   assert.equal(reordered.status, 201);
   assert.deepEqual(reordered.body, browserSubmission.responseJson);
   assert.deepEqual(
@@ -881,9 +984,11 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
       ORDER BY committed_at DESC
       LIMIT 1`,
   );
+
   const receiptIdentity = receipt.rows[0]?.identitySha256;
-  assert.equal(typeof receiptIdentity, "string");
+  assert.equal(Predicate.isString(receiptIdentity), true);
   const receiptLock = await connect();
+
   try {
     await receiptLock.query("BEGIN");
     await receiptLock.query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))", [
@@ -904,6 +1009,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
       await receiptLock.end();
     }
   }
+
   assert.deepEqual(await counts(), afterBrowser);
 
   await query(
@@ -923,9 +1029,11 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   );
   assert.deepEqual(await counts(), afterBrowser);
   const changedReplay = structuredClone(browserSubmission.requestJson);
+
   const changedText = changedReplay.answers.find(
     (answer) => answer.kind === "Text" && answer.questionId === ids.text,
   );
+
   assert.notEqual(changedText, undefined);
   changedText.value = "Et endret anonymt tekstsvar";
   assertProblem(
@@ -937,22 +1045,27 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
 
   const concurrentKey = "school-survey-concurrent-command-0111";
   const concurrentBody = validBody(ids.eligibleSecond, "");
+
   const concurrent = await Promise.all([
     api("POST", submitPath, { body: concurrentBody, key: concurrentKey }),
     api("POST", submitPath, { body: concurrentBody, key: concurrentKey }),
   ]);
+
   const acceptedConcurrent = concurrent.find((result) => result.status === 201);
   assert.notEqual(acceptedConcurrent, undefined);
+
   for (const result of concurrent) {
     if (result.status === 201 || result.body?.code === "idempotency.in-flight") continue;
     assert.equal(result.status, 503);
     assert.equal(result.body?.code, "dependency.unavailable");
     assert.equal(result.headers["retry-after"], "5");
   }
+
   const recoveredConcurrent = await api("POST", submitPath, {
     body: concurrentBody,
     key: concurrentKey,
   });
+
   assert.equal(recoveredConcurrent.status, 201);
   assert.deepEqual(recoveredConcurrent.body, acceptedConcurrent.body);
   const afterConcurrent = await counts();
@@ -1047,6 +1160,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
       body: { ...validBody(ids.eligible), unexpected: true },
     },
   ];
+
   for (const [index, testCase] of noWriteCases.entries()) {
     const before = await counts();
     assertProblem(
@@ -1079,11 +1193,14 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   );
   const staleBody = validBody(ids.stale, "");
   const staleKey = "school-survey-stale-eligibility-0111";
+
   const acceptedBeforeEligibilityLoss = await api("POST", submitPath, {
     body: staleBody,
     key: staleKey,
   });
+
   assert.equal(acceptedBeforeEligibilityLoss.status, 201);
+
   const staleReceipt = await query(
     `SELECT identity_sha256 AS "identitySha256"
        FROM public.native_http_idempotency_receipts
@@ -1091,8 +1208,9 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
       ORDER BY committed_at DESC
       LIMIT 1`,
   );
+
   const staleReceiptIdentity = staleReceipt.rows[0]?.identitySha256;
-  assert.equal(typeof staleReceiptIdentity, "string");
+  assert.equal(Predicate.isString(staleReceiptIdentity), true);
   const afterStaleCommit = await counts();
   await query("UPDATE public.schools_directory_schools SET active = FALSE WHERE school_id = $1", [
     ids.stale,
@@ -1103,6 +1221,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     "validation.failed",
   );
   assert.deepEqual(await counts(), afterStaleCommit);
+
   const expiredStaleReceipt = await query(
     `UPDATE public.native_http_idempotency_receipts
         SET committed_at = transaction_timestamp() - interval '25 hours',
@@ -1110,6 +1229,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
       WHERE identity_sha256 = $1`,
     [staleReceiptIdentity],
   );
+
   assert.equal(expiredStaleReceipt.rowCount, 1);
   assertProblem(
     await api("POST", submitPath, { body: staleBody, key: staleKey }),
@@ -1132,10 +1252,12 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   trimmedBoundaryBody.answers = trimmedBoundaryBody.answers.map((answer) =>
     answer.questionId === ids.text ? { ...answer, value: `\t${trimmedBoundaryValue}\t` } : answer,
   );
+
   const trimmedBoundaryResponse = await api("POST", submitPath, {
     body: trimmedBoundaryBody,
     key: "school-survey-trimmed-boundary-0111",
   });
+
   assert.equal(trimmedBoundaryResponse.status, 201);
   const trimmedBoundaryAnswers = await responseAnswers(trimmedBoundaryResponse.body.responseId);
   assert.equal(
@@ -1185,9 +1307,11 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   );
   const bodyAtLimitPrefix = '{"unexpected":"';
   const bodyAtLimitSuffix = '"}';
+
   const rawBodyAtLimit = `${bodyAtLimitPrefix}${"x".repeat(
     65_536 - Buffer.byteLength(bodyAtLimitPrefix) - Buffer.byteLength(bodyAtLimitSuffix),
   )}${bodyAtLimitSuffix}`;
+
   assert.equal(Buffer.byteLength(rawBodyAtLimit), 65_536);
   assertProblem(
     await api("POST", submitPath, {
@@ -1209,6 +1333,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   );
   const surveyRequests = ledger.filter((entry) => entry.path.startsWith("/api/surveys/"));
   assert.equal(surveyRequests.length > 0, true);
+
   for (const entry of surveyRequests) {
     assert.equal(entry.cookie, null, `survey request ${entry.sequence} must not carry a cookie`);
     assert.equal(
@@ -1264,7 +1389,9 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
 const initialRevision = run("git", ["rev-parse", "HEAD"], {
   label: "0111 source revision",
 }).stdout.trim();
+
 assert.notEqual(initialRevision, "");
+
 assert.equal(
   run("git", ["status", "--short"], { label: "0111 source cleanliness" }).stdout.trim(),
   "",
@@ -1272,19 +1399,33 @@ assert.equal(
 );
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "native-school-survey-0111-"));
+
 const postgresData = join(temporaryRoot, "postgres");
+
 const ledger = [];
+
 const apexLedger = [];
+
 const proxyControl = { failNextSurveyRead: false };
+
 let postgres;
+
 let backend;
+
 let dashboard;
+
 let proxy;
+
 let apex;
+
 let browser;
+
 let journey;
+
 let version;
+
 let primaryError;
+
 let cleanupError;
 
 try {
@@ -1324,6 +1465,7 @@ try {
     RECEIPT_AUTH_TOKENS: "{}",
     ORGANIZATION_AUTH_TOKENS: "{}",
   };
+
   backend = start("bun", ["run", "src/main.ts"], {
     cwd: backendRoot,
     env: backendEnvironment,
@@ -1346,6 +1488,7 @@ try {
     PORT: String(dashboardPort),
     NODE_ENV: "production",
   };
+
   run("bun", ["run", "build"], {
     cwd: sdkRoot,
     env: dashboardEnvironment,
@@ -1377,13 +1520,16 @@ try {
   journey = await exerciseJourney(browser, ledger, apexLedger, proxyControl);
 } catch (cause) {
   primaryError = cause;
+
   if (backend !== undefined) process.stderr.write(`Backend tail:\n${backend.output.join("")}\n`);
   process.stderr.write(`Native transport tail:\n${JSON.stringify(ledger.slice(-10), null, 2)}\n`);
   process.stderr.write(`Apex transport tail:\n${JSON.stringify(apexLedger.slice(-10), null, 2)}\n`);
+
   if (dashboard !== undefined)
     process.stderr.write(`Dashboard tail:\n${dashboard.output.join("")}\n`);
 } finally {
   const cleanupFailures = [];
+
   const cleanup = async (operation) => {
     try {
       await operation();
@@ -1391,6 +1537,7 @@ try {
       cleanupFailures.push(cause);
     }
   };
+
   await cleanup(async () => {
     if (browser !== undefined) await browser.close();
   });
@@ -1405,6 +1552,7 @@ try {
       [postgresPort, backendPort, proxyPort, dashboardPort, apexPort].map(assertPortAvailable),
     ),
   );
+
   if (cleanupFailures.length > 0) {
     cleanupError =
       cleanupFailures.length === 1
@@ -1416,7 +1564,9 @@ try {
 if (primaryError !== undefined && cleanupError !== undefined) {
   throw new AggregateError([primaryError, cleanupError], "0111 journey and cleanup failed");
 }
+
 if (primaryError !== undefined) throw primaryError;
+
 if (cleanupError !== undefined) throw cleanupError;
 
 const manifest = {
@@ -1456,7 +1606,11 @@ const manifest = {
     productionResourcesUsed: false,
   },
 };
+
 await mkdir(dirname(manifestPath), { recursive: true });
+
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+
 await chmod(manifestPath, 0o600);
+
 process.stdout.write(`${JSON.stringify(manifest)}\n`);

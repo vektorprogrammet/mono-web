@@ -7,10 +7,11 @@ import {
 } from "./admission-period-view";
 import { isUnauthorizedError, mapOwnedReceiptError, mapApprovalReceiptError } from "./receipt-view";
 
-const envelope = (body: unknown) => ({
+const envelope = <Body>(body: Body) => ({
   body,
   headers: { "cache-control": "no-store", vary: "Origin" },
 });
+
 const validation = (pointer: string) => ({
   ...makeNativeProblem("validation.failed"),
   validation: { errors: [makeNativeValidationError(pointer, "invalid")], truncated: false },

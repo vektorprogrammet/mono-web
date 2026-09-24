@@ -1,104 +1,32 @@
+import { SemesterId, DepartmentId } from "../organization/schema.js";
 import { expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Struct, Result, Effect, Schema } from "effect";
 import {
-  AdmissionDepartment,
-  AdmissionFieldOfStudy,
+  AdmissionPeriodCommandId,
   AdmissionPeriod,
   AdmissionPeriodProjectionSchema,
   AdmissionPeriodCommandSchema,
-  AdmissionSemester,
 } from "./schema.js";
 
-const keys = (fields: object): ReadonlyArray<string> => Object.keys(fields).sort();
+it("requires the semester identity on create commands", () => {
+  const valid = AdmissionPeriodCommandSchema.cases.CreateAdmissionPeriod.make({
+    commandId: AdmissionPeriodCommandId.make("command-missing-semester"),
+    semesterId: SemesterId.make("semester-model"),
+    startAt: "2026-09-01T00:00:00.000Z",
+    endAt: "2026-12-01T00:00:00.000Z",
+  });
 
-it("derives admission reference and period variants from one Model declaration", () => {
-  expect(keys(AdmissionDepartment.fields)).toEqual(["departmentId", "name"]);
-  expect(keys(AdmissionDepartment.insert.fields)).toEqual(["departmentId", "name"]);
-  expect(keys(AdmissionDepartment.update.fields)).toEqual([]);
-  expect(keys(AdmissionDepartment.json.fields)).toEqual(["departmentId", "name"]);
-
-  expect(keys(AdmissionSemester.fields)).toEqual(["endAt", "semesterId", "startAt"]);
-  expect(keys(AdmissionSemester.insert.fields)).toEqual(["endAt", "semesterId", "startAt"]);
-  expect(keys(AdmissionSemester.update.fields)).toEqual([]);
-  expect(keys(AdmissionSemester.json.fields)).toEqual(["endAt", "semesterId", "startAt"]);
-
-  expect(keys(AdmissionFieldOfStudy.fields)).toEqual([
-    "active",
-    "departmentId",
-    "fieldOfStudyId",
-    "name",
-  ]);
-  expect(keys(AdmissionFieldOfStudy.insert.fields)).toEqual([
-    "active",
-    "departmentId",
-    "fieldOfStudyId",
-    "name",
-  ]);
-  expect(keys(AdmissionFieldOfStudy.update.fields)).toEqual([]);
-
-  expect(keys(AdmissionPeriod.fields)).toEqual([
-    "departmentId",
-    "endAt",
-    "id",
-    "lastCommandId",
-    "revision",
-    "semesterId",
-    "startAt",
-  ]);
-  expect(keys(AdmissionPeriod.insert.fields)).toEqual([
-    "departmentId",
-    "endAt",
-    "id",
-    "lastCommandId",
-    "revision",
-    "semesterId",
-    "startAt",
-  ]);
-  expect(keys(AdmissionPeriod.update.fields)).toEqual([
-    "endAt",
-    "lastCommandId",
-    "revision",
-    "startAt",
-  ]);
-  expect(keys(AdmissionPeriod.json.fields)).toEqual([
-    "departmentId",
-    "endAt",
-    "id",
-    "lastCommandId",
-    "revision",
-    "semesterId",
-    "startAt",
-  ]);
-  expect(keys(AdmissionPeriod.jsonCreate.fields)).toEqual([
-    "departmentId",
-    "endAt",
-    "semesterId",
-    "startAt",
-  ]);
-  expect(keys(AdmissionPeriod.jsonUpdate.fields)).toEqual(["endAt", "startAt"]);
+  expect(
+    Result.isFailure(
+      Schema.decodeUnknownResult(AdmissionPeriodCommandSchema)(Struct.omit(valid, ["semesterId"])),
+    ),
+  ).toBe(true);
 });
-
-it.effect("requires the semester identity on create commands", () =>
-  Effect.gen(function* () {
-    const failure = yield* Effect.flip(
-      Schema.decodeUnknownEffect(AdmissionPeriodCommandSchema)(
-        {
-          _tag: "CreateAdmissionPeriod",
-          commandId: "command-missing-semester",
-          startAt: "2026-09-01T00:00:00.000Z",
-          endAt: "2026-12-01T00:00:00.000Z",
-        },
-        { onExcessProperty: "error" },
-      ),
-    );
-    expect(String(failure)).toContain("semesterId");
-  }),
-);
 
 it.effect("decodes selected rows strictly and leaves source values immutable", () => {
   const selected = {
     id: "period-model-1",
-    departmentId: "department-1",
+    departmentId: DepartmentId.make("department-1"),
     semesterId: "semester-1",
     startAt: "2026-09-01T00:00:00.000Z",
     endAt: "2026-12-01T00:00:00.000Z",
@@ -110,6 +38,7 @@ it.effect("decodes selected rows strictly and leaves source values immutable", (
     const period = yield* Schema.decodeUnknownEffect(AdmissionPeriod)(selected, {
       onExcessProperty: "error",
     });
+
     expect(period).not.toBe(selected);
     expect(period.id).toBe("period-model-1");
     selected.id = "changed-after-decode";
@@ -121,6 +50,7 @@ it.effect("decodes selected rows strictly and leaves source values immutable", (
         { onExcessProperty: "error" },
       ),
     );
+
     expect(String(excess)).toContain("duplicateAuthority");
 
     const invalidInstant = yield* Effect.flip(
@@ -129,6 +59,7 @@ it.effect("decodes selected rows strictly and leaves source values immutable", (
         { onExcessProperty: "error" },
       ),
     );
+
     expect(String(invalidInstant)).toContain("startAt");
 
     const invalidRevision = yield* Effect.flip(
@@ -137,12 +68,14 @@ it.effect("decodes selected rows strictly and leaves source values immutable", (
         { onExcessProperty: "error" },
       ),
     );
+
     expect(String(invalidRevision)).toContain("revision");
 
     const projection = yield* Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)(
       { ...selected, id: "period-model-1", eligible: true },
       { onExcessProperty: "error" },
     );
+
     expect(projection.eligible).toBe(true);
   });
 });

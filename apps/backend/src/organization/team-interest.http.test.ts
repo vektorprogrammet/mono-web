@@ -4,17 +4,22 @@ import {
   Identity,
   IdentityActor,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import {
+  DepartmentId,
+  TeamId,
+  SemesterId,
+  MembershipId,
+  OrganizationActorSchema,
   DepartmentJsonSchema,
   Organization,
   PersonId,
-  type OrganizationShape,
+  type OrganizationOperations,
 } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeOrganizationApiConfig } from "./config.js";
+import { decodeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
 
 /**
@@ -24,7 +29,7 @@ import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/nat
 
 const department = Schema.decodeUnknownSync(DepartmentJsonSchema)(
   {
-    departmentId: "department-1",
+    departmentId: DepartmentId.make("department-1"),
     name: "Department One",
     shortName: "ONE",
     email: "one@example.invalid",
@@ -39,9 +44,10 @@ const department = Schema.decodeUnknownSync(DepartmentJsonSchema)(
   },
   { onExcessProperty: "error" },
 );
+
 const secondDepartment = Schema.decodeUnknownSync(DepartmentJsonSchema)(
   {
-    departmentId: "department-2",
+    departmentId: DepartmentId.make("department-2"),
     name: "Department Two",
     shortName: "TWO",
     email: "two@example.invalid",
@@ -62,9 +68,9 @@ const registrationRows = [
     registrationId: 2,
     submitterName: "User B",
     submitterEmail: "b@example.invalid",
-    teamId: "team-1",
+    teamId: TeamId.make("team-1"),
     teamName: "Team One",
-    departmentId: "department-1",
+    departmentId: DepartmentId.make("department-1"),
     semesterId: null,
     submittedAt: "2031-09-15T10:00:00.000Z",
     revision: 0,
@@ -73,10 +79,10 @@ const registrationRows = [
     registrationId: 1,
     submitterName: "User A",
     submitterEmail: "a@example.invalid",
-    teamId: "team-1",
+    teamId: TeamId.make("team-1"),
     teamName: "Team One",
-    departmentId: "department-1",
-    semesterId: "semester-host",
+    departmentId: DepartmentId.make("department-1"),
+    semesterId: SemesterId.make("semester-host"),
     submittedAt: "2031-09-14T10:00:00.000Z",
     revision: 3,
   },
@@ -84,18 +90,20 @@ const registrationRows = [
     registrationId: 3,
     submitterName: "User C",
     submitterEmail: "c@example.invalid",
-    teamId: "team-2",
+    teamId: TeamId.make("team-2"),
     teamName: "Team Two",
-    departmentId: "department-2",
+    departmentId: DepartmentId.make("department-2"),
     semesterId: null,
     submittedAt: "2031-09-16T10:00:00.000Z",
     revision: 0,
   },
 ] as const;
+
 let lastTeamInterestFilter: {
   authorizedDepartmentIds: ReadonlyArray<string>;
   semesterId?: string;
 };
+
 const organization = {
   listDepartments: Effect.succeed([department, secondDepartment]),
   listTeams: () => Effect.succeed([]),
@@ -107,6 +115,7 @@ const organization = {
     Effect.sync(() => {
       lastTeamInterestFilter = filter;
       const authorized = filter.authorizedDepartmentIds;
+
       const rows = registrationRows
         .filter(
           (row) =>
@@ -114,6 +123,7 @@ const organization = {
             (filter.semesterId === undefined || row.semesterId === filter.semesterId),
         )
         .toSorted((left, right) => left.registrationId - right.registrationId);
+
       return rows.map((row) => ({ ...row }));
     }),
   projectMailingLists: (input: {
@@ -128,12 +138,12 @@ const organization = {
         }))
         .toSorted((left, right) => left.name.localeCompare(right.name)),
     ),
-} as unknown as OrganizationShape;
+} satisfies Partial<OrganizationOperations>;
 
 type AuthorityByToken = {
   globalAdministrator: "Active" | "Inactive" | "Absent";
   memberships: ReadonlyArray<{
-    departmentId: string;
+    departmentId: DepartmentId;
     active: boolean;
     teamLeader: boolean;
   }>;
@@ -143,44 +153,55 @@ const authorityForToken = (cookie: string | null): AuthorityByToken => {
   if (cookie?.includes("admin-session")) {
     return {
       globalAdministrator: "Active",
-      memberships: [{ departmentId: "department-1", active: true, teamLeader: false }],
+      memberships: [
+        { departmentId: DepartmentId.make("department-1"), active: true, teamLeader: false },
+      ],
     };
   }
+
   if (cookie?.includes("leader-session")) {
     return {
       globalAdministrator: "Absent",
       memberships: [
-        { departmentId: "department-1", active: true, teamLeader: true },
-        { departmentId: "department-2", active: true, teamLeader: false },
+        { departmentId: DepartmentId.make("department-1"), active: true, teamLeader: true },
+        { departmentId: DepartmentId.make("department-2"), active: true, teamLeader: false },
       ],
     };
   }
+
   if (cookie?.includes("inactive-leader")) {
     return {
       globalAdministrator: "Absent",
-      memberships: [{ departmentId: "department-1", active: false, teamLeader: true }],
+      memberships: [
+        { departmentId: DepartmentId.make("department-1"), active: false, teamLeader: true },
+      ],
     };
   }
+
   return {
     globalAdministrator: "Absent",
-    memberships: [{ departmentId: "department-1", active: true, teamLeader: false }],
+    memberships: [
+      { departmentId: DepartmentId.make("department-1"), active: true, teamLeader: false },
+    ],
   };
 };
 
-const config = makeOrganizationApiConfig({
+const config = decodeOrganizationApiConfig({
   ORGANIZATION_MAX_BODY_BYTES: "1024",
 });
 
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
-} as never);
+});
+
 const identity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
     if (cookieHeader === undefined || cookieHeader.length === 0) {
       throw new IdentitySessionNotFound();
     }
+
     return new IdentityActor({
       personId: PersonId.make("team-interest-person"),
       sessionId: "team-interest-session",
@@ -195,36 +216,40 @@ const identity = Identity.of({
   revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
   recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
   signOut: async () => ({ setCookies: [] }),
-} satisfies IdentityShape);
+} satisfies IdentityOperations);
+
 const services = Layer.mergeAll(
-  Layer.succeed(Organization, organization),
+  Layer.mock(Organization, organization),
   Layer.succeed(Identity, identity),
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );
+
 const http = makeOrganizationApiHttp(
   {
     config,
     resolveActor: () =>
-      Effect.succeed({
-        _tag: "OrganizationMember",
-        personId: PersonId.make("person-member"),
-      }),
+      Effect.succeed(
+        OrganizationActorSchema.members[1].make({ personId: PersonId.make("person-member") }),
+      ),
     resolveAuthority: (request) => {
       const cookie = request.headers.get("cookie");
+
       if (cookie === null || cookie.length === 0) {
         return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
       }
+
       const authority = authorityForToken(cookie);
+
       return Effect.succeed({
         personId: PersonId.make("person-any"),
         evaluatedAt: "2031-09-15T12:00:00.000Z",
         ...authority,
         memberships: authority.memberships.map((membership, index) => ({
-          membershipId: `membership-${index}`,
-          teamId: `team-${index}`,
+          membershipId: MembershipId.make(`membership-${index}`),
+          teamId: TeamId.make(`team-${index}`),
           ...membership,
         })),
-      } as never);
+      });
     },
   },
   services,
@@ -315,12 +340,14 @@ describe("spec 0059 team-interest HTTP boundary", () => {
       "/api/team-interest-registrations?department=department-1",
       "session=leader-session",
     );
+
     expect(inScope.status).toBe(200);
 
     const outOfScope = await get(
       "/api/team-interest-registrations?department=department-2",
       "session=leader-session",
     );
+
     expect(outOfScope.status).toBe(403);
   });
 });

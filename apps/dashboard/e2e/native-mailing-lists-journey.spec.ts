@@ -1,12 +1,18 @@
+import { Schema } from "effect";
+import { MailingListResponse } from "@vektorprogrammet/http-api";
 import { expect, test, type Page } from "@playwright/test";
 
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 
 // Journey personas provisioned by e2e/native-team-interest-mailing-list-seed.mjs.
 const password = "journey-secret-0123456789abcdef";
+
 const adminEmail = "admin.0059@example.invalid";
+
 const leaderEmail = "leader.0059@example.invalid";
+
 const memberEmail = "member.0059@example.invalid";
+
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8790";
 
 const signIn = async (page: Page, email: string) => {
@@ -33,12 +39,10 @@ test.describe("Native mailing-lists journey (spec 0060)", () => {
 
     // The native endpoint itself answers with seeded member emails under the
     // expected list names for type=team and type=all (direct projection read).
-    const teamLists = (await page.request.get(`${apiOrigin}/api/mailing-lists?type=team`)) as unknown as {
-      status(): number;
-      json(): Promise<Array<{ name: string; emails: Array<string> }>>;
-    };
+    const teamLists = await page.request.get(`${apiOrigin}/api/mailing-lists?type=team`);
+
     expect(teamLists.status()).toBe(200);
-    const lists = await teamLists.json();
+    const lists = Schema.decodeUnknownSync(MailingListResponse)(await teamLists.json());
     // One list per department in the authorized scope, named {type}-{id}.
     const trondheim = lists.find((list) => list.name === "team-department-0059-trondheim");
     const bergen = lists.find((list) => list.name === "team-department-0059-bergen");
@@ -60,7 +64,7 @@ test.describe("Native mailing-lists journey (spec 0060)", () => {
     await signIn(page, leaderEmail);
     const response = await page.request.get(`${apiOrigin}/api/mailing-lists?type=team`);
     expect(response.status()).toBe(200);
-    const lists = (await response.json()) as Array<{ name: string; emails: string[] }>;
+    const lists = Schema.decodeUnknownSync(MailingListResponse)(await response.json());
     expect(lists.map((list) => list.name)).toEqual(["team-department-0059-trondheim"]);
 
     // The page itself renders from the same scoped projection.

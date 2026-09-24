@@ -10,7 +10,7 @@
  */
 export type ApexSurface = "homepage" | "dashboard" | "server";
 
-const DASHBOARD_ROUTE_ROOTS: Record<string, true> = {
+const DASHBOARD_ROUTE_ROOTS = {
   "/content": true,
   "/dashboard": true,
   "/glemt-passord": true,
@@ -23,32 +23,38 @@ const DASHBOARD_ROUTE_ROOTS: Record<string, true> = {
   "/schools": true,
   "/tilbakestill-passord": true,
   "/undersokelse": true,
-};
+} as const;
 
 const normalizedRoutePath = (pathname: string): string =>
   pathname.endsWith(".data") ? pathname.slice(0, -".data".length) : pathname;
 
 const isDashboardRoute = (pathname: string): boolean => {
   const routePath = normalizedRoutePath(pathname);
+
   for (const root in DASHBOARD_ROUTE_ROOTS) {
     if (routePath === root || routePath.startsWith(`${root}/`)) return true;
   }
+
   return false;
 };
 
 export function apexSurface(pathname: string): ApexSurface {
   const url = new URL(pathname, "https://surface.invalid");
+
   if (url.pathname === "/health" || url.pathname === "/api" || url.pathname.startsWith("/api/")) {
     return "server";
   }
+
   if (url.pathname === "/__manifest") {
     const requestedPaths = url.searchParams
       .getAll("paths")
       .flatMap((paths) => paths.split(","))
       .filter((path) => path !== "");
+
     return requestedPaths.some((path) => isDashboardRoute(new URL(path, url).pathname))
       ? "dashboard"
       : "homepage";
   }
+
   return isDashboardRoute(url.pathname) ? "dashboard" : "homepage";
 }

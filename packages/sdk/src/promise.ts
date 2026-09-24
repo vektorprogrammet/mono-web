@@ -11,31 +11,26 @@ import {
   type EffectSdk,
 } from "./effect-client.js";
 
-/** Converts an Effect client tree to the corresponding Promise client tree. */
-export type PromiseSdk<A = EffectSdk> = A extends (
-  ...args: infer Args
-) => Effect.Effect<infer Success, infer _Failure, infer _Requirements>
-  ? (...args: Args) => Promise<Success>
-  : A extends Readonly<Record<string, unknown>>
-    ? { readonly [Key in keyof A]: PromiseSdk<A[Key]> }
-    : A;
+/** Converts the generated Effect client methods to Promise-returning methods. */
+export type PromiseSdk<A = EffectSdk> = [A] extends [
+  (...args: never[]) => Effect.Effect<infer Success, infer _Failure, infer _Requirements>,
+]
+  ? (...args: Parameters<A>) => Promise<Success>
+  : { readonly [Key in keyof A]: PromiseSdk<A[Key]> };
 
-type AnyEffectMethod = (...args: ReadonlyArray<never>) => Effect.Effect<unknown, unknown>;
+const toPromiseClient = (client: EffectSdk): PromiseSdk => {
+  const groups = Object.entries(client).map(([groupName, endpoints]) => [
+    groupName,
+    Object.fromEntries(
+      Object.entries(endpoints).map(([name, method]) => [
+        name,
+        (request: never) => Effect.runPromise(method(request)),
+      ]),
+    ),
+  ]);
 
-const toPromiseClient = <A>(value: A): PromiseSdk<A> => {
-  if (typeof value === "function") {
-    const method = value as AnyEffectMethod;
-    return ((...args: ReadonlyArray<never>) => Effect.runPromise(method(...args))) as PromiseSdk<A>;
-  }
-  if (typeof value !== "object" || value === null) {
-    return value as PromiseSdk<A>;
-  }
-
-  const output: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    output[key] = toPromiseClient(child);
-  }
-  return output as PromiseSdk<A>;
+  // SAFETY: Every generated group and endpoint key is retained; each endpoint receives its unchanged request and only its Effect return is converted to Promise.
+  return Object.fromEntries(groups) as PromiseSdk;
 };
 
 /** Creates the complete Promise SDK projected from `ExternalNativeApi`. */

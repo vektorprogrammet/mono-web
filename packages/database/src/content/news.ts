@@ -1,10 +1,11 @@
-import { Effect, Schema } from "effect";
-import type { DatabaseShape } from "../service.js";
+import { Predicate, Effect, Schema } from "effect";
+import type { DatabaseOperations } from "../service.js";
 import { Database } from "../service.js";
-import type { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { Organization } from "@vektorprogrammet/domain/organization";
+
+import { PersonId, DepartmentId, Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import {
+  ContentArticleNotFound,
   ContentDecodeError,
   ContentDepartmentNotFound,
   ContentIntegrityError,
@@ -21,17 +22,25 @@ import {
 const integrityError = (operation: string, cause: unknown): ContentIntegrityError =>
   new ContentIntegrityError({ operation, message: String(cause) });
 
-interface CurrentVersionRow {
-  readonly articleId: number;
-  readonly slug: string;
-  readonly title: string;
-  readonly sticky: boolean;
-  readonly publishedAt: string;
-  readonly createdByPersonId: string;
-}
+const CurrentVersionRowSchema = Schema.Struct({
+  articleId: Schema.Int,
+  slug: Schema.String,
+  title: Schema.String,
+  sticky: Schema.Boolean,
+  publishedAt: Schema.String,
+  createdByPersonId: PersonId,
+});
+
+const PublishedVersionRowSchema = Schema.Struct({
+  ...CurrentVersionRowSchema.fields,
+  versionNumber: Schema.Int,
+  bodyHtml: Schema.String,
+});
+
+type CurrentVersionRow = typeof CurrentVersionRowSchema.Type;
 
 const readDepartments = (
-  database: DatabaseShape,
+  database: DatabaseOperations,
   articleIds: ReadonlyArray<number>,
 ): Effect.Effect<ReadonlyMap<number, ReadonlyArray<DepartmentId>>, ContentIntegrityError> =>
   articleIds.length === 0
@@ -41,18 +50,36 @@ const readDepartments = (
         FROM public.content_article_departments
         WHERE ${database.in("article_id", articleIds)}
         ORDER BY article_id, department_id
-      `.pipe(
-        Effect.catchTag("SqlError", (cause) => integrityError("read news departments", cause)),
-        Effect.map((rows) => {
-          const map = new Map<number, Array<DepartmentId>>();
-          for (const row of rows) {
-            const list = map.get(Number(row.articleId)) ?? [];
-            list.push(row.departmentId);
-            map.set(Number(row.articleId), list);
-          }
-          return map;
-        }),
-      );
+      `
+        .pipe(
+          Effect.flatMap(
+            Schema.decodeUnknownEffect(
+              Schema.Array(
+                Schema.Struct({
+                  articleId: Schema.Union([Schema.String, Schema.Number]),
+                  departmentId: DepartmentId,
+                }),
+              ),
+            ),
+          ),
+          Effect.catchTag("SchemaError", (cause) =>
+            integrityError("decode news departments", cause),
+          ),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", (cause) => integrityError("read news departments", cause)),
+          Effect.map((rows) => {
+            const map = new Map<number, Array<DepartmentId>>();
+
+            for (const row of rows) {
+              const list = map.get(Number(row.articleId)) ?? [];
+              list.push(row.departmentId);
+              map.set(Number(row.articleId), list);
+            }
+
+            return map;
+          }),
+        );
 
 /**
  * Reads every article's current published version in one repeatable-read,
@@ -77,17 +104,19 @@ export const readNewsListingPostgres = (
           yield* database`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(
             Effect.asVoid,
           );
+
           if (departmentId !== undefined) {
             yield* organization
               .readDepartment(departmentId)
               .pipe(
                 Effect.mapError((cause) =>
-                  cause._tag === "DepartmentNotFound"
+                  Predicate.isTagged(cause, "DepartmentNotFound")
                     ? new ContentDepartmentNotFound({ departmentId })
                     : integrityError("validate news department", cause),
                 ),
               );
           }
+
           const rows = yield* database<CurrentVersionRow>`
             SELECT
               CAST(version.article_id AS integer) AS "articleId",
@@ -104,22 +133,35 @@ export const readNewsListingPostgres = (
               ON article.article_id = version.article_id
              AND article.current_version_number = version.version_number
             ORDER BY version.sticky DESC, version.published_at DESC, version.article_id DESC
-          `.pipe(
-            Effect.catchTag("SqlError", (cause) => integrityError("read news listing", cause)),
-          );
+          `
+            .pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(CurrentVersionRowSchema))),
+              Effect.catchTag("SchemaError", (cause) =>
+                integrityError("decode published article rows", cause),
+              ),
+            )
+            .pipe(
+              Effect.catchTag("SqlError", (cause) => integrityError("read news listing", cause)),
+            );
+
           if (rows.length === 0) {
             return { articles: [] } as const;
           }
+
           const departmentIdsByArticle = yield* readDepartments(database, [
             ...new Set(rows.map((row) => row.articleId)),
           ]);
+
           const authorPersonIds = [...new Set(rows.map((row) => row.createdByPersonId))].sort();
+
           const profiles = yield* profile
-            .readProfiles(authorPersonIds as never)
+            .readProfiles(authorPersonIds)
             .pipe(Effect.mapError((cause) => integrityError("resolve news authors", cause)));
+
           const namesByPerson = new Map<string, string>(
             profiles.map((entry) => [entry.personId, `${entry.firstName} ${entry.lastName}`]),
           );
+
           for (const personId of authorPersonIds) {
             if (!namesByPerson.has(personId)) {
               return yield* new ContentIntegrityError({
@@ -128,6 +170,7 @@ export const readNewsListingPostgres = (
               });
             }
           }
+
           const articles = rows.map((row) => ({
             slug: row.slug,
             title: row.title,
@@ -137,10 +180,12 @@ export const readNewsListingPostgres = (
             departmentIds: [...(departmentIdsByArticle.get(row.articleId) ?? [])],
             hasImage: false,
           }));
+
           const listing = yield* Schema.decodeUnknownEffect(PublishedNewsListingSchema)(
             { articles },
             { onExcessProperty: "error" },
           ).pipe(Effect.mapError((cause) => integrityError("decode news listing", cause)));
+
           return filterNewsListingByDepartment(listing, departmentId);
         }),
       )
@@ -163,12 +208,14 @@ export const readPublishedArticlePostgres = (
   Effect.gen(function* () {
     const database = yield* Database;
     const profile = yield* Profile;
+
     return yield* database
       .withTransaction(
         Effect.gen(function* () {
           yield* database`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(
             Effect.asVoid,
           );
+
           const versions = yield* database<{
             readonly articleId: number;
             readonly versionNumber: number;
@@ -197,37 +244,49 @@ export const readPublishedArticlePostgres = (
              AND article.current_version_number IS NOT NULL
             WHERE version.slug = ${slug}
             ORDER BY version.version_number DESC
-          `.pipe(
-            Effect.catchTag("SqlError", (cause) =>
-              integrityError("read published article versions", cause),
-            ),
-          );
+          `
+            .pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PublishedVersionRowSchema))),
+              Effect.catchTag("SchemaError", (cause) =>
+                integrityError("decode published article rows", cause),
+              ),
+            )
+            .pipe(
+              Effect.catchTag("SqlError", (cause) =>
+                integrityError("read published article versions", cause),
+              ),
+            );
+
           const current = versions[0];
+
           if (current === undefined) {
-            return yield* Effect.fail({
-              _tag: "ArticleNotFound",
-            } as const satisfies ArticleNotFound);
+            return yield* Effect.fail(new ContentArticleNotFound({}));
           }
+
           const selected =
             versionNumber === undefined
               ? current
               : versions.find((version) => version.versionNumber === versionNumber);
+
           if (selected === undefined) {
-            return yield* Effect.fail({
-              _tag: "ArticleNotFound",
-            } as const satisfies ArticleNotFound);
+            return yield* Effect.fail(new ContentArticleNotFound({}));
           }
+
           const departments = yield* readDepartments(database, [selected.articleId]);
+
           const profiles = yield* profile
-            .readProfiles([selected.createdByPersonId] as never)
+            .readProfiles([selected.createdByPersonId])
             .pipe(Effect.mapError((cause) => integrityError("resolve news author", cause)));
+
           const author = profiles.find((entry) => entry.personId === selected.createdByPersonId);
+
           if (author === undefined) {
             return yield* new ContentIntegrityError({
               operation: "resolve news author",
               message: `no profile resolved for author ${selected.createdByPersonId}`,
             });
           }
+
           const previousVersions = versions
             .filter((version) => version.versionNumber < selected.versionNumber)
             .sort((left, right) => right.versionNumber - left.versionNumber)
@@ -236,6 +295,7 @@ export const readPublishedArticlePostgres = (
               publishedAt: row.publishedAt,
               urlPath: `/nyhet/${slug}?versjon=${row.versionNumber}`,
             }));
+
           return yield* Schema.decodeUnknownEffect(PublishedNewsArticleSchema)(
             {
               slug: selected.slug,

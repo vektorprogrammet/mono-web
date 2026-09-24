@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type * as GeneratedSdkModule from "../../sdk/src/effect-client.js";
+import { SessionResponse } from "../../http-api/src/system.js";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";
@@ -31,18 +32,23 @@ import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/c
 import {
   Database,
   OAuthCredentialAuthority,
-  type DatabaseShape,
+  type DatabaseOperations,
   databaseHealth,
 } from "@vektorprogrammet/database";
 import { ServicePrincipalGrantAuthority } from "@vektorprogrammet/domain/authz";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  canonicalJsonValue,
+  sha256Hex,
+} from "@vektorprogrammet/domain/evidence";
 import {
   Identity,
   IdentityActor,
   IdentitySession,
   IdentityEngineError,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import {
   Organization,
@@ -59,17 +65,30 @@ import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
-import { Config, DateTime, Effect, Layer, ManagedRuntime, Redacted, Result } from "effect";
-import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
-import { makeBackendConfig, type BackendConfig } from "../../../apps/backend/src/config.js";
 import {
-  makeBackendHttp,
-  makeExternalNativeApiRouterLayer,
+  Array as Arr,
+  Data,
+  Predicate,
+  Config,
+  DateTime,
+  Effect,
+  Layer,
+  ManagedRuntime,
+  Redacted,
+  Result,
+  Schema,
+} from "effect";
+import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
+import { decodeBackendConfig, type BackendConfig } from "../../../apps/backend/src/config.js";
+import {
+  backendHttpHandler,
+  ExternalNativeApiRouterLive,
 } from "../../../apps/backend/src/router.js";
 import { DatabaseLive } from "../src/layers.js";
 import { IdentitySnapshot } from "../src/auth-live.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 import {
+  OrganizationImportRehearsalArtifactSchema,
   NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
   SPEC_0067,
   SPEC_0067_PREREQUISITES,
@@ -80,7 +99,7 @@ import {
   expectedOrganizationImportOutcomeMatrix,
   frozenOrganizationSnapshotCore,
   frozenOrganizationSnapshotInput,
-  makeOrganizationImportSqlObserverState,
+  initOrganizationImportSqlObserverState,
   observeOrganizationImportSql,
   organizationImportOutcomeMatrix,
   organizationImportProvenanceEvidence,
@@ -94,6 +113,17 @@ import {
   stableByteSetEvidence,
   type OrganizationImportStableState,
 } from "../src/test-support/organization-import-rehearsal-postgres.js";
+
+type RehearsalArtifact = typeof OrganizationImportRehearsalArtifactSchema.Type;
+
+type RehearsalArtifactCore = {
+  -readonly [Key in Exclude<keyof RehearsalArtifact, "evidenceSha256">]: RehearsalArtifact[Key];
+};
+
+type CommittedImportEvidence = Extract<
+  RehearsalArtifact["commitAndReplay"],
+  { readonly status: "Observed" }
+>;
 
 interface BunServer {
   readonly hostname: string;
@@ -143,9 +173,13 @@ interface BackendRequestObservation {
 }
 
 const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
+
 const dashboardRoot = join(repositoryRoot, "apps/dashboard");
+
 const sdkRoot = join(repositoryRoot, "packages/sdk");
+
 const dashboardPort = 5_174;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
 export const ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS = [
@@ -260,6 +294,7 @@ export const isExpectedNativeBrowserJourneyObservation = (input: {
   readonly requestSource: "BrowserSameOrigin" | "DashboardSsr" | "UnexpectedOrigin";
 }): boolean => {
   const requirement = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.find(({ path }) => path === input.path);
+
   return (
     input.method === "GET" &&
     input.status === 200 &&
@@ -272,6 +307,7 @@ export const isExpectedNativeBrowserJourneyObservation = (input: {
 const pathExists = async (path: string): Promise<boolean> => {
   try {
     await access(path);
+
     return true;
   } catch {
     return false;
@@ -289,14 +325,27 @@ export interface GeneratedOutputSnapshot {
 }
 
 const logicalPathSha256 = async (root: string): Promise<string> => {
-  const entries: Array<Record<string, unknown>> = [];
+  const entries: Array<
+    | { readonly path: string; readonly type: "symlink"; readonly target: string }
+    | {
+        readonly path: string;
+        readonly type: "file";
+        readonly byteLength: number;
+        readonly sha256: string;
+      }
+    | { readonly path: string; readonly type: "directory" }
+  > = [];
+
   const visit = async (path: string): Promise<void> => {
     const metadata = await lstat(path);
     const relativePath = relative(root, path) || ".";
+
     if (metadata.isSymbolicLink()) {
       entries.push({ path: relativePath, type: "symlink", target: await readlink(path) });
+
       return;
     }
+
     if (metadata.isFile()) {
       const bytes = await readFile(path);
       entries.push({
@@ -305,16 +354,22 @@ const logicalPathSha256 = async (root: string): Promise<string> => {
         byteLength: bytes.byteLength,
         sha256: sha256Hex(bytes),
       });
+
       return;
     }
+
     if (!metadata.isDirectory()) {
       throw new Error(`unsupported generated output entry: ${relativePath}`);
     }
+
     entries.push({ path: relativePath, type: "directory" });
     const children = (await readdir(path)).sort();
+
     for (const child of children) await visit(join(path, child));
   };
+
   await visit(root);
+
   return sha256Hex(canonicalJsonBytes(entries));
 };
 
@@ -324,13 +379,16 @@ export const captureGeneratedOutputs = async (
 ): Promise<GeneratedOutputSnapshot[]> => {
   await mkdir(backupRoot, { recursive: true });
   const snapshots: GeneratedOutputSnapshot[] = [];
+
   for (const [index, path] of paths.entries()) {
     const preexisting = await pathExists(path);
     const backupPath = preexisting ? join(backupRoot, String(index)) : null;
     const beforeSha256 = preexisting ? await logicalPathSha256(path) : null;
+
     if (backupPath !== null) {
       await cp(path, backupPath, { recursive: true, preserveTimestamps: true });
     }
+
     snapshots.push({
       path,
       relativePath: relative(repositoryRoot, path),
@@ -339,8 +397,10 @@ export const captureGeneratedOutputs = async (
       backupPath,
     });
   }
+
   return snapshots;
 };
+
 export const clearCapturedGeneratedOutputs = async (
   snapshots: ReadonlyArray<GeneratedOutputSnapshot>,
 ): Promise<void> => {
@@ -351,6 +411,7 @@ export const clearCapturedGeneratedOutputs = async (
 
 export const restoreGeneratedOutput = async (snapshot: GeneratedOutputSnapshot) => {
   await rm(snapshot.path, { recursive: true, force: true });
+
   if (snapshot.preexisting) {
     assert.ok(snapshot.backupPath !== null);
     await cp(snapshot.backupPath, snapshot.path, {
@@ -358,10 +419,13 @@ export const restoreGeneratedOutput = async (snapshot: GeneratedOutputSnapshot) 
       preserveTimestamps: true,
     });
   }
+
   const afterExists = await pathExists(snapshot.path);
   const afterSha256 = afterExists ? await logicalPathSha256(snapshot.path) : null;
   const restored = afterExists === snapshot.preexisting && afterSha256 === snapshot.beforeSha256;
+
   if (!restored) throw new Error(`generated output restoration mismatch: ${snapshot.relativePath}`);
+
   return {
     path: snapshot.relativePath,
     preexisting: snapshot.preexisting,
@@ -379,6 +443,7 @@ const makeChildToolEnvironment = (runnerTempRoot: string): NodeJS.ProcessEnv => 
     PLAYWRIGHT_BROWSERS_PATH:
       process.env.PLAYWRIGHT_BROWSERS_PATH ?? join(homedir(), ".cache/ms-playwright"),
   };
+
   for (const name of [
     "PATH",
     "LANG",
@@ -388,8 +453,10 @@ const makeChildToolEnvironment = (runnerTempRoot: string): NodeJS.ProcessEnv => 
     "SSL_CERT_DIR",
   ]) {
     const value = process.env[name];
+
     if (value !== undefined) environment[name] = value;
   }
+
   return environment;
 };
 
@@ -399,6 +466,7 @@ const normalizedLoopbackHost = (host: string): string =>
 const isLocalPostgresEndpoint = (url: URL): boolean => {
   if (normalizedLoopbackHost(url.hostname) === "127.0.0.1") return true;
   const socketDirectory = url.searchParams.get("host");
+
   return url.hostname === "" && socketDirectory !== null && socketDirectory.startsWith("/");
 };
 
@@ -412,9 +480,11 @@ class LocalNetworkGuard {
 
   addHttp(origin: string, label: string): void {
     const url = new URL(origin);
+
     if (url.protocol !== "http:" || normalizedLoopbackHost(url.hostname) !== "127.0.0.1") {
       throw new Error("the rehearsal HTTP authority must be loopback");
     }
+
     this.#allowedOrigins.add(url.origin);
     this.allowedDestinations.add(label);
   }
@@ -422,11 +492,13 @@ class LocalNetworkGuard {
   addPostgres(urlValue: string): void {
     const url = new URL(urlValue);
     assert.ok(url.protocol === "postgres:" || url.protocol === "postgresql:");
+
     if (!isLocalPostgresEndpoint(url)) {
       this.productionResourceAttempts += 1;
       this.remoteEffectAttempts += 1;
       throw new Error("the rehearsal PostgreSQL authority must be loopback or a local Unix socket");
     }
+
     this.allowedDestinations.add("local-postgresql/disposable-database");
   }
 
@@ -436,13 +508,16 @@ class LocalNetworkGuard {
   ): Promise<Response> => {
     const request = new Request(input, init);
     const url = new URL(request.url);
+
     if (url.protocol !== "http:" || !this.#allowedOrigins.has(url.origin)) {
       this.productionResourceAttempts += 1;
       this.remoteEffectAttempts += 1;
+
       if (url.protocol === "http:" || url.protocol === "https:") this.providerRequests += 1;
       this.rejectedDestinations.push(`${url.protocol}//${url.hostname}`);
       throw new Error("network guard rejected a non-rehearsal destination");
     }
+
     return fetch(request);
   };
 }
@@ -454,6 +529,7 @@ const createDisposableDatabase = async (
   databaseName: string,
 ): Promise<{ readonly url: string; readonly administrator: Pool }> => {
   const admin = new URL(administratorUrl);
+
   if (
     (admin.protocol !== "postgres:" && admin.protocol !== "postgresql:") ||
     !isLocalPostgresEndpoint(admin)
@@ -462,15 +538,19 @@ const createDisposableDatabase = async (
       "ORGANIZATION_IMPORT_REHEARSAL_ADMIN_PG_URL must use loopback PostgreSQL or a local Unix socket",
     );
   }
+
   const administrator = new Pool({ connectionString: admin.toString(), max: 1 });
+
   try {
     await administrator.query(`CREATE DATABASE ${quoteIdentifier(databaseName)}`);
   } catch (cause) {
     await administrator.end();
     throw cause;
   }
+
   const target = new URL(admin);
   target.pathname = `/${databaseName}`;
+
   return { url: target.toString(), administrator };
 };
 
@@ -483,14 +563,17 @@ const dropDisposableDatabase = async (
     [databaseName],
   );
   await administrator.query(`DROP DATABASE ${quoteIdentifier(databaseName)} WITH (FORCE)`);
+
   const result = await administrator.query<{ readonly count: string }>(
     "SELECT count(*)::text AS count FROM pg_database WHERE datname = $1",
     [databaseName],
   );
+
   const connections = await administrator.query<{ readonly count: string }>(
     "SELECT count(*)::text AS count FROM pg_stat_activity WHERE datname = $1",
     [databaseName],
   );
+
   return {
     databaseAbsent: Number(result.rows[0]?.count ?? "-1") === 0,
     residualConnections: Number(connections.rows[0]?.count ?? "-1"),
@@ -504,6 +587,7 @@ const rejectDeploymentIntent = (
   label: string,
 ): void => {
   const processIntent = [basename(command), ...args].join(" ");
+
   if (!/\b(?:deploy|publish|wrangler|alchemy)\b/iu.test(processIntent)) return;
   observer.deploymentAttempts += 1;
   throw new Error(`deployment-capable child command rejected before spawn: ${label}`);
@@ -524,16 +608,20 @@ const runCommand = (
 ): Promise<ProcessObservation> => {
   rejectDeploymentIntent(command, args, options.processEffects, options.label);
   const { promise, resolve, reject } = Promise.withResolvers<ProcessObservation>();
+
   const child = spawn(command, [...args], {
     cwd: options.cwd,
     env: options.env,
     stdio: ["ignore", "pipe", "pipe"],
   });
+
   let output = "";
   let settled = false;
+
   const capture = (chunk: Buffer): void => {
     output = `${output}${chunk.toString("utf8")}`.slice(-16_384);
   };
+
   child.stdout?.on("data", capture);
   child.stderr?.on("data", capture);
   const timer = setTimeout(() => child.kill("SIGKILL"), options.timeoutMilliseconds ?? 300_000);
@@ -553,14 +641,17 @@ const runCommand = (
     if (settled) return;
     settled = true;
     clearTimeout(timer);
+
     const observation: ProcessObservation = {
       label: options.label,
       outcome: "Exited",
       exitCode,
       signal,
     };
+
     options.observations.push(observation);
     options.captureOutput?.(output);
+
     if (exitCode === 0) {
       resolve(observation);
     } else {
@@ -571,6 +662,7 @@ const runCommand = (
       );
     }
   });
+
   return promise;
 };
 
@@ -592,7 +684,9 @@ const readGitValue = async (
     },
   });
   const value = output.trim();
+
   if (value.length === 0) throw new Error(`git ${args.join(" ")} returned no value`);
+
   return value;
 };
 
@@ -605,6 +699,7 @@ const startDashboard = (
   const args = ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS;
   const label = "dashboard production server";
   rejectDeploymentIntent(command, args, processEffects, label);
+
   const child = spawn(command, args, {
     cwd: dashboardRoot,
     env: {
@@ -616,6 +711,7 @@ const startDashboard = (
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
+
   const started = Promise.withResolvers<ChildProcess>();
   child.once("spawn", () => started.resolve(child));
   child.once("error", (cause) => {
@@ -627,6 +723,7 @@ const startDashboard = (
     });
     started.reject(cause);
   });
+
   return started.promise;
 };
 
@@ -637,6 +734,7 @@ const stopProcessTree = async (
   if (processHandle === undefined) {
     return { label, outcome: "NotStarted", exitCode: null, signal: null };
   }
+
   if (processHandle.exitCode !== null || processHandle.signalCode !== null) {
     return {
       label,
@@ -645,6 +743,7 @@ const stopProcessTree = async (
       signal: processHandle.signalCode,
     };
   }
+
   const pid = processHandle.pid;
   const { promise, resolve } = Promise.withResolvers<ProcessObservation>();
   let timer: NodeJS.Timeout | undefined;
@@ -652,12 +751,14 @@ const stopProcessTree = async (
     clearTimeout(timer);
     resolve({ label, outcome: "Stopped", exitCode, signal });
   });
+
   if (pid !== undefined) process.kill(-pid, "SIGTERM");
   timer = setTimeout(() => {
     if (pid !== undefined && processHandle.exitCode === null && processHandle.signalCode === null) {
       process.kill(-pid, "SIGKILL");
     }
   }, 5_000);
+
   return promise;
 };
 
@@ -668,26 +769,31 @@ const assertPortAvailable = (port: number): Promise<void> => {
   server.listen(port, "127.0.0.1", () => {
     server.close((cause) => (cause === undefined ? resolve() : reject(cause)));
   });
+
   return promise;
 };
 
 const isPortReleased = (port: number): Promise<boolean> => {
   const { promise, resolve } = Promise.withResolvers<boolean>();
   const socket = createConnection({ host: "127.0.0.1", port });
+
   const settle = (released: boolean): void => {
     socket.removeAllListeners();
     socket.destroy();
     resolve(released);
   };
+
   socket.setTimeout(250, () => settle(true));
   socket.once("error", () => settle(true));
   socket.once("connect", () => settle(false));
+
   return promise;
 };
 
 const delay = (milliseconds: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, milliseconds);
+
   return promise;
 };
 
@@ -701,6 +807,7 @@ export const boundedCookieCapabilityFailure = (input: {
 }): string | undefined => {
   const dashboardUrl = new URL(input.dashboardOrigin);
   const apiUrl = new URL(input.apiOrigin);
+
   if (
     normalizedLoopbackHost(dashboardUrl.hostname) !== "127.0.0.1" ||
     normalizedLoopbackHost(apiUrl.hostname) !== "127.0.0.1" ||
@@ -708,18 +815,23 @@ export const boundedCookieCapabilityFailure = (input: {
   ) {
     return "bounded cookie requires one shared loopback host for dashboard and API";
   }
+
   if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/u.test(input.cookieName)) {
     return "bounded cookie name is not representable by Chromium";
   }
+
   if (input.cookieValue.length === 0) return "bounded cookie value is empty";
   const authorizationTime = Date.parse(input.authorizationInstant);
   const expiryTime = Date.parse(input.expiresAt);
+
   if (!Number.isFinite(authorizationTime) || !Number.isFinite(expiryTime)) {
     return "bounded cookie interval is not a valid instant";
   }
+
   if (authorizationTime >= expiryTime) {
     return "bounded cookie expires before the fixed authorization instant";
   }
+
   return undefined;
 };
 
@@ -738,10 +850,14 @@ export type ExistingPageSessionCapability =
     }
   | { readonly _tag: "EnvironmentFailure"; readonly reason: string };
 
+export const ExistingPageSessionCapability = Data.taggedEnum<ExistingPageSessionCapability>();
+
 const loginRedirectPath = (location: string | null): string | undefined => {
   if (location === null) return undefined;
+
   try {
     const redirect = new URL(location, "http://127.0.0.1");
+
     return redirect.pathname === "/login" ? `${redirect.pathname}${redirect.search}` : undefined;
   } catch {
     return undefined;
@@ -752,43 +868,44 @@ export const classifyExistingPageSessionCapability = (
   observations: ReadonlyArray<ExistingPageSessionCapabilityObservation>,
 ): ExistingPageSessionCapability => {
   if (observations.length === 0) {
-    return {
-      _tag: "EnvironmentFailure",
+    return ExistingPageSessionCapability.EnvironmentFailure({
       reason: "existing page/session capability preflight produced no observations",
-    };
+    });
   }
+
   for (const observation of observations) {
     const loginRedirect = loginRedirectPath(observation.location);
+
     if (observation.status >= 300 && observation.status < 400 && loginRedirect !== undefined) {
-      return {
-        _tag: "BrowserNotPractical",
+      return ExistingPageSessionCapability.BrowserNotPractical({
         capability: "ExistingPageBoundedSession",
         reason:
           `existing page/session gate cannot consume the bounded cookie: ${observation.path} ` +
           `redirected to ${loginRedirect}; proceeding would require credentials, an auth write, ` +
           "a product change, or a legacy service",
-      };
+      });
     }
+
     if (observation.status === 401 || observation.status === 403) {
-      return {
-        _tag: "BrowserNotPractical",
+      return ExistingPageSessionCapability.BrowserNotPractical({
         capability: "ExistingPageBoundedSession",
         reason:
           `existing page/session gate rejected the bounded cookie: ${observation.path} returned ` +
           `${observation.status}; proceeding would require credentials, an auth write, ` +
           "a product change, or a legacy service",
-      };
+      });
     }
+
     if (observation.status !== 200) {
-      return {
-        _tag: "EnvironmentFailure",
+      return ExistingPageSessionCapability.EnvironmentFailure({
         reason:
           `existing page/session capability preflight received unexpected ${observation.status} ` +
           `${observation.path}${observation.location === null ? "" : ` -> ${observation.location}`}`,
-      };
+      });
     }
   }
-  return { _tag: "Practical" };
+
+  return ExistingPageSessionCapability.Practical();
 };
 
 const observeExistingPageSessionCapability = async (
@@ -798,6 +915,7 @@ const observeExistingPageSessionCapability = async (
   guard: LocalNetworkGuard,
 ): Promise<ReadonlyArray<ExistingPageSessionCapabilityObservation>> => {
   const observations: ExistingPageSessionCapabilityObservation[] = [];
+
   for (const path of ["/dashboard/team", "/dashboard/brukere"] as const) {
     const response = await guard.fetchLoopback(`${dashboardOrigin}${path}`, {
       headers: {
@@ -806,6 +924,7 @@ const observeExistingPageSessionCapability = async (
       },
       redirect: "manual",
     });
+
     observations.push({
       path,
       status: response.status,
@@ -813,6 +932,7 @@ const observeExistingPageSessionCapability = async (
     });
     await response.body?.cancel();
   }
+
   return observations;
 };
 
@@ -822,6 +942,7 @@ const waitForHttp = async (
   processHandle?: ChildProcess,
 ): Promise<void> => {
   const deadline = Date.now() + 45_000;
+
   while (Date.now() < deadline) {
     if (
       processHandle !== undefined &&
@@ -829,20 +950,26 @@ const waitForHttp = async (
     ) {
       throw new Error("dashboard exited before its loopback HTTP endpoint was ready");
     }
+
     try {
       const response = await guard.fetchLoopback(url, { redirect: "manual" });
+
       if (response.status < 500) return;
     } catch {
       // Bounded readiness retries are local observations, not product retries.
     }
+
     await delay(100);
   }
+
   throw new Error("dashboard loopback HTTP readiness timed out");
 };
 
 const requestBodyBytes = async (request: IncomingMessage): Promise<Buffer> => {
   const chunks: Buffer[] = [];
+
   for await (const chunk of request) chunks.push(Buffer.from(chunk));
+
   return Buffer.concat(chunks);
 };
 
@@ -853,30 +980,37 @@ const startRecordingProxy = async (
   cookieName: string,
 ): Promise<RehearsalProxy> => {
   const records: ProxyRequestObservation[] = [];
+
   const server: HttpServer = createHttpServer(async (request, response) => {
     const method = request.method ?? "GET";
     const path = new URL(request.url ?? "/", targetOrigin).pathname;
     const cookie = request.headers.cookie ?? "";
+
     const sessionCookieAuth = cookie
       .split(";")
       .some((pair) => pair.trim().startsWith(`${cookieName}=`));
+
     const requestSource =
       request.headers["sec-fetch-site"] === "same-origin"
         ? ("BrowserSameOrigin" as const)
         : request.headers.origin === undefined || request.headers.origin === dashboardAllowedOrigin
           ? ("DashboardSsr" as const)
           : ("UnexpectedOrigin" as const);
+
     const allowedPath = NATIVE_BROWSER_JOURNEY_PATHS.some(
       (allowedJourneyPath) => allowedJourneyPath === path,
     );
+
     if (!isNativeBrowserJourneyRequestAllowed(method, path)) {
       const status = allowedPath ? 405 : 404;
       records.push({ method, path, status, sessionCookieAuth, requestSource });
       response.statusCode = status;
       response.setHeader("content-type", "application/json");
       response.end('{"error":"unexpected rehearsal API request"}');
+
       return;
     }
+
     if (method === "OPTIONS") {
       records.push({ method, path, status: 204, sessionCookieAuth, requestSource });
       response.statusCode = 204;
@@ -885,10 +1019,13 @@ const startRecordingProxy = async (
       response.setHeader("access-control-allow-methods", "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS");
       response.setHeader("access-control-allow-headers", "content-type");
       response.end();
+
       return;
     }
+
     const requestBytes = await requestBodyBytes(request);
     const headers = new Headers();
+
     for (const [name, value] of Object.entries(request.headers)) {
       if (
         value === undefined ||
@@ -896,12 +1033,14 @@ const startRecordingProxy = async (
       ) {
         continue;
       }
+
       if (Array.isArray(value)) {
         for (const item of value) headers.append(name, item);
       } else {
         headers.set(name, value);
       }
     }
+
     try {
       const upstream = await guard.fetchLoopback(new URL(request.url ?? "/", targetOrigin), {
         method,
@@ -909,14 +1048,18 @@ const startRecordingProxy = async (
         body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
+
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       records.push({ method, path, status: upstream.status, sessionCookieAuth, requestSource });
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers.entries()) {
         if (["content-encoding", "content-length", "transfer-encoding"].includes(name)) continue;
         response.setHeader(name, value);
       }
+
       const setCookie = upstream.headers.getSetCookie();
+
       if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
       response.setHeader("access-control-allow-origin", dashboardAllowedOrigin);
       response.setHeader("access-control-allow-credentials", "true");
@@ -928,6 +1071,7 @@ const startRecordingProxy = async (
       response.end('{"error":"local rehearsal proxy failure"}');
     }
   });
+
   const listening = Promise.withResolvers<void>();
   server.once("error", listening.reject);
   server.listen(0, "127.0.0.1", () => {
@@ -936,11 +1080,14 @@ const startRecordingProxy = async (
   });
   await listening.promise;
   const address = server.address();
-  if (address === null || typeof address === "string") {
+
+  if (address === null || Predicate.isString(address)) {
     server.close();
     throw new Error("local rehearsal proxy did not bind a loopback port");
   }
+
   let closed = false;
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     port: address.port,
@@ -956,16 +1103,26 @@ const startRecordingProxy = async (
   };
 };
 
-const sanitizeProjection = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(sanitizeProjection);
-  if (typeof value !== "object" || value === null) return value;
-  const result: Record<string, unknown> = {};
+const sanitizeProjection = (value: Schema.Json): Schema.Json => {
+  if (Arr.isArray<Schema.Json>(value)) return value.map(sanitizeProjection);
+
+  if (
+    value === null ||
+    Predicate.isString(value) ||
+    Predicate.isNumber(value) ||
+    Predicate.isBoolean(value)
+  )
+    return value;
+  const result: Record<string, Schema.Json> = {};
+
   for (const [key, child] of Object.entries(value)) {
     const normalized = key.toLowerCase();
+
     if (normalized === "email" || normalized === "phone") {
-      result[`${key}Sha256`] = typeof child === "string" ? sha256Text(child) : null;
+      result[`${key}Sha256`] = Predicate.isString(child) ? sha256Text(child) : null;
       continue;
     }
+
     if (
       normalized.includes("password") ||
       normalized.includes("secret") ||
@@ -975,8 +1132,10 @@ const sanitizeProjection = (value: unknown): unknown => {
     ) {
       throw new Error(`forbidden sensitive projection field: ${key}`);
     }
+
     result[key] = sanitizeProjection(child);
   }
+
   return result;
 };
 
@@ -986,11 +1145,13 @@ const stableComparisonIsEqual = (
 ): boolean =>
   names.every((name) => {
     const value = comparison[name];
+
     return value.byteLengthEqual && value.sha256Equal && value.directBytesEqual;
   });
 
 const importResultEvidence = (result: OrganizationImportResult) => {
   const bytes = canonicalJsonBytes(result);
+
   return {
     byteLength: bytes.byteLength,
     sha256: sha256Hex(bytes),
@@ -1008,19 +1169,23 @@ const importResultEvidence = (result: OrganizationImportResult) => {
 
 const decodeJsonResponse = async (
   response: Response,
-): Promise<{ readonly status: number; readonly body: unknown }> => ({
+): Promise<{ readonly status: number; readonly body: Schema.Json }> => ({
   status: response.status,
-  body: await response.json(),
+  body: Schema.decodeUnknownSync(Schema.Json)(await response.json()),
 });
 
 const sanitizeFailure = (cause: unknown, sensitiveValues: ReadonlyArray<string>): string => {
   let message = cause instanceof Error ? cause.message : String(cause);
+
   for (const sensitive of sensitiveValues) {
     if (sensitive.length > 0) message = message.replaceAll(sensitive, "<redacted>");
   }
+
   message = message.replace(/postgres(?:ql)?:\/\/[^@\s/]+@/giu, "postgresql://<redacted>@");
+
   return message.slice(0, 2_000);
 };
+
 const readSanitizedFailedBrowserEvidence = async (
   path: string,
   sensitiveValues: ReadonlyArray<string>,
@@ -1030,6 +1195,7 @@ const readSanitizedFailedBrowserEvidence = async (
     const serialized = await readFile(path, "utf8");
     const input: unknown = JSON.parse(serialized);
     const evidence = await Effect.runPromise(decodeOrganizationImportBrowserFailedEvidence(input));
+
     return {
       status: "Failed",
       failure: sanitizeFailure(evidence.failure, sensitiveValues),
@@ -1083,9 +1249,11 @@ const makeIdentityTestLayer = (
     sessionId: `session-${sha256Text(sessionCookie).slice(0, 16)}`,
     expiresAt: DateTime.makeUnsafe(new Date(SPEC_0067.sessionExpiresAt)),
   });
-  const identity: IdentityShape = {
+
+  const identity: IdentityOperations = {
     signIn: () => {
       counters.credentialAttempts += 1;
+
       return Promise.reject(
         new IdentityEngineError({
           operation: "signIn",
@@ -1097,11 +1265,13 @@ const makeIdentityTestLayer = (
       const accepted = (cookieHeader ?? "")
         .split(";")
         .some((pair) => pair.trim() === `${SPEC_0067.sessionCookieName}=${sessionCookie}`);
+
       return accepted ? Promise.resolve(actor) : Promise.reject(new IdentitySessionNotFound());
     },
     readCurrentSession: async (cookieHeader) => {
       const currentActor = await identity.resolveSession(cookieHeader);
       const authorizationInstant = DateTime.makeUnsafe(new Date(SPEC_0067.authorizationInstant));
+
       return new IdentitySession({
         sessionId: currentActor.sessionId,
         createdAt: authorizationInstant,
@@ -1115,6 +1285,7 @@ const makeIdentityTestLayer = (
     listSessions: () => Promise.reject(new Error("unexpected session list")),
     revokeCurrentSession: () => {
       counters.authMutationAttempts += 1;
+
       return Promise.reject(
         new IdentityEngineError({
           operation: "revokeCurrentSession",
@@ -1128,6 +1299,7 @@ const makeIdentityTestLayer = (
     recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
     signOut: () => {
       counters.authMutationAttempts += 1;
+
       return Promise.reject(
         new IdentityEngineError({
           operation: "signOut",
@@ -1136,6 +1308,7 @@ const makeIdentityTestLayer = (
       );
     },
   };
+
   const snapshot = IdentitySnapshot.of({
     resolveSession: (cookieHeader) =>
       Effect.tryPromise({
@@ -1150,6 +1323,7 @@ const makeIdentityTestLayer = (
       }),
     revokeCurrentSession: () => {
       counters.authMutationAttempts += 1;
+
       return Effect.fail(
         new IdentityEngineError({
           operation: "revokeCurrentSession",
@@ -1159,6 +1333,7 @@ const makeIdentityTestLayer = (
     },
     revokeSession: () => {
       counters.authMutationAttempts += 1;
+
       return Effect.fail(
         new IdentityEngineError({
           operation: "revokeSession",
@@ -1168,6 +1343,7 @@ const makeIdentityTestLayer = (
     },
     revokeOtherSessions: () => {
       counters.authMutationAttempts += 1;
+
       return Effect.fail(
         new IdentityEngineError({
           operation: "revokeOtherSessions",
@@ -1177,6 +1353,7 @@ const makeIdentityTestLayer = (
     },
     revokeAllSessions: () => {
       counters.authMutationAttempts += 1;
+
       return Effect.fail(
         new IdentityEngineError({
           operation: "revokeAllSessions",
@@ -1185,12 +1362,13 @@ const makeIdentityTestLayer = (
       );
     },
   });
+
   return Layer.merge(Layer.succeed(Identity, identity), Layer.succeed(IdentitySnapshot, snapshot));
 };
 
 const makeRehearsalRuntime = (
   databaseUrl: string,
-  observerState: ReturnType<typeof makeOrganizationImportSqlObserverState>,
+  observerState: ReturnType<typeof initOrganizationImportSqlObserverState>,
   identityLayer: Layer.Layer<Identity | IdentitySnapshot>,
   config: BackendConfig,
 ) => {
@@ -1199,32 +1377,41 @@ const makeRehearsalRuntime = (
     applicationName: "spec-0067-organization-import-rehearsal",
     maxConnections: 6,
   });
+
   const observedDatabaseLayer = Layer.effect(
     Database,
     Effect.map(Database, (sql) => observeOrganizationImportSql(sql, observerState)),
   ).pipe(Layer.provide(databaseLayer));
+
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(observedDatabaseLayer));
   const economyLayer = EconomyLive.pipe(Layer.provide(observedDatabaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(observedDatabaseLayer));
+
   const returningAssistantsLayer = ReturningAssistantsLive.pipe(
     Layer.provide(observedDatabaseLayer),
   );
+
   const profileLayer = ProfileLive.pipe(
     Layer.provide(Layer.merge(observedDatabaseLayer, organizationLayer)),
   );
+
   const schoolsLayer = SchoolsLive.pipe(Layer.provide(observedDatabaseLayer));
   const contentManagementLayer = ContentManagementLive.pipe(Layer.provide(observedDatabaseLayer));
+
   const contentLayer = ContentLive.pipe(
     Layer.provide(Layer.mergeAll(observedDatabaseLayer, organizationLayer, profileLayer)),
   );
+
   const recruitmentLayer = RecruitmentLive.pipe(
     Layer.provide(
       Layer.mergeAll(observedDatabaseLayer, admissionsLayer, organizationLayer, profileLayer),
     ),
   );
+
   const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(observedDatabaseLayer));
   const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(observedDatabaseLayer));
   const receiptAuxiliaryLayer = makeReceiptAuxiliaryRecording().layer;
+
   const servicePrincipalGrantLayer = Layer.succeed(
     ServicePrincipalGrantAuthority,
     ServicePrincipalGrantAuthority.of({
@@ -1235,6 +1422,7 @@ const makeRehearsalRuntime = (
       revokeGrant: () => Effect.die("unexpected service-principal grant mutation"),
     }),
   );
+
   const oauthCredentialLayer = Layer.succeed(
     OAuthCredentialAuthority,
     OAuthCredentialAuthority.of({
@@ -1242,6 +1430,7 @@ const makeRehearsalRuntime = (
       resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
     }),
   );
+
   const servicesLayer = Layer.mergeAll(
     observedDatabaseLayer,
     admissionsLayer,
@@ -1260,20 +1449,23 @@ const makeRehearsalRuntime = (
     receiptAuxiliaryLayer,
     servicePrincipalGrantLayer,
   );
+
   const platformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;
   const httpLayer = Layer.merge(platformLayer, routerLayer);
-  const nativeApiLayer = makeExternalNativeApiRouterLayer(config, {
+
+  const nativeApiLayer = ExternalNativeApiRouterLive(config, {
     now: () => SPEC_0067.authorizationInstant,
   }).pipe(
     HttpRouter.provideRequest(servicesLayer),
     Layer.provide(servicesLayer),
     Layer.provide(httpLayer),
   );
+
   return ManagedRuntime.make(Layer.mergeAll(servicesLayer, httpLayer, nativeApiLayer));
 };
 
-const seedPrerequisites = (sql: DatabaseShape): Effect.Effect<void, unknown> =>
+const seedPrerequisites = (sql: DatabaseOperations): Effect.Effect<void, unknown> =>
   sql.withTransaction(
     Effect.gen(function* () {
       for (const person of SPEC_0067_PREREQUISITES.persons) {
@@ -1292,6 +1484,7 @@ const seedPrerequisites = (sql: DatabaseShape): Effect.Effect<void, unknown> =>
           )
         `;
       }
+
       const grant = SPEC_0067_PREREQUISITES.administratorGrant;
       yield* sql`
         INSERT INTO public.organization_global_administrator_grants (
@@ -1304,7 +1497,7 @@ const seedPrerequisites = (sql: DatabaseShape): Effect.Effect<void, unknown> =>
     }),
   );
 
-const stableState = async (sql: DatabaseShape): Promise<OrganizationImportStableState> =>
+const stableState = async (sql: DatabaseOperations): Promise<OrganizationImportStableState> =>
   Effect.runPromise(readOrganizationImportStableState(sql));
 
 const serviceImport = async (
@@ -1316,16 +1509,18 @@ const serviceImport = async (
   );
 
 export const writeSanitizedOrganizationImportRehearsalArtifact = async (input: {
-  readonly artifactCore: Record<string, unknown>;
+  readonly artifactCore: Schema.Json;
   readonly evidencePath: string;
   readonly sensitiveValues: ReadonlyArray<string>;
 }): Promise<{ readonly evidenceSha256: string }> => {
-  const evidenceSha256 = sha256Hex(canonicalJsonBytes(input.artifactCore));
-  const artifact = { ...input.artifactCore, evidenceSha256 };
+  const artifactCore = Schema.decodeUnknownSync(Schema.JsonObject)(input.artifactCore);
+  const evidenceSha256 = sha256Hex(canonicalJsonBytes(artifactCore));
+  const artifact = { ...artifactCore, evidenceSha256 };
   let artifactValidated = false;
   await Effect.runPromise(verifyOrganizationImportRehearsalArtifact(artifact));
   artifactValidated = true;
   const serialized = `${canonicalJson(artifact)}\n`;
+
   for (const sensitive of input.sensitiveValues) {
     assert.equal(
       serialized.includes(sensitive),
@@ -1333,6 +1528,7 @@ export const writeSanitizedOrganizationImportRehearsalArtifact = async (input: {
       "sanitized evidence contained a secret value",
     );
   }
+
   assert.equal(/postgres(?:ql)?:\/\/[^@\s/]+@/iu.test(serialized), false);
   assert.equal(
     artifactValidated,
@@ -1341,6 +1537,7 @@ export const writeSanitizedOrganizationImportRehearsalArtifact = async (input: {
   );
   await mkdir(dirname(input.evidencePath), { recursive: true });
   await writeFile(input.evidencePath, serialized, { encoding: "utf8", flag: "wx" });
+
   return { evidenceSha256 };
 };
 
@@ -1352,6 +1549,7 @@ const runRehearsal = async (
   const databaseNameSha256 = sha256Text(databaseName);
   let sessionCookie: string | undefined = randomBytes(48).toString("base64url");
   let backendSecret: string | undefined = randomBytes(48).toString("base64url");
+
   const sensitiveValues: string[] = [
     administratorUrl,
     sessionCookie,
@@ -1359,24 +1557,30 @@ const runRehearsal = async (
     ...SPEC_0067_PREREQUISITES.persons.map(({ email }) => email),
     ...SPEC_0067_PREREQUISITES.persons.map(({ phone }) => phone),
   ];
+
   const guard = new LocalNetworkGuard();
-  const observerState = makeOrganizationImportSqlObserverState();
+  const observerState = initOrganizationImportSqlObserverState();
   const identityCounters = { credentialAttempts: 0, authMutationAttempts: 0 };
   const processObservations: ProcessObservation[] = [];
   const processEffects: ProcessEffectObserver = { deploymentAttempts: 0 };
   const backendRequests: BackendRequestObservation[] = [];
   const cleanupErrors: string[] = [];
+
   const runnerTempRoot = join(
     tmpdir(),
     `vektorprogrammet-spec-0067-${randomBytes(8).toString("hex")}`,
   );
+
   const browserEvidencePath = join(runnerTempRoot, "browser-evidence.json");
   const generatedBackupRoot = join(runnerTempRoot, "generated-output-backups");
   const childToolEnvironment = makeChildToolEnvironment(runnerTempRoot);
+
   const generatedPaths = ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS.map((relativePath) =>
     join(repositoryRoot, relativePath),
   );
+
   let generatedOutputSnapshots: GeneratedOutputSnapshot[] = [];
+
   const generatedOutputRestoration: Array<{
     readonly path: string;
     readonly preexisting: boolean;
@@ -1385,7 +1589,7 @@ const runRehearsal = async (
     readonly restored: boolean;
   }> = [];
 
-  const artifactCore: Record<string, unknown> = {
+  const artifactCore: Partial<RehearsalArtifactCore> = {
     contract: {
       revision: SPEC_0067.contractRevision,
       frozenCodeBaseHead: SPEC_0067.frozenCodeBaseHead,
@@ -1414,15 +1618,6 @@ const runRehearsal = async (
     personAuthority: { status: "NotObservedDueToFailure" },
     browser: { status: "NotObservedDueToFailure" },
     forbiddenEffects: { status: "NotObservedDueToFailure" },
-    cleanup: { status: "NotObservedDueToFailure" },
-    observations: { status: "Running" },
-    evidenceClassification: {
-      class: "local runtime observation over synthetic data",
-      productionReadinessClaim: false,
-      proofClaim: false,
-      status: "Running",
-      failedChecks: [],
-    },
   };
 
   let administrator: Pool | undefined;
@@ -1443,6 +1638,7 @@ const runRehearsal = async (
     await mkdir(childToolEnvironment.HOME!, { recursive: true });
     await mkdir(childToolEnvironment.TMPDIR!, { recursive: true });
     await mkdir(childToolEnvironment.XDG_CACHE_HOME!, { recursive: true });
+
     for (const root of [sdkRoot, dashboardRoot]) {
       for (const name of [".env", ".env.local", ".env.development", ".env.development.local"]) {
         assert.equal(
@@ -1452,26 +1648,31 @@ const runRehearsal = async (
         );
       }
     }
+
     generatedOutputSnapshots = await captureGeneratedOutputs(generatedPaths, generatedBackupRoot);
     await clearCapturedGeneratedOutputs(generatedOutputSnapshots);
+
     const runtimeHead = await readGitValue(
       ["rev-parse", "HEAD"],
       childToolEnvironment,
       processObservations,
       processEffects,
     );
+
     const frozenBaseMergeBase = await readGitValue(
       ["merge-base", "HEAD", SPEC_0067.frozenCodeBaseHead],
       childToolEnvironment,
       processObservations,
       processEffects,
     );
+
     const implementationBaseMergeBase = await readGitValue(
       ["merge-base", "HEAD", SPEC_0067.implementationBaseHead],
       childToolEnvironment,
       processObservations,
       processEffects,
     );
+
     assert.match(runtimeHead, /^[a-f0-9]{40}$/u);
     assert.equal(frozenBaseMergeBase, SPEC_0067.frozenCodeBaseHead);
     assert.equal(implementationBaseMergeBase, SPEC_0067.implementationBaseHead);
@@ -1508,7 +1709,8 @@ const runRehearsal = async (
       OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     };
-    const config = makeBackendConfig(configEnvironment);
+
+    const config = decodeBackendConfig(configEnvironment);
     stage = "migration and runtime composition";
     runtime = makeRehearsalRuntime(
       databaseUrl,
@@ -1518,6 +1720,7 @@ const runRehearsal = async (
     );
     await runtime.runPromise(databaseHealth);
     const sql = await runtime.runPromise(Database);
+
     const migrationRows = await runtime.runPromise(
       sql<{ readonly migrationId: number; readonly name: string }>`
         SELECT migration_id AS "migrationId", name
@@ -1525,9 +1728,11 @@ const runRehearsal = async (
         ORDER BY migration_id ASC
       `,
     );
+
     const [postgresVersion] = await runtime.runPromise(
       sql<{ readonly version: string }>`SELECT version() AS version`,
     );
+
     assert.deepEqual(
       migrationRows.map((row) => `${row.migrationId}_${row.name}`),
       databaseMigrationDefinitions.map((migration) => migration.id),
@@ -1543,11 +1748,14 @@ const runRehearsal = async (
         ORDER BY table_schema ASC, table_name ASC
       `,
     );
+
     const qualifiedInventory = inventory.map(
       ({ schemaName, tableName }) => `${schemaName}.${tableName}`,
     );
+
     const authInventory = qualifiedInventory.filter((name) => name.startsWith("auth."));
     const publicInventory = qualifiedInventory.filter((name) => name.startsWith("public."));
+
     for (const expectedTable of [
       ...EXPECTED_MIGRATION_23_AUTH_TABLES,
       ...EXPECTED_MIGRATION_23_PUBLIC_TABLES,
@@ -1557,13 +1765,17 @@ const runRehearsal = async (
         `current schema is missing migration 23 table ${expectedTable}`,
       );
     }
+
     const misplacedAuthTables = publicInventory.filter((name) =>
       /^public\.(?:account|session|user|verification)$/u.test(name),
     );
+
     assert.deepEqual(misplacedAuthTables, []);
+
     const misplacedNativeTables = authInventory.filter((name) =>
       /organization|authz_|person_profiles|person_contact_profiles/u.test(name),
     );
+
     assert.deepEqual(misplacedNativeTables, []);
     const migration23 = migrationRows.find(({ migrationId }) => migrationId === 23);
     assert.ok(migration23, "current migration chain is missing migration 23");
@@ -1598,6 +1810,7 @@ const runRehearsal = async (
     assert.ok(baseline.byteSets.rule.tables.every((item) => item.rowCount === 0));
     assert.ok(baseline.byteSets.receipt.tables.every((item) => item.rowCount === 0));
     assert.ok(baseline.byteSets.outbox.tables.every((item) => item.rowCount === 0));
+
     const authDataCounts = await runtime.runPromise(
       sql<{ readonly rowCount: number }>`
         SELECT count(*)::integer AS "rowCount" FROM (
@@ -1608,6 +1821,7 @@ const runRehearsal = async (
         ) AS auth_rows
       `,
     );
+
     assert.equal(authDataCounts[0]?.rowCount, 0);
     assert.deepEqual(
       baseline.byteSets.prerequisite.tables.map(({ rowCount }) => rowCount),
@@ -1632,9 +1846,11 @@ const runRehearsal = async (
     };
 
     stage = "strict frozen decode and existing classifier";
+
     const snapshot = await Effect.runPromise(
       decodeFrozenOrganizationSnapshot(frozenOrganizationSnapshotInput),
     );
+
     const serviceSnapshotReferences: LegacyOrganizationSnapshot[] = [];
     const classified = await Effect.runPromise(importLegacyOrganizationEffect(snapshot));
     assert.deepEqual(
@@ -1657,6 +1873,7 @@ const runRehearsal = async (
 
     stage = "forced transaction rollback";
     await runtime.runPromise(installOrganizationImportFailureTrigger(sql));
+
     const triggerCatalog = await runtime.runPromise(
       sql<{ readonly triggerCount: number; readonly functionCount: number }>`
         SELECT
@@ -1673,23 +1890,30 @@ const runRehearsal = async (
               AND procedure.proname = 'spec_0067_fail_organization_ledger') AS "functionCount"
       `,
     );
+
     assert.deepEqual(triggerCatalog, [{ triggerCount: 1, functionCount: 1 }]);
+    const installedTrigger = triggerCatalog[0];
+    assert.ok(installedTrigger !== undefined);
     observerState.captureImportTrace = true;
     observerState.importTrace.length = 0;
     serviceSnapshotReferences.push(snapshot);
+
     const failedImport = await runtime.runPromise(
       Effect.result(
         Organization.use(({ importLegacyOrganization }) => importLegacyOrganization(snapshot)),
       ),
     );
+
     observerState.captureImportTrace = false;
     assert.ok(Result.isFailure(failedImport));
     assert.equal(failedImport.failure._tag, "OrganizationPersistenceError");
     assert.equal(failedImport.failure.operation, "persist organization import");
+
     const traceSummary = observerState.importTrace.reduce<Record<string, number>>(
       (counts, item) => ({ ...counts, [item.phase]: (counts[item.phase] ?? 0) + 1 }),
       {},
     );
+
     assert.deepEqual(traceSummary, {
       DepartmentInsert: 1,
       TeamInsert: 1,
@@ -1731,7 +1955,7 @@ const runRehearsal = async (
       triggerMessage: SPEC_0067.failureMessage,
       writeAttemptTrace: observerState.importTrace,
       delegatedSqlErrors: observerState.delegatedSqlErrors,
-      triggerCatalog: triggerCatalog[0],
+      triggerCatalog: installedTrigger,
       before: {
         counts: baseline.importedTableCounts,
         byteSets: stableByteSetEvidence(baseline),
@@ -1746,6 +1970,7 @@ const runRehearsal = async (
 
     stage = "failure object removal and successful commit";
     await runtime.runPromise(removeOrganizationImportFailureTrigger(sql));
+
     const residualFailureObjects = await runtime.runPromise(
       sql<{ readonly triggerCount: number; readonly functionCount: number }>`
         SELECT
@@ -1758,7 +1983,10 @@ const runRehearsal = async (
               AND procedure.proname = 'spec_0067_fail_organization_ledger') AS "functionCount"
       `,
     );
+
     assert.deepEqual(residualFailureObjects, [{ triggerCount: 0, functionCount: 0 }]);
+    const removedFailureObjects = residualFailureObjects[0];
+    assert.ok(removedFailureObjects !== undefined);
     serviceSnapshotReferences.push(snapshot);
     const committedResult = await serviceImport(runtime, snapshot);
     assert.deepEqual(
@@ -1773,8 +2001,9 @@ const runRehearsal = async (
       quarantine: 5,
       ledger: 8,
     });
+
     const persistedMemberships = await runtime.runPromise(
-      sql<Record<string, unknown>>`
+      sql<CommittedImportEvidence["persistedMemberships"][number]>`
         SELECT
           membership_id AS "membershipId",
           person_id AS "personId",
@@ -1792,6 +2021,7 @@ const runRehearsal = async (
         ORDER BY membership_id ASC
       `,
     );
+
     assert.deepEqual(persistedMemberships, [
       {
         membershipId: "6721",
@@ -1819,17 +2049,20 @@ const runRehearsal = async (
 
     stage = "backend and strict native projections";
     const router = await runtime.runPromise(HttpRouter.HttpRouter);
-    const api = makeBackendHttp(
+
+    const api = backendHttpHandler(
       HttpEffect.toWebHandler(router.asHttpEffect()),
       {
         handle: () => {
           identityCounters.authMutationAttempts += 1;
+
           return Promise.resolve(new Response(null, { status: 404 }));
         },
         recordTrustedOriginRejection: () => Promise.resolve(),
       },
       config.sessionBoundary,
     );
+
     backendServer = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: api.fetch });
     backendPort = backendServer.port;
     const backendOrigin = `http://127.0.0.1:${backendPort}`;
@@ -1843,13 +2076,15 @@ const runRehearsal = async (
     guard.addHttp(proxy.origin, "api-proxy-loopback");
     guard.addHttp(dashboardOrigin, "dashboard-loopback");
     const cookieHeader = `${SPEC_0067.sessionCookieName}=${sessionCookie}`;
+
     const fetchObservation = async (
       path: string,
       authenticated: boolean,
-    ): Promise<{ readonly status: number; readonly body: unknown }> => {
+    ): Promise<{ readonly status: number; readonly body: Schema.Json }> => {
       const response = await guard.fetchLoopback(`${backendOrigin}${path}`, {
         headers: authenticated ? { cookie: cookieHeader } : undefined,
       });
+
       const decoded = await decodeJsonResponse(response);
       backendRequests.push({
         method: "GET",
@@ -1857,8 +2092,10 @@ const runRehearsal = async (
         status: decoded.status,
         sessionCookieAuth: authenticated,
       });
+
       return decoded;
     };
+
     const departmentsHttp = await fetchObservation("/api/departments", false);
     const teamsHttp = await fetchObservation("/api/teams", false);
     const sessionHttp = await fetchObservation("/api/session", true);
@@ -1875,39 +2112,27 @@ const runRehearsal = async (
     );
     assert.equal(profileHttp.status, 200, "authenticated GET /api/profile did not return 200");
     assert.equal(peopleHttp.status, 200, "GET /api/people did not return 200");
-    assert.ok(
-      sessionHttp.body !== null &&
-        typeof sessionHttp.body === "object" &&
-        !Array.isArray(sessionHttp.body),
-      "GET /api/session must return an object",
-    );
-    const sessionProjection = sessionHttp.body as Record<string, unknown>;
-    assert.deepEqual(Object.keys(sessionProjection).sort(), [
-      "createdAt",
-      "current",
-      "expiresAt",
-      "ipAddress",
-      "personId",
-      "sessionId",
-      "updatedAt",
-      "userAgent",
-    ]);
+
+    const sessionProjection = Schema.decodeUnknownSync(SessionResponse)(sessionHttp.body, {
+      onExcessProperty: "error",
+    });
+
     assert.equal(sessionProjection.current, true);
     assert.equal(sessionProjection.expiresAt, SPEC_0067.sessionExpiresAt);
     assert.equal(sessionProjection.personId, SPEC_0067.administratorPersonId);
     assert.ok(
-      typeof sessionProjection.sessionId === "string" && sessionProjection.sessionId !== "",
+      Predicate.isString(sessionProjection.sessionId) && sessionProjection.sessionId !== "",
     );
     assert.ok(
       profileHttp.body !== null &&
-        typeof profileHttp.body === "object" &&
+        (profileHttp.body === null || Predicate.isObjectOrArray(profileHttp.body)) &&
         "personId" in profileHttp.body &&
         profileHttp.body.personId === SPEC_0067.administratorPersonId,
       "GET /api/profile must bind the session to the administrator PersonId",
     );
     assert.ok(
       missingSessionHttp.body !== null &&
-        typeof missingSessionHttp.body === "object" &&
+        (missingSessionHttp.body === null || Predicate.isObjectOrArray(missingSessionHttp.body)) &&
         "code" in missingSessionHttp.body &&
         missingSessionHttp.body.code === "credential.invalid",
       "unauthenticated GET /api/session must return the RFC 9457 credential rejection",
@@ -1922,6 +2147,7 @@ const runRehearsal = async (
       NATIVE_IDENTITY_DEPLOYMENT: "local",
       NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
     };
+
     delete processEnvironment.API_MODE;
     delete processEnvironment.VITE_API_MODE;
     delete processEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
@@ -1932,17 +2158,21 @@ const runRehearsal = async (
       observations: processObservations,
       processEffects,
     });
+
     // The SDK output is built during this rehearsal, so it cannot be imported before the build.
     const sdk: typeof GeneratedSdkModule = await import(
       new URL("../../sdk/dist/effect-client.js", import.meta.url).href
     );
+
     const client = sdk.createEffectClient(proxy.origin, {
       cookie: cookieHeader,
       fetch: guard.fetchLoopback,
     });
+
     const departmentsSdk = await Effect.runPromise(
       client.organization.listDepartments({ headers: {} }),
     );
+
     const teamsSdk = await Effect.runPromise(client.organization.listTeams({ headers: {} }));
     const peopleSdk = await Effect.runPromise(client.directory.listPeople());
     assert.ok(departmentsSdk.body !== undefined, "SDK departments response must contain a body");
@@ -1958,19 +2188,24 @@ const runRehearsal = async (
       teamsSdk.body.map(({ teamId, departmentId, name }) => ({ teamId, departmentId, name })),
       [{ teamId: "6711", departmentId: "6701", name: "Spec 0067 Team" }],
     );
-    artifactCore.http = {
-      status: "Observed",
-      backendRequests,
-      strictNative: {
-        departments: sanitizeProjection(departmentsSdk.body),
-        teams: sanitizeProjection(teamsSdk.body),
-        session: sanitizeProjection(sessionHttp.body),
-        missingSession: sanitizeProjection(missingSessionHttp.body),
-        administratorDirectory: sanitizeProjection(peopleSdk.body),
+    artifactCore.http = Schema.decodeUnknownSync(
+      OrganizationImportRehearsalArtifactSchema.fields.http,
+    )(
+      {
+        status: "Observed",
+        backendRequests,
+        strictNative: {
+          departments: sanitizeProjection(departmentsSdk.body),
+          teams: sanitizeProjection(teamsSdk.body),
+          session: sanitizeProjection(sessionHttp.body),
+          missingSession: sanitizeProjection(missingSessionHttp.body),
+          administratorDirectory: sanitizeProjection(peopleSdk.body),
+        },
+        sdkDecoded: true,
+        fixtureMode: false,
       },
-      sdkDecoded: true,
-      fixtureMode: false,
-    };
+      { onExcessProperty: "error" },
+    );
 
     const memberAuthority = await runtime.runPromise(
       Organization.use(({ resolvePersonAuthorityForRead }) =>
@@ -1980,6 +2215,7 @@ const runRehearsal = async (
         ),
       ),
     );
+
     assert.equal(memberAuthority.evaluatedAt, SPEC_0067.authorizationInstant);
     assert.deepEqual(
       memberAuthority.memberships.map(
@@ -2058,11 +2294,12 @@ const runRehearsal = async (
         byteSets: stableByteSetEvidence(replayState),
       },
       equality: replayEquality,
-      residualFailureObjects: residualFailureObjects[0],
+      residualFailureObjects: removedFailureObjects,
       persistedMemberships,
     };
 
     stage = "dashboard environment preflight";
+
     const boundedCookieConfigurationFailure = boundedCookieCapabilityFailure({
       cookieName: SPEC_0067.sessionCookieName,
       cookieValue: sessionCookie ?? "",
@@ -2071,12 +2308,15 @@ const runRehearsal = async (
       authorizationInstant: SPEC_0067.authorizationInstant,
       expiresAt: SPEC_0067.sessionExpiresAt,
     });
+
     if (boundedCookieConfigurationFailure !== undefined) {
       throw new Error(
         `bounded-cookie configuration preflight failed: ${boundedCookieConfigurationFailure}`,
       );
     }
+
     await assertPortAvailable(dashboardPort);
+
     const browserEnvironment: NodeJS.ProcessEnv = {
       ...processEnvironment,
       ORGANIZATION_IMPORT_REHEARSAL: "1",
@@ -2091,6 +2331,7 @@ const runRehearsal = async (
       ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH: join(sdkRoot, "dist/effect-client.js"),
       ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS: JSON.stringify(NATIVE_BROWSER_JOURNEY_PATHS),
     };
+
     stage = "dashboard production build";
     await runCommand("bun", ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS, {
       cwd: dashboardRoot,
@@ -2109,49 +2350,39 @@ const runRehearsal = async (
 
     stage = "bounded existing page/session capability preflight";
     const pageSessionProxyStart = proxy.records.length;
+
     const pageSessionPreflight = await observeExistingPageSessionCapability(
       dashboardOrigin,
       SPEC_0067.sessionCookieName,
       sessionCookie ?? "",
       guard,
     );
+
     const pageSessionProxyRequests = proxy.records.slice(pageSessionProxyStart);
     const pageSessionCapability = classifyExistingPageSessionCapability(pageSessionPreflight);
-    if (pageSessionCapability._tag === "EnvironmentFailure") {
+
+    if (Predicate.isTagged(pageSessionCapability, "EnvironmentFailure")) {
       throw new Error(pageSessionCapability.reason);
     }
 
-    let browserEvidence: {
-      readonly status: string;
-      readonly pageErrors: ReadonlyArray<string>;
-      readonly legacyOrganizationRequests: number;
-      readonly rejectedDestinations: ReadonlyArray<string>;
-      readonly unexpectedApiRequests: ReadonlyArray<{
-        readonly method: string;
-        readonly path: string;
-      }>;
-      readonly failedResponses: ReadonlyArray<unknown>;
-      readonly viteDependencyRequests: number;
-      readonly dependencyOptimizerFailures: number;
-    } = {
-      status: "NotRun",
-      pageErrors: [],
-      legacyOrganizationRequests: 0,
-      rejectedDestinations: [],
-      unexpectedApiRequests: [],
-      failedResponses: [],
-      viteDependencyRequests: 0,
-      dependencyOptimizerFailures: 0,
-    };
-    if (pageSessionCapability._tag === "BrowserNotPractical") {
-      artifactCore.browser = {
-        status: "BrowserNotPractical",
-        capability: pageSessionCapability.capability,
-        reason: pageSessionCapability.reason,
-        pageSessionPreflight,
-        backendProxyRequests: pageSessionProxyRequests,
-        dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
-      };
+    let browserEvidence:
+      | Effect.Success<ReturnType<typeof decodeOrganizationImportBrowserObservedEvidence>>
+      | undefined;
+
+    if (Predicate.isTagged(pageSessionCapability, "BrowserNotPractical")) {
+      artifactCore.browser = Schema.decodeUnknownSync(
+        OrganizationImportRehearsalArtifactSchema.fields.browser,
+      )(
+        {
+          status: "BrowserNotPractical",
+          capability: pageSessionCapability.capability,
+          reason: pageSessionCapability.reason,
+          pageSessionPreflight,
+          backendProxyRequests: pageSessionProxyRequests,
+          dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
+        },
+        { onExcessProperty: "error" },
+      );
     } else {
       stage = "practical Chromium path";
       const browserProxyStart = proxy.records.length;
@@ -2178,19 +2409,23 @@ const runRehearsal = async (
       assert.equal(browserEvidence.viteDependencyRequests, 0);
       assert.equal(browserEvidence.dependencyOptimizerFailures, 0);
       const browserProxyRequests = proxy.records.slice(browserProxyStart);
+
       const nativePathObservations = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map((requirement) => {
         const observation = browserProxyRequests.find(
           (candidate) =>
             candidate.path === requirement.path &&
             isExpectedNativeBrowserJourneyObservation(candidate),
         );
+
         const pathCandidates = browserProxyRequests.filter(
           (candidate) => candidate.path === requirement.path,
         );
+
         assert.ok(
           observation,
           `Chromium journey did not observe the required ${requirement.access} 200 GET ${requirement.path}; observed ${JSON.stringify(pathCandidates)}`,
         );
+
         return {
           path: observation.path,
           status: observation.status,
@@ -2199,25 +2434,33 @@ const runRehearsal = async (
           requestSource: observation.requestSource,
         };
       });
-      artifactCore.browser = {
-        status: "Observed",
-        practicality: "Existing pages accepted the bounded session without credential changes",
-        pageSessionPreflight,
-        dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
-        preflightBackendProxyRequests: pageSessionProxyRequests,
-        evidence: sanitizeProjection(browserEvidence),
-        nativePathObservations,
-        backendProxyRequests: browserProxyRequests,
-      };
+
+      artifactCore.browser = Schema.decodeUnknownSync(
+        OrganizationImportRehearsalArtifactSchema.fields.browser,
+      )(
+        {
+          status: "Observed",
+          practicality: "Existing pages accepted the bounded session without credential changes",
+          pageSessionPreflight,
+          dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
+          preflightBackendProxyRequests: pageSessionProxyRequests,
+          evidence: sanitizeProjection(browserEvidence),
+          nativePathObservations,
+          backendProxyRequests: browserProxyRequests,
+        },
+        { onExcessProperty: "error" },
+      );
     }
 
     const rejectedDestinations = [
       ...guard.rejectedDestinations,
-      ...browserEvidence.rejectedDestinations,
+      ...(browserEvidence?.rejectedDestinations ?? []),
     ];
+
     const unexpectedProxyRequests = proxy.records.filter(
       ({ method, path }) => !isNativeBrowserJourneyRequestAllowed(method, path),
     );
+
     const forbiddenEffects = {
       ruleWriteAttempts: observerState.ruleDmlAttempts,
       authWriteAttempts: observerState.authDmlAttempts,
@@ -2226,24 +2469,26 @@ const runRehearsal = async (
       outboxClaimAttempts: observerState.outboxClaimAttempts,
       credentialAttempts: identityCounters.credentialAttempts,
       identityMutationAttempts: identityCounters.authMutationAttempts,
-      providerRequests: guard.providerRequests + browserEvidence.rejectedDestinations.length,
+      providerRequests:
+        guard.providerRequests + (browserEvidence?.rejectedDestinations.length ?? 0),
       legacyOrganizationRequests:
-        browserEvidence.legacyOrganizationRequests +
+        (browserEvidence?.legacyOrganizationRequests ?? 0) +
         proxy.records.filter(({ path }) => /legacy|php|graphql/iu.test(path)).length,
       unexpectedApiRequestAttempts:
-        unexpectedProxyRequests.length + browserEvidence.unexpectedApiRequests.length,
+        unexpectedProxyRequests.length + (browserEvidence?.unexpectedApiRequests.length ?? 0),
       productionResourceAttempts:
-        guard.productionResourceAttempts + browserEvidence.rejectedDestinations.length,
+        guard.productionResourceAttempts + (browserEvidence?.rejectedDestinations.length ?? 0),
       deploymentAttempts: processEffects.deploymentAttempts,
       remoteEffectAttempts:
-        guard.remoteEffectAttempts + browserEvidence.rejectedDestinations.length,
+        guard.remoteEffectAttempts + (browserEvidence?.rejectedDestinations.length ?? 0),
       allowedDestinations: [...guard.allowedDestinations].sort(),
       rejectedDestinations,
     };
+
     artifactCore.forbiddenEffects = { status: "Observed", ...forbiddenEffects };
     assert.ok(
       Object.entries(forbiddenEffects)
-        .filter(([, value]) => typeof value === "number")
+        .filter(([, value]) => Predicate.isNumber(value))
         .every(([, value]) => value === 0),
     );
     assert.deepEqual(rejectedDestinations, []);
@@ -2270,17 +2515,25 @@ const runRehearsal = async (
   } catch (cause) {
     runFailure = cause;
     failureStage = stage;
+
     const failedBrowserEvidence = await readSanitizedFailedBrowserEvidence(
       browserEvidencePath,
       sensitiveValues,
     );
+
     if (failedBrowserEvidence !== undefined) {
-      artifactCore.browser = {
-        status: "Failed",
-        evidence: failedBrowserEvidence,
-        dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
-      };
+      artifactCore.browser = Schema.decodeUnknownSync(
+        OrganizationImportRehearsalArtifactSchema.fields.browser,
+      )(
+        {
+          status: "Failed",
+          evidence: failedBrowserEvidence,
+          dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
+        },
+        { onExcessProperty: "error" },
+      );
     }
+
     artifactCore.observations = {
       status: "Failed",
       failedStage: stage,
@@ -2288,6 +2541,7 @@ const runRehearsal = async (
     };
   } finally {
     stage = "resource cleanup";
+
     try {
       processObservations.push(
         await stopProcessTree(dashboardProcess, "dashboard production server"),
@@ -2295,23 +2549,29 @@ const runRehearsal = async (
     } catch (cause) {
       cleanupErrors.push(`dashboard production server: ${sanitizeFailure(cause, sensitiveValues)}`);
     }
+
     if (backendServer !== undefined) {
       try {
         await backendServer.stop(true);
       } catch (cause) {
         const message = sanitizeFailure(cause, sensitiveValues);
+
         if (message !== "Server is not running.") cleanupErrors.push(`backend: ${message}`);
       }
     }
+
     const proxyPort = proxy?.port;
+
     if (proxy !== undefined) {
       try {
         await proxy.close();
       } catch (cause) {
         const message = sanitizeFailure(cause, sensitiveValues);
+
         if (message !== "Server is not running.") cleanupErrors.push(`proxy: ${message}`);
       }
     }
+
     if (runtime !== undefined) {
       try {
         await runtime.dispose();
@@ -2319,7 +2579,9 @@ const runRehearsal = async (
         cleanupErrors.push(`runtime: ${sanitizeFailure(cause, sensitiveValues)}`);
       }
     }
+
     let disposal = { databaseAbsent: !databaseCreated, residualConnections: 0 };
+
     if (administrator !== undefined) {
       if (databaseCreated) {
         try {
@@ -2329,17 +2591,21 @@ const runRehearsal = async (
           disposal = { databaseAbsent: false, residualConnections: -1 };
         }
       }
+
       try {
         await administrator.end();
       } catch (cause) {
         cleanupErrors.push(sanitizeFailure(cause, sensitiveValues));
       }
     }
+
     databaseDisposalCompleted = disposal.databaseAbsent && disposal.residualConnections === 0;
+
     for (const snapshot of generatedOutputSnapshots) {
       try {
         const restoration = await restoreGeneratedOutput(snapshot);
         generatedOutputRestoration.push(restoration);
+
         if (!restoration.restored) cleanupErrors.push("a pre-existing generated output changed");
       } catch (cause) {
         cleanupErrors.push(
@@ -2347,24 +2613,32 @@ const runRehearsal = async (
         );
       }
     }
+
     try {
       await rm(runnerTempRoot, { recursive: true, force: true });
     } catch (cause) {
       cleanupErrors.push(sanitizeFailure(cause, sensitiveValues));
     }
+
     const portRelease = {
       backend: backendPort === undefined ? true : await isPortReleased(backendPort),
       proxy: proxyPort === undefined ? true : await isPortReleased(proxyPort),
       dashboard: await isPortReleased(dashboardPort),
     };
+
     if (!Object.values(portRelease).every(Boolean))
       cleanupErrors.push("a runner-owned port remained open");
+
     if (!disposal.databaseAbsent || disposal.residualConnections !== 0) {
       cleanupErrors.push("the runner-owned database or a database connection remained present");
     }
+
     const residualGeneratedPaths = generatedOutputRestoration
+      .values()
       .filter(({ restored }) => !restored)
-      .map(({ path }) => path.replace(repositoryRoot, "<repository>"));
+      .map(({ path }) => path.replace(repositoryRoot, "<repository>"))
+      .toArray();
+
     if (residualGeneratedPaths.length > 0) cleanupErrors.push("runner-generated files remained");
     sessionCookie = undefined;
     backendSecret = undefined;
@@ -2375,8 +2649,9 @@ const runRehearsal = async (
       portRelease,
       databaseDisposal: disposal,
       failureObjectsRemovedBeforeCommit:
-        (artifactCore.commitAndReplay as { readonly residualFailureObjects?: unknown })
-          .residualFailureObjects ?? "NotObservedDueToFailure",
+        artifactCore.commitAndReplay?.status === "Observed"
+          ? artifactCore.commitAndReplay.residualFailureObjects
+          : "NotObservedDueToFailure",
       cookieCleared: sessionCookie === undefined,
       processSecretCleared: backendSecret === undefined,
       databaseUrlCleared: databaseUrl === undefined,
@@ -2397,6 +2672,7 @@ const runRehearsal = async (
     };
     cleanupFinalizationCompleted = true;
   }
+
   assert.equal(
     cleanupFinalizationCompleted,
     true,
@@ -2408,6 +2684,7 @@ const runRehearsal = async (
     (cleanupErrors.length > 0
       ? new Error(`cleanup failed: ${cleanupErrors.join("; ")}`)
       : undefined);
+
   artifactCore.evidenceClassification = {
     class: "local runtime observation over synthetic data",
     productionReadinessClaim: false,
@@ -2423,22 +2700,27 @@ const runRehearsal = async (
             },
           ],
   };
+
   const { evidenceSha256 } = await writeSanitizedOrganizationImportRehearsalArtifact({
-    artifactCore,
+    artifactCore: canonicalJsonValue(artifactCore),
     evidencePath,
     sensitiveValues,
   });
+
   if (finalFailure !== undefined) throw finalFailure;
+
   return { evidencePath, evidenceSha256 };
 };
 
 const program = Effect.gen(function* () {
-  const administratorUrl = yield* Config.redacted(
+  const administratorUrl = yield* Config.Redacted(
     "ORGANIZATION_IMPORT_REHEARSAL_ADMIN_PG_URL",
   ).pipe(Config.withDefault(Redacted.make("postgresql:///postgres?host=/run/postgresql")));
-  const evidencePath = yield* Config.string("ORGANIZATION_IMPORT_REHEARSAL_EVIDENCE_PATH").pipe(
+
+  const evidencePath = yield* Config.String("ORGANIZATION_IMPORT_REHEARSAL_EVIDENCE_PATH").pipe(
     Config.withDefault(SPEC_0067.evidencePath),
   );
+
   return yield* Effect.tryPromise(() =>
     runRehearsal(Redacted.value(administratorUrl), evidencePath),
   );
@@ -2456,6 +2738,7 @@ if (import.meta.main) {
               cause.cause === undefined ? "" : `\nCaused by: ${String(cause.cause)}`
             }`
           : String(cause);
+
       process.stderr.write(`spec 0067 Organization import rehearsal failed:\n${detail}\n`);
       process.exitCode = 1;
     });

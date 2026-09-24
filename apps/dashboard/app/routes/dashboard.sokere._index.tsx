@@ -1,14 +1,15 @@
+import { Predicate } from "effect";
 import { Schema as S } from "effect";
 import { createElement } from "react";
 import { data, useLoaderData } from "react-router";
 import { DASHBOARD_ELEMENT, DASHBOARD_INPUT_ATTRIBUTE } from "../foldkit/dashboard/elements";
-import { DashboardInput, DashboardInputJson, isDashboardRole } from "../foldkit/dashboard/model";
+import { DashboardInput, DashboardInputJson, isDashboardRole, LandingSummary } from "../foldkit/dashboard/model";
 import {
   boardFailureMessage,
   RecruitmentBoardStatus,
   toRecruitmentBridgeFailure,
 } from "../foldkit/recruitment/bridge";
-import type { RecruitmentInput } from "../foldkit/recruitment/model";
+import { type RecruitmentInput, LoadedRecruitmentInput, FailedRecruitmentInput } from "../foldkit/recruitment/model";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.sokere._index";
@@ -23,8 +24,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const client = createAuthenticatedClient(cookie, request);
 
   let profile;
+
   try {
     const result = await client.profile.readOwnProfile({ headers: {} });
+
     if (result.body === undefined) throw new Error("Profile response did not include a body");
     profile = result.body;
   } catch {
@@ -37,6 +40,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const rawStatus = new URL(request.url).searchParams.get("status") ?? "all";
   let status: typeof RecruitmentBoardStatus.Type;
+
   try {
     status = S.decodeUnknownSync(RecruitmentBoardStatus)(rawStatus);
   } catch {
@@ -44,16 +48,22 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   let recruitment: RecruitmentInput;
+
   try {
     const result = await client.recruitment.readAssignmentBoard({ query: { status } });
-    recruitment = { _tag: "Loaded", status, board: result.body };
+    recruitment = LoadedRecruitmentInput.make({status,
+board: result.body});
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);
-    if (failure._tag === "Unauthorized") throw await expiredSessionRedirect(request);
-    if (failure._tag === "Forbidden") {
+
+    if (Predicate.isTagged(failure, "Unauthorized")) throw await expiredSessionRedirect(request);
+
+    if (Predicate.isTagged(failure, "Forbidden")) {
       throw new Response(null, { status: 403, headers: responseHeaders });
     }
-    recruitment = { _tag: "Failed", status, message: boardFailureMessage(failure) };
+
+    recruitment = FailedRecruitmentInput.make({status,
+message: boardFailureMessage(failure)});
   }
 
   const dashboardInput = S.decodeUnknownSync(DashboardInput)(
@@ -64,7 +74,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       },
       role: profile.role,
       activePath: new URL(request.url).pathname,
-      summary: { _tag: "Unavailable" },
+      summary: LandingSummary.make({}),
       recruitment,
       scheduling: null,
     },
@@ -81,6 +91,7 @@ export const headers = () => responseHeaders;
 
 export default function RecruitmentRoute() {
   const { serializedInput } = useLoaderData<typeof loader>();
+
   return createElement(DASHBOARD_ELEMENT, {
     [DASHBOARD_INPUT_ATTRIBUTE]: serializedInput,
   });

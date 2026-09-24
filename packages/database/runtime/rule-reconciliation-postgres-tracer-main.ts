@@ -4,8 +4,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { Effect, Redacted } from "effect";
-import { makeRuleReconciliationTracerProgram } from "../src/rule-reconciliation-postgres-tracer-main.js";
+import { Predicate, Effect, Redacted } from "effect";
+import { ruleReconciliationTracerProgram } from "../src/rule-reconciliation-postgres-tracer-main.js";
 
 const execute = promisify(execFile);
 
@@ -15,16 +15,20 @@ const allocateLoopbackPort = (): Promise<number> => {
   server.once("error", reject);
   server.listen({ host: "127.0.0.1", port: 0, exclusive: true }, () => {
     const address = server.address();
-    if (address === null || typeof address === "string") {
+
+    if (address === null || Predicate.isString(address)) {
       server.close();
       reject(new Error("failed to allocate a disposable PostgreSQL port"));
+
       return;
     }
+
     server.close((cause) => {
       if (cause === undefined) resolve(address.port);
       else reject(cause);
     });
   });
+
   return promise;
 };
 
@@ -36,6 +40,7 @@ const run = async (): Promise<void> => {
   const port = await allocateLoopbackPort();
   let started = false;
   let completed = false;
+
   try {
     await mkdir(socket);
     await execute(
@@ -74,11 +79,13 @@ const run = async (): Promise<void> => {
       "postgres",
       "rule_reconciliation_proof",
     ]);
+
     const databaseUrl = Redacted.make(
       `postgres://postgres@127.0.0.1:${port}/rule_reconciliation_proof`,
     );
+
     await Effect.runPromise(
-      Effect.scoped(makeRuleReconciliationTracerProgram(databaseUrl)).pipe(
+      Effect.scoped(ruleReconciliationTracerProgram(databaseUrl)).pipe(
         Effect.timeout("90 seconds"),
       ),
     );
@@ -100,6 +107,7 @@ const run = async (): Promise<void> => {
     } finally {
       await rm(root, { recursive: true, force: true, maxRetries: 3 });
     }
+
     if (completed) process.stderr.write("Disposable PostgreSQL topology cleaned.\n");
   }
 };

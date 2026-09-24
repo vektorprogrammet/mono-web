@@ -322,6 +322,7 @@ export const AdmissionsListApplicationOptionsProblem = problemUnion(
     ["admissions.unavailable", 503],
   ],
 );
+
 /** Problems for the current person's applicant progress projection. */
 export const AdmissionsReadApplicantProgressProblem = problemUnion(
   "AdmissionsReadApplicantProgressProblem",
@@ -356,6 +357,7 @@ export const AdmissionsReadReturningAssistantOptionsProblem = problemUnion(
     ["returning.unavailable", 503],
   ],
 );
+
 export const AdmissionsRegisterReturningAssistantProblem = problemUnion(
   "AdmissionsRegisterReturningAssistantProblem",
   [

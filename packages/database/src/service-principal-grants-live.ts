@@ -1,4 +1,7 @@
+import { DatabasePgPool } from "./pg-pool.js";
 import {
+  AuthzRuleSubjectSchema,
+  AuthzRuleScopeSchema,
   AUTHZ_LOCK_PROTOCOL,
   AuthorizationInstant,
   AuthzRuleSchema,
@@ -18,11 +21,11 @@ import {
   type EndServicePrincipalGrantInput,
   type RevokeServicePrincipalGrantInput,
   type ServicePrincipalGrantAuditContext,
-  type ServicePrincipalGrantAuthorityShape,
+  type ServicePrincipalGrantAuthorityOperations,
   type ServicePrincipalReceiptGrant,
   type ServicePrincipalReceiptGrantAuthority,
 } from "@vektorprogrammet/domain/authz";
-import { Effect, Layer, Schema } from "effect";
+import { Match, Effect, Layer, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 
 type CurrentServiceBindingRow = {
@@ -56,6 +59,7 @@ type ServiceReceiptGrantRow = PersistedServiceReceiptGrantRow & {
   readonly approved_at: Date | null;
   readonly receipt_revision: number;
 };
+
 type PersistedServiceRuleRow = {
   readonly rule_id: string;
   readonly capability_id: string;
@@ -114,30 +118,58 @@ const decodePersistedGrant = (row: PersistedServiceReceiptGrantRow): ServicePrin
     },
     { onExcessProperty: "error" },
   );
+
 const decodePersistedServiceRule = (row: PersistedServiceRuleRow): AuthzRule => {
-  const subject =
-    row.subject_kind === "Person"
-      ? { _tag: "Person", personId: row.subject_person_id }
-      : row.subject_kind === "Tag"
-        ? { _tag: "Tag", tagId: row.subject_tag_id }
-        : {
-            _tag: row.subject_kind,
-            servicePrincipalId: row.subject_service_principal_id,
-          };
-  const scope =
-    row.scope === "Global"
-      ? { _tag: "Global" }
-      : row.scope === "Domain"
-        ? { _tag: "Domain", domainId: row.domain_id }
-        : row.scope === "Department"
-          ? { _tag: "Department", departmentId: row.department_id }
-          : {
-              _tag: row.scope,
-              resource: {
-                kind: row.resource_kind,
-                id: row.resource_id,
-              },
-            };
+  const subject = Match.value(row.subject_kind).pipe(
+    Match.when("Person", () =>
+      AuthzRuleSubjectSchema.cases.Person.make({
+        personId: Schema.decodeUnknownSync(AuthzRuleSubjectSchema.cases.Person.fields.personId)(
+          row.subject_person_id,
+        ),
+      }),
+    ),
+    Match.when("Tag", () =>
+      AuthzRuleSubjectSchema.cases.Tag.make({
+        tagId: Schema.decodeUnknownSync(AuthzRuleSubjectSchema.cases.Tag.fields.tagId)(
+          row.subject_tag_id,
+        ),
+      }),
+    ),
+    Match.orElse(() =>
+      Schema.decodeUnknownSync(AuthzRuleSubjectSchema)({
+        _tag: row.subject_kind,
+        servicePrincipalId: row.subject_service_principal_id,
+      }),
+    ),
+  );
+
+  const scope = Match.value(row.scope).pipe(
+    Match.when("Global", () => AuthzRuleScopeSchema.cases.Global.make({})),
+    Match.when("Domain", () =>
+      AuthzRuleScopeSchema.cases.Domain.make({
+        domainId: Schema.decodeUnknownSync(AuthzRuleScopeSchema.cases.Domain.fields.domainId)(
+          row.domain_id,
+        ),
+      }),
+    ),
+    Match.when("Department", () =>
+      AuthzRuleScopeSchema.cases.Department.make({
+        departmentId: Schema.decodeUnknownSync(
+          AuthzRuleScopeSchema.cases.Department.fields.departmentId,
+        )(row.department_id),
+      }),
+    ),
+    Match.orElse(() =>
+      Schema.decodeUnknownSync(AuthzRuleScopeSchema)({
+        _tag: row.scope,
+        resource: {
+          kind: row.resource_kind,
+          id: row.resource_id,
+        },
+      }),
+    ),
+  );
+
   return Schema.decodeUnknownSync(AuthzRuleSchema)(
     {
       ruleId: row.rule_id,
@@ -153,19 +185,23 @@ const decodePersistedServiceRule = (row: PersistedServiceRuleRow): AuthzRule => 
     { onExcessProperty: "error" },
   );
 };
+
 const currentServiceBinding = async (
   client: PoolClient,
   credential: AcceptedOAuthServiceCredential,
   authorizationInstant: string,
 ): Promise<string> => {
   const evidence = credentialEvidencePattern.exec(credential.evidenceRef);
+
   if (evidence === null) {
     throw new ServicePrincipalGrantAuthorityError({
       reason: "InvalidCredentialEvidence",
       message: "OAuth service credential evidence is not canonical",
     });
   }
+
   const [, jti, clientId, issuedAt] = evidence;
+
   const result = await client.query<CurrentServiceBindingRow>(
     `SELECT binding.client_id
        FROM auth.oauth_access_token_state AS state
@@ -207,12 +243,14 @@ const currentServiceBinding = async (
       NATIVE_API_PROTECTED_RESOURCE,
     ],
   );
+
   if (result.rowCount !== 1 || result.rows[0] === undefined) {
     throw new ServicePrincipalGrantAuthorityError({
       reason: "CurrentBindingRejected",
       message: "OAuth service credential binding is not current",
     });
   }
+
   return result.rows[0].client_id;
 };
 
@@ -326,30 +364,36 @@ const readServicePrincipalRules = async (
      ORDER BY resource_id ASC, rule_id ASC`,
     [servicePrincipalId, authorizationInstant, receiptIds],
   );
+
   return result.rows.map(decodePersistedServiceRule);
 };
+
 const readInCurrentSnapshot = async (
   pool: Pool,
   credential: AcceptedOAuthServiceCredential,
   authorizationInstant: string,
 ): Promise<ServicePrincipalReceiptGrantAuthority> => {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     await acquireSharedAuthorizationLock(client);
     const clientId = await currentServiceBinding(client, credential, authorizationInstant);
+
     const candidates = await readExactGrantCandidates(
       client,
       credential,
       clientId,
       authorizationInstant,
     );
+
     const rules = await readServicePrincipalRules(
       client,
       credential.principal.servicePrincipalId,
       authorizationInstant,
       candidates.map(({ receipt }) => receipt.receiptId),
     );
+
     const authority = {
       servicePrincipalId: credential.principal.servicePrincipalId,
       clientId: Schema.decodeUnknownSync(OAuthClientId)(clientId, {
@@ -359,10 +403,13 @@ const readInCurrentSnapshot = async (
       candidates,
       rules,
     } satisfies ServicePrincipalReceiptGrantAuthority;
+
     await client.query("COMMIT");
+
     return authority;
   } catch (cause) {
     await client.query("ROLLBACK").catch(() => undefined);
+
     if (cause instanceof ServicePrincipalGrantAuthorityError) throw cause;
     throw new ServicePrincipalGrantAuthorityError({
       reason: "PersistenceFailure",
@@ -429,6 +476,7 @@ const createGrant = async (
   input: CreateServicePrincipalGrantInput,
 ): Promise<ServicePrincipalReceiptGrant> => {
   const grant = input.grant;
+
   const result = await client.query<PersistedServiceReceiptGrantRow>(
     `INSERT INTO public.service_principal_grants (
        grant_id,
@@ -478,10 +526,13 @@ const createGrant = async (
       input.audit.occurredAt,
     ],
   );
+
   const row = result.rows[0];
+
   if (result.rowCount !== 1 || row === undefined) throw mutationRejected();
   const created = decodePersistedGrant(row);
   await appendGrantAudit(client, "service-principal-grant-created", created, input.audit);
+
   return created;
 };
 
@@ -514,10 +565,13 @@ const endGrant = async (
         revision AS grant_revision`,
     [input.grantId, input.endAt, input.expectedRevision, input.audit.occurredAt],
   );
+
   const row = result.rows[0];
+
   if (result.rowCount !== 1 || row === undefined) throw mutationRejected();
   const ended = decodePersistedGrant(row);
   await appendGrantAudit(client, "service-principal-grant-ended", ended, input.audit);
+
   return ended;
 };
 
@@ -549,10 +603,13 @@ const revokeGrant = async (
         revision AS grant_revision`,
     [input.grantId, input.revokedAt, input.expectedRevision, input.audit.occurredAt],
   );
+
   const row = result.rows[0];
+
   if (result.rowCount !== 1 || row === undefined) throw mutationRejected();
   const revoked = decodePersistedGrant(row);
   await appendGrantAudit(client, "service-principal-grant-revoked", revoked, input.audit);
+
   return revoked;
 };
 
@@ -561,14 +618,17 @@ const mutateGrant = async <A>(
   mutation: (client: PoolClient) => Promise<A>,
 ): Promise<A> => {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
     await acquireExclusiveAuthorizationLock(client);
     const result = await mutation(client);
     await client.query("COMMIT");
+
     return result;
   } catch (cause) {
     await client.query("ROLLBACK").catch(() => undefined);
+
     if (cause instanceof ServicePrincipalGrantAuthorityError) throw cause;
     throw new ServicePrincipalGrantAuthorityError({
       reason: "PersistenceFailure",
@@ -578,9 +638,10 @@ const mutateGrant = async <A>(
     client.release();
   }
 };
+
 export const makeServicePrincipalGrantAuthorityService = (
   pool: Pool,
-): ServicePrincipalGrantAuthorityShape => ({
+): ServicePrincipalGrantAuthorityOperations => ({
   readReceiptApprovalCandidates: (credential, authorizationInstant) =>
     Schema.decodeUnknownEffect(AuthorizationInstant)(authorizationInstant, {
       onExcessProperty: "error",
@@ -670,5 +731,7 @@ export const makeServicePrincipalGrantAuthorityService = (
     ),
 });
 
-export const ServicePrincipalGrantAuthorityLive = (pool: Pool) =>
-  Layer.succeed(ServicePrincipalGrantAuthority)(makeServicePrincipalGrantAuthorityService(pool));
+export const ServicePrincipalGrantAuthorityLive = Layer.effect(
+  ServicePrincipalGrantAuthority,
+  Effect.map(DatabasePgPool, makeServicePrincipalGrantAuthorityService),
+);

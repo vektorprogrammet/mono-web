@@ -1,9 +1,9 @@
+import { backendDatabase } from "../../test/database.js";
 import {
-  Database,
-  IdentitySnapshot,
-  OAuthCredentialAuthority,
-  type DatabaseShape,
-} from "@vektorprogrammet/database";
+  SchoolSurveyAdminResource,
+  SchoolSurveyAdminListResource,
+} from "@vektorprogrammet/domain/surveys";
+import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   SchoolId,
   SchoolSurveyNotFound,
@@ -15,7 +15,7 @@ import {
   type CloseSchoolSurveyCommand,
   type CreateSchoolSurveyCommand,
   type SchoolSurveyResultsResource,
-  type SchoolSurveysShape,
+  type SchoolSurveysOperations,
 } from "@vektorprogrammet/domain";
 import {
   DepartmentId,
@@ -29,23 +29,30 @@ import {
   Identity,
   IdentityActor,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
-import { DateTime, Effect, Layer } from "effect";
+import { Schema, DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeSchoolSurveysTestHttp } from "../test/native-http.js";
 
 const personId = PersonId.make("school-surveys-http-person");
+
 const departmentId = DepartmentId.make("school-surveys-http-department");
+
 const semesterId = SemesterId.make("school-surveys-http-semester");
+
 const observedAt = "2032-04-01T12:00:00.000Z";
+
 const authorizationInstant = OrganizationAuthorityInstantSchema.make(observedAt);
+
 const schoolSurveyId = SurveyId.make("survey_http_results");
+
 const schoolSurveyQuestionId = SurveyQuestionId.make("survey_http_results_q_0");
 
 const sessionRequest = (url: string, init: RequestInit = {}): Request => {
   const headers = new Headers(init.headers);
   headers.set("cookie", "better-auth.session_token=school-surveys-test-session");
+
   return new Request(url, { ...init, headers });
 };
 
@@ -67,7 +74,9 @@ const authority = (
   ...overrides,
 });
 
-const adminSurvey = (overrides: Record<string, unknown> = {}) => ({
+const adminSurvey = (
+  overrides: Partial<SchoolSurveyAdminResource> = {},
+): SchoolSurveyAdminResource => ({
   surveyId: schoolSurveyId,
   departmentId,
   semesterId,
@@ -122,6 +131,7 @@ const identity = Identity.of({
         expiresAt: DateTime.makeUnsafe(new Date("2032-04-02T12:00:00.000Z")),
       });
     }
+
     throw new IdentitySessionNotFound();
   },
   readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
@@ -132,7 +142,7 @@ const identity = Identity.of({
   revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
   recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
   signOut: async () => ({ setCookies: [] }),
-} satisfies IdentityShape);
+} satisfies IdentityOperations);
 
 const nativeProblem = (code: string, title: string, status: number, detail: string) => ({
   type: `urn:vektorprogrammet:problem:v0.2:${code}`,
@@ -142,71 +152,27 @@ const nativeProblem = (code: string, title: string, status: number, detail: stri
   code,
 });
 
-const makeDatabase = (projection: OrganizationPersonAuthority): DatabaseShape => {
-  const receipts = new Map<string, Record<string, unknown>>();
-  const rows =
-    projection.memberships.length === 0
-      ? [
-          {
-            globalAdministrator: projection.globalAdministrator,
-            membershipId: null,
-            teamId: null,
-            departmentId: null,
-            active: null,
-            teamLeader: null,
-          },
-        ]
-      : projection.memberships.map((membership) => ({
-          globalAdministrator: projection.globalAdministrator,
-          membershipId: membership.membershipId,
-          teamId: membership.teamId,
-          departmentId: membership.departmentId,
-          active: membership.active,
-          teamLeader: membership.teamLeader,
-        }));
-  return Object.assign(
-    ((strings: TemplateStringsArray, ...values: ReadonlyArray<unknown>) => {
-      const statement = strings.join(" ");
-      if (statement.includes("SET TRANSACTION ISOLATION LEVEL")) return Effect.void;
-      if (statement.includes("transaction_timestamp() AT TIME ZONE 'UTC'")) {
-        return Effect.succeed([{ now: observedAt }]);
-      }
-      if (statement.includes("locked_global_administrator_grants")) return Effect.succeed(rows);
-      if (statement.includes("SELECT pg_try_advisory_xact_lock")) {
-        return Effect.succeed([{ acquired: true }]);
-      }
-      if (statement.includes("UPDATE public.native_http_idempotency_receipts")) {
-        return Effect.succeed([]);
-      }
-      if (statement.includes("FROM public.native_http_idempotency_receipts")) {
-        const receipt = receipts.get(String(values[0]));
-        return Effect.succeed(receipt === undefined ? [] : [receipt]);
-      }
-      if (statement.includes("INSERT INTO public.native_http_idempotency_receipts")) {
-        receipts.set(String(values[0]), {
-          requestSha256: String(values[1]),
-          operationId: String(values[2]),
-          state: "Complete",
-          status: Number(values[3]),
-          mediaType: values[4],
-          bodyBytes: values[5],
-          headers: values[6],
-        });
-        return Effect.succeed([]);
-      }
-      return Effect.succeed([]);
-    }) as unknown as DatabaseShape,
-    {
-      health: Effect.void,
-      json: (value: unknown) => value,
-      withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
-    },
-  ) as DatabaseShape;
-};
+const makeDatabase = (projection: OrganizationPersonAuthority) =>
+  backendDatabase(
+    Database.use((sql) =>
+      Effect.gen(function* () {
+        yield* sql`INSERT INTO person_profiles (person_id,first_name,last_name,revision) VALUES (${projection.personId},'Survey','Person',0)`;
+
+        if (projection.globalAdministrator !== "Absent")
+          yield* sql`INSERT INTO organization_global_administrator_grants (grant_id,person_id,start_at,end_at) VALUES ('survey-admin',${projection.personId},'2000-01-01T00:00:00Z',${projection.globalAdministrator === "Active" ? null : "2001-01-01T00:00:00Z"}::timestamptz)`;
+
+        for (const membership of projection.memberships) {
+          yield* sql`INSERT INTO organization_departments (department_id,name,short_name,email,city) VALUES (${membership.departmentId},'Survey department','Survey','survey@example.invalid','Oslo') ON CONFLICT DO NOTHING`;
+          yield* sql`INSERT INTO organization_teams (team_id,department_id,name) VALUES (${membership.teamId},${membership.departmentId},'Survey team') ON CONFLICT DO NOTHING`;
+          yield* sql`INSERT INTO organization_memberships (membership_id,person_id,team_id,start_at,end_at,is_team_leader) VALUES (${membership.membershipId},${projection.personId},${membership.teamId},'2000-01-01T00:00:00Z',${membership.active ? null : "2001-01-01T00:00:00Z"}::timestamptz,${membership.teamLeader})`;
+        }
+      }),
+    ),
+  );
 
 const makeServices = (
   projection: OrganizationPersonAuthority,
-  surveyService: Partial<SchoolSurveysShape> & Record<string, unknown>,
+  surveyService: Partial<SchoolSurveysOperations>,
 ) => {
   const defaults = {
     readForm: () => Effect.die("unexpected anonymous form read"),
@@ -219,7 +185,8 @@ const makeServices = (
     closeAdminSurvey: () => Effect.die("unexpected administration survey close"),
     readAdminResults: () => Effect.die("unexpected administration results read"),
   };
-  const identitySnapshot = IdentitySnapshot.of({
+
+  const identitySnapshot = {
     resolveSession: (cookieHeader: string | undefined) =>
       cookieHeader?.includes("school-surveys-test-session")
         ? Effect.succeed(
@@ -230,16 +197,18 @@ const makeServices = (
             }),
           )
         : Effect.fail(new IdentitySessionNotFound()),
-  } as never);
+  };
+
   const oauthCredentialAuthority = OAuthCredentialAuthority.of({
     resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
     resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
-  } as never);
+  });
+
   return Layer.mergeAll(
-    Layer.succeed(Database, makeDatabase(projection)),
-    Layer.succeed(SchoolSurveys, SchoolSurveys.of({ ...defaults, ...surveyService } as never)),
+    makeDatabase(projection).layer,
+    Layer.succeed(SchoolSurveys, SchoolSurveys.of({ ...defaults, ...surveyService })),
     Layer.succeed(Identity, identity),
-    Layer.succeed(IdentitySnapshot, identitySnapshot),
+    Layer.mock(IdentitySnapshot, identitySnapshot),
     Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
   );
 };
@@ -250,10 +219,12 @@ describe("School surveys native HTTP adapter", () => {
     const result = results(survey);
     let catalogAuthorities = 0;
     let resultReads = 0;
+
     const api = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         readAdminCatalog: () => {
           catalogAuthorities += 1;
+
           return Effect.succeed({
             departments: [{ departmentId, name: "Survey department" }],
             semesters: [
@@ -269,6 +240,7 @@ describe("School surveys native HTTP adapter", () => {
         listAdminSurveys: () => Effect.succeed({ departmentId, semesterId, surveys: [survey] }),
         readAdminResults: () => {
           resultReads += 1;
+
           return Effect.succeed(result);
         },
       }),
@@ -277,6 +249,7 @@ describe("School surveys native HTTP adapter", () => {
     const catalogResponse = await api.fetch(
       sessionRequest("http://backend.test/api/surveys/admin/catalog"),
     );
+
     expect(catalogResponse.status).toBe(200);
     expect(catalogResponse.headers.get("cache-control")).toBe("private, no-store");
     expect(catalogAuthorities).toBe(1);
@@ -286,6 +259,7 @@ describe("School surveys native HTTP adapter", () => {
         `http://backend.test/api/surveys/admin?departmentId=${departmentId}&semesterId=${semesterId}`,
       ),
     );
+
     expect({ status: listResponse.status, body: await listResponse.json() }).toEqual({
       status: 200,
       body: { departmentId, semesterId, surveys: [survey] },
@@ -294,6 +268,7 @@ describe("School surveys native HTTP adapter", () => {
     const resultResponse = await api.fetch(
       sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/results`),
     );
+
     expect({ status: resultResponse.status, body: await resultResponse.json() }).toEqual({
       status: 200,
       body: result,
@@ -302,6 +277,7 @@ describe("School surveys native HTTP adapter", () => {
     const exportResponse = await api.fetch(
       sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/results.csv`),
     );
+
     expect({
       status: exportResponse.status,
       contentType: exportResponse.headers.get("content-type"),
@@ -313,7 +289,7 @@ describe("School surveys native HTTP adapter", () => {
       contentType: "text/csv; charset=utf-8",
       contentDisposition: 'attachment; filename="school-survey-survey_http_results-results.csv"',
       cacheControl: "private, no-store",
-      body: encodeSchoolSurveyResultsCsv(result as never),
+      body: encodeSchoolSurveyResultsCsv(result),
     });
     expect(resultReads).toBe(2);
   });
@@ -321,6 +297,7 @@ describe("School surveys native HTTP adapter", () => {
   it("routes maximum-length and administration-named public survey IDs", async () => {
     const maximumLengthSurveyId = SurveyId.make("s".repeat(128));
     const administrationNamedSurveyId = SurveyId.make("admin");
+
     const form = (surveyId: SurveyId) => ({
       surveyId,
       departmentId,
@@ -330,6 +307,7 @@ describe("School surveys native HTTP adapter", () => {
       schools: [{ schoolId: SchoolId.make(1), name: "Survey School" }],
       questions: adminSurvey().questions,
     });
+
     const api = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         readForm: (surveyId: SurveyId) => Effect.succeed(form(surveyId)),
@@ -340,6 +318,7 @@ describe("School surveys native HTTP adapter", () => {
       const response = await api.fetch(
         new Request(`http://backend.test/api/surveys/public/${surveyId}`),
       );
+
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 200,
         body: form(surveyId),
@@ -348,18 +327,21 @@ describe("School surveys native HTTP adapter", () => {
   });
 
   it("uses receipt-derived commands, generated survey IDs, and revisioned close commands", async () => {
-    const createdCommands: Array<Record<string, unknown>> = [];
-    const closedCommands: Array<Record<string, unknown>> = [];
+    const createdCommands: Array<CreateSchoolSurveyCommand> = [];
+    const closedCommands: Array<CloseSchoolSurveyCommand> = [];
     const survey = adminSurvey({ responseCount: 0 });
+
     const api = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         readAdminSurvey: () => Effect.succeed(survey),
         createAdminSurvey: (command: CreateSchoolSurveyCommand) => {
           createdCommands.push(command);
+
           return Effect.succeed({ ...survey, surveyId: command.surveyId });
         },
         closeAdminSurvey: (command: CloseSchoolSurveyCommand) => {
           closedCommands.push(command);
+
           return Effect.succeed({
             ...survey,
             state: "Closed",
@@ -370,6 +352,7 @@ describe("School surveys native HTTP adapter", () => {
         },
       }),
     );
+
     const createPayload = {
       departmentId,
       semesterId,
@@ -378,6 +361,7 @@ describe("School surveys native HTTP adapter", () => {
       resultsVisibility: "DepartmentManagers",
       questions: [{ kind: "Text", label: "What worked?", help: null, required: true }],
     };
+
     const createResponse = await api.fetch(
       sessionRequest("http://backend.test/api/surveys/admin", {
         method: "POST",
@@ -389,6 +373,7 @@ describe("School surveys native HTTP adapter", () => {
         body: JSON.stringify(createPayload),
       }),
     );
+
     expect(createResponse.status).toBe(201);
     expect(createResponse.headers.get("location")).toMatch(
       /^\/api\/surveys\/public\/survey_[0-9a-f-]+$/u,
@@ -409,6 +394,7 @@ describe("School surveys native HTTP adapter", () => {
         body: JSON.stringify({ expectedRevision: 0 }),
       }),
     );
+
     expect(closeResponse.status).toBe(200);
     expect(closedCommands).toHaveLength(1);
     expect(closedCommands[0]?.surveyId).toBe(schoolSurveyId);
@@ -418,6 +404,7 @@ describe("School surveys native HTTP adapter", () => {
   it("conceals confidential aggregates from managers but exposes them to global administrators", async () => {
     let resultReads = 0;
     const confidentialSurvey = adminSurvey({ resultsVisibility: "GlobalAdministrators" });
+
     const closedConfidentialSurvey = {
       ...confidentialSurvey,
       state: "Closed" as const,
@@ -425,11 +412,13 @@ describe("School surveys native HTTP adapter", () => {
       closedAt: observedAt,
       closedByPersonId: personId,
     };
+
     const list = {
       departmentId,
       semesterId,
       surveys: [confidentialSurvey],
     };
+
     const managerApi = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         readAdminSurvey: () => Effect.succeed(confidentialSurvey),
@@ -437,6 +426,7 @@ describe("School surveys native HTTP adapter", () => {
         closeAdminSurvey: () => Effect.succeed(closedConfidentialSurvey),
         readAdminResults: () => {
           resultReads += 1;
+
           return Effect.die("confidential results must not be read");
         },
       }),
@@ -447,6 +437,7 @@ describe("School surveys native HTTP adapter", () => {
         `http://backend.test/api/surveys/admin?departmentId=${departmentId}&semesterId=${semesterId}`,
       ),
     );
+
     const closeResponse = await managerApi.fetch(
       sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/close`, {
         method: "POST",
@@ -458,14 +449,18 @@ describe("School surveys native HTTP adapter", () => {
         body: JSON.stringify({ expectedRevision: 0 }),
       }),
     );
+
     const resultsResponse = await managerApi.fetch(
       sessionRequest(`http://backend.test/api/surveys/admin/${schoolSurveyId}/results`),
     );
 
-    const listBody = (await listResponse.json()) as {
-      readonly surveys: ReadonlyArray<{ readonly responseCount: unknown }>;
-    };
-    const closeBody = (await closeResponse.json()) as { readonly responseCount: unknown };
+    const listBody = Schema.decodeUnknownSync(SchoolSurveyAdminListResource)(
+      await listResponse.json(),
+    );
+
+    const closeBody = Schema.decodeUnknownSync(SchoolSurveyAdminResource)(
+      await closeResponse.json(),
+    );
 
     expect({
       list: listBody.surveys[0]?.responseCount,
@@ -487,25 +482,31 @@ describe("School surveys native HTTP adapter", () => {
         listAdminSurveys: () => Effect.succeed(list),
       }),
     );
+
     const globalListResponse = await globalApi.fetch(
       sessionRequest(
         `http://backend.test/api/surveys/admin?departmentId=${departmentId}&semesterId=${semesterId}`,
       ),
     );
-    const globalListBody = (await globalListResponse.json()) as {
-      readonly surveys: ReadonlyArray<{ readonly responseCount: unknown }>;
-    };
+
+    const globalListBody = Schema.decodeUnknownSync(SchoolSurveyAdminListResource)(
+      await globalListResponse.json(),
+    );
+
     expect(globalListBody.surveys[0]?.responseCount).toBe(1);
   });
   it("denies ordinary, inactive, and out-of-department survey management before domain reads", async () => {
     let catalogReads = 0;
     let listReads = 0;
+
     const catalogService = {
       readAdminCatalog: () => {
         catalogReads += 1;
+
         return Effect.die("unauthorized catalog reads must not reach the domain");
       },
     };
+
     const ordinary = makeSchoolSurveysTestHttp(
       makeServices(
         authority({ memberships: [{ ...authority().memberships[0]!, teamLeader: false }] }),
@@ -514,25 +515,32 @@ describe("School surveys native HTTP adapter", () => {
         },
       ),
     );
+
     const inactive = makeSchoolSurveysTestHttp(
       makeServices(authority({ memberships: [], globalAdministrator: "Inactive" }), {
         ...catalogService,
       }),
     );
+
     const otherDepartmentId = DepartmentId.make("school-surveys-http-other-department");
+
     const wrongDepartment = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         listAdminSurveys: () => {
           listReads += 1;
+
           return Effect.die("out-of-department survey lists must not reach the domain");
         },
       }),
     );
+
     let globalListReads = 0;
+
     const globalAdministrator = makeSchoolSurveysTestHttp(
       makeServices(authority({ memberships: [], globalAdministrator: "Active" }), {
         listAdminSurveys: () => {
           globalListReads += 1;
+
           return Effect.succeed({ departmentId: otherDepartmentId, semesterId, surveys: [] });
         },
       }),
@@ -575,10 +583,12 @@ describe("School surveys native HTTP adapter", () => {
     let open = true;
     let prepareCalls = 0;
     let persistCalls = 0;
+
     const api = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         prepareResponse: ({ request }) => {
           prepareCalls += 1;
+
           return open
             ? Effect.succeed({
                 surveyId: schoolSurveyId,
@@ -591,6 +601,7 @@ describe("School surveys native HTTP adapter", () => {
         },
         persistResponse: ({ responseId, prepared }) => {
           persistCalls += 1;
+
           return Effect.succeed({
             responseId,
             submittedAt: observedAt,
@@ -599,6 +610,7 @@ describe("School surveys native HTTP adapter", () => {
         },
       }),
     );
+
     const request = (values: ReadonlyArray<string>) =>
       new Request(`http://backend.test/api/surveys/public/${schoolSurveyId}/responses`, {
         method: "POST",
@@ -621,7 +633,11 @@ describe("School surveys native HTTP adapter", () => {
     expect(await replayed.json()).toEqual(acceptedBody);
     expect({ prepareCalls, persistCalls }).toEqual({ prepareCalls: 1, persistCalls: 1 });
     const duplicateSelection = await api.fetch(request(["First", "First", "Second"]));
-    const duplicateSelectionBody = (await duplicateSelection.json()) as Record<string, unknown>;
+
+    const duplicateSelectionBody = Schema.decodeUnknownSync(Schema.Struct({ code: Schema.String }))(
+      await duplicateSelection.json(),
+    );
+
     expect({
       status: duplicateSelection.status,
       code: duplicateSelectionBody.code,
@@ -633,6 +649,7 @@ describe("School surveys native HTTP adapter", () => {
 
   it("keeps a closed anonymous survey concealed and avoids response persistence", async () => {
     let persistCalls = 0;
+
     const api = makeSchoolSurveysTestHttp(
       makeServices(authority(), {
         readForm: () => Effect.fail(new SchoolSurveyNotFound({ surveyId: String(schoolSurveyId) })),
@@ -640,6 +657,7 @@ describe("School surveys native HTTP adapter", () => {
           Effect.fail(new SchoolSurveyNotFound({ surveyId: String(schoolSurveyId) })),
         persistResponse: () => {
           persistCalls += 1;
+
           return Effect.die("closed survey responses must not persist");
         },
       }),
@@ -648,6 +666,7 @@ describe("School surveys native HTTP adapter", () => {
     const formResponse = await api.fetch(
       new Request(`http://backend.test/api/surveys/public/${schoolSurveyId}`),
     );
+
     expect(formResponse.status).toBe(404);
 
     const submitResponse = await api.fetch(
@@ -663,6 +682,7 @@ describe("School surveys native HTTP adapter", () => {
         }),
       }),
     );
+
     expect({ status: submitResponse.status, body: await submitResponse.json() }).toEqual({
       status: 404,
       body: nativeProblem(

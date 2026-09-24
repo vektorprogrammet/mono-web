@@ -101,6 +101,7 @@ export default function ForSkoler() {
             .map((city) => {
               const key = city[0];
               const value = city[1];
+
               return {
                 city: value,
                 url: href("/kontakt/:department", { department: key }),

@@ -1,9 +1,9 @@
 import { Runtime } from "foldkit";
 import type { SocialEventsClient } from "./browser-client";
-import { makeSocialEventsCommands } from "./command";
-import { Model, makeInitialModel } from "./model";
+import { commandsFor } from "./command";
+import { Model, init } from "./model";
 import "./styles.css";
-import { makeUpdate } from "./update";
+import { updateFor } from "./update";
 import { view } from "./view";
 
 export interface SocialEventsRuntimeInput {
@@ -14,13 +14,14 @@ export const embedSocialEvents = (
   container: HTMLElement,
   input: SocialEventsRuntimeInput,
 ): (() => void) => {
-  const commands = makeSocialEventsCommands(input.client);
-  const initialModel = makeInitialModel();
+  const commands = commandsFor(input.client);
+  const initialModel = init();
+
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => [initialModel, [commands.LoadScope({ requestId: initialModel.requestId })]],
-    update: makeUpdate(commands),
+    init: () => ({ model: initialModel, commands: [commands.LoadScope({ requestId: initialModel.requestId })] }),
+    update: updateFor(commands),
     view,
     devTools: false,
     slow: false,
@@ -35,6 +36,8 @@ export const embedSocialEvents = (
         ),
     },
   });
+
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 };

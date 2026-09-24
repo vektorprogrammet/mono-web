@@ -1,5 +1,5 @@
 import { Runtime } from "foldkit";
-import { Input, Model, makeInitialModel } from "./model";
+import { Input, Model, init } from "./model";
 import { update } from "./update";
 import { view } from "./view";
 import "./styles.css";
@@ -8,7 +8,7 @@ export const embedDatedService = (container: HTMLElement, input: Input): (() => 
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => [makeInitialModel(input), []],
+    init: () => ({ model: init(input), commands: [] }),
     update,
     view,
     devTools: false,
@@ -21,6 +21,8 @@ export const embedDatedService = (container: HTMLElement, input: Input): (() => 
         ),
     },
   });
+
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 };

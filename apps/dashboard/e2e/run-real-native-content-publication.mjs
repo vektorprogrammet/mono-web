@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -12,25 +13,45 @@ import {
 } from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const homepageRoot = fileURLToPath(new URL("../../homepage/", import.meta.url));
+
 const postgresPort = 45260;
+
 const dashboardPort = 45261;
+
 const backendPort = 45262;
+
 const upstreamPort = 45263;
+
 const homepagePort = 45264;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const upstreamOrigin = `http://127.0.0.1:${upstreamPort}`;
+
 const homepageOrigin = `http://p000.vektor.phibkro.org:${homepagePort}`;
+
 const homepageListenOrigin = `http://127.0.0.1:${homepagePort}`;
+
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/content_e2e_0062`;
+
 const betterAuthSecret = "content-e2e-0062-secret-with-more-than-32-characters";
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const specPath = join(dashboardRoot, "e2e/native-content-publication.spec.ts");
+
 const seedPath = join(dashboardRoot, "e2e/native-content-publication-seed.mjs");
+
 const journeyDefinitions = [
   {
     journeyRefId: "intent://journey:parity:content_publication:v1",
@@ -51,19 +72,22 @@ const journeyDefinitions = [
     ],
   },
 ];
+
 const receiptEnvironment = [
   "RUNTIME_EVIDENCE_RECEIPT_PATH",
   "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
   "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
   "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
 ];
+
 const receiptRequested = () =>
   receiptEnvironment.some(
-    (name) => typeof process.env[name] === "string" && process.env[name].length > 0,
+    (name) => Predicate.isString(process.env[name]) && process.env[name].length > 0,
   );
 
 const emitReceipt = async (playwrightOutput) => {
   if (!receiptRequested()) return null;
+
   return emitNativeRuntimeEvidenceReceipts({
     repositoryRoot,
     sourcePaths: [runnerPath, specPath, seedPath],
@@ -75,6 +99,7 @@ const emitReceipt = async (playwrightOutput) => {
 };
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 const withTimeout = (promise, milliseconds, label) =>
   Promise.race([
     promise,
@@ -102,6 +127,7 @@ const waitForPort = (port, label) =>
           });
           socket.once("error", () => resolve(false));
         });
+
         if (ready) return;
         await delay(100);
       }
@@ -119,9 +145,11 @@ const waitForHttp = (url, label, options) =>
             response.resume();
             resolve(response.statusCode === 200);
           });
+
           request.once("error", () => resolve(false));
           request.end();
         });
+
         if (ready) return;
         await delay(150);
       }
@@ -138,13 +166,16 @@ const run = (command, args, { cwd = repositoryRoot, env = process.env, label }) 
     timeout: 360_000,
     killSignal: "SIGKILL",
   });
+
   if (result.status !== 0) {
     throw new Error(
       `${label} failed (${String(result.status)}):\n${result.stdout ?? ""}\n${result.stderr ?? ""}`,
     );
   }
+
   return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 };
+
 const runAsync = (command, args, { cwd = repositoryRoot, env = process.env, label }) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
@@ -163,10 +194,13 @@ const runAsync = (command, args, { cwd = repositoryRoot, env = process.env, labe
     });
     child.once("exit", (code, signal) => {
       clearTimeout(timeout);
+
       if (code === 0) {
         resolve({ stdout, stderr });
+
         return;
       }
+
       reject(new Error(`${label} failed (${String(code ?? signal)}):\n${stdout}\n${stderr}`));
     });
   });
@@ -174,10 +208,13 @@ const runAsync = (command, args, { cwd = repositoryRoot, env = process.env, labe
 const start = (command, args, { cwd, env, label }) => {
   const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const output = [];
+
   const capture = (chunk) => {
     output.push(String(chunk));
+
     if (output.length > 300) output.shift();
   };
+
   child.stdout.on("data", capture);
   child.stderr.on("data", capture);
   child.once("exit", (code, signal) => {
@@ -185,6 +222,7 @@ const start = (command, args, { cwd, env, label }) => {
       process.stderr.write(`${label} exited ${String(code)}:\n${output.join("")}\n`);
     }
   });
+
   return { child, label, output };
 };
 
@@ -202,11 +240,14 @@ const stop = async (processHandle) => {
 const requestBody = async (request) => {
   const chunks = [];
   let length = 0;
+
   for await (const chunk of request) {
     length += chunk.length;
+
     if (length > 1_000_000) throw new Error("recording upstream request exceeded 1 MB");
     chunks.push(chunk);
   }
+
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 };
 
@@ -216,15 +257,19 @@ const copyResponseHeaders = (source, target) => {
       continue;
     target.setHeader(name, value);
   }
+
   const cookies = source.getSetCookie();
+
   if (cookies.length > 0) target.setHeader("Set-Cookie", cookies);
 };
 
 const startRecordingUpstream = async (ledger) => {
   let forcedContentFailure = false;
+
   const server = createServer(async (request, response) => {
     const startedAt = Date.now();
     const pathname = new URL(request.url ?? "/", upstreamOrigin).pathname;
+
     const entry = {
       sequence: ledger.length + 1,
       method: request.method ?? "GET",
@@ -235,7 +280,9 @@ const startRecordingUpstream = async (ledger) => {
       status: 0,
       durationMilliseconds: 0,
     };
+
     ledger.push(entry);
+
     try {
       if (
         !forcedContentFailure &&
@@ -258,40 +305,50 @@ const startRecordingUpstream = async (ledger) => {
             detail: "Content data is unavailable.",
           }),
         );
+
         return;
       }
 
       const body = await requestBody(request);
       const idempotencyKey = request.headers["idempotency-key"];
-      if (typeof idempotencyKey === "string") entry.idempotencyKey = idempotencyKey;
+
+      if (Predicate.isString(idempotencyKey)) entry.idempotencyKey = idempotencyKey;
       const ifMatch = request.headers["if-match"];
-      if (typeof ifMatch === "string") entry.ifMatch = ifMatch;
+
+      if (Predicate.isString(ifMatch)) entry.ifMatch = ifMatch;
+
       if (body !== undefined) {
         try {
           const payload = JSON.parse(body.toString("utf8"));
-          if (typeof payload === "object" && payload !== null && !Array.isArray(payload)) {
+
+          if (Predicate.isObjectOrArray(payload) && payload !== null && !Array.isArray(payload)) {
             entry.requestFields = Object.keys(payload).sort();
           }
         } catch {
           // Non-JSON request bodies do not contribute field evidence.
         }
       }
+
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (value === undefined || ["connection", "content-length", "host"].includes(name))
           continue;
+
         if (Array.isArray(value)) {
           for (const item of value) headers.append(name, item);
         } else {
           headers.set(name, value);
         }
       }
+
       const upstream = await fetch(new URL(request.url ?? "/", backendOrigin), {
         method: request.method,
         headers,
         body,
         redirect: "manual",
       });
+
       entry.status = upstream.status;
       response.statusCode = upstream.status;
       copyResponseHeaders(upstream.headers, response);
@@ -305,10 +362,12 @@ const startRecordingUpstream = async (ledger) => {
       entry.durationMilliseconds = Date.now() - startedAt;
     }
   });
+
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(upstreamPort, "127.0.0.1", resolve);
   });
+
   return server;
 };
 
@@ -320,15 +379,25 @@ const closeServer = (server) =>
       );
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "native-content-publication-0062-"));
+
 const postgresData = join(temporaryRoot, "postgres");
+
 const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
+
 const homepageDevVarsPath = join(homepageRoot, ".dev.vars");
+
 let homepageDevVarsCreated = false;
+
 let postgres;
+
 let backend;
+
 let dashboard;
+
 let homepage;
+
 let recordingUpstream;
+
 const ledger = [];
 
 try {
@@ -369,6 +438,7 @@ try {
     },
     label: "Content deterministic identity and article seed",
   });
+
   const seedEvidence = JSON.parse(seed.stdout.trim().split("\n").at(-1));
   assert.equal(seedEvidence.passed, true);
 
@@ -388,6 +458,7 @@ try {
     RECEIPT_AUTH_TOKENS: "{}",
     ORGANIZATION_AUTH_TOKENS: "{}",
   };
+
   backend = start("bun", ["run", "src/main.ts"], {
     cwd: backendRoot,
     env: backendEnvironment,
@@ -396,6 +467,7 @@ try {
   await waitForHttp(`${backendOrigin}/health`, "Native backend startup");
 
   const offSpecAliasChecks = [];
+
   for (const [method, pathname, body] of [
     ["POST", "/api/admin/content", { operation: "publish", commandId: "alias-1", articleId: 1 }],
     ["PUT", "/api/admin/content/drafts/1", { commandId: "alias-2" }],
@@ -409,6 +481,7 @@ try {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+
     assert.equal(response.status, 404, `${method} ${pathname} must not be served`);
     assert.match(response.headers.get("content-type") ?? "", /application\/problem\+json/u);
     assert.deepEqual(await response.json(), {
@@ -454,6 +527,7 @@ try {
     PORT: String(dashboardPort),
     NODE_ENV: "production",
   };
+
   run("bun", ["run", "build"], {
     cwd: sdkRoot,
     env: dashboardEnvironment,
@@ -498,6 +572,7 @@ try {
       label: "Native Content Chromium journey",
     },
   );
+
   const browserEvidence = JSON.parse(await readFile(browserEvidencePath, "utf8"));
   assert.equal(browserEvidence.passed, true);
   await emitReceipt(browser.stdout);
@@ -505,19 +580,24 @@ try {
   const workspaceRequests = ledger.filter(
     (entry) => entry.pathname === "/api/content/articles" && entry.method === "GET",
   );
+
   const forcedFailures = workspaceRequests.filter((entry) => entry.forced);
+
   const forwardedSuccesses = workspaceRequests.filter(
     (entry) => !entry.forced && entry.status === 200,
   );
+
   assert.equal(forcedFailures.length, 1, "one upstream workspace failure must be forced");
   assert.ok(forwardedSuccesses.length >= 3, "retry and staff arc must reach the backend");
   assert.ok(
     ledger.some((entry) => !entry.forced && entry.status === 403),
     "typed authority denials must reach the backend",
   );
+
   const staffRequests = ledger.filter((entry) =>
     entry.pathname.startsWith("/api/content/articles"),
   );
+
   for (const entry of staffRequests) {
     const exact =
       (entry.method === "OPTIONS" && entry.pathname.startsWith("/api/content/articles")) ||
@@ -527,27 +607,34 @@ try {
       (entry.method === "PATCH" && /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
       (entry.method === "POST" &&
         /^\/api\/content\/articles\/\d+:(?:publish|unpublish)$/u.test(entry.pathname));
+
     assert.equal(
       exact,
       true,
       "off-spec staff request observed: " + entry.method + " " + entry.pathname,
     );
   }
+
   const staffMutations = staffRequests.filter((entry) => ["PATCH", "POST"].includes(entry.method));
   assert.ok(staffMutations.length >= 3, "staff arc must mutate through the native API");
+
   for (const mutation of staffMutations) {
     assert.ok(
       mutation.idempotencyKey,
       "missing idempotency key: " + mutation.method + " " + mutation.pathname,
     );
+
     const createsArticle =
       mutation.method === "POST" && mutation.pathname === "/api/content/articles";
+
     if (!createsArticle) {
       assert.match(mutation.ifMatch ?? "", /^"vkr2\./u);
     }
+
     assert.equal(mutation.requestFields?.includes("commandId"), false);
     assert.equal(mutation.requestFields?.includes("expectedRevision"), false);
   }
+
   assert.deepEqual(
     ledger.filter(
       (entry) =>
@@ -581,18 +668,23 @@ try {
     },
     playwrightTail: browser.stdout.trim().split("\n").slice(-8),
   };
+
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 } catch (cause) {
   process.stderr.write(`Content request ledger at failure:\n${JSON.stringify(ledger, null, 2)}\n`);
+
   if (backend !== undefined) {
     process.stderr.write(`Native backend tail:\n${backend.output.join("")}\n`);
   }
+
   if (dashboard !== undefined) {
     process.stderr.write(`Dashboard tail:\n${dashboard.output.join("")}\n`);
   }
+
   if (homepage !== undefined) {
     process.stderr.write(`Homepage tail:\n${homepage.output.join("")}\n`);
   }
+
   throw cause;
 } finally {
   await stop(homepage);
@@ -600,6 +692,7 @@ try {
   await closeServer(recordingUpstream).catch(() => undefined);
   await stop(backend);
   await stop(postgres);
+
   if (homepageDevVarsCreated) await rm(homepageDevVarsPath, { force: true });
   await rm(temporaryRoot, { recursive: true, force: true });
 }

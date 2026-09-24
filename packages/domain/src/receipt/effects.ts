@@ -1,7 +1,8 @@
-import { Schema } from "effect";
+import { Match, Schema } from "effect";
 import { ReceiptFileSchema, type ReceiptFile } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
+
 const EffectBase = {
   effectId: NonEmpty,
   receiptId: NonEmpty,
@@ -23,32 +24,27 @@ export const ReceiptOutboxRequestSchema = Schema.TaggedUnion({
   NotifyReceiptSettled: EffectBase,
   WriteReceiptAudit: EffectBase,
 });
+
 export type ReceiptOutboxRequest = typeof ReceiptOutboxRequestSchema.Type;
+
 export type ReceiptOutboxEffectType = ReceiptOutboxRequest["_tag"];
 
-const fileEffectTypes = new Set<ReceiptOutboxEffectType>([
-  "PromoteReceiptFile",
-  "DeleteReceiptFile",
-]);
-
-export const makeReceiptOutboxRequest = (
+export const receiptOutboxRequest = (
   commandId: string,
   receiptId: string,
   effectType: ReceiptOutboxEffectType,
   file?: ReceiptFile,
 ): ReceiptOutboxRequest => {
-  const base = {
-    _tag: effectType,
-    effectId: `${commandId}:${effectType}`,
-    receiptId,
-    commandId,
-  } as const;
+  const base = { effectId: `${commandId}:${effectType}`, receiptId, commandId };
 
-  if (fileEffectTypes.has(effectType)) {
-    if (file === undefined) throw new Error(`${effectType} requires a file identity`);
-    return { ...base, file } as ReceiptOutboxRequest;
-  }
-  return base as ReceiptOutboxRequest;
+  return Match.value(effectType).pipe(
+    Match.whenOr("PromoteReceiptFile", "DeleteReceiptFile", (type) => {
+      if (file === undefined) throw new Error(`${type} requires a file identity`);
+
+      return ReceiptOutboxRequestSchema.cases[type].make({ ...base, file });
+    }),
+    Match.orElse((type) => ReceiptOutboxRequestSchema.cases[type].make(base)),
+  );
 };
 
 export const sameReceiptFile = (left: ReceiptFile, right: ReceiptFile): boolean =>

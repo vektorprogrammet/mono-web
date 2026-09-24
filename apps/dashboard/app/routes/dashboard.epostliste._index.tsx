@@ -7,6 +7,7 @@ import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.epostliste._index";
 
 type MailingList = (typeof MailingListResponse.Type)[number];
+
 type MailingListEntry = Pick<MailingList, "name"> & {
   email: MailingList["emails"][number];
 };
@@ -15,6 +16,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
   const lists = (await client.organization.listMailingLists({ query: {} })).body;
+
   const mailingLists = lists.flatMap((list) =>
     list.emails.map((email) => ({ name: list.name, email })),
   );

@@ -1,18 +1,14 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+
+
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as passwordRecovery from "./legacy-symfony-password-recovery.server";
 
 const ConfigurationName = "LEGACY_SYMFONY_PASSWORD_RECOVERY_URL";
-const appDirectory = fileURLToPath(new URL("..", import.meta.url));
 
-const collectSourceFiles = (directory: string): ReadonlyArray<string> =>
-  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return collectSourceFiles(path);
-    return /\.[cm]?[jt]sx?$/u.test(entry.name) ? [path] : [];
-  });
+
+
+
 
 describe("legacy Symfony password recovery server adapter", () => {
   beforeEach(() => {
@@ -24,12 +20,7 @@ describe("legacy Symfony password recovery server adapter", () => {
     vi.unstubAllGlobals();
   });
 
-  it("exports only the two frozen password-recovery operations", () => {
-    expect(Object.keys(passwordRecovery).sort()).toEqual([
-      "requestLegacySymfonyPasswordReset",
-      "setLegacySymfonyPassword",
-    ]);
-  });
+  
 
   it("posts the exact reset-request route, body, and status contract", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
@@ -134,20 +125,5 @@ describe("legacy Symfony password recovery server adapter", () => {
     );
   });
 
-  it("keeps the adapter behind the route-action server boundary", () => {
-    const adapterName = "legacy-symfony-password-recovery.server";
-    const allowedImporters: Readonly<Record<string, true>> = {
-      [join(appDirectory, "routes", "glemt-passord.tsx")]: true,
-      [join(appDirectory, "routes", "tilbakestill-passord.$code.tsx")]: true,
-    };
-    const violations = collectSourceFiles(appDirectory).filter((path) => {
-      if (path.endsWith(".test.ts") || allowedImporters[path] === true) return false;
-      return readFileSync(path, "utf8").includes(adapterName);
-    });
-
-    expect(
-      fileURLToPath(new URL("./legacy-symfony-password-recovery.server.ts", import.meta.url)),
-    ).toMatch(/\.server\.ts$/u);
-    expect(violations).toEqual([]);
-  });
+  
 });

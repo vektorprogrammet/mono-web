@@ -11,12 +11,15 @@ import { dashboardMount, type DashboardBaseEnvironment } from "./dashboard-base.
 const configuredActionHost = (value: string | undefined): string | undefined => {
   if (value === undefined) return undefined;
   let url: URL;
+
   try {
     url = new URL(value);
   } catch {
     return undefined;
   }
+
   const fixedLoopback = url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port !== "";
+
   return url.origin === value &&
     url.pathname === "/" &&
     url.search === "" &&
@@ -31,17 +34,23 @@ export const makeReactRouterConfig = (environment: DashboardBaseEnvironment): Co
     environment.PREVIEW_HOST === undefined
       ? undefined
       : configuredActionHost(`https://${environment.PREVIEW_HOST}`);
+
   const dashboardHost = configuredActionHost(environment.DASHBOARD_ORIGIN);
+
   const allowedActionOrigins = [
     ...(previewHost === undefined ? [] : [previewHost]),
     ...(dashboardHost === undefined ? [] : [dashboardHost]),
   ];
-  return {
+
+  const config: Config = {
     appDirectory: "app",
     basename: dashboardMount(environment),
     ssr: true,
-    ...(allowedActionOrigins.length === 0 ? {} : { allowedActionOrigins }),
   };
+
+  if (allowedActionOrigins.length > 0) config.allowedActionOrigins = allowedActionOrigins;
+
+  return config;
 };
 
 export default makeReactRouterConfig(process.env);

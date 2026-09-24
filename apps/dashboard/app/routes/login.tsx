@@ -1,3 +1,4 @@
+import { Predicate, Match } from "effect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
@@ -22,32 +23,40 @@ import type { Route } from "./+types/login";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const oauth = inspectPendingOAuthRequest(request);
-  if (oauth._tag === "Invalid") {
+
+  if (Predicate.isTagged(oauth, "Invalid")) {
     return data({ oauthError: true, oauth: true }, { status: 400, headers: oauthNoStoreHeaders() });
   }
+
   if (await hasAuthenticatedSession(request)) {
-    throw redirect("/", oauth._tag === "Pending" ? { headers: oauthNoStoreHeaders() } : undefined);
+    throw redirect("/", Predicate.isTagged(oauth, "Pending") ? { headers: oauthNoStoreHeaders() } : undefined);
   }
+
   return data(
-    { oauthError: false, oauth: oauth._tag === "Pending" },
-    oauth._tag === "Pending" ? { headers: oauthNoStoreHeaders() } : undefined,
+    { oauthError: false, oauth: Predicate.isTagged(oauth, "Pending") },
+    Predicate.isTagged(oauth, "Pending") ? { headers: oauthNoStoreHeaders() } : undefined,
   );
 }
 
 export async function action({ request }: Route.ActionArgs) {
   const oauth = inspectPendingOAuthRequest(request);
+
   const oauthError = (status: number, message: string) =>
     data({ error: message }, { status, headers: oauthNoStoreHeaders() });
+
   const loginError = (message: string) =>
-    oauth._tag === "Pending"
+    Predicate.isTagged(oauth, "Pending")
       ? data({ error: message }, { headers: oauthNoStoreHeaders() })
       : { error: message };
-  if (oauth._tag === "Invalid") {
+
+  if (Predicate.isTagged(oauth, "Invalid")) {
     return oauthError(400, "OAuth-forespørselen er ugyldig. Start tilkoblingen på nytt.");
   }
-  if (oauth._tag === "Pending" && !hasTrustedActionOrigin(request)) {
+
+  if (Predicate.isTagged(oauth, "Pending") && !hasTrustedActionOrigin(request)) {
     return oauthError(403, "OAuth-forespørselen ble avvist.");
   }
+
   const form = await request.formData();
   const email = form.get("email")?.toString() ?? "";
   const password = form.get("password")?.toString() ?? "";
@@ -60,40 +69,40 @@ export async function action({ request }: Route.ActionArgs) {
     request,
     email,
     password,
-    oauth._tag === "Pending" ? oauth.pending.raw : undefined,
+    Predicate.isTagged(oauth, "Pending") ? oauth.pending.raw : undefined,
   );
-  switch (result._tag) {
-    case "Authenticated": {
-      if (oauth._tag !== "Pending") {
+
+  return Match.value(result).pipe(
+Match.tag("Authenticated", async (result) => {if (!Predicate.isTagged(oauth, "Pending")) {
         return redirect(safeRedirect(form.get("redirectTo")), {
           headers: result.headers,
         });
       }
-      const cookie = sessionCookieFromResponse(result.headers);
-      if (result.continuation === undefined || cookie === undefined) {
+
+const cookie = sessionCookieFromResponse(result.headers);
+
+if (result.continuation === undefined || cookie === undefined) {
         return oauthError(502, "OAuth-forespørselen kunne ikke fortsette.");
       }
-      try {
+
+try {
         const location = await guardOAuthContinuation(
           request,
           oauth.pending,
           result.continuation,
           cookie,
         );
+
         return redirect(location, { headers: oauthNoStoreHeaders(result.headers) });
       } catch {
         return oauthError(502, "OAuth-forespørselen kunne ikke fortsette.");
-      }
-    }
-    case "InvalidOAuthRequest":
-      return oauthError(400, "OAuth-forespørselen er ugyldig. Start tilkoblingen på nytt.");
-    case "RateLimited":
-      return loginError("For mange innloggingsforsøk. Prøv igjen om 15 minutter.");
-    case "InvalidCredentials":
-      return loginError("Feil e-post eller passord");
-    case "Unavailable":
-      return loginError("Tjenesten er midlertidig utilgjengelig. Prøv igjen senere.");
-  }
+      }}),
+Match.tag("InvalidOAuthRequest", () => {return oauthError(400, "OAuth-forespørselen er ugyldig. Start tilkoblingen på nytt.");}),
+Match.tag("RateLimited", () => {return loginError("For mange innloggingsforsøk. Prøv igjen om 15 minutter.");}),
+Match.tag("InvalidCredentials", () => {return loginError("Feil e-post eller passord");}),
+Match.tag("Unavailable", () => {return loginError("Tjenesten er midlertidig utilgjengelig. Prøv igjen senere.");}),
+Match.exhaustive
+);
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module

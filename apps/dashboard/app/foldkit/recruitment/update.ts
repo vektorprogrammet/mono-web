@@ -1,7 +1,8 @@
+import { Predicate } from "effect";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Match as M, Option, Schema as S } from "effect";
-import { AsyncData, Command } from "foldkit";
+import { AsyncData, Command, Update } from "foldkit";
 import { CreateApplicationInterviewInputSchema } from "./bridge";
 import type { RecruitmentCommands } from "./command";
 import { GotAssignmentDialogMessage, type Message } from "./message";
@@ -21,19 +22,20 @@ const clearAssignment = (model: ReadyModel): ReadyModel => ({
 
 const boardFrom = (model: ReadyModel) => AsyncData.getData(model.board);
 
-export const makeUpdate =
+export const updateFor =
   ({ LoadAssignmentBoard, CreateApplicationInterview }: RecruitmentCommands) =>
-  (model: Model, message: Message): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
-    if (model._tag === "InvalidInput") return [model, []];
+  (model: Model, message: Message): Update.Return<Model, Message> => {
+    if (!Predicate.isTagged(model, "Ready")) return ({ model: model, commands: [] });
 
     return M.value(message).pipe(
-      M.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
+      M.withReturnType<Update.Return<Model, Message>>(),
       M.tagsExhaustive({
         SelectedFilter: ({ status }) => {
-          if (model.isAssigning) return [model, []];
+          if (model.isAssigning) return ({ model: model, commands: [] });
           const requestId = model.boardRequestId + 1;
-          const [assignmentDialog, dialogCommands] = Dialog.close(model.assignmentDialog);
-          return [
+          const { model: assignmentDialog, commands: dialogCommands = [] } = Dialog.close(model.assignmentDialog);
+
+          return ({ model: 
             {
               ...clearAssignment(model),
               assignmentDialog,
@@ -41,40 +43,39 @@ export const makeUpdate =
               boardRequestId: requestId,
               board: AssignmentBoardData.Loading(),
               feedback: null,
-            },
-            [...mapDialogCommands(dialogCommands), LoadAssignmentBoard({ status, requestId })],
-          ];
+            }, commands: [...mapDialogCommands(dialogCommands), LoadAssignmentBoard({ status, requestId })] });
         },
         SucceededLoadBoard: ({ requestId, board }) =>
           requestId !== model.boardRequestId
-            ? [model, []]
-            : [
-                { ...model, board: AssignmentBoardData.Success({ data: board }), feedback: null },
-                [],
-              ],
+            ? ({ model: model, commands: [] })
+            : ({ model: 
+                { ...model, board: AssignmentBoardData.Success({ data: board }), feedback: null }, commands: [] }),
         FailedLoadBoard: ({ requestId, message }) =>
           requestId !== model.boardRequestId
-            ? [model, []]
-            : [
+            ? ({ model: model, commands: [] })
+            : ({ model: 
                 {
                   ...clearAssignment(model),
                   board: AssignmentBoardData.Failure({ error: message }),
                   feedback: null,
-                },
-                [],
-              ],
+                }, commands: [] }),
         OpenedAssignment: ({ applicationId }) => {
-          if (model.isAssigning) return [model, []];
+          if (model.isAssigning) return ({ model: model, commands: [] });
           const board = boardFrom(model);
-          if (board._tag === "None") return [model, []];
+
+          if (Option.isNone(board)) return ({ model: model, commands: [] });
+
           const candidate = board.value.candidates.find(
             (item) => item.applicationId === applicationId,
           );
+
           if (candidate === undefined || candidate.interviewState !== "Unassigned") {
-            return [model, []];
+            return ({ model: model, commands: [] });
           }
-          const [assignmentDialog, dialogCommands] = Dialog.open(model.assignmentDialog);
-          return [
+
+          const { model: assignmentDialog, commands: dialogCommands = [] } = Dialog.open(model.assignmentDialog);
+
+          return ({ model: 
             {
               ...model,
               assignmentDialog,
@@ -83,83 +84,88 @@ export const makeUpdate =
               selectedInterviewSchemaId: null,
               assignmentError: null,
               feedback: null,
-            },
-            mapDialogCommands(dialogCommands),
-          ];
+            }, commands: mapDialogCommands(dialogCommands) });
         },
         ClosedAssignment: () => {
-          if (model.isAssigning) return [model, []];
-          const [assignmentDialog, dialogCommands] = Dialog.close(model.assignmentDialog);
-          return [
+          if (model.isAssigning) return ({ model: model, commands: [] });
+          const { model: assignmentDialog, commands: dialogCommands = [] } = Dialog.close(model.assignmentDialog);
+
+          return ({ model: 
             {
               ...clearAssignment(model),
               assignmentDialog,
               commandSequence: model.commandSequence + 1,
-            },
-            mapDialogCommands(dialogCommands),
-          ];
+            }, commands: mapDialogCommands(dialogCommands) });
         },
         SelectedInterviewer: ({ personId }) => {
-          if (model.isAssigning) return [model, []];
+          if (model.isAssigning) return ({ model: model, commands: [] });
           const board = boardFrom(model);
+
           if (
-            board._tag === "None" ||
+            Option.isNone(board) ||
             !board.value.interviewers.some((option) => option.personId === personId)
           ) {
-            return [model, []];
+            return ({ model: model, commands: [] });
           }
-          return [{ ...model, selectedInterviewerPersonId: personId, assignmentError: null }, []];
+
+          return ({ model: { ...model, selectedInterviewerPersonId: personId, assignmentError: null }, commands: [] });
         },
         SelectedSchema: ({ interviewSchemaId }) => {
-          if (model.isAssigning) return [model, []];
+          if (model.isAssigning) return ({ model: model, commands: [] });
           const board = boardFrom(model);
+
           if (
-            board._tag === "None" ||
+            Option.isNone(board) ||
             !board.value.interviewSchemas.some(
               (option) => option.interviewSchemaId === interviewSchemaId && option.active,
             )
           ) {
-            return [model, []];
+            return ({ model: model, commands: [] });
           }
-          return [
-            { ...model, selectedInterviewSchemaId: interviewSchemaId, assignmentError: null },
-            [],
-          ];
+
+          return ({ model: 
+            { ...model, selectedInterviewSchemaId: interviewSchemaId, assignmentError: null }, commands: [] });
         },
         SubmittedAssignment: () => {
-          if (model.isAssigning || model.selectedApplicationId === null) return [model, []];
+          if (model.isAssigning || model.selectedApplicationId === null) return ({ model: model, commands: [] });
+
           if (
             model.selectedInterviewerPersonId === null ||
             model.selectedInterviewSchemaId === null
           ) {
-            return [{ ...model, assignmentError: "Velg både intervjuer og intervjuskjema." }, []];
+            return ({ model: { ...model, assignmentError: "Velg både intervjuer og intervjuskjema." }, commands: [] });
           }
+
           const board = boardFrom(model);
-          if (board._tag === "None") return [model, []];
+
+          if (Option.isNone(board)) return ({ model: model, commands: [] });
+
           const candidate = board.value.candidates.find(
             (item) => item.applicationId === model.selectedApplicationId,
           );
+
           const validInterviewer = board.value.interviewers.some(
             (option) => option.personId === model.selectedInterviewerPersonId,
           );
+
           const validSchema = board.value.interviewSchemas.some(
             (option) =>
               option.interviewSchemaId === model.selectedInterviewSchemaId && option.active,
           );
+
           if (
             candidate === undefined ||
             candidate.interviewState !== "Unassigned" ||
             !validInterviewer ||
             !validSchema
           ) {
-            return [
+            return ({ model: 
               {
                 ...model,
                 assignmentError: "Valget er ikke lenger gyldig. Oppdater oversikten.",
-              },
-              [],
-            ];
+              }, commands: [] });
           }
+
           const input = S.decodeUnknownSync(CreateApplicationInterviewInputSchema)(
             {
               params: { applicationId: model.selectedApplicationId },
@@ -175,54 +181,51 @@ export const makeUpdate =
             },
             { onExcessProperty: "error" },
           );
-          return [
-            { ...model, isAssigning: true, assignmentError: null, feedback: null },
-            [
+
+          return ({ model: 
+            { ...model, isAssigning: true, assignmentError: null, feedback: null }, commands: [
               CreateApplicationInterview({
                 input,
                 status: model.selectedFilter,
               }),
-            ],
-          ];
+            ] });
         },
         SucceededAssignment: ({ board }) => {
-          const [assignmentDialog, dialogCommands] = Dialog.close(model.assignmentDialog);
-          return [
+          const { model: assignmentDialog, commands: dialogCommands = [] } = Dialog.close(model.assignmentDialog);
+
+          return ({ model: 
             {
               ...clearAssignment(model),
               assignmentDialog,
               board: AssignmentBoardData.Success({ data: board }),
               feedback: "Intervjuet er tildelt.",
               commandSequence: model.commandSequence + 1,
-            },
-            mapDialogCommands(dialogCommands),
-          ];
+            }, commands: mapDialogCommands(dialogCommands) });
         },
-        FailedAssignment: ({ message }) => [
+        FailedAssignment: ({ message }) => ({ model: 
           {
             ...model,
             isAssigning: false,
             assignmentError: message,
             feedback: null,
-          },
-          [],
-        ],
+          }, commands: [] }),
         GotAssignmentDialogMessage: ({ message: dialogMessage }) => {
-          if (model.isAssigning && dialogMessage._tag === "RequestedClose") return [model, []];
-          const [assignmentDialog, dialogCommands, output] = Dialog.update(
+          if (model.isAssigning && Predicate.isTagged(dialogMessage, "RequestedClose")) return ({ model: model, commands: [] });
+
+          const { model: assignmentDialog, commands: dialogCommands = [], outMessage: output } = Dialog.update(
             model.assignmentDialog,
             dialogMessage,
           );
+
           const next = { ...model, assignmentDialog };
-          return [
-            Option.isSome(output) && output.value._tag === "Closed"
+
+          return ({ model: 
+            output !== undefined && Predicate.isTagged(output, "Closed")
               ? {
                   ...clearAssignment(next),
                   commandSequence: model.commandSequence + 1,
                 }
-              : next,
-            mapDialogCommands(dialogCommands),
-          ];
+              : next, commands: mapDialogCommands(dialogCommands) });
         },
       }),
     );

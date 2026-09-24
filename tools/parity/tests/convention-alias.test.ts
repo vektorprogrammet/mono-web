@@ -9,6 +9,7 @@ import { sha256 } from "../src/canonical.js";
 
 const fixture = async (setup: (root: string) => void, check: (root: string) => Promise<void>) => {
   const root = mkdtempSync("/tmp/parity-convention-alias-");
+
   try {
     execFileSync("git", ["init", "--quiet", root]);
     setup(root);
@@ -30,6 +31,7 @@ const fixture = async (setup: (root: string) => void, check: (root: string) => P
     rmSync(root, { recursive: true, force: true });
   }
 };
+
 const scan = (root: string) =>
   Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
 

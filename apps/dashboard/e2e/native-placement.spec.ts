@@ -4,9 +4,12 @@ import { join } from "node:path";
 import { expect, test, type Page, type Locator } from "@playwright/test";
 
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
+
 const manifest = manifestPath ? JSON.parse(await readFile(manifestPath, "utf8")) : null;
+
 const scopePath = () =>
   `/dashboard/assistenter?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId })}`;
+
 const signIn = async (page: Page, person: { email: string; password: string }) => {
   await page.goto(
     `${manifest.dashboardOrigin}/dashboard/login?redirectTo=${encodeURIComponent("/assistenter")}`,
@@ -18,6 +21,7 @@ const signIn = async (page: Page, person: { email: string; password: string }) =
     page.getByRole("heading", { name: "Frivilligtilknytning og skoleplassering", exact: true }),
   ).toBeVisible();
 };
+
 const selectScope = async (page: Page) => {
   await page
     .getByRole("combobox", { name: "Avdeling", exact: true })
@@ -28,14 +32,17 @@ const selectScope = async (page: Page) => {
   await page.getByRole("button", { name: "Vis valgt avdeling" }).click();
   await expect(page).toHaveURL(`${manifest.dashboardOrigin}${scopePath()}`);
 };
+
 const axe = async (page: Page, state: string) => {
   const result = await new AxeBuilder({ page }).analyze();
+
   const landmarks = await page.locator("form[aria-label]").evaluateAll((forms) =>
     forms.map((form) => ({
       label: form.getAttribute("aria-label"),
       action: form.getAttribute("action"),
     })),
   );
+
   expect(
     result.violations.map(({ id, impact, nodes }) => ({
       id,
@@ -45,6 +52,7 @@ const axe = async (page: Page, state: string) => {
     `${state}; form landmarks: ${JSON.stringify(landmarks)}`,
   ).toEqual([]);
 };
+
 const fillPlacement = async (form: Locator, block: string, day = "Monday", workdays = "4") => {
   await form
     .getByRole("combobox", { name: "Skole", exact: true })
@@ -53,21 +61,27 @@ const fillPlacement = async (form: Locator, block: string, day = "Monday", workd
   await form.getByLabel("Antall undervisningsdager").fill(workdays);
   await form.getByRole("combobox", { name: "Bolk", exact: true }).selectOption(block);
 };
+
 const saved = async (form: Locator) => {
   await expect(form).toHaveAttribute("data-pending", "false");
   await expect(form.getByRole("status")).toHaveText("Endringen er lagret.");
 };
+
 const submittedAndRemoved = async (form: Locator) => {
   await expect(form).toHaveCount(0);
 };
+
 const readBoard = async (page: Page) => {
   const response = await page.request.get(
     `${manifest.backendOrigin}/api/placements?${new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId })}`,
     { headers: { origin: manifest.dashboardOrigin } },
   );
+
   expect(response.status()).toBe(200);
+
   return response.json();
 };
+
 const readCoverageBoard = async (page: Page) => {
   const response = await page.request.get(
     `${manifest.backendOrigin}/api/placements/coverage?${new URLSearchParams({
@@ -76,7 +90,9 @@ const readCoverageBoard = async (page: Page) => {
     })}`,
     { headers: { origin: manifest.dashboardOrigin } },
   );
+
   expect(response.status()).toBe(200);
+
   return response.json();
 };
 
@@ -93,13 +109,17 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
   const anonymous = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const contexts = [coordinator, volunteer, concurrent, wrong, substitute, anonymous];
   contexts.forEach((context) => context.setDefaultTimeout(10_000));
+
   const page = await coordinator.newPage(),
     self = await volunteer.newPage(),
     other = await concurrent.newPage();
+
   const gates: string[] = [];
   const errors: string[] = [];
   const monitor = (current: Page) => current.on("pageerror", (error) => errors.push(error.message));
+
   for (const current of [page, self, other]) monitor(current);
+
   try {
     const anon = await anonymous.newPage();
     monitor(anon);
@@ -146,9 +166,11 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await page.keyboard.press("Tab");
     await expect(page.getByRole("combobox", { name: "Semester", exact: true })).toBeFocused();
     await selectScope(page);
+
     const affiliation = page.getByRole("form", {
       name: /^Tilknytning \d+: Irene Intervjuer$/,
     });
+
     await affiliation.getByRole("button", { name: "Godkjenn tilknytning" }).click();
     await saved(affiliation);
     await self.reload();
@@ -178,14 +200,18 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await create.getByRole("button", { name: "Opprett plassering" }).click();
     await saved(create);
     await page.reload();
+
     const entry = page.getByRole("form", {
       name: /^Plassering \d+: Irene Intervjuer, Skole Beta, bolk 1,/,
     });
+
     await expect(entry.getByLabel("Antall undervisningsdager")).toHaveValue("4");
+
     const first = (await readBoard(page)).placements.find(
       (p: { personId: string; block: string }) =>
         p.personId === manifest.volunteerId && p.block === "1",
     );
+
     expect(first.active).toBe(true);
     expect(first.revision).toBe(1);
     await create
@@ -194,18 +220,22 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await fillPlacement(create, "2");
     await create.getByRole("button", { name: "Opprett plassering" }).click();
     await saved(create);
+
     const second = (await readBoard(page)).placements.find(
       (p: { personId: string; block: string }) =>
         p.personId === manifest.volunteerId && p.block === "2",
     );
+
     gates.push(
       "historical semester, invalid-value prevention, persisted creation and legitimate separate blocks",
     );
     await signIn(other, manifest.persons.leader);
     await selectScope(other);
+
     const otherEntry = other.getByRole("form", {
       name: /^Plassering \d+: Irene Intervjuer, Skole Beta, bolk 1,/,
     });
+
     await fillPlacement(entry, "1", "Wednesday", "7");
     await fillPlacement(otherEntry, "1", "Thursday", "6");
     await otherEntry.getByRole("button", { name: "Lagre plassering" }).click();
@@ -272,6 +302,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       path: join(manifest.artifacts, "placements-mobile.png"),
       fullPage: true,
     });
+
     const finalExpected = [
       {
         placementId: first.placementId,
@@ -296,9 +327,11 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         revision: 1,
       },
     ];
+
     const actual = (await readBoard(page)).placements.filter(
       (p: { personId: string }) => p.personId === manifest.volunteerId,
     );
+
     for (const expected of finalExpected)
       expect(
         actual.find((p: { placementId: string }) => p.placementId === expected.placementId),
@@ -335,11 +368,13 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .toBe(true);
     await page.reload();
     const generate = page.getByRole("form", { name: "Lag nytt tjenesteforslag", exact: true });
+
     const proposalAction = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         new URL(response.url()).pathname.endsWith("/assistenter.data"),
     );
+
     await generate.getByRole("button", { name: "Lag forslag fra aktive plasseringer" }).click();
     const proposalActionBody = await (await proposalAction).text();
     expect(proposalActionBody, proposalActionBody).toContain("Endringen er lagret.");
@@ -347,17 +382,21 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     const proposalArticle = page.locator("[data-proposal-id]");
     const serviceProposalId = await proposalArticle.getAttribute("data-proposal-id");
     expect(serviceProposalId).toMatch(/^school-service-proposal-/);
+
     if (serviceProposalId === null) throw new Error("confirmed proposal id is missing");
     await expect(proposalArticle).toContainText("0 av 1 frivillige");
     const confirm = page.getByRole("form", { name: "Bekreft tjenesteforslag", exact: true });
     await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
     await expect(confirm.getByRole("alert")).toContainText("Alle avvik må gjennomgås");
+
     for (const checkbox of await confirm.getByRole("checkbox").all()) await checkbox.check();
     await other.reload();
+
     const staleConfirm = other.getByRole("form", {
       name: "Bekreft tjenesteforslag",
       exact: true,
     });
+
     for (const checkbox of await staleConfirm.getByRole("checkbox").all()) await checkbox.check();
     await confirm.getByRole("button", { name: "Bekreft og send tjenesteplan" }).click();
     await expect(proposalArticle).toContainText("bekreftet");
@@ -367,6 +406,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .poll(
         async () => {
           await page.reload();
+
           return proposalArticle.textContent();
         },
         { timeout: 15_000 },
@@ -375,13 +415,16 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await expect(
       page.getByRole("heading", { name: "Planlegg datert skoletjeneste" }),
     ).toBeVisible();
+
     const scheduleForm = page.locator(
       'form:has(input[name="action"][value="ScheduleService"]):has(input[name="block"][value="2"])',
     );
+
     const schedule = async (serviceDate: string) => {
       await scheduleForm.locator('input[type="date"]').fill(serviceDate);
       await scheduleForm.locator('input[type="time"]').nth(0).fill("09:00");
       await scheduleForm.locator('input[type="time"]').nth(1).fill("11:00");
+
       const [scheduleResponse] = await Promise.all([
         page.waitForResponse(
           (response) =>
@@ -390,6 +433,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         ),
         scheduleForm.getByRole("button", { name: "Planlegg denne datoen" }).click(),
       ]);
+
       expect(scheduleResponse.status()).toBe(200);
       await expect
         .poll(async () =>
@@ -404,6 +448,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         .toBe(true);
       await page.reload();
       const board = await readBoard(page);
+
       const commitment = board.commitments.find(
         (item: { proposalId: string; serviceDate: string; schoolId: number; block: string }) =>
           item.proposalId === serviceProposalId &&
@@ -411,20 +456,26 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
           item.schoolId === manifest.schoolId &&
           item.block === "2",
       );
+
       expect(commitment).toBeDefined();
       expect(commitment.decision).toBeNull();
+
       return commitment;
     };
+
     const firstCommitment = await schedule(manifest.coverage.serviceDate);
     const secondCommitment = await schedule(manifest.coverage.secondServiceDate);
     const cancelledCommitment = await schedule(manifest.coverage.cancelledServiceDate);
     await self.reload();
+
     const ownAbsence = self.locator(
       `form:has(input[name="action"][value="ReportAbsence"]):has(input[name="commitmentId"][value="${firstCommitment.commitmentId}"])`,
     );
+
     const reportAbsenceButton = ownAbsence.getByRole("button", {
       name: "Rapporter fravær for denne tjenesten",
     });
+
     await reportAbsenceButton.focus();
     await expect(reportAbsenceButton).toBeFocused();
     let absencePosts = 0;
@@ -452,25 +503,31 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       true,
     );
     const reportedCoverage = await readCoverageBoard(page);
+
     const coveredAbsence = reportedCoverage.absences.find(
       (absence: { proposalId: string; personId: string; serviceDate: string }) =>
         absence.proposalId === serviceProposalId &&
         absence.personId === manifest.volunteerId &&
         absence.serviceDate === manifest.coverage.serviceDate,
     );
+
     expect(coveredAbsence).toBeDefined();
     await page.reload();
+
     const dispatchCovered = page.getByRole("form", {
       name: `Vikardispatch: ${coveredAbsence.absenceId}`,
       exact: true,
     });
+
     await dispatchCovered
       .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
       .selectOption(manifest.coverage.candidateId);
     await dispatchCovered.getByRole("button", { name: "Send vikartilbud", exact: true }).click();
     await submittedAndRemoved(dispatchCovered);
+
     const offerTitle = (serviceDate: string) =>
       `Skole Beta, ${serviceDate} kl. 09:00–11:00 — Monday, bolk 2`;
+
     await wrongPage.reload();
     await expect(
       wrongPage.getByRole("form", {
@@ -483,17 +540,21 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await signIn(candidatePage, manifest.persons.candidate);
     await selectScope(candidatePage);
     await candidatePage.setViewportSize({ width: 390, height: 844 });
+
     const candidateOffer = candidatePage.getByRole("form", {
       name: `Vikartilbud: ${offerTitle(manifest.coverage.serviceDate)}`,
       exact: true,
     });
+
     await expect
       .poll(
         async () => {
           const coverage = await readCoverageBoard(page);
+
           const offer = coverage.offers.find(
             (item: { absenceId: string }) => item.absenceId === coveredAbsence.absenceId,
           );
+
           return coverage.dispatchNotifications.find(
             (notification: { offerId: string }) => notification.offerId === offer?.offerId,
           )?.status;
@@ -506,12 +567,14 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await candidateOffer.getByRole("button", { name: "Aksepter tilbud", exact: true }).click();
     await submittedAndRemoved(candidateOffer);
     await candidatePage.reload();
+
     const acceptedOfferArticle = candidatePage
       .getByRole("heading", {
         name: offerTitle(manifest.coverage.serviceDate),
         exact: true,
       })
       .locator("xpath=..");
+
     await expect(
       acceptedOfferArticle.getByText("Endelig svar: Akseptert", { exact: true }),
     ).toBeVisible();
@@ -527,10 +590,12 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await other.reload();
     const acknowledgementName = `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${offerTitle(manifest.coverage.serviceDate)}`;
     const acknowledgeCoverage = page.getByRole("form", { name: acknowledgementName, exact: true });
+
     const staleAcknowledgement = other.getByRole("form", {
       name: acknowledgementName,
       exact: true,
     });
+
     await expect(acknowledgeCoverage.locator("xpath=..")).toContainText("Tilbudstatus: Akseptert");
     await acknowledgeCoverage.getByRole("button", { name: "Bekreft dekning", exact: true }).click();
     await submittedAndRemoved(acknowledgeCoverage);
@@ -545,12 +610,14 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .getByRole("button", { name: "Godta oppdatert versjon", exact: true })
       .click();
     await page.reload();
+
     const acknowledgedOfferArticle = page
       .getByRole("heading", {
         name: offerTitle(manifest.coverage.serviceDate),
         exact: true,
       })
       .locator("xpath=..");
+
     await expect(
       acknowledgedOfferArticle.getByText("Dekningen er bekreftet av koordinator.", {
         exact: true,
@@ -560,10 +627,12 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .locator(`article[data-commitment-id="${firstCommitment.commitmentId}"]`)
       .getByRole("button", { name: "Registrer beslutning for denne datoen" })
       .click();
+
     const completedForm = page.getByRole("form", {
       name: `Beslutning for Skole Beta, ${manifest.coverage.serviceDate} kl. 09:00–11:00, bolk 2`,
       exact: true,
     });
+
     await completedForm.locator("select").selectOption("CompleteService");
     await completedForm
       .locator(`input[name="attendedPersonId"][value="${manifest.leaderId}"]`)
@@ -577,16 +646,20 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     await completedForm.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
     await submittedAndRemoved(completedForm);
     await page.reload();
+
     const completed = (await readCoverageBoard(page)).commitments.find(
       (item: { commitmentId: string }) => item.commitmentId === firstCommitment.commitmentId,
     );
+
     expect(completed.decision).toMatchObject({
       outcome: "Completed",
       evidenceSource: `Skole Beta kontakt, telefon ${manifest.coverage.serviceDate}`,
     });
+
     const leaderAbsence = page.locator(
       `form:has(input[name="action"][value="ReportAbsenceForVolunteer"]):has(input[name="commitmentId"][value="${secondCommitment.commitmentId}"])`,
     );
+
     await leaderAbsence
       .getByRole("combobox", { name: "Frivillig", exact: true })
       .selectOption(manifest.leaderId);
@@ -602,15 +675,19 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .toBe(true);
     await page.reload();
     const afterLeaderAbsence = await readCoverageBoard(page);
+
     const uncoveredAbsence = afterLeaderAbsence.absences.find(
       (item: { commitmentId: string; personId: string }) =>
         item.commitmentId === secondCommitment.commitmentId && item.personId === manifest.leaderId,
     );
+
     expect(uncoveredAbsence).toBeDefined();
+
     const dispatchUncovered = page.getByRole("form", {
       name: `Vikardispatch: ${uncoveredAbsence.absenceId}`,
       exact: true,
     });
+
     await dispatchUncovered
       .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
       .selectOption(manifest.coverage.candidateId);
@@ -620,10 +697,12 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .poll(
         async () => {
           const coverage = await readCoverageBoard(page);
+
           const offer = coverage.offers.find(
             (item: { absenceId: string; status: string }) =>
               item.absenceId === uncoveredAbsence.absenceId && item.status === "Offered",
           );
+
           return coverage.dispatchNotifications.find(
             (notification: { offerId: string }) => notification.offerId === offer?.offerId,
           )?.status;
@@ -632,17 +711,21 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       )
       .toBe("Delivered");
     await candidatePage.reload();
+
     const declinedOffer = candidatePage.getByRole("form", {
       name: `Vikartilbud: ${offerTitle(manifest.coverage.secondServiceDate)}`,
       exact: true,
     });
+
     await declinedOffer.getByRole("button", { name: "Avslå tilbud", exact: true }).click();
     await submittedAndRemoved(declinedOffer);
     await page.reload();
+
     const redispatch = page.getByRole("form", {
       name: `Vikardispatch: ${uncoveredAbsence.absenceId}`,
       exact: true,
     });
+
     await redispatch
       .getByRole("combobox", { name: "Kvalifisert vikar", exact: true })
       .selectOption(manifest.coverage.candidateId);
@@ -652,10 +735,12 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .poll(
         async () => {
           const coverage = await readCoverageBoard(page);
+
           const offer = coverage.offers.find(
             (item: { absenceId: string; status: string }) =>
               item.absenceId === uncoveredAbsence.absenceId && item.status === "Offered",
           );
+
           return coverage.dispatchNotifications.find(
             (notification: { offerId: string }) => notification.offerId === offer?.offerId,
           )?.status;
@@ -664,12 +749,14 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       )
       .toBe("Delivered");
     await page.reload();
+
     const withdrawOffer = page
       .getByRole("form", {
         name: `Dekningstilbud: ${manifest.coverage.candidateFirstName} ${manifest.coverage.candidateLastName}, ${offerTitle(manifest.coverage.secondServiceDate)}`,
         exact: true,
       })
       .filter({ has: page.getByRole("button", { name: "Trekk tilbake tilbud", exact: true }) });
+
     await withdrawOffer.getByRole("button", { name: "Trekk tilbake tilbud", exact: true }).click();
     await submittedAndRemoved(withdrawOffer);
     await page.reload();
@@ -677,10 +764,12 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .locator(`article[data-commitment-id="${secondCommitment.commitmentId}"]`)
       .getByRole("button", { name: "Registrer beslutning for denne datoen" })
       .click();
+
     const unfulfilledForm = page.getByRole("form", {
       name: `Beslutning for Skole Beta, ${manifest.coverage.secondServiceDate} kl. 09:00–11:00, bolk 2`,
       exact: true,
     });
+
     await unfulfilledForm.locator("select").selectOption("MarkUnfulfilledService");
     await unfulfilledForm
       .locator(`input[name="attendedPersonId"][value="${manifest.volunteerId}"]`)
@@ -696,10 +785,12 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       .locator(`article[data-commitment-id="${cancelledCommitment.commitmentId}"]`)
       .getByRole("button", { name: "Registrer beslutning for denne datoen" })
       .click();
+
     const cancelledForm = page.getByRole("form", {
       name: `Beslutning for Skole Beta, ${manifest.coverage.cancelledServiceDate} kl. 09:00–11:00, bolk 2`,
       exact: true,
     });
+
     await cancelledForm.locator("select").selectOption("CancelService");
     await cancelledForm
       .locator('input[name="evidenceSource"]')
@@ -728,27 +819,34 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         (item: { commitmentId: string }) => item.commitmentId === cancelledCommitment.commitmentId,
       ),
     ).toHaveLength(0);
+
     const coveredOccurrence = finalCoverage.occurrences.find(
       (item: { commitmentId: string }) => item.commitmentId === firstCommitment.commitmentId,
     );
+
     const uncoveredOccurrence = finalCoverage.occurrences.find(
       (item: { commitmentId: string }) => item.commitmentId === secondCommitment.commitmentId,
     );
+
     const coveredOfferFact = finalCoverage.offers.find(
       (offer: { absenceId: string }) => offer.absenceId === coveredAbsence.absenceId,
     );
+
     const declinedOfferFact = finalCoverage.offers.find(
       (offer: { absenceId: string; status: string }) =>
         offer.absenceId === uncoveredAbsence.absenceId && offer.status === "Declined",
     );
+
     const withdrawnOfferFact = finalCoverage.offers.find(
       (offer: { absenceId: string; status: string }) =>
         offer.absenceId === uncoveredAbsence.absenceId && offer.status === "Withdrawn",
     );
+
     const coveredAcknowledgement = finalCoverage.acknowledgements.find(
       (acknowledgement: { absenceId: string }) =>
         acknowledgement.absenceId === coveredAbsence.absenceId,
     );
+
     expect(coveredOccurrence).toBeDefined();
     expect(uncoveredOccurrence).toBeDefined();
     expect(coveredOfferFact).toBeDefined();
@@ -769,6 +867,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
         (item: { absenceId: string }) => item.absenceId === uncoveredAbsence.absenceId,
       )?.outcome,
     ).toBe("Uncovered");
+
     const browserCoverageExpected = {
       absencePosts,
       proposalId: serviceProposalId,
@@ -784,6 +883,7 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
       occurrenceId: coveredOccurrence.occurrenceId,
       uncoveredOccurrenceId: uncoveredOccurrence.occurrenceId,
     };
+
     await page.setViewportSize({ width: 1280, height: 900 });
     await axe(page, "coordinator coverage closure desktop");
     await page.screenshot({

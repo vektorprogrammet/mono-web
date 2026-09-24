@@ -6,14 +6,17 @@
  * SQL statement.
  */
 import { Rfc3339InstantSchema } from "@vektorprogrammet/domain/admission-period";
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { DateTime, Effect, Schema } from "effect";
+import { flow, Predicate, DateTime, Effect, Schema } from "effect";
 
 const NonEmptyText = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
+
 const AdmissionToken = NonEmptyText;
+
 const ReceiptToken = NonEmptyText;
+
 const OrganizationToken = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.length > 0 && value.length <= 512 && !/\s/u.test(value), {
@@ -41,10 +44,12 @@ const AdmissionActorSchema = Schema.Union([
     active: Schema.Boolean,
   }),
 ]);
+
 const AdmissionPrincipalSchema = Schema.Union([
   AdmissionActorSchema,
   Schema.Struct({ actor: AdmissionActorSchema }),
 ]);
+
 const OrganizationActorSchema = Schema.Union([
   Schema.Struct({
     _tag: Schema.Literals(["OrganizationAdministrator"]),
@@ -55,6 +60,7 @@ const OrganizationActorSchema = Schema.Union([
     personId: PersonId,
   }),
 ]);
+
 const ReceiptApprovalScopeSchema = Schema.Union([
   Schema.Struct({ _tag: Schema.Literals(["None"]) }),
   Schema.Struct({ _tag: Schema.Literals(["Global"]) }),
@@ -63,6 +69,7 @@ const ReceiptApprovalScopeSchema = Schema.Union([
     departmentId: DepartmentId,
   }),
 ]);
+
 const ReceiptPrincipalSchema = Schema.Struct({
   personId: PersonId,
   departmentId: DepartmentId,
@@ -79,6 +86,7 @@ export const DisposablePreConfigPersonAuthorityEvidenceSchema = Schema.Struct({
   organization: Schema.Record(OrganizationToken, OrganizationActorSchema),
   receipt: Schema.Record(ReceiptToken, ReceiptPrincipalSchema),
 });
+
 export type DisposablePreConfigPersonAuthorityEvidence =
   typeof DisposablePreConfigPersonAuthorityEvidenceSchema.Type;
 
@@ -236,26 +244,36 @@ const normalizedInstant = (value: string): string => DateTime.formatIso(DateTime
 
 const instantMillis = (value: string): number => DateTime.toEpochMillis(DateTime.makeUnsafe(value));
 
-const isDeterministicJsonValue = (input: unknown, ancestors = new WeakSet<object>()): boolean => {
+const isDeterministicJsonValue = (
+  input: unknown,
+  ancestors = new WeakSet<object>(),
+): input is Schema.Json => {
   if (
     input === null ||
-    typeof input === "string" ||
-    typeof input === "boolean" ||
-    (typeof input === "number" && Number.isFinite(input))
+    Predicate.isString(input) ||
+    Predicate.isBoolean(input) ||
+    (Predicate.isNumber(input) && Number.isFinite(input))
   ) {
     return true;
   }
-  if (typeof input !== "object" || Array.isArray(input)) return false;
+
+  if (!(input === null || Predicate.isObjectOrArray(input)) || Array.isArray(input)) return false;
+
   try {
     const prototype = Object.getPrototypeOf(input);
+
     if (prototype !== Object.prototype && prototype !== null) return false;
+
     if (ancestors.has(input)) return false;
     ancestors.add(input);
     const descriptors = Object.getOwnPropertyDescriptors(input);
     const keys = Reflect.ownKeys(descriptors);
-    if (!keys.every((key): key is string => typeof key === "string")) return false;
+
+    if (!keys.every((key): key is string => Predicate.isString(key))) return false;
+
     for (const key of keys) {
       const descriptor = descriptors[key];
+
       if (
         descriptor === undefined ||
         !descriptor.enumerable ||
@@ -265,14 +283,16 @@ const isDeterministicJsonValue = (input: unknown, ancestors = new WeakSet<object
         return false;
       }
     }
+
     ancestors.delete(input);
+
     return true;
   } catch {
     return false;
   }
 };
 
-const stableAuthorityId = (prefix: string, fact: unknown): string =>
+const stableAuthorityId = (prefix: string, fact: Schema.Json): string =>
   `${prefix}_${sha256Hex(canonicalJsonBytes({ specification: "0055", authority: fact }))}`;
 
 const consolidateFacts = <A>(
@@ -282,12 +302,15 @@ const consolidateFacts = <A>(
 ): Effect.Effect<ReadonlyArray<A>, DisposableAuthorityEvidenceConflict> =>
   Effect.gen(function* () {
     const byIdentity = new Map<string, A>();
+
     const ordered = [...facts].sort((left, right) =>
       compareText(canonicalJson(left), canonicalJson(right)),
     );
+
     for (const fact of ordered) {
       const identity = identityOf(fact);
       const existing = byIdentity.get(identity);
+
       if (existing !== undefined && valueOf(existing) !== valueOf(fact)) {
         return yield* Effect.fail(
           new DisposableAuthorityEvidenceConflict({
@@ -296,8 +319,10 @@ const consolidateFacts = <A>(
           }),
         );
       }
+
       if (existing === undefined) byIdentity.set(identity, fact);
     }
+
     return [...byIdentity.values()].sort((left, right) =>
       compareText(identityOf(left), identityOf(right)),
     );
@@ -307,264 +332,281 @@ const admissionActor = (
   principal: DisposablePreConfigPersonAuthorityEvidence["admission"][string],
 ): AdmissionActor => ("actor" in principal ? principal.actor : principal);
 
-const intervalFor = (
-  active: boolean,
-  authorityStartAt: string,
-  evaluatedAt: string,
-): { readonly startAt: string; readonly endAt: string | null } => ({
+const intervalFor = (active: boolean, authorityStartAt: string, evaluatedAt: string) => ({
   startAt: authorityStartAt,
   endAt: active ? null : evaluatedAt,
 });
 
-const decodeAndPlan = (
-  input: unknown,
-): Effect.Effect<
-  {
-    readonly evaluatedAt: string;
-    readonly groups: ReadonlyArray<PersonEvidenceGroup>;
-    readonly administratorGrants: ReadonlyArray<GlobalAdministratorGrantRow>;
-    readonly paymentAuthorities: ReadonlyArray<ReceiptPaymentAuthorityRow>;
-    readonly approvalGrants: ReadonlyArray<ReceiptApprovalGrantRow>;
-  },
-  | DisposableAuthorityEvidenceNondeterministicInput
-  | DisposableAuthorityEvidenceDecodeError
-  | DisposableAuthorityEvidenceConflict
-> =>
-  Effect.gen(function* () {
-    if (!isDeterministicJsonValue(input)) {
-      return yield* Effect.fail(
-        new DisposableAuthorityEvidenceNondeterministicInput({
-          message: "evidence must be an acyclic plain JSON object with data properties",
-        }),
+const decodeAndPlan = flow(
+  Schema.decodeUnknownEffect(
+    Schema.declare((input): input is Schema.Json => isDeterministicJsonValue(input)),
+  ),
+  Effect.mapError(
+    () =>
+      new DisposableAuthorityEvidenceNondeterministicInput({
+        message: "evidence must be an acyclic plain JSON object with data properties",
+      }),
+  ),
+  Effect.flatMap((input) =>
+    Effect.gen(function* () {
+      const evidence = yield* Schema.decodeUnknownEffect(
+        DisposablePreConfigPersonAuthorityEvidenceSchema,
+      )(input, { onExcessProperty: "error" }).pipe(
+        Effect.mapError(
+          () =>
+            new DisposableAuthorityEvidenceDecodeError({
+              message: "invalid pre-config person-authority token-map evidence",
+            }),
+        ),
       );
-    }
-    const evidence = yield* Schema.decodeUnknownEffect(
-      DisposablePreConfigPersonAuthorityEvidenceSchema,
-    )(input, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(
-        () =>
+
+      const admissions = Object.values(evidence.admission).map(admissionActor);
+      const organizations = Object.values(evidence.organization);
+      const receipts = Object.values(evidence.receipt);
+
+      const hasInactiveFact =
+        admissions.some((actor) => actor.active === false) ||
+        receipts.some((principal) => principal.active === false);
+
+      const startMillis = instantMillis(evidence.authorityStartAt);
+      const evaluatedMillis = instantMillis(evidence.evaluatedAt);
+
+      if (startMillis > evaluatedMillis || (hasInactiveFact && startMillis === evaluatedMillis)) {
+        return yield* Effect.fail(
           new DisposableAuthorityEvidenceDecodeError({
-            message: "invalid pre-config person-authority token-map evidence",
+            message:
+              "authorityStartAt must not follow evaluatedAt and must precede it for inactive evidence",
           }),
-      ),
-    );
+        );
+      }
 
-    const admissions = Object.values(evidence.admission).map(admissionActor);
-    const organizations = Object.values(evidence.organization);
-    const receipts = Object.values(evidence.receipt);
-    const hasInactiveFact =
-      admissions.some((actor) => actor.active === false) ||
-      receipts.some((principal) => principal.active === false);
-    const startMillis = instantMillis(evidence.authorityStartAt);
-    const evaluatedMillis = instantMillis(evidence.evaluatedAt);
-    if (startMillis > evaluatedMillis || (hasInactiveFact && startMillis === evaluatedMillis)) {
-      return yield* Effect.fail(
-        new DisposableAuthorityEvidenceDecodeError({
-          message:
-            "authorityStartAt must not follow evaluatedAt and must precede it for inactive evidence",
-        }),
+      const authorityStartAt = normalizedInstant(evidence.authorityStartAt);
+      const evaluatedAt = normalizedInstant(evidence.evaluatedAt);
+
+      const admissionDepartmentFacts = yield* consolidateFacts(
+        admissions.flatMap(
+          (actor): ReadonlyArray<AdmissionDepartmentFact> =>
+            Predicate.isTagged(actor, "GlobalAdmin")
+              ? []
+              : [
+                  {
+                    personId: actor.personId,
+                    departmentId: actor.departmentId,
+                    role: actor._tag,
+                    active: actor.active,
+                  },
+                ],
+        ),
+        (fact) =>
+          canonicalJson({
+            kind: "AdmissionDepartmentAuthority",
+            personId: fact.personId,
+            departmentId: fact.departmentId,
+          }),
+        (fact) => canonicalJson({ role: fact.role, active: fact.active }),
       );
-    }
-    const authorityStartAt = normalizedInstant(evidence.authorityStartAt);
-    const evaluatedAt = normalizedInstant(evidence.evaluatedAt);
 
-    const admissionDepartmentFacts = yield* consolidateFacts(
-      admissions.flatMap(
-        (actor): ReadonlyArray<AdmissionDepartmentFact> =>
-          actor._tag === "GlobalAdmin"
-            ? []
-            : [
-                {
-                  personId: actor.personId,
-                  departmentId: actor.departmentId,
-                  role: actor._tag,
-                  active: actor.active,
-                },
-              ],
-      ),
-      (fact) =>
-        canonicalJson({
-          kind: "AdmissionDepartmentAuthority",
-          personId: fact.personId,
-          departmentId: fact.departmentId,
-        }),
-      (fact) => canonicalJson({ role: fact.role, active: fact.active }),
-    );
-    const admissionGlobalFacts = yield* consolidateFacts(
-      admissions.flatMap(
-        (actor): ReadonlyArray<AdmissionGlobalFact> =>
-          actor._tag === "GlobalAdmin" ? [{ personId: actor.personId, active: actor.active }] : [],
-      ),
-      (fact) => canonicalJson({ kind: "GlobalAdministrator", personId: fact.personId }),
-      (fact) => canonicalJson({ active: fact.active }),
-    );
-    const organizationFacts = yield* consolidateFacts(
-      organizations.map(
-        (actor): OrganizationFact => ({ personId: actor.personId, role: actor._tag }),
-      ),
-      (fact) => canonicalJson({ kind: "OrganizationActor", personId: fact.personId }),
-      (fact) => canonicalJson({ role: fact.role }),
-    );
-    const paymentFacts = yield* consolidateFacts(
-      receipts.map(
-        (principal): ReceiptPaymentFact => ({
-          personId: principal.personId,
-          departmentId: principal.departmentId,
-          active: principal.active,
-          paymentAccountCiphertext: principal.paymentAccountCiphertext,
-        }),
-      ),
-      (fact) =>
-        canonicalJson({
-          kind: "ReceiptPaymentAuthority",
-          personId: fact.personId,
-          departmentId: fact.departmentId,
-        }),
-      (fact) =>
-        canonicalJson({
-          active: fact.active,
-          paymentAccountCiphertext: fact.paymentAccountCiphertext,
-        }),
-    );
-    const approvalFacts = yield* consolidateFacts(
-      receipts.flatMap((principal): ReadonlyArray<ReceiptApprovalFact> => {
-        if (principal.approvalScope._tag === "None") return [];
-        if (principal.approvalScope._tag === "Department") {
+      const admissionGlobalFacts = yield* consolidateFacts(
+        admissions.flatMap(
+          (actor): ReadonlyArray<AdmissionGlobalFact> =>
+            Predicate.isTagged(actor, "GlobalAdmin")
+              ? [{ personId: actor.personId, active: actor.active }]
+              : [],
+        ),
+        (fact) => canonicalJson({ kind: "GlobalAdministrator", personId: fact.personId }),
+        (fact) => canonicalJson({ active: fact.active }),
+      );
+
+      const organizationFacts = yield* consolidateFacts(
+        organizations.map(
+          (actor): OrganizationFact => ({ personId: actor.personId, role: actor._tag }),
+        ),
+        (fact) => canonicalJson({ kind: "OrganizationActor", personId: fact.personId }),
+        (fact) => canonicalJson({ role: fact.role }),
+      );
+
+      const paymentFacts = yield* consolidateFacts(
+        receipts.map(
+          (principal): ReceiptPaymentFact => ({
+            personId: principal.personId,
+            departmentId: principal.departmentId,
+            active: principal.active,
+            paymentAccountCiphertext: principal.paymentAccountCiphertext,
+          }),
+        ),
+        (fact) =>
+          canonicalJson({
+            kind: "ReceiptPaymentAuthority",
+            personId: fact.personId,
+            departmentId: fact.departmentId,
+          }),
+        (fact) =>
+          canonicalJson({
+            active: fact.active,
+            paymentAccountCiphertext: fact.paymentAccountCiphertext,
+          }),
+      );
+
+      const approvalFacts = yield* consolidateFacts(
+        receipts.flatMap((principal): ReadonlyArray<ReceiptApprovalFact> => {
+          if (Predicate.isTagged(principal.approvalScope, "None")) return [];
+
+          if (Predicate.isTagged(principal.approvalScope, "Department")) {
+            return [
+              {
+                personId: principal.personId,
+                scope: "Department",
+                departmentId: principal.approvalScope.departmentId,
+                active: principal.active,
+              },
+            ];
+          }
+
           return [
             {
               personId: principal.personId,
-              scope: "Department",
-              departmentId: principal.approvalScope.departmentId,
+              scope: "Global",
+              departmentId: null,
               active: principal.active,
             },
           ];
-        }
-        return [
-          {
-            personId: principal.personId,
-            scope: "Global",
-            departmentId: null,
-            active: principal.active,
-          },
-        ];
-      }),
-      (fact) =>
-        canonicalJson({
-          kind: "ReceiptApprovalGrant",
+        }),
+        (fact) =>
+          canonicalJson({
+            kind: "ReceiptApprovalGrant",
+            personId: fact.personId,
+            scope: fact.scope,
+            departmentId: fact.departmentId,
+          }),
+        (fact) => canonicalJson({ active: fact.active }),
+      );
+
+      const administratorFacts = yield* consolidateFacts(
+        [
+          ...admissionGlobalFacts,
+          ...organizationFacts.flatMap(
+            (fact): ReadonlyArray<AdmissionGlobalFact> =>
+              fact.role === "OrganizationAdministrator"
+                ? [{ personId: fact.personId, active: true }]
+                : [],
+          ),
+        ],
+        (fact) => canonicalJson({ kind: "GlobalAdministrator", personId: fact.personId }),
+        (fact) => canonicalJson({ active: fact.active }),
+      );
+
+      const administratorGrants = administratorFacts.map((fact) => {
+        const interval = intervalFor(fact.active, authorityStartAt, evaluatedAt);
+
+        return {
+          grantId: stableAuthorityId("organization_global_administrator_grant", {
+            personId: fact.personId,
+            ...interval,
+          }),
+          personId: fact.personId,
+          ...interval,
+        };
+      });
+
+      const paymentAuthorities = paymentFacts.map((fact) => {
+        const interval = intervalFor(fact.active, authorityStartAt, evaluatedAt);
+
+        return {
+          authorityId: stableAuthorityId("economy_receipt_payment_authority", {
+            personId: fact.personId,
+            departmentId: fact.departmentId,
+            ...interval,
+          }),
+          personId: fact.personId,
+          departmentId: fact.departmentId,
+          paymentAccountCiphertext: fact.paymentAccountCiphertext,
+          ...interval,
+        };
+      });
+
+      const approvalGrants = approvalFacts.map((fact) => {
+        const interval = intervalFor(fact.active, authorityStartAt, evaluatedAt);
+
+        return {
+          grantId: stableAuthorityId("economy_receipt_approval_grant", {
+            personId: fact.personId,
+            scope: fact.scope,
+            departmentId: fact.departmentId,
+            ...interval,
+          }),
           personId: fact.personId,
           scope: fact.scope,
           departmentId: fact.departmentId,
-        }),
-      (fact) => canonicalJson({ active: fact.active }),
-    );
-    const administratorFacts = yield* consolidateFacts(
-      [
-        ...admissionGlobalFacts,
-        ...organizationFacts.flatMap(
-          (fact): ReadonlyArray<AdmissionGlobalFact> =>
-            fact.role === "OrganizationAdministrator"
-              ? [{ personId: fact.personId, active: true }]
-              : [],
+          ...interval,
+        };
+      });
+
+      const groupsByPerson = new Map<string, PersonEvidenceGroup>();
+
+      const group = (personId: string): PersonEvidenceGroup => {
+        const existing = groupsByPerson.get(personId);
+
+        if (existing !== undefined) return existing;
+
+        const created: PersonEvidenceGroup = {
+          personId,
+          admissionDepartments: [],
+          payments: [],
+          approvals: [],
+        };
+
+        groupsByPerson.set(personId, created);
+
+        return created;
+      };
+
+      for (const fact of admissionDepartmentFacts)
+        group(fact.personId).admissionDepartments.push(fact);
+
+      for (const fact of admissionGlobalFacts) group(fact.personId).admissionGlobal = fact;
+
+      for (const fact of organizationFacts) group(fact.personId).organization = fact;
+
+      for (const fact of paymentFacts) group(fact.personId).payments.push(fact);
+
+      for (const fact of approvalFacts) group(fact.personId).approvals.push(fact);
+
+      for (const grant of administratorGrants) group(grant.personId).administratorGrant = grant;
+
+      return {
+        evaluatedAt,
+        groups: [...groupsByPerson.values()].sort((left, right) =>
+          compareText(left.personId, right.personId),
         ),
-      ],
-      (fact) => canonicalJson({ kind: "GlobalAdministrator", personId: fact.personId }),
-      (fact) => canonicalJson({ active: fact.active }),
-    );
-
-    const administratorGrants = administratorFacts.map((fact) => {
-      const interval = intervalFor(fact.active, authorityStartAt, evaluatedAt);
-      return {
-        grantId: stableAuthorityId("organization_global_administrator_grant", {
-          personId: fact.personId,
-          ...interval,
-        }),
-        personId: fact.personId,
-        ...interval,
+        administratorGrants: [...administratorGrants].sort((left, right) =>
+          compareText(left.grantId, right.grantId),
+        ),
+        paymentAuthorities: [...paymentAuthorities].sort((left, right) =>
+          compareText(left.authorityId, right.authorityId),
+        ),
+        approvalGrants: [...approvalGrants].sort((left, right) =>
+          compareText(left.grantId, right.grantId),
+        ),
       };
-    });
-    const paymentAuthorities = paymentFacts.map((fact) => {
-      const interval = intervalFor(fact.active, authorityStartAt, evaluatedAt);
-      return {
-        authorityId: stableAuthorityId("economy_receipt_payment_authority", {
-          personId: fact.personId,
-          departmentId: fact.departmentId,
-          ...interval,
-        }),
-        personId: fact.personId,
-        departmentId: fact.departmentId,
-        paymentAccountCiphertext: fact.paymentAccountCiphertext,
-        ...interval,
-      };
-    });
-    const approvalGrants = approvalFacts.map((fact) => {
-      const interval = intervalFor(fact.active, authorityStartAt, evaluatedAt);
-      return {
-        grantId: stableAuthorityId("economy_receipt_approval_grant", {
-          personId: fact.personId,
-          scope: fact.scope,
-          departmentId: fact.departmentId,
-          ...interval,
-        }),
-        personId: fact.personId,
-        scope: fact.scope,
-        departmentId: fact.departmentId,
-        ...interval,
-      };
-    });
+    }),
+  ),
+);
 
-    const groupsByPerson = new Map<string, PersonEvidenceGroup>();
-    const group = (personId: string): PersonEvidenceGroup => {
-      const existing = groupsByPerson.get(personId);
-      if (existing !== undefined) return existing;
-      const created: PersonEvidenceGroup = {
-        personId,
-        admissionDepartments: [],
-        payments: [],
-        approvals: [],
-      };
-      groupsByPerson.set(personId, created);
-      return created;
-    };
-    for (const fact of admissionDepartmentFacts)
-      group(fact.personId).admissionDepartments.push(fact);
-    for (const fact of admissionGlobalFacts) group(fact.personId).admissionGlobal = fact;
-    for (const fact of organizationFacts) group(fact.personId).organization = fact;
-    for (const fact of paymentFacts) group(fact.personId).payments.push(fact);
-    for (const fact of approvalFacts) group(fact.personId).approvals.push(fact);
-    for (const grant of administratorGrants) group(grant.personId).administratorGrant = grant;
-
-    return {
-      evaluatedAt,
-      groups: [...groupsByPerson.values()].sort((left, right) =>
-        compareText(left.personId, right.personId),
-      ),
-      administratorGrants: [...administratorGrants].sort((left, right) =>
-        compareText(left.grantId, right.grantId),
-      ),
-      paymentAuthorities: [...paymentAuthorities].sort((left, right) =>
-        compareText(left.authorityId, right.authorityId),
-      ),
-      approvalGrants: [...approvalGrants].sort((left, right) =>
-        compareText(left.grantId, right.grantId),
-      ),
-    };
-  });
-
-const personExists = (sql: DatabaseShape, personId: string) =>
+const personExists = (sql: DatabaseOperations, personId: string) =>
   sql<ExistsRow>`
     SELECT EXISTS (
       SELECT 1 FROM person_profiles WHERE person_id = ${personId}
     ) AS "exists"
   `.pipe(Effect.map((rows) => rows[0]?.exists === true));
 
-const departmentExists = (sql: DatabaseShape, departmentId: string) =>
+const departmentExists = (sql: DatabaseOperations, departmentId: string) =>
   sql<ExistsRow>`
     SELECT EXISTS (
       SELECT 1 FROM organization_departments WHERE department_id = ${departmentId}
     ) AS "exists"
   `.pipe(Effect.map((rows) => rows[0]?.exists === true));
 
-const readMembershipEvidence = (sql: DatabaseShape, personId: string, evaluatedAt: string) =>
+const readMembershipEvidence = (sql: DatabaseOperations, personId: string, evaluatedAt: string) =>
   sql<MembershipEvidenceRow>`
     SELECT
       membership.membership_id AS "membershipId",
@@ -586,7 +628,7 @@ const readMembershipEvidence = (sql: DatabaseShape, personId: string, evaluatedA
     ORDER BY department.department_id, team.team_id, membership.membership_id
   `;
 
-const readAdministratorStatus = (sql: DatabaseShape, personId: string, evaluatedAt: string) =>
+const readAdministratorStatus = (sql: DatabaseOperations, personId: string, evaluatedAt: string) =>
   sql<AdministratorStatusRow>`
     SELECT
       EXISTS (
@@ -607,18 +649,22 @@ const readAdministratorStatus = (sql: DatabaseShape, personId: string, evaluated
     ),
   );
 
-const expectedAdmissionDepartmentActor = (
-  rows: ReadonlyArray<MembershipEvidenceRow>,
-): { readonly role: "DepartmentLeader" | "Member"; readonly active: boolean } => {
+const expectedAdmissionDepartmentActor = (rows: ReadonlyArray<MembershipEvidenceRow>) => {
   const activeLeader = rows.some((row) => row.active && row.teamLeader);
+
   if (activeLeader) return { role: "DepartmentLeader", active: true };
   const activeMembership = rows.some((row) => row.active);
   const inactiveLeader = rows.some((row) => !row.active && row.teamLeader);
+
   if (!activeMembership && inactiveLeader) return { role: "DepartmentLeader", active: false };
+
   return { role: "Member", active: activeMembership };
 };
 
-const overlappingAdministratorGrants = (sql: DatabaseShape, row: GlobalAdministratorGrantRow) =>
+const overlappingAdministratorGrants = (
+  sql: DatabaseOperations,
+  row: GlobalAdministratorGrantRow,
+) =>
   sql<ExistingAuthorityOverlapRow>`
     SELECT
       grant_id = ${row.grantId} AS "sameId",
@@ -633,7 +679,7 @@ const overlappingAdministratorGrants = (sql: DatabaseShape, row: GlobalAdministr
     ORDER BY grant_id
   `;
 
-const overlappingPaymentAuthorities = (sql: DatabaseShape, row: ReceiptPaymentAuthorityRow) =>
+const overlappingPaymentAuthorities = (sql: DatabaseOperations, row: ReceiptPaymentAuthorityRow) =>
   sql<ExistingAuthorityOverlapRow>`
     SELECT
       payment_authority_id = ${row.authorityId} AS "sameId",
@@ -650,7 +696,7 @@ const overlappingPaymentAuthorities = (sql: DatabaseShape, row: ReceiptPaymentAu
     ORDER BY payment_authority_id
   `;
 
-const overlappingApprovalGrants = (sql: DatabaseShape, row: ReceiptApprovalGrantRow) =>
+const overlappingApprovalGrants = (sql: DatabaseOperations, row: ReceiptApprovalGrantRow) =>
   sql<ExistingAuthorityOverlapRow>`
     SELECT
       approval_grant_id = ${row.grantId} AS "sameId",
@@ -675,10 +721,13 @@ const insertionRequired = (
   DisposableAuthorityEvidenceConflict | DisposableAuthorityEvidenceAmbiguousDuplicate
 > => {
   const existing = rows[0];
+
   if (existing === undefined) return Effect.succeed(true);
+
   if (rows.length === 1 && existing.sameId && existing.sameFact) {
     return Effect.succeed(false);
   }
+
   if (rows.every((row) => row.sameFact)) {
     return Effect.fail(
       new DisposableAuthorityEvidenceAmbiguousDuplicate({
@@ -687,6 +736,7 @@ const insertionRequired = (
       }),
     );
   }
+
   return Effect.fail(
     new DisposableAuthorityEvidenceConflict({
       factKey,
@@ -713,176 +763,224 @@ const evidenceConflict = (factKey: string, message: string) =>
  * Backfills disposable authority rows from already JSON-decoded legacy test
  * evidence. The returned Effect requires the repository Database capability.
  */
-export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = (
-  input: unknown,
-): Effect.Effect<
-  DisposablePersonAuthorityBackfillResult,
-  DisposableAuthorityEvidenceFailure,
-  Database
-> =>
-  Effect.gen(function* () {
-    const plan = yield* decodeAndPlan(input);
-    const sql = yield* Database;
-    return yield* sql
-      .withTransaction(
-        Effect.gen(function* () {
-          const verifiedMembershipIds = new Set<string>();
-          for (const group of plan.groups) {
-            if (!(yield* personExists(sql, group.personId))) {
-              return yield* Effect.fail(missingReference("Person", group.personId, group.personId));
-            }
-            const memberships = yield* readMembershipEvidence(
-              sql,
-              group.personId,
-              plan.evaluatedAt,
-            );
-            const referencedDepartments = new Set<string>();
-            for (const fact of group.admissionDepartments) {
-              referencedDepartments.add(fact.departmentId);
-            }
-            for (const fact of group.payments) referencedDepartments.add(fact.departmentId);
-            for (const fact of group.approvals) {
-              if (fact.departmentId !== null) referencedDepartments.add(fact.departmentId);
-            }
-            for (const departmentId of [...referencedDepartments].sort(compareText)) {
-              if (!(yield* departmentExists(sql, departmentId))) {
-                return yield* Effect.fail(
-                  missingReference("Department", group.personId, departmentId),
-                );
-              }
-            }
+export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = flow(
+  decodeAndPlan,
+  Effect.flatMap((plan) =>
+    Effect.gen(function* () {
+      const sql = yield* Database;
 
-            const storedAdministrator = yield* readAdministratorStatus(
-              sql,
-              group.personId,
-              plan.evaluatedAt,
-            );
-            const plannedAdministratorKnown = group.administratorGrant !== undefined;
-            const plannedAdministratorActive = group.administratorGrant?.endAt === null;
-            const administratorKnown = storedAdministrator.known || plannedAdministratorKnown;
-            const administratorActive = storedAdministrator.active || plannedAdministratorActive;
+      return yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const verifiedMembershipIds = new Set<string>();
 
-            if (group.organization?.role === "OrganizationAdministrator" && !administratorActive) {
-              return yield* Effect.fail(
-                evidenceConflict(
-                  canonicalJson({ kind: "OrganizationActor", personId: group.personId }),
-                  "Organization administrator evidence is not active at evaluatedAt",
-                ),
+            for (const group of plan.groups) {
+              if (!(yield* personExists(sql, group.personId))) {
+                return yield* Effect.fail(
+                  missingReference("Person", group.personId, group.personId),
+                );
+              }
+
+              const memberships = yield* readMembershipEvidence(
+                sql,
+                group.personId,
+                plan.evaluatedAt,
               );
-            }
-            if (group.organization?.role === "OrganizationMember") {
-              if (administratorActive) {
-                return yield* Effect.fail(
-                  evidenceConflict(
-                    canonicalJson({ kind: "OrganizationActor", personId: group.personId }),
-                    "Organization member evidence conflicts with an active administrator grant",
-                  ),
-                );
+
+              const referencedDepartments = new Set<string>();
+
+              for (const fact of group.admissionDepartments) {
+                referencedDepartments.add(fact.departmentId);
               }
-              if (memberships.length === 0) {
-                return yield* Effect.fail(
-                  missingReference("Membership", group.personId, group.personId),
-                );
+
+              for (const fact of group.payments) referencedDepartments.add(fact.departmentId);
+
+              for (const fact of group.approvals) {
+                if (fact.departmentId !== null) referencedDepartments.add(fact.departmentId);
               }
-              for (const membership of memberships) {
-                verifiedMembershipIds.add(membership.membershipId);
+
+              for (const departmentId of [...referencedDepartments].sort(compareText)) {
+                if (!(yield* departmentExists(sql, departmentId))) {
+                  return yield* Effect.fail(
+                    missingReference("Department", group.personId, departmentId),
+                  );
+                }
               }
-            }
-            if (
-              group.admissionGlobal !== undefined &&
-              (!administratorKnown || administratorActive !== group.admissionGlobal.active)
-            ) {
-              return yield* Effect.fail(
-                evidenceConflict(
-                  canonicalJson({ kind: "GlobalAdministrator", personId: group.personId }),
-                  "Admission global-administrator evidence conflicts with canonical grant state",
-                ),
+
+              const storedAdministrator = yield* readAdministratorStatus(
+                sql,
+                group.personId,
+                plan.evaluatedAt,
               );
-            }
-            for (const fact of group.admissionDepartments) {
-              if (administratorKnown) {
-                return yield* Effect.fail(
-                  evidenceConflict(
-                    canonicalJson({
-                      kind: "AdmissionDepartmentAuthority",
-                      personId: fact.personId,
-                      departmentId: fact.departmentId,
-                    }),
-                    "department actor evidence conflicts with canonical administrator state",
-                  ),
-                );
-              }
-              const departmentMemberships = memberships.filter(
-                (membership) => membership.departmentId === fact.departmentId,
-              );
-              if (departmentMemberships.length === 0) {
-                return yield* Effect.fail(
-                  missingReference("Membership", fact.personId, fact.departmentId),
-                );
-              }
-              const expected = expectedAdmissionDepartmentActor(departmentMemberships);
-              if (expected.role !== fact.role || expected.active !== fact.active) {
-                return yield* Effect.fail(
-                  evidenceConflict(
-                    canonicalJson({
-                      kind: "AdmissionDepartmentAuthority",
-                      personId: fact.personId,
-                      departmentId: fact.departmentId,
-                    }),
-                    "Admission actor evidence conflicts with canonical membership facts",
-                  ),
-                );
-              }
-              for (const membership of departmentMemberships) {
-                verifiedMembershipIds.add(membership.membershipId);
-              }
-            }
-            for (const payment of group.payments) {
-              const departmentMemberships = memberships.filter(
-                (membership) => membership.departmentId === payment.departmentId,
-              );
-              if (departmentMemberships.length === 0) {
-                return yield* Effect.fail(
-                  missingReference("Membership", payment.personId, payment.departmentId),
-                );
-              }
+
+              const plannedAdministratorKnown = group.administratorGrant !== undefined;
+              const plannedAdministratorActive = group.administratorGrant?.endAt === null;
+              const administratorKnown = storedAdministrator.known || plannedAdministratorKnown;
+              const administratorActive = storedAdministrator.active || plannedAdministratorActive;
+
               if (
-                payment.active &&
-                !departmentMemberships.some((membership) => membership.active)
+                group.organization?.role === "OrganizationAdministrator" &&
+                !administratorActive
               ) {
                 return yield* Effect.fail(
                   evidenceConflict(
-                    canonicalJson({
-                      kind: "ReceiptPaymentAuthority",
-                      personId: payment.personId,
-                      departmentId: payment.departmentId,
-                    }),
-                    "active payment evidence lacks active Organization authority",
+                    canonicalJson({ kind: "OrganizationActor", personId: group.personId }),
+                    "Organization administrator evidence is not active at evaluatedAt",
                   ),
                 );
               }
-              for (const membership of departmentMemberships) {
-                verifiedMembershipIds.add(membership.membershipId);
-              }
-            }
-            for (const approval of group.approvals) {
-              if (group.payments.length === 0) {
-                return yield* Effect.fail(
-                  missingReference("PaymentAuthority", approval.personId, approval.personId),
-                );
-              }
-              if (approval.scope === "Department") {
-                const departmentMemberships = memberships.filter(
-                  (membership) => membership.departmentId === approval.departmentId,
-                );
-                if (departmentMemberships.length === 0) {
+
+              if (group.organization?.role === "OrganizationMember") {
+                if (administratorActive) {
                   return yield* Effect.fail(
-                    missingReference("Membership", approval.personId, approval.departmentId),
+                    evidenceConflict(
+                      canonicalJson({ kind: "OrganizationActor", personId: group.personId }),
+                      "Organization member evidence conflicts with an active administrator grant",
+                    ),
                   );
                 }
+
+                if (memberships.length === 0) {
+                  return yield* Effect.fail(
+                    missingReference("Membership", group.personId, group.personId),
+                  );
+                }
+
+                for (const membership of memberships) {
+                  verifiedMembershipIds.add(membership.membershipId);
+                }
+              }
+
+              if (
+                group.admissionGlobal !== undefined &&
+                (!administratorKnown || administratorActive !== group.admissionGlobal.active)
+              ) {
+                return yield* Effect.fail(
+                  evidenceConflict(
+                    canonicalJson({ kind: "GlobalAdministrator", personId: group.personId }),
+                    "Admission global-administrator evidence conflicts with canonical grant state",
+                  ),
+                );
+              }
+
+              for (const fact of group.admissionDepartments) {
+                if (administratorKnown) {
+                  return yield* Effect.fail(
+                    evidenceConflict(
+                      canonicalJson({
+                        kind: "AdmissionDepartmentAuthority",
+                        personId: fact.personId,
+                        departmentId: fact.departmentId,
+                      }),
+                      "department actor evidence conflicts with canonical administrator state",
+                    ),
+                  );
+                }
+
+                const departmentMemberships = memberships.filter(
+                  (membership) => membership.departmentId === fact.departmentId,
+                );
+
+                if (departmentMemberships.length === 0) {
+                  return yield* Effect.fail(
+                    missingReference("Membership", fact.personId, fact.departmentId),
+                  );
+                }
+
+                const expected = expectedAdmissionDepartmentActor(departmentMemberships);
+
+                if (expected.role !== fact.role || expected.active !== fact.active) {
+                  return yield* Effect.fail(
+                    evidenceConflict(
+                      canonicalJson({
+                        kind: "AdmissionDepartmentAuthority",
+                        personId: fact.personId,
+                        departmentId: fact.departmentId,
+                      }),
+                      "Admission actor evidence conflicts with canonical membership facts",
+                    ),
+                  );
+                }
+
+                for (const membership of departmentMemberships) {
+                  verifiedMembershipIds.add(membership.membershipId);
+                }
+              }
+
+              for (const payment of group.payments) {
+                const departmentMemberships = memberships.filter(
+                  (membership) => membership.departmentId === payment.departmentId,
+                );
+
+                if (departmentMemberships.length === 0) {
+                  return yield* Effect.fail(
+                    missingReference("Membership", payment.personId, payment.departmentId),
+                  );
+                }
+
                 if (
-                  approval.active &&
+                  payment.active &&
                   !departmentMemberships.some((membership) => membership.active)
+                ) {
+                  return yield* Effect.fail(
+                    evidenceConflict(
+                      canonicalJson({
+                        kind: "ReceiptPaymentAuthority",
+                        personId: payment.personId,
+                        departmentId: payment.departmentId,
+                      }),
+                      "active payment evidence lacks active Organization authority",
+                    ),
+                  );
+                }
+
+                for (const membership of departmentMemberships) {
+                  verifiedMembershipIds.add(membership.membershipId);
+                }
+              }
+
+              for (const approval of group.approvals) {
+                if (group.payments.length === 0) {
+                  return yield* Effect.fail(
+                    missingReference("PaymentAuthority", approval.personId, approval.personId),
+                  );
+                }
+
+                if (approval.scope === "Department") {
+                  const departmentMemberships = memberships.filter(
+                    (membership) => membership.departmentId === approval.departmentId,
+                  );
+
+                  if (departmentMemberships.length === 0) {
+                    return yield* Effect.fail(
+                      missingReference("Membership", approval.personId, approval.departmentId),
+                    );
+                  }
+
+                  if (
+                    approval.active &&
+                    !departmentMemberships.some((membership) => membership.active)
+                  ) {
+                    return yield* Effect.fail(
+                      evidenceConflict(
+                        canonicalJson({
+                          kind: "ReceiptApprovalGrant",
+                          personId: approval.personId,
+                          scope: approval.scope,
+                          departmentId: approval.departmentId,
+                        }),
+                        "active department approval evidence lacks active Organization authority",
+                      ),
+                    );
+                  }
+
+                  for (const membership of departmentMemberships) {
+                    verifiedMembershipIds.add(membership.membershipId);
+                  }
+                } else if (
+                  approval.active &&
+                  !administratorActive &&
+                  !memberships.some((membership) => membership.active)
                 ) {
                   return yield* Effect.fail(
                     evidenceConflict(
@@ -890,70 +988,58 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = (
                         kind: "ReceiptApprovalGrant",
                         personId: approval.personId,
                         scope: approval.scope,
-                        departmentId: approval.departmentId,
                       }),
-                      "active department approval evidence lacks active Organization authority",
+                      "active global approval evidence lacks active Organization authority",
                     ),
                   );
                 }
-                for (const membership of departmentMemberships) {
-                  verifiedMembershipIds.add(membership.membershipId);
-                }
-              } else if (
-                approval.active &&
-                !administratorActive &&
-                !memberships.some((membership) => membership.active)
-              ) {
-                return yield* Effect.fail(
-                  evidenceConflict(
-                    canonicalJson({
-                      kind: "ReceiptApprovalGrant",
-                      personId: approval.personId,
-                      scope: approval.scope,
-                    }),
-                    "active global approval evidence lacks active Organization authority",
-                  ),
-                );
               }
             }
-          }
 
-          const administratorInserts: Array<GlobalAdministratorGrantRow> = [];
-          for (const row of plan.administratorGrants) {
-            const insert = yield* insertionRequired(
-              yield* overlappingAdministratorGrants(sql, row),
-              canonicalJson({ kind: "GlobalAdministrator", personId: row.personId }),
-            );
-            if (insert) administratorInserts.push(row);
-          }
-          const paymentInserts: Array<ReceiptPaymentAuthorityRow> = [];
-          for (const row of plan.paymentAuthorities) {
-            const insert = yield* insertionRequired(
-              yield* overlappingPaymentAuthorities(sql, row),
-              canonicalJson({
-                kind: "ReceiptPaymentAuthority",
-                personId: row.personId,
-                departmentId: row.departmentId,
-              }),
-            );
-            if (insert) paymentInserts.push(row);
-          }
-          const approvalInserts: Array<ReceiptApprovalGrantRow> = [];
-          for (const row of plan.approvalGrants) {
-            const insert = yield* insertionRequired(
-              yield* overlappingApprovalGrants(sql, row),
-              canonicalJson({
-                kind: "ReceiptApprovalGrant",
-                personId: row.personId,
-                scope: row.scope,
-                departmentId: row.departmentId,
-              }),
-            );
-            if (insert) approvalInserts.push(row);
-          }
+            const administratorInserts: Array<GlobalAdministratorGrantRow> = [];
 
-          for (const row of administratorInserts) {
-            yield* sql`
+            for (const row of plan.administratorGrants) {
+              const insert = yield* insertionRequired(
+                yield* overlappingAdministratorGrants(sql, row),
+                canonicalJson({ kind: "GlobalAdministrator", personId: row.personId }),
+              );
+
+              if (insert) administratorInserts.push(row);
+            }
+
+            const paymentInserts: Array<ReceiptPaymentAuthorityRow> = [];
+
+            for (const row of plan.paymentAuthorities) {
+              const insert = yield* insertionRequired(
+                yield* overlappingPaymentAuthorities(sql, row),
+                canonicalJson({
+                  kind: "ReceiptPaymentAuthority",
+                  personId: row.personId,
+                  departmentId: row.departmentId,
+                }),
+              );
+
+              if (insert) paymentInserts.push(row);
+            }
+
+            const approvalInserts: Array<ReceiptApprovalGrantRow> = [];
+
+            for (const row of plan.approvalGrants) {
+              const insert = yield* insertionRequired(
+                yield* overlappingApprovalGrants(sql, row),
+                canonicalJson({
+                  kind: "ReceiptApprovalGrant",
+                  personId: row.personId,
+                  scope: row.scope,
+                  departmentId: row.departmentId,
+                }),
+              );
+
+              if (insert) approvalInserts.push(row);
+            }
+
+            for (const row of administratorInserts) {
+              yield* sql`
               INSERT INTO public.organization_global_administrator_grants (
                 grant_id, person_id, start_at, end_at, revision
               ) VALUES (
@@ -962,9 +1048,10 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = (
               )
               ON CONFLICT (grant_id) DO NOTHING
             `;
-          }
-          for (const row of paymentInserts) {
-            yield* sql`
+            }
+
+            for (const row of paymentInserts) {
+              yield* sql`
               INSERT INTO public.economy_payment_authorities (
                 payment_authority_id, person_id, department_id, payment_account_ciphertext,
                 start_at, end_at, revision
@@ -975,9 +1062,10 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = (
               )
               ON CONFLICT (payment_authority_id) DO NOTHING
             `;
-          }
-          for (const row of approvalInserts) {
-            yield* sql`
+            }
+
+            for (const row of approvalInserts) {
+              yield* sql`
               INSERT INTO public.economy_receipt_approval_grants (
                 approval_grant_id, person_id, scope, department_id, start_at, end_at, revision
               ) VALUES (
@@ -986,25 +1074,27 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = (
               )
               ON CONFLICT (approval_grant_id) DO NOTHING
             `;
-          }
+            }
 
-          return {
-            personIds: plan.groups.map((group) => group.personId),
-            verifiedMembershipIds: [...verifiedMembershipIds].sort(compareText),
-            globalAdministratorGrantIds: plan.administratorGrants.map((row) => row.grantId),
-            receiptPaymentAuthorityIds: plan.paymentAuthorities.map((row) => row.authorityId),
-            receiptApprovalGrantIds: plan.approvalGrants.map((row) => row.grantId),
-          };
-        }),
-      )
-      .pipe(
-        Effect.catchTag("SqlError", () =>
-          Effect.fail(
-            new DisposableAuthorityEvidencePersistenceError({
-              operation: "backfill disposable person authorities",
-              message: "database rejected disposable authority evidence",
-            }),
+            return {
+              personIds: plan.groups.map((group) => group.personId),
+              verifiedMembershipIds: [...verifiedMembershipIds].sort(compareText),
+              globalAdministratorGrantIds: plan.administratorGrants.map((row) => row.grantId),
+              receiptPaymentAuthorityIds: plan.paymentAuthorities.map((row) => row.authorityId),
+              receiptApprovalGrantIds: plan.approvalGrants.map((row) => row.grantId),
+            };
+          }),
+        )
+        .pipe(
+          Effect.catchTag("SqlError", () =>
+            Effect.fail(
+              new DisposableAuthorityEvidencePersistenceError({
+                operation: "backfill disposable person authorities",
+                message: "database rejected disposable authority evidence",
+              }),
+            ),
           ),
-        ),
-      );
-  });
+        );
+    }),
+  ),
+);

@@ -22,8 +22,11 @@ const text = (max: number) =>
   );
 
 const nullableText = (max: number) => Schema.NullOr(text(max));
+
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+
 const BooleanValue = Schema.Boolean;
+
 /** Numeric identity demanded by the frozen SDK TeamInterest schema (spec 0059). */
 const RegistrationNumber = Schema.Number.pipe(
   Schema.check(
@@ -31,12 +34,14 @@ const RegistrationNumber = Schema.Number.pipe(
     Schema.isGreaterThan(0),
   ),
 );
+
 const RegistrationNumberFromText = Schema.NumberFromString.pipe(
   Schema.check(
     Schema.makeFilter(Number.isSafeInteger, { message: "a safe integer" }),
     Schema.isGreaterThan(0),
   ),
 );
+
 const EmailText = text(255).pipe(
   Schema.check(
     Schema.makeFilter((value) => /^[^@\s]+@[^@\s]+$/.test(value), {
@@ -46,24 +51,31 @@ const EmailText = text(255).pipe(
 );
 
 export const DepartmentId = NonEmpty.pipe(Schema.brand("DepartmentId"));
+
 export type DepartmentId = typeof DepartmentId.Type;
 
 export const TeamId = NonEmpty.pipe(Schema.brand("TeamId"));
+
 export type TeamId = typeof TeamId.Type;
 
 export const FieldOfStudyId = NonEmpty.pipe(Schema.brand("FieldOfStudyId"));
+
 export type FieldOfStudyId = typeof FieldOfStudyId.Type;
 
 export const MembershipId = NonEmpty.pipe(Schema.brand("MembershipId"));
+
 export type MembershipId = typeof MembershipId.Type;
 
 export const PersonId = NonEmpty.pipe(Schema.brand("PersonId"));
+
 export type PersonId = typeof PersonId.Type;
 
 export const PositionId = NonEmpty.pipe(Schema.brand("PositionId"));
+
 export type PositionId = typeof PositionId.Type;
 
 export const SemesterId = NonEmpty.pipe(Schema.brand("SemesterId"));
+
 export type SemesterId = typeof SemesterId.Type;
 
 const nullableInstant = Schema.NullOr(Rfc3339InstantSchema);
@@ -368,35 +380,57 @@ export class TeamInterestRegistration extends Model.Class<TeamInterestRegistrati
 }) {}
 
 export type TeamInterestRegistrationSelect = typeof TeamInterestRegistration.Encoded;
+
 export type DepartmentInsert = typeof Department.insert.Encoded;
+
 export type DepartmentUpdate = typeof Department.update.Encoded;
+
 export type DepartmentJson = typeof Department.json.Type;
+
 export type DepartmentJsonCreate = typeof Department.jsonCreate.Type;
+
 export type DepartmentJsonUpdate = typeof Department.jsonUpdate.Type;
 
 export type TeamSelect = typeof Team.Encoded;
+
 export type TeamInsert = typeof Team.insert.Encoded;
+
 export type TeamUpdate = typeof Team.update.Encoded;
+
 export type TeamJson = typeof Team.json.Type;
+
 export type TeamJsonCreate = typeof Team.jsonCreate.Type;
+
 export type TeamJsonUpdate = typeof Team.jsonUpdate.Type;
 
 export type FieldOfStudySelect = typeof FieldOfStudy.Encoded;
+
 export type FieldOfStudyInsert = typeof FieldOfStudy.insert.Encoded;
+
 export type FieldOfStudyUpdate = typeof FieldOfStudy.update.Encoded;
+
 export type FieldOfStudyJson = typeof FieldOfStudy.json.Type;
+
 export type FieldOfStudyJsonCreate = typeof FieldOfStudy.jsonCreate.Type;
+
 export type FieldOfStudyJsonUpdate = typeof FieldOfStudy.jsonUpdate.Type;
 
 export const DepartmentJsonSchema = Department.json;
+
 export const TeamJsonSchema = Team.json;
+
 export const FieldOfStudyJsonSchema = FieldOfStudy.json;
 
 export type MembershipSelect = typeof Membership.Encoded;
+
 export type MembershipInsert = typeof Membership.insert.Encoded;
+
 export type MembershipUpdate = typeof Membership.update.Encoded;
+
 export type MembershipJson = typeof Membership.json.Type;
+
 export type MembershipJsonCreate = typeof Membership.jsonCreate.Type;
+
 export type MembershipJsonUpdate = typeof Membership.jsonUpdate.Type;
 
 export const isMembershipInterval = (membership: Pick<Membership, "startAt" | "endAt">): boolean =>
@@ -410,7 +444,7 @@ export const isMembershipDetached = (
   membership: Pick<Membership, "teamId" | "deletedTeamName">,
 ): boolean => membership.teamId === null;
 
-export const isMembershipShapeValid = (
+export const isMembershipValid = (
   membership: Pick<Membership, "teamId" | "deletedTeamName" | "startAt" | "endAt">,
 ): boolean =>
   isMembershipInterval(membership) &&
@@ -422,10 +456,11 @@ export const isRfc3339 = isRfc3339Instant;
 
 export const MembershipInvariantSchema = Membership.pipe(
   Schema.check(
-    Schema.makeFilter(isMembershipShapeValid, {
+    Schema.makeFilter(isMembershipValid, {
       message:
         "a membership with an ordered interval and explicit live or historical team identity",
     }),
   ),
 );
+
 export type TeamInterestRegistrationInsert = typeof TeamInterestRegistration.insert.Encoded;

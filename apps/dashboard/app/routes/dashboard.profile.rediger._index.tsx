@@ -22,7 +22,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const result = await client.profile.readOwnProfile({ headers: {} });
+
     if (result.body === undefined) throw new Error("Profile response did not include a body");
+
     return data(
       {
         serializedInput: S.encodeSync(ProfileInputJson)({
@@ -39,6 +41,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function RedigerProfil() {
   const { serializedInput } = useLoaderData<typeof loader>();
+
   return createElement(PROFILE_ELEMENT, {
     [PROFILE_INPUT_ATTRIBUTE]: serializedInput,
     [PROFILE_SEED_ATTRIBUTE]: crypto.randomUUID(),

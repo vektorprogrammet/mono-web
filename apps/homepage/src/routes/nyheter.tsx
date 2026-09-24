@@ -8,10 +8,12 @@ export async function loader({ request }: { request: Request }) {
   const requestedPage = Number(url.searchParams.get("side") ?? "1");
   const data = await loadNewsListing(department);
   const pageCount = Math.max(1, Math.ceil(data.listing.articles.length / NEWS_PAGE_SIZE));
+
   const page =
     Number.isSafeInteger(requestedPage) && requestedPage > 0
       ? Math.min(requestedPage, pageCount)
       : 1;
+
   return {
     ...data,
     listing: paginateNewsListing(data.listing, page),
@@ -24,12 +26,16 @@ export async function loader({ request }: { request: Request }) {
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Nyheter() {
   const { listing, notice, department, page, pageCount } = useLoaderData<typeof loader>();
+
   const pageHref = (targetPage: number): string => {
     const query = new URLSearchParams();
+
     if (department !== undefined) query.set("avdeling", department);
     query.set("side", String(targetPage));
+
     return `/nyheter?${query.toString()}`;
   };
+
   return (
     <main className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-16">
       <h1 className="font-bold text-3xl">Nyheter</h1>

@@ -1,14 +1,6 @@
 import type { StrongETag } from "@vektorprogrammet/http-api";
-import { Effect, Schema as S } from "effect";
-import {
-  decodeInvitationInteractionId,
-  InvitationBridgeFailureSchema,
-  InvitationResponseResourceSchema,
-  INVITATION_INTERACTION_HEADER,
-  type InvitationBridgeFailure,
-  type InvitationInteractionId,
-  type InvitationResponseResource,
-} from "./bridge";
+import { Effect, flow, Option, Schema as S } from "effect";
+import { decodeInvitationInteractionId, InvitationBridgeFailureSchema, InvitationResponseResourceSchema, INVITATION_INTERACTION_HEADER, type InvitationBridgeFailure, type InvitationInteractionId, type InvitationBridgeOperation, type InvitationResponseResource } from "./bridge";
 
 export interface InvitationResponseClient {
   readonly recruitment: Readonly<{
@@ -30,36 +22,25 @@ export interface InvitationResponseClient {
   }>;
 }
 
-const decodeFailure = (value: unknown): InvitationBridgeFailure =>
-  S.decodeUnknownSync(InvitationBridgeFailureSchema)(value, {
-    onExcessProperty: "error",
-  });
+const decodeFailure = S.decodeUnknownSync(InvitationBridgeFailureSchema, {onExcessProperty: "error"});
 
-const toFailure = (cause: unknown): InvitationBridgeFailure => {
-  try {
-    return decodeFailure(cause);
-  } catch {
-    return {
-      _tag: "InvitationUnavailable",
-      message: "Invitation response bridge unavailable",
-    };
-  }
-};
-const decodeResource = (value: unknown): InvitationResponseResource =>
-  S.decodeUnknownSync(InvitationResponseResourceSchema)(value, {
-    onExcessProperty: "error",
-  });
+const toFailure = flow(
+  S.decodeUnknownOption(InvitationBridgeFailureSchema, {onExcessProperty: "error"}),
+  Option.getOrElse(() => InvitationBridgeFailureSchema.cases.InvitationUnavailable.make({message: "Invitation response bridge unavailable"})),
+);
+
 const invitationBridgeUrl = (): URL => {
   const routeUrl = new URL(globalThis.location.href);
   routeUrl.pathname = routeUrl.pathname.replace(/\/+$/u, "");
+
   return new URL("../interview", routeUrl);
 };
 
 const bridgeRequest = <A>(
   interactionId: InvitationInteractionId,
-  body: Record<string, unknown>,
+  body: InvitationBridgeOperation,
   expectedStatus: 200 | 204,
-  decode: (value: unknown) => A,
+  schema: S.Decoder<A>,
 ): Effect.Effect<A, InvitationBridgeFailure> =>
   Effect.tryPromise({
     try: async () => {
@@ -72,20 +53,22 @@ const bridgeRequest = <A>(
         },
         body: JSON.stringify(body),
       });
+
       if (!response.ok) throw decodeFailure(await response.json());
+
       if (response.status !== expectedStatus) {
-        throw {
-          _tag: "InvitationUnavailable",
+        throw InvitationBridgeFailureSchema.cases.InvitationUnavailable.make({
           message: "Invitation response bridge unavailable",
-        } satisfies InvitationBridgeFailure;
+        }) satisfies InvitationBridgeFailure;
       }
-      return expectedStatus === 204 ? decode(undefined) : decode(await response.json());
+
+      return S.decodeUnknownSync(schema)(expectedStatus === 204 ? undefined : await response.json(), {onExcessProperty: "error"});
     },
     catch: toFailure,
   });
 
-export const createBrowserInterviewClient = (interactionId: unknown): InvitationResponseClient => {
-  const decodedInteractionId = decodeInvitationInteractionId(interactionId);
+export const createBrowserInterviewClient = flow(decodeInvitationInteractionId, (decodedInteractionId): InvitationResponseClient => {
+
   return {
     recruitment: {
       readInvitationResponse: () =>
@@ -93,29 +76,29 @@ export const createBrowserInterviewClient = (interactionId: unknown): Invitation
           decodedInteractionId,
           { operation: "readInvitationResponse" },
           200,
-          decodeResource,
+          InvitationResponseResourceSchema,
         ),
       confirmInvitation: ({ etag }) =>
         bridgeRequest(
           decodedInteractionId,
           { operation: "confirmInvitation", etag },
           204,
-          () => undefined,
+          S.Void,
         ),
       rejectInvitation: ({ etag, message }) =>
         bridgeRequest(
           decodedInteractionId,
           { operation: "rejectInvitation", etag, message },
           204,
-          () => undefined,
+          S.Void,
         ),
       requestNewInvitationTime: ({ etag, message }) =>
         bridgeRequest(
           decodedInteractionId,
           { operation: "requestNewInvitationTime", etag, message },
           204,
-          () => undefined,
+          S.Void,
         ),
     },
   };
-};
+});

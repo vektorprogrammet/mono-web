@@ -1,7 +1,10 @@
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { Effect, Schema } from "effect";
+import { flow, Effect, Schema } from "effect";
 import {
+  DepartmentCreatedObservationSchema,
+  TeamCreatedObservationSchema,
+  FieldOfStudyCreatedObservationSchema,
   authorizeOrganizationActor,
   decodeCreateDepartmentCommand,
   decodeCreateFieldOfStudyCommand,
@@ -13,9 +16,6 @@ import {
   teamIdForCommand,
 } from "@vektorprogrammet/domain/organization";
 import {
-  DepartmentCreatedObservationSchema,
-  FieldOfStudyCreatedObservationSchema,
-  TeamCreatedObservationSchema,
   type CreateDepartmentCommand,
   type CreateDepartmentResult,
   type CreateFieldOfStudyCommand,
@@ -70,25 +70,25 @@ const persistenceError = (operation: string, cause?: unknown) =>
 const decodeError = (operation: string, cause: unknown) =>
   new OrganizationDecodeError({ operation, message: String(cause) });
 
-const decodeDepartment = (row: unknown): Effect.Effect<Department, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(Department)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) => decodeError("decode created Department", cause)),
-  );
+const decodeDepartment = flow(
+  Schema.decodeUnknownEffect(Department, { onExcessProperty: "error" }),
+  Effect.mapError((cause) => decodeError("decode created Department", cause)),
+);
 
-const decodeTeam = (row: unknown): Effect.Effect<Team, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(Team)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) => decodeError("decode created Team", cause)),
-  );
+const decodeTeam = flow(
+  Schema.decodeUnknownEffect(Team, { onExcessProperty: "error" }),
+  Effect.mapError((cause) => decodeError("decode created Team", cause)),
+);
 
-const decodeFieldOfStudy = (row: unknown): Effect.Effect<FieldOfStudy, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(FieldOfStudy)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) => decodeError("decode created FieldOfStudy", cause)),
-  );
+const decodeFieldOfStudy = flow(
+  Schema.decodeUnknownEffect(FieldOfStudy, { onExcessProperty: "error" }),
+  Effect.mapError((cause) => decodeError("decode created FieldOfStudy", cause)),
+);
 
-const lockCommand = (sql: DatabaseShape, commandId: OrganizationCommandId) =>
+const lockCommand = (sql: DatabaseOperations, commandId: OrganizationCommandId) =>
   sql`SELECT pg_advisory_xact_lock(hashtextextended(${commandId}, 0))`.pipe(Effect.asVoid);
 
-const readReceipt = (sql: DatabaseShape, commandId: OrganizationCommandId) =>
+const readReceipt = (sql: DatabaseOperations, commandId: OrganizationCommandId) =>
   sql<OrganizationCommandReceiptRow>`
     SELECT
       command_sha256 AS "commandSha256",
@@ -99,7 +99,7 @@ const readReceipt = (sql: DatabaseShape, commandId: OrganizationCommandId) =>
     WHERE command_id = ${commandId}
   `.pipe(Effect.map((rows) => rows[0]));
 
-const requireDepartment = (sql: DatabaseShape, departmentId: DepartmentId) =>
+const requireDepartment = (sql: DatabaseOperations, departmentId: DepartmentId) =>
   sql<ExistsRow>`
     SELECT EXISTS (
       SELECT 1
@@ -115,7 +115,7 @@ const requireDepartment = (sql: DatabaseShape, departmentId: DepartmentId) =>
   );
 
 const readDepartment = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   departmentId: DepartmentId,
 ): Effect.Effect<Department, OrganizationDecodeError | OrganizationPersistenceError> =>
   Effect.gen(function* () {
@@ -136,8 +136,11 @@ const readDepartment = (
       FROM organization_departments
       WHERE department_id = ${departmentId}
     `;
+
     const row = rows[0];
+
     if (row === undefined) return yield* persistenceError("read created Department");
+
     return yield* decodeDepartment(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -146,7 +149,7 @@ const readDepartment = (
   );
 
 const readTeam = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   teamId: TeamId,
 ): Effect.Effect<Team, OrganizationDecodeError | OrganizationPersistenceError> =>
   Effect.gen(function* () {
@@ -167,8 +170,11 @@ const readTeam = (
       FROM organization_teams
       WHERE team_id = ${teamId}
     `;
+
     const row = rows[0];
+
     if (row === undefined) return yield* persistenceError("read created Team");
+
     return yield* decodeTeam(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -177,7 +183,7 @@ const readTeam = (
   );
 
 const readFieldOfStudy = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   fieldOfStudyId: FieldOfStudyId,
 ): Effect.Effect<FieldOfStudy, OrganizationDecodeError | OrganizationPersistenceError> =>
   Effect.gen(function* () {
@@ -192,8 +198,11 @@ const readFieldOfStudy = (
       FROM organization_field_of_studies
       WHERE field_of_study_id = ${fieldOfStudyId}
     `;
+
     const row = rows[0];
+
     if (row === undefined) return yield* persistenceError("read created FieldOfStudy");
+
     return yield* decodeFieldOfStudy(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -208,6 +217,7 @@ export const listOrganizationFieldOfStudies = (): Effect.Effect<
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<FieldOfStudySelect>`
       SELECT
         field_of_study_id AS "fieldOfStudyId",
@@ -223,11 +233,12 @@ export const listOrganizationFieldOfStudies = (): Effect.Effect<
         Effect.fail(persistenceError("list organization fields of study", cause)),
       ),
     );
-    return yield* Effect.forEach(rows, decodeFieldOfStudy);
+
+    return yield* Effect.forEach(rows, (row) => decodeFieldOfStudy(row));
   });
 
 const storeReceiptAndAudit = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: OrganizationCreateCommand,
   digest: string,
   entityKind: OrganizationEntityKind,
@@ -350,6 +361,7 @@ const receiptOrConflict = (
   commandId: OrganizationCommandId,
 ): Effect.Effect<OrganizationCommandReceiptRow | undefined, OrganizationCommandConflict> => {
   if (receipt === undefined || receipt.commandSha256 === digest) return Effect.succeed(receipt);
+
   return Effect.fail(new OrganizationCommandConflict({ commandId }));
 };
 
@@ -363,10 +375,11 @@ const ensureCanonical = <A>(
     : Effect.fail(persistenceError(operation));
 
 const insertDepartment = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: CreateDepartmentCommand,
 ): Effect.Effect<Department, OrganizationDecodeError | OrganizationPersistenceError> => {
   const departmentId = departmentIdForCommand(command.commandId);
+
   return Effect.gen(function* () {
     const rows = yield* sql<DepartmentSelect>`
       INSERT INTO organization_departments (
@@ -412,8 +425,11 @@ const insertDepartment = (
         active,
         revision
     `;
+
     const row = rows[0];
+
     if (row === undefined) return yield* persistenceError("insert Organization Department");
+
     return yield* decodeDepartment(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -423,10 +439,11 @@ const insertDepartment = (
 };
 
 const insertTeam = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: CreateTeamCommand,
 ): Effect.Effect<Team, OrganizationDecodeError | OrganizationPersistenceError> => {
   const teamId = teamIdForCommand(command.commandId);
+
   return Effect.gen(function* () {
     const rows = yield* sql<TeamSelect>`
       INSERT INTO organization_teams (
@@ -468,8 +485,11 @@ const insertTeam = (
         active,
         revision
     `;
+
     const row = rows[0];
+
     if (row === undefined) return yield* persistenceError("insert Organization Team");
+
     return yield* decodeTeam(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -479,10 +499,11 @@ const insertTeam = (
 };
 
 const insertFieldOfStudy = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: CreateFieldOfStudyCommand,
 ): Effect.Effect<FieldOfStudy, OrganizationDecodeError | OrganizationPersistenceError> => {
   const fieldOfStudyId = fieldOfStudyIdForCommand(command.commandId);
+
   return Effect.gen(function* () {
     const rows = yield* sql<FieldOfStudySelect>`
       INSERT INTO organization_field_of_studies (
@@ -510,8 +531,11 @@ const insertFieldOfStudy = (
         active,
         revision
     `;
+
     const row = rows[0];
+
     if (row === undefined) return yield* persistenceError("insert Organization FieldOfStudy");
+
     return yield* decodeFieldOfStudy(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -529,22 +553,25 @@ export const createOrganizationDepartment = (
     const actor = yield* decodeOrganizationActor(actorInput);
     const sql = yield* Database;
     const digest = organizationCommandDigest(command);
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           yield* lockCommand(sql, command.commandId);
+
           const receipt = yield* readReceipt(sql, command.commandId).pipe(
             Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
           );
+
           if (receipt !== undefined)
             return yield* decodeDepartmentReplay(command.commandId, receipt);
           yield* authorizeOrganizationActor(actor);
           const inserted = yield* insertDepartment(sql, command);
-          const observation: DepartmentCreatedObservation = {
-            _tag: "DepartmentCreated",
-            commandId: command.commandId,
-            department: inserted,
-          };
+
+          const observation: DepartmentCreatedObservation = DepartmentCreatedObservationSchema.make(
+            { commandId: command.commandId, department: inserted },
+          );
+
           yield* storeReceiptAndAudit(
             sql,
             command,
@@ -555,11 +582,13 @@ export const createOrganizationDepartment = (
             observation,
           );
           const selected = yield* readDepartment(sql, inserted.departmentId);
+
           const department = yield* ensureCanonical(
             inserted,
             selected,
             "validate created Department projection",
           );
+
           return {
             committed: true as const,
             observation: { ...observation, department },
@@ -582,22 +611,26 @@ export const createOrganizationTeam = (
     const actor = yield* decodeOrganizationActor(actorInput);
     const sql = yield* Database;
     const digest = organizationCommandDigest(command);
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           yield* lockCommand(sql, command.commandId);
+
           const receipt = yield* readReceipt(sql, command.commandId).pipe(
             Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
           );
+
           if (receipt !== undefined) return yield* decodeTeamReplay(command.commandId, receipt);
           yield* authorizeOrganizationActor(actor);
           yield* requireDepartment(sql, command.departmentId);
           const inserted = yield* insertTeam(sql, command);
-          const observation: TeamCreatedObservation = {
-            _tag: "TeamCreated",
+
+          const observation: TeamCreatedObservation = TeamCreatedObservationSchema.make({
             commandId: command.commandId,
             team: inserted,
-          };
+          });
+
           yield* storeReceiptAndAudit(
             sql,
             command,
@@ -608,11 +641,13 @@ export const createOrganizationTeam = (
             observation,
           );
           const selected = yield* readTeam(sql, inserted.teamId);
+
           const team = yield* ensureCanonical(
             inserted,
             selected,
             "validate created Team projection",
           );
+
           return {
             committed: true as const,
             observation: { ...observation, team },
@@ -635,23 +670,29 @@ export const createOrganizationFieldOfStudy = (
     const actor = yield* decodeOrganizationActor(actorInput);
     const sql = yield* Database;
     const digest = organizationCommandDigest(command);
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           yield* lockCommand(sql, command.commandId);
+
           const receipt = yield* readReceipt(sql, command.commandId).pipe(
             Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
           );
+
           if (receipt !== undefined)
             return yield* decodeFieldOfStudyReplay(command.commandId, receipt);
           yield* authorizeOrganizationActor(actor);
+
           if (command.departmentId !== null) yield* requireDepartment(sql, command.departmentId);
           const inserted = yield* insertFieldOfStudy(sql, command);
-          const observation: FieldOfStudyCreatedObservation = {
-            _tag: "FieldOfStudyCreated",
-            commandId: command.commandId,
-            fieldOfStudy: inserted,
-          };
+
+          const observation: FieldOfStudyCreatedObservation =
+            FieldOfStudyCreatedObservationSchema.make({
+              commandId: command.commandId,
+              fieldOfStudy: inserted,
+            });
+
           yield* storeReceiptAndAudit(
             sql,
             command,
@@ -662,11 +703,13 @@ export const createOrganizationFieldOfStudy = (
             observation,
           );
           const selected = yield* readFieldOfStudy(sql, inserted.fieldOfStudyId);
+
           const fieldOfStudy = yield* ensureCanonical(
             inserted,
             selected,
             "validate created FieldOfStudy projection",
           );
+
           return {
             committed: true as const,
             observation: { ...observation, fieldOfStudy },

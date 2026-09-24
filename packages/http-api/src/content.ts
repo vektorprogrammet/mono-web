@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 import {
+  ArticleVersionNumber,
   ArticleId,
   ArticleSlug,
   ContentArticleDetailSchema,
@@ -46,7 +47,9 @@ import {
   UnpublishArticleRequest,
   UnpublishArticleResponse,
 } from "./v2-schemas.js";
-export { ArticleId, ArticleSlug, ContentWorkspaceSchema };
+
+export { ArticleVersionNumber, ArticleId, ArticleSlug, ContentWorkspaceSchema };
+
 export type { ContentWorkspace };
 
 /**
@@ -246,7 +249,7 @@ export const ReviseArticleEndpoint = HttpApiEndpoint.patch(
 /** @since 0.1.0 @category Endpoints */
 export const PublishArticleEndpoint = HttpApiEndpoint.post(
   "publishArticle",
-  "/api/content/articles/:articleId([^:]+)::publish",
+  "/api/content/articles/:articleId:publish",
   {
     params: ArticleParams,
     headers: IdempotencyIfMatchHeaders,
@@ -274,7 +277,7 @@ export const PublishArticleEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
   "unpublishArticle",
-  "/api/content/articles/:articleId([^:]+)::unpublish",
+  "/api/content/articles/:articleId:unpublish",
   {
     params: ArticleParams,
     headers: IdempotencyIfMatchHeaders,

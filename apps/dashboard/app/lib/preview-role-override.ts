@@ -23,9 +23,11 @@ export type PreviewRole = (typeof PREVIEW_ROLES)[number];
 export const readRoleOverride = (): PreviewRole | null => {
   try {
     const raw = window.localStorage.getItem(PREVIEW_ROLE_STORAGE_KEY);
+
     if (raw === null) return null;
     const decoded = S.decodeUnknownOption(RoleOverrideSchema)(JSON.parse(raw));
-    return Option.getOrNull(decoded) as PreviewRole | null;
+
+    return Option.getOrNull(decoded);
   } catch {
     return null;
   }
@@ -51,10 +53,11 @@ export const applyRoleOverrideToInput = (
   override: PreviewRole | null,
 ): string | null => {
   if (override === null || inputJson === null) return inputJson;
+
   try {
-    const input = JSON.parse(inputJson) as Record<string, unknown>;
-    input["role"] = override;
-    return JSON.stringify(input);
+    const input = S.decodeUnknownSync(S.fromJsonString(S.Record(S.String, S.Json)))(inputJson);
+
+    return JSON.stringify({ ...input, role: override });
   } catch {
     return inputJson;
   }
@@ -65,6 +68,6 @@ export const applyRoleOverrideToInput = (
  * same flag shape the loader computes, so the override changes which nav
  * groups are DRAWN without touching any server-authorized value.
  */
-export const roleToRenderFlags = (role: PreviewRole | null): { isAdmin: boolean } => ({
+export const roleToRenderFlags = (role: PreviewRole | null) => ({
   isAdmin: role === "ROLE_ADMIN" || role === "ROLE_TEAM_LEADER",
 });

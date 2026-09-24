@@ -32,7 +32,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:effect-v4",
     "@types/node": "^22",
-    "typescript": "^5",
+    "typescript": "7.0.2",
     "vitest": "catalog:effect-v4"
   }
 }

@@ -12,6 +12,7 @@ import { applyRoleOverrideToInput, readRoleOverride } from "./preview-role-overr
  */
 export const registerPreviewDashboardElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
+
   if (customElements.get(DASHBOARD_ELEMENT) !== undefined) return;
 
   customElements.define(
@@ -38,6 +39,7 @@ export const registerPreviewDashboardElement = (): void => {
         this.#devToolsConfig = config;
         this.#dispose?.();
         this.#dispose = undefined;
+
         if (this.isConnected) this.#embed();
       }
 
@@ -46,6 +48,7 @@ export const registerPreviewDashboardElement = (): void => {
           this.getAttribute(DASHBOARD_INPUT_ATTRIBUTE),
           readRoleOverride(),
         );
+
         this.#dispose = embedDashboard(this.#container, input, this.#devToolsConfig);
       }
     },

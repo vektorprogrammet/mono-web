@@ -1,6 +1,7 @@
+import { HttpClientError } from "effect/unstable/http";
 import type { PublicApplicationCatalog } from "./api-types";
-import { IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
+import { validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
+import { Data, Match, Option, Predicate, Schema } from "effect";
 
 const applicantFieldNames = [
   "commandId",
@@ -55,12 +56,15 @@ export type PublicApplicationErrorCode =
   | "Configuration"
   | "Unexpected";
 
-export type PublicApplicationErrorView = {
-  readonly _tag: PublicApplicationErrorCode;
-  readonly message: string;
-  readonly fieldErrors?: Partial<Record<ApplicantFieldName, string>>;
-  readonly resetCommandId?: boolean;
-};
+export type PublicApplicationErrorView = Data.TaggedEnum<{
+  [Code in PublicApplicationErrorCode]: {
+    readonly message: string;
+    readonly fieldErrors?: Partial<Record<ApplicantFieldName, string>>;
+    readonly resetCommandId?: boolean;
+  };
+}>;
+
+const PublicApplicationErrorView = Data.taggedEnum<PublicApplicationErrorView>();
 
 export type PublicApplicationLoaderData =
   | {
@@ -120,11 +124,12 @@ function readStrictRecord(formData: FormData): Record<string, string> | undefine
   for (const [name, value] of formData.entries()) {
     if (
       !Object.hasOwn(expectedFieldNames, name) ||
-      typeof value !== "string" ||
+      !Predicate.isString(value) ||
       Object.hasOwn(record, name)
     ) {
       return undefined;
     }
+
     record[name] = value.trim();
   }
 
@@ -133,8 +138,10 @@ function readStrictRecord(formData: FormData): Record<string, string> | undefine
 
 function safeCommandId(formData: FormData): string {
   const values = formData.getAll("commandId");
-  if (values.length !== 1 || typeof values[0] !== "string") return "";
+
+  if (values.length !== 1 || !Predicate.isString(values[0])) return "";
   const commandId = values[0].trim();
+
   return commandId.length <= 200 ? commandId : "";
 }
 
@@ -148,6 +155,7 @@ function requiredFieldErrors(
   }
 
   const errors: Partial<Record<ApplicantFieldName, string>> = {};
+
   const requiredLabels: ReadonlyArray<readonly [ApplicantFieldName, string]> = [
     ["departmentId", "Velg en avdeling."],
     ["firstName", "Skriv inn fornavn."],
@@ -162,6 +170,7 @@ function requiredFieldErrors(
   for (const [name, message] of requiredLabels) {
     if (!record[name]) errors[name] = message;
   }
+
   if (!record.commandId) errors.commandId = "Start innsendingen på nytt.";
 
   return errors;
@@ -174,7 +183,9 @@ export function parsePublicApplicationForm(formData: FormData): ParsedPublicAppl
     const decoded = Schema.decodeUnknownSync(ApplicantFormRecord)(record, {
       onExcessProperty: "error",
     });
+
     const commandId = Schema.decodeUnknownSync(IdempotencyKey)(decoded.commandId);
+
     const payload = Schema.decodeUnknownSync(SubmitApplicationRequest)(
       {
         departmentId: decoded.departmentId,
@@ -188,27 +199,22 @@ export function parsePublicApplicationForm(formData: FormData): ParsedPublicAppl
       },
       { onExcessProperty: "error" },
     );
+
     return { ok: true, value: { commandId, payload } };
   } catch {
     const commandId = safeCommandId(formData);
+
     return {
       ok: false,
       commandId,
-      error: {
-        _tag: "ApplicationFormInvalid",
-        message: "Kontroller at alle obligatoriske felt er riktig utfylt.",
-        fieldErrors: requiredFieldErrors(record),
-        resetCommandId: commandId === "",
-      },
+      error: PublicApplicationErrorView.ApplicationFormInvalid({message: "Kontroller at alle obligatoriske felt er riktig utfylt.",
+fieldErrors: requiredFieldErrors(record),
+resetCommandId: commandId === ""}),
     };
   }
 }
 
-type ErrorShape = {
-  readonly code?: unknown;
-  readonly type?: unknown;
-  readonly validation?: unknown;
-};
+
 
 const problemMessages: Readonly<
   Record<
@@ -241,81 +247,61 @@ const problemMessages: Readonly<
   "internal.error": "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
 };
 
-const applicationFieldByPointer: Readonly<Record<string, ApplicantFieldName>> = {
-  "/departmentId": "departmentId",
-  "/firstName": "firstName",
-  "/lastName": "lastName",
-  "/phone": "phone",
-  "/email": "email",
-  "/gender": "gender",
-  "/fieldOfStudyId": "fieldOfStudyId",
-  "/yearOfStudy": "yearOfStudy",
-};
+const applicationFieldByPointer = new Map<string, ApplicantFieldName>([["/departmentId", "departmentId"], ["/firstName", "firstName"], ["/lastName", "lastName"], ["/phone", "phone"], ["/email", "email"], ["/gender", "gender"], ["/fieldOfStudyId", "fieldOfStudyId"], ["/yearOfStudy", "yearOfStudy"]]);
 
-function validationFieldErrors(
-  validation: unknown,
-): Partial<Record<ApplicantFieldName, string>> | undefined {
-  if (
-    typeof validation !== "object" ||
-    validation === null ||
-    !("errors" in validation) ||
-    !Array.isArray(validation.errors)
-  ) {
-    return undefined;
-  }
+const decodeValidation = Schema.decodeUnknownOption(validationProblemSchema("validation.failed").fields.validation);
 
+function validationFieldErrors(validation: ValidationProblem["validation"]): Partial<Record<ApplicantFieldName, string>> | undefined {
   const fieldErrors: Partial<Record<ApplicantFieldName, string>> = {};
+
   for (const error of validation.errors) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "pointer" in error &&
-      typeof error.pointer === "string"
-    ) {
-      const field = applicationFieldByPointer[error.pointer];
-      if (field !== undefined) fieldErrors[field] = "Kontroller dette feltet.";
-    }
+    const field = applicationFieldByPointer.get(error.pointer);
+
+    if (field !== undefined) fieldErrors[field] = "Kontroller dette feltet.";
   }
+
   return Object.keys(fieldErrors).length === 0 ? undefined : fieldErrors;
 }
 
 function isProblemCode(code: unknown): code is keyof typeof problemMessages {
-  return typeof code === "string" && Object.hasOwn(problemMessages, code);
+  return Predicate.isString(code) && Object.hasOwn(problemMessages, code);
 }
 
-export function mapPublicApplicationError(error: unknown): PublicApplicationErrorView {
-  const shape: ErrorShape = typeof error === "object" && error !== null ? error : {};
+const unexpectedApplicationError = () => PublicApplicationErrorView.Unexpected({
+  message: "Søknaden kunne ikke sendes. Prøv igjen senere.",
+});
 
-  if (isProblemCode(shape.code)) {
-    const resetCommandId =
-      shape.code === "idempotency-key.invalid" ||
-      shape.code === "idempotency.digest-conflict" ||
-      shape.code === "idempotency.response-expired";
-    const fieldErrors =
-      shape.code === "validation.failed" ? validationFieldErrors(shape.validation) : undefined;
-    return {
-      _tag: shape.code,
-      message: problemMessages[shape.code],
-      ...(fieldErrors === undefined ? {} : { fieldErrors }),
-      ...(resetCommandId ? { resetCommandId: true } : {}),
-    };
+export function mapPublicApplicationError(cause: unknown): PublicApplicationErrorView {
+  const failure = Predicate.hasProperty(cause, "body") ? cause.body : cause;
+
+  if (Predicate.hasProperty(failure, "code") && isProblemCode(failure.code)) {
+    let result: PublicApplicationErrorView = PublicApplicationErrorView[failure.code]({ message: problemMessages[failure.code] });
+
+    if (failure.code === "validation.failed" && Predicate.hasProperty(failure, "validation")) {
+      const validation = Option.getOrUndefined(decodeValidation(failure.validation));
+      const fieldErrors = validation === undefined ? undefined : validationFieldErrors(validation);
+
+      if (fieldErrors !== undefined) result = { ...result, fieldErrors };
+    }
+
+    if (failure.code === "idempotency-key.invalid" || failure.code === "idempotency.digest-conflict" || failure.code === "idempotency.response-expired") {
+      result = { ...result, resetCommandId: true };
+    }
+
+    return result;
   }
 
-  if (shape.type === "network") {
-    return {
-      _tag: "Network",
-      message: "Søknadstjenesten svarer ikke. Kontroller forbindelsen og prøv igjen.",
-    };
-  }
-  if (shape.type === "configuration") {
-    return {
-      _tag: "Configuration",
-      message: "Søknadstjenesten er ikke tilgjengelig på denne siden.",
-    };
+  if (HttpClientError.isHttpClientError(cause)) {
+    return Match.value(cause.reason).pipe(
+      Match.tag("TransportError", () => PublicApplicationErrorView.Network({
+        message: "Søknadstjenesten svarer ikke. Kontroller forbindelsen og prøv igjen.",
+      })),
+      Match.tag("InvalidUrlError", () => PublicApplicationErrorView.Configuration({
+        message: "Søknadstjenesten er ikke tilgjengelig på denne siden.",
+      })),
+      Match.orElse(unexpectedApplicationError),
+    );
   }
 
-  return {
-    _tag: "Unexpected",
-    message: "Søknaden kunne ikke sendes. Prøv igjen senere.",
-  };
+  return unexpectedApplicationError();
 }

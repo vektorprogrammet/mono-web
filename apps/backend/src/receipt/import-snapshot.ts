@@ -1,25 +1,29 @@
+import {
+  ReceiptFileSchema,
+  ReceiptImportResult,
+  importLegacyReceipts,
+  type ReceiptQuarantineReason,
+  type ReceiptFile,
+} from "@vektorprogrammet/domain/receipt";
 /** Spec 0095: bounded synthetic snapshot adapter, using the Receipt importer. */
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { Schema } from "effect";
+import { Match, Predicate, Schema } from "effect";
 import { canonicalJson } from "../../../../packages/domain/src/tutor/evidence.js";
 import { PersonId, DepartmentId } from "../../../../packages/domain/src/organization/schema.js";
-import {
-  importLegacyReceipts,
-  type ReceiptQuarantineReason,
-  type ReceiptImportResult,
-} from "../../../../packages/domain/src/receipt/import.js";
-import type { ReceiptFile } from "../../../../packages/domain/src/receipt/schema.js";
+
 import type { ReceiptFileStore } from "./filesystem.js";
 
 const Text = Schema.NonEmptyString;
+
 const FileEntry = Schema.Struct({
   path: Text,
   sha256: Text,
   byteLength: Schema.Int,
   contentType: Text,
 });
+
 const Row = Schema.Struct({
   sourcePrimaryKey: Text,
   destinationIdentity: Text,
@@ -35,6 +39,7 @@ const Row = Schema.Struct({
   file: Schema.NullOr(FileEntry),
   rowDigest: Text,
 });
+
 export const ReceiptSnapshot = Schema.Struct({
   kind: Schema.Literal("synthetic-receipt-import-0095"),
   sourceRepository: Text,
@@ -55,16 +60,21 @@ export const ReceiptSnapshot = Schema.Struct({
       sourcePrimaryKey: Text,
       destinationIdentity: Text,
       rowDigest: Text,
-      data: Schema.Unknown,
+      data: Schema.Json,
     }),
   ),
 });
+
 export type ReceiptSnapshot = typeof ReceiptSnapshot.Type;
+
 export const digest = (value: Uint8Array | string): string =>
   createHash("sha256").update(value).digest("hex");
-export const rowDigest = (row: unknown): string => digest(canonicalJson(row));
-export const decodeSnapshot = (input: unknown): ReceiptSnapshot =>
-  Schema.decodeUnknownSync(ReceiptSnapshot)(input, { onExcessProperty: "error" });
+
+export const rowDigest = (row: Schema.Json): string => digest(canonicalJson(row));
+
+export const decodeSnapshot = Schema.decodeUnknownSync(ReceiptSnapshot, {
+  onExcessProperty: "error",
+});
 
 export const readSnapshotFile = async (
   root: string,
@@ -75,12 +85,15 @@ export const readSnapshotFile = async (
   const boundary = await realpath(root);
   const path = await realpath(resolve(boundary, file.path));
   const within = relative(boundary, path);
+
   if (within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within))
     throw new Error("UnsafeFilePath");
   const metadata = await stat(path);
+
   if (!metadata.isFile() || metadata.size > 10 * 1024 * 1024 || metadata.size !== file.byteLength)
     throw new Error("FileDigestMismatch");
   const bytes = await readFile(path);
+
   if (
     bytes.byteLength > 10 * 1024 * 1024 ||
     bytes.byteLength !== file.byteLength ||
@@ -88,15 +101,19 @@ export const readSnapshotFile = async (
   )
     throw new Error("FileDigestMismatch");
   const signature = Buffer.from(bytes.subarray(0, 8));
-  const valid =
-    file.contentType === "application/pdf"
-      ? signature.subarray(0, 5).toString() === "%PDF-"
-      : file.contentType === "image/png"
-        ? signature.equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-        : file.contentType === "image/jpeg"
-          ? signature[0] === 255 && signature[1] === 216 && signature[2] === 255
-          : false;
+
+  const valid = Match.value(file.contentType).pipe(
+    Match.when("application/pdf", () => signature.subarray(0, 5).toString() === "%PDF-"),
+    Match.when("image/png", () => signature.equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))),
+    Match.when(
+      "image/jpeg",
+      () => signature[0] === 255 && signature[1] === 216 && signature[2] === 255,
+    ),
+    Match.orElse(() => false),
+  );
+
   if (!valid) throw new Error("UnsupportedFile");
+
   return bytes;
 };
 
@@ -108,17 +125,22 @@ export const prepareReceiptSnapshot = async (
 ) => {
   const unique = (entries: ReadonlyArray<readonly [string, string]>) => {
     const map = new Map<string, string>();
+
     for (const [source, target] of entries) {
       if (map.has(source) || [...map.values()].includes(target))
         throw new Error("AmbiguousIdentityMap");
       map.set(source, target);
     }
+
     return map;
   };
+
   const persons = unique(snapshot.persons.map((p) => [p.sourceUser, p.personId] as const));
+
   const departments = unique(
     snapshot.departments.map((p) => [p.sourceDepartment, p.departmentId] as const),
   );
+
   const staged: ReceiptFile[] = [];
   const failures = new Map<number, ReceiptQuarantineReason>();
   const inputs = [];
@@ -128,6 +150,7 @@ export const prepareReceiptSnapshot = async (
   const sourceCounts = new Map<string, number>();
   const destinationCounts = new Map<string, number>();
   const resultByIndex = new Map<number, ReceiptImportResult>();
+
   const provenanceFor = (entry: (typeof snapshot.rows)[number]) => ({
     sourceRepository: snapshot.sourceRepository,
     sourceRevision: snapshot.sourceRevision,
@@ -137,6 +160,7 @@ export const prepareReceiptSnapshot = async (
     sourceDigest: entry.rowDigest,
     destinationIdentity: entry.destinationIdentity,
   });
+
   for (const [index, entry] of snapshot.rows.entries()) {
     const occurrence = occurrences.get(entry.sourcePrimaryKey) ?? 0;
     occurrenceIndices.push(occurrence);
@@ -146,10 +170,12 @@ export const prepareReceiptSnapshot = async (
       entry.destinationIdentity,
       (destinationCounts.get(entry.destinationIdentity) ?? 0) + 1,
     );
+
     try {
       const data = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
         entry.data,
       );
+
       if (
         ["sourcePrimaryKey", "destinationIdentity", "rowDigest"].some((key) =>
           Object.hasOwn(data, key),
@@ -169,42 +195,54 @@ export const prepareReceiptSnapshot = async (
         ),
       });
     } catch {
-      resultByIndex.set(index, {
-        _tag: "QuarantinedReceiptImport",
-        sourcePrimaryKey: entry.sourcePrimaryKey,
-        sourceOccurrence: occurrence,
-        targetSemanticIdentity: entry.destinationIdentity,
-        reasons: ["InvalidSourceRow"],
-        provenance: provenanceFor(entry),
-        reconciliation: "NotApplicable",
-      });
+      resultByIndex.set(
+        index,
+        ReceiptImportResult.QuarantinedReceiptImport({
+          sourcePrimaryKey: entry.sourcePrimaryKey,
+          sourceOccurrence: occurrence,
+          targetSemanticIdentity: entry.destinationIdentity,
+          reasons: ["InvalidSourceRow"],
+          provenance: provenanceFor(entry),
+          reconciliation: "NotApplicable",
+        }),
+      );
     }
   }
+
   for (const { index, row } of decoded) {
     const { rowDigest: expectedDigest, ...source } = row;
     let file: ReceiptFile | null = null;
+
     if (rowDigest(source) !== expectedDigest) failures.set(index, "SourceDigestMismatch");
     else if (row.file !== null) {
       try {
         const bytes = await readSnapshotFile(root, row.file);
+
         const result = await files.stageBytes(
           new File([bytes], "synthetic", { type: row.file.contentType }),
           `${snapshot.snapshotId}:${row.sourcePrimaryKey}:${index}`,
-          row.file.contentType as ReceiptFile["contentType"],
+          Schema.decodeUnknownSync(ReceiptFileSchema.fields.contentType)(row.file.contentType),
           10 * 1024 * 1024,
         );
+
         file = result.file;
+
         if (result.created) staged.push(file);
       } catch (error) {
         failures.set(
           index,
-          error instanceof Error &&
-            ["UnsafeFilePath", "FileDigestMismatch", "UnsupportedFile"].includes(error.message)
-            ? (error.message as ReceiptQuarantineReason)
+          error instanceof Error
+            ? Match.value(error.message).pipe(
+                Match.when("UnsafeFilePath", () => "UnsafeFilePath" as const),
+                Match.when("FileDigestMismatch", () => "FileDigestMismatch" as const),
+                Match.when("UnsupportedFile", () => "UnsupportedFile" as const),
+                Match.orElse(() => "UnreadableFile" as const),
+              )
             : "UnreadableFile",
         );
       }
     }
+
     inputs.push({
       receiptId: row.destinationIdentity,
       row: {
@@ -238,6 +276,7 @@ export const prepareReceiptSnapshot = async (
       },
     });
   }
+
   importLegacyReceipts(inputs).forEach((result, localIndex) => {
     const index = decoded[localIndex]!.index;
     const failure = failures.get(index);
@@ -245,29 +284,32 @@ export const prepareReceiptSnapshot = async (
       index,
       failure === undefined
         ? result
-        : {
-            _tag: "QuarantinedReceiptImport",
+        : ReceiptImportResult.QuarantinedReceiptImport({
             sourcePrimaryKey: result.sourcePrimaryKey,
             sourceOccurrence: result.sourceOccurrence,
             targetSemanticIdentity: result.targetSemanticIdentity,
             provenance: result.provenance,
             reconciliation: "NotApplicable",
             reasons: [
-              ...(result._tag === "QuarantinedReceiptImport" ? result.reasons : []),
+              ...(Predicate.isTagged(result, "QuarantinedReceiptImport") ? result.reasons : []),
               failure,
             ],
-          },
+          }),
     );
   });
+
   const results = snapshot.rows.map((entry, index): ReceiptImportResult => {
     const result = resultByIndex.get(index)!;
     const collisions: ReceiptQuarantineReason[] = [];
+
     if (sourceCounts.get(entry.sourcePrimaryKey)! > 1) collisions.push("SourceIdentityCollision");
+
     if (destinationCounts.get(entry.destinationIdentity)! > 1)
       collisions.push("DestinationIdentityCollision");
+
     if (collisions.length === 0) return { ...result, sourceOccurrence: occurrenceIndices[index]! };
-    return {
-      _tag: "QuarantinedReceiptImport",
+
+    return ReceiptImportResult.QuarantinedReceiptImport({
       sourcePrimaryKey: result.sourcePrimaryKey,
       sourceOccurrence: occurrenceIndices[index]!,
       targetSemanticIdentity: result.targetSemanticIdentity,
@@ -275,12 +317,13 @@ export const prepareReceiptSnapshot = async (
       reconciliation: "NotApplicable",
       reasons: [
         ...new Set([
-          ...(result._tag === "QuarantinedReceiptImport" ? result.reasons : []),
+          ...(Predicate.isTagged(result, "QuarantinedReceiptImport") ? result.reasons : []),
           ...collisions,
         ]),
       ],
-    };
+    });
   });
+
   return {
     results,
     staged,

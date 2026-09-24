@@ -1,3 +1,4 @@
+import { Predicate, Match } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -13,42 +14,67 @@ import {
 } from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const composeFile = join(repositoryRoot, "docker-compose.yml");
+
 const configuredPort = (name, fallback) => {
   const port = Number(process.env[name] ?? fallback);
+
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`${name} must be a TCP port`);
   }
+
   return port;
 };
+
 const dashboardPort = 5174;
+
 const backendPort = configuredPort("RECEIPT_APPROVAL_BACKEND_PORT", 8790);
+
 const postgresPort = configuredPort("RECEIPT_APPROVAL_PG_PORT", 55_432);
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
+
 const composeProject = `mono-web-receipt-0037-${process.pid}`;
+
 const commandTimeoutMs = 300_000;
+
 const shutdownTimeoutMs = 5_000;
+
 const nixPostgresPackage = "nixpkgs#postgresql_17";
+
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
 const personaPassword = "receipt-approval-0037-password";
+
 const receiptDeliverySender = "economy@example.invalid";
+
 const receiptEconomyRecipients = Object.freeze({
   "department-a": "economy-a@example.invalid",
   "department-b": "economy-b@example.invalid",
 });
+
 const journeyRefId = "intent://journey:parity:finance_operations:v1";
+
 const journeyStepIds = [
   "finance-operations-api-operation",
   "finance-operations-command-write",
   "finance-operations-legacy-route",
   "finance-operations-mono-route",
 ];
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const specPath = join(dashboardRoot, "e2e/receipt-approval.spec.ts");
+
 const seedPath = join(dashboardRoot, "e2e/native-receipt-approval-seed.mjs");
+
 const expectedFixtureCounts = {
   identityUsers: 7,
   credentialAccounts: 7,
@@ -63,6 +89,7 @@ const expectedFixtureCounts = {
   paymentAuthorities: 2,
   receiptApprovalGrants: 4,
 };
+
 const authorityFixturesByPersonId = new Map([
   ["owner-a", "owner-a-department-a-payment-authority"],
   ["owner-b", "owner-b-department-b-payment-authority"],
@@ -72,8 +99,10 @@ const authorityFixturesByPersonId = new Map([
   ["approver-inactive", "approver-inactive-ended-department-a-membership"],
   ["approver-none", "approver-none-active-without-receipt-grant"],
 ]);
+
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+
 const postgresTopology = dockerAvailable ? "docker" : "local";
 
 const sleep = (milliseconds) =>
@@ -88,10 +117,13 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
+
+      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
+
         return;
       }
+
       rejectPort(new Error(`Could not inspect loopback port ${port}`));
     });
   });
@@ -100,28 +132,34 @@ function assertPortAvailable(port) {
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
+
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: captureOutput ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
     });
+
     const stdout = [];
     const stderr = [];
+
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.on("data", (chunk) => stderr.push(chunk));
     }
 
     let settled = false;
+
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       const hardKill = setTimeout(() => child.kill("SIGKILL"), shutdownTimeoutMs);
       hardKill.unref();
+
       if (!settled) {
         settled = true;
         rejectCommand(new Error(`${options.label} timed out`));
       }
     }, commandTimeoutMs);
+
     timeout.unref();
 
     child.once("error", () => {
@@ -134,16 +172,20 @@ function runCommand(command, args, options) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+
       if (code === 0) {
         resolveCommand(
           captureOutput ? { stdout: Buffer.concat(stdout).toString("utf8") } : undefined,
         );
+
         return;
       }
+
       const detail = captureOutput
         ? Buffer.concat(stderr).toString("utf8").trim() ||
           Buffer.concat(stdout).toString("utf8").trim()
         : "";
+
       rejectCommand(
         new Error(
           `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}${detail.length === 0 ? "" : `:\n${detail}`}`,
@@ -160,7 +202,9 @@ function startProcess(command, args, options) {
     stdio: ["ignore", "inherit", "inherit"],
     detached: true,
   });
+
   child.once("error", () => undefined);
+
   return child;
 }
 
@@ -174,12 +218,14 @@ async function stopProcess(child) {
   }
 
   const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
+
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not stop local process group");
     }
+
     return;
   }
 
@@ -187,37 +233,45 @@ async function stopProcess(child) {
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (stopped) return;
 
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not terminate local process group");
     }
   }
+
   await exited;
 }
 
 async function waitForHttp(url, child, label) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(`${label} exited before readiness`);
     }
+
     try {
       const response = await fetch(url, { redirect: "manual" });
+
       if (response.status >= 200 && response.status < 500) return;
     } catch {
       // Readiness is retried until the bounded deadline.
     }
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 }
 
 async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     try {
       const args =
@@ -238,19 +292,23 @@ async function waitForPostgres(environment) {
               "receipt_proof",
             ]
           : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+
       const options = {
         cwd: repositoryRoot,
         env: environment,
         label: "Disposable PostgreSQL readiness check",
         captureOutput: true,
       };
+
       if (postgresTopology === "docker") await runCommand("docker", args, options);
       else await runNixPostgres("pg_isready", args, options);
+
       return;
     } catch {
       await sleep(250);
     }
   }
+
   throw new Error("Disposable PostgreSQL did not become ready");
 }
 
@@ -318,11 +376,13 @@ async function countFiles(root) {
       recursive: true,
       withFileTypes: true,
     });
+
     return entries.reduce((count, entry) => count + (entry.isFile() ? 1 : 0), 0);
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return 0;
     }
+
     throw error;
   }
 }
@@ -330,17 +390,20 @@ async function countFiles(root) {
 async function pathExists(path) {
   try {
     await access(path);
+
     return true;
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return false;
     }
+
     throw error;
   }
 }
 
 const parseJsonBody = (bytes) => {
   if (bytes.byteLength === 0) return undefined;
+
   try {
     return JSON.parse(bytes.toString("utf8"));
   } catch {
@@ -350,24 +413,32 @@ const parseJsonBody = (bytes) => {
 
 const sanitizeRequestBody = (bytes, contentType) => {
   if (bytes.byteLength === 0) return null;
+
   if (contentType.startsWith("multipart/form-data")) {
     return { kind: "multipart/form-data" };
   }
+
   if (contentType.startsWith("application/x-www-form-urlencoded")) {
     return {
       kind: "form",
       keys: [...new URLSearchParams(bytes.toString("utf8")).keys()].sort(),
     };
   }
+
   if (contentType.startsWith("application/json")) {
     const decoded = parseJsonBody(bytes);
+
     if (decoded === undefined) return { kind: "malformed-json" };
-    if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
-      return { kind: "json", shape: typeof decoded };
+
+    if (decoded === null || !Predicate.isObjectOrArray(decoded) || Array.isArray(decoded)) {
+      return { kind: "json", jsonValueType: Match.value(decoded).pipe(Match.when(Predicate.isString, () => "string"), Match.when(Predicate.isNumber, () => "number"), Match.when(Predicate.isBoolean, () => "boolean"), Match.orElse(() => "object")) };
     }
+
     const keys = Object.keys(decoded).sort();
+
     return { kind: "json", keys };
   }
+
   return { kind: "opaque", byteLength: bytes.byteLength };
 };
 
@@ -377,22 +448,27 @@ const sessionCookieNames = new Set([
 ]);
 
 const sessionCookieKey = (cookieHeader) => {
-  if (typeof cookieHeader !== "string") return undefined;
+  if (!Predicate.isString(cookieHeader)) return undefined;
+
   const pairs = cookieHeader
     .split(";")
     .map((pair) => pair.trim())
     .filter((pair) => {
       const separator = pair.indexOf("=");
+
       return separator > 0 && sessionCookieNames.has(pair.slice(0, separator).trim());
     })
     .sort();
+
   return pairs.length === 0 ? undefined : pairs.join("; ");
 };
 
 const setCookieKey = (setCookie) => {
   const pair = setCookie.split(";", 1)[0]?.trim();
+
   if (pair === undefined) return undefined;
   const separator = pair.indexOf("=");
+
   return separator > 0 && sessionCookieNames.has(pair.slice(0, separator).trim())
     ? pair
     : undefined;
@@ -402,13 +478,16 @@ async function startRecordingProxy(targetOrigin) {
   const records = [];
   const sessionPersonsByCookie = new Map();
   const issuedSessionCookieNamesByCookie = new Map();
+
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", targetOrigin);
     const chunks = [];
+
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
     const cookieKey = sessionCookieKey(request.headers.cookie);
+
     const record = {
       method,
       pathname: url.pathname,
@@ -416,7 +495,7 @@ async function startRecordingProxy(targetOrigin) {
       status: 0,
       body: sanitizeRequestBody(
         requestBytes,
-        typeof request.headers["content-type"] === "string" ? request.headers["content-type"] : "",
+        Predicate.isString(request.headers["content-type"]) ? request.headers["content-type"] : "",
       ),
       sessionCookieAuth: cookieKey !== undefined,
       authorizationHeaderPresent: request.headers.authorization !== undefined,
@@ -424,19 +503,22 @@ async function startRecordingProxy(targetOrigin) {
         cookieKey === undefined ? null : (sessionPersonsByCookie.get(cookieKey) ?? null),
       canonicalAuthorityFixture: null,
       idempotencyKey:
-        typeof request.headers["idempotency-key"] === "string"
+        Predicate.isString(request.headers["idempotency-key"])
           ? request.headers["idempotency-key"]
           : null,
-      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
       concurrencyProbe:
-        typeof request.headers["x-receipt-e2e-concurrency-probe"] === "string"
+        Predicate.isString(request.headers["x-receipt-e2e-concurrency-probe"])
           ? request.headers["x-receipt-e2e-concurrency-probe"]
           : null,
       concurrencySynchronized: null,
     };
+
     records.push(record);
+
     try {
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (
           value === undefined ||
@@ -444,57 +526,69 @@ async function startRecordingProxy(targetOrigin) {
         ) {
           continue;
         }
+
         if (Array.isArray(value)) {
           for (const item of value) headers.append(name, item);
         } else {
           headers.set(name, value);
         }
       }
+
       const upstream = await fetch(new URL(request.url ?? "/", targetOrigin), {
         method,
         headers,
         body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
+
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       const responseJson = parseJsonBody(responseBytes);
       record.status = upstream.status;
       record.concurrencySynchronized = upstream.headers.get(
         "x-receipt-e2e-concurrency-synchronized",
       );
+
       if (
         cookieKey !== undefined &&
         upstream.status === 200 &&
         url.pathname === "/api/session" &&
         responseJson !== null &&
-        typeof responseJson === "object" &&
+        Predicate.isObjectOrArray(responseJson) &&
         "personId" in responseJson &&
-        typeof responseJson.personId === "string"
+        Predicate.isString(responseJson.personId)
       ) {
         sessionPersonsByCookie.set(cookieKey, responseJson.personId);
         record.sessionPersonId = responseJson.personId;
       }
+
       if (record.sessionPersonId !== null) {
         record.canonicalAuthorityFixture =
           authorityFixturesByPersonId.get(record.sessionPersonId) ?? null;
       }
+
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers.entries()) {
         if (
           ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
         ) {
           continue;
         }
+
         response.setHeader(name, value);
       }
+
       const setCookies = upstream.headers.getSetCookie();
+
       for (const setCookie of setCookies) {
         const issuedCookieKey = setCookieKey(setCookie);
+
         if (issuedCookieKey === undefined) continue;
         issuedSessionCookieNamesByCookie.set(issuedCookieKey, [
           issuedCookieKey.slice(0, issuedCookieKey.indexOf("=")),
         ]);
       }
+
       if (setCookies.length > 0) response.setHeader("set-cookie", setCookies);
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
@@ -505,6 +599,7 @@ async function startRecordingProxy(targetOrigin) {
       response.end('{"error":"native Receipt evidence proxy failed"}');
     }
   });
+
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", () => {
@@ -513,11 +608,14 @@ async function startRecordingProxy(targetOrigin) {
     });
   });
   const address = server.address();
-  if (address === null || typeof address === "string") {
+
+  if (address === null || Predicate.isString(address)) {
     server.close();
     throw new Error("Native Receipt evidence proxy did not bind a loopback port");
   }
+
   let closed = false;
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     records,
@@ -535,7 +633,7 @@ async function startRecordingProxy(targetOrigin) {
       await new Promise((resolveClose, rejectClose) => {
         server.close((error) =>
           error === undefined ||
-          (typeof error === "object" &&
+          (Predicate.isObjectOrArray(error) &&
             error !== null &&
             "code" in error &&
             error.code === "ERR_SERVER_NOT_RUNNING")
@@ -678,6 +776,7 @@ async function readPostgresEvidence(environment) {
       )
     )::text;
   `;
+
   const args =
     postgresTopology === "docker"
       ? [
@@ -715,16 +814,19 @@ async function readPostgresEvidence(environment) {
           "-c",
           sql,
         ];
+
   const options = {
     cwd: repositoryRoot,
     env: environment,
     label: "Receipt persistence evidence query",
     captureOutput: true,
   };
+
   const result =
     postgresTopology === "docker"
       ? await runCommand("docker", args, options)
       : await runNixPostgres("psql", args, options);
+
   return JSON.parse(result.stdout.trim());
 }
 
@@ -736,12 +838,15 @@ function assertExpectedOutboxCommandOrder(postgres, journeyEvidence) {
     journeyEvidence.commands.stale,
     journeyEvidence.commands.concurrentWinner,
   ];
+
   const observedCommandOrder = [];
+
   for (const row of postgres.outbox) {
     if (observedCommandOrder.at(-1) !== row.commandId) {
       observedCommandOrder.push(row.commandId);
     }
   }
+
   if (JSON.stringify(observedCommandOrder) !== JSON.stringify(expectedCommandOrder)) {
     throw new Error(
       `Receipt approval outbox effects are not ordered by accepted command: observed=${JSON.stringify(observedCommandOrder)} expected=${JSON.stringify(expectedCommandOrder)}`,
@@ -754,15 +859,17 @@ function assertReceiptFileArtifact(artifact, contentType) {
     "application/pdf": "pdf",
     "image/png": "png",
   };
+
   const extension = extensionByContentType[contentType];
+
   if (
     artifact === null ||
-    typeof artifact !== "object" ||
+    !Predicate.isObjectOrArray(artifact) ||
     !Number.isSafeInteger(artifact.byteLength) ||
     artifact.byteLength <= 0 ||
     artifact.contentType !== contentType ||
     artifact.contentDisposition !== `inline; filename="receipt.${extension}"` ||
-    typeof artifact.sha256 !== "string" ||
+    !Predicate.isString(artifact.sha256) ||
     !/^sha256:[a-f0-9]{64}$/u.test(artifact.sha256)
   ) {
     throw new Error("Receipt approval file artifact did not preserve the private file contract");
@@ -770,15 +877,17 @@ function assertReceiptFileArtifact(artifact, contentType) {
 }
 
 function assertFileReadEvidence(fileReads) {
-  if (fileReads === null || typeof fileReads !== "object") {
+  if (fileReads === null || !Predicate.isObjectOrArray(fileReads)) {
     throw new Error("Receipt approval file-read evidence is missing");
   }
+
   const { artifacts, mutationCounts, rejected } = fileReads;
+
   if (
     artifacts === null ||
-    typeof artifacts !== "object" ||
+    !Predicate.isObjectOrArray(artifacts) ||
     mutationCounts === null ||
-    typeof mutationCounts !== "object"
+    !Predicate.isObjectOrArray(mutationCounts)
   ) {
     throw new Error("Receipt approval file-read evidence is malformed");
   }
@@ -792,9 +901,11 @@ function assertFileReadEvidence(fileReads) {
   ]) {
     assertReceiptFileArtifact(artifacts[name], "image/png");
   }
+
   for (const name of ["activePdf", "dashboardPdf", "terminalReject", "dashboardTerminalReject"]) {
     assertReceiptFileArtifact(artifacts[name], "application/pdf");
   }
+
   assertEqual(
     artifacts.dashboardPng,
     artifacts.activePng,
@@ -875,6 +986,7 @@ function assertFileReadEvidence(fileReads) {
 
 function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   assertExpectedOutboxCommandOrder(postgres, journeyEvidence);
+
   if (
     postgres.receiptCount !== 4 ||
     postgres.commandCount !== 8 ||
@@ -896,18 +1008,22 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
       })}`,
     );
   }
+
   assertEqual(postgres.fixtureCounts, expectedFixtureCounts, "Receipt authority fixture counts");
 
   if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 4) {
     throw new Error("Receipt approval private-file cleanup did not preserve the committed files");
   }
+
   const finalFileIdentities = postgres.receipts.map((receipt) => ({
     receiptId: receipt.receiptId,
     fileRef: receipt.fileRef,
     objectKey: receipt.objectKey,
     sha256: receipt.sha256,
   }));
+
   const finalFileIdentityChecksum = fileIdentityChecksum(finalFileIdentities);
+
   if (
     journeyEvidence.fileIdentityCount !== finalFileIdentities.length ||
     journeyEvidence.fileIdentityChecksumBefore !== finalFileIdentityChecksum ||
@@ -915,7 +1031,9 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   ) {
     throw new Error("Receipt approval durable file identities differ from journey evidence");
   }
+
   assertFileReadEvidence(journeyEvidence.fileReads);
+
   if (
     journeyEvidence.durablePostgresFailure?.status !== 503 ||
     journeyEvidence.durablePostgresFailure?.tag !== "receipts.unavailable"
@@ -925,6 +1043,7 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
 
   const expectedReceiptIds = Object.values(journeyEvidence.receipts);
   const receiptById = new Map(postgres.receipts.map((receipt) => [receipt.receiptId, receipt]));
+
   if (
     expectedReceiptIds.length !== 4 ||
     new Set(expectedReceiptIds).size !== 4 ||
@@ -935,11 +1054,13 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
 
   for (const receiptId of expectedReceiptIds) {
     const receipt = receiptById.get(receiptId);
+
     if (receipt === undefined || receipt.revision !== 1) {
       throw new Error(`Receipt ${receiptId} did not commit exactly one approval revision`);
     }
+
     if (
-      (receipt.status === "Approved" && typeof receipt.approvedAt !== "string") ||
+      (receipt.status === "Approved" && !Predicate.isString(receipt.approvedAt)) ||
       (receipt.status !== "Approved" && receipt.approvedAt !== null)
     ) {
       throw new Error(`Receipt ${receiptId} violated the approved-at invariant`);
@@ -953,10 +1074,13 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     journeyEvidence.commands.stale,
     journeyEvidence.commands.concurrentWinner,
   ];
+
   if (new Set(expectedCommandIds).size !== 8) {
     throw new Error("Receipt approval command IDs are not unique");
   }
+
   const commandIds = postgres.commands.map((command) => command.commandId);
+
   if (
     commandIds.length !== expectedCommandIds.length ||
     !expectedCommandIds.every((commandId) => commandIds.includes(commandId))
@@ -965,20 +1089,24 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   }
 
   const auditByCommand = new Map(postgres.audits.map((audit) => [audit.commandId, audit]));
+
   if (
     postgres.audits.some((audit) => !expectedCommandIds.includes(audit.commandId)) ||
     expectedCommandIds.some((commandId) => auditByCommand.get(commandId) === undefined)
   ) {
     throw new Error("Receipt approval audit rows do not match accepted commands");
   }
+
   const submissionActors = new Map(
     journeyEvidence.commands.submissionActors.map(({ commandId, personId }) => [
       commandId,
       personId,
     ]),
   );
+
   for (const commandId of journeyEvidence.commands.submissions) {
     const audit = auditByCommand.get(commandId);
+
     if (
       audit?.action !== "ReceiptSubmitted" ||
       audit.actorPersonId !== submissionActors.get(commandId)
@@ -986,24 +1114,30 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
       throw new Error("Receipt submission audit actor or action is incorrect");
     }
   }
+
   if (auditByCommand.get(journeyEvidence.commands.approval)?.action !== "ReceiptApproved") {
     throw new Error("Receipt approval audit action is incorrect");
   }
+
   if (
     auditByCommand.get(journeyEvidence.commands.reject)?.action !== "ReceiptRejected" ||
     auditByCommand.get(journeyEvidence.commands.stale)?.action !== "ReceiptRejected"
   ) {
     throw new Error("Receipt rejection audit action is incorrect");
   }
+
   const concurrentReceipt = receiptById.get(journeyEvidence.receipts.concurrent);
+
   const expectedConcurrentAction =
     concurrentReceipt?.status === "Approved" ? "ReceiptApproved" : "ReceiptRejected";
+
   if (
     auditByCommand.get(journeyEvidence.commands.concurrentWinner)?.action !==
     expectedConcurrentAction
   ) {
     throw new Error("Concurrent approval audit action is incorrect");
   }
+
   for (const commandId of [
     journeyEvidence.commands.approval,
     journeyEvidence.commands.reject,
@@ -1019,22 +1153,27 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   }
 
   const outboxByCommand = new Map();
+
   for (const row of postgres.outbox) {
     const rows = outboxByCommand.get(row.commandId) ?? [];
     rows.push(row);
     outboxByCommand.set(row.commandId, rows);
+
     if (row.status !== "Delivered")
       throw new Error("Receipt approval outbox is not fully delivered");
   }
+
   const expectedSubmissionEffects = [
     "PromoteReceiptFile",
     "NotifyEconomyReceiptSubmitted",
     "WriteReceiptAudit",
   ];
+
   for (const commandId of journeyEvidence.commands.submissions) {
     const rows = outboxByCommand
       .get(commandId)
       ?.sort((left, right) => left.ordinal - right.ordinal);
+
     if (
       rows === undefined ||
       rows.length !== expectedSubmissionEffects.length ||
@@ -1046,6 +1185,7 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
       throw new Error("Receipt submission outbox order is incorrect");
     }
   }
+
   const expectedResolutionEffects = new Map([
     [journeyEvidence.commands.approval, "NotifyReceiptApproved"],
     [journeyEvidence.commands.reject, "NotifyReceiptRejected"],
@@ -1057,10 +1197,12 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
         : "NotifyReceiptRejected",
     ],
   ]);
+
   for (const [commandId, notificationEffect] of expectedResolutionEffects) {
     const rows = outboxByCommand
       .get(commandId)
       ?.sort((left, right) => left.ordinal - right.ordinal);
+
     if (
       rows === undefined ||
       rows.length !== 2 ||
@@ -1077,6 +1219,7 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
 function assertReceiptDeliveryEvidence(postgres, deliveries, seedEvidence) {
   const notificationRows = postgres.outbox.filter((row) => row.effectType.startsWith("Notify"));
   const deliveryById = new Map(deliveries.map((delivery) => [delivery.deliveryId, delivery]));
+
   if (
     notificationRows.length !== 8 ||
     deliveries.length !== notificationRows.length ||
@@ -1084,23 +1227,29 @@ function assertReceiptDeliveryEvidence(postgres, deliveries, seedEvidence) {
   ) {
     throw new Error("Receipt notification delivery count did not match durable outbox effects");
   }
+
   const receiptById = new Map(postgres.receipts.map((receipt) => [receipt.receiptId, receipt]));
+
   const emailByPersonId = new Map(
     seedEvidence.personas.map((persona) => [persona.personId, persona.email]),
   );
+
   const subjectByEffectType = {
     NotifyEconomyReceiptSubmitted: "Nytt utlegg registrert",
     NotifyReceiptApproved: "Utlegget ditt er godkjent",
     NotifyReceiptRejected: "Utlegget ditt er avvist",
   };
+
   for (const row of notificationRows) {
     const delivery = deliveryById.get(row.effectId);
     const receipt = receiptById.get(row.receiptId);
     const subject = subjectByEffectType[row.effectType];
+
     const expectedRecipient =
       row.effectType === "NotifyEconomyReceiptSubmitted"
         ? receiptEconomyRecipients[receipt?.departmentId]
         : emailByPersonId.get(receipt?.ownerPersonId);
+
     if (
       delivery === undefined ||
       receipt === undefined ||
@@ -1109,7 +1258,7 @@ function assertReceiptDeliveryEvidence(postgres, deliveries, seedEvidence) {
       delivery.from !== receiptDeliverySender ||
       delivery.to !== expectedRecipient ||
       delivery.subject !== subject ||
-      typeof delivery.text !== "string" ||
+      !Predicate.isString(delivery.text) ||
       !delivery.text.includes(receipt.visualId)
     ) {
       throw new Error(`Receipt notification delivery ${row.effectId} is not authoritative`);
@@ -1120,9 +1269,11 @@ function assertReceiptDeliveryEvidence(postgres, deliveries, seedEvidence) {
 function assertJourneyEvidence(journeyEvidence, seedEvidence) {
   assertEqual(journeyEvidence.journeyRefId, journeyRefId, "Finance journey reference");
   assertEqual(journeyEvidence.acceptedStepIds, journeyStepIds, "Finance journey steps");
+
   if (journeyEvidence.environmentTokenAuthority !== false) {
     throw new Error("Receipt journey evidence did not exclude environment-token authority");
   }
+
   const expectedSessions = [...seedEvidence.personas]
     .map(({ fixtureLabel, personId }) => ({
       fixtureLabel,
@@ -1133,9 +1284,11 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
       personId,
     }))
     .sort(({ personId: left }, { personId: right }) => left.localeCompare(right));
+
   const observedSessions = Object.values(journeyEvidence.sessions).sort(
     ({ personId: left }, { personId: right }) => left.localeCompare(right),
   );
+
   assertEqual(observedSessions, expectedSessions, "Seven rendered Better Auth sessions");
   assertEqual(
     journeyEvidence.statusMatrix,
@@ -1201,9 +1354,11 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
     },
     "Frozen Receipt approval status matrix",
   );
+
   if (journeyEvidence.accepted.concurrent.transactionBarrierSynchronized !== true) {
     throw new Error("Receipt transaction concurrency barrier evidence is missing");
   }
+
   assertEqual(
     journeyEvidence.rendered.forbiddenBrowserRequests,
     [],
@@ -1244,7 +1399,9 @@ function assertRequestLedger(records, journeyEvidence) {
   if (records.some(({ authorizationHeaderPresent }) => authorizationHeaderPresent)) {
     throw new Error("Native Receipt transport used an Authorization header");
   }
+
   const serialized = JSON.stringify(records);
+
   for (const forbiddenValue of [
     personaPassword,
     "ciphertext-owner-a-0037",
@@ -1254,6 +1411,7 @@ function assertRequestLedger(records, journeyEvidence) {
       throw new Error("Native Receipt ledger retained a credential or private authority value");
     }
   }
+
   const forbiddenRequests = records.filter(
     ({ method, pathname }) =>
       pathname === "/api/login" ||
@@ -1261,22 +1419,27 @@ function assertRequestLedger(records, journeyEvidence) {
       /\/api\/admin\/receipts\/[^/]+\/status$/u.test(pathname) ||
       (["PUT", "PATCH", "DELETE"].includes(method) && pathname.includes("/receipts")),
   );
+
   assertEqual(forbiddenRequests, [], "Forbidden native Receipt requests");
 
   const receiptOperations = records.filter(
     ({ pathname }) =>
       pathname.startsWith("/api/receipts") || pathname.startsWith("/api/receipt-approval-queue"),
   );
+
   for (const record of receiptOperations) {
     if (record.authorizationHeaderPresent) {
       throw new Error("Protected Receipt request used Authorization");
     }
+
     if (!record.sessionCookieAuth) {
       if (record.status !== 401) {
         throw new Error("Only an explicit unauthenticated Receipt probe omitted its session");
       }
+
       continue;
     }
+
     if (record.status !== 401) {
       if (
         record.sessionPersonId === null ||
@@ -1290,37 +1453,45 @@ function assertRequestLedger(records, journeyEvidence) {
   const submissions = receiptOperations.filter(
     ({ method, pathname }) => method === "POST" && pathname === "/api/receipts",
   );
+
   if (
     submissions.length !== 4 ||
     submissions.some(
       ({ status, body, idempotencyKey, ifMatch }) =>
         status !== 201 ||
         body?.kind !== "multipart/form-data" ||
-        typeof idempotencyKey !== "string" ||
+        !Predicate.isString(idempotencyKey) ||
         ifMatch !== null,
     )
   ) {
     throw new Error("Receipt submission sequence is not the exact four native multipart writes");
   }
+
   const ownerReads = receiptOperations.filter(
     ({ method, pathname }) => method === "GET" && pathname === "/api/receipts",
   );
+
   if (ownerReads.length !== 4 || ownerReads.some(({ status }) => status !== 200)) {
     throw new Error("Receipt owner read sequence is not exact");
   }
+
   const ownerFilePath = /^\/api\/receipts\/[^/]+\/file$/u;
+
   const ownerFileReads = receiptOperations.filter(
     ({ method, pathname }) => method === "GET" && ownerFilePath.test(pathname),
   );
+
   assertEqual(
     ownerFileReads.map(({ status }) => status).sort((left, right) => left - right),
     [200, 404, 404],
     "Owner Receipt file access remains separate from approval access",
   );
   const approvalFilePath = /^\/api\/receipt-approval-queue\/[^/]+\/file$/u;
+
   const approvalFileReads = receiptOperations.filter(
     ({ method, pathname }) => method === "GET" && approvalFilePath.test(pathname),
   );
+
   assertEqual(
     approvalFileReads.map(({ status }) => status).sort((left, right) => left - right),
     [
@@ -1329,6 +1500,7 @@ function assertRequestLedger(records, journeyEvidence) {
     ],
     "Exact scoped Receipt file read operation sequence",
   );
+
   if (
     approvalFileReads.some(
       ({ body, idempotencyKey, ifMatch }) =>
@@ -1337,15 +1509,18 @@ function assertRequestLedger(records, journeyEvidence) {
   ) {
     throw new Error("Receipt file reads carried mutation request state");
   }
+
   const concurrencyRecords = receiptOperations
     .filter(({ concurrencyProbe }) => concurrencyProbe !== null)
     .sort(({ concurrencyProbe: left }, { concurrencyProbe: right }) => left.localeCompare(right));
+
   if (
     concurrencyRecords.length !== 3 ||
     concurrencyRecords.some(({ concurrencySynchronized }) => concurrencySynchronized !== "1")
   ) {
     throw new Error("Receipt transaction concurrency barrier was not observed on all three lanes");
   }
+
   assertEqual(
     concurrencyRecords.map(({ concurrencyProbe }) => concurrencyProbe),
     ["file-read", "approve", "reject"],
@@ -1358,9 +1533,11 @@ function assertRequestLedger(records, journeyEvidence) {
   );
 
   const semanticPath = /\/api\/receipts\/[^/]+::(?:approve|reject)$/u;
+
   const commands = receiptOperations.filter(
     ({ method, pathname }) => method === "POST" && semanticPath.test(pathname),
   );
+
   const commandStatuses = commands.map(({ status }) => status).sort((left, right) => left - right);
   assertEqual(
     commandStatuses,
@@ -1370,11 +1547,14 @@ function assertRequestLedger(records, journeyEvidence) {
     ],
     "Exact scoped approval/reject operation sequence",
   );
+
   for (const command of commands) {
-    if (typeof command.idempotencyKey !== "string" || typeof command.ifMatch !== "string") {
+    if (!Predicate.isString(command.idempotencyKey) || !Predicate.isString(command.ifMatch)) {
       throw new Error("Semantic Receipt command omitted Idempotency-Key or If-Match");
     }
+
     if (command.body?.kind === "malformed-json") continue;
+
     if (
       command.body?.kind !== "json" ||
       !Array.isArray(command.body.keys) ||
@@ -1383,8 +1563,10 @@ function assertRequestLedger(records, journeyEvidence) {
       throw new Error("Semantic Receipt command body was not the canonical empty JSON object");
     }
   }
+
   for (let index = 0; index < receiptOperations.length; index += 1) {
     const operation = receiptOperations[index];
+
     if (
       operation?.method !== "POST" ||
       operation.status !== 200 ||
@@ -1392,9 +1574,12 @@ function assertRequestLedger(records, journeyEvidence) {
     ) {
       continue;
     }
+
     let freshReadIndex = index + 1;
+
     while (freshReadIndex < receiptOperations.length) {
       const candidate = receiptOperations[freshReadIndex];
+
       if (
         candidate?.method === "GET" &&
         candidate.pathname === "/api/receipt-approval-queue" &&
@@ -1402,6 +1587,7 @@ function assertRequestLedger(records, journeyEvidence) {
       ) {
         break;
       }
+
       if (
         (candidate?.method === "GET" && approvalFilePath.test(candidate.pathname)) ||
         (candidate?.method === "POST" &&
@@ -1411,23 +1597,28 @@ function assertRequestLedger(records, journeyEvidence) {
         freshReadIndex += 1;
         continue;
       }
+
       throw new Error("Accepted Receipt command was not followed by a fresh approval-list read");
     }
+
     if (freshReadIndex === receiptOperations.length) {
       throw new Error("Accepted Receipt command was not followed by a fresh approval-list read");
     }
   }
+
   assertEqual(
     journeyEvidence.rendered.loginPersonIds.slice().sort(),
     [...authorityFixturesByPersonId.keys()].sort(),
     "Rendered login PersonIds",
   );
+
   return receiptOperations;
 }
 
 async function startReceiptDeliverySink() {
   const token = randomBytes(32).toString("hex");
   const deliveries = new Map();
+
   const server = createServer(async (request, response) => {
     try {
       if (
@@ -1437,46 +1628,59 @@ async function startReceiptDeliverySink() {
         request.headers["content-type"] !== "application/json"
       ) {
         response.writeHead(401).end();
+
         return;
       }
+
       const chunks = [];
       let byteLength = 0;
+
       for await (const chunk of request) {
         const bytes = Buffer.from(chunk);
         byteLength += bytes.byteLength;
+
         if (byteLength > 65_536) throw new Error("Receipt delivery envelope is too large");
         chunks.push(bytes);
       }
+
       const envelope = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+
       if (
         envelope === null ||
-        typeof envelope !== "object" ||
-        typeof envelope.deliveryId !== "string" ||
+        !Predicate.isObjectOrArray(envelope) ||
+        !Predicate.isString(envelope.deliveryId) ||
         request.headers["idempotency-key"] !== envelope.deliveryId
       ) {
         throw new Error("Receipt delivery envelope is invalid");
       }
+
       const previous = deliveries.get(envelope.deliveryId);
+
       if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(envelope)) {
         response.writeHead(409).end();
+
         return;
       }
+
       deliveries.set(envelope.deliveryId, envelope);
       response.writeHead(204).end();
     } catch {
       response.writeHead(400).end();
     }
   });
+
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
   });
   const address = server.address();
-  if (address === null || typeof address === "string") {
+
+  if (address === null || Predicate.isString(address)) {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
     throw new Error("Receipt delivery sink did not bind a TCP port");
   }
+
   return {
     environment: {
       RECEIPT_DELIVERY_URL: `http://127.0.0.1:${address.port}/receipts`,
@@ -1494,7 +1698,7 @@ async function startReceiptDeliverySink() {
       await new Promise((resolve, reject) => {
         server.close((error) =>
           error === undefined ||
-          (typeof error === "object" &&
+          (Predicate.isObjectOrArray(error) &&
             error !== null &&
             "code" in error &&
             error.code === "ERR_SERVER_NOT_RUNNING")
@@ -1538,6 +1742,7 @@ export default {
   );
 
   const baseEnvironment = { ...process.env };
+
   for (const name of [
     "API_MODE",
     "VITE_API_MODE",
@@ -1562,12 +1767,14 @@ export default {
   ]) {
     delete baseEnvironment[name];
   }
+
   const sharedEnvironment = {
     ...baseEnvironment,
     BETTER_AUTH_SECRET: betterAuthSecret,
     NATIVE_IDENTITY_DEPLOYMENT: "local",
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
   };
+
   const apiEnvironment = {
     ...sharedEnvironment,
     OAUTH_CANONICAL_ORIGIN: backendOrigin,
@@ -1596,11 +1803,13 @@ export default {
     if (cleaned) return;
     cleaned = true;
     const cleanupErrors = [];
+
     try {
       await stopProcess(dashboardProcess);
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (proxy !== undefined) {
       try {
         await proxy.close();
@@ -1608,11 +1817,13 @@ export default {
         cleanupErrors.push(error);
       }
     }
+
     try {
       await stopProcess(apiProcess);
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (deliverySink !== undefined) {
       try {
         await deliverySink.close();
@@ -1620,6 +1831,7 @@ export default {
         cleanupErrors.push(error);
       }
     }
+
     if (postgresStarted) {
       try {
         if (postgresTopology === "docker") {
@@ -1648,11 +1860,13 @@ export default {
         cleanupErrors.push(error);
       }
     }
+
     try {
       await rm(temporaryRoot, { recursive: true, force: true });
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (cleanupErrors.length > 0) {
       throw new AggregateError(cleanupErrors, "Real Receipt approval topology cleanup failed");
     }
@@ -1663,14 +1877,17 @@ export default {
       process.exit(signal === "SIGINT" ? 130 : 143);
     });
   };
+
   const handleInterrupt = () => handleSignal("SIGINT");
   const handleTermination = () => handleSignal("SIGTERM");
   process.once("SIGINT", handleInterrupt);
   process.once("SIGTERM", handleTermination);
 
   let primaryError;
+
   try {
     postgresStarted = true;
+
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
@@ -1695,9 +1912,11 @@ export default {
       label: "Native Receipt identity and authority seed",
       captureOutput: true,
     });
+
     const seedEvidence = JSON.parse(seed.stdout.trim().split(/\r?\n/u).at(-1));
     assertEqual(seedEvidence.fixtureCounts, expectedFixtureCounts, "Seeded authority counts");
     deliverySink = await startReceiptDeliverySink();
+
     const runtimeApiEnvironment = {
       ...apiEnvironment,
       ...deliverySink.environment,
@@ -1719,6 +1938,7 @@ export default {
     const personaByPersonId = new Map(
       seedEvidence.personas.map((persona) => [persona.personId, persona]),
     );
+
     const journeyEnvironment = {
       ...sharedEnvironment,
       API_URL: proxy.origin,
@@ -1741,6 +1961,7 @@ export default {
       RECEIPT_COMMITTED_ROOT: committedRoot,
       BACKEND_PG_URL: postgresUrl,
     };
+
     for (const [prefix, personId] of [
       ["RECEIPT_APPROVAL_E2E_OWNER_A", "owner-a"],
       ["RECEIPT_APPROVAL_E2E_OWNER_B", "owner-b"],
@@ -1751,11 +1972,13 @@ export default {
       ["RECEIPT_APPROVAL_E2E_NONE_SCOPE", "approver-none"],
     ]) {
       const persona = personaByPersonId.get(personId);
+
       if (persona === undefined) throw new Error(`Receipt persona ${personId} was not seeded`);
       journeyEnvironment[`${prefix}_EMAIL`] = persona.email;
       journeyEnvironment[`${prefix}_PASSWORD`] = personaPassword;
       journeyEnvironment[`${prefix}_PERSON_ID`] = persona.personId;
     }
+
     await runCommand("bun", ["run", "build"], {
       cwd: dashboardRoot,
       env: journeyEnvironment,
@@ -1790,32 +2013,41 @@ export default {
         captureOutput: true,
       },
     );
+
     playwrightArtifactBytes = sanitizePlaywrightArtifact(Buffer.from(playwright.stdout, "utf8"));
 
     const journeyEvidence = JSON.parse(await readFile(approvalEvidencePath, "utf8"));
     assertJourneyEvidence(journeyEvidence, seedEvidence);
+
     const expectedSessionCookies = [...authorityFixturesByPersonId.keys()]
       .map((personId) => ({
         personId,
         sessionCookieNames: ["better-auth.session_token"],
       }))
       .sort(({ personId: left }, { personId: right }) => left.localeCompare(right));
+
     const observedSessionCookies = proxy.sessionCookieEvidence();
+
     if (JSON.stringify(observedSessionCookies) !== JSON.stringify(expectedSessionCookies)) {
       throw new Error(
         `Exactly one Better Auth session cookie per persona did not match the frozen amendment: observed=${JSON.stringify(observedSessionCookies)} expected=${JSON.stringify(expectedSessionCookies)}`,
       );
     }
+
     const receiptOperations = assertRequestLedger(proxy.records, journeyEvidence);
     const postgres = await readPostgresEvidence(baseEnvironment);
+
     const privateFile = {
       stagingFileCount: await countFiles(stagingRoot),
       committedFileCount: await countFiles(committedRoot),
     };
+
     assertDurableEvidence(postgres, privateFile, journeyEvidence);
+
     if (deliverySink === undefined) {
       throw new Error("Receipt delivery sink was not started");
     }
+
     const receiptDeliveries = deliverySink.evidence();
     assertReceiptDeliveryEvidence(postgres, receiptDeliveries, seedEvidence);
     evidence = {
@@ -1847,6 +2079,7 @@ export default {
   }
 
   let cleanupError;
+
   try {
     await cleanup();
   } catch (error) {
@@ -1862,11 +2095,15 @@ export default {
       "Real Receipt approval journey and cleanup failed",
     );
   }
+
   if (primaryError !== undefined) throw primaryError;
+
   if (cleanupError !== undefined) throw cleanupError;
+
   if (await pathExists(temporaryRoot)) {
     throw new Error("Real Receipt approval cleanup left the private temporary root behind");
   }
+
   if (playwrightArtifactBytes === undefined) {
     throw new Error("Receipt approval JSON reporter artifact was not captured");
   }
@@ -1896,6 +2133,7 @@ const formatRunnerError = (error) => {
   if (error instanceof AggregateError) {
     return `${error.message}: ${error.errors.map(formatRunnerError).join("; ")}`;
   }
+
   return error instanceof Error ? error.message : String(error);
 };
 

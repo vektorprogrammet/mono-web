@@ -1,0 +1,13 @@
+{
+  "source": "https://github.com/joelhooks/rat-stack",
+  "commit": "5d99b80c9a19ab0c51a23a1e3ffc8fb101f78b61",
+  "path": "tools/oxlint/anti-slop",
+  "upstream": {
+    "source": "https://github.com/dmmulroy/anti-slop",
+    "commit": "c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b"
+  },
+  "deviations": [
+    "UPSTREAM.md notices preserved verbatim as UPSTREAM.txt to avoid new Markdown documents.",
+    "Added rat-stack license and this provenance record; plugin TypeScript is unchanged."
+  ]
+}

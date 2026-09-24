@@ -4,7 +4,7 @@ import {
   ReceiptAuxiliaryEffects,
   ReceiptDeliveryUnavailable,
 } from "@vektorprogrammet/domain/receipt";
-import { Effect, Layer, Schema } from "effect";
+import { Predicate, Effect, Layer, Schema } from "effect";
 import { deliverJson, type HttpDeliveryConfig, type DeliveryFetch } from "../delivery/http.js";
 
 const Envelope = Schema.Struct({
@@ -14,11 +14,13 @@ const Envelope = Schema.Struct({
   subject: Schema.String,
   text: Schema.String,
 });
+
 export interface ReceiptDeliveryConfig {
   readonly sender: string;
   readonly economyRecipients: Readonly<Record<string, string>>;
   readonly transport: HttpDeliveryConfig;
 }
+
 /** Absent configuration leaves notifications failed/retryable; partial configuration is an error. */
 export const receiptDeliveryConfig = (
   env: Readonly<Record<string, string | undefined>>,
@@ -30,15 +32,19 @@ export const receiptDeliveryConfig = (
     "RECEIPT_DELIVERY_SENDER",
     "RECEIPT_DELIVERY_ECONOMY_RECIPIENTS",
   ] as const;
+
   if (keys.every((key) => env[key] === undefined)) return undefined;
+
   try {
     const endpoint = new URL(env.RECEIPT_DELIVERY_URL!);
     const token = env.RECEIPT_DELIVERY_TOKEN!;
     const sender = Schema.decodeUnknownSync(ContactEmail)(env.RECEIPT_DELIVERY_SENDER);
     const timeout = Number(env.RECEIPT_DELIVERY_TIMEOUT_MS);
+
     const recipients = Schema.decodeUnknownSync(Schema.Record(Schema.String, ContactEmail))(
       JSON.parse(env.RECEIPT_DELIVERY_ECONOMY_RECIPIENTS!),
     );
+
     // Cleartext delivery is confined to local rehearsals; credentials never follow redirects.
     if (
       endpoint.username ||
@@ -58,6 +64,7 @@ export const receiptDeliveryConfig = (
       Object.keys(recipients).some((key) => !key.trim())
     )
       throw new Error();
+
     return {
       sender,
       economyRecipients: recipients,
@@ -69,7 +76,7 @@ export const receiptDeliveryConfig = (
 };
 
 /** First-attempt contact snapshot, durable before network IO. Receiver must deduplicate deliveryId. */
-export const makeReceiptDeliveryLayer = (
+export const ReceiptDeliveryLive = (
   config: ReceiptDeliveryConfig | undefined,
   fetchEffect: DeliveryFetch = globalThis.fetch,
 ) =>
@@ -77,6 +84,7 @@ export const makeReceiptDeliveryLayer = (
     ReceiptAuxiliaryEffects,
     Effect.gen(function* () {
       const sql = yield* Database;
+
       return ReceiptAuxiliaryEffects.of({
         apply: (request, claimId) =>
           Effect.gen(function* () {
@@ -84,19 +92,24 @@ export const makeReceiptDeliveryLayer = (
               return yield* Effect.fail(
                 new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
               );
-            if (request._tag === "WriteReceiptAudit") {
+
+            if (Predicate.isTagged(request, "WriteReceiptAudit")) {
               const audit =
                 yield* sql`SELECT 1 FROM economy_receipt_audit WHERE command_id = ${request.commandId} AND receipt_id = ${request.receiptId}`;
+
               if (audit.length !== 1)
                 return yield* Effect.fail(
                   new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
                 );
+
               return;
             }
+
             if (config === undefined)
               return yield* Effect.fail(
                 new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
               );
+
             const envelope = yield* sql.withTransaction(
               Effect.gen(function* () {
                 const rows = yield* sql<{ delivery_envelope: unknown; effect_type: string }>`
@@ -104,13 +117,19 @@ export const makeReceiptDeliveryLayer = (
             WHERE effect_id = ${request.effectId} AND command_id = ${request.commandId}
               AND receipt_id = ${request.receiptId} AND status = 'Processing' AND claim_id = ${claimId}
             FOR UPDATE`;
+
                 const row = rows[0];
+
                 if (!row || row.effect_type !== request._tag)
-                  return yield* Effect.fail(new Error("Receipt delivery claim unavailable"));
+                  return yield* Effect.fail(
+                    new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
+                  );
+
                 if (row.delivery_envelope !== null)
                   return yield* Schema.decodeUnknownEffect(Envelope)(row.delivery_envelope, {
                     onExcessProperty: "error",
                   });
+
                 const facts = yield* sql<{
                   department_id: string;
                   email: string;
@@ -142,11 +161,13 @@ export const makeReceiptDeliveryLayer = (
             JOIN economy_receipt_audit audit ON audit.command_id = command.command_id
             LEFT JOIN economy_receipt_settlements settlement ON settlement.receipt_id = receipt.receipt_id
             WHERE receipt.receipt_id = ${request.receiptId} AND command.command_id = ${request.commandId}`;
+
                 const fact = facts[0];
-                const submitted = request._tag === "NotifyEconomyReceiptSubmitted";
-                const approved = request._tag === "NotifyReceiptApproved";
-                const settled = request._tag === "NotifyReceiptSettled";
+                const submitted = Predicate.isTagged(request, "NotifyEconomyReceiptSubmitted");
+                const approved = Predicate.isTagged(request, "NotifyReceiptApproved");
+                const settled = Predicate.isTagged(request, "NotifyReceiptSettled");
                 const status = submitted ? "Pending" : approved ? "Approved" : "Rejected";
+
                 if (
                   !fact ||
                   (!settled && fact.status !== status) ||
@@ -157,8 +178,11 @@ export const makeReceiptDeliveryLayer = (
                       fact.external_reference === null ||
                       fact.settled_at === null))
                 ) {
-                  return yield* Effect.fail(new Error("Receipt notification facts unavailable"));
+                  return yield* Effect.fail(
+                    new ReceiptDeliveryUnavailable({ effectId: request.effectId }),
+                  );
                 }
+
                 const subject = submitted
                   ? "Nytt utlegg registrert"
                   : settled
@@ -166,9 +190,11 @@ export const makeReceiptDeliveryLayer = (
                     : approved
                       ? "Utlegget ditt er godkjent"
                       : "Utlegget ditt er avvist";
+
                 const text = settled
                   ? `${subject}. Referanse: ${fact.visual_id}.\nBeløp: ${(Number(fact.settlement_amount) / 100).toFixed(2)} ${fact.settlement_currency}\nEkstern autoritet: ${fact.external_authority}\nEkstern referanse: ${fact.external_reference}\nOppgjort: ${fact.settled_at}`
-                  : `${subject}. Referanse: ${fact.visual_id}.\nBeløp: ${(Number(fact.amount) / 100).toFixed(2)} NOK\nDato: ${fact.receipt_date}\nBeskrivelse: ${fact.description}${request._tag === "NotifyReceiptRejected" ? `\nKontakt økonomiansvarlig på ${config.sender} dersom du har spørsmål om avvisningen.` : ""}`;
+                  : `${subject}. Referanse: ${fact.visual_id}.\nBeløp: ${(Number(fact.amount) / 100).toFixed(2)} NOK\nDato: ${fact.receipt_date}\nBeskrivelse: ${fact.description}${Predicate.isTagged(request, "NotifyReceiptRejected") ? `\nKontakt økonomiansvarlig på ${config.sender} dersom du har spørsmål om avvisningen.` : ""}`;
+
                 const prepared = yield* Schema.decodeUnknownEffect(Envelope)({
                   deliveryId: request.effectId,
                   from: config.sender,
@@ -176,10 +202,13 @@ export const makeReceiptDeliveryLayer = (
                   subject,
                   text,
                 });
+
                 yield* sql`UPDATE economy_receipt_outbox SET delivery_envelope = ${sql.json(prepared)} WHERE effect_id = ${request.effectId} AND claim_id = ${claimId}`;
+
                 return prepared;
               }),
             );
+
             yield* deliverJson(envelope, config.transport, fetchEffect, {
               "idempotency-key": request.effectId,
             });

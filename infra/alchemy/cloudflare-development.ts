@@ -6,7 +6,9 @@ import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 
 const workerMain = new URL("../../apps/backend/src/cloudflare-worker.ts", import.meta.url).pathname;
+
 const developmentOrigin = "https://vektor.phibkro.org";
+
 const databaseOrigin = "vektor-db-origin.phibkro.org";
 
 /**
@@ -16,6 +18,7 @@ const databaseOrigin = "vektor-db-origin.phibkro.org";
  */
 export const cloudflareDevelopmentStack = Effect.gen(function* () {
   const stage = yield* Alchemy.Stage;
+
   if (stage !== "development") {
     throw new Error("Cloudflare development stack requires stage 'development'");
   }
@@ -31,23 +34,28 @@ export const cloudflareDevelopmentStack = Effect.gen(function* () {
     content: `${tunnelId}.cfargotunnel.com`,
     proxied: true,
   });
+
   const databaseClient = yield* Cloudflare.Access.ServiceToken("DevelopmentDatabaseClient", {
     name: "vektor-development-hyperdrive",
     duration: "8760h",
   });
+
   const databaseClientSecret = databaseClient.clientSecret.pipe(
     Output.map((secret) => {
       if (secret === undefined) {
         throw new Error("Development database Access service token has no client secret");
       }
+
       return secret;
     }),
   );
+
   const databasePolicy = yield* Cloudflare.Access.Policy("DevelopmentDatabasePolicy", {
     name: "vektor-development-hyperdrive",
     decision: "non_identity",
     include: [{ serviceToken: { tokenId: databaseClient.serviceTokenId } }],
   });
+
   yield* Cloudflare.Access.Application("DevelopmentDatabaseAccess", {
     type: "self_hosted",
     name: "Vektorprogrammet development database",
@@ -55,18 +63,23 @@ export const cloudflareDevelopmentStack = Effect.gen(function* () {
     appLauncherVisible: false,
     policies: [databasePolicy.policyId],
   });
+
   const bucket = yield* Cloudflare.R2.Bucket("DevelopmentReceiptFiles", {
     name: "vektor-development-receipt-files",
   }).pipe(Alchemy.RemovalPolicy.retain());
+
   const email = yield* Cloudflare.Email.SendEmail("DevelopmentMail", {
     allowedSenderAddresses: [mailSender],
     destinationAddress: mailRecipient,
   });
+
   const database = yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE");
   const databaseUser = yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE_USER");
+
   const databasePassword = Redacted.make(
     yield* Config.string("CLOUDFLARE_DEVELOPMENT_DATABASE_PASSWORD"),
   );
+
   const hyperdriveOrigin = {
     scheme: "postgresql" as const,
     host: databaseOrigin,
@@ -76,6 +89,7 @@ export const cloudflareDevelopmentStack = Effect.gen(function* () {
     accessClientId: databaseClient.clientId.pipe(Output.map(Redacted.make)),
     accessClientSecret: databaseClientSecret,
   };
+
   const hyperdrive = yield* Cloudflare.Hyperdrive.Connection("DevelopmentHyperdrive", {
     name: "vektor-development-hyperdrive",
     origin: hyperdriveOrigin,

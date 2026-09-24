@@ -8,7 +8,7 @@ import {
   commandOnboarding,
   readOnboardingBoard,
 } from "@vektorprogrammet/database/onboarding";
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { provisionOnboardingAccount } from "./onboarding-account.js";
@@ -16,11 +16,17 @@ import {
   drainOnboardingDelivery,
   expireOnboardingSecrets,
 } from "../../../apps/backend/src/onboarding/delivery.js";
+
 const runtime = makeControlledTestRuntime(DatabaseTest());
+
 afterAll(() => runtime.dispose());
+
 const dept = DepartmentId.make("onboarding-dept");
+
 const actor = PersonId.make("onboarding-leader");
+
 const now = new Date().toISOString();
+
 async function setup() {
   await runtime.runPromise(
     Database.use((sql) =>
@@ -30,6 +36,7 @@ async function setup() {
         yield* sql`INSERT INTO admission_periods VALUES('onboarding-period',${dept},'onboarding-semester','2026-01-01','2027-01-01',0,'onboarding-seed')`;
         yield* sql`INSERT INTO admission_period_fields_of_study VALUES('onboarding-fos',${dept},'Math',true)`;
         yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${actor},'Cora','Coordinator')`;
+
         for (let i = 0; i < 7; i++) {
           yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES(${"onboard-applicant-" + i},${"applicant" + i + "@example.invalid"},${"applicant" + i + "@example.invalid"},'Ada','Applicant','12345678',0,'onboarding-fos',2)`;
           yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES(${"onboard-app-" + i},${"onboard-applicant-" + i},'onboarding-period',${dept},'onboarding-fos',2,${now})`;
@@ -38,6 +45,7 @@ async function setup() {
     ),
   );
 }
+
 const issue = (i: number) =>
   runtime.runPromise(
     Database.use((sql) =>
@@ -57,6 +65,7 @@ const issue = (i: number) =>
       ),
     ),
   );
+
 const claim = (i: number, personId: string, provision = provisionOnboardingAccount) =>
   runtime.runPromise(
     claimOnboarding({
@@ -70,6 +79,7 @@ const claim = (i: number, personId: string, provision = provisionOnboardingAccou
       provision,
     }),
   );
+
 describe("applicant account authority", () => {
   it("atomically establishes new account/link, refuses reuse and leaves credentials/profile untouched when linking an existing account", async () => {
     await setup();
@@ -87,12 +97,14 @@ describe("applicant account authority", () => {
         provision: provisionOnboardingAccount,
       }),
     );
+
     const rows = await runtime.runPromise(
       Database.use(
         (sql) =>
           sql`SELECT (SELECT count(*)::int FROM applicant_account_links WHERE person_id='new-onboard-person') links,(SELECT count(*)::int FROM auth."account" WHERE "userId"='new-onboard-person') accounts,(SELECT email FROM auth."user" WHERE id='new-onboard-person') email,(SELECT count(*)::int FROM organization_volunteer_affiliations WHERE person_id='new-onboard-person') affiliations`,
       ),
     );
+
     expect(rows[0]).toEqual({
       links: 2,
       accounts: 1,
@@ -102,21 +114,25 @@ describe("applicant account authority", () => {
   }, 15000);
   it("rolls back all partial writes when provision fails", async () => {
     await issue(2);
+
     const failed = (input: Parameters<typeof provisionOnboardingAccount>[0]) =>
       provisionOnboardingAccount(input).pipe(
         Effect.andThen(
           Effect.fail(new OnboardingFailure({ code: "onboarding.claim-invalid", status: 400 })),
         ),
       );
+
     await expect(claim(2, "rollback-onboard-person", failed)).rejects.toMatchObject({
       code: "onboarding.claim-invalid",
     });
+
     const rows = await runtime.runPromise(
       Database.use(
         (sql) =>
           sql`SELECT (SELECT count(*)::int FROM person_profiles WHERE person_id='rollback-onboard-person') people,(SELECT state FROM applicant_account_invitations WHERE invitation_id='onboard-invite-2') state`,
       ),
     );
+
     expect(rows[0]).toEqual({ people: 0, state: "Open" });
     await claim(2, "rollback-onboard-person");
   });
@@ -135,6 +151,7 @@ describe("applicant account authority", () => {
   it("retains immutable envelope through failure, clears secret on ACK and reports lost custody accurately", async () => {
     await issue(4);
     const envelopes: string[] = [];
+
     const config = {
       sender: "sender@example.invalid",
       claimUrl: new URL("http://127.0.0.1:5174/konto-aktivering"),
@@ -144,32 +161,38 @@ describe("applicant account authority", () => {
         deliveryTimeoutMilliseconds: 1000,
       },
     };
+
     const drain = (fetchEffect: Parameters<typeof drainOnboardingDelivery>[2]) =>
       runtime.runPromise(drainOnboardingDelivery("onboard-app-4", config, fetchEffect));
+
     expect(await runtime.runPromise(drainOnboardingDelivery("onboard-app-4", undefined))).toBe(
       "Pending",
     );
     expect(
       await drain(async (_, init) => {
-        if (typeof init?.body !== "string") throw new Error("Expected serialized delivery body");
+        if (!Predicate.isString(init?.body)) throw new Error("Expected serialized delivery body");
         envelopes.push(init.body);
+
         return new Response(null, { status: 503 });
       }),
     ).toBe("Pending");
     expect(
       await drain(async (_, init) => {
-        if (typeof init?.body !== "string") throw new Error("Expected serialized delivery body");
+        if (!Predicate.isString(init?.body)) throw new Error("Expected serialized delivery body");
         envelopes.push(init.body);
+
         return new Response(null, { status: 204 });
       }),
     ).toBe("Delivered");
     expect(envelopes[0]).toBe(envelopes[1]);
+
     const rows = await runtime.runPromise(
       Database.use(
         (sql) =>
           sql`SELECT state,secret,envelope FROM applicant_account_delivery WHERE invitation_id='onboard-invite-4'`,
       ),
     );
+
     expect(rows[0]).toEqual({ state: "Delivered", secret: null, envelope: null });
     await issue(5);
     expect(
@@ -181,6 +204,7 @@ describe("applicant account authority", () => {
                 sql`UPDATE applicant_account_delivery SET state='Cancelled',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id='onboard-invite-5'`,
             ),
           );
+
           return new Response(null, { status: 204 });
         }),
       ),
@@ -216,9 +240,11 @@ describe("applicant account authority", () => {
       ),
     );
     await claim(7, "reissued-person");
+
     const rows = await runtime.runPromise(
       Database.use((sql) => sql`SELECT email FROM auth."user" WHERE id='reissued-person'`),
     );
+
     expect(rows[0]?.email).toBe("applicant6@example.invalid");
   });
   it("expired claims fail immediately and expiry sweep erases retained delivery material", async () => {
@@ -244,12 +270,14 @@ describe("applicant account authority", () => {
       code: "onboarding.claim-invalid",
     });
     await runtime.runPromise(expireOnboardingSecrets);
+
     const rows = await runtime.runPromise(
       Database.use(
         (sql) =>
           sql`SELECT state,secret,envelope FROM applicant_account_delivery WHERE invitation_id='expired-invitation'`,
       ),
     );
+
     expect(rows[0]).toEqual({ state: "Cancelled", secret: null, envelope: null });
   });
   it("revokes only the selected application even when two departments share an applicant", async () => {
@@ -286,12 +314,14 @@ describe("applicant account authority", () => {
         }),
       ),
     );
+
     const selected = await runtime.runPromise(
       Database.use(
         (sql) =>
           sql`SELECT state FROM applicant_account_invitations WHERE invitation_id='other-invite'`,
       ),
     );
+
     expect(selected[0]?.state).toBe("Open");
     const board = await runtime.runPromise(readOnboardingBoard(dept));
     expect(board.items.find((item) => item.applicationId === "onboard-app-3")?.state).toBe(

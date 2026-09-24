@@ -2,14 +2,17 @@ const LegacySymfonyPasswordRecoveryUrl = "LEGACY_SYMFONY_PASSWORD_RECOVERY_URL";
 
 const legacySymfonyOrigin = (): string => {
   const value = process.env[LegacySymfonyPasswordRecoveryUrl];
+
   if (value === undefined || value.length === 0) {
     throw new Error(`${LegacySymfonyPasswordRecoveryUrl} is not configured`);
   }
+
   if (value.trim() !== value) {
     throw new Error(`${LegacySymfonyPasswordRecoveryUrl} must be an exact origin`);
   }
 
   let url: URL;
+
   try {
     url = new URL(value);
   } catch {
@@ -18,6 +21,7 @@ const legacySymfonyOrigin = (): string => {
 
   const localLoopback =
     url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port.length > 0;
+
   if (
     url.origin !== value ||
     url.pathname !== "/" ||
@@ -45,6 +49,7 @@ const postLegacyPasswordRecovery = async (
 ): Promise<void> => {
   const endpoint = legacySymfonyEndpoint(path);
   let response: Response;
+
   try {
     response = await fetch(endpoint, {
       method: "POST",

@@ -1,15 +1,21 @@
+import { Schema, Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 const realRun = process.env.REAL_NATIVE_PROFILE_E2E === "1";
+
 const evidencePath = process.env.PROFILE_E2E_BROWSER_EVIDENCE_PATH;
+
 const apiOrigin = process.env.PROFILE_E2E_API_ORIGIN ?? "http://127.0.0.1:5195";
+
 const dashboardOrigin = process.env.PROFILE_E2E_DASHBOARD_ORIGIN ?? "http://127.0.0.1:4173";
+
 const person = {
   email: "profile-before-0064@example.invalid",
   password: "profile-e2e-0064-disposable-password",
 };
+
 const before = {
   firstName: "Ada",
   lastName: "Profile",
@@ -18,6 +24,7 @@ const before = {
   nameRevision: 0,
   contactRevision: 0,
 };
+
 const after = {
   firstName: "Ada Updated",
   lastName: "Profile Updated",
@@ -42,27 +49,31 @@ const openContext = async (browser: Browser, requests: LedgerEntry[], responses:
   context.on("request", (request) => {
     const url = new URL(request.url());
     let fields: string[] | undefined;
+
     try {
-      const body = request.postDataJSON() as Record<string, unknown> | undefined;
-      if (body !== undefined && typeof body === "object") {
+      const body = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(request.postDataJSON());
+
+      if (body !== undefined && (body === null || Predicate.isObjectOrArray(body))) {
         fields = Object.keys(body).sort();
       }
     } catch {
       // The ledger deliberately does not retain request body bytes.
     }
+
     const requestHeaders = Object.fromEntries(
       Object.entries(request.headers()).filter(([name]) =>
         ["idempotency-key", "if-match"].includes(name),
       ),
     );
+
     requests.push({
       method: request.method(),
       path: url.pathname,
       status: 0,
       durationMs: 0,
       direction: "browser-to-proxy",
-      ...(fields === undefined ? {} : { requestFields: fields }),
-      ...(Object.keys(requestHeaders).length === 0 ? {} : { requestHeaders }),
+      requestFields: fields === undefined ? undefined : fields,
+      requestHeaders: Object.keys(requestHeaders).length === 0 ? undefined : requestHeaders,
     });
   });
   context.on("response", (response) => {
@@ -76,6 +87,7 @@ const openContext = async (browser: Browser, requests: LedgerEntry[], responses:
     });
   });
   const page = await context.newPage();
+
   return { context, page };
 };
 
@@ -107,9 +119,11 @@ const profileValues = (page: Page) =>
 
 const assertAxe = async (page: Page, results: Record<string, number>, state: string) => {
   const accessibility = await new AxeBuilder({ page }).analyze();
+
   const blockingViolations = accessibility.violations.filter(
     (violation) => violation.impact === "serious" || violation.impact === "critical",
   );
+
   expect(blockingViolations).toEqual([]);
   results[state] = blockingViolations.length;
 };
@@ -125,12 +139,14 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
     const requests: LedgerEntry[] = [];
     const responses: LedgerEntry[] = [];
     const accessibility: Record<string, number> = {};
-    const observations: Record<string, unknown> = {};
+    const observations: Record<string, Schema.Json> = {};
     const contexts: BrowserContext[] = [];
     const pageErrors: string[] = [];
     let context: BrowserContext | undefined;
+
     try {
       const unauthenticatedGet = await request.get(`${apiOrigin}/api/profile`);
+
       const unauthenticatedPatch = await request.patch(`${apiOrigin}/api/profile`, {
         headers: {
           "content-type": "application/merge-patch+json",
@@ -140,6 +156,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         },
         data: {},
       });
+
       expect(unauthenticatedGet.status()).toBe(401);
       expect(await unauthenticatedGet.json()).toMatchObject({
         status: 401,
@@ -158,9 +175,11 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       opened.page.on("pageerror", (error) => pageErrors.push(error.message));
       const page = opened.page;
       await signIn(page);
+
       const sessionCookie = (await context.cookies()).find(
         (cookie) => cookie.name === "better-auth.session_token",
       );
+
       expect(sessionCookie).toBeDefined();
       observations.login = {
         renderedNativeForm: true,
@@ -169,18 +188,22 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       };
 
       await expect(page.getByRole("heading", { level: 1, name: "Rediger profil" })).toBeVisible();
+
       const inputs = [
         page.getByLabel("Fornavn"),
         page.getByLabel("Etternavn"),
         page.getByLabel("E-post"),
         page.getByLabel("Telefon"),
       ];
+
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+
       for (const input of inputs) {
         await expect(input).toBeVisible();
         await expect(input).toHaveAttribute("id", /.+/u);
         await expect(input).toHaveAttribute("aria-describedby", /.+/u);
       }
+
       expect(await profileValues(page)).toEqual([
         before.firstName,
         before.lastName,
@@ -249,6 +272,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
           role: "ROLE_TEAM_MEMBER",
         },
       });
+
       expect(malformed.status()).toBe(422);
       expect(await malformed.json()).toMatchObject({
         status: 422,
@@ -263,6 +287,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         email: "profile-controlled-0064@example.invalid",
         phone: "+47 9000 0003",
       };
+
       const controlled = await context.request.patch(`${apiOrigin}/api/profile`, {
         headers: {
           "content-type": "application/merge-patch+json",
@@ -272,8 +297,9 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         },
         data: controlledPatch,
       });
+
       expect(controlled.status()).toBe(200);
-      const controlledBody = (await controlled.json()) as Record<string, unknown>;
+      const controlledBody = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))((await controlled.json()));
       expect(controlledBody.nameRevision).toBe(2);
       expect(controlledBody.contactRevision).toBe(2);
       const controlledEtag = controlled.headers().etag;
@@ -296,8 +322,10 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         controlledPatch.email,
         controlledPatch.phone,
       ]);
+      const postConflictValues = { ...controlledBody };
+      delete postConflictValues.role;
       observations.postConflictReload = {
-        values: { ...controlledBody, role: undefined },
+        values: postConflictValues,
         revisions: [2, 2],
       };
 
@@ -307,21 +335,26 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         email: "profile-http-winner-0064@example.invalid",
         phone: "+47 9000 0004",
       };
+
       const httpHeaders = {
         "content-type": "application/merge-patch+json",
         "idempotency-key": "profile-http-conflict-0064",
         "if-match": controlledEtag,
         Origin: dashboardOrigin,
       };
+
       const httpWinner = await context.request.patch(`${apiOrigin}/api/profile`, {
         headers: httpHeaders,
         data: httpPatch,
       });
+
       expect(httpWinner.status()).toBe(200);
+
       const httpConflictChanged = await context.request.patch(`${apiOrigin}/api/profile`, {
         headers: httpHeaders,
         data: { ...httpPatch, firstName: "Ada HTTP Different" },
       });
+
       expect(httpConflictChanged.status()).toBe(409);
       expect(await httpConflictChanged.json()).toMatchObject({
         status: 409,
@@ -332,7 +365,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
 
       const authenticatedGet = await context.request.get(`${apiOrigin}/api/profile`);
       expect(authenticatedGet.status()).toBe(200);
-      const authenticatedBody = (await authenticatedGet.json()) as Record<string, unknown>;
+      const authenticatedBody = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))((await authenticatedGet.json()));
       expect(Object.keys(authenticatedBody).sort()).toEqual([
         "contactRevision",
         "email",
@@ -354,6 +387,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
 
       await inputs[0].focus();
       const keyboardIds: string[] = [];
+
       for (let index = 0; index < 6; index += 1) {
         const focused = page.locator(":focus");
         keyboardIds.push(
@@ -361,6 +395,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         );
         await page.keyboard.press("Tab");
       }
+
       expect(keyboardIds).toContain("profile-first-name");
       expect(keyboardIds).toContain("profile-last-name");
       expect(keyboardIds).toContain("profile-email");
@@ -372,7 +407,9 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       const forbiddenPaths = requests.filter((entry) =>
         /symfony|mock\/api|fixtures|\/api\/(?:admin|me)(?:\/|$)/u.test(entry.path),
       );
+
       expect(forbiddenPaths).toEqual([]);
+
       const evidence = {
         specId: "0064",
         passed: true,
@@ -383,6 +420,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         requestLedger: { requests, responses, forbiddenPaths },
         pageErrors,
       };
+
       if (evidencePath !== undefined)
         await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
     } finally {

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { Button, Input } from "@foldkit/ui";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { SubmittedProfile, UpdatedProfileField, type Message } from "./message";
@@ -5,8 +6,11 @@ import type { Model } from "./model";
 
 const fieldKey = (id: string): "firstName" | "lastName" | "email" | "phone" => {
   if (id === "profile-first-name") return "firstName";
+
   if (id === "profile-last-name") return "lastName";
+
   if (id === "profile-email") return "email";
+
   return "phone";
 };
 
@@ -28,7 +32,7 @@ const textField = (
       value: config.value,
       onInput: (value) => UpdatedProfileField({ field: fieldKey(config.id), value }),
       isDisabled: config.isDisabled,
-      isInvalid: config.field._tag === "Invalid",
+      isInvalid: Predicate.isTagged(config.field, "Invalid"),
       type: config.type ?? "text",
       toView: ({ input, label, description }) =>
         h.div(
@@ -39,7 +43,7 @@ const textField = (
             config.hint === undefined
               ? h.empty
               : h.p([...description, h.Class("fk-field-hint")], [config.hint]),
-            config.field._tag === "Invalid"
+            Predicate.isTagged(config.field, "Invalid")
               ? h.p(
                   [h.Id(`${config.id}-error`), h.Class("fk-field-error"), h.Role("alert")],
                   [config.field.errors.join(" ")],

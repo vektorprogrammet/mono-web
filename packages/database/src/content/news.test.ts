@@ -1,160 +1,99 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
-import { Organization } from "@vektorprogrammet/domain/organization";
-import { Profile } from "@vektorprogrammet/domain/profile";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Effect, Layer } from "effect";
+import { Database } from "../service.js";
+import { DatabaseTest } from "../layers.js";
+import { OrganizationLive } from "../organization/postgres-layer.js";
+import { ProfileLive } from "../profile/postgres-layer.js";
+import { makeControlledTestRuntime } from "../../test/runtime.js";
 import { readNewsListingPostgres, readPublishedArticlePostgres } from "./news.js";
 
-const creatorId = "person-creator";
-const publisherId = "person-publisher";
-const publishedAt = "2030-01-01T00:00:00.000Z";
+const runtime = makeControlledTestRuntime(
+  ProfileLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest())))),
+);
 
-const makeDatabase = (rowsFor: (statement: string) => ReadonlyArray<unknown>): DatabaseShape => {
-  const sql = ((strings: TemplateStringsArray) =>
-    Effect.succeed(rowsFor(strings.join("?")))) as unknown as DatabaseShape;
-  return Object.assign(sql, {
-    withTransaction: <A, E, R>(program: Effect.Effect<A, E, R>) => program,
-    in: () => ({}) as never,
-  });
-};
+beforeAll(
+  () =>
+    runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        yield* sql`
+      INSERT INTO person_profiles (person_id, first_name, last_name)
+      VALUES ('person-creator', 'Article', 'Creator'), ('person-publisher', 'Different', 'Publisher')
+    `;
+        yield* sql`
+      INSERT INTO content_articles (
+        title, slug, body_html, created_by_person_id, current_version_number
+      ) VALUES ('Creator attribution', 'creator-attribution', '<p>new body</p>', 'person-creator', 3)
+    `;
+        yield* sql`
+      INSERT INTO content_article_versions (
+        article_id, version_number, title, slug, body_html, sticky, published_at, published_by_person_id
+      ) SELECT article.article_id, version.number, article.title, article.slug, version.body, FALSE,
+        version.published_at::timestamptz, 'person-publisher'
+      FROM content_articles AS article
+      CROSS JOIN (VALUES
+        (1, '<p>old body</p>', '2029-12-01T00:00:00.000Z'),
+        (2, '<p>body</p>', '2030-01-01T00:00:00.000Z'),
+        (3, '<p>new body</p>', '2030-02-01T00:00:00.000Z')
+      ) AS version(number, body, published_at)
+    `;
+      }),
+    ),
+  15_000,
+);
 
-const profile = (requested: Array<string>) =>
-  ({
-    readProfiles: (personIds: ReadonlyArray<string>) => {
-      requested.push(...personIds);
-      return Effect.succeed([
-        {
-          personId: creatorId,
-          firstName: "Article",
-          lastName: "Creator",
-          revision: 0,
-        },
-      ] as never);
-    },
-  }) as never;
+afterAll(() => runtime.dispose());
 
 describe("public news author attribution", () => {
-  it.effect("uses the article creator in listings even when another person published", () =>
-    Effect.gen(function* () {
-      const requested: Array<string> = [];
-      const database = makeDatabase((statement) => {
-        if (statement.includes("FROM public.content_article_versions AS version")) {
-          return [
-            {
-              articleId: 1,
-              slug: "creator-attribution",
-              title: "Creator attribution",
-              sticky: false,
-              publishedAt,
-              createdByPersonId: creatorId,
-              publishedByPersonId: publisherId,
-            },
-          ];
-        }
-        if (statement.includes("FROM public.content_article_departments")) return [];
-        return [];
-      });
+  it("uses the article creator in listings even when another person published", async () => {
+    const listing = await runtime.runPromise(readNewsListingPostgres());
 
-      const listing = yield* readNewsListingPostgres().pipe(
-        Effect.provideService(Database, database),
-        Effect.provideService(Organization, {} as never),
-        Effect.provideService(Profile, profile(requested)),
+    expect(
+      listing.articles.map((article) => ({
+        slug: article.slug,
+        authorDisplayName: article.authorDisplayName,
+      })),
+    ).toEqual([{ slug: "creator-attribution", authorDisplayName: "Article Creator" }]);
+  });
+
+  it("links only older published versions for every selected detail version", async () => {
+    for (const testCase of [
+      { versionNumber: 1, bodyHtml: "<p>old body</p>", previousVersions: [] },
+      {
+        versionNumber: 2,
+        bodyHtml: "<p>body</p>",
+        previousVersions: [
+          {
+            versionNumber: 1,
+            publishedAt: "2029-12-01T00:00:00.000Z",
+            urlPath: "/nyhet/creator-attribution?versjon=1",
+          },
+        ],
+      },
+      {
+        versionNumber: 3,
+        bodyHtml: "<p>new body</p>",
+        previousVersions: [
+          {
+            versionNumber: 2,
+            publishedAt: "2030-01-01T00:00:00.000Z",
+            urlPath: "/nyhet/creator-attribution?versjon=2",
+          },
+          {
+            versionNumber: 1,
+            publishedAt: "2029-12-01T00:00:00.000Z",
+            urlPath: "/nyhet/creator-attribution?versjon=1",
+          },
+        ],
+      },
+    ]) {
+      const article = await runtime.runPromise(
+        readPublishedArticlePostgres("creator-attribution", testCase.versionNumber),
       );
 
-      expect(requested).toEqual([creatorId]);
-      expect(listing.articles[0]?.authorDisplayName).toBe("Article Creator");
-    }),
-  );
-
-  it.effect("links only older published versions for every selected detail version", () =>
-    Effect.gen(function* () {
-      const requested: Array<string> = [];
-      const database = makeDatabase((statement) => {
-        if (statement.includes("FROM public.content_article_versions AS version")) {
-          return [
-            {
-              articleId: 1,
-              versionNumber: 3,
-              slug: "creator-attribution",
-              title: "Creator attribution",
-              sticky: false,
-              bodyHtml: "<p>new body</p>",
-              publishedAt: "2030-02-01T00:00:00.000Z",
-              createdByPersonId: creatorId,
-              publishedByPersonId: publisherId,
-            },
-            {
-              articleId: 1,
-              versionNumber: 2,
-              slug: "creator-attribution",
-              title: "Creator attribution",
-              sticky: false,
-              bodyHtml: "<p>body</p>",
-              publishedAt,
-              createdByPersonId: creatorId,
-              publishedByPersonId: publisherId,
-            },
-            {
-              articleId: 1,
-              versionNumber: 1,
-              slug: "creator-attribution",
-              title: "Creator attribution",
-              sticky: false,
-              bodyHtml: "<p>old body</p>",
-              publishedAt: "2029-12-01T00:00:00.000Z",
-              createdByPersonId: creatorId,
-              publishedByPersonId: publisherId,
-            },
-          ];
-        }
-        if (statement.includes("FROM public.content_article_departments")) return [];
-        return [];
-      });
-
-      for (const testCase of [
-        { versionNumber: 1, previousVersions: [] },
-        {
-          versionNumber: 2,
-          previousVersions: [
-            {
-              versionNumber: 1,
-              publishedAt: "2029-12-01T00:00:00.000Z",
-              urlPath: "/nyhet/creator-attribution?versjon=1",
-            },
-          ],
-        },
-        {
-          versionNumber: 3,
-          previousVersions: [
-            {
-              versionNumber: 2,
-              publishedAt,
-              urlPath: "/nyhet/creator-attribution?versjon=2",
-            },
-            {
-              versionNumber: 1,
-              publishedAt: "2029-12-01T00:00:00.000Z",
-              urlPath: "/nyhet/creator-attribution?versjon=1",
-            },
-          ],
-        },
-      ] as const) {
-        const article = yield* readPublishedArticlePostgres(
-          "creator-attribution",
-          testCase.versionNumber,
-        ).pipe(
-          Effect.provideService(Database, database),
-          Effect.provideService(Profile, profile(requested)),
-        );
-
-        expect(article.authorDisplayName).toBe("Article Creator");
-        if (testCase.versionNumber === 1) {
-          expect(article.bodyHtml).toBe("<p>old body</p>");
-        }
-        expect(article.previousVersions).toEqual(testCase.previousVersions);
-      }
-
-      expect(requested).toEqual([creatorId, creatorId, creatorId]);
-    }),
-  );
+      expect(article.authorDisplayName).toBe("Article Creator");
+      expect(article.bodyHtml).toBe(testCase.bodyHtml);
+      expect(article.previousVersions).toEqual(testCase.previousVersions);
+    }
+  });
 });

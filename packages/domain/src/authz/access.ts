@@ -1,5 +1,5 @@
 import { isKnownSelfInterview } from "../recruitment/applicant-identity.js";
-import { Effect, Schema } from "effect";
+import { Record, flow, Result, Array, Match, Data, Effect, Predicate, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   RecruitmentInterviewId,
@@ -15,164 +15,178 @@ const TrimmedNonEmpty = Schema.String.pipe(
     }),
   ),
 );
+
 const RevisionSchema = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+
 const EmptyRequirementParametersSchema = Schema.Record(Schema.String, Schema.Never);
 
 export const ServicePrincipalId = TrimmedNonEmpty.pipe(Schema.brand("ServicePrincipalId"));
+
 export type ServicePrincipalId = typeof ServicePrincipalId.Type;
+
 export const CapabilityId = TrimmedNonEmpty.pipe(Schema.brand("CapabilityId"));
+
 export type CapabilityId = typeof CapabilityId.Type;
+
 export const GrantId = TrimmedNonEmpty.pipe(Schema.brand("GrantId"));
+
 export type GrantId = typeof GrantId.Type;
+
 export const AuthorityRef = TrimmedNonEmpty.pipe(Schema.brand("AuthorityRef"));
+
 export type AuthorityRef = typeof AuthorityRef.Type;
+
 export const AuthorityVersion = TrimmedNonEmpty.pipe(Schema.brand("AuthorityVersion"));
+
 export type AuthorityVersion = typeof AuthorityVersion.Type;
+
 export const AuthorizationInstant = Rfc3339InstantSchema.pipe(Schema.brand("AuthorizationInstant"));
+
 export type AuthorizationInstant = typeof AuthorizationInstant.Type;
 
-export const CAPABILITY_TYPE_IDS = [
-  "contact.submit",
-  "approveReceipt",
-  "submitReceipt",
-  "reviewApplicants",
-  "profile.read-self",
-  "profile.update-self",
-  "organization.read-team-interest",
-  "organization.read-mailing-lists",
-  "organization.create-department",
-  "organization.create-team",
-  "organization.create-field-of-study",
-  "profile.read-directory",
-  "schools.read-directory",
-  "substitutes.read",
-  "substitutes.manage",
-  "placements.self",
-  "placements.manage",
-  "onboarding.manage",
-  "onboarding.claim",
-  "admissions.read-periods",
-  "admissions.read-applicant-progress",
-  "admissions.create-period",
-  "admissions.revise-period",
-  "admissions.returning-assistant-options",
-  "admissions.returning-assistant-register",
-  "recruitment.invitation-response",
-  "recruitment.read-interviews",
-  "recruitment.read-interview-report",
-  "recruitment.schedule-interview",
-  "recruitment.conduct-interview",
-  "receipts.manage-owned",
-  "receipts.read-owned",
-  "settleReceipt",
-  "content.read-workspace",
-  "content.create-article",
-  "content.read-article",
-  "content.revise-article",
-  "content.publish-article",
-  "social-events.read-scope",
-  "social-events.read",
-  "social-events.create",
-  "receipts.read-internal-evidence",
-] as const;
-const ruleTargetCapabilityTypeIds: ReadonlySet<(typeof CAPABILITY_TYPE_IDS)[number]> = new Set([
-  "approveReceipt",
-  "submitReceipt",
-  "reviewApplicants",
-]);
-export const CAPABILITY_TYPES = Object.fromEntries(
-  CAPABILITY_TYPE_IDS.map((id) => [
-    id,
-    {
-      ruleTarget: ruleTargetCapabilityTypeIds.has(id),
-      objectCapability:
-        id === "recruitment.invitation-response" ||
-        id === "contact.submit" ||
-        id === "onboarding.claim",
-    },
-  ]),
-) as {
-  readonly [Id in (typeof CAPABILITY_TYPE_IDS)[number]]: {
-    readonly ruleTarget: boolean;
-    readonly objectCapability: boolean;
-  };
-};
+export const CAPABILITY_TYPES = {
+  "contact.submit": { ruleTarget: false, objectCapability: true },
+  approveReceipt: { ruleTarget: true, objectCapability: false },
+  submitReceipt: { ruleTarget: true, objectCapability: false },
+  reviewApplicants: { ruleTarget: true, objectCapability: false },
+  "profile.read-self": { ruleTarget: false, objectCapability: false },
+  "profile.update-self": { ruleTarget: false, objectCapability: false },
+  "organization.read-team-interest": { ruleTarget: false, objectCapability: false },
+  "organization.read-mailing-lists": { ruleTarget: false, objectCapability: false },
+  "organization.create-department": { ruleTarget: false, objectCapability: false },
+  "organization.create-team": { ruleTarget: false, objectCapability: false },
+  "organization.manage-appointments": { ruleTarget: false, objectCapability: false },
+  "organization.create-field-of-study": { ruleTarget: false, objectCapability: false },
+  "profile.read-directory": { ruleTarget: false, objectCapability: false },
+  "schools.read-directory": { ruleTarget: false, objectCapability: false },
+  "substitutes.read": { ruleTarget: false, objectCapability: false },
+  "substitutes.manage": { ruleTarget: false, objectCapability: false },
+  "placements.self": { ruleTarget: false, objectCapability: false },
+  "placements.manage": { ruleTarget: false, objectCapability: false },
+  "onboarding.manage": { ruleTarget: false, objectCapability: false },
+  "onboarding.claim": { ruleTarget: false, objectCapability: true },
+  "admissions.read-periods": { ruleTarget: false, objectCapability: false },
+  "admissions.read-applicant-progress": { ruleTarget: false, objectCapability: false },
+  "admissions.create-period": { ruleTarget: false, objectCapability: false },
+  "admissions.revise-period": { ruleTarget: false, objectCapability: false },
+  "admissions.returning-assistant-options": { ruleTarget: false, objectCapability: false },
+  "admissions.returning-assistant-register": { ruleTarget: false, objectCapability: false },
+  "recruitment.invitation-response": { ruleTarget: false, objectCapability: true },
+  "recruitment.read-interviews": { ruleTarget: false, objectCapability: false },
+  "recruitment.read-interview-report": { ruleTarget: false, objectCapability: false },
+  "recruitment.schedule-interview": { ruleTarget: false, objectCapability: false },
+  "recruitment.conduct-interview": { ruleTarget: false, objectCapability: false },
+  "receipts.manage-owned": { ruleTarget: false, objectCapability: false },
+  "receipts.read-owned": { ruleTarget: false, objectCapability: false },
+  settleReceipt: { ruleTarget: false, objectCapability: false },
+  "content.read-workspace": { ruleTarget: false, objectCapability: false },
+  "content.create-article": { ruleTarget: false, objectCapability: false },
+  "content.read-article": { ruleTarget: false, objectCapability: false },
+  "content.revise-article": { ruleTarget: false, objectCapability: false },
+  "content.publish-article": { ruleTarget: false, objectCapability: false },
+  "social-events.read-scope": { ruleTarget: false, objectCapability: false },
+  "social-events.read": { ruleTarget: false, objectCapability: false },
+  "social-events.create": { ruleTarget: false, objectCapability: false },
+  "receipts.read-internal-evidence": { ruleTarget: false, objectCapability: false },
+} as const;
+
+export const CAPABILITY_TYPE_IDS = Record.keys(CAPABILITY_TYPES);
+
 export const CapabilityTypeId = Schema.Literals(CAPABILITY_TYPE_IDS).pipe(
   Schema.brand("CapabilityTypeId"),
 );
+
 export type CapabilityTypeId = typeof CapabilityTypeId.Type;
+
 export const APPROVE_RECEIPT_CAPABILITY = CapabilityTypeId.make("approveReceipt");
-export const OBJECT_CAPABILITY_TYPE_IDS: ReadonlyArray<CapabilityTypeId> =
-  CAPABILITY_TYPE_IDS.filter((id) => CAPABILITY_TYPES[id].objectCapability).map((id) =>
-    CapabilityTypeId.make(id),
-  );
+
+export const OBJECT_CAPABILITY_TYPE_IDS: ReadonlyArray<CapabilityTypeId> = Array.filterMap(
+  CAPABILITY_TYPE_IDS,
+  (id) =>
+    CAPABILITY_TYPES[id].objectCapability
+      ? Result.succeed(CapabilityTypeId.make(id))
+      : Result.failVoid,
+);
+
 export const SUBMIT_RECEIPT_CAPABILITY = CapabilityTypeId.make("submitReceipt");
+
 export const INVITATION_RESPONSE_CAPABILITY = CapabilityTypeId.make(
   "recruitment.invitation-response",
 );
+
 export const READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY = CapabilityTypeId.make(
   "receipts.read-internal-evidence",
 );
+
 export const SOCIAL_EVENTS_READ_SCOPE_CAPABILITY = CapabilityTypeId.make(
   "social-events.read-scope",
 );
+
 export const SOCIAL_EVENTS_READ_CAPABILITY = CapabilityTypeId.make("social-events.read");
+
 export const SOCIAL_EVENTS_CREATE_CAPABILITY = CapabilityTypeId.make("social-events.create");
 
-export const DOMAIN_ID_VALUES = [
-  "admissions",
-  "content",
-  "identity",
-  "organization",
-  "profile",
-  "receipts",
-  "recruitment",
-  "schools",
-  "social-events",
-  "surveys",
-  "system",
-] as const;
-export const DOMAIN_IDS = Object.fromEntries(DOMAIN_ID_VALUES.map((id) => [id, true])) as {
-  readonly [Id in (typeof DOMAIN_ID_VALUES)[number]]: true;
-};
+export const DOMAIN_IDS = {
+  admissions: true,
+  content: true,
+  identity: true,
+  organization: true,
+  profile: true,
+  receipts: true,
+  recruitment: true,
+  schools: true,
+  "social-events": true,
+  surveys: true,
+  system: true,
+} as const;
+
+export const DOMAIN_ID_VALUES = Record.keys(DOMAIN_IDS);
+
 export const DomainId = Schema.Literals(DOMAIN_ID_VALUES).pipe(Schema.brand("DomainId"));
+
 export type DomainId = typeof DomainId.Type;
+
 export const RECEIPT_DOMAIN_ID = DomainId.make("receipts");
+
 export const SYSTEM_DOMAIN_ID = DomainId.make("system");
+
 export const SOCIAL_EVENTS_DOMAIN_ID = DomainId.make("social-events");
 
-export const RESOURCE_KIND_VALUES = [
-  "identity-session",
-  "person-profile",
-  "organization-department",
-  "organization-team",
-  "organization-field-of-study",
-  "organization-team-interest-registration",
-  "organization-mailing-list",
-  "person",
-  "school",
-  "admission-period",
-  "application",
-  "recruitment-invitation-response",
-  "recruitment-interview",
-  "receipt",
-  "content-article",
-  "school-survey",
-] as const;
-export const RESOURCE_KINDS = Object.fromEntries(
-  RESOURCE_KIND_VALUES.map((kind) => [kind, true]),
-) as {
-  readonly [Kind in (typeof RESOURCE_KIND_VALUES)[number]]: true;
-};
+export const RESOURCE_KINDS = {
+  "identity-session": true,
+  "person-profile": true,
+  "organization-department": true,
+  "organization-team": true,
+  "organization-field-of-study": true,
+  "organization-team-interest-registration": true,
+  "organization-mailing-list": true,
+  person: true,
+  school: true,
+  "admission-period": true,
+  application: true,
+  "recruitment-invitation-response": true,
+  "recruitment-interview": true,
+  receipt: true,
+  "content-article": true,
+  "school-survey": true,
+} as const;
+
+export const RESOURCE_KIND_VALUES = Record.keys(RESOURCE_KINDS);
+
 export const ResourceKind = Schema.Literals(RESOURCE_KIND_VALUES).pipe(
   Schema.brand("ResourceKind"),
 );
+
 export type ResourceKind = typeof ResourceKind.Type;
+
 export const RECEIPT_RESOURCE_KIND = ResourceKind.make("receipt");
+
 export const RECRUITMENT_INVITATION_RESOURCE_KIND = ResourceKind.make(
   "recruitment-invitation-response",
 );
+
 export const ResourceId = TrimmedNonEmpty.pipe(Schema.brand("ResourceId"));
+
 export type ResourceId = typeof ResourceId.Type;
 
 export const REQUIREMENT_IDS = [
@@ -196,14 +210,21 @@ export const REQUIREMENT_IDS = [
   "content.publishable",
   "content.unpublishable",
 ] as const;
+
 export const RequirementId = Schema.Literals(REQUIREMENT_IDS).pipe(Schema.brand("RequirementId"));
+
 const requirementRegistryKey = (id: RequirementId): (typeof REQUIREMENT_IDS)[number] => id;
+
 export type RequirementId = typeof RequirementId.Type;
+
 export const INTERNAL_EVIDENCE_ENABLED_REQUIREMENT = RequirementId.make(
   "internal-evidence.enabled",
 );
+
 export const RECEIPT_OWNER_REQUIREMENT = RequirementId.make("receipts.owner");
+
 export const RECEIPT_PENDING_REQUIREMENT = RequirementId.make("receipts.pending");
+
 export const RECEIPT_APPROVER_REQUIREMENT = RequirementId.make("receipts.approver-relationship");
 
 export const SCOPE_RESOLVER_IDS = [
@@ -220,6 +241,7 @@ export const SCOPE_RESOLVER_IDS = [
   "organization.mailing-lists",
   "organization.department-create",
   "organization.team-create",
+  "organization.appointment-management",
   "organization.field-of-study-create",
   "profile.people-directory",
   "schools.directory",
@@ -262,17 +284,26 @@ export const SCOPE_RESOLVER_IDS = [
   "surveys.admin-results",
   "surveys.admin-results-export",
 ] as const;
+
 export const ScopeResolverId = Schema.Literals(SCOPE_RESOLVER_IDS).pipe(
   Schema.brand("ScopeResolverId"),
 );
+
 const scopeResolverRegistryKey = (id: ScopeResolverId): (typeof SCOPE_RESOLVER_IDS)[number] => id;
+
 export type ScopeResolverId = typeof ScopeResolverId.Type;
+
 export const RECEIPT_BY_ID_SCOPE_RESOLVER = ScopeResolverId.make("receipts.by-id");
+
 export const RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER =
   ScopeResolverId.make("receipts.approval-queue");
+
 export const SYSTEM_PUBLIC_SCOPE_RESOLVER = ScopeResolverId.make("system.health");
+
 export const SOCIAL_EVENTS_SCOPE_RESOLVER = ScopeResolverId.make("social-events.scope");
+
 export const SOCIAL_EVENTS_LIST_SCOPE_RESOLVER = ScopeResolverId.make("social-events.list");
+
 export const SOCIAL_EVENTS_CREATE_SCOPE_RESOLVER = ScopeResolverId.make("social-events.create");
 
 export const PrincipalSchema = Schema.TaggedUnion({
@@ -281,20 +312,26 @@ export const PrincipalSchema = Schema.TaggedUnion({
   ServicePrincipal: { servicePrincipalId: ServicePrincipalId },
   CapabilityHolder: { capabilityId: CapabilityId },
 });
+
 export type Principal = typeof PrincipalSchema.Type;
+
 export type PrincipalKind = Principal["_tag"];
+
 const NonAnonymousPrincipalSchema = Schema.Union([
   Schema.TaggedStruct("Person", { personId: PersonId }),
   Schema.TaggedStruct("ServicePrincipal", { servicePrincipalId: ServicePrincipalId }),
   Schema.TaggedStruct("CapabilityHolder", { capabilityId: CapabilityId }),
 ]);
+
 export type NonAnonymousPrincipal = typeof NonAnonymousPrincipalSchema.Type;
+
 export const PRINCIPAL_KINDS = [
   "Anonymous",
   "Person",
   "ServicePrincipal",
   "CapabilityHolder",
 ] as const;
+
 export const PrincipalKindSchema = Schema.Literals(PRINCIPAL_KINDS);
 
 export const CREDENTIAL_MECHANISM_KINDS = [
@@ -304,6 +341,7 @@ export const CREDENTIAL_MECHANISM_KINDS = [
   "OAuthServiceBearer",
   "ObjectCapability",
 ] as const;
+
 export const CredentialMechanismSchema = Schema.TaggedUnion({
   None: {},
   BetterAuthCookie: {},
@@ -311,9 +349,13 @@ export const CredentialMechanismSchema = Schema.TaggedUnion({
   OAuthServiceBearer: {},
   ObjectCapability: { capabilityType: CapabilityTypeId },
 });
+
 export type CredentialMechanism = typeof CredentialMechanismSchema.Type;
+
 export const CredentialEvidenceRef = TrimmedNonEmpty.pipe(Schema.brand("CredentialEvidenceRef"));
+
 export type CredentialEvidenceRef = typeof CredentialEvidenceRef.Type;
+
 export const CredentialFailureReasonSchema = Schema.Literals([
   "Missing",
   "Malformed",
@@ -323,23 +365,26 @@ export const CredentialFailureReasonSchema = Schema.Literals([
   "WrongMechanism",
   "AmbiguousMechanism",
 ]);
+
 export type CredentialFailureReason = typeof CredentialFailureReasonSchema.Type;
-export const CredentialOutcomeSchema = Schema.Union([
-  Schema.Struct({
-    _tag: Schema.Literals(["Accepted"]),
+
+export const CredentialOutcomeSchema = Schema.TaggedUnion({
+  Accepted: {
     mechanism: CredentialMechanismSchema,
     principal: PrincipalSchema,
     evidenceRef: CredentialEvidenceRef,
-  }),
-  Schema.Struct({
-    _tag: Schema.Literals(["Rejected"]),
+  },
+  Rejected: {
     reason: CredentialFailureReasonSchema,
-  }),
-]);
+  },
+});
+
 export type CredentialOutcome = typeof CredentialOutcomeSchema.Type;
 
 export const CapabilitySchema = Schema.Struct({ type: CapabilityTypeId });
+
 export type Capability = typeof CapabilitySchema.Type;
+
 const CapabilityListSchema = Schema.Array(CapabilitySchema).pipe(
   Schema.check(
     Schema.makeFilter(
@@ -350,20 +395,25 @@ const CapabilityListSchema = Schema.Array(CapabilitySchema).pipe(
     ),
   ),
 );
+
 export const CapabilityExpressionSchema = Schema.TaggedUnion({
   None: {},
   One: { capability: CapabilitySchema },
   All: { capabilities: CapabilityListSchema },
   Any: { capabilities: CapabilityListSchema },
 });
+
 export type CapabilityExpression = typeof CapabilityExpressionSchema.Type;
 
 export const ResourceRefSchema = Schema.Struct({
   kind: ResourceKind,
   id: ResourceId,
 });
+
 export type ResourceRef = typeof ResourceRefSchema.Type;
+
 type EncodedResourceRef = typeof ResourceRefSchema.Encoded;
+
 export type Scope =
   | { readonly _tag: "Global" }
   | { readonly _tag: "Domain"; readonly domainId: DomainId }
@@ -371,6 +421,9 @@ export type Scope =
   | { readonly _tag: "Resource"; readonly resource: ResourceRef }
   | { readonly _tag: "And"; readonly left: Scope; readonly right: Scope }
   | { readonly _tag: "Or"; readonly left: Scope; readonly right: Scope };
+
+export const Scope = Data.taggedEnum<Scope>();
+
 type EncodedScope =
   | { readonly _tag: "Global" }
   | { readonly _tag: "Domain"; readonly domainId: typeof DomainId.Encoded }
@@ -378,6 +431,7 @@ type EncodedScope =
   | { readonly _tag: "Resource"; readonly resource: EncodedResourceRef }
   | { readonly _tag: "And"; readonly left: EncodedScope; readonly right: EncodedScope }
   | { readonly _tag: "Or"; readonly left: EncodedScope; readonly right: EncodedScope };
+
 const ScopeNodeSchema: Schema.Codec<Scope, EncodedScope> = Schema.TaggedUnion({
   Global: {},
   Domain: { domainId: DomainId },
@@ -392,10 +446,12 @@ const ScopeNodeSchema: Schema.Codec<Scope, EncodedScope> = Schema.TaggedUnion({
     right: Schema.suspend((): Schema.Codec<Scope, EncodedScope> => ScopeSchema),
   },
 });
+
 const scopeDepth = (scope: Scope): number =>
-  scope._tag === "And" || scope._tag === "Or"
+  Predicate.isTagged(scope, "And") || Predicate.isTagged(scope, "Or")
     ? 1 + Math.max(scopeDepth(scope.left), scopeDepth(scope.right))
     : 1;
+
 export const ScopeSchema: Schema.Codec<Scope, EncodedScope> = ScopeNodeSchema.pipe(
   Schema.check(
     Schema.makeFilter((scope) => scopeDepth(scope) <= 16 && JSON.stringify(scope).length <= 4_096, {
@@ -411,7 +467,9 @@ export const ReceiptAccessFactsSchema = Schema.Struct({
   approverServicePrincipalIds: Schema.Array(ServicePrincipalId),
   internalEvidenceEnabled: Schema.Boolean,
 });
+
 export type ReceiptAccessFacts = typeof ReceiptAccessFactsSchema.Type;
+
 export const InvitationResponseAccessFactsSchema = Schema.Struct({
   capabilityId: CapabilityId,
   invitationId: RecruitmentInvitationId,
@@ -421,7 +479,9 @@ export const InvitationResponseAccessFactsSchema = Schema.Struct({
   responseRevision: RevisionSchema,
   supersededAt: Schema.NullOr(Rfc3339InstantSchema),
 });
+
 export type InvitationResponseAccessFacts = typeof InvitationResponseAccessFactsSchema.Type;
+
 export interface CanonicalResourceContext<C = unknown> {
   readonly domainId: DomainId;
   readonly departmentId: DepartmentId | null;
@@ -429,6 +489,7 @@ export interface CanonicalResourceContext<C = unknown> {
   readonly facts: C;
   readonly authorityVersion: AuthorityVersion;
 }
+
 export interface CanonicalScopeResolution<C = unknown> {
   readonly selection: "ExactlyOne" | "AllMatching";
   readonly contexts: ReadonlyArray<CanonicalResourceContext<C>>;
@@ -451,6 +512,7 @@ const ReceiptRequirementContextSchema = Schema.Struct({
     ),
   ),
 );
+
 const InvitationRequirementContextSchema = Schema.Struct({
   domainId: DomainId,
   departmentId: DepartmentId,
@@ -469,64 +531,81 @@ const InvitationRequirementContextSchema = Schema.Struct({
     ),
   ),
 );
+
 const GenericRequirementContextSchema = Schema.Struct({
   domainId: DomainId,
   departmentId: Schema.NullOr(DepartmentId),
   resource: Schema.NullOr(ResourceRefSchema),
-  facts: Schema.Record(Schema.String, Schema.Unknown),
+  facts: Schema.Record(Schema.String, Schema.Json),
   authorityVersion: AuthorityVersion,
 });
 
 type RegisteredRequirementEvaluation =
   | { readonly _tag: "Satisfied" }
   | { readonly _tag: "Failed"; readonly reason: string };
-type RequirementEvaluator = (
+
+const RegisteredRequirementEvaluation = Data.taggedEnum<RegisteredRequirementEvaluation>();
+
+type RequirementEvaluator<C = typeof GenericRequirementContextSchema.Type> = (
   parameters: typeof EmptyRequirementParametersSchema.Type,
   principal: Principal,
-  context: CanonicalResourceContext<Record<string, unknown>>,
+  context: C,
 ) => RegisteredRequirementEvaluation;
+
 type RequirementContextSchema =
   | typeof ReceiptRequirementContextSchema
   | typeof InvitationRequirementContextSchema
   | typeof GenericRequirementContextSchema;
+
 interface RequirementRegistration {
   readonly resolverIds: ReadonlyArray<ScopeResolverId>;
   readonly parameterSchema: typeof EmptyRequirementParametersSchema;
   readonly contextSchema: RequirementContextSchema;
-  readonly evaluate: RequirementEvaluator;
+  readonly evaluate: RequirementEvaluator<CanonicalResourceContext>;
 }
-const satisfied: RegisteredRequirementEvaluation = { _tag: "Satisfied" };
-const failed = (reason: string): RegisteredRequirementEvaluation => ({ _tag: "Failed", reason });
-const genericFacts = (context: CanonicalResourceContext<unknown>): Record<string, unknown> =>
-  typeof context.facts === "object" && context.facts !== null
-    ? (context.facts as Record<string, unknown>)
-    : {};
-const personIdIn = (value: unknown, personId: string): boolean =>
+
+const satisfied: RegisteredRequirementEvaluation = RegisteredRequirementEvaluation.Satisfied();
+
+const failed = (reason: string): RegisteredRequirementEvaluation =>
+  RegisteredRequirementEvaluation.Failed({ reason });
+
+const personIdIn = (value: Schema.Json | undefined, personId: string): boolean =>
   Array.isArray(value) && value.some((candidate) => candidate === personId);
+
 const ownedByPerson: RequirementEvaluator = (_parameters, principal, context) =>
-  principal._tag === "Person" && genericFacts(context).ownerPersonId === principal.personId
+  Predicate.isTagged(principal, "Person") && context.facts.ownerPersonId === principal.personId
     ? satisfied
     : failed("NotOwner");
+
 const personListedBy =
   (key: string): RequirementEvaluator =>
   (_parameters, principal, context) =>
-    principal._tag === "Person" && personIdIn(genericFacts(context)[key], principal.personId)
+    Predicate.isTagged(principal, "Person") && personIdIn(context.facts[key], principal.personId)
       ? satisfied
       : failed("NotInScope");
+
 const stateIs =
   (state: string): RequirementEvaluator =>
   (_parameters, _principal, context) =>
-    genericFacts(context).state === state ? satisfied : failed(`Not${state}`);
-const registration = (
+    context.facts.state === state ? satisfied : failed(`Not${state}`);
+
+const registration = <C extends RequirementContextSchema>(
   resolverIds: ReadonlyArray<(typeof SCOPE_RESOLVER_IDS)[number]>,
-  contextSchema: RequirementContextSchema,
-  evaluate: RequirementEvaluator,
+  contextSchema: C,
+  evaluate: RequirementEvaluator<C["Type"]>,
 ): RequirementRegistration => ({
   resolverIds: resolverIds.map((id) => ScopeResolverId.make(id)),
   parameterSchema: EmptyRequirementParametersSchema,
   contextSchema,
-  evaluate,
+  evaluate: (parameters, principal, context) => {
+    const decoded = Schema.decodeUnknownResult(contextSchema)(context);
+
+    return Result.isSuccess(decoded)
+      ? evaluate(parameters, principal, decoded.success)
+      : failed("InvalidContext");
+  },
 });
+
 export const REQUIREMENT_TYPES = {
   "sessions.owner": registration(
     ["identity.owned-sessions", "identity.session-by-id"],
@@ -561,9 +640,9 @@ export const REQUIREMENT_TYPES = {
     ["recruitment.interview-by-id"],
     GenericRequirementContextSchema,
     (_parameters, principal, context) =>
-      principal._tag === "Person" &&
-      (personIdIn(genericFacts(context).assignedInterviewerPersonIds, principal.personId) ||
-        personIdIn(genericFacts(context).departmentLeaderPersonIds, principal.personId))
+      Predicate.isTagged(principal, "Person") &&
+      (personIdIn(context.facts.assignedInterviewerPersonIds, principal.personId) ||
+        personIdIn(context.facts.departmentLeaderPersonIds, principal.personId))
         ? satisfied
         : failed("NotAssignedInterviewerOrLeader"),
   ),
@@ -581,8 +660,9 @@ export const REQUIREMENT_TYPES = {
     ["recruitment.interview-by-id"],
     GenericRequirementContextSchema,
     (_parameters, principal, context) => {
-      const linked = genericFacts(context).linkedApplicantPersonId;
-      return principal._tag === "Person" &&
+      const linked = context.facts.linkedApplicantPersonId;
+
+      return Predicate.isTagged(principal, "Person") &&
         (linked === null || Schema.is(PersonId)(linked)) &&
         !isKnownSelfInterview(linked, principal.personId)
         ? satisfied
@@ -593,7 +673,8 @@ export const REQUIREMENT_TYPES = {
     ["recruitment.invitation-response-by-capability"],
     InvitationRequirementContextSchema,
     (_parameters, _principal, context) => {
-      const facts = context.facts as InvitationResponseAccessFacts;
+      const facts = context.facts;
+
       return facts.responseState === "Pending" && facts.supersededAt === null
         ? satisfied
         : failed("NotPending");
@@ -603,9 +684,7 @@ export const REQUIREMENT_TYPES = {
     ["receipts.by-id"],
     ReceiptRequirementContextSchema,
     (_parameters, _principal, context) =>
-      (context.facts as ReceiptAccessFacts).internalEvidenceEnabled
-        ? satisfied
-        : failed("Disabled"),
+      context.facts.internalEvidenceEnabled ? satisfied : failed("Disabled"),
   ),
   "receipts.owner": registration(
     ["receipts.by-id", "receipts.owned"],
@@ -626,10 +705,11 @@ export const REQUIREMENT_TYPES = {
     ["receipts.by-id", "receipts.approval-queue"],
     ReceiptRequirementContextSchema,
     (_parameters, principal, context) => {
-      const facts = context.facts as ReceiptAccessFacts;
-      return (principal._tag === "Person" &&
+      const facts = context.facts;
+
+      return (Predicate.isTagged(principal, "Person") &&
         facts.approverPersonIds.includes(principal.personId)) ||
-        (principal._tag === "ServicePrincipal" &&
+        (Predicate.isTagged(principal, "ServicePrincipal") &&
           facts.approverServicePrincipalIds.includes(principal.servicePrincipalId))
         ? satisfied
         : failed("NotApprover");
@@ -644,19 +724,19 @@ export const REQUIREMENT_TYPES = {
     ["content.article-by-id"],
     GenericRequirementContextSchema,
     (_parameters, _principal, context) =>
-      genericFacts(context).revisable === true ? satisfied : failed("NotRevisable"),
+      context.facts.revisable === true ? satisfied : failed("NotRevisable"),
   ),
   "content.publishable": registration(
     ["content.article-by-id"],
     GenericRequirementContextSchema,
     (_parameters, _principal, context) =>
-      genericFacts(context).publishable === true ? satisfied : failed("NotPublishable"),
+      context.facts.publishable === true ? satisfied : failed("NotPublishable"),
   ),
   "content.unpublishable": registration(
     ["content.article-by-id"],
     GenericRequirementContextSchema,
     (_parameters, _principal, context) =>
-      genericFacts(context).unpublishable === true ? satisfied : failed("NotUnpublishable"),
+      context.facts.unpublishable === true ? satisfied : failed("NotUnpublishable"),
   ),
 } as const satisfies Record<(typeof REQUIREMENT_IDS)[number], RequirementRegistration>;
 
@@ -665,6 +745,7 @@ interface ScopeResolverRegistration {
   readonly requirements: ReadonlyArray<RequirementId>;
   readonly contextSchema: RequirementContextSchema;
 }
+
 const collectionResolvers = new Set<string>([
   "identity.owned-sessions",
   "organization.public-departments",
@@ -686,6 +767,7 @@ const collectionResolvers = new Set<string>([
   "content.articles",
   "content.public-news",
 ]);
+
 const resolverRequirements: Partial<
   Record<(typeof SCOPE_RESOLVER_IDS)[number], ReadonlyArray<(typeof REQUIREMENT_IDS)[number]>>
 > = {
@@ -722,29 +804,47 @@ const resolverRequirements: Partial<
     "content.unpublishable",
   ],
 };
-export const SCOPE_RESOLVERS = Object.fromEntries(
-  SCOPE_RESOLVER_IDS.map((id) => {
-    const contextSchema =
-      id === "receipts.by-id" ||
-      id === "receipts.owned" ||
-      id === "receipts.approval-queue" ||
-      id === "receipts.settlement-queue"
-        ? ReceiptRequirementContextSchema
-        : id === "recruitment.invitation-response-by-capability"
-          ? InvitationRequirementContextSchema
-          : GenericRequirementContextSchema;
-    return [
-      id,
-      {
-        selection: collectionResolvers.has(id) ? "AllMatching" : "ExactlyOne",
-        requirements: (resolverRequirements[id] ?? []).map((requirementId) =>
-          RequirementId.make(requirementId),
-        ),
-        contextSchema,
-      } satisfies ScopeResolverRegistration,
-    ];
-  }),
-) as unknown as Record<(typeof SCOPE_RESOLVER_IDS)[number], ScopeResolverRegistration>;
+
+export const SCOPE_RESOLVERS = Schema.decodeUnknownSync(
+  Schema.Record(
+    Schema.Literals(SCOPE_RESOLVER_IDS),
+    Schema.Struct({
+      selection: Schema.Literals(["AllMatching", "ExactlyOne"]),
+      requirements: Schema.Array(RequirementId),
+      contextSchema: Schema.declare(
+        (schema): schema is RequirementContextSchema =>
+          schema === ReceiptRequirementContextSchema ||
+          schema === InvitationRequirementContextSchema ||
+          schema === GenericRequirementContextSchema,
+      ),
+    }),
+  ),
+)(
+  Object.fromEntries(
+    SCOPE_RESOLVER_IDS.map((id) => {
+      const contextSchema =
+        id === "receipts.by-id" ||
+        id === "receipts.owned" ||
+        id === "receipts.approval-queue" ||
+        id === "receipts.settlement-queue"
+          ? ReceiptRequirementContextSchema
+          : id === "recruitment.invitation-response-by-capability"
+            ? InvitationRequirementContextSchema
+            : GenericRequirementContextSchema;
+
+      return [
+        id,
+        {
+          selection: collectionResolvers.has(id) ? "AllMatching" : "ExactlyOne",
+          requirements: (resolverRequirements[id] ?? []).map((requirementId) =>
+            RequirementId.make(requirementId),
+          ),
+          contextSchema,
+        } satisfies ScopeResolverRegistration,
+      ];
+    }),
+  ),
+);
 
 const registeredRequirementSchemas = REQUIREMENT_IDS.map((id) =>
   Schema.Struct({
@@ -758,16 +858,16 @@ const registeredRequirementSchemas = REQUIREMENT_IDS.map((id) =>
     parameters: REQUIREMENT_TYPES[id].parameterSchema,
   }),
 );
-export const TypedRequirementSchema = Schema.Union(
-  registeredRequirementSchemas as unknown as readonly [
-    (typeof registeredRequirementSchemas)[number],
-    ...(typeof registeredRequirementSchemas)[number][],
-  ],
-);
+
+export const TypedRequirementSchema = Schema.Union(registeredRequirementSchemas);
+
 export type TypedRequirement = typeof TypedRequirementSchema.Type;
+
 export type RequirementResult =
   | { readonly id: RequirementId; readonly _tag: "Satisfied" }
   | { readonly id: RequirementId; readonly _tag: "Failed"; readonly reason: string };
+
+export const RequirementResult = Data.taggedEnum<RequirementResult>();
 
 export const GrantSchema = Schema.Struct({
   grantId: GrantId,
@@ -787,7 +887,9 @@ export const GrantSchema = Schema.Struct({
     ),
   ),
 );
+
 export type Grant = typeof GrantSchema.Type;
+
 export type RoleMacro = {
   readonly roleId: string;
   readonly grants: ReadonlyArray<Grant>;
@@ -801,6 +903,7 @@ export const assertRequirementRegistration = (
   const requirement = REQUIREMENT_TYPES[requirementRegistryKey(requirementId)];
   const registeredResolverIds: ReadonlyArray<ScopeResolverId> = requirement.resolverIds;
   const registeredRequirements: ReadonlyArray<string> = resolver.requirements;
+
   if (
     !registeredResolverIds.includes(resolverId) ||
     !registeredRequirements.includes(requirementId) ||
@@ -813,9 +916,13 @@ export const assertRequirementRegistration = (
 };
 
 export const AuthorizationModeSchema = Schema.Literals(["SnapshotRead", "Transaction"]);
+
 export type AuthorizationMode = typeof AuthorizationModeSchema.Type;
+
 export const ExposureSchema = Schema.Literals(["External", "Internal"]);
+
 export type Exposure = typeof ExposureSchema.Type;
+
 export const ConcealmentPolicySchema = Schema.TaggedUnion({
   Reveal: {},
   NotFound: {
@@ -830,7 +937,9 @@ export const ConcealmentPolicySchema = Schema.TaggedUnion({
     ),
   },
 });
+
 export type ConcealmentPolicy = typeof ConcealmentPolicySchema.Type;
+
 const AcceptedCredentialsSchema = Schema.Array(CredentialMechanismSchema).pipe(
   Schema.check(
     Schema.makeFilter((values) => values.length > 0, {
@@ -838,6 +947,7 @@ const AcceptedCredentialsSchema = Schema.Array(CredentialMechanismSchema).pipe(
     }),
   ),
 );
+
 const PrincipalKindsSchema = Schema.Array(PrincipalKindSchema).pipe(
   Schema.check(
     Schema.makeFilter((values) => values.length > 0 && new Set(values).size === values.length, {
@@ -845,6 +955,7 @@ const PrincipalKindsSchema = Schema.Array(PrincipalKindSchema).pipe(
     }),
   ),
 );
+
 export const AccessSpecSchema = Schema.Struct({
   exposure: ExposureSchema,
   acceptedCredentials: AcceptedCredentialsSchema,
@@ -855,25 +966,34 @@ export const AccessSpecSchema = Schema.Struct({
   concealment: ConcealmentPolicySchema,
   decisionTime: AuthorizationModeSchema,
 });
+
 export type AccessSpec = typeof AccessSpecSchema.Type;
 
 const mechanismPrincipalKind = (mechanism: CredentialMechanism): PrincipalKind => {
-  switch (mechanism._tag) {
-    case "None":
+  return Match.value(mechanism).pipe(
+    Match.withReturnType<PrincipalKind>(),
+    Match.tag("None", () => {
       return "Anonymous";
-    case "BetterAuthCookie":
-    case "OAuthUserBearer":
+    }),
+    Match.tag("BetterAuthCookie", "OAuthUserBearer", () => {
       return "Person";
-    case "OAuthServiceBearer":
+    }),
+    Match.tag("OAuthServiceBearer", () => {
       return "ServicePrincipal";
-    case "ObjectCapability":
+    }),
+    Match.tag("ObjectCapability", () => {
       return "CapabilityHolder";
-  }
+    }),
+    Match.exhaustive,
+  );
 };
+
 const sameCredentialMechanism = (left: CredentialMechanism, right: CredentialMechanism): boolean =>
-  left._tag === right._tag &&
-  (left._tag !== "ObjectCapability" ||
-    (right._tag === "ObjectCapability" && left.capabilityType === right.capabilityType));
+  Predicate.isTagged(left, right._tag) &&
+  (!Predicate.isTagged(left, "ObjectCapability") ||
+    (Predicate.isTagged(right, "ObjectCapability") &&
+      left.capabilityType === right.capabilityType));
+
 const credentialMatchesAccessSpec = (
   spec: AccessSpec,
   credential: Extract<CredentialOutcome, { readonly _tag: "Accepted" }>,
@@ -882,70 +1002,92 @@ const credentialMatchesAccessSpec = (
   spec.acceptedCredentials.some((accepted) =>
     sameCredentialMechanism(accepted, credential.mechanism),
   );
+
 const capabilityTypesIn = (expression: CapabilityExpression): ReadonlyArray<CapabilityTypeId> => {
-  switch (expression._tag) {
-    case "None":
+  return Match.value(expression).pipe(
+    Match.withReturnType<ReadonlyArray<CapabilityTypeId>>(),
+    Match.tag("None", () => {
       return [];
-    case "One":
+    }),
+    Match.tag("One", (expression) => {
       return [expression.capability.type];
-    case "All":
-    case "Any":
+    }),
+    Match.tag("All", "Any", (expression) => {
       return expression.capabilities.map((capability) => capability.type);
-  }
+    }),
+    Match.exhaustive,
+  );
 };
+
 export const scopeResolverDeclaration = (resolverId: ScopeResolverId): ScopeResolverRegistration =>
   SCOPE_RESOLVERS[scopeResolverRegistryKey(resolverId)];
+
 const stableRequirementKey = (requirement: TypedRequirement): string =>
   `${requirement.id}:${JSON.stringify(requirement.parameters)}`;
 
-export const makeAccessSpec = (input: unknown): AccessSpec => {
-  const decoded = Schema.decodeUnknownSync(AccessSpecSchema)(input, {
-    onExcessProperty: "error",
-  });
-  const anonymousOnly =
-    decoded.principalKinds.length === 1 && decoded.principalKinds[0] === "Anonymous";
-  if (anonymousOnly) {
-    if (
-      decoded.acceptedCredentials.length !== 1 ||
-      decoded.acceptedCredentials[0]?._tag !== "None" ||
-      decoded.capabilities._tag !== "None"
+export const makeAccessSpec = flow(
+  Schema.decodeUnknownSync(AccessSpecSchema, { onExcessProperty: "error" }),
+  (decoded): AccessSpec => {
+    const anonymousOnly =
+      decoded.principalKinds.length === 1 && decoded.principalKinds[0] === "Anonymous";
+
+    if (anonymousOnly) {
+      if (
+        decoded.acceptedCredentials.length !== 1 ||
+        decoded.acceptedCredentials[0]?._tag !== "None" ||
+        !Predicate.isTagged(decoded.capabilities, "None")
+      ) {
+        throw new TypeError("Anonymous access requires only None credentials and no capability");
+      }
+    } else if (
+      decoded.acceptedCredentials.some((mechanism) => Predicate.isTagged(mechanism, "None"))
     ) {
-      throw new TypeError("Anonymous access requires only None credentials and no capability");
+      throw new TypeError("None credentials are valid only for Anonymous access");
     }
-  } else if (decoded.acceptedCredentials.some((mechanism) => mechanism._tag === "None")) {
-    throw new TypeError("None credentials are valid only for Anonymous access");
-  }
-  const mechanismKinds = new Set(decoded.acceptedCredentials.map(mechanismPrincipalKind));
-  for (const principalKind of decoded.principalKinds) {
-    if (!mechanismKinds.has(principalKind)) {
-      throw new TypeError(`principal kind ${principalKind} has no accepted credential mechanism`);
+
+    const mechanismKinds = new Set(decoded.acceptedCredentials.map(mechanismPrincipalKind));
+
+    for (const principalKind of decoded.principalKinds) {
+      if (!mechanismKinds.has(principalKind)) {
+        throw new TypeError(`principal kind ${principalKind} has no accepted credential mechanism`);
+      }
     }
-  }
-  for (const mechanismKind of mechanismKinds) {
-    if (!decoded.principalKinds.includes(mechanismKind)) {
-      throw new TypeError(`credential mechanism resolves unlisted principal kind ${mechanismKind}`);
+
+    for (const mechanismKind of mechanismKinds) {
+      if (!decoded.principalKinds.includes(mechanismKind)) {
+        throw new TypeError(
+          `credential mechanism resolves unlisted principal kind ${mechanismKind}`,
+        );
+      }
     }
-  }
-  const capabilityTypes = capabilityTypesIn(decoded.capabilities);
-  for (const mechanism of decoded.acceptedCredentials) {
-    if (
-      mechanism._tag === "ObjectCapability" &&
-      !capabilityTypes.includes(mechanism.capabilityType)
-    ) {
-      throw new TypeError("object capability credential must match an endpoint capability");
+
+    const capabilityTypes = capabilityTypesIn(decoded.capabilities);
+
+    for (const mechanism of decoded.acceptedCredentials) {
+      if (
+        Predicate.isTagged(mechanism, "ObjectCapability") &&
+        !capabilityTypes.includes(mechanism.capabilityType)
+      ) {
+        throw new TypeError("object capability credential must match an endpoint capability");
+      }
     }
-  }
-  for (const requirement of decoded.requirements) {
-    assertRequirementRegistration(decoded.canonicalScopeResolver, requirement.id);
-  }
-  const requirementKeys = decoded.requirements.map(stableRequirementKey);
-  const uniqueRequirements = decoded.requirements.filter(
-    (_, index) => requirementKeys.indexOf(requirementKeys[index]!) === index,
-  );
-  return { ...decoded, requirements: uniqueRequirements };
-};
+
+    for (const requirement of decoded.requirements) {
+      assertRequirementRegistration(decoded.canonicalScopeResolver, requirement.id);
+    }
+
+    const requirementKeys = decoded.requirements.map(stableRequirementKey);
+
+    const uniqueRequirements = decoded.requirements.filter(
+      (_, index) => requirementKeys.indexOf(requirementKeys[index]!) === index,
+    );
+
+    return { ...decoded, requirements: uniqueRequirements };
+  },
+);
 
 const stableScope = (scope: Scope): string => JSON.stringify(scope);
+
 const canonicalScopeTree = (
   operator: "And" | "Or",
   members: ReadonlyArray<Scope>,
@@ -954,25 +1096,31 @@ const canonicalScopeTree = (
 ): Scope => {
   if (end - start === 1) return members[start]!;
   const middle = start + Math.ceil((end - start) / 2);
-  return {
-    _tag: operator,
+
+  return Scope[operator]({
     left: canonicalScopeTree(operator, members, start, middle),
     right: canonicalScopeTree(operator, members, middle, end),
-  };
+  });
 };
+
 export const normalizeScope = (scope: Scope): Scope => {
-  if (scope._tag !== "And" && scope._tag !== "Or") return scope;
+  if (!Predicate.isTagged(scope, "And") && !Predicate.isTagged(scope, "Or")) return scope;
   const operator = scope._tag;
   const members: Array<Scope> = [];
+
   const collect = (candidate: Scope): void => {
-    if (candidate._tag === operator) {
+    if (Predicate.isTagged(candidate, operator)) {
       collect(candidate.left);
       collect(candidate.right);
+
       return;
     }
+
     members.push(normalizeScope(candidate));
   };
+
   collect(scope);
+
   const canonicalMembers = [
     ...new Map(
       members
@@ -980,72 +1128,98 @@ export const normalizeScope = (scope: Scope): Scope => {
         .sort(([left], [right]) => left.localeCompare(right)),
     ).values(),
   ];
+
   return canonicalScopeTree(operator, canonicalMembers);
 };
-export const makeGrant = (input: unknown): Grant => {
-  const grant = Schema.decodeUnknownSync(GrantSchema)(input, { onExcessProperty: "error" });
-  return { ...grant, scope: normalizeScope(grant.scope) };
-};
+
+export const decodeGrant = flow(
+  Schema.decodeUnknownSync(GrantSchema, { onExcessProperty: "error" }),
+  (grant): Grant => {
+    return { ...grant, scope: normalizeScope(grant.scope) };
+  },
+);
+
 export const expandAuthorityMacros = (
   directGrants: ReadonlyArray<Grant>,
   roles: ReadonlyArray<RoleMacro>,
 ): ReadonlyArray<Grant> => [...directGrants, ...roles.flatMap((role) => role.grants)];
 
 export const scopeMatches = (scope: Scope, context: CanonicalResourceContext): boolean => {
-  switch (scope._tag) {
-    case "Global":
+  return Match.value(scope).pipe(
+    Match.withReturnType<boolean>(),
+    Match.tag("Global", () => {
       return true;
-    case "Domain":
+    }),
+    Match.tag("Domain", (scope) => {
       return scope.domainId === context.domainId;
-    case "Department":
+    }),
+    Match.tag("Department", (scope) => {
       return context.departmentId !== null && scope.departmentId === context.departmentId;
-    case "Resource":
+    }),
+    Match.tag("Resource", (scope) => {
       return (
         context.resource !== null &&
         scope.resource.kind === context.resource.kind &&
         scope.resource.id === context.resource.id
       );
-    case "And":
+    }),
+    Match.tag("And", (scope) => {
       return scopeMatches(scope.left, context) && scopeMatches(scope.right, context);
-    case "Or":
+    }),
+    Match.tag("Or", (scope) => {
       return scopeMatches(scope.left, context) || scopeMatches(scope.right, context);
-  }
+    }),
+    Match.exhaustive,
+  );
 };
+
 const samePrincipal = (left: NonAnonymousPrincipal, right: Principal): boolean => {
-  if (left._tag !== right._tag) return false;
-  switch (left._tag) {
-    case "Person":
-      return right._tag === "Person" && left.personId === right.personId;
-    case "ServicePrincipal":
+  if (!Predicate.isTagged(left, right._tag)) return false;
+
+  return Match.value(left).pipe(
+    Match.withReturnType<boolean>(),
+    Match.tag("Person", (left) => {
+      return Predicate.isTagged(right, "Person") && left.personId === right.personId;
+    }),
+    Match.tag("ServicePrincipal", (left) => {
       return (
-        right._tag === "ServicePrincipal" && left.servicePrincipalId === right.servicePrincipalId
+        Predicate.isTagged(right, "ServicePrincipal") &&
+        left.servicePrincipalId === right.servicePrincipalId
       );
-    case "CapabilityHolder":
-      return right._tag === "CapabilityHolder" && left.capabilityId === right.capabilityId;
-  }
+    }),
+    Match.tag("CapabilityHolder", (left) => {
+      return (
+        Predicate.isTagged(right, "CapabilityHolder") && left.capabilityId === right.capabilityId
+      );
+    }),
+    Match.exhaustive,
+  );
 };
+
 const activeAt = (grant: Grant, instant: AuthorizationInstant): boolean =>
   compareRfc3339Instants(grant.startAt, instant) <= 0 &&
   (grant.endAt === null || compareRfc3339Instants(instant, grant.endAt) < 0);
+
 export const evaluateRequirement = (
   requirement: TypedRequirement,
   principal: Principal,
   context: CanonicalResourceContext,
 ): RequirementResult => {
   const registration = REQUIREMENT_TYPES[requirementRegistryKey(requirement.id)];
+
   if (!Schema.is(registration.parameterSchema)(requirement.parameters)) {
-    return { id: requirement.id, _tag: "Failed", reason: "InvalidParameters" };
+    return RequirementResult.Failed({ id: requirement.id, reason: "InvalidParameters" });
   }
-  if (!Schema.is(registration.contextSchema)(context)) {
-    return { id: requirement.id, _tag: "Failed", reason: "InvalidContext" };
-  }
+
   const parameters = Schema.decodeSync(registration.parameterSchema)(requirement.parameters);
-  const registeredContext = Schema.decodeSync(registration.contextSchema)(context);
-  const evaluation = registration.evaluate(parameters, principal, registeredContext);
+
+  const evaluation = registration.evaluate(parameters, principal, context);
+
   return { id: requirement.id, ...evaluation };
 };
 
 export type AccessDenialStage = "PrincipalKind" | "Capability" | "Scope" | "Requirement";
+
 export type AccessDenialReason =
   | "PrincipalKindNotAccepted"
   | "CapabilityMissing"
@@ -1054,6 +1228,7 @@ export type AccessDenialReason =
   | "RequirementFailed"
   | "InvalidScopeResolution"
   | "EmptyContextSet";
+
 export type AccessDecision<C = unknown> =
   | {
       readonly _tag: "Allow";
@@ -1066,25 +1241,33 @@ export type AccessDecision<C = unknown> =
       readonly stage: AccessDenialStage;
       readonly reason: AccessDenialReason;
     };
+
 export type AccessEvaluation<C = unknown> =
   | { readonly _tag: "CredentialRejected"; readonly reason: CredentialFailureReason }
   | AccessDecision<C>;
 
+interface AccessEvaluationDefinition extends Data.TaggedEnum.WithGenerics<1> {
+  readonly taggedEnum: AccessEvaluation<this["A"]>;
+}
+
+export const AccessEvaluation = Data.taggedEnum<AccessEvaluationDefinition>();
+
 type AccessDenial = Extract<AccessDecision, { readonly _tag: "Deny" }>;
-const denied = (stage: AccessDenialStage, reason: AccessDenialReason): AccessDenial => ({
-  _tag: "Deny",
-  stage,
-  reason,
-});
+
+const denied = (stage: AccessDenialStage, reason: AccessDenialReason): AccessDenial =>
+  AccessEvaluation.Deny({ stage, reason });
+
 const requirementsSatisfied = (
   requirements: ReadonlyArray<TypedRequirement>,
   principal: Principal,
   context: CanonicalResourceContext,
 ): boolean =>
-  requirements.every(
-    (requirement) => evaluateRequirement(requirement, principal, context)._tag === "Satisfied",
+  requirements.every((requirement) =>
+    Predicate.isTagged(evaluateRequirement(requirement, principal, context), "Satisfied"),
   );
+
 type ContextCapabilityResult = { readonly allowed: true } | { readonly denial: AccessDenial };
+
 const capabilityForContext = (
   capability: Capability,
   principal: Principal,
@@ -1095,18 +1278,25 @@ const capabilityForContext = (
   const matchingCapability = grants.filter(
     (grant) => samePrincipal(grant.subject, principal) && grant.capability.type === capability.type,
   );
+
   if (matchingCapability.length === 0) {
     return { denial: denied("Capability", "CapabilityMissing") };
   }
+
   const active = matchingCapability.filter((grant) => activeAt(grant, instant));
+
   if (active.length === 0) return { denial: denied("Capability", "AuthorityInactive") };
   const scoped = active.filter((grant) => scopeMatches(grant.scope, context));
+
   if (scoped.length === 0) return { denial: denied("Scope", "NotInScope") };
+
   if (!scoped.some((grant) => requirementsSatisfied(grant.requirements, principal, context))) {
     return { denial: denied("Requirement", "RequirementFailed") };
   }
+
   return { allowed: true };
 };
+
 const expressionForContext = (
   expression: CapabilityExpression,
   principal: Principal,
@@ -1114,36 +1304,46 @@ const expressionForContext = (
   grants: ReadonlyArray<Grant>,
   instant: AuthorizationInstant,
 ): ContextCapabilityResult => {
-  switch (expression._tag) {
-    case "None":
+  return Match.value(expression).pipe(
+    Match.withReturnType<ContextCapabilityResult>(),
+    Match.tag("None", () => {
       return { allowed: true };
-    case "One":
+    }),
+    Match.tag("One", (expression) => {
       return capabilityForContext(expression.capability, principal, context, grants, instant);
-    case "All": {
+    }),
+    Match.tag("All", (expression) => {
       for (const capability of expression.capabilities) {
         const result = capabilityForContext(capability, principal, context, grants, instant);
+
         if ("denial" in result) return result;
       }
+
       return { allowed: true };
-    }
-    case "Any": {
+    }),
+    Match.tag("Any", (expression) => {
       let strongestDenial = denied("Capability", "CapabilityMissing");
+
       for (const capability of expression.capabilities) {
         const result = capabilityForContext(capability, principal, context, grants, instant);
+
         if ("allowed" in result) return result;
+
         if (
-          result.denial._tag === "Deny" &&
+          Predicate.isTagged(result.denial, "Deny") &&
           (result.denial.stage === "Requirement" ||
             (result.denial.stage === "Scope" &&
-              strongestDenial._tag === "Deny" &&
+              Predicate.isTagged(strongestDenial, "Deny") &&
               strongestDenial.stage === "Capability"))
         ) {
           strongestDenial = result.denial;
         }
       }
+
       return { denial: strongestDenial };
-    }
-  }
+    }),
+    Match.exhaustive,
+  );
 };
 
 export const evaluateAccess = <C>(input: {
@@ -1153,16 +1353,20 @@ export const evaluateAccess = <C>(input: {
   readonly grants: ReadonlyArray<Grant>;
   readonly authorizationInstant: AuthorizationInstant;
 }): AccessEvaluation<C> => {
-  if (input.credential._tag === "Rejected") {
-    return { _tag: "CredentialRejected", reason: input.credential.reason };
+  if (Predicate.isTagged(input.credential, "Rejected")) {
+    return AccessEvaluation.CredentialRejected({ reason: input.credential.reason });
   }
+
   if (!credentialMatchesAccessSpec(input.spec, input.credential)) {
-    return { _tag: "CredentialRejected", reason: "WrongMechanism" };
+    return AccessEvaluation.CredentialRejected({ reason: "WrongMechanism" });
   }
+
   const principal = input.credential.principal;
+
   if (!input.spec.principalKinds.includes(principal._tag)) {
     return denied("PrincipalKind", "PrincipalKindNotAccepted");
   }
+
   if (
     input.resolution.selection !==
       scopeResolverDeclaration(input.spec.canonicalScopeResolver).selection ||
@@ -1170,8 +1374,10 @@ export const evaluateAccess = <C>(input: {
   ) {
     return denied("Scope", "InvalidScopeResolution");
   }
+
   const allowedContexts: Array<CanonicalResourceContext<C>> = [];
   let lastDenial = denied("Scope", "EmptyContextSet");
+
   for (const context of input.resolution.contexts) {
     const capability = expressionForContext(
       input.spec.capabilities,
@@ -1180,23 +1386,27 @@ export const evaluateAccess = <C>(input: {
       input.grants,
       input.authorizationInstant,
     );
+
     if ("denial" in capability) {
       lastDenial = capability.denial;
       continue;
     }
+
     if (!requirementsSatisfied(input.spec.requirements, principal, context)) {
       lastDenial = denied("Requirement", "RequirementFailed");
       continue;
     }
+
     allowedContexts.push(context);
   }
+
   if (allowedContexts.length === 0) return lastDenial;
-  return {
-    _tag: "Allow",
+
+  return AccessEvaluation.Allow({
     principal,
     resolution: { ...input.resolution, contexts: allowedContexts },
     authorizationInstant: input.authorizationInstant,
-  };
+  });
 };
 
 export interface AccessJourneyServices<I, C, E, R> {
@@ -1217,6 +1427,7 @@ export interface AccessJourneyServices<I, C, E, R> {
     mode: AuthorizationMode,
   ) => Effect.Effect<ReadonlyArray<Grant>, E, R>;
 }
+
 export const evaluateAccessJourney = <I, C, E, R>(
   spec: AccessSpec,
   input: I,
@@ -1225,37 +1436,47 @@ export const evaluateAccessJourney = <I, C, E, R>(
   Effect.gen(function* () {
     const authorizationInstant = yield* services.now;
     const credential = yield* services.resolveCredential(authorizationInstant);
-    if (credential._tag === "Rejected") {
-      return { _tag: "CredentialRejected", reason: credential.reason } as const;
+
+    if (Predicate.isTagged(credential, "Rejected")) {
+      return AccessEvaluation.CredentialRejected({ reason: credential.reason });
     }
+
     if (!credentialMatchesAccessSpec(spec, credential)) {
-      return { _tag: "CredentialRejected", reason: "WrongMechanism" } as const;
+      return AccessEvaluation.CredentialRejected({ reason: "WrongMechanism" });
     }
+
     const resolution = yield* services.resolveScope(
       input,
       credential.principal,
       authorizationInstant,
       spec.decisionTime,
     );
+
     const grants = yield* services.resolveGrants(
       credential.principal,
       resolution,
       authorizationInstant,
       spec.decisionTime,
     );
+
     return evaluateAccess({ spec, credential, resolution, grants, authorizationInstant });
   });
 
-const concealed = (policy: ConcealmentPolicy, stage: string): boolean =>
-  policy._tag === "NotFound" && policy.conceal.includes(stage as never);
+const concealed = (
+  policy: ConcealmentPolicy,
+  stage: AccessDenialStage | "CredentialFailure",
+): boolean => Predicate.isTagged(policy, "NotFound") && policy.conceal.includes(stage);
+
 export const accessHttpStatus = (
   evaluation: AccessEvaluation,
   policy: ConcealmentPolicy,
 ): 200 | 401 | 403 | 404 => {
-  if (evaluation._tag === "Allow") return 200;
-  if (evaluation._tag === "CredentialRejected") {
+  if (Predicate.isTagged(evaluation, "Allow")) return 200;
+
+  if (Predicate.isTagged(evaluation, "CredentialRejected")) {
     return concealed(policy, "CredentialFailure") ? 404 : 401;
   }
+
   return concealed(policy, evaluation.stage) ? 404 : 403;
 };
 
@@ -1275,6 +1496,7 @@ export interface AccessTrace {
   readonly decision: "Allow" | "Deny" | null;
   readonly projectedStatus: number;
 }
+
 export const traceAccess = (input: {
   readonly declarationId: string;
   readonly spec: AccessSpec;
@@ -1284,26 +1506,31 @@ export const traceAccess = (input: {
   readonly grants: ReadonlyArray<Grant>;
   readonly evaluation: AccessEvaluation;
 }): AccessTrace => {
-  const accepted = input.credential._tag === "Accepted";
+  const accepted = Predicate.isTagged(input.credential, "Accepted");
   const principal = accepted ? input.credential.principal : null;
   const context = input.resolution.contexts[0];
+
   const failedRequirements =
     principal === null || context === undefined
       ? []
-      : [...input.spec.requirements, ...input.grants.flatMap((grant) => grant.requirements)]
-          .filter(
-            (requirement) => evaluateRequirement(requirement, principal, context)._tag === "Failed",
-          )
-          .map((requirement) => requirement.id)
+      : Array.filterMap(
+          [...input.spec.requirements, ...input.grants.flatMap((grant) => grant.requirements)],
+          (requirement) =>
+            Predicate.isTagged(evaluateRequirement(requirement, principal, context), "Failed")
+              ? Result.succeed(requirement.id)
+              : Result.failVoid,
+        )
           .filter((id, index, values) => values.indexOf(id) === index)
           .sort((left, right) => REQUIREMENT_IDS.indexOf(left) - REQUIREMENT_IDS.indexOf(right));
+
   const capabilityOutcome =
-    !accepted || input.spec.capabilities._tag === "None"
+    !accepted || Predicate.isTagged(input.spec.capabilities, "None")
       ? null
-      : input.evaluation._tag === "Deny" &&
+      : Predicate.isTagged(input.evaluation, "Deny") &&
           (input.evaluation.stage === "Capability" || input.evaluation.stage === "Scope")
         ? "Failed"
         : "Satisfied";
+
   return {
     declarationId: input.declarationId,
     exposure: input.spec.exposure,
@@ -1317,53 +1544,53 @@ export const traceAccess = (input: {
     decisionTime: accepted ? input.spec.decisionTime : null,
     capabilityOutcome,
     failedRequirementIds: failedRequirements,
-    decision: input.evaluation._tag === "CredentialRejected" ? null : input.evaluation._tag,
+    decision: Predicate.isTagged(input.evaluation, "CredentialRejected")
+      ? null
+      : input.evaluation._tag,
     projectedStatus: accessHttpStatus(input.evaluation, input.spec.concealment),
   };
 };
 
 export const PUBLIC_SYSTEM_ACCESS = makeAccessSpec({
   exposure: "External",
-  acceptedCredentials: [{ _tag: "None" }],
+  acceptedCredentials: [CredentialMechanismSchema.cases.None.make({})],
   principalKinds: ["Anonymous"],
-  capabilities: { _tag: "None" },
+  capabilities: CapabilityExpressionSchema.cases.None.make({}),
   requirements: [],
   canonicalScopeResolver: SYSTEM_PUBLIC_SCOPE_RESOLVER,
-  concealment: { _tag: "Reveal" },
+  concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
   decisionTime: "SnapshotRead",
 });
 
 export const RECEIPT_APPROVAL_QUEUE_ACCESS = makeAccessSpec({
   exposure: "External",
   acceptedCredentials: [
-    { _tag: "BetterAuthCookie" },
-    { _tag: "OAuthUserBearer" },
-    { _tag: "OAuthServiceBearer" },
+    CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+    CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+    CredentialMechanismSchema.cases.OAuthServiceBearer.make({}),
   ],
   principalKinds: ["Person", "ServicePrincipal"],
-  capabilities: {
-    _tag: "One",
+  capabilities: CapabilityExpressionSchema.cases.One.make({
     capability: { type: APPROVE_RECEIPT_CAPABILITY },
-  },
+  }),
   requirements: [{ id: RECEIPT_APPROVER_REQUIREMENT, parameters: {} }],
   canonicalScopeResolver: RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER,
-  concealment: { _tag: "Reveal" },
+  concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
   decisionTime: "SnapshotRead",
 });
 
 export const INTERNAL_RECEIPT_EVIDENCE_ACCESS = makeAccessSpec({
   exposure: "Internal",
-  acceptedCredentials: [{ _tag: "BetterAuthCookie" }],
+  acceptedCredentials: [CredentialMechanismSchema.cases.BetterAuthCookie.make({})],
   principalKinds: ["Person"],
-  capabilities: {
-    _tag: "One",
+  capabilities: CapabilityExpressionSchema.cases.One.make({
     capability: { type: READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY },
-  },
+  }),
   requirements: [
     { id: INTERNAL_EVIDENCE_ENABLED_REQUIREMENT, parameters: {} },
     { id: RECEIPT_OWNER_REQUIREMENT, parameters: {} },
   ],
   canonicalScopeResolver: RECEIPT_BY_ID_SCOPE_RESOLVER,
-  concealment: { _tag: "Reveal" },
+  concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
   decisionTime: "SnapshotRead",
 });

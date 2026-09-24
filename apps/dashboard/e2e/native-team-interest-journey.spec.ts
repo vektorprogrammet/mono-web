@@ -5,9 +5,13 @@ const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 // Journey personas provisioned by e2e/native-team-interest-mailing-list-seed.mjs
 // (identity:seed users + organization authority facts + registration rows).
 const password = "journey-secret-0123456789abcdef";
+
 const adminEmail = "admin.0059@example.invalid";
+
 const leaderEmail = "leader.0059@example.invalid";
+
 const memberEmail = "member.0059@example.invalid";
+
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8790";
 
 const signIn = async (page: Page, email: string) => {

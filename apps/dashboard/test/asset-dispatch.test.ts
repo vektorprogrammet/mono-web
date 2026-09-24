@@ -70,6 +70,7 @@ describe("handleDashboardWorkerRequest", () => {
   it("redirects a reserved document suffix to its canonical framed path", async () => {
     const assets = { fetch: vi.fn(async () => new Response("unexpected")) };
     const applicationHandler = vi.fn(async () => new Response("unexpected"));
+
     const request = new Request("https://vektor.phibkro.org/undersokelse/survey.0111.data", {
       headers: { Accept: "text/html", Host: "vektor.phibkro.org" },
     });
@@ -93,6 +94,7 @@ describe("handleDashboardWorkerRequest", () => {
   it("serves a Worker Preview URL without granting unrelated hosts", async () => {
     const assets = { fetch: vi.fn(async () => new Response("asset", { status: 404 })) };
     const applicationHandler = vi.fn(async () => new Response("dashboard"));
+
     const previewEnv = {
       ASSETS: assets,
       PREVIEW_HOST_SUFFIX: ".workers.dev",
@@ -106,6 +108,7 @@ describe("handleDashboardWorkerRequest", () => {
       previewEnv,
       applicationHandler,
     );
+
     expect(accepted.status).toBe(200);
     expect(accepted.headers.get("x-mono-web-stage")).toBe("worker-preview");
 
@@ -116,6 +119,7 @@ describe("handleDashboardWorkerRequest", () => {
       previewEnv,
       applicationHandler,
     );
+
     expect(denied.status).toBe(421);
   });
 });

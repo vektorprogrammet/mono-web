@@ -22,7 +22,7 @@ const deliver = (
     Effect.mapError(() => new PublicApplicationEffectDeliveryError({ effectId: request.effectId })),
   );
 
-export const makeHttpPublicApplicationEffectInterpreter = (
+export const publicApplicationHttpEffects = (
   config: PublicApplicationEffectConfig,
   fetchEffect: PublicApplicationEffectFetch = globalThis.fetch,
 ): PublicApplicationEffectInterpreter =>

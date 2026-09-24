@@ -1,3 +1,4 @@
+import { Data, Predicate } from "effect";
 import { randomUUID } from "node:crypto";
 import { readdir, writeFile } from "node:fs/promises";
 import {
@@ -12,24 +13,50 @@ import {
 import { z } from "zod";
 import { dashboardBaseUrl, dashboardMount } from "../dashboard-base";
 
+type JourneyOutcome = Data.TaggedEnum<{
+  Authenticated: {}; Rejected: { readonly errorText: string }; TimedOut: {};
+  Observed: { readonly status: number }; NotObserved: {};
+  ExpectedError: {}; UrlChanged: {}; PageError: { readonly errorText: string };
+}>;
+
+const JourneyOutcome = Data.taggedEnum<JourneyOutcome>();
+
 const DASHBOARD_MOUNT = dashboardMount(process.env);
+
 const LOGIN_DATA_PATH = `${DASHBOARD_MOUNT}login.data`;
+
 const OWNED_RECEIPT_DATA_PATH = `${DASHBOARD_MOUNT}mine-utlegg.data`;
+
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
+
 const DASHBOARD_BASE_URL = dashboardBaseUrl(DASHBOARD_ORIGIN, process.env);
+
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8790";
+
 const INTERNAL_BACKEND_ORIGIN = process.env.INTERNAL_BACKEND_ORIGIN ?? "http://127.0.0.1:8791";
+
 const REAL_RECEIPT_OWNER_E2E = process.env.REAL_RECEIPT_OWNER_E2E === "1";
+
 const DESCRIPTION = "Owner receipt submission";
+
 const RECEIPT_DATE = "2026-08-21";
+
 const AMOUNT_ORE = 12_550;
+
 const REVISED_DESCRIPTION = "Owner receipt revised without replacement";
+
 const REPLACED_DESCRIPTION = "Owner receipt revised with replacement";
+
 const CONCURRENT_DESCRIPTION = "Owner receipt concurrent revision";
+
 const REVISED_RECEIPT_DATE = "2026-08-20";
+
 const REVISED_AMOUNT_ORE = 21_075;
+
 const MAX_FILE_BYTES = 10_485_760;
+
 const REPLACEMENT_IDEMPOTENCY_KEY = "receipt-owner-e2e-replacement";
+
 const RECEIPT_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
@@ -72,6 +99,7 @@ const receiptPageSchema = z
     totalItems: z.number().int().nonnegative(),
   })
   .strict();
+
 const lifecycleEvidenceSchema = z
   .object({
     receiptId: z.string().min(1),
@@ -119,9 +147,11 @@ interface ReceiptPersona {
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
+
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required for the real Receipt journey`);
   }
+
   return value;
 }
 
@@ -133,7 +163,7 @@ function receiptPersona(kind: "OWNER" | "FOREIGN"): ReceiptPersona {
   };
 }
 
-const sessionHeaders = (cookie: string): { readonly Cookie: string; readonly Origin: string } => ({
+const sessionHeaders = (cookie: string) => ({
   Cookie: cookie,
   Origin: DASHBOARD_ORIGIN,
 });
@@ -147,48 +177,59 @@ async function authenticate(
   await page.goto("login");
   await page.getByLabel("E-post").fill(persona.email);
   await page.getByLabel("Passord", { exact: true }).fill(persona.password);
+
   const loginResponsePromise = page.waitForResponse((response) => {
     const request = response.request();
+
     return request.method() === "POST" && new URL(response.url()).pathname === LOGIN_DATA_PATH;
   });
+
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
   const loginResponse = await loginResponsePromise;
   const loginError = page.getByRole("alert");
+
   const loginOutcome = await Promise.race([
     page
       .waitForURL((url) => url.pathname === DASHBOARD_MOUNT, {
         timeout: 15_000,
         waitUntil: "commit",
       })
-      .then(() => ({ _tag: "Authenticated" }) as const),
+      .then(() => JourneyOutcome.Authenticated()),
     loginError
       .waitFor({ state: "visible", timeout: 15_000 })
       .then(
         async () =>
-          ({ _tag: "Rejected", errorText: (await loginError.innerText()).trim() }) as const,
+          JourneyOutcome.Rejected({errorText: (await loginError.innerText()).trim()}),
       ),
-    page.waitForTimeout(15_000).then(() => ({ _tag: "TimedOut" }) as const),
+    page.waitForTimeout(15_000).then(() => JourneyOutcome.TimedOut()),
   ]);
-  if (loginOutcome._tag !== "Authenticated") {
+
+  if (!Predicate.isTagged(loginOutcome, "Authenticated")) {
     const errorText =
-      loginOutcome._tag === "Rejected" && loginOutcome.errorText.length > 0
+      Predicate.isTagged(loginOutcome, "Rejected") && loginOutcome.errorText.length > 0
         ? loginOutcome.errorText
         : "<no login error rendered>";
+
     throw new Error(
       `Receipt owner login failed: POST ${LOGIN_DATA_PATH} status=${loginResponse.status()}; renderedError=${JSON.stringify(errorText)}`,
     );
   }
+
   const sessionCookies = (await page.context().cookies(DASHBOARD_ORIGIN)).filter(
     ({ name }) =>
       name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
   );
+
   expect(sessionCookies).toHaveLength(1);
   const sessionCookie = sessionCookies[0];
+
   if (sessionCookie === undefined) throw new Error("Better Auth session cookie is missing");
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
+
   const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/profile`, {
     headers: sessionHeaders(cookie),
   });
+
   expect(profileResponse.status()).toBe(200);
   expect(
     z
@@ -196,11 +237,13 @@ async function authenticate(
       .passthrough()
       .parse(await profileResponse.json()),
   ).toMatchObject({ personId: persona.personId });
+
   return cookie;
 }
 
 async function expectUnauthenticatedBrowser(browser: Browser): Promise<void> {
   const context = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
+
   try {
     await context.addCookies([
       {
@@ -222,14 +265,17 @@ async function expectUnauthenticatedBrowser(browser: Browser): Promise<void> {
 async function fileNames(root: string, prefix = ""): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
   const names: string[] = [];
+
   for (const entry of entries) {
     const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+
     if (entry.isDirectory()) {
       names.push(...(await fileNames(`${root}/${entry.name}`, relative)));
     } else if (entry.isFile()) {
       names.push(relative);
     }
   }
+
   return names.sort();
 }
 
@@ -259,13 +305,17 @@ async function captureLifecycleEvidence(
     `${INTERNAL_BACKEND_ORIGIN}/api/e2e/receipts/${encodeURIComponent(receiptId)}/evidence`,
     { headers: sessionHeaders(sessionCookie) },
   );
+
   expect(response.status()).toBe(200);
   const stagingRoot = process.env.RECEIPT_E2E_STAGING_ROOT;
   const committedRoot = process.env.RECEIPT_E2E_COMMITTED_ROOT;
+
   if (stagingRoot === undefined || committedRoot === undefined) {
     throw new Error("Receipt lifecycle evidence roots are missing");
   }
+
   const evidence = lifecycleEvidenceSchema.parse(await response.json());
+
   return {
     ...evidence,
     physical: {
@@ -274,6 +324,7 @@ async function captureLifecycleEvidence(
     },
   };
 }
+
 async function expectProblemCode(
   response: APIResponse,
   expectedStatus: number,
@@ -287,6 +338,7 @@ async function expectProblemCode(
     code: expectedCode,
     type: `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
   });
+
   return problem.code;
 }
 
@@ -303,25 +355,30 @@ test.describe("Native Receipt owner journey", () => {
     request,
   }) => {
     const unauthenticatedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`);
+
     const unauthenticatedTag = await expectProblemCode(
       unauthenticatedResponse,
       401,
       "credential.missing",
     );
+
     await expectUnauthenticatedBrowser(browser);
 
     const authorization = sessionHeaders(
       await authenticate(page, request, receiptPersona("OWNER")),
     );
+
     await page.goto("/dashboard/mine-utlegg");
     await expect(page.getByRole("heading", { name: "Mine Utlegg" })).toBeVisible();
     await expect(page.getByText("Ingen utlegg er sendt inn ennå.", { exact: true })).toBeVisible();
 
     const submissionForm = page.getByRole("form", { name: "Send inn utlegg" });
+
     const submissionButton = submissionForm.getByRole("button", {
       name: "Send inn utlegg",
       exact: true,
     });
+
     await submissionForm.getByLabel(/Beskrivelse/).fill(DESCRIPTION);
     await submissionForm.locator("#amountNok").fill("125,501");
     await submissionForm.getByLabel(/Kvitteringsdato/).fill(RECEIPT_DATE);
@@ -337,9 +394,11 @@ test.describe("Native Receipt owner journey", () => {
     await expect(submissionError).toHaveAttribute("data-error-field", "amountNok");
     await expect(submissionForm).toHaveAttribute("aria-busy", "false");
     await expect(submissionButton).toBeEnabled();
+
     const submissionIdempotencyKey = await submissionForm
       .locator('input[name="idempotencyKey"]')
       .inputValue();
+
     expect(submissionIdempotencyKey).not.toBe("");
 
     await submissionForm.locator("#amountNok").fill("125,50");
@@ -349,18 +408,21 @@ test.describe("Native Receipt owner journey", () => {
       buffer: Buffer.from("unsupported"),
     });
     const unsupportedFileStartUrl = page.url();
+
     const unsupportedFileResponse = Promise.race([
       page
         .waitForResponse((response) => {
           const request = response.request();
+
           return (
             request.method() === "POST" &&
             new URL(response.url()).pathname === OWNED_RECEIPT_DATA_PATH
           );
         })
-        .then((response) => ({ _tag: "Observed", status: response.status() }) as const),
-      page.waitForTimeout(15_000).then(() => ({ _tag: "NotObserved" }) as const),
+        .then((response) => JourneyOutcome.Observed({status: response.status()})),
+      page.waitForTimeout(15_000).then(() => JourneyOutcome.NotObserved()),
     ]);
+
     const pageLevelError = page
       .locator('[role="alert"]:not(#receipt-submit-error)')
       .or(
@@ -369,48 +431,57 @@ test.describe("Native Receipt owner journey", () => {
         ),
       )
       .first();
+
     const unsupportedFileOutcome = Promise.race([
       expect(submissionError)
         .toHaveAttribute("data-error-field", "file", { timeout: 20_000 })
-        .then(() => ({ _tag: "ExpectedError" }) as const),
+        .then(() => JourneyOutcome.ExpectedError()),
       page
         .waitForURL((url) => url.toString() !== unsupportedFileStartUrl, {
           timeout: 20_000,
           waitUntil: "commit",
         })
-        .then(() => ({ _tag: "UrlChanged" }) as const),
+        .then(() => JourneyOutcome.UrlChanged()),
       pageLevelError
         .waitFor({ state: "visible", timeout: 20_000 })
         .then(
           async () =>
-            ({ _tag: "PageError", errorText: (await pageLevelError.innerText()).trim() }) as const,
+            JourneyOutcome.PageError({errorText: (await pageLevelError.innerText()).trim()}),
         ),
-      page.waitForTimeout(15_000).then(() => ({ _tag: "TimedOut" }) as const),
+      page.waitForTimeout(15_000).then(() => JourneyOutcome.TimedOut()),
     ]);
+
     await submissionButton.click();
+
     const [responseObservation, validationOutcome] = await Promise.all([
       unsupportedFileResponse,
       unsupportedFileOutcome,
     ]);
-    if (responseObservation._tag !== "Observed" || validationOutcome._tag !== "ExpectedError") {
+
+    if (!Predicate.isTagged(responseObservation, "Observed") || !Predicate.isTagged(validationOutcome, "ExpectedError")) {
       const formErrorText = (await submissionError.isVisible().catch(() => false))
         ? (await submissionError.innerText()).trim()
         : "";
+
       const pageErrorText =
-        validationOutcome._tag === "PageError"
+        Predicate.isTagged(validationOutcome, "PageError")
           ? validationOutcome.errorText
           : (await pageLevelError.isVisible().catch(() => false))
             ? (await pageLevelError.innerText()).trim()
             : "";
+
       const renderedError = pageErrorText || formErrorText || "<no rendered error>";
+
       const responseStatus =
-        responseObservation._tag === "Observed"
+        Predicate.isTagged(responseObservation, "Observed")
           ? String(responseObservation.status)
           : "<not observed>";
+
       throw new Error(
         `Unsupported receipt file validation failed: POST ${OWNED_RECEIPT_DATA_PATH} status=${responseStatus}; outcome=${validationOutcome._tag}; currentUrl=${JSON.stringify(page.url())}; renderedError=${JSON.stringify(renderedError)}`,
       );
     }
+
     await expect(submissionForm.locator('input[name="idempotencyKey"]')).toHaveValue(
       submissionIdempotencyKey,
     );
@@ -444,9 +515,11 @@ test.describe("Native Receipt owner journey", () => {
     let receiptRow = page.locator("[data-receipt-id]").filter({ hasText: DESCRIPTION });
     await expect(receiptRow).toHaveCount(1);
     const receiptId = (await receiptRow.getByTestId("receipt-id").textContent())?.trim();
+
     if (receiptId === undefined || receiptId.length === 0) {
       throw new Error("Rendered Receipt ID is missing");
     }
+
     expect(receiptId).not.toMatch(/^\d+$/);
     await expect(receiptRow).toContainText("125,50 NOK");
     await expect(receiptRow).toContainText(RECEIPT_DATE);
@@ -477,6 +550,7 @@ test.describe("Native Receipt owner journey", () => {
         },
       },
     });
+
     expect(submitReplayResponse.status()).toBe(201);
     const submitReplay = receiptResourceSchema.parse(await submitReplayResponse.json());
     expect(submitReplayResponse.headers()["etag"]).toBe(submitReplay.etag);
@@ -489,11 +563,13 @@ test.describe("Native Receipt owner journey", () => {
     const ownedAtRevisionZeroResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
       headers: authorization,
     });
+
     expect(ownedAtRevisionZeroResponse.status()).toBe(200);
     const ownedAtRevisionZero = receiptPageSchema.parse(await ownedAtRevisionZeroResponse.json());
     expect(ownedAtRevisionZero.totalItems).toBe(1);
     expect(ownedAtRevisionZero.items).toHaveLength(1);
     const revisionZero = ownedAtRevisionZero.items[0];
+
     if (revisionZero === undefined) throw new Error("Owned Receipt revision zero is missing");
     expect(ownedAtRevisionZero.items[0]).toMatchObject({
       receiptId,
@@ -525,9 +601,11 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseError).toHaveAttribute("data-error-code", "validation.failed");
     await expect(reviseError).toHaveAttribute("data-error-field", "amountNok");
     await expect(reviseError).toHaveAttribute("data-if-match", revisionZero.etag);
+
     const stableRevisionIdempotencyKey = await reviseForm
       .locator('input[name="idempotencyKey"]')
       .inputValue();
+
     expect(stableRevisionIdempotencyKey).not.toBe("");
 
     await reviseForm.locator('input[name="amountNok"]').fill("210,75");
@@ -541,6 +619,7 @@ test.describe("Native Receipt owner journey", () => {
     );
     await expect(revisionNotice).toHaveAttribute("data-revision", "1");
     const revisionOneEtag = await revisionNotice.getAttribute("data-etag");
+
     if (revisionOneEtag === null) throw new Error("Receipt revision one ETag is missing");
     receiptRow = receiptRowFor(page, receiptId);
     await expect(receiptRow).toContainText(REVISED_DESCRIPTION);
@@ -568,7 +647,8 @@ test.describe("Native Receipt owner journey", () => {
     await reviseForm
       .locator('input[name="idempotencyKey"]')
       .evaluate((element, idempotencyKey) => {
-        const input = element as HTMLInputElement;
+        if (!(element instanceof HTMLInputElement)) throw new Error("Expected an idempotency input");
+        const input = element;
         input.value = idempotencyKey;
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -582,8 +662,10 @@ test.describe("Native Receipt owner journey", () => {
     );
     const replacementIdempotencyKey = REPLACEMENT_IDEMPOTENCY_KEY;
     const revisionTwoEtag = await revisionNotice.getAttribute("data-etag");
+
     if (revisionTwoEtag === null) throw new Error("Receipt revision two ETag is missing");
     const beforeFailure = await captureLifecycleEvidence(request, receiptId, authorization.Cookie);
+
     const replacementRetryResponse = await request.patch(
       `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
       {
@@ -604,6 +686,7 @@ test.describe("Native Receipt owner journey", () => {
         },
       },
     );
+
     expect(replacementRetryResponse.status()).toBe(200);
     const replacementRetry = receiptResourceSchema.parse(await replacementRetryResponse.json());
     expect(replacementRetryResponse.headers()["etag"]).toBe(replacementRetry.etag);
@@ -613,10 +696,13 @@ test.describe("Native Receipt owner journey", () => {
     });
     const afterRetry = await captureLifecycleEvidence(request, receiptId, authorization.Cookie);
     const lifecycleEvidencePath = process.env.RECEIPT_E2E_LIFECYCLE_EVIDENCE_PATH;
+
     if (lifecycleEvidencePath === undefined) {
       throw new Error("Receipt lifecycle evidence path is missing");
     }
+
     await writeFile(lifecycleEvidencePath, JSON.stringify({ beforeFailure, afterRetry }), "utf8");
+
     const stableRevisionReplayResponse = await request.patch(
       `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
       {
@@ -632,10 +718,13 @@ test.describe("Native Receipt owner journey", () => {
         },
       },
     );
+
     expect(stableRevisionReplayResponse.status()).toBe(200);
+
     const stableRevisionReplay = receiptResourceSchema.parse(
       await stableRevisionReplayResponse.json(),
     );
+
     expect(stableRevisionReplay).toMatchObject({
       receiptId,
       revision: 1,
@@ -648,13 +737,16 @@ test.describe("Native Receipt owner journey", () => {
     await receiptRow.getByRole("button", { name: "Rediger", exact: true }).click();
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
     await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(revisionTwoEtag);
+
     const staleDraftIdempotencyKey = await reviseForm
       .locator('input[name="idempotencyKey"]')
       .inputValue();
+
     expect(staleDraftIdempotencyKey).not.toBe("");
     await reviseForm.getByLabel(/Beskrivelse/).fill("This stale draft must not replace projection");
 
     const concurrentIdempotencyKey = randomUUID();
+
     const concurrentRevisionResponse = await request.patch(
       `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
       {
@@ -670,10 +762,13 @@ test.describe("Native Receipt owner journey", () => {
         },
       },
     );
+
     expect(concurrentRevisionResponse.status()).toBe(200);
+
     const concurrentRevision = receiptResourceSchema.parse(
       await concurrentRevisionResponse.json(),
     );
+
     expect(concurrentRevisionResponse.headers()["etag"]).toBe(concurrentRevision.etag);
     expect(concurrentRevision).toMatchObject({
       receiptId,
@@ -693,9 +788,11 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(CONCURRENT_DESCRIPTION);
     await expect(reviseForm.locator('input[name="amountNok"]')).toHaveValue("210,75");
     await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(concurrentRevision.etag);
+
     const refreshedIdempotencyKey = await reviseForm
       .locator('input[name="idempotencyKey"]')
       .inputValue();
+
     expect(refreshedIdempotencyKey).not.toBe("");
     expect(refreshedIdempotencyKey).not.toBe(staleDraftIdempotencyKey);
     receiptRow = receiptRowFor(page, receiptId);
@@ -704,6 +801,7 @@ test.describe("Native Receipt owner journey", () => {
 
     const foreignContext = await browser.newContext({ baseURL: DASHBOARD_BASE_URL });
     let foreignOwnerResponse: APIResponse;
+
     try {
       const foreignPage = await foreignContext.newPage();
       const foreignSession = await authenticate(foreignPage, request, receiptPersona("FOREIGN"));
@@ -722,6 +820,7 @@ test.describe("Native Receipt owner journey", () => {
     } finally {
       await foreignContext.close();
     }
+
     const foreignOwnerTag = await expectProblemCode(
       foreignOwnerResponse,
       403,
@@ -734,9 +833,11 @@ test.describe("Native Receipt owner journey", () => {
     await expect(withdrawForm.locator('input[name="etag"]')).toHaveValue(
       concurrentRevision.etag,
     );
+
     const withdrawalIdempotencyKey = await withdrawForm
       .locator('input[name="idempotencyKey"]')
       .inputValue();
+
     expect(withdrawalIdempotencyKey).not.toBe("");
     await withdrawForm.getByRole("button", { name: "Bekreft tilbaketrekking" }).click();
 
@@ -749,6 +850,7 @@ test.describe("Native Receipt owner journey", () => {
       withdrawalIdempotencyKey,
     );
     const withdrawalEtag = await withdrawalNotice.getAttribute("data-etag");
+
     if (withdrawalEtag === null) throw new Error("Withdrawal ETag is missing");
 
     receiptRow = receiptRowFor(page, receiptId);
@@ -778,6 +880,7 @@ test.describe("Native Receipt owner journey", () => {
         data: {},
       },
     );
+
     expect(withdrawalReplayResponse.status()).toBe(200);
     const withdrawalReplay = receiptResourceSchema.parse(await withdrawalReplayResponse.json());
     expect(withdrawalReplayResponse.headers()["etag"]).toBe(withdrawalReplay.etag);
@@ -800,6 +903,7 @@ test.describe("Native Receipt owner journey", () => {
         data: {},
       },
     );
+
     const terminalTag = await expectProblemCode(
       terminalResponse,
       409,
@@ -809,6 +913,7 @@ test.describe("Native Receipt owner journey", () => {
     const finalOwnedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
       headers: authorization,
     });
+
     expect(finalOwnedResponse.status()).toBe(200);
     const finalOwned = receiptPageSchema.parse(await finalOwnedResponse.json());
     expect(finalOwned.totalItems).toBe(1);

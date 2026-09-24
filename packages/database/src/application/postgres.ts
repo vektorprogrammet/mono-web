@@ -1,12 +1,16 @@
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { Effect, Schema } from "effect";
+import { flow, Effect, Schema } from "effect";
 import {
   AdmissionDepartment,
   AdmissionFieldOfStudy,
   AdmissionPeriod,
 } from "@vektorprogrammet/domain/admission-period";
 import {
+  ApplicantProgressItemSchema,
+  PublicApplicationSubmitInputSchema,
+  PublicApplicationConfirmationSchema,
+  ApplicantProgressStateSchema,
   type ApplicantContactProjectionFailure,
   AmbiguousAdmissionPeriod,
   DuplicatePublicApplication,
@@ -43,7 +47,6 @@ import {
   ApplicantProgressResponseSchema,
   ApplicantRecord,
   PublicApplicationCatalogSchema,
-  PublicApplicationConfirmationSchema,
   PublicApplicationActivationTokenSchema,
   PublicApplication,
   PublicApplicationIdSchema,
@@ -51,7 +54,6 @@ import {
   type ApplicantProgressResponse,
   type PublicApplicationId,
   PublicApplicationSubmitObservationSchema,
-  type PublicApplicationCatalog,
   type PublicApplicationCatalogContext,
   type PublicApplicationCatalogHttpSource,
   type PublicApplicationConfirmation,
@@ -91,6 +93,7 @@ interface CatalogRow {
   readonly field_of_study_revision: number | null;
   readonly field_of_study_name: string | null;
 }
+
 interface CatalogIntervalRow {
   readonly lowerBound: string | null;
   readonly upperBound: string | null;
@@ -115,6 +118,7 @@ interface ApplicantProgressRow {
   readonly affiliationStatus: string | null;
   readonly hasActivePlacement: boolean;
 }
+
 const persistenceError = (operation: string): PublicApplicationPersistenceError =>
   new PublicApplicationPersistenceError({
     operation,
@@ -142,22 +146,22 @@ const decodeAdmissionPeriodRow = (
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => persistenceError("decode admission period row")));
 
-const decodeStoredObservation = (
-  value: unknown,
-): Effect.Effect<PublicApplicationSubmitObservation, PublicApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(PublicApplicationSubmitObservationSchema)(value, {
+const decodeStoredObservation = flow(
+  Schema.decodeUnknownEffect(PublicApplicationSubmitObservationSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError(() => persistenceError("decode stored application observation")));
+  }),
+  Effect.mapError(() => persistenceError("decode stored application observation")),
+);
 
-const decodeCatalog = (
-  value: unknown,
-): Effect.Effect<PublicApplicationCatalog, PublicApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(PublicApplicationCatalogSchema)(value, {
+const decodeCatalog = flow(
+  Schema.decodeUnknownEffect(PublicApplicationCatalogSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError(() => persistenceError("decode application catalog")));
+  }),
+  Effect.mapError(() => persistenceError("decode application catalog")),
+);
 
 const departmentExists = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   departmentId: string,
 ): Effect.Effect<boolean, PublicApplicationPersistenceError> =>
   sql<typeof AdmissionDepartment.Encoded>`
@@ -171,7 +175,7 @@ const departmentExists = (
   );
 
 const findEligiblePeriod = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   departmentId: string,
   now: string,
 ): Effect.Effect<
@@ -206,6 +210,7 @@ const findEligiblePeriod = (
             new AmbiguousAdmissionPeriod({ departmentId: DepartmentId.make(departmentId) }),
           );
         }
+
         return rows[0] === undefined
           ? Effect.succeed(undefined)
           : decodeAdmissionPeriodRow(rows[0]);
@@ -217,7 +222,7 @@ const findEligiblePeriod = (
   );
 
 const findFieldOfStudy = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   fieldOfStudyId: string,
 ): Effect.Effect<AdmissionFieldOfStudy | undefined, PublicApplicationPersistenceError> =>
   sql<typeof AdmissionFieldOfStudy.Encoded>`
@@ -237,7 +242,7 @@ const findFieldOfStudy = (
   );
 
 const findApplicantForUpdate = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   normalizedEmail: string,
 ): Effect.Effect<ApplicantRecord | undefined, PublicApplicationPersistenceError> =>
   sql<typeof ApplicantRecord.Encoded>`
@@ -262,7 +267,7 @@ const findApplicantForUpdate = (
   );
 
 const findApplicationForApplicantPeriod = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   applicantId: string,
   admissionPeriodId: string,
 ): Effect.Effect<PublicApplication | undefined, PublicApplicationPersistenceError> =>
@@ -287,7 +292,7 @@ const findApplicationForApplicantPeriod = (
   );
 
 const findApplicationById = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   applicationId: string,
 ): Effect.Effect<PublicApplication | undefined, PublicApplicationPersistenceError> =>
   sql<typeof PublicApplication.Encoded>`
@@ -311,7 +316,7 @@ const findApplicationById = (
   );
 
 const findCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: string,
 ): Effect.Effect<CommandReceiptRow | undefined, PublicApplicationPersistenceError> =>
   sql<CommandReceiptRow>`
@@ -327,7 +332,7 @@ const findCommandReceipt = (
   );
 
 const writeApplicant = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   applicant: ApplicantRecord,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
@@ -346,7 +351,7 @@ const writeApplicant = (
   );
 
 const updateApplicant = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   applicant: ApplicantRecord,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
@@ -366,7 +371,7 @@ const updateApplicant = (
   );
 
 const writeApplication = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   application: PublicApplication,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
@@ -385,7 +390,7 @@ const writeApplication = (
   );
 
 const writeCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: PublicApplicationSubmitInput,
   commandDigest: string,
   observation: PublicApplicationSubmitObservation,
@@ -408,7 +413,7 @@ const writeCommandReceipt = (
   );
 
 const writeAudit = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: string,
   application: PublicApplication,
   now: string,
@@ -426,7 +431,7 @@ const writeAudit = (
   );
 
 const writeOutbox = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   requests: ReadonlyArray<PublicApplicationOutboxRequest>,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   Effect.forEach(
@@ -449,7 +454,7 @@ const writeOutbox = (
 const executeCommandInTransaction = (
   command: SubmitPublicApplicationCommand,
   context: PublicApplicationSubmitContext,
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   now: string,
 ): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError> =>
   Effect.gen(function* () {
@@ -459,13 +464,16 @@ const executeCommandInTransaction = (
       Effect.catchTag("SqlError", () => Effect.fail(persistenceError("lock application command"))),
     );
     const stored = yield* findCommandReceipt(sql, command.commandId);
+
     if (stored !== undefined) {
       if (stored.command_sha256 !== commandDigest) {
         return yield* new DuplicatePublicApplicationCommandConflict({
           commandId: command.commandId,
         });
       }
+
       const observation = yield* decodeStoredObservation(stored.observation_json);
+
       return { observation, replayed: true, outboxCount: 0 };
     }
 
@@ -474,32 +482,42 @@ const executeCommandInTransaction = (
       Effect.asVoid,
       Effect.catchTag("SqlError", () => Effect.fail(persistenceError("lock applicant identity"))),
     );
+
     if (!(yield* departmentExists(sql, command.departmentId))) {
       return yield* new PublicApplicationDepartmentNotFound({ departmentId: command.departmentId });
     }
+
     const period = yield* findEligiblePeriod(sql, command.departmentId, now);
+
     if (period === undefined) {
       return yield* new NoEligibleAdmissionPeriod({ departmentId: command.departmentId });
     }
+
     const field = yield* findFieldOfStudy(sql, command.fieldOfStudyId);
+
     if (field === undefined) {
       return yield* new FieldOfStudyNotFound({ fieldOfStudyId: command.fieldOfStudyId });
     }
+
     if (field.departmentId !== command.departmentId) {
       return yield* new FieldOfStudyDepartmentMismatch({
         fieldOfStudyId: command.fieldOfStudyId,
         departmentId: command.departmentId,
       });
     }
+
     if (!field.active) {
       return yield* new FieldOfStudyInactive({ fieldOfStudyId: command.fieldOfStudyId });
     }
 
     const existingApplicant = yield* findApplicantForUpdate(sql, normalizedEmail);
+
     const applicantId =
       existingApplicant?.id ?? context.applicantId ?? publicApplicantIdForCommand(command);
+
     const requiresActivation =
       existingApplicant === undefined || existingApplicant.activationDigest !== null;
+
     const activationToken = requiresActivation
       ? yield* Schema.decodeUnknownEffect(PublicApplicationActivationTokenSchema)(
           context.activationToken,
@@ -509,8 +527,10 @@ const executeCommandInTransaction = (
           ),
         )
       : undefined;
+
     const activationDigest =
       activationToken === undefined ? null : publicApplicationActivationDigest(activationToken);
+
     const applicant: ApplicantRecord = {
       id: applicantId,
       normalizedEmail,
@@ -523,11 +543,14 @@ const executeCommandInTransaction = (
       yearOfStudy: command.yearOfStudy,
       activationDigest,
     };
+
     const duplicate = yield* findApplicationForApplicantPeriod(sql, applicant.id, period.id);
+
     if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
 
     const applicationId = context.applicationId ?? publicApplicationIdForCommand(command);
     const collidingApplication = yield* findApplicationById(sql, applicationId);
+
     if (collidingApplication !== undefined) return yield* new DuplicatePublicApplication();
 
     if (existingApplicant === undefined) yield* writeApplicant(sql, applicant);
@@ -544,14 +567,18 @@ const executeCommandInTransaction = (
       revision: 0,
       activationDigest,
     };
+
     yield* writeApplication(sql, application);
-    const observation: PublicApplicationSubmitObservation = {
-      _tag: "Submitted",
-      commandId: command.commandId,
-      applicationId,
-    };
+
+    const observation: PublicApplicationSubmitObservation =
+      PublicApplicationSubmitObservationSchema.cases.Submitted.make({
+        commandId: command.commandId,
+        applicationId,
+      });
+
     yield* writeCommandReceipt(sql, command, commandDigest, observation, application, now);
     yield* writeAudit(sql, command.commandId, application, now);
+
     const requests = makePublicApplicationOutboxRequests(
       command,
       application,
@@ -559,18 +586,21 @@ const executeCommandInTransaction = (
       command.email,
       activationToken,
     );
+
     yield* writeOutbox(sql, requests);
+
     return { observation, replayed: false, outboxCount: requests.length };
   });
 
 export const executePublicApplicationCommand = (
-  input: unknown,
+  input: typeof PublicApplicationSubmitInputSchema.Encoded,
   context: PublicApplicationSubmitContext,
 ): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError, Database> =>
   Effect.gen(function* () {
     const command = yield* decodeSubmitPublicApplicationCommand(input);
     const now = yield* decodePublicApplicationNow(context.now);
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(executeCommandInTransaction(command, context, sql, now))
       .pipe(
@@ -581,7 +611,7 @@ export const executePublicApplicationCommand = (
   });
 
 export const submitPublicApplication = (
-  input: unknown,
+  input: typeof PublicApplicationSubmitInputSchema.Encoded,
   context: PublicApplicationSubmitContext,
 ): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError, Database> =>
   executePublicApplicationCommand(input, context);
@@ -592,6 +622,7 @@ export const listPublicApplicationCatalog = (
   Effect.gen(function* () {
     const now = yield* decodePublicApplicationNow(context.now);
     const sql = yield* Database;
+
     const rows = yield* sql<CatalogRow>`
     WITH eligible AS (
       SELECT p.admission_period_id, p.revision AS admission_period_revision,
@@ -629,6 +660,7 @@ export const listPublicApplicationCatalog = (
         Effect.fail(persistenceError("read public application catalog")),
       ),
     );
+
     const intervalRows = yield* sql<CatalogIntervalRow>`
       WITH boundaries AS (
         SELECT start_at AS boundary_at FROM admission_periods
@@ -656,10 +688,13 @@ export const listPublicApplicationCatalog = (
         Effect.fail(persistenceError("read public application catalog interval")),
       ),
     );
+
     const interval = intervalRows[0];
+
     if (interval === undefined) {
       return yield* persistenceError("read public application catalog interval");
     }
+
     const departments = new Map<
       string,
       {
@@ -669,18 +704,22 @@ export const listPublicApplicationCatalog = (
         fieldsOfStudy: Array<{ fieldOfStudyId: string; name: string }>;
       }
     >();
+
     const versions = new Map<string, number>();
+
     for (const row of rows) {
       versions.set(`admission-period:${row.admission_period_id}`, row.admission_period_revision);
       versions.set(`admission-semester:${row.semester_id}`, row.semester_revision);
       versions.set(`admission-department:${row.department_id}`, row.department_revision);
       const existing = departments.get(row.department_id);
+
       const department = existing ?? {
         departmentId: row.department_id,
         name: row.department_name,
         closesAt: row.closes_at,
         fieldsOfStudy: [],
       };
+
       if (
         row.field_of_study_id !== null &&
         row.field_of_study_name !== null &&
@@ -695,9 +734,12 @@ export const listPublicApplicationCatalog = (
           row.field_of_study_revision,
         );
       }
+
       departments.set(row.department_id, department);
     }
+
     const catalog = yield* decodeCatalog({ departments: [...departments.values()] });
+
     return {
       catalog,
       validatorSource: {
@@ -720,7 +762,9 @@ export const findPublicApplicationConfirmation = (
         () => new PublicApplicationDecodeError({ message: "invalid application identifier" }),
       ),
     );
+
     const sql = yield* Database;
+
     const rows = yield* sql<{ readonly application_id: string }>`
     SELECT application_id
     FROM admission_applications
@@ -730,11 +774,12 @@ export const findPublicApplicationConfirmation = (
         Effect.fail(persistenceError("read application confirmation")),
       ),
     );
+
     if (rows[0] === undefined) {
       return yield* new PublicApplicationNotFound({ applicationId: normalizedId });
     }
+
     return yield* Schema.decodeUnknownEffect(PublicApplicationConfirmationSchema)({
-      _tag: "ApplicationConfirmed",
       applicationId: rows[0].application_id,
     }).pipe(Effect.mapError(() => persistenceError("decode application confirmation")));
   });
@@ -756,6 +801,7 @@ export const readApplicantContacts = (
         limit: ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT,
       });
     }
+
     const decodedIds = yield* Schema.decodeUnknownEffect(Schema.Array(PublicApplicationIdSchema))(
       applicationIds,
       { onExcessProperty: "error" },
@@ -764,10 +810,13 @@ export const readApplicantContacts = (
         () => new PublicApplicationDecodeError({ message: "invalid application identifier batch" }),
       ),
     );
+
     const uniqueIds = [...new Set(decodedIds)].sort((left, right) => left.localeCompare(right));
+
     if (uniqueIds.length === 0) return [];
 
     const sql = yield* Database;
+
     const rows = yield* sql<ApplicantContactRow>`
       WITH requested AS (
         SELECT value AS application_id
@@ -793,6 +842,7 @@ export const readApplicantContacts = (
     );
 
     const byApplicationId = new Map<string, ApplicantContactProjection>();
+
     for (const row of rows) {
       const contact = yield* Schema.decodeUnknownEffect(ApplicantContactProjectionSchema)(row, {
         onExcessProperty: "error",
@@ -804,21 +854,28 @@ export const readApplicantContacts = (
             }),
         ),
       );
+
       if (byApplicationId.has(contact.applicationId)) {
         return yield* new PublicApplicationDecodeError({
           message: "duplicate persisted applicant contact projection",
         });
       }
+
       byApplicationId.set(contact.applicationId, contact);
     }
+
     const contacts: ApplicantContactProjection[] = [];
+
     for (const applicationId of uniqueIds) {
       const contact = byApplicationId.get(applicationId);
+
       if (contact === undefined) {
         return yield* new PublicApplicationNotFound({ applicationId });
       }
+
       contacts.push(contact);
     }
+
     return contacts;
   });
 
@@ -832,6 +889,7 @@ export const readApplicantProgress = (
 ): Effect.Effect<ApplicantProgressResponse, PublicApplicationPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const rows = yield* sql<ApplicantProgressRow>`
       SELECT
         application.application_id AS "applicationId",
@@ -906,46 +964,56 @@ export const readApplicantProgress = (
       Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read applicant progress"))),
     );
 
-    const applications: Array<unknown> = [];
+    const applications: Array<typeof ApplicantProgressItemSchema.Encoded> = [];
+
     for (const row of rows) {
       if (row.hasConduct && row.hasCancellation) {
         return yield* persistenceError("read inconsistent applicant interview lifecycle");
       }
-      let progress: unknown;
+
+      let progress: typeof ApplicantProgressStateSchema.Encoded;
+
       if (row.hasActivePlacement) {
-        progress = { _tag: "AssignedToSchool" };
+        progress = ApplicantProgressStateSchema.cases.AssignedToSchool.make({});
       } else if (row.hasConduct || row.hasReturningRegistration) {
         if (row.affiliationStatus === "Active") {
-          progress = { _tag: "AffiliationActive" };
+          progress = ApplicantProgressStateSchema.cases.AffiliationActive.make({});
         } else if (row.affiliationStatus === "Pending") {
-          progress = { _tag: "AffiliationPending" };
+          progress = ApplicantProgressStateSchema.cases.AffiliationPending.make({});
         } else {
-          progress = {
-            _tag: row.hasConduct ? "InterviewCompleted" : "ReturningRegistrationCompleted",
-          };
+          progress = row.hasConduct
+            ? ApplicantProgressStateSchema.cases.InterviewCompleted.make({})
+            : ApplicantProgressStateSchema.cases.ReturningRegistrationCompleted.make({});
         }
       } else if (row.hasCancellation || row.responseState === "Rejected") {
-        progress = { _tag: "Cancelled" };
+        progress = ApplicantProgressStateSchema.cases.Cancelled.make({});
       } else if (row.responseState === "RequestedNewTime") {
-        progress = { _tag: "AwaitingNewInterviewTime" };
+        progress = ApplicantProgressStateSchema.cases.AwaitingNewInterviewTime.make({});
       } else if (row.responseState === "Accepted" || row.responseState === "Pending") {
         if (row.scheduledAt === null || row.room === null) {
           return yield* persistenceError("read applicant invitation without schedule");
         }
-        progress = {
-          _tag: row.responseState === "Accepted" ? "InterviewAccepted" : "InvitedToInterview",
-          schedule: {
-            scheduledAt: row.scheduledAt,
-            room: row.room,
-            campus: row.campus,
-            mapLink: row.mapLink,
-          },
+
+        const schedule = {
+          scheduledAt: row.scheduledAt,
+          room: row.room,
+          campus: row.campus,
+          mapLink: row.mapLink,
         };
+
+        progress = yield* row.responseState === "Accepted"
+          ? ApplicantProgressStateSchema.cases.InterviewAccepted.makeEffect({ schedule }).pipe(
+              Effect.mapError(() => persistenceError("decode applicant progress projection")),
+            )
+          : ApplicantProgressStateSchema.cases.InvitedToInterview.makeEffect({ schedule }).pipe(
+              Effect.mapError(() => persistenceError("decode applicant progress projection")),
+            );
       } else if (row.responseState === null) {
-        progress = { _tag: "ApplicationReceived" };
+        progress = ApplicantProgressStateSchema.cases.ApplicationReceived.make({});
       } else {
         return yield* persistenceError("read unknown applicant invitation response state");
       }
+
       applications.push({
         applicationId: row.applicationId,
         admissionPeriodId: row.admissionPeriodId,
@@ -956,6 +1024,7 @@ export const readApplicantProgress = (
         progress,
       });
     }
+
     return yield* Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(
       { personId, observedAt: now, applications },
       { onExcessProperty: "error" },
@@ -963,4 +1032,5 @@ export const readApplicantProgress = (
   });
 
 export const decodePublicApplicationCommand = decodeSubmitPublicApplicationCommand;
+
 export const decodePublicApplicationSubmit = decodePublicApplicationSubmitInput;

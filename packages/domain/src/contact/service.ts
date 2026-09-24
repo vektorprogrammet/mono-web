@@ -1,10 +1,11 @@
-import { Context, Data, Effect, Schema } from "effect";
+import { Predicate, Context, Data, Effect, Schema } from "effect";
 import { Organization } from "../organization/service.js";
 import { ContactEmail, type ContactMessage, type ContactVisitorIp } from "./schema.js";
 
 export class ContactFailure extends Data.TaggedError("ContactFailure")<{
   readonly reason: "InvalidRecipient" | "RateLimited" | "Unavailable";
 }> {}
+
 export interface ContactEnvelope {
   readonly to: string;
   readonly replyTo: string;
@@ -12,12 +13,14 @@ export interface ContactEnvelope {
   readonly subject: string;
   readonly message: string;
 }
+
 export class ContactDelivery extends Context.Service<
   ContactDelivery,
   {
     readonly send: (envelope: ContactEnvelope) => Effect.Effect<void, ContactFailure>;
   }
 >()("@vektorprogrammet/ContactDelivery") {}
+
 export class ContactQuota extends Context.Service<
   ContactQuota,
   {
@@ -31,17 +34,22 @@ export const submitContact = (message: ContactMessage, ip: ContactVisitorIp) =>
     const quota = yield* ContactQuota;
     yield* quota.consume(ip);
     const organization = yield* Organization;
+
     const department = yield* organization.readDepartment(message.departmentId).pipe(
       Effect.mapError(
         (error) =>
           new ContactFailure({
-            reason: error._tag === "DepartmentNotFound" ? "InvalidRecipient" : "Unavailable",
+            reason: Predicate.isTagged(error, "DepartmentNotFound")
+              ? "InvalidRecipient"
+              : "Unavailable",
           }),
       ),
     );
+
     if (!department.active || !Schema.is(ContactEmail)(department.email)) {
       return yield* Effect.fail(new ContactFailure({ reason: "InvalidRecipient" }));
     }
+
     const delivery = yield* ContactDelivery;
     yield* delivery.send({
       to: department.email,

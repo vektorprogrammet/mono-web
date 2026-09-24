@@ -1,3 +1,4 @@
+import { Result, Array, Match, Data, Predicate } from "effect";
 import { allow, deny, type Decision } from "../authz/decision.js";
 import type {
   OrganizationAuthorityMembership,
@@ -19,6 +20,8 @@ export type ContentActor =
       readonly departmentIds: ReadonlyArray<DepartmentId>;
     };
 
+export const ContentActor = Data.taggedEnum<ContentActor>();
+
 export type ContentActorDenial = "AuthorityInactive" | "NotInScope";
 
 const compareDepartmentId = (left: DepartmentId, right: DepartmentId): number =>
@@ -33,58 +36,73 @@ export const resolveContentActor = (
   authority: OrganizationPersonAuthority,
 ): Decision<ContentActor> => {
   if (authority.globalAdministrator === "Active") {
-    return allow<ContentActor>({ _tag: "ContentAdministrator", personId: authority.personId });
+    return allow<ContentActor>(ContentActor.ContentAdministrator({ personId: authority.personId }));
   }
+
   if (authority.globalAdministrator === "Inactive") {
     return deny<ContentActor>("AuthorityInactive");
   }
+
   let hasMembershipRecord = false;
   const activeMemberships: Array<OrganizationAuthorityMembership> = [];
-  for (const membership of authority.memberships as ReadonlyArray<OrganizationAuthorityMembership>) {
+
+  for (const membership of authority.memberships) {
     hasMembershipRecord = true;
+
     if (membership.active) activeMemberships.push(membership);
   }
+
   if (activeMemberships.length === 0) {
     return deny<ContentActor>(hasMembershipRecord ? "AuthorityInactive" : "NotInScope");
   }
+
   const leaderDepartmentIds = [
     ...new Set(
-      activeMemberships
-        .filter((membership) => membership.teamLeader)
-        .map((membership) => membership.departmentId),
+      Array.filterMap(activeMemberships, (membership) =>
+        membership.teamLeader ? Result.succeed(membership.departmentId) : Result.failVoid,
+      ),
     ),
   ].sort(compareDepartmentId);
+
   if (leaderDepartmentIds.length > 0) {
-    return allow<ContentActor>({
-      _tag: "ContentPublisher",
-      personId: authority.personId,
-      departmentIds: leaderDepartmentIds,
-    });
+    return allow<ContentActor>(
+      ContentActor.ContentPublisher({
+        personId: authority.personId,
+        departmentIds: leaderDepartmentIds,
+      }),
+    );
   }
+
   const departmentIds = [
     ...new Set(activeMemberships.map((membership) => membership.departmentId)),
   ].sort(compareDepartmentId);
-  return allow<ContentActor>({
-    _tag: "ContentEditor",
-    personId: authority.personId,
-    departmentIds,
-  });
+
+  return allow<ContentActor>(
+    ContentActor.ContentEditor({ personId: authority.personId, departmentIds }),
+  );
 };
 
 /** The department intersection a publisher may see and revise. */
-export const contentScopeFor = (
-  actor: ContentActor,
-):
+export type ContentScope =
   | { readonly _tag: "All" }
-  | { readonly _tag: "DepartmentIds"; readonly departmentIds: ReadonlyArray<DepartmentId> } => {
-  switch (actor._tag) {
-    case "ContentAdministrator":
-      return { _tag: "All" };
-    case "ContentPublisher":
-      return { _tag: "DepartmentIds", departmentIds: actor.departmentIds };
-    case "ContentEditor":
-      return { _tag: "DepartmentIds", departmentIds: actor.departmentIds };
-  }
+  | { readonly _tag: "DepartmentIds"; readonly departmentIds: ReadonlyArray<DepartmentId> };
+
+export const ContentScope = Data.taggedEnum<ContentScope>();
+
+export const contentScopeFor = (actor: ContentActor): ContentScope => {
+  return Match.value(actor).pipe(
+    Match.withReturnType<ContentScope>(),
+    Match.tag("ContentAdministrator", () => {
+      return ContentScope.All();
+    }),
+    Match.tag("ContentPublisher", (actor) => {
+      return ContentScope.DepartmentIds({ departmentIds: actor.departmentIds });
+    }),
+    Match.tag("ContentEditor", (actor) => {
+      return ContentScope.DepartmentIds({ departmentIds: actor.departmentIds });
+    }),
+    Match.exhaustive,
+  );
 };
 
 /** Whether the actor may set sticky or run publish/unpublish transitions. */
@@ -92,10 +110,13 @@ export const canPublishContent = (
   actor: ContentActor,
   articleDepartmentIds: ReadonlyArray<DepartmentId>,
 ): boolean => {
-  if (actor._tag === "ContentAdministrator") return true;
-  if (actor._tag !== "ContentPublisher") return false;
+  if (Predicate.isTagged(actor, "ContentAdministrator")) return true;
+
+  if (!Predicate.isTagged(actor, "ContentPublisher")) return false;
+
   // A leader may not publish org-wide (empty-department) articles.
   if (articleDepartmentIds.length === 0) return false;
+
   return articleDepartmentIds.some((departmentId) => actor.departmentIds.includes(departmentId));
 };
 
@@ -112,9 +133,11 @@ export const canReviseDraft = (
     readonly departmentIds: ReadonlyArray<DepartmentId>;
   },
 ): boolean => {
-  if (actor._tag === "ContentAdministrator") return true;
-  if (actor._tag === "ContentEditor") {
+  if (Predicate.isTagged(actor, "ContentAdministrator")) return true;
+
+  if (Predicate.isTagged(actor, "ContentEditor")) {
     const editor = actor;
+
     return (
       draft.currentVersionNumber === null &&
       draft.createdByPersonId === editor.personId &&
@@ -124,12 +147,12 @@ export const canReviseDraft = (
       )
     );
   }
+
   // Publisher: any non-org-wide draft intersecting the leader's departments.
   if (draft.departmentIds.length === 0) return false;
-  return draft.departmentIds.some((departmentId) =>
-    actor.departmentIds.includes(departmentId as never),
-  );
+
+  return draft.departmentIds.some((departmentId) => actor.departmentIds.includes(departmentId));
 };
 
 const authorityDepartmentIds = (actor: ContentActor): ReadonlyArray<DepartmentId> =>
-  actor._tag === "ContentAdministrator" ? [] : actor.departmentIds;
+  Predicate.isTagged(actor, "ContentAdministrator") ? [] : actor.departmentIds;

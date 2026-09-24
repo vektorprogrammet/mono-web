@@ -14,10 +14,15 @@ import {
   emitRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
 } from "../../apps/dashboard/e2e/runtime-evidence-receipt.mjs";
+import { Predicate } from "effect";
+
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../../apps/dashboard/", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../packages/sdk/", import.meta.url));
+
 const recruitmentAssignmentMigration = {
   id: 10,
   name: "native-recruitment-applicant-assignment",
@@ -26,24 +31,29 @@ const recruitmentAssignmentMigration = {
 const parseMigrationDefinition = (definition, index) => {
   if (
     definition === null ||
-    typeof definition !== "object" ||
-    typeof definition.id !== "string" ||
-    typeof definition.name !== "string"
+    !(definition === null || Predicate.isObjectOrArray(definition)) ||
+    !Predicate.isString(definition.id) ||
+    !Predicate.isString(definition.name)
   ) {
     throw new Error(`canonical migration registry entry ${index} is malformed`);
   }
+
   const match = /^([1-9]\d*)_(.+)$/.exec(definition.id);
+
   if (match === null) {
     throw new Error(
       `canonical migration registry entry ${index} has malformed id ${JSON.stringify(definition.id)}`,
     );
   }
+
   const numericId = Number(match[1]);
+
   if (!Number.isSafeInteger(numericId)) {
     throw new Error(
       `canonical migration registry entry ${index} has unsafe numeric id ${JSON.stringify(definition.id)}`,
     );
   }
+
   if (match[2] !== definition.name) {
     throw new Error(
       `canonical migration registry entry ${index} id/name disagree: ${JSON.stringify({
@@ -52,6 +62,7 @@ const parseMigrationDefinition = (definition, index) => {
       })}`,
     );
   }
+
   return { id: numericId, name: definition.name, revision: definition.id };
 };
 
@@ -66,11 +77,14 @@ const deriveCanonicalMigrationExpectation = (definitions, schemaRevision) => {
   let contiguous = true;
   let head;
   const seenIds = new Set();
+
   for (const [index, definition] of definitions.entries()) {
     const parsed = parseMigrationDefinition(definition, index);
+
     if (seenIds.has(parsed.id)) {
       throw new Error(`canonical migration registry duplicates numeric id ${parsed.id}`);
     }
+
     seenIds.add(parsed.id);
     minimumId = Math.min(minimumId, parsed.id);
     maximumId = Math.max(maximumId, parsed.id);
@@ -84,6 +98,7 @@ const deriveCanonicalMigrationExpectation = (definitions, schemaRevision) => {
       `canonical migration registry head ${head.revision} does not have maximum numeric id ${maximumId}`,
     );
   }
+
   if (schemaRevision !== head.revision.replaceAll("-", "_")) {
     throw new Error(
       `canonical migration registry/revision disagreement: ${JSON.stringify({
@@ -106,26 +121,44 @@ const canonicalMigrationExpectation = deriveCanonicalMigrationExpectation(
   databaseMigrationDefinitions,
   databaseSchemaRevision,
 );
+
 const expectedMigrationEvidence = {
   ...canonicalMigrationExpectation,
   recruitmentAssignment: recruitmentAssignmentMigration,
 };
+
 const postgresPort = 55446;
+
 const backendPort = 8800;
+
 const dashboardPort = 5174;
+
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/postgres`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const fixedClock = "2026-09-15T12:00:00.000Z";
+
 const applicationId = "application-native-journey-0049";
+
 const leaderPersonId = "journey-rec-leader-0049";
+
 const interviewerPersonId = "journey-rec-interviewer-a-0049";
+
 const interviewSchemaId = "interview-schema-native-journey-0049";
+
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
 const commandTimeoutMs = 300_000;
+
 const shutdownTimeoutMs = 5_000;
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const specPath = join(dashboardRoot, "e2e/native-recruitment-session-journey.spec.ts");
+
 const seedPath = join(dashboardRoot, "e2e/native-recruitment-journey-seed.mjs");
 
 const journeyEntries = [
@@ -173,6 +206,7 @@ const assertPortAvailable = (port) =>
     });
     socket.once("error", (error) => {
       socket.destroy();
+
       if (error?.code === "ECONNREFUSED") resolveAvailable();
       else
         rejectAvailable(
@@ -183,14 +217,17 @@ const assertPortAvailable = (port) =>
 
 const waitForPortRelease = async (port) => {
   const deadline = Date.now() + shutdownTimeoutMs;
+
   while (Date.now() < deadline) {
     try {
       await assertPortAvailable(port);
+
       return;
     } catch {
       await sleep(100);
     }
   }
+
   throw new Error(`loopback port ${port} was not released`);
 };
 
@@ -202,20 +239,26 @@ const run = (command, args, options) =>
       stdio: options.capture ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
       detached: true,
     });
+
     const stdout = [];
     const stderr = [];
+
     if (options.capture) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.on("data", (chunk) => stderr.push(chunk));
     }
+
     let settled = false;
+
     const timer = setTimeout(() => {
       if (child.pid !== undefined) process.kill(-child.pid, "SIGTERM");
+
       if (!settled) {
         settled = true;
         rejectRun(new Error(`${options.label} timed out`));
       }
     }, commandTimeoutMs);
+
     timer.unref();
     child.once("error", (error) => {
       if (settled) return;
@@ -227,10 +270,12 @@ const run = (command, args, options) =>
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+
       const output = {
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
+
       if (code === 0) resolveRun(options.capture ? output : undefined);
       else {
         const detail = [output.stdout.trim(), output.stderr.trim()].filter(Boolean).join("\n");
@@ -250,7 +295,9 @@ const start = (command, args, environment, cwd) => {
     stdio: ["ignore", "inherit", "inherit"],
     detached: true,
   });
+
   child.once("error", () => undefined);
+
   return child;
 };
 
@@ -263,28 +310,35 @@ const stop = async (child) => {
   ) {
     return;
   }
+
   process.kill(-child.pid, "SIGTERM");
   await Promise.race([
     new Promise((resolveExit) => child.once("exit", resolveExit)),
     sleep(shutdownTimeoutMs),
   ]);
+
   if (child.exitCode === null && child.signalCode === null) process.kill(-child.pid, "SIGKILL");
 };
 
 const waitForHttp = async (url, child, label) => {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error(`${label} exited before readiness`);
     }
+
     try {
       const response = await fetch(url, { redirect: "manual" });
+
       if (response.status < 500) return;
     } catch {
       // Retry until the bounded deadline.
     }
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 };
 
@@ -308,11 +362,13 @@ const runPsql = async (sql, environment, label) => {
     ],
     { cwd: repositoryRoot, env: environment, capture: true, label },
   );
+
   return output.stdout.trim();
 };
 
 const parseJsonBody = (bytes) => {
   if (bytes.byteLength === 0) return undefined;
+
   try {
     return JSON.parse(bytes.toString("utf8"));
   } catch {
@@ -324,24 +380,29 @@ const sessionCookieNames = new Set([
   "better-auth.session_token",
   "__Secure-better-auth.session_token",
 ]);
+
 const hasNamedCookie = (cookieHeader, names) =>
-  typeof cookieHeader === "string" &&
+  Predicate.isString(cookieHeader) &&
   cookieHeader.split(";").some((pair) => {
     const separator = pair.indexOf("=");
+
     return separator > 0 && names.has(pair.slice(0, separator).trim());
   });
 
 const startRecordingProxy = async (targetOrigin) => {
   const records = [];
+
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const requestUrl = new URL(request.url ?? "/", targetOrigin);
     const path = requestUrl.pathname;
     const pathAndQuery = `${path}${requestUrl.search}`;
     const chunks = [];
+
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
     const requestJson = parseJsonBody(requestBytes);
+
     const record = {
       method,
       path,
@@ -352,18 +413,20 @@ const startRecordingProxy = async (targetOrigin) => {
       authorizationHeaderPresent: request.headers.authorization !== undefined,
       requestJson,
       idempotencyKey:
-        typeof request.headers["idempotency-key"] === "string"
+        Predicate.isString(request.headers["idempotency-key"])
           ? request.headers["idempotency-key"]
           : null,
       ifMatch:
-        typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+        Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
       responseJson: null,
       responseEtag: null,
     };
+
     records.push(record);
 
     try {
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (
           value === undefined ||
@@ -371,33 +434,41 @@ const startRecordingProxy = async (targetOrigin) => {
         ) {
           continue;
         }
+
         if (Array.isArray(value)) {
           for (const item of value) headers.append(name, item);
         } else {
           headers.set(name, value);
         }
       }
+
       const upstream = await fetch(requestUrl, {
         method,
         headers,
         body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
+
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       record.status = upstream.status;
+
       if (upstream.status >= 400) record.responseFailure = parseJsonBody(responseBytes);
       record.responseJson = parseJsonBody(responseBytes) ?? null;
       record.responseEtag = upstream.headers.get("etag");
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers.entries()) {
         if (
           ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
         ) {
           continue;
         }
+
         response.setHeader(name, value);
       }
+
       const setCookie = upstream.headers.getSetCookie();
+
       if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
@@ -418,11 +489,14 @@ const startRecordingProxy = async (targetOrigin) => {
     });
   });
   const address = server.address();
-  if (address === null || typeof address === "string") {
+
+  if (address === null || Predicate.isString(address)) {
     server.close();
     throw new Error("native recruitment evidence proxy did not bind a loopback port");
   }
+
   let closed = false;
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     records,
@@ -444,6 +518,7 @@ const startRecordingProxy = async (targetOrigin) => {
 const pathExists = async (path) => {
   try {
     await stat(path);
+
     return true;
   } catch (error) {
     if (error?.code === "ENOENT") return false;
@@ -540,6 +615,7 @@ const assertMigrationEvidence = (evidence) => {
 
 const assertPersistenceEvidence = (evidence) => {
   const { interview, receipt, audit } = evidence;
+
   if (
     evidence.interviewCount !== 1 ||
     evidence.scheduleCount !== 0 ||
@@ -577,35 +653,43 @@ const receiptRequested = () =>
     "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
     "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
     "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+  ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
 
 const emitReceipts = async (playwrightOutput) => {
   if (!receiptRequested()) return;
+
   const sourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
+
   const sourcePaths = [runnerPath, specPath];
+
   if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
     throw new Error("native recruitment evidence expects one or two runner source references");
   }
+
   const runnerSourceInputBytes = await Promise.all(
     sourceRefIds.map(async (sourceRefId, index) => ({
       sourceRefId,
       bytes: await readFile(sourcePaths[index]),
     })),
   );
+
   const fixtureInputBytes = await readFile(seedPath);
   const artifactBytes = sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8"));
+
   const forbiddenArtifactValues = [
     betterAuthSecret,
     "journey-secret-0123456789abcdef",
     "jwt_token=",
     "better-auth.session_token=",
   ];
+
   if (forbiddenArtifactValues.some((value) => artifactBytes.includes(Buffer.from(value)))) {
     throw new Error("sanitized Playwright artifact exposed raw authentication material");
   }
+
   await emitRuntimeEvidenceReceipts({
     journeys: journeyEntries,
     fixtureId: "native-recruitment-applicant-assignment-0049-1",
@@ -627,6 +711,7 @@ const main = async () => {
   const receiptStagingRoot = join(temporaryRoot, "receipt-staging");
   const receiptCommittedRoot = join(temporaryRoot, "receipt-committed");
   const baseEnvironment = { ...process.env };
+
   for (const name of [
     "API_MODE",
     "VITE_API_MODE",
@@ -639,6 +724,7 @@ const main = async () => {
   ]) {
     delete baseEnvironment[name];
   }
+
   const processEnvironment = {
     ...baseEnvironment,
     BACKEND_HOST: "127.0.0.1",
@@ -664,25 +750,30 @@ const main = async () => {
   let proxy;
   let evidence;
   let cleaned = false;
+
   const cleanup = async () => {
     if (cleaned) return;
     cleaned = true;
     const errors = [];
+
     try {
       await stop(dashboard);
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await proxy?.close();
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await stop(backend);
     } catch (error) {
       errors.push(error);
     }
+
     if (postgresStarted) {
       try {
         if (await pathExists(join(postgresRoot, "postmaster.pid"))) {
@@ -696,23 +787,27 @@ const main = async () => {
         errors.push(error);
       }
     }
+
     try {
       await rm(temporaryRoot, { recursive: true, force: true });
     } catch (error) {
       errors.push(error);
     }
+
     if (errors.length > 0) throw new AggregateError(errors, "native recruitment cleanup failed");
   };
 
   const handleSignal = (signal) => {
     void cleanup().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
   };
+
   const handleInterrupt = () => handleSignal("SIGINT");
   const handleTermination = () => handleSignal("SIGTERM");
   process.once("SIGINT", handleInterrupt);
   process.once("SIGTERM", handleTermination);
 
   let primaryError;
+
   try {
     await run(
       "initdb",
@@ -778,6 +873,7 @@ const main = async () => {
       RECRUITMENT_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
       RECRUITMENT_E2E_LEADER_PERSON_ID: leaderPersonId,
     };
+
     await run("bun", ["run", "build"], {
       cwd: sdkRoot,
       env: journeyEnvironment,
@@ -806,7 +902,9 @@ const main = async () => {
       "--workers=1",
       "--retries=0",
     ];
+
     if (receiptRequested()) playwrightArgs.push("--reporter=json");
+
     const playwright = await run(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", playwrightArgs, {
       cwd: dashboardRoot,
       env: journeyEnvironment,
@@ -815,14 +913,17 @@ const main = async () => {
     });
 
     const browser = await readJsonFile(browserEvidencePath, "native recruitment browser evidence");
+
     const expectedBridge = [
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
       { operation: "createApplicationInterview", status: 200, authorizationHeaderPresent: false },
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
       { operation: "readAssignmentBoard", status: 200, authorizationHeaderPresent: false },
     ];
+
     assertEqual(browser.bridgeResponses, expectedBridge, "browser bridge sequence");
     assertEqual(browser.journeys, journeyEntries, "browser receipt-support journey entries");
+
     if (
       browser.renderedNativeLogin !== true ||
       browser.sessionCookieName !== "better-auth.session_token" ||
@@ -841,21 +942,27 @@ const main = async () => {
 
     const boardPath = "/api/recruitment/application-assignments";
     const createPath = `/api/recruitment/applications/${encodeURIComponent(applicationId)}/interviews`;
+
     const recruitmentRequests = proxy.records.filter(
       ({ path }) => path === boardPath || path === createPath,
     );
+
     const requiredTransportTail = [
       ["GET", `${boardPath}?status=new`, 200],
       ["POST", createPath, 201],
       ["GET", `${boardPath}?status=new`, 200],
       ["GET", `${boardPath}?status=all`, 200],
     ];
+
     const leadingInitialAllFilterReadCount =
       recruitmentRequests.length - requiredTransportTail.length;
+
     if (leadingInitialAllFilterReadCount !== 1 && leadingInitialAllFilterReadCount !== 2) {
       throw new Error("native recruitment transport had an unexpected request count");
     }
+
     const duplicateInitialAllFilterReadObserved = leadingInitialAllFilterReadCount === 2;
+
     const expectedTransport = [
       ...Array.from({ length: leadingInitialAllFilterReadCount }, () => [
         "GET",
@@ -875,6 +982,7 @@ const main = async () => {
       requestBodyKeys:
         method === "POST" ? ["interviewSchemaId", "interviewerPersonId"] : [],
     }));
+
     assertEqual(
       recruitmentRequests.map(
         ({
@@ -894,10 +1002,10 @@ const main = async () => {
           sessionCookieAuth,
           authorizationHeaderPresent,
           jwtCookieAuth,
-          idempotencyKeyPresent: typeof idempotencyKey === "string",
-          ifMatchPresent: typeof ifMatch === "string",
+          idempotencyKeyPresent: Predicate.isString(idempotencyKey),
+          ifMatchPresent: Predicate.isString(ifMatch),
           requestBodyKeys:
-            requestJson !== null && typeof requestJson === "object"
+            requestJson !== null && (requestJson === null || Predicate.isObjectOrArray(requestJson))
               ? Object.keys(requestJson).sort()
               : [],
         }),
@@ -906,6 +1014,7 @@ const main = async () => {
       "exact native recruitment transport",
     );
     const createRequest = recruitmentRequests.find(({ method }) => method === "POST");
+
     if (
       JSON.stringify(Object.keys(createRequest?.responseJson ?? {}).sort()) !==
         JSON.stringify([
@@ -931,10 +1040,12 @@ const main = async () => {
     ) {
       throw new Error("Application interview creation did not use the generated v0.2 contract");
     }
+
     const browserEvidence = {
       ...browser,
       duplicateInitialAllFilterReadObserved,
     };
+
     await writeFile(browserEvidencePath, `${JSON.stringify(browserEvidence)}\n`, "utf8");
 
     const legacyPaths = proxy.records.filter(({ path }) =>
@@ -947,6 +1058,7 @@ const main = async () => {
         "/api/admin/recruitment/interviews/assign",
       ].some((legacyPath) => path === legacyPath || path.startsWith(`${legacyPath}/`)),
     );
+
     if (
       proxy.records.some(
         ({ authorizationHeaderPresent, jwtCookieAuth }) =>
@@ -1007,6 +1119,7 @@ const main = async () => {
     const postgresLog = await readFile(join(postgresRoot, "postgres.log"), "utf8").catch(
       () => "<postgres log unavailable>",
     );
+
     primaryError = new Error(
       `${errorDetail(error)}\nrecorded native transport: ${JSON.stringify(proxy?.records ?? [])}\nPostgreSQL log:\n${postgresLog}`,
       { cause: error },
@@ -1014,11 +1127,14 @@ const main = async () => {
   }
 
   let cleanupError;
+
   try {
     await cleanup();
+
     if (await pathExists(temporaryRoot)) {
       throw new Error("native recruitment cleanup left the temporary root behind");
     }
+
     await Promise.all([
       waitForPortRelease(postgresPort),
       waitForPortRelease(backendPort),
@@ -1037,7 +1153,9 @@ const main = async () => {
       "native recruitment journey and cleanup failed",
     );
   }
+
   if (primaryError !== undefined) throw primaryError;
+
   if (cleanupError !== undefined) throw cleanupError;
 
   process.stdout.write(

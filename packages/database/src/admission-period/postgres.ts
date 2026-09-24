@@ -1,6 +1,7 @@
-import { Database, type DatabaseShape } from "../service.js";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import { Database, type DatabaseOperations } from "../service.js";
 import type { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { Effect, Schema } from "effect";
+import { flow, Predicate, Effect, Schema } from "effect";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
 import {
   AdmissionPeriodDecodeError,
@@ -78,7 +79,7 @@ const decodeProjectionRow = (
   );
 
 const findPeriodForUpdate = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   admissionPeriodId: string,
 ): Effect.Effect<AdmissionPeriod | undefined, AdmissionPeriodPersistenceError> =>
   sql<typeof AdmissionPeriod.Encoded>`
@@ -99,7 +100,7 @@ const findPeriodForUpdate = (
   );
 
 const findPeriodByPairForUpdate = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   departmentId: string,
   semesterId: string,
 ): Effect.Effect<AdmissionPeriod | undefined, AdmissionPeriodPersistenceError> =>
@@ -121,7 +122,7 @@ const findPeriodByPairForUpdate = (
   );
 
 const findSemester = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   semesterId: string,
 ): Effect.Effect<AdmissionSemester | undefined, AdmissionPeriodPersistenceError> =>
   sql<typeof AdmissionSemester.Encoded>`
@@ -140,7 +141,7 @@ const findSemester = (
   );
 
 const departmentExists = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   departmentId: string,
 ): Effect.Effect<boolean, AdmissionPeriodPersistenceError> =>
   sql<typeof AdmissionDepartment.Encoded>`
@@ -155,7 +156,7 @@ const departmentExists = (
   );
 
 const findPeriodCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: string,
 ): Effect.Effect<PeriodCommandReceiptRow | undefined, AdmissionPeriodPersistenceError> =>
   sql<PeriodCommandReceiptRow>`
@@ -169,36 +170,33 @@ const findPeriodCommandReceipt = (
     ),
   );
 
-const observationFromStored = (
-  json: unknown,
-): Effect.Effect<
-  Extract<AdmissionPeriodObservation, { readonly _tag: "Created" | "Revised" }>,
-  AdmissionPeriodPersistenceError
-> =>
-  Schema.decodeUnknownEffect(AdmissionPeriodObservationSchema)(json, {
+const observationFromStored = flow(
+  Schema.decodeUnknownEffect(AdmissionPeriodObservationSchema, {
     onExcessProperty: "error",
-  }).pipe(
-    Effect.flatMap((observation) =>
-      observation._tag === "Created" || observation._tag === "Revised"
-        ? Effect.succeed(observation)
-        : Effect.fail(
-            periodPersistenceError(
-              "stored admission observation is not replayable",
-              observation._tag,
-            ),
+  }),
+  Effect.flatMap((observation) =>
+    Predicate.isTagged(observation, "Created") || Predicate.isTagged(observation, "Revised")
+      ? Effect.succeed(observation)
+      : Effect.fail(
+          periodPersistenceError(
+            "stored admission observation is not replayable",
+            observation._tag,
           ),
-    ),
-    Effect.mapError((cause) =>
-      periodPersistenceError("decode stored admission observation", cause),
-    ),
-  );
+        ),
+  ),
+  Effect.mapError((cause) => periodPersistenceError("decode stored admission observation", cause)),
+);
 
 const checkActor = (
   actor: AdmissionPeriodActor,
 ): Effect.Effect<void, InactiveActor | AdmissionRoleDenied> =>
   Effect.gen(function* () {
     if (!actor.active) return yield* new InactiveActor({ personId: actor.personId });
-    if (actor._tag !== "DepartmentLeader" && actor._tag !== "GlobalAdmin") {
+
+    if (
+      !Predicate.isTagged(actor, "DepartmentLeader") &&
+      !Predicate.isTagged(actor, "GlobalAdmin")
+    ) {
       return yield* new AdmissionRoleDenied({ personId: actor.personId });
     }
   });
@@ -209,10 +207,10 @@ const checkNow = (now: string): Effect.Effect<void, AdmissionPeriodDecodeError> 
     : Effect.fail(new AdmissionPeriodDecodeError({ message: "now must be an RFC 3339 instant" }));
 
 const actorCanAccessDepartment = (actor: AdmissionPeriodActor, departmentId: string): boolean =>
-  actor._tag === "GlobalAdmin" || actor.departmentId === departmentId;
+  Predicate.isTagged(actor, "GlobalAdmin") || actor.departmentId === departmentId;
 
 const writePeriod = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   period: AdmissionPeriod,
   previous: AdmissionPeriod | undefined,
 ): Effect.Effect<void, AdmissionPeriodFailure> => {
@@ -261,7 +259,7 @@ const writePeriod = (
 };
 
 const writePeriodCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: AdmissionPeriodCommand,
   commandDigest: string,
   observation: AdmissionPeriodObservation,
@@ -273,8 +271,8 @@ const writePeriodCommandReceipt = (
     command_id, command_sha256, command_json, observation_json,
     admission_period_id, committed_at
   ) VALUES (
-    ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(canonicalJson(command)))},
-    ${sql.json(observation)}, ${period.id}, ${now}
+    ${command.commandId}, ${commandDigest}, ${sql.json(canonicalJsonValue(JSON.parse(canonicalJson(command))))},
+    ${sql.json(canonicalJsonValue(observation))}, ${period.id}, ${now}
   )
 `.pipe(
     Effect.asVoid,
@@ -284,7 +282,7 @@ const writePeriodCommandReceipt = (
   );
 
 const writeOutbox = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   requests: ReadonlyArray<AdmissionPeriodOutboxRequest>,
 ): Effect.Effect<void, AdmissionPeriodPersistenceError> =>
   Effect.forEach(
@@ -295,7 +293,7 @@ const writeOutbox = (
         effect_id, effect_type, admission_period_id, command_id, ordinal, payload_json
       ) VALUES (
         ${request.effectId}, ${request._tag}, ${request.admissionPeriodId},
-        ${request.commandId}, ${ordinal}, ${sql.json(request)}
+        ${request.commandId}, ${ordinal}, ${sql.json(canonicalJsonValue(request))}
       )
     `.pipe(Effect.asVoid),
     { discard: true },
@@ -306,7 +304,7 @@ const writeOutbox = (
   );
 
 const writeAudit = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: AdmissionPeriodCommand,
   period: AdmissionPeriod,
   actorPersonId: string,
@@ -333,7 +331,10 @@ const replayPeriodResult = (
   observation: Extract<AdmissionPeriodObservation, { readonly _tag: "Created" | "Revised" }>,
 ): AdmissionPeriodTransactionResult => ({
   period: observation.period,
-  observation: { _tag: "Replayed", commandId, original: observation },
+  observation: AdmissionPeriodObservationSchema.cases.Replayed.make({
+    commandId,
+    original: observation,
+  }),
   replayed: true,
   outboxCount: 0,
 });
@@ -342,7 +343,7 @@ const effectiveCreateDepartment = (
   command: Extract<AdmissionPeriodCommand, { readonly _tag: "CreateAdmissionPeriod" }>,
   actor: AdmissionPeriodActor,
 ): Effect.Effect<DepartmentId, AdmissionPeriodFailure> => {
-  if (actor._tag === "DepartmentLeader") {
+  if (Predicate.isTagged(actor, "DepartmentLeader")) {
     if (command.departmentId !== undefined && command.departmentId !== actor.departmentId) {
       return Effect.fail(
         new AdmissionScopeDenied({
@@ -351,21 +352,24 @@ const effectiveCreateDepartment = (
         }),
       );
     }
+
     return Effect.succeed(actor.departmentId);
   }
+
   if (command.departmentId === undefined) return Effect.fail(new DepartmentRequired());
+
   return Effect.succeed(command.departmentId);
 };
 
-export const decodeAdmissionPeriodCommand = (
-  input: unknown,
-): Effect.Effect<AdmissionPeriodCommand, AdmissionPeriodDecodeError> =>
-  Schema.decodeUnknownEffect(AdmissionPeriodCommandSchema)(input, {
+export const decodeAdmissionPeriodCommand = flow(
+  Schema.decodeUnknownEffect(AdmissionPeriodCommandSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => new AdmissionPeriodDecodeError({ message: String(cause) })));
+  }),
+  Effect.mapError((cause) => new AdmissionPeriodDecodeError({ message: String(cause) })),
+);
 
 export const executeAdmissionPeriodCommand = (
-  input: unknown,
+  input: AdmissionPeriodCommand,
   context: AdmissionPeriodCommandContext,
 ): Effect.Effect<AdmissionPeriodTransactionResult, AdmissionPeriodFailure, Database> =>
   Effect.gen(function* () {
@@ -385,13 +389,16 @@ export const executeAdmissionPeriodCommand = (
             ),
           );
           const stored = yield* findPeriodCommandReceipt(sql, command.commandId);
+
           if (stored !== undefined) {
             if (stored.command_sha256 !== commandDigest) {
               return yield* new DuplicateAdmissionPeriodCommandConflict({
                 commandId: command.commandId,
               });
             }
+
             const original = yield* observationFromStored(stored.observation_json);
+
             if (!actorCanAccessDepartment(context.actor, original.period.departmentId)) {
               return yield* new AdmissionScopeDenied({
                 personId: context.actor.personId,
@@ -399,12 +406,14 @@ export const executeAdmissionPeriodCommand = (
                 admissionPeriodId: original.period.id,
               });
             }
+
             return replayPeriodResult(command.commandId, original);
           }
 
           let previous: AdmissionPeriod | undefined;
           let semester: AdmissionSemesterValue | undefined;
-          if (command._tag === "CreateAdmissionPeriod") {
+
+          if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
             const departmentId = yield* effectiveCreateDepartment(command, context.actor);
             yield* sql`
             SELECT pg_advisory_xact_lock(
@@ -416,21 +425,26 @@ export const executeAdmissionPeriodCommand = (
                 Effect.fail(periodPersistenceError("lock admission department semester", cause)),
               ),
             );
+
             if (!(yield* departmentExists(sql, departmentId))) {
               return yield* new DepartmentNotFound({ departmentId });
             }
+
             previous = yield* findPeriodByPairForUpdate(sql, departmentId, command.semesterId);
             semester = yield* findSemester(sql, command.semesterId);
+
             if (semester === undefined) {
               return yield* new SemesterNotFound({ semesterId: command.semesterId });
             }
           } else {
             previous = yield* findPeriodForUpdate(sql, command.admissionPeriodId);
+
             if (previous === undefined) {
               return yield* new AdmissionPeriodNotFound({
                 admissionPeriodId: command.admissionPeriodId,
               });
             }
+
             if (!actorCanAccessDepartment(context.actor, previous.departmentId)) {
               return yield* new AdmissionScopeDenied({
                 personId: context.actor.personId,
@@ -438,7 +452,9 @@ export const executeAdmissionPeriodCommand = (
                 admissionPeriodId: previous.id,
               });
             }
+
             semester = yield* findSemester(sql, previous.semesterId);
+
             if (semester === undefined) {
               return yield* new SemesterNotFound({ semesterId: previous.semesterId });
             }
@@ -449,6 +465,7 @@ export const executeAdmissionPeriodCommand = (
             command,
             contextForActor(context, semester),
           );
+
           yield* writePeriod(sql, decision.period, previous);
           yield* writePeriodCommandReceipt(
             sql,
@@ -467,6 +484,7 @@ export const executeAdmissionPeriodCommand = (
             decision.auditAction,
             context.now,
           );
+
           return {
             period: decision.period,
             observation: decision.observation,
@@ -483,7 +501,7 @@ export const executeAdmissionPeriodCommand = (
   });
 
 const projectionRows = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   now: string,
   departmentId?: string,
 ): Effect.Effect<ReadonlyArray<AdmissionPeriodProjection>, AdmissionPeriodPersistenceError> => {
@@ -518,6 +536,7 @@ const projectionRows = (
           WHERE p.department_id = ${departmentId}
           ORDER BY p.department_id, p.semester_id, p.admission_period_id
         `;
+
   return query.pipe(
     Effect.flatMap((rows) => Effect.forEach(rows, decodeProjectionRow)),
     Effect.catchTag("SqlError", (cause) =>
@@ -533,10 +552,13 @@ export const listAdmissionPeriodsForManagement = (
     yield* checkActor(context.actor);
     yield* checkNow(context.now);
     const sql = yield* Database;
+
     return yield* projectionRows(
       sql,
       context.now,
-      context.actor._tag === "DepartmentLeader" ? context.actor.departmentId : undefined,
+      Predicate.isTagged(context.actor, "DepartmentLeader")
+        ? context.actor.departmentId
+        : undefined,
     );
   });
 
@@ -547,6 +569,7 @@ export const listOpenAdmissionPeriods = (
     yield* checkNow(now);
     const sql = yield* Database;
     const rows = yield* projectionRows(sql, now);
+
     return rows.filter((row) => row.eligible);
   });
 

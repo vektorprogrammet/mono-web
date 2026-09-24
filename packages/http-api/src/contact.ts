@@ -4,7 +4,13 @@ import {
   CONTACT_BACKEND_HEADER,
   CONTACT_IP_HEADER,
 } from "@vektorprogrammet/domain/contact";
-import { makeAccessSpec } from "@vektorprogrammet/domain/authz";
+import {
+  makeAccessSpec,
+  CredentialMechanismSchema,
+  CapabilityTypeId,
+  CapabilityExpressionSchema,
+  ConcealmentPolicySchema,
+} from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
 import {
   HttpApiEndpoint,
@@ -17,6 +23,7 @@ import {
 import { annotateAccessSpec } from "./access.js";
 import { operationAnnotations, SessionUnauthorizedResponse } from "./common.js";
 import { endpointProblemResponses, problemUnion } from "./http-semantics.js";
+
 export { ContactMessage, ContactVisitorIp };
 
 export class ContactSsrSecurity extends HttpApiMiddleware.Service<ContactSsrSecurity>()(
@@ -35,6 +42,7 @@ export class ContactSsrSecurity extends HttpApiMiddleware.Service<ContactSsrSecu
     error: SessionUnauthorizedResponse,
   },
 ) {}
+
 export const ContactProblem = problemUnion("ContactProblem", [
   ["request.malformed", 400],
   ["header.malformed", 400],
@@ -45,6 +53,7 @@ export const ContactProblem = problemUnion("ContactProblem", [
   ["contact.unavailable", 503],
   ["media-type.unsupported", 415],
 ]);
+
 export const SubmitContactMessageEndpoint = HttpApiEndpoint.post(
   "submitContactMessage",
   "/api/contact-messages",
@@ -64,12 +73,18 @@ export const SubmitContactMessageEndpoint = HttpApiEndpoint.post(
       endpoint,
       makeAccessSpec({
         exposure: "External",
-        acceptedCredentials: [{ _tag: "ObjectCapability", capabilityType: "contact.submit" }],
+        acceptedCredentials: [
+          CredentialMechanismSchema.cases.ObjectCapability.make({
+            capabilityType: CapabilityTypeId.make("contact.submit"),
+          }),
+        ],
         principalKinds: ["CapabilityHolder"],
-        capabilities: { _tag: "One", capability: { type: "contact.submit" } },
+        capabilities: CapabilityExpressionSchema.cases.One.make({
+          capability: { type: CapabilityTypeId.make("contact.submit") },
+        }),
         requirements: [],
         canonicalScopeResolver: "contact.department-recipient",
-        concealment: { _tag: "Reveal" },
+        concealment: ConcealmentPolicySchema.cases.Reveal.make({}),
         decisionTime: "SnapshotRead",
       }),
     ),
@@ -80,6 +95,7 @@ export const SubmitContactMessageEndpoint = HttpApiEndpoint.post(
       "Consumes one of five attempts per visitor fixed one-hour window and waits for delivery transport acceptance. No message is persisted; no automatic retry. HTTP 201 has no body and is not proof of inbox delivery.",
     ),
   );
+
 export class ContactApi extends HttpApiGroup.make("contact")
   .add(SubmitContactMessageEndpoint)
   .annotateMerge(

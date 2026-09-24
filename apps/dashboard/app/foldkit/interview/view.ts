@@ -1,3 +1,4 @@
+import { Predicate, Match } from "effect";
 import { Button, Input } from "@foldkit/ui";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -39,7 +40,9 @@ const statusClass = (status: InvitationResponseObservation["responseState"]): st
 
 const formatInstant = (instant: string): string => {
   const parsed = new Date(instant);
+
   if (!Number.isFinite(parsed.getTime())) return instant;
+
   return new Intl.DateTimeFormat("nb-NO", {
     dateStyle: "long",
     timeStyle: "short",
@@ -47,7 +50,7 @@ const formatInstant = (instant: string): string => {
 };
 
 const fieldError = (id: string, field: Model["responseMessage"], h: HtmlBuilder<Message>): Html =>
-  field._tag === "Invalid"
+  Predicate.isTagged(field, "Invalid")
     ? h.p(
         [h.Id(`${id}-error`), h.Class("fk-field-error"), h.Role("alert")],
         [field.errors.join(" ")],
@@ -113,26 +116,27 @@ const statusPill = (
 
 const invitationSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
   const current = AsyncData.getData(model.invitationResponse);
-  if (current._tag === "None") return h.empty;
+
+  if (Predicate.isTagged(current, "None")) return h.empty;
   const observation = current.value;
   const isPending = observation.responseState === "Pending";
   const isResponding = model.selectedAction !== null;
+
   const heading =
-    observation.responseState === "Accepted"
-      ? "Intervjutiden er akseptert"
-      : observation.responseState === "Rejected"
-        ? "Intervjuinvitasjonen er avvist"
-        : observation.responseState === "RequestedNewTime"
-          ? "Nytt tidspunkt er ønsket"
-          : "Svar på intervjutid";
+    Match.value(observation).pipe(
+Match.when({ responseState: "Accepted" }, () => ("Intervjutiden er akseptert")),
+Match.when({ responseState: "Rejected" }, () => ("Intervjuinvitasjonen er avvist")),
+Match.when({ responseState: "RequestedNewTime" }, () => ("Nytt tidspunkt er ønsket")),
+Match.orElse(() => ("Svar på intervjutid"))
+);
+
   const lead =
-    observation.responseState === "Accepted"
-      ? "Takk. Vi har registrert svaret ditt."
-      : observation.responseState === "Rejected"
-        ? "Vi har registrert at du ikke kan delta."
-        : observation.responseState === "RequestedNewTime"
-          ? "Vi tar kontakt når vi har funnet et nytt tidspunkt."
-          : "Se over tidspunkt og sted før du svarer på invitasjonen.";
+    Match.value(observation).pipe(
+Match.when({ responseState: "Accepted" }, () => ("Takk. Vi har registrert svaret ditt.")),
+Match.when({ responseState: "Rejected" }, () => ("Vi har registrert at du ikke kan delta.")),
+Match.when({ responseState: "RequestedNewTime" }, () => ("Vi tar kontakt når vi har funnet et nytt tidspunkt.")),
+Match.orElse(() => ("Se over tidspunkt og sted før du svarer på invitasjonen."))
+);
 
   return h.article(
     [h.Class("fk-response-card"), h.AriaLabelledBy("response-heading")],

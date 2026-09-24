@@ -20,6 +20,7 @@ import {
 import { OrganizationPersonAuthoritySchema } from "../organization/authority.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { SchoolId } from "../schools/schema.js";
+
 describe("volunteer affiliation authority and lifecycle", () => {
   it("requires self nomination before coordinator establishment and permits resubmission after rejection", () => {
     expect(nextAffiliationStatus("Absent", "Establish")).toBeNull();
@@ -35,33 +36,34 @@ describe("volunteer affiliation authority and lifecycle", () => {
   it("self nomination cannot carry a third-party person selector", () => {
     expect(() =>
       Schema.decodeUnknownSync(OwnAffiliationCommand)(
-        { action: "Request", personId: "other" },
+        { action: "Request", personId: PersonId.make("other") },
         { onExcessProperty: "error" },
       ),
     ).toThrow();
   });
   it("historical leadership and active membership in another department do not authorize placement", () => {
     const authority = Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
-      personId: "coordinator",
+      personId: PersonId.make("coordinator"),
       evaluatedAt: "2026-09-06T00:00:00.000Z",
       globalAdministrator: "Absent",
       memberships: [
         {
           membershipId: "old",
           teamId: "old-team",
-          departmentId: "b",
+          departmentId: DepartmentId.make("b"),
           active: false,
           teamLeader: true,
         },
         {
           membershipId: "current",
           teamId: "current-team",
-          departmentId: "a",
+          departmentId: DepartmentId.make("a"),
           active: true,
           teamLeader: true,
         },
       ],
     });
+
     expect(canManagePlacements(authority, DepartmentId.make("a"))).toBe(true);
     expect(canManagePlacements(authority, DepartmentId.make("b"))).toBe(false);
     expect(
@@ -72,6 +74,7 @@ describe("volunteer affiliation authority and lifecycle", () => {
     ).toBe(false);
   });
 });
+
 describe("placement boundaries", () => {
   const valid = { schoolId: 1, day: "Monday", workdays: 4, block: "Both" };
   it.each([
@@ -95,7 +98,7 @@ describe("placement boundaries", () => {
           action: "Edit",
           placementId: `placement-${"a".repeat(64)}`,
           ...valid,
-          personId: "other",
+          personId: PersonId.make("other"),
           semesterId: "other",
         },
         { onExcessProperty: "error" },
@@ -233,6 +236,7 @@ describe("school service proposal boundaries", () => {
 
   it("limits actual attendance to nonabsent scheduled or acknowledged people", () => {
     const confirmed = { ...proposal, status: "Confirmed" as const };
+
     const absence = {
       absenceId: SchoolServiceAbsenceId.make(`school-service-absence-${"b".repeat(64)}`),
       commitmentId: SchoolServiceCommitmentId.make(`school-service-commitment-${"e".repeat(64)}`),
@@ -248,6 +252,7 @@ describe("school service proposal boundaries", () => {
       reporterPersonId: PersonId.make("person-1"),
       reportedAt: "2026-09-20T10:00:00.000Z",
     };
+
     const acknowledgement = {
       acknowledgementId: SchoolServiceCoverageAcknowledgementId.make(
         `school-service-coverage-acknowledgement-${"c".repeat(64)}`,
@@ -260,6 +265,7 @@ describe("school service proposal boundaries", () => {
       acknowledgedByPersonId: PersonId.make("coordinator"),
       acknowledgedAt: "2026-09-20T11:00:00.000Z",
     };
+
     const commitment = {
       commitmentId: absence.commitmentId,
       proposalId: confirmed.proposalId,
@@ -284,6 +290,7 @@ describe("school service proposal boundaries", () => {
       decision: null,
       overdue: true,
     } as const;
+
     expect(
       isEligibleSchoolServiceAttendance(
         commitment,

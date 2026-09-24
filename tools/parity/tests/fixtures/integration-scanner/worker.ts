@@ -17,8 +17,11 @@ interface PreviewWorkerEnv {
 export default {
   async fetch(request: Request, env: PreviewWorkerEnv): Promise<Response> {
     const surface = new URL(request.url).pathname;
+
     if (surface === "/") return env.Homepage.fetch(request);
+
     if (surface === "/dashboard") return env.Dashboard.fetch(request);
+
     return getContainer(env.ContainerRuntime, "preview").fetch(request);
   },
 };

@@ -1,14 +1,19 @@
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { Schema } from "effect";
+import { SchoolsBridgeFailureSchema } from "../app/foldkit/schools/bridge";
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
+
 const evidencePath = process.env.SCHOOLS_E2E_BROWSER_EVIDENCE_PATH;
+
 const departments = {
   alpha: "schools-e2e-0061-department-alpha",
   beta: "schools-e2e-0061-department-beta",
   empty: "schools-e2e-0061-department-empty",
 } as const;
+
 const persons = {
   administrator: {
     email: "administrator.schools.0061@example.invalid",
@@ -37,6 +42,7 @@ type BrowserRequest = {
   readonly pathname: string;
   readonly search: string;
 };
+
 type BrowserResponse = BrowserRequest & { readonly status: number };
 
 const openContext = async (
@@ -61,6 +67,7 @@ const openContext = async (
   });
   const page = await context.newPage();
   page.on("pageerror", (error) => pageErrors.push(error.message));
+
   return { context, page };
 };
 
@@ -73,6 +80,7 @@ const signIn = async (
   await page.getByLabel("E-post").fill(person.email);
   await page.getByLabel("Passord", { exact: true }).fill(person.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
+
   try {
     await page.waitForURL((url) => url.pathname === redirectTo, {
       timeout: 15_000,
@@ -84,6 +92,7 @@ const signIn = async (
       { cause },
     );
   }
+
   await expect
     .poll(async () =>
       (await page.context().cookies()).some(
@@ -108,7 +117,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
     test.setTimeout(120_000);
     const pageErrors: string[] = [];
     const contexts: BrowserContext[] = [];
-    const observations: Record<string, unknown> = {};
+    const observations: Record<string, Schema.Json> = {};
 
     try {
       const administrator = await openContext(
@@ -117,6 +126,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
         browserResponses,
         pageErrors,
       );
+
       contexts.push(administrator.context);
       await signIn(administrator.page, persons.administrator, "/dashboard/skoler");
       await assertDirectoryShell(administrator.page);
@@ -127,11 +137,13 @@ test.describe("Native Schools directory (spec 0061)", () => {
       await expect(administrator.page.getByRole("tab", { name: "Aktive (4)" })).toBeVisible();
       await expect(administrator.page.getByRole("tab", { name: "Inaktive (2)" })).toBeVisible();
       await expect(administrator.page.getByRole("rowheader", { name: "Friskolen" })).toBeVisible();
+
       for (const label of ["Skole", "Kontaktperson", "Telefon", "E-post", "Språk", "Avdeling"]) {
         await expect(
           administrator.page.getByRole("columnheader", { name: label, exact: true }),
         ).toBeVisible();
       }
+
       await expect(administrator.page.getByText("Norsk", { exact: true }).first()).toBeVisible();
       await expect(
         administrator.page.getByText("Internasjonal", { exact: true }).first(),
@@ -180,8 +192,10 @@ test.describe("Native Schools directory (spec 0061)", () => {
           credentials: "same-origin",
           headers: { accept: "application/json" },
         });
+
         return { status: response.status, body: await response.json() };
       }, departments.empty);
+
       expect(emptyDepartment).toEqual({
         status: 200,
         body: { activeSchools: [], inactiveSchools: [] },
@@ -202,14 +216,17 @@ test.describe("Native Schools directory (spec 0061)", () => {
         browserResponses,
         pageErrors,
       );
+
       contexts.push(twoDepartment.context);
       await signIn(twoDepartment.page, persons.twoDepartmentMember, "/dashboard/skoler");
       await expect(twoDepartment.page.getByRole("tab", { name: "Aktive (3)" })).toBeVisible();
       await expect(twoDepartment.page.getByRole("tab", { name: "Inaktive (2)" })).toBeVisible();
       await expect(twoDepartment.page.getByRole("rowheader", { name: "Friskolen" })).toHaveCount(0);
+
       const sharedRow = twoDepartment.page
         .getByRole("row")
         .filter({ has: twoDepartment.page.getByRole("rowheader", { name: "Fellesskolen" }) });
+
       await expect(sharedRow).toHaveCount(1);
       await expect(sharedRow).toContainText("Avdeling Alfa, Avdeling Beta");
       observations.twoDepartmentMember = { active: 3, inactive: 2, sharedRows: 1 };
@@ -220,6 +237,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
         browserResponses,
         pageErrors,
       );
+
       contexts.push(oneDepartment.context);
       await signIn(oneDepartment.page, persons.oneDepartmentMember, "/dashboard/skoler");
       await expect(oneDepartment.page.getByRole("tab", { name: "Aktive (2)" })).toBeVisible();
@@ -231,30 +249,40 @@ test.describe("Native Schools directory (spec 0061)", () => {
       await expect(oneDepartment.page.getByRole("rowheader", { name: "Friskolen" })).toHaveCount(0);
       observations.oneDepartmentMember = { active: 2, inactive: 1 };
 
-      for (const [name, person, expectedTag] of [
-        ["endedOnlyMember", persons.endedOnlyMember, "AuthorityInactive"],
-        ["noAuthority", persons.noAuthority, "NotInScope"],
+      for (const [name, person] of [
+        ["endedOnlyMember", persons.endedOnlyMember],
+        ["noAuthority", persons.noAuthority],
       ] as const) {
         const denied = await openContext(browser, browserRequests, browserResponses, pageErrors);
         contexts.push(denied.context);
+
+        const rejection = denied.page.waitForResponse(
+          (response) => new URL(response.url()).pathname === "/schools",
+        );
+
         await signIn(denied.page, person, "/dashboard/skoler");
+        const response = await rejection;
+        expect(response.status()).toBe(403);
+        const failure = Schema.decodeUnknownSync(SchoolsBridgeFailureSchema)(await response.json());
+        expect(failure.error.tag).toBe("NotInScope");
         await expect(denied.page).toHaveURL(/\/dashboard\/skoler$/);
         await assertDirectoryShell(denied.page);
+        await expect(denied.page.getByRole("alert")).toBeVisible();
+        await expect(denied.page.getByRole("rowheader")).toHaveCount(0);
         await expect(
-          denied.page.getByText(
-            expectedTag === "AuthorityInactive"
-              ? "Tilgangen din til skoleoversikten er ikke aktiv."
-              : "Du har ikke tilgang til skoleoversikten.",
-            { exact: true },
-          ),
-        ).toBeVisible();
-        await expect(denied.page.getByText(person.email, { exact: true })).toHaveCount(0);
-        observations[name] = { status: 403, tag: expectedTag, renderedAt: "/dashboard/skoler" };
+          denied.page.getByRole("alert").getByText(person.email, { exact: true }),
+        ).toHaveCount(0);
+        observations[name] = {
+          status: response.status(),
+          tag: failure.error.tag,
+          renderedAt: "/dashboard/skoler",
+        };
       }
 
       const bridgeRequests = browserRequests.filter(
         (request) => request.method === "GET" && request.pathname === "/schools",
       );
+
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(9);
       expect(
         browserRequests.filter((request) => request.pathname === "/api/admin/schools"),
@@ -281,6 +309,7 @@ test.describe("Native Schools directory (spec 0061)", () => {
         pageErrors,
         accessibilityViolations: accessibility.violations,
       };
+
       if (evidencePath !== undefined) {
         await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
       }

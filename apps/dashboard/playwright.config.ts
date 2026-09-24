@@ -1,12 +1,15 @@
 import { existsSync } from "node:fs";
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices, LaunchOptions } from "@playwright/test";
 import { dashboardBaseUrl } from "./dashboard-base.ts";
 
 const systemChromium = "/etc/profiles/per-user/nori/bin/chromium-browser";
+
 const chromiumExecutablePath =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
   (existsSync(systemChromium) ? systemChromium : undefined);
+
 const w0Viewport = { width: 1440, height: 900 };
+
 export const resolveReceiptOwnerDashboardTopology = (
   environment: Readonly<Record<string, string | undefined>>,
 ):
@@ -17,42 +20,66 @@ export const resolveReceiptOwnerDashboardTopology = (
   | undefined => {
   if (environment.REAL_RECEIPT_OWNER_E2E !== "1") return undefined;
   const dashboardOrigin = environment.DASHBOARD_ORIGIN;
+
   if (dashboardOrigin === undefined || dashboardOrigin.length === 0) {
     throw new Error("DASHBOARD_ORIGIN is required for REAL_RECEIPT_OWNER_E2E");
   }
+
   const baseURL = dashboardBaseUrl(dashboardOrigin, environment);
+
   return { baseURL, webServer: undefined };
 };
 
 const genericDashboardOrigin = "http://127.0.0.1:5174";
+
 const realNativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
+
 const realNativeOAuthMode = process.env.REAL_NATIVE_OAUTH_E2E === "1";
+
 const configuredDashboardOrigin = process.env.DASHBOARD_ORIGIN;
+
 const externalDashboardOrigin =
   realNativeIdentityMode || realNativeOAuthMode
     ? (() => {
         if (configuredDashboardOrigin === undefined || configuredDashboardOrigin.length === 0) {
           throw new Error("DASHBOARD_ORIGIN is required for REAL_NATIVE_IDENTITY_E2E");
         }
+
         return configuredDashboardOrigin;
       })()
     : (configuredDashboardOrigin ?? genericDashboardOrigin);
+
 const realSymfonyCoreOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
+
 const realSymfonyCoreMode = process.env.REAL_SYMFONY_CORE_E2E === "1";
+
 const realSymfonyRecruitmentMode = process.env.REAL_SYMFONY_RECRUITMENT_E2E === "1";
+
 const realSymfonySchedulingMode = process.env.REAL_SYMFONY_INTERVIEW_SCHEDULING_E2E === "1";
+
 const realSymfonyContentOpsMode = process.env.REAL_SYMFONY_CONTENT_OPS_E2E === "1";
+
 const realSymfonyOrgOperationsMode = process.env.REAL_SYMFONY_ORG_OPERATIONS_E2E === "1";
+
 const realSymfonyBackgroundOperationsMode =
   process.env.REAL_SYMFONY_BACKGROUND_OPERATIONS_E2E === "1";
+
 const receiptOwnerDashboardTopology = resolveReceiptOwnerDashboardTopology(process.env);
+
 const realReceiptOwnerMode = receiptOwnerDashboardTopology !== undefined;
+
 const realAdmissionPeriodMode = process.env.REAL_ADMISSION_PERIOD_E2E === "1";
+
 const realNativeSchedulingMode = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
+
 const realNativeInvitationResponseMode = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
+
 const realNativeOrganizationMode = process.env.REAL_NATIVE_ORGANIZATION_E2E === "1";
+
 const realNativeConductMode = process.env.REAL_NATIVE_CONDUCT_E2E === "1";
+
 const realNativeProfileMode = process.env.REAL_NATIVE_PROFILE_E2E === "1";
+
 const realSymfonyMode =
   realSymfonyCoreMode ||
   realSymfonyRecruitmentMode ||
@@ -60,6 +87,7 @@ const realSymfonyMode =
   realSymfonyContentOpsMode ||
   realSymfonyOrgOperationsMode ||
   realSymfonyBackgroundOperationsMode;
+
 const externalTopologyMode =
   realSymfonyMode ||
   realReceiptOwnerMode ||
@@ -71,16 +99,21 @@ const externalTopologyMode =
   realNativeOrganizationMode ||
   realNativeConductMode ||
   realNativeProfileMode;
+
 const contentHomepageHost =
   realNativeIdentityMode && process.env.CONTENT_E2E_HOMEPAGE_ORIGIN !== undefined
     ? new URL(process.env.CONTENT_E2E_HOMEPAGE_ORIGIN).hostname
     : undefined;
-const contentChromiumLaunchOptions = {
-  ...(chromiumExecutablePath === undefined ? {} : { executablePath: chromiumExecutablePath }),
-  ...(contentHomepageHost === undefined
-    ? {}
-    : { args: [`--host-resolver-rules=MAP ${contentHomepageHost} 127.0.0.1`] }),
-};
+
+const contentChromiumLaunchOptions: LaunchOptions = {};
+
+if (chromiumExecutablePath !== undefined) {
+  contentChromiumLaunchOptions.executablePath = chromiumExecutablePath;
+}
+
+if (contentHomepageHost !== undefined) {
+  contentChromiumLaunchOptions.args = [`--host-resolver-rules=MAP ${contentHomepageHost} 127.0.0.1`];
+}
 
 const dashboardServer = {
   command: "bun run dev --host 127.0.0.1 --port 5174",

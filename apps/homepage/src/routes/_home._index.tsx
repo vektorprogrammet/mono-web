@@ -10,6 +10,7 @@ export async function loader(): Promise<
   DevContent & { newsTeaser: readonly PublishedNewsSummary[] }
 > {
   const teaser = await loadNewsTeaser();
+
   // Fresh server-side news read per render; DEV_CONTENT still feeds
   // sponsors/teams/statistics until their own journeys cut over, but no
   // article byte comes from it (spec law 2).
@@ -144,6 +145,7 @@ function NewsTeaser({
   }[];
 }) {
   if (articles.length === 0) return null;
+
   return (
     <section aria-labelledby="news-teaser-heading" className="mx-auto max-w-4xl px-6 pb-8">
       <h2 id="news-teaser-heading" className="mb-6 font-bold text-2xl">

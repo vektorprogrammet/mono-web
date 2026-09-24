@@ -1,8 +1,9 @@
+import { decodePostgresObservations, type PostgresObservation } from "./postgres-observation.js";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { Predicate, Schema } from "effect";
 
-type Row = Readonly<Record<string, unknown>>;
 type CorrectionSeed = Readonly<{
   predecessorRevision: number;
   resultingRevision: number;
@@ -15,10 +16,10 @@ type CorrectionSeed = Readonly<{
 }>;
 
 type PersistedSnapshot = Readonly<{
-  aggregate: ReadonlyArray<Row>;
-  assessments: ReadonlyArray<Row>;
-  receipts: ReadonlyArray<Row>;
-  audit: ReadonlyArray<Row>;
+  aggregate: ReadonlyArray<PostgresObservation>;
+  assessments: ReadonlyArray<PostgresObservation>;
+  receipts: ReadonlyArray<PostgresObservation>;
+  audit: ReadonlyArray<PostgresObservation>;
 }>;
 
 type DatabaseError = Readonly<{
@@ -34,7 +35,7 @@ export type InterviewCorrectionIntegrityOptions = Readonly<{
 const freshId = (prefix: string) => `${prefix}-${randomBytes(12).toString("hex")}`;
 
 const queryRows = async (client: Pool | PoolClient, text: string, values: unknown[] = []) =>
-  (await client.query(text, values)).rows as Row[];
+  decodePostgresObservations((await client.query(text, values)).rows);
 
 const readSnapshot = async (pool: Pool, interviewId: string): Promise<PersistedSnapshot> => ({
   aggregate: await queryRows(
@@ -88,19 +89,30 @@ const readCorrectionSeed = async (pool: Pool, interviewId: string): Promise<Corr
       LIMIT 1`,
     [interviewId],
   );
+
   assert.equal(rows.length, 1, "the integrity helper requires an existing correction");
   const row = rows[0]!;
-  assert.equal(typeof row.predecessorRevision, "number");
-  assert.equal(typeof row.resultingRevision, "number");
+  assert.ok(Predicate.isNumber(row.predecessorRevision));
+  assert.ok(Predicate.isNumber(row.resultingRevision));
   assert.ok(Array.isArray(row.answers), "the existing correction must contain answer JSON");
-  assert.equal(typeof row.explanatoryPower, "number");
-  assert.equal(typeof row.roleModel, "number");
-  assert.equal(typeof row.suitability, "number");
+  assert.ok(Predicate.isNumber(row.explanatoryPower));
+  assert.ok(Predicate.isNumber(row.roleModel));
+  assert.ok(Predicate.isNumber(row.suitability));
   assert.ok(
     row.recommendation === "Ja" || row.recommendation === "Kanskje" || row.recommendation === "Nei",
   );
-  assert.equal(typeof row.correctedByPersonId, "string");
-  return row as unknown as CorrectionSeed;
+  assert.ok(Predicate.isString(row.correctedByPersonId));
+
+  return {
+    predecessorRevision: row.predecessorRevision,
+    resultingRevision: row.resultingRevision,
+    answers: row.answers,
+    explanatoryPower: row.explanatoryPower,
+    roleModel: row.roleModel,
+    suitability: row.suitability,
+    recommendation: row.recommendation,
+    correctedByPersonId: row.correctedByPersonId,
+  };
 };
 
 const readCommandIds = async (pool: Pool, interviewId: string) => {
@@ -113,40 +125,51 @@ const readCommandIds = async (pool: Pool, interviewId: string) => {
       LIMIT 1`,
     [interviewId],
   );
+
   assert.equal(rows.length, 1);
-  assert.equal(typeof rows[0]!.commandId, "string");
-  return rows[0]!.commandId as string;
+  assert.ok(Predicate.isString(rows[0]!.commandId));
+
+  return Schema.decodeUnknownSync(Schema.String)(rows[0]!.commandId);
 };
 
-const assertRejectedAndUnchanged = async (
+const assertRejectedAndUnchanged = async <A>(
   pool: Pool,
   interviewId: string,
   label: string,
-  mutation: (client: PoolClient) => Promise<unknown>,
+  mutation: (client: PoolClient) => Promise<A>,
   expected: { message?: RegExp; constraint?: string },
 ) => {
   const before = await readSnapshot(pool, interviewId);
   const client = await pool.connect();
   let failure: DatabaseError | undefined;
+
   try {
     await client.query("BEGIN");
+
     try {
       await mutation(client);
     } catch (cause) {
-      failure = cause as DatabaseError;
+      failure = Schema.decodeUnknownSync(
+        Schema.Struct({ message: Schema.String, constraint: Schema.optionalKey(Schema.String) }),
+      )(cause);
     }
+
     await client.query("ROLLBACK");
   } finally {
     client.release();
   }
+
   assert.ok(failure, `${label} unexpectedly succeeded`);
-  assert.equal(typeof failure.message, "string", `${label} did not return a database error`);
+  assert.ok(Predicate.isString(failure.message), `${label} did not return a database error`);
+
   if (expected.constraint !== undefined) {
     assert.equal(failure.constraint, expected.constraint, `${label} hit the wrong constraint`);
   }
+
   if (expected.message !== undefined) {
     assert.match(String(failure.message), expected.message, `${label} hit the wrong rejection`);
   }
+
   assert.deepEqual(
     await readSnapshot(pool, interviewId),
     before,
@@ -211,6 +234,7 @@ const insertReceipt = async (
     [commandId, interviewId, predecessorRevision, resultingRevision],
   );
 };
+
 export async function assertInterviewCorrectionIntegrity(
   pool: Pool,
   interviewId: string,
@@ -223,6 +247,7 @@ export async function assertInterviewCorrectionIntegrity(
   const baseline = await readSnapshot(pool, interviewId);
   assert.equal(baseline.aggregate.length, 1, "the corrected interview aggregate must exist");
   assert.equal(baseline.aggregate[0]!.revision, currentRevision);
+
   if (options.expectedCoInterviewerPersonId !== undefined) {
     assert.equal(
       baseline.aggregate[0]!.co_interviewer_person_id,
@@ -230,12 +255,14 @@ export async function assertInterviewCorrectionIntegrity(
       "integrity target must retain its designated co-interviewer",
     );
   }
+
   if (options.expectedCorrectedByPersonId !== undefined) {
     assert.equal(
       seed.correctedByPersonId,
       options.expectedCorrectedByPersonId,
       "latest correction must retain the expected actor",
     );
+
     const audit = await queryRows(
       pool,
       `SELECT actor_person_id
@@ -243,8 +270,10 @@ export async function assertInterviewCorrectionIntegrity(
         WHERE command_id=$1`,
       [commandId],
     );
+
     assert.deepEqual(audit, [{ actor_person_id: options.expectedCorrectedByPersonId }]);
   }
+
   await assertRejectedAndUnchanged(
     pool,
     interviewId,

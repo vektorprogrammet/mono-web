@@ -1,4 +1,6 @@
-import { makeAuthEngine } from "./auth-engine.js";
+import type { AuthEngineConfig } from "./auth-engine.js";
+import { ManagedRuntime, Layer } from "effect";
+import { NativeAuthEngine, NativeAuthEngineLive, AuthPoolLive } from "./auth-engine.js";
 
 /**
  * Generator-only config for migration 0015 provenance (spec 0054).
@@ -12,7 +14,7 @@ import { makeAuthEngine } from "./auth-engine.js";
  * must never target the authoritative database. Runtime wiring stays in
  * auth-engine.ts; this file only re-exports the engine for the CLI.
  */
-export const auth = makeAuthEngine({
+const config: AuthEngineConfig = {
   postgresUrl: process.env.AUTH_GENERATE_PG_URL ?? "postgres://postgres@127.0.0.1:45121/postgres",
   secret: process.env.BETTER_AUTH_SECRET ?? "generator-only-not-a-runtime-secret",
   oauth: {
@@ -22,4 +24,14 @@ export const auth = makeAuthEngine({
   },
   trustedOrigins: ["http://127.0.0.1:4173"],
   secureCookies: false,
+};
+
+const runtime = ManagedRuntime.make(
+  NativeAuthEngineLive(config).pipe(Layer.provide(AuthPoolLive(config))),
+);
+
+process.once("beforeExit", () => {
+  void runtime.dispose();
 });
+
+export const auth = await runtime.runPromise(NativeAuthEngine);

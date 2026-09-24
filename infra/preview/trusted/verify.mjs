@@ -8,13 +8,19 @@ function main() {
   const expectedRepository = args.repository ?? IDENTITY.repository;
   const expectedHead = requireSha(requireOption(args, "head-sha"), "expectedHead");
   const expectedDigest = requireDigest(requireOption(args, "archive-digest"), "expectedDigest");
+
   if (input.schema !== "preview-source-digest/v1") throw new Error("unsupported source digest schema");
+
   if (input.repository !== expectedRepository || input.observedRepository !== expectedRepository) {
     throw new Error(`repository mismatch: expected ${expectedRepository}`);
   }
+
   if (input.headSha !== expectedHead) throw new Error(`head mismatch: expected ${expectedHead}, observed ${input.headSha}`);
+
   if (input.archiveDigest !== expectedDigest) throw new Error(`archive digest mismatch: expected ${expectedDigest}, observed ${input.archiveDigest}`);
+
   if (input.credentialFree !== true) throw new Error("source digest was not produced credential-free");
+
   const result = {
     schema: "preview-source-verification/v1",
     repository: expectedRepository,
@@ -23,6 +29,7 @@ function main() {
     verified: true,
     promotionAllowed: true,
   };
+
   if (args.output) writeFileSync(args.output, canonicalJson(result), { encoding: "utf8", mode: 0o600 });
   process.stdout.write(canonicalJson(result));
 }

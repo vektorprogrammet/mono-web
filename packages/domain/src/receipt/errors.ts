@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Match, Schema } from "effect";
 import type { DecisionReason } from "../authz/decision.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
@@ -76,7 +76,9 @@ export class ReceiptPersistenceError extends Schema.TaggedError<ReceiptPersisten
 ) {}
 
 const ReceiptComposedCapabilitySchema = Schema.Literals(["submitReceipt", "approveReceipt"]);
+
 export type ReceiptComposedCapability = typeof ReceiptComposedCapabilitySchema.Type;
+
 const ReceiptAuthorityRecordKindSchema = Schema.Literals([
   "PaymentAuthority",
   "ApprovalGrant",
@@ -117,11 +119,14 @@ export const receiptCompositionFailure = (
   personId: PersonId,
   capabilityId: ReceiptComposedCapability,
 ): AmbiguousParameterFill | FailedComposedRequirement | undefined =>
-  reason === "Ambiguous"
-    ? new AmbiguousParameterFill({ personId, capabilityId })
-    : reason === "RequirementFailed"
-      ? new FailedComposedRequirement({ personId, capabilityId })
-      : undefined;
+  Match.value(reason).pipe(
+    Match.when("Ambiguous", () => new AmbiguousParameterFill({ personId, capabilityId })),
+    Match.when(
+      "RequirementFailed",
+      () => new FailedComposedRequirement({ personId, capabilityId }),
+    ),
+    Match.orElse(() => undefined),
+  );
 
 export const ReceiptAuthorityOperationSchema = Schema.Literals([
   "Submission",
@@ -131,6 +136,7 @@ export const ReceiptAuthorityOperationSchema = Schema.Literals([
   "GlobalSettlement",
   "Owner",
 ]);
+
 export type ReceiptAuthorityOperation = typeof ReceiptAuthorityOperationSchema.Type;
 
 export class ReceiptAuthorityDenied extends Schema.TaggedError<ReceiptAuthorityDenied>()(

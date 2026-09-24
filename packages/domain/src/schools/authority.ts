@@ -1,10 +1,11 @@
+import { Result, Array } from "effect";
 import { allow, deny, type Decision } from "../authz/decision.js";
 import type {
   OrganizationAuthorityMembership,
   OrganizationPersonAuthority,
 } from "../organization/authority.js";
 import type { DepartmentId } from "../organization/schema.js";
-import type { SchoolDirectoryScope } from "./schema.js";
+import { type SchoolDirectoryScope, SchoolDirectoryScopeSchema } from "./schema.js";
 
 const compareDepartmentId = (left: DepartmentId, right: DepartmentId): number =>
   left === right ? 0 : left < right ? -1 : 1;
@@ -18,18 +19,23 @@ export const resolveSchoolsDirectoryScope = (
   authority: OrganizationPersonAuthority,
 ): Decision<SchoolDirectoryScope> => {
   if (authority.globalAdministrator === "Active") {
-    return allow<SchoolDirectoryScope>({ _tag: "All" });
+    return allow<SchoolDirectoryScope>(SchoolDirectoryScopeSchema.cases.All.make({}));
   }
+
   const departmentIds = [
     ...new Set(
-      authority.memberships
-        .filter((membership) => membership.active)
-        .map((membership: OrganizationAuthorityMembership) => membership.departmentId),
+      Array.filterMap(authority.memberships, (membership: OrganizationAuthorityMembership) =>
+        membership.active ? Result.succeed(membership.departmentId) : Result.failVoid,
+      ),
     ),
   ].sort(compareDepartmentId);
+
   if (departmentIds.length > 0) {
-    return allow<SchoolDirectoryScope>({ _tag: "DepartmentIds", departmentIds });
+    return allow<SchoolDirectoryScope>(
+      SchoolDirectoryScopeSchema.cases.DepartmentIds.make({ departmentIds }),
+    );
   }
+
   return deny<SchoolDirectoryScope>(
     authority.memberships.length > 0 || authority.globalAdministrator === "Inactive"
       ? "AuthorityInactive"

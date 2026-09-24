@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Predicate, Effect, Schema } from "effect";
 import { publicApplicationCommandDigest } from "./digest.js";
 import {
   ApplicantIdSchema,
@@ -24,17 +24,20 @@ const PublicEffectBase = {
   applicationId: PublicApplicationIdSchema,
   applicantId: ApplicantIdSchema,
 };
+
 const ReturningEffectBase = {
   ...PublicEffectBase,
   origin: Schema.Literal("ReturningAssistant"),
   registrationId: ReturningRegistrationIdSchema,
   personId: PersonId,
 };
+
 export const PublicApplicationEffectKindSchema = Schema.Literals([
   "SendApplicantActivationOrConfirmation",
   "CreateAdmissionSubscription",
   "WriteApplicationAudit",
 ]);
+
 export type PublicApplicationEffectKind = typeof PublicApplicationEffectKindSchema.Type;
 
 const PublicApplicationOutboxRequestSchemaInternal = Schema.TaggedUnion({
@@ -53,6 +56,7 @@ const PublicApplicationOutboxRequestSchemaInternal = Schema.TaggedUnion({
     action: Schema.Literal("PublicApplicationSubmitted"),
   },
 });
+
 const ReturningAssistantOutboxRequestSchema = Schema.TaggedUnion({
   SendApplicantActivationOrConfirmation: {
     ...ReturningEffectBase,
@@ -68,10 +72,12 @@ const ReturningAssistantOutboxRequestSchema = Schema.TaggedUnion({
     action: Schema.Literal("ReturningAssistantRegistered"),
   },
 });
+
 export const PublicApplicationOutboxRequestSchema = Schema.Union([
   PublicApplicationOutboxRequestSchemaInternal,
   ReturningAssistantOutboxRequestSchema,
 ]);
+
 export type PublicApplicationOutboxRequest = typeof PublicApplicationOutboxRequestSchema.Type;
 
 export const PublicApplicationEffectEvidenceSchema = Schema.Struct({
@@ -120,13 +126,14 @@ export const makePublicApplicationEffectInterpreter = (
 ): PublicApplicationEffectInterpreter => ({
   deliver: (request, ordinal, attempts) =>
     Effect.gen(function* () {
-      if (request._tag === "SendApplicantActivationOrConfirmation") {
+      if (Predicate.isTagged(request, "SendApplicantActivationOrConfirmation")) {
         yield* ports.sendApplicantNotification(request);
-      } else if (request._tag === "CreateAdmissionSubscription") {
+      } else if (Predicate.isTagged(request, "CreateAdmissionSubscription")) {
         yield* ports.createAdmissionSubscription(request);
       } else {
         yield* ports.writeApplicationAudit(request);
       }
+
       return {
         effectId: request.effectId,
         kind: request._tag,
@@ -154,35 +161,43 @@ export const makePublicApplicationOutboxRequests = (
   activationToken?: string,
 ): ReadonlyArray<PublicApplicationOutboxRequest> => {
   const commandDigest = publicApplicationCommandDigest(command);
+
   const shared = {
     commandId: command.commandId,
     applicationId: application.id,
     applicantId: applicant.id,
   } as const;
-  const activation: PublicApplicationOutboxRequest = {
-    _tag: "SendApplicantActivationOrConfirmation",
+
+  const activationFields = {
     effectId: PublicApplicationEffectIdSchema.make(
       `public-application:${commandDigest}:activation`,
     ),
     ...shared,
     email,
-    ...(activationToken === undefined ? {} : { activationToken }),
   };
-  const subscription: PublicApplicationOutboxRequest = {
-    _tag: "CreateAdmissionSubscription",
-    effectId: PublicApplicationEffectIdSchema.make(
-      `public-application:${commandDigest}:subscription`,
-    ),
-    ...shared,
-    email,
-    departmentId: application.departmentId,
-  };
-  const audit: PublicApplicationOutboxRequest = {
-    _tag: "WriteApplicationAudit",
-    effectId: PublicApplicationEffectIdSchema.make(`public-application:${commandDigest}:audit`),
-    ...shared,
-    action: "PublicApplicationSubmitted",
-  };
+
+  const activation: PublicApplicationOutboxRequest =
+    PublicApplicationOutboxRequestSchemaInternal.cases.SendApplicantActivationOrConfirmation.make(
+      activationToken === undefined ? activationFields : { ...activationFields, activationToken },
+    );
+
+  const subscription: PublicApplicationOutboxRequest =
+    PublicApplicationOutboxRequestSchemaInternal.cases.CreateAdmissionSubscription.make({
+      effectId: PublicApplicationEffectIdSchema.make(
+        `public-application:${commandDigest}:subscription`,
+      ),
+      ...shared,
+      email,
+      departmentId: application.departmentId,
+    });
+
+  const audit: PublicApplicationOutboxRequest =
+    PublicApplicationOutboxRequestSchemaInternal.cases.WriteApplicationAudit.make({
+      effectId: PublicApplicationEffectIdSchema.make(`public-application:${commandDigest}:audit`),
+      ...shared,
+      action: "PublicApplicationSubmitted",
+    });
+
   return [activation, subscription, audit];
 };
 
@@ -195,6 +210,7 @@ export interface ReturningAssistantOutboxInput {
   readonly registrationId: string;
   readonly personId: PersonId;
 }
+
 export const makeReturningAssistantOutboxRequests = (
   input: ReturningAssistantOutboxInput,
 ): ReadonlyArray<PublicApplicationOutboxRequest> => {
@@ -206,32 +222,30 @@ export const makeReturningAssistantOutboxRequests = (
     registrationId: ReturningRegistrationIdSchema.make(input.registrationId),
     personId: input.personId,
   };
+
   return [
-    {
-      _tag: "SendApplicantActivationOrConfirmation" as const,
+    ReturningAssistantOutboxRequestSchema.cases.SendApplicantActivationOrConfirmation.make({
       effectId: PublicApplicationEffectIdSchema.make(
         `returning-assistant:${input.registrationId}:confirmation`,
       ),
       ...shared,
       email: input.email,
-    },
-    {
-      _tag: "CreateAdmissionSubscription" as const,
+    }),
+    ReturningAssistantOutboxRequestSchema.cases.CreateAdmissionSubscription.make({
       effectId: PublicApplicationEffectIdSchema.make(
         `returning-assistant:${input.registrationId}:subscription`,
       ),
       ...shared,
       email: input.email,
       departmentId: input.departmentId,
-    },
-    {
-      _tag: "WriteApplicationAudit" as const,
+    }),
+    ReturningAssistantOutboxRequestSchema.cases.WriteApplicationAudit.make({
       effectId: PublicApplicationEffectIdSchema.make(
         `returning-assistant:${input.registrationId}:audit`,
       ),
       ...shared,
       action: "ReturningAssistantRegistered" as const,
-    },
+    }),
   ];
 };
 
@@ -241,6 +255,7 @@ export const makeRecordingPublicApplicationEffectInterpreter =
     const failedOnce = new Set<string>();
     let duplicateDeliveries = 0;
     const delivered = new Map<string, PublicApplicationEffectEvidence>();
+
     return {
       failOnce: (effectId) => {
         failedOnce.add(effectId);
@@ -251,14 +266,19 @@ export const makeRecordingPublicApplicationEffectInterpreter =
         Effect.gen(function* () {
           const nextAttempts = (attempts.get(request.effectId) ?? 0) + 1;
           attempts.set(request.effectId, nextAttempts);
+
           if (failedOnce.delete(request.effectId)) {
             return yield* new PublicApplicationEffectDeliveryError({ effectId: request.effectId });
           }
+
           const previous = delivered.get(request.effectId);
+
           if (previous !== undefined) {
             duplicateDeliveries += 1;
+
             return { ...previous, attempts: nextAttempts };
           }
+
           const evidence: PublicApplicationEffectEvidence = {
             effectId: request.effectId,
             kind: effectKindOf(request),
@@ -266,7 +286,9 @@ export const makeRecordingPublicApplicationEffectInterpreter =
             attempts: nextAttempts,
             status: "Delivered",
           };
+
           delivered.set(request.effectId, evidence);
+
           return evidence;
         }),
     };

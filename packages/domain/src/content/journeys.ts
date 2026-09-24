@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Data, Match, Predicate, Effect } from "effect";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
 import type { PersonId } from "../organization/schema.js";
 import { Organization } from "../organization/service.js";
@@ -23,8 +23,10 @@ export const runContentWorkspace = (
     yield* Organization;
     yield* Profile;
     const content = yield* ContentManagement;
+
     return yield* content.readWorkspace({ personId, authorizationInstant }, query);
   });
+
 export const runContentArticleDetail = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
@@ -34,6 +36,7 @@ export const runContentArticleDetail = (
     yield* Organization;
     yield* Profile;
     const content = yield* ContentManagement;
+
     return yield* content.readArticleDetail(articleId, { personId, authorizationInstant });
   });
 
@@ -52,16 +55,22 @@ export const runPublicationTransition = (
     yield* Organization;
     const content = yield* ContentManagement;
     const context = { personId, authorizationInstant };
-    switch (input._tag) {
-      case "CreateDraft":
-        return yield* content.createDraft(input.command, context);
-      case "ReviseDraft":
-        return yield* content.reviseDraft(input.command, context);
-      case "Publish":
-        return yield* content.publish(input.command, context);
-      case "Unpublish":
-        return yield* content.unpublish(input.command, context);
-    }
+
+    return yield* Match.value(input).pipe(
+      Match.tag("CreateDraft", (input) => {
+        return content.createDraft(input.command, context);
+      }),
+      Match.tag("ReviseDraft", (input) => {
+        return content.reviseDraft(input.command, context);
+      }),
+      Match.tag("Publish", (input) => {
+        return content.publish(input.command, context);
+      }),
+      Match.tag("Unpublish", (input) => {
+        return content.unpublish(input.command, context);
+      }),
+      Match.exhaustive,
+    );
   });
 
 export type PublicNewsRead =
@@ -71,12 +80,15 @@ export type PublicNewsRead =
     }
   | { readonly _tag: "Article"; readonly slug: string; readonly versionNumber?: number };
 
+export const PublicNewsRead = Data.taggedEnum<PublicNewsRead>();
+
 export const readPublicNews = (input: PublicNewsRead) =>
   Effect.gen(function* () {
     yield* Organization;
     yield* Profile;
     const content = yield* Content;
-    return input._tag === "Listing"
+
+    return Predicate.isTagged(input, "Listing")
       ? yield* content.readNewsListing(input.departmentId)
       : yield* content.readPublishedArticle(input.slug, input.versionNumber);
   });

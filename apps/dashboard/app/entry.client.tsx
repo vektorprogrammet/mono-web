@@ -11,6 +11,7 @@ import { registerSocialEventsElement } from "./foldkit/social-events/elements";
 import { registerSchoolSurveysElement } from "./foldkit/surveys/elements";
 
 import { registerDatedServiceElement } from "./foldkit/dated-school-service/elements";
+
 function HydrationSafeRouter() {
   useEffect(() => {
     registerInterviewElement();

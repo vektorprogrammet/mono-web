@@ -1,10 +1,11 @@
+import { Match, Schema } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   ChangedEndTime, ChangedEvidenceSource, ChangedReason, ChangedScheduleDate,
   ChangedStartTime, SelectedCommitment, SelectedDecision, ToggledAttendee,
   type Message,
 } from "./message";
-import type { Model } from "./model";
+import { Model } from "./model";
 
 type Commitment = NonNullable<Model["input"]["coverage"]>["commitments"][number];
 
@@ -23,14 +24,21 @@ const serviceTitle = (c: Commitment): string =>
   `${c.schoolName}, ${c.serviceDate} kl. ${c.startTime}–${c.endTime}, bolk ${c.block}`;
 
 const outcomeLabel = (outcome: "Completed" | "Cancelled" | "Unfulfilled"): string =>
-  outcome === "Completed" ? "Gjennomført" : outcome === "Cancelled" ? "Avlyst" : "Ikke oppfylt";
+  Match.value(outcome).pipe(
+Match.when("Completed", () => ("Gjennomført")),
+Match.when("Cancelled", () => ("Avlyst")),
+Match.orElse(() => ("Ikke oppfylt"))
+);
 
 const schedule = (model: Model, h: HtmlBuilder<Message>): Html => {
   const board = model.input.board;
+
   if (board === null) return h.empty;
   const proposal = board.proposal;
+
   if (proposal?.status !== "Confirmed") return h.p([], ["Bekreft tjenesteplanen før datoer kan planlegges."]);
   const existing = new Set(board.commitments.map((c) => `${c.schoolId}:${c.day}:${c.block}` + `:${c.serviceDate}`));
+
   return h.section([h.Class("dated-service__section")], [
     h.h3([], ["Planlegg datert skoletjeneste"]),
     h.p([], ["Tjenesteplanen er et gjentakende forslag. Hver dato og tidsperiode blir en egen, låst forpliktelse med behov og bemanning fra den bekreftede planen."]),
@@ -38,6 +46,7 @@ const schedule = (model: Model, h: HtmlBuilder<Message>): Html => {
       const alreadyScheduled = existing.has(`${demand.schoolId}:${demand.day}:${demand.block}:${model.scheduleDate}`);
       const valid = Boolean(model.scheduleDate && model.startTime && model.endTime && model.startTime < model.endTime);
       const label = `${board.schools.find((s) => s.schoolId === demand.schoolId)?.name ?? demand.schoolId}, ${demand.day}, bolk ${demand.block}: ${demand.requiredVolunteers} trengs`;
+
       return h.form([h.Method("post"), h.Class("dated-service__card")], [
         ...formFields(model, h, board.etag, "ScheduleService", `schedule-${demand.schoolId}-${demand.day}-${demand.block}`),
         hidden(h, "proposalId", proposal.proposalId),
@@ -58,13 +67,16 @@ const schedule = (model: Model, h: HtmlBuilder<Message>): Html => {
 
 const own = (model: Model, h: HtmlBuilder<Message>): Html => {
   const ownCoverage = model.input.ownCoverage;
+
   if (ownCoverage === null) return h.empty;
+
   return h.section([h.Class("dated-service__section")], [
     h.h3([], ["Mine daterte skoletjenester"]),
     ownCoverage.commitments.length === 0 ? h.p([], ["Ingen daterte tjenester i valgt semester."]) : h.empty,
     ...ownCoverage.commitments.map((commitment) => {
       const absence = ownCoverage.absences.find((a) => a.commitmentId === commitment.commitmentId);
       const scheduled = commitment.assignments.some((a) => a.personId === ownCoverage.personId);
+
       return h.article([h.Class("dated-service__card")], [
         h.h4([], [serviceTitle(commitment)]),
         h.p([], [scheduled ? "Din rolle: planlagt frivillig." : "Din rolle: bekreftet vikar."]),
@@ -82,8 +94,10 @@ const own = (model: Model, h: HtmlBuilder<Message>): Html => {
 
 const coordinator = (model: Model, h: HtmlBuilder<Message>): Html => {
   const coverage = model.input.coverage;
+
   if (coverage === null) return h.empty;
   const selected = coverage.commitments.find((c) => c.commitmentId === model.selectedCommitmentId);
+
   return h.section([h.Class("dated-service__section")], [
     h.h3([], ["Daterte tjenester og beslutninger"]),
     coverage.commitments.length === 0 ? h.p([], ["Ingen datoer er planlagt i valgt semester."]) : h.empty,
@@ -108,24 +122,29 @@ const decisionForm = (model: Model, h: HtmlBuilder<Message>, commitment: Commitm
   const absenceIds = new Set(coverage.absences.filter((a) => a.commitmentId === commitment.commitmentId).map((a) => a.absenceId));
   const absent = new Set(coverage.absences.filter((a) => a.commitmentId === commitment.commitmentId).map((a) => a.personId));
   const eligible = new Map<string, string>();
+
   for (const assignment of commitment.assignments) if (!absent.has(assignment.personId)) eligible.set(assignment.personId, `${assignment.firstName} ${assignment.lastName}`);
+
   for (const acknowledgement of coverage.acknowledgements) {
     if (!absenceIds.has(acknowledgement.absenceId)) continue;
     const offer = coverage.offers.find((o) => o.offerId === acknowledgement.offerId);
+
     if (offer) eligible.set(acknowledgement.candidatePersonId, `${offer.candidateFirstName} ${offer.candidateLastName} (bekreftet vikar)`);
   }
+
   const pending = coverage.offers.some((o) => absenceIds.has(o.absenceId) && (o.status === "Offered" || o.status === "Accepted"));
   const cancellation = model.decision === "CancelService";
   const completed = model.decision === "CompleteService";
   const validAttendance = cancellation || (completed ? model.attendedPersonIds.length >= commitment.requiredVolunteers : model.attendedPersonIds.length < commitment.requiredVolunteers);
   const valid = !pending && (cancellation || commitment.overdue) && validAttendance && model.evidenceSource.trim().length > 0 && (completed || model.reason.trim().length > 0);
+
   return h.form([h.Method("post"), h.Class("dated-service__card"), h.AriaLabel("Beslutning for " + serviceTitle(commitment))], [
     h.h4([], ["Dokumenter faktisk tjeneste: " + serviceTitle(commitment)]),
     h.p([], ["Fraværssakens Dekket/Ikke dekket beskriver bare én plass. Tjenesten får separat utfall basert på faktisk oppmøte."]),
     !cancellation && !commitment.overdue ? h.p([h.Role("status")], ["Gjennomført og Ikke oppfylt kan først dokumenteres etter at tjenesteintervallet er slutt i norsk skoletid. Avlyst kan registreres nå. Last siden på nytt når intervallet er slutt."]) : h.empty,
     ...formFields(model, h, coverage.etag, model.decision, `decision-${commitment.commitmentId.slice(-32)}-${model.decision}`),
     hidden(h, "commitmentId", commitment.commitmentId),
-    h.label([], ["Tjenesteutfall", h.select([h.Value(model.decision), h.OnChange((value) => SelectedDecision({ value: value as Model["decision"] }))], [
+    h.label([], ["Tjenesteutfall", h.select([h.Value(model.decision), h.OnChange((value) => SelectedDecision({ value: Schema.decodeUnknownSync(Model.fields.decision)(value) }))], [
       h.option([h.Value("CompleteService")], ["Gjennomført – behovet er dekket"]),
       h.option([h.Value("CancelService")], ["Avlyst – ingen undervisning eller oppmøte"]),
       h.option([h.Value("MarkUnfulfilledService")], ["Ikke oppfylt – faktisk oppmøte er under behovet"]),

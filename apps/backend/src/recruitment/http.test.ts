@@ -1,6 +1,16 @@
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { NativeHttpReceiptPersistenceError } from "../http-api/receipt-transaction.js";
 import {
+  UnauthenticatedActor,
+  AdmissionPeriodActorSchema,
+} from "@vektorprogrammet/domain/admission-period";
+import {
+  PrincipalSchema,
+  Scope,
+  CredentialOutcomeSchema,
+  CredentialMechanismSchema,
   evaluateAccess,
-  makeGrant,
+  decodeGrant,
   GrantId,
   AuthorityRef,
   AuthorityVersion,
@@ -9,14 +19,44 @@ import {
   DomainId,
 } from "@vektorprogrammet/domain/authz";
 import { ReadInterviewReportEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
-import { Option } from "effect";
+import { Predicate, Option } from "effect";
 import { evaluateRequirement, RequirementId } from "@vektorprogrammet/domain/authz";
 import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
-import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
+import {
+  RecruitmentInactiveActor,
+  RecruitmentAdmissionPeriodNotFound,
+  RecruitmentAmbiguousAdmissionPeriod,
+  RecruitmentApplicationNotFound,
+  RecruitmentInterviewSchemaNotFound,
+  InterviewSchemaId,
+  RecruitmentApplicationAlreadyAssigned,
+  RecruitmentInterviewSchemaInactive,
+  RecruitmentInterviewNotFound,
+  RecruitmentInterviewAlreadyScheduled,
+  RecruitmentInterviewStaleRevision,
+  RecruitmentScheduleInPast,
+  RecruitmentInvitationNotFound,
+  RecruitmentInvitationAlreadyResponded,
+  RecruitmentInterviewAlreadyFinalized,
+  RecruitmentInterviewAlreadyCancelled,
+  RecruitmentInterviewNotScheduled,
+  RecruitmentInvitationNotAccepted,
+  RecruitmentConductValidationError,
+  RecruitmentAssignmentCommandConflict,
+  RecruitmentAssignmentCommandId,
+  RecruitmentScheduleCommandConflict,
+  RecruitmentScheduleCommandId,
+  RecruitmentLifecycleCommandConflict,
+  RecruitmentConductCommandId,
+  RecruitmentDecodeError,
+  RecruitmentPersistenceError,
+  RecruitmentInterviewId,
+} from "@vektorprogrammet/domain/recruitment";
 import { SchedulingBoard } from "@vektorprogrammet/http-api";
 import { RecruitmentSchedulingBoardSchema } from "@vektorprogrammet/domain/recruitment";
 import { Schema } from "effect";
 import {
+  PreconditionDecision,
   deriveStrongETag,
   evaluateMutationPrecondition,
   HttpSemanticFailure,
@@ -128,6 +168,7 @@ describe("native recruitment HTTP boundary", () => {
         128,
       ),
     );
+
     await expect(duplicate).rejects.toMatchObject({
       name: "HttpSemanticFailure",
       code: "request.malformed",
@@ -144,6 +185,7 @@ describe("native recruitment HTTP boundary", () => {
         64,
       ),
     );
+
     await expect(unsupported).rejects.toMatchObject({
       code: "media-type.unsupported",
       status: 415,
@@ -160,18 +202,21 @@ describe("native recruitment HTTP boundary", () => {
         true,
       ),
     );
+
     await expect(oversizedConfirm).rejects.toMatchObject({
       code: "request.malformed",
       status: 400,
     });
 
     let cancelled = false;
+
     const streamed = new ReadableStream<Uint8Array>({
       pull: (controller) => controller.enqueue(new Uint8Array(12)),
       cancel: () => {
         cancelled = true;
       },
     });
+
     await expect(
       runTestPromise(
         readRecruitmentRequestBody(
@@ -180,7 +225,7 @@ describe("native recruitment HTTP boundary", () => {
             headers: { "content-type": "application/json" },
             body: streamed,
             duplex: "half",
-          } as RequestInit & { readonly duplex: "half" }),
+          } satisfies RequestInit & { readonly duplex: "half" }),
           16,
         ),
       ),
@@ -194,6 +239,7 @@ describe("native recruitment HTTP boundary", () => {
       resourceIdentity: "recruitment-invitation:invitation-1",
       version: [2, 3],
     });
+
     const body = {
       scheduledAt: "2031-09-20T10:00:00.000Z",
       room: "A101",
@@ -201,6 +247,7 @@ describe("native recruitment HTTP boundary", () => {
       responseState: "Pending",
       responseMessage: null,
     };
+
     const fresh = await runTestPromise(
       conditionalJsonResponse(
         new Request("http://backend.test/api/recruitment/invitation-response"),
@@ -208,6 +255,7 @@ describe("native recruitment HTTP boundary", () => {
         etag,
       ),
     );
+
     expect({
       status: fresh.status,
       etag: fresh.headers.get("etag"),
@@ -231,6 +279,7 @@ describe("native recruitment HTTP boundary", () => {
         etag,
       ),
     );
+
     expect({
       status: notModified.status,
       etag: notModified.headers.get("etag"),
@@ -254,6 +303,7 @@ describe("native recruitment HTTP boundary", () => {
         etag,
       ),
     );
+
     expect(stale.status).toBe(412);
     await expect(stale.json()).resolves.toMatchObject({
       status: 412,
@@ -295,6 +345,7 @@ describe("native recruitment HTTP boundary", () => {
       },
       { onExcessProperty: "error" },
     );
+
     const authority = [
       {
         kind: "Membership" as const,
@@ -308,10 +359,13 @@ describe("native recruitment HTTP boundary", () => {
     ).toThrow();
 
     const tagged = schedulingBoardWithETags(board, authority);
+
     const decoded = Schema.decodeUnknownSync(SchedulingBoard)(tagged, {
       onExcessProperty: "error",
     });
+
     const boardTag = decoded.interviews[0]!.etag;
+
     const mutationTag = interviewETag({
       interviewId: board.interviews[0]!.interviewId,
       departmentId: board.interviews[0]!.departmentId,
@@ -320,6 +374,7 @@ describe("native recruitment HTTP boundary", () => {
       interviewRevision: board.interviews[0]!.revision,
       authority,
     });
+
     const afterInterviewRevision = schedulingBoardWithETags(
       {
         ...board,
@@ -327,6 +382,7 @@ describe("native recruitment HTTP boundary", () => {
       },
       authority,
     ).interviews[0]!.etag;
+
     const afterCoInterviewerChange = schedulingBoardWithETags(
       {
         ...board,
@@ -342,6 +398,7 @@ describe("native recruitment HTTP boundary", () => {
       },
       authority,
     ).interviews[0]!.etag;
+
     const afterAuthorityRevision = schedulingBoardWithETags(board, [
       { ...authority[0]!, revisions: [4, 5, 7] },
     ]).interviews[0]!.etag;
@@ -351,45 +408,170 @@ describe("native recruitment HTTP boundary", () => {
     expect(afterInterviewRevision).not.toBe(boardTag);
     expect(afterCoInterviewerChange).not.toBe(boardTag);
     expect(afterAuthorityRevision).not.toBe(boardTag);
-    expect(evaluateMutationPrecondition(mutationTag, boardTag)).toEqual({ _tag: "Proceed" });
-    expect(evaluateMutationPrecondition(afterInterviewRevision, boardTag)).toEqual({
-      _tag: "Failed",
-      code: "precondition.failed",
-      status: 412,
-    });
+    expect(evaluateMutationPrecondition(mutationTag, boardTag)).toEqual(
+      PreconditionDecision.Proceed(),
+    );
+    expect(evaluateMutationPrecondition(afterInterviewRevision, boardTag)).toEqual(
+      PreconditionDecision.Failed({ code: "precondition.failed", status: 412 }),
+    );
     expect("etag" in tagged).toBe(false);
   });
 
   it("maps recruitment failures to the frozen RFC 9457 problem vocabulary", async () => {
     const cases = [
-      ["RecruitmentInactiveActor", 403, "authority.denied"],
-      ["RecruitmentAdmissionPeriodNotFound", 404, "recruitment.admission-period-not-found"],
-      ["RecruitmentAmbiguousAdmissionPeriod", 409, "application.ambiguous-period"],
-      ["RecruitmentApplicationNotFound", 404, "recruitment.application-not-found"],
-      ["RecruitmentInterviewSchemaNotFound", 404, "recruitment.interview-schema-not-found"],
-      ["RecruitmentApplicationAlreadyAssigned", 409, "recruitment.application-already-assigned"],
-      ["RecruitmentInterviewSchemaInactive", 422, "recruitment.interview-schema-inactive"],
-      ["RecruitmentInterviewNotFound", 404, "recruitment.interview-not-found"],
-      ["RecruitmentInterviewAlreadyScheduled", 409, "recruitment.already-scheduled"],
-      ["RecruitmentInterviewStaleRevision", 412, "precondition.failed"],
-      ["RecruitmentScheduleInPast", 422, "recruitment.schedule-in-past"],
-      ["RecruitmentInvitationNotFound", 404, "resource.not-found"],
-      ["RecruitmentInvitationAlreadyResponded", 409, "invitation.already-responded"],
-      ["RecruitmentInterviewAlreadyFinalized", 409, "recruitment.already-finalized"],
-      ["RecruitmentInterviewAlreadyCancelled", 409, "recruitment.already-cancelled"],
-      ["RecruitmentInterviewNotScheduled", 409, "recruitment.interview-not-scheduled"],
-      ["RecruitmentInvitationNotAccepted", 409, "recruitment.invitation-not-accepted"],
-      ["RecruitmentConductValidationError", 422, "recruitment.conduct-invalid"],
-      ["RecruitmentAssignmentCommandConflict", 409, "idempotency.digest-conflict"],
-      ["RecruitmentScheduleCommandConflict", 409, "idempotency.digest-conflict"],
-      ["RecruitmentLifecycleCommandConflict", 409, "idempotency.digest-conflict"],
-      ["NativeHttpReceiptPersistenceError", 503, "idempotency.unavailable"],
-      ["RecruitmentPersistenceError", 503, "dependency.unavailable"],
-      ["RecruitmentDecodeError", 500, "internal.error"],
+      [
+        new RecruitmentInactiveActor({ personId: PersonId.make("fixture-person") }),
+        403,
+        "authority.denied",
+      ],
+      [
+        new RecruitmentAdmissionPeriodNotFound({
+          departmentId: DepartmentId.make("fixture-department"),
+        }),
+        404,
+        "recruitment.admission-period-not-found",
+      ],
+      [
+        new RecruitmentAmbiguousAdmissionPeriod({
+          departmentId: DepartmentId.make("fixture-department"),
+        }),
+        409,
+        "application.ambiguous-period",
+      ],
+      [
+        new RecruitmentApplicationNotFound({
+          applicationId: PublicApplicationIdSchema.make("fixture-id"),
+        }),
+        404,
+        "recruitment.application-not-found",
+      ],
+      [
+        new RecruitmentInterviewSchemaNotFound({
+          interviewSchemaId: InterviewSchemaId.make("fixture-id"),
+        }),
+        404,
+        "recruitment.interview-schema-not-found",
+      ],
+      [
+        new RecruitmentApplicationAlreadyAssigned({
+          applicationId: PublicApplicationIdSchema.make("fixture-id"),
+        }),
+        409,
+        "recruitment.application-already-assigned",
+      ],
+      [
+        new RecruitmentInterviewSchemaInactive({
+          interviewSchemaId: InterviewSchemaId.make("fixture-id"),
+        }),
+        422,
+        "recruitment.interview-schema-inactive",
+      ],
+      [
+        new RecruitmentInterviewNotFound({
+          interviewId: RecruitmentInterviewId.make("fixture-id"),
+        }),
+        404,
+        "recruitment.interview-not-found",
+      ],
+      [
+        new RecruitmentInterviewAlreadyScheduled({
+          interviewId: RecruitmentInterviewId.make("fixture-id"),
+        }),
+        409,
+        "recruitment.already-scheduled",
+      ],
+      [
+        new RecruitmentInterviewStaleRevision({
+          interviewId: RecruitmentInterviewId.make("fixture-id"),
+          expectedRevision: 1,
+          actualRevision: 2,
+        }),
+        412,
+        "precondition.failed",
+      ],
+      [
+        new RecruitmentScheduleInPast({ interviewId: RecruitmentInterviewId.make("fixture-id") }),
+        422,
+        "recruitment.schedule-in-past",
+      ],
+      [new RecruitmentInvitationNotFound({}), 404, "resource.not-found"],
+      [new RecruitmentInvitationAlreadyResponded({}), 409, "invitation.already-responded"],
+      [
+        new RecruitmentInterviewAlreadyFinalized({
+          interviewId: RecruitmentInterviewId.make("fixture-id"),
+        }),
+        409,
+        "recruitment.already-finalized",
+      ],
+      [
+        new RecruitmentInterviewAlreadyCancelled({
+          interviewId: RecruitmentInterviewId.make("fixture-id"),
+        }),
+        409,
+        "recruitment.already-cancelled",
+      ],
+      [
+        new RecruitmentInterviewNotScheduled({
+          interviewId: RecruitmentInterviewId.make("fixture-id"),
+        }),
+        409,
+        "recruitment.interview-not-scheduled",
+      ],
+      [
+        new RecruitmentInvitationNotAccepted({
+          interviewId: RecruitmentInterviewId.make("fixture-id"),
+          responseState: "fixture",
+        }),
+        409,
+        "recruitment.invitation-not-accepted",
+      ],
+      [
+        new RecruitmentConductValidationError({
+          interviewId: RecruitmentInterviewId.make("fixture-id"),
+          message: "fixture",
+        }),
+        422,
+        "recruitment.conduct-invalid",
+      ],
+      [
+        new RecruitmentAssignmentCommandConflict({
+          commandId: RecruitmentAssignmentCommandId.make("fixture-id"),
+        }),
+        409,
+        "idempotency.digest-conflict",
+      ],
+      [
+        new RecruitmentScheduleCommandConflict({
+          commandId: RecruitmentScheduleCommandId.make("fixture-id"),
+        }),
+        409,
+        "idempotency.digest-conflict",
+      ],
+      [
+        new RecruitmentLifecycleCommandConflict({
+          commandId: RecruitmentConductCommandId.make("fixture-id"),
+        }),
+        409,
+        "idempotency.digest-conflict",
+      ],
+      [
+        new NativeHttpReceiptPersistenceError({
+          operation: "execute",
+          cause: new Error("fixture"),
+        }),
+        503,
+        "idempotency.unavailable",
+      ],
+      [
+        new RecruitmentPersistenceError({ operation: "fixture", message: "fixture" }),
+        503,
+        "dependency.unavailable",
+      ],
+      [new RecruitmentDecodeError({ message: "fixture" }), 500, "internal.error"],
     ] as const;
 
-    for (const [tag, status, code] of cases) {
-      const response = recruitmentHttpErrorResponse({ _tag: tag });
+    for (const [failure, status, code] of cases) {
+      const response = recruitmentHttpErrorResponse(failure);
       expect(response.status).toBe(status);
       await expect(response.json()).resolves.toMatchObject({
         status,
@@ -397,7 +579,10 @@ describe("native recruitment HTTP boundary", () => {
       });
     }
 
-    const unauthorized = recruitmentHttpErrorResponse({ _tag: "UnauthenticatedActor" });
+    const unauthorized = recruitmentHttpErrorResponse(
+      new UnauthenticatedActor({ message: "Authentication required" }),
+    );
+
     expect(unauthorized.status).toBe(401);
     expect(unauthorized.headers.get("www-authenticate")).toBe(
       'VektorSession realm="native-api", Bearer realm="native-api"',
@@ -406,6 +591,7 @@ describe("native recruitment HTTP boundary", () => {
     const malformed = recruitmentHttpErrorResponse(
       new HttpSemanticFailure("request.malformed", 400),
     );
+
     expect(malformed.status).toBe(400);
     await expect(malformed.json()).resolves.toMatchObject({
       status: 400,
@@ -416,10 +602,14 @@ describe("native recruitment HTTP boundary", () => {
 
 it("preserves the native conflict protocol for PostgreSQL snapshot and deadlock failures", async () => {
   for (const code of ["40001", "40P01"]) {
-    const response = recruitmentHttpErrorResponse({
-      _tag: "RecruitmentPersistenceError",
-      cause: { cause: { code } },
-    });
+    const response = recruitmentHttpErrorResponse(
+      new RecruitmentPersistenceError({
+        operation: "fixture",
+        message: "Transaction failed",
+        cause: { cause: { code } },
+      }),
+    );
+
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ code: "transaction.conflict" });
   }
@@ -428,6 +618,7 @@ it("preserves the native conflict protocol for PostgreSQL snapshot and deadlock 
 it("denies a suspended assigned member in the HTTP access context used before receipt replay", () => {
   const personId = PersonId.make("suspended-assigned-person"),
     departmentId = DepartmentId.make("department-assigned");
+
   const source = {
     interviewId: RecruitmentInterviewId.make("assigned-interview"),
     departmentId,
@@ -437,18 +628,20 @@ it("denies a suspended assigned member in the HTTP access context used before re
     linkedApplicantPersonId: null,
     authority: [],
   };
+
   const requirement = {
     id: RequirementId.make("recruitment.assigned-interviewer"),
     parameters: {},
   };
-  const principal = { _tag: "Person" as const, personId };
+
+  const principal = PrincipalSchema.cases.Person.make({ personId });
   expect(
     evaluateRequirement(
       requirement,
       principal,
       recruitmentInterviewAccessContext(
         source,
-        { _tag: "Member", personId, departmentId, active: false },
+        AdmissionPeriodActorSchema.cases.Member.make({ personId, departmentId, active: false }),
         false,
         false,
       ),
@@ -460,7 +653,7 @@ it("denies a suspended assigned member in the HTTP access context used before re
       principal,
       recruitmentInterviewAccessContext(
         source,
-        { _tag: "GlobalAdmin", personId, active: true },
+        AdmissionPeriodActorSchema.cases.GlobalAdmin.make({ personId, active: true }),
         false,
         false,
       ),
@@ -472,7 +665,7 @@ it("denies a suspended assigned member in the HTTP access context used before re
       principal,
       recruitmentInterviewAccessContext(
         source,
-        { _tag: "Member", personId, departmentId, active: true },
+        AdmissionPeriodActorSchema.cases.Member.make({ personId, departmentId, active: true }),
         false,
         true,
       ),
@@ -484,6 +677,7 @@ it("authorizes a current co-interviewer only through the participant requirement
   const primaryPersonId = PersonId.make("primary-interviewer"),
     coInterviewerPersonId = PersonId.make("co-interviewer"),
     departmentId = DepartmentId.make("department-co-interviewer");
+
   const source = {
     interviewId: RecruitmentInterviewId.make("co-interviewer-interview"),
     departmentId,
@@ -493,10 +687,16 @@ it("authorizes a current co-interviewer only through the participant requirement
     linkedApplicantPersonId: null,
     authority: [],
   };
-  const principal = { _tag: "Person" as const, personId: coInterviewerPersonId };
+
+  const principal = PrincipalSchema.cases.Person.make({ personId: coInterviewerPersonId });
+
   const context = recruitmentInterviewAccessContext(
     source,
-    { _tag: "Member", personId: coInterviewerPersonId, departmentId, active: true },
+    AdmissionPeriodActorSchema.cases.Member.make({
+      personId: coInterviewerPersonId,
+      departmentId,
+      active: true,
+    }),
     false,
     true,
   );
@@ -521,7 +721,11 @@ it("authorizes a current co-interviewer only through the participant requirement
   expect(
     recruitmentInterviewAccessContext(
       { ...source, coInterviewerPersonId: null },
-      { _tag: "Member", personId: coInterviewerPersonId, departmentId, active: true },
+      AdmissionPeriodActorSchema.cases.Member.make({
+        personId: coInterviewerPersonId,
+        departmentId,
+        active: true,
+      }),
       false,
       true,
     ).authorityVersion,
@@ -531,31 +735,34 @@ it("authorizes a current co-interviewer only through the participant requirement
 
 it("authorizes the report collection for its current scoped leader and rejects missing leadership", () => {
   const spec = Option.getOrThrow(reflectAccessSpec(ReadInterviewReportEndpoint));
-  if (spec.capabilities._tag !== "One") throw new Error("report requires one capability");
+
+  if (!Predicate.isTagged(spec.capabilities, "One"))
+    throw new Error("report requires one capability");
   const personId = PersonId.make("report-access-leader");
   const departmentId = DepartmentId.make("report-access-department");
-  const principal = { _tag: "Person" as const, personId };
+  const principal = PrincipalSchema.cases.Person.make({ personId });
   const instant = AuthorizationInstant.make("2031-09-15T12:00:00.000Z");
-  const grant = makeGrant({
+
+  const grant = decodeGrant({
     grantId: GrantId.make("report-access-grant"),
     subject: principal,
     capability: spec.capabilities.capability,
-    scope: { _tag: "Department", departmentId },
+    scope: Scope.Department({ departmentId }),
     startAt: instant,
     endAt: null,
     requirements: [],
     source: AuthorityRef.make("native-recruitment-actor"),
     revision: 0,
   });
+
   const evaluate = (leaders: ReadonlyArray<typeof personId>) =>
     evaluateAccess({
       spec,
-      credential: {
-        _tag: "Accepted",
-        mechanism: { _tag: "BetterAuthCookie" },
+      credential: CredentialOutcomeSchema.cases.Accepted.make({
+        mechanism: CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
         principal,
         evidenceRef: CredentialEvidenceRef.make("report-access-session"),
-      },
+      }),
       resolution: {
         selection: "AllMatching",
         contexts: [
@@ -571,10 +778,11 @@ it("authorizes the report collection for its current scoped leader and rejects m
       grants: [grant],
       authorizationInstant: instant,
     });
+
   expect(evaluate([personId])._tag).toBe("Allow");
-  expect(evaluate([])).toMatchObject({
-    _tag: "Deny",
-    stage: "Requirement",
-    reason: "RequirementFailed",
-  });
+  {
+    const observed = evaluate([]);
+    expect(observed).toHaveProperty("_tag", "Deny");
+    expect(observed).toMatchObject({ stage: "Requirement", reason: "RequirementFailed" });
+  }
 });

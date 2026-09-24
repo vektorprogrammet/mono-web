@@ -13,6 +13,7 @@ export const PREVIEW_STATES = [
   "NeedsOperator",
   "Failed",
 ] as const;
+
 export type PreviewState = (typeof PREVIEW_STATES)[number];
 
 export type PreviewEvent =
@@ -27,21 +28,67 @@ export type PreviewEvent =
 
 const transitions: Record<PreviewState, Partial<Record<PreviewEvent, PreviewState>>> = {
   Absent: { opened: "Requested", reopened: "Requested", reconcile: "Requested" },
-  Requested: { opened: "Validating", reopened: "Validating", synchronize: "Validating", reconcile: "Validating" },
-  Validating: { opened: "SeedReady", reopened: "SeedReady", synchronize: "SeedReady", reconcile: "SeedReady" },
-  SeedReady: { opened: "Planned", reopened: "Planned", synchronize: "Planned", reconcile: "Planned" },
-  Planned: { opened: "Applying", reopened: "Applying", synchronize: "Applying", reconcile: "Applying" },
-  Applying: { opened: "Seeding", reopened: "Seeding", synchronize: "Seeding", reconcile: "Seeding", cancelled: "Retiring", closed: "Retiring" },
-  Seeding: { opened: "Live", reopened: "Live", synchronize: "Live", reconcile: "Live", cancelled: "Retiring", closed: "Retiring" },
-  Live: { synchronize: "Retiring", closed: "Retiring", reconcile: "Retiring", cancelled: "Retiring" },
-  Retiring: { closed: "Absent", reconcile: "Absent", synchronize: "Absent", cancelled: "NeedsOperator" },
+  Requested: {
+    opened: "Validating",
+    reopened: "Validating",
+    synchronize: "Validating",
+    reconcile: "Validating",
+  },
+  Validating: {
+    opened: "SeedReady",
+    reopened: "SeedReady",
+    synchronize: "SeedReady",
+    reconcile: "SeedReady",
+  },
+  SeedReady: {
+    opened: "Planned",
+    reopened: "Planned",
+    synchronize: "Planned",
+    reconcile: "Planned",
+  },
+  Planned: {
+    opened: "Applying",
+    reopened: "Applying",
+    synchronize: "Applying",
+    reconcile: "Applying",
+  },
+  Applying: {
+    opened: "Seeding",
+    reopened: "Seeding",
+    synchronize: "Seeding",
+    reconcile: "Seeding",
+    cancelled: "Retiring",
+    closed: "Retiring",
+  },
+  Seeding: {
+    opened: "Live",
+    reopened: "Live",
+    synchronize: "Live",
+    reconcile: "Live",
+    cancelled: "Retiring",
+    closed: "Retiring",
+  },
+  Live: {
+    synchronize: "Retiring",
+    closed: "Retiring",
+    reconcile: "Retiring",
+    cancelled: "Retiring",
+  },
+  Retiring: {
+    closed: "Absent",
+    reconcile: "Absent",
+    synchronize: "Absent",
+    cancelled: "NeedsOperator",
+  },
   NeedsOperator: { reconcile: "Requested", closed: "Retiring" },
   Failed: { reconcile: "Requested", closed: "Retiring" },
 };
 
 export function transitionPreview(state: PreviewState, event: PreviewEvent): PreviewState {
   const next = transitions[state][event];
+
   if (!next) throw new Error(`Illegal preview transition: ${state} + ${event}`);
+
   return next;
 }
 
@@ -61,6 +108,7 @@ export function ledgerKey(repository: string, pullRequest: number): PreviewLedge
   if (repository !== PREVIEW_IDENTITY.repository || pullRequest !== PREVIEW_IDENTITY.pullRequest) {
     throw new Error("Preview ledger identity mismatch");
   }
+
   return `${repository}#${pullRequest}:p20:p20`;
 }
 
@@ -81,8 +129,9 @@ export function assertOrphanCandidate(candidate: {
     candidate.tags.stage !== PREVIEW_TAGS.stage ||
     candidate.tags.pr !== PREVIEW_TAGS.pr ||
     candidate.tags.target !== PREVIEW_TAGS.target ||
-    (!candidate.name.startsWith(`${PREVIEW_IDENTITY.resourcePrefix}-`) && candidate.name !== PREVIEW_IDENTITY.containerInstance) ||
-    !PREVIEW_RESOURCE_ALLOW_LIST.includes(candidate.resourceKind as never) ||
+    (!candidate.name.startsWith(`${PREVIEW_IDENTITY.resourcePrefix}-`) &&
+      candidate.name !== PREVIEW_IDENTITY.containerInstance) ||
+    !PREVIEW_RESOURCE_ALLOW_LIST.some((kind) => kind === candidate.resourceKind) ||
     !candidate.ownershipIds.includes(candidate.resourceId) ||
     candidate.closedObservations < 2 ||
     !candidate.generationStable ||

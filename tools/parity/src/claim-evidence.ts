@@ -23,17 +23,25 @@ import {
   type WitnessNode,
 } from "./capability-parity.js";
 import { canonicalJson, compareByteOrder, sha256, sortUnique, stableId } from "./canonical.js";
+import { Match } from "effect";
 
 const APPLICANT_ADMISSION_REF = "intent://journey:parity:applicant_admission:v1";
+
 const INTERVIEW_INVITATION_REF =
   "intent://composition:recruitment:interview-scheduling-invitation-response:v1";
+
 const OWNER_APPROVAL_REF = "intent://composition:receipts:owner-scoped-approval:v1";
+
 const APPLICANT_ASSIGNMENT_REF = "intent://journey:recruitment:applicant-assignment:v1";
 
 const INTERVIEW_SCHEDULING_SOURCE_REF = "intent://journey:recruitment:interview-scheduling:v1";
+
 const INVITATION_RESPONSE_SOURCE_REF = "intent://journey:recruitment:invitation-response:v1";
+
 const RECEIPT_SELF_SOURCE_REF = "intent://journey:parity:receipt_self:v1";
+
 const FINANCE_OPERATIONS_SOURCE_REF = "intent://journey:parity:finance_operations:v1";
+
 const SPEC_SOURCE_REF = "docs/system.md#end-to-end-journeys";
 
 export const TARGET_INTENT_REFS = [
@@ -44,6 +52,7 @@ export const TARGET_INTENT_REFS = [
 ] as const;
 
 export type TargetIntentRef = (typeof TARGET_INTENT_REFS)[number];
+
 export type ReviewedTargetIntentRef = Exclude<TargetIntentRef, typeof APPLICANT_ASSIGNMENT_REF>;
 
 export interface ClaimEvidenceCatalogs {
@@ -1046,6 +1055,7 @@ const assertCatalogBackends = (catalogs: ClaimEvidenceCatalogs): void => {
   if (catalogs.legacy.backend !== "legacy_symfony") {
     throw new Error("CLAIM_EVIDENCE_LEGACY_CATALOG_BACKEND_INVALID");
   }
+
   if (catalogs.native.backend !== "native_effect") {
     throw new Error("CLAIM_EVIDENCE_NATIVE_CATALOG_BACKEND_INVALID");
   }
@@ -1059,11 +1069,13 @@ const selectOperation = (
     (operation) =>
       operation.method === binding.method && operation.path_template === binding.path_template,
   );
+
   if (matches.length !== 1) {
     throw new Error(
       `CLAIM_EVIDENCE_OPERATION_BINDING_INVALID:${catalog.backend}:${binding.method}:${binding.path_template}:${matches.length}`,
     );
   }
+
   return matches[0]!;
 };
 
@@ -1133,14 +1145,17 @@ const backendPlan = (
   const bindings = definition.backends[backend];
   const ids = witnessIds(definition.slug, backend);
   const localIds = localObservationNodeIds(definition.slug, backend);
+
   const groups = [
     [ids.accepted, bindings.accepted],
     [ids.authorization, bindings.authorization],
     [ids.rejection, bindings.rejection],
   ] as const;
+
   const operationNodes = groups.flatMap(([witnessId, entries]) =>
     entries.map((entry): ClaimOperationPlanEntry => {
       const operation = selectOperation(catalog, entry);
+
       return {
         operation_semantic: entry.operation_semantic,
         node_id: `${definition.slug}-${backend}-${entry.operation_semantic}`,
@@ -1154,22 +1169,27 @@ const backendPlan = (
       };
     }),
   );
+
   if (new Set(operationNodes.map((entry) => entry.node_id)).size !== operationNodes.length) {
     throw new Error(`CLAIM_EVIDENCE_DUPLICATE_NODE_ID:${definition.intent_ref_id}:${backend}`);
   }
+
   if (bindings.authorization.length !== definition.required_preconditions.length) {
     throw new Error(
       `CLAIM_EVIDENCE_PRECONDITION_PLAN_INCOMPLETE:${definition.intent_ref_id}:${backend}`,
     );
   }
+
   if (bindings.rejection.length < definition.rejections.length) {
     throw new Error(
       `CLAIM_EVIDENCE_REJECTION_PLAN_INCOMPLETE:${definition.intent_ref_id}:${backend}`,
     );
   }
+
   const operationBySemantic = new Map(
     operationNodes.map((entry) => [entry.operation_semantic, entry] as const),
   );
+
   const observations: ClaimObservationPlanEntry[] = [
     observationEntry(
       `${definition.slug}-${backend}-journey-executed`,
@@ -1186,6 +1206,7 @@ const backendPlan = (
     ),
     ...definition.required_preconditions.map((precondition, index) => {
       const operation = operationBySemantic.get(bindings.authorization[index]!.operation_semantic)!;
+
       return observationEntry(
         `${definition.slug}-${backend}-${precondition.precondition_id}-authorization-observed`,
         "authorization_boundary_request",
@@ -1210,18 +1231,18 @@ const backendPlan = (
       ),
     ),
     ...definition.side_effects.map((effect) => {
-      const kind: EvidenceClaimKind =
-        effect.required_claim === "requested"
-          ? "effect_requested"
-          : effect.required_claim === "delivered"
-            ? "effect_delivered"
-            : "persistence_observed";
-      const method: ClaimObservationMethod =
-        effect.required_claim === "requested"
-          ? "ordered_durable_outbox_readback"
-          : effect.required_claim === "delivered"
-            ? "provider_delivery_observation"
-            : "fresh_database_readback";
+      const kind: EvidenceClaimKind = Match.value(effect.required_claim).pipe(
+        Match.when("requested", () => "effect_requested" as const),
+        Match.when("delivered", () => "effect_delivered" as const),
+        Match.orElse(() => "persistence_observed" as const),
+      );
+
+      const method: ClaimObservationMethod = Match.value(effect.required_claim).pipe(
+        Match.when("requested", () => "ordered_durable_outbox_readback" as const),
+        Match.when("delivered", () => "provider_delivery_observation" as const),
+        Match.orElse(() => "fresh_database_readback" as const),
+      );
+
       return observationEntry(
         `${definition.slug}-${backend}-${effect.effect_id}-${kind}`,
         method,
@@ -1235,6 +1256,7 @@ const backendPlan = (
     }),
     ...definition.rejections.map((rejection, index) => {
       const operation = operationBySemantic.get(bindings.rejection[index]!.operation_semantic)!;
+
       return observationEntry(
         `${definition.slug}-${backend}-${rejection.rejection_id}-rejection-observed`,
         "invalid_transition_with_state_readback",
@@ -1250,17 +1272,21 @@ const backendPlan = (
       const mapping = bindings.freshness_operations.find(
         (entry) => entry.freshness_id === freshness.freshness_id,
       );
+
       if (mapping === undefined) {
         throw new Error(
           `CLAIM_EVIDENCE_FRESHNESS_PLAN_INCOMPLETE:${definition.intent_ref_id}:${backend}:${freshness.freshness_id}`,
         );
       }
+
       const operation = operationBySemantic.get(mapping.read_operation_semantic);
+
       if (operation === undefined) {
         throw new Error(
           `CLAIM_EVIDENCE_FRESHNESS_READ_NODE_MISSING:${definition.intent_ref_id}:${backend}:${freshness.freshness_id}`,
         );
       }
+
       return observationEntry(
         `${definition.slug}-${backend}-${freshness.freshness_id}-fresh-read-observed`,
         "second_fresh_http_read",
@@ -1273,11 +1299,13 @@ const backendPlan = (
       );
     }),
   ].sort((left, right) => compareByteOrder(left.observation_id, right.observation_id));
+
   if (new Set(observations.map((entry) => entry.observation_id)).size !== observations.length) {
     throw new Error(
       `CLAIM_EVIDENCE_DUPLICATE_OBSERVATION_ID:${definition.intent_ref_id}:${backend}`,
     );
   }
+
   return {
     backend,
     witness_ids: ids,
@@ -1292,6 +1320,7 @@ export const claimEvidencePlan = (
   catalogs: ClaimEvidenceCatalogs,
 ): readonly ClaimIntentEvidencePlan[] => {
   assertCatalogBackends(catalogs);
+
   return targetDefinitions.map(
     (definition): ClaimIntentEvidencePlan => ({
       intent_ref_id: definition.intent_ref_id,
@@ -1346,38 +1375,49 @@ const witnessesFor = (
 ): readonly ImplementationWitness[] => {
   const ids = backendPlanValue.witness_ids;
   const localIds = backendPlanValue.local_observation_node_ids;
+
   const acceptedOperations = backendPlanValue.operation_nodes.filter(
     (entry) => entry.witness_id === ids.accepted,
   );
+
   const authorizationOperations = backendPlanValue.operation_nodes.filter(
     (entry) => entry.witness_id === ids.authorization,
   );
+
   const rejectionOperations = backendPlanValue.operation_nodes.filter(
     (entry) => entry.witness_id === ids.rejection,
   );
+
   const unsatisfied = definition.backends[backendPlanValue.backend].unsatisfied ?? {};
+
   const subtract = (values: readonly string[], excluded?: readonly string[]): string[] =>
     excluded === undefined ? [...values] : values.filter((value) => !excluded.includes(value));
+
   const satisfiesPreconditions = subtract(
     definition.required_preconditions.map((entry) => entry.precondition_id),
     unsatisfied.precondition_ids,
   );
+
   const satisfiesAssertions = subtract(
     definition.warranted_outcomes.map((entry) => entry.assertion_id),
     unsatisfied.assertion_ids,
   );
+
   const satisfiesEffects = subtract(
     definition.side_effects.map((entry) => entry.effect_id),
     unsatisfied.effect_ids,
   );
+
   const satisfiesRejections = subtract(
     definition.rejections.map((entry) => entry.rejection_id),
     unsatisfied.rejection_ids,
   );
+
   const satisfiesFreshness = subtract(
     definition.freshness.map((entry) => entry.freshness_id),
     unsatisfied.freshness_ids,
   );
+
   const acceptedNodes: readonly WitnessNode[] = [
     ...operationWitnessNodes(acceptedOperations),
     {
@@ -1393,23 +1433,28 @@ const witnessesFor = (
       assertion_ids: definition.warranted_outcomes.map((entry) => entry.assertion_id),
     },
   ];
+
   const acceptedEdges: WitnessEdge[] = [
     ...orderEdges(
       ids.accepted,
       acceptedNodes.map((entry) => entry.node_id),
     ),
   ];
+
   const acceptedBySemantic = new Map(
     acceptedOperations.map((entry) => [entry.operation_semantic, entry] as const),
   );
+
   for (const freshness of definition.backends[backendPlanValue.backend].freshness_operations) {
     const writeNode = acceptedBySemantic.get(freshness.write_operation_semantic);
     const readNode = acceptedBySemantic.get(freshness.read_operation_semantic);
+
     if (writeNode === undefined || readNode === undefined) {
       throw new Error(
         `CLAIM_EVIDENCE_FRESHNESS_EDGE_NODE_MISSING:${definition.intent_ref_id}:${backendPlanValue.backend}:${freshness.freshness_id}`,
       );
     }
+
     acceptedEdges.push({
       edge_id: `${ids.accepted}-${freshness.freshness_id}-read-after-write`,
       kind: "order",
@@ -1418,12 +1463,14 @@ const witnessesFor = (
       relation: "read_after_write",
     });
   }
+
   const authorizationTerminal: WitnessNode = {
     node_id: localIds.authorization_boundary,
     kind: "local_observation",
     observation_kind: "browser",
     assertion_ids: [],
   };
+
   const authorizationEdges = authorizationOperations.map(
     (entry, index): WitnessEdge => ({
       edge_id: `${ids.authorization}-authority-${String(index + 1).padStart(2, "0")}`,
@@ -1433,16 +1480,19 @@ const witnessesFor = (
       precondition_id: definition.required_preconditions[index]!.precondition_id,
     }),
   );
+
   const rejectionTerminal: WitnessNode = {
     node_id: localIds.rejection_state_readback,
     kind: "local_observation",
     observation_kind: "persistence",
     assertion_ids: [],
   };
+
   const rejectionNodes: readonly WitnessNode[] = [
     ...operationWitnessNodes(rejectionOperations),
     rejectionTerminal,
   ];
+
   return [
     {
       witness_id: ids.accepted,
@@ -1499,8 +1549,10 @@ const receiptRefsFor = (
 ): readonly string[] =>
   sortUnique(
     receiptRefs
+      .values()
       .filter((entry) => entry.intent_ref_id === intentRefId && entry.backend === backend)
-      .map((entry) => entry.receipt_ref_id),
+      .map((entry) => entry.receipt_ref_id)
+      .toArray(),
   );
 
 const sourceIntentsFor = (
@@ -1508,11 +1560,14 @@ const sourceIntentsFor = (
   definition: TargetDefinition,
 ): readonly CapabilityIntent[] => {
   const byRef = new Map(migrated.intents.map((intent) => [intent.intent_ref_id, intent] as const));
+
   return definition.source_intent_ref_ids.map((intentRefId) => {
     const intent = byRef.get(intentRefId);
+
     if (intent === undefined) {
       throw new Error(`CLAIM_EVIDENCE_SOURCE_INTENT_MISSING:${intentRefId}`);
     }
+
     return intent;
   });
 };
@@ -1524,6 +1579,7 @@ const reviewedIntent = (
   receiptRefs: readonly ClaimEvidenceReceiptRef[],
 ): CapabilityIntent => {
   const sources = sourceIntentsFor(migrated, definition);
+
   const implementations: readonly ImplementationDefinition[] = (
     ["legacy_symfony", "native_effect"] as const
   ).map((backend) => ({
@@ -1536,8 +1592,10 @@ const reviewedIntent = (
       receiptRefsFor(receiptRefs, definition.intent_ref_id, backend),
     ),
   }));
+
   const sourceV1Selection =
     definition.source_intent_ref_ids.length === 1 ? sources[0]!.source_v1_selection : null;
+
   const withoutDigest = {
     intent_ref_id: definition.intent_ref_id,
     intent_revision: definition.intent_revision,
@@ -1551,6 +1609,7 @@ const reviewedIntent = (
     freshness: definition.freshness,
     implementations,
   };
+
   return {
     ...withoutDigest,
     intent_digest: sha256(canonicalJson(withoutDigest)),
@@ -1564,6 +1623,7 @@ const predicateDefinitions = (): readonly PredicateDefinition[] => {
       ...definition.rejections.map((entry) => entry.trigger_predicate_ref),
     ]),
   );
+
   return predicateRefs.map((predicateRef) => ({
     predicate_ref: predicateRef,
     implies: [],
@@ -1576,9 +1636,11 @@ const mergePredicates = (
   additions: readonly PredicateDefinition[],
 ): readonly PredicateDefinition[] => {
   const byRef = new Map(existing.map((entry) => [entry.predicate_ref, entry] as const));
+
   for (const addition of additions) {
     if (!byRef.has(addition.predicate_ref)) byRef.set(addition.predicate_ref, addition);
   }
+
   return [...byRef.values()].sort((left, right) =>
     compareByteOrder(left.predicate_ref, right.predicate_ref),
   );
@@ -1591,15 +1653,19 @@ export const buildClaimSpecificAcceptedIntentV2 = (
 ): AcceptedIntentV2 => {
   const plans = claimEvidencePlan(catalogs);
   const planByRef = new Map(plans.map((plan) => [plan.intent_ref_id, plan] as const));
+
   const reviewed = targetDefinitions.map((definition) =>
     reviewedIntent(migratedV2, definition, planByRef.get(definition.intent_ref_id)!, receiptRefs),
   );
+
   const negativeControl = migratedV2.intents.find(
     (intent) => intent.intent_ref_id === APPLICANT_ASSIGNMENT_REF,
   );
+
   if (negativeControl === undefined) {
     throw new Error(`CLAIM_EVIDENCE_SOURCE_INTENT_MISSING:${APPLICANT_ASSIGNMENT_REF}`);
   }
+
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-accepted-intent/v2",
@@ -1621,17 +1687,21 @@ const catalogOperationDigests = (
   const operationByRef = new Map(
     catalog.operations.map((operation) => [operation.operation_ref_id, operation] as const),
   );
+
   return sortUnique(
     implementation.witnesses.flatMap((witness) =>
       witness.nodes.flatMap((node) => {
         if (node.kind !== "operation") return [];
         const operation = operationByRef.get(node.operation_ref_id);
+
         if (operation === undefined) {
           throw new Error(`CLAIM_EVIDENCE_RECEIPT_OPERATION_MISSING:${node.operation_ref_id}`);
         }
+
         if (operation.provenance.canonical_operation_sha256 !== node.expected_operation_sha256) {
           throw new Error(`CLAIM_EVIDENCE_RECEIPT_OPERATION_DRIFT:${node.operation_ref_id}`);
         }
+
         return [operation.provenance.canonical_operation_sha256];
       }),
     ),
@@ -1667,44 +1737,58 @@ export const buildCapabilityEvidenceReceipt = (
   input: CapabilityEvidenceReceiptInput,
 ): CapabilityEvidenceReceipt => {
   assertCatalogBackends(input.catalogs);
+
   if (
     (input.result === "passed" && input.exit_code !== 0) ||
     (input.result === "failed" && input.exit_code === 0)
   ) {
     throw new Error("CLAIM_EVIDENCE_RECEIPT_RESULT_EXIT_MISMATCH");
   }
+
   const intent = input.accepted_intent.intents.find(
     (entry) => entry.intent_ref_id === input.intent_ref_id,
   );
+
   if (intent === undefined) {
     throw new Error(`CLAIM_EVIDENCE_RECEIPT_INTENT_MISSING:${input.intent_ref_id}`);
   }
+
   const implementation = intent.implementations.find((entry) => entry.backend === input.backend);
+
   if (implementation === undefined) {
     throw new Error(
       `CLAIM_EVIDENCE_RECEIPT_IMPLEMENTATION_MISSING:${input.intent_ref_id}:${input.backend}`,
     );
   }
+
   const plan = claimEvidencePlan(input.catalogs).find(
     (entry) => entry.intent_ref_id === input.intent_ref_id,
   )!;
+
   const observations = plan.backends[input.backend].observations;
+
   const observationById = new Map(
     observations.map((observation) => [observation.observation_id, observation] as const),
   );
+
   if (new Set(input.observed_observation_ids).size !== input.observed_observation_ids.length) {
     throw new Error("CLAIM_EVIDENCE_RECEIPT_DUPLICATE_OBSERVATION");
   }
+
   const selectedObservations = input.observed_observation_ids
     .map((observationId) => {
       const observation = observationById.get(observationId);
+
       if (observation === undefined) {
         throw new Error(`CLAIM_EVIDENCE_RECEIPT_UNKNOWN_OBSERVATION:${observationId}`);
       }
+
       return observation;
     })
     .sort((left, right) => compareByteOrder(left.observation_id, right.observation_id));
+
   const catalog = catalogForBackend(input.catalogs, input.backend);
+
   const receiptWithoutRef: Omit<CapabilityEvidenceReceipt, "receipt_ref_id"> = {
     backend: input.backend,
     intent_ref_id: intent.intent_ref_id,
@@ -1719,6 +1803,7 @@ export const buildCapabilityEvidenceReceipt = (
     exit_code: input.exit_code,
     claims: selectedObservations.map((observation) => evidenceClaim(input, observation)),
   };
+
   return {
     receipt_ref_id: input.receipt_ref_id ?? capabilityReceiptRef(receiptWithoutRef),
     ...receiptWithoutRef,
@@ -1732,6 +1817,7 @@ export const buildCapabilityRuntimeEvidenceV2 = (
   if (new Set(receipts.map((receipt) => receipt.receipt_ref_id)).size !== receipts.length) {
     throw new Error("CLAIM_EVIDENCE_DUPLICATE_RECEIPT_REF");
   }
+
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-capability-runtime-evidence/v2",

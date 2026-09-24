@@ -4,11 +4,14 @@ import { embedProfileEditor } from "./main";
 import { ProfileInputJson, type ProfileInput } from "./model";
 
 export const PROFILE_ELEMENT = "vektor-profile-editor";
+
 export const PROFILE_INPUT_ATTRIBUTE = "profile-input";
+
 export const PROFILE_SEED_ATTRIBUTE = "command-id-seed";
 
 export const registerProfileEditorElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
+
   if (customElements.get(PROFILE_ELEMENT) !== undefined) return;
 
   customElements.define(
@@ -24,14 +27,18 @@ export const registerProfileEditorElement = (): void => {
 
         try {
           const serialized = this.getAttribute(PROFILE_INPUT_ATTRIBUTE);
+
           if (serialized === null) throw new Error("missing profile input");
           const commandIdSeed = this.getAttribute(PROFILE_SEED_ATTRIBUTE);
+
           if (commandIdSeed === null || commandIdSeed.length === 0) {
             throw new Error("missing Profile command ID seed");
           }
+
           const initialProfile: ProfileInput = S.decodeUnknownSync(ProfileInputJson)(serialized, {
             onExcessProperty: "error",
           });
+
           const client: ProfileClient = createBrowserProfileClient();
           this.#dispose = embedProfileEditor(this.#container, {
             client,

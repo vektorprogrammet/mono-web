@@ -2,11 +2,17 @@ import { createHash, randomBytes } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 
 const realRun = process.env.REAL_NATIVE_OAUTH_E2E === "1";
+
 const dashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "";
+
 const apiOrigin = process.env.API_URL ?? "";
+
 const clientId = process.env.OAUTH_E2E_CLIENT_ID ?? "";
+
 const redirectUri = process.env.OAUTH_E2E_REDIRECT_URI ?? "";
+
 const email = process.env.OAUTH_E2E_EMAIL ?? "";
+
 const password = process.env.OAUTH_E2E_PASSWORD ?? "";
 
 if (
@@ -30,6 +36,7 @@ const authorizationRequest = () => {
   url.searchParams.set("resource", "urn:vektorprogrammet:native-api");
   url.searchParams.set("scope", "native-api offline_access");
   url.searchParams.set("prompt", "consent");
+
   return { url, state };
 };
 
@@ -37,6 +44,7 @@ const openSignedLogin = async (page: Page) => {
   const authorization = authorizationRequest();
   await page.goto(authorization.url.toString());
   await expect(page).toHaveURL(new RegExp(`^${dashboardOrigin}/dashboard/login\\?`));
+
   return { ...authorization, loginUrl: new URL(page.url()) };
 };
 
@@ -56,6 +64,7 @@ dsl("native OAuth dashboard consent", () => {
     await wrongPage.close();
     const tampered = new URL(loginUrl);
     const signature = tampered.searchParams.get("sig");
+
     if (signature === null || signature.length === 0) throw new Error("provider signature missing");
     tampered.searchParams.set(
       "sig",
@@ -65,11 +74,13 @@ dsl("native OAuth dashboard consent", () => {
     await tamperedPage.goto(tampered.toString());
     await tamperedPage.getByLabel("E-post").fill(email);
     await tamperedPage.getByLabel("Passord").fill(password);
+
     const tamperedResponse = tamperedPage.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         new URL(response.url()).pathname.startsWith("/dashboard/login"),
     );
+
     await tamperedPage.getByRole("button", { name: "Logg inn" }).click();
     expect((await tamperedResponse).status()).toBe(400);
     await expect(tamperedPage).toHaveURL(/\/dashboard\/login\?/u);
@@ -82,11 +93,13 @@ dsl("native OAuth dashboard consent", () => {
 
   test("rejects an untrusted form origin before credential dispatch", async ({ page, request }) => {
     const { loginUrl } = await openSignedLogin(page);
+
     const response = await request.post(loginUrl.toString(), {
       headers: { Origin: "https://untrusted.example" },
       form: { email, password },
       maxRedirects: 0,
     });
+
     expect(response.status()).toBe(400);
     expect(response.headers()["content-type"]).toContain("text/plain");
   });
@@ -115,6 +128,7 @@ dsl("native OAuth dashboard consent", () => {
         response.request().method() === "POST" &&
         new URL(response.url()).pathname.startsWith("/dashboard/oauth/consent"),
     );
+
     await page.getByRole("button", { name: "Godta" }).click();
     const consentAction = await consentActionResponse;
     expect(consentAction.status()).toBe(202);

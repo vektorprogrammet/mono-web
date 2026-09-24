@@ -1,7 +1,10 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { contactDepartmentSlug } from "../src/lib/contact-message";
+import { Schema } from "effect";
+
 
 const enabled = process.env.REAL_PUBLIC_CONTACT_E2E === "1";
+
 const backendOrigin = process.env.PUBLIC_CONTACT_E2E_BACKEND_ORIGIN;
 
 type PublicDepartment = {
@@ -18,15 +21,11 @@ const publicDepartments = async (
   if (backendOrigin === undefined) {
     throw new Error("PUBLIC_CONTACT_E2E_BACKEND_ORIGIN is required");
   }
+
   const response = await request.get(`${backendOrigin}/api/departments`);
   expect(response.ok()).toBe(true);
-  const body = (await response.json()) as {
-    readonly "hydra:member"?: readonly PublicDepartment[];
-  };
-  if (!Array.isArray(body["hydra:member"])) {
-    throw new Error("The department API did not return a Hydra collection");
-  }
-  return body["hydra:member"];
+
+  return Schema.decodeUnknownSync(Schema.Struct({ "hydra:member": Schema.Array(Schema.Struct({ id: Schema.Number, name: Schema.String, shortName: Schema.String, email: Schema.String, active: Schema.Boolean })) }))(await response.json())["hydra:member"];
 };
 
 test.describe("real public contact-message journey", () => {
@@ -39,6 +38,7 @@ test.describe("real public contact-message journey", () => {
     const department = (await publicDepartments(request)).find(
       (candidate) => candidate.active,
     );
+
     if (department === undefined) {
       throw new Error("The department API returned no active department");
     }

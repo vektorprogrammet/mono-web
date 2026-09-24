@@ -1,12 +1,6 @@
 import { ReceiptSettlementEvidence } from "@/components/receipts/ReceiptSettlementEvidence";
 import { Button } from "@/components/ui/button";
-import {
-  isUnauthorizedError,
-  mapReceiptSettlementEvidenceView,
-  mapSettlementReceiptError,
-  type ReceiptSettlementEvidenceView,
-  type ReceiptUiError,
-} from "@/lib/receipt-view";
+import { isUnauthorizedError, mapReceiptSettlementEvidenceView, mapApprovalReceiptError, ReceiptUiError } from "@/lib/receipt-view";
 import { ReceiptId } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { Link, useLoaderData } from "react-router";
@@ -17,23 +11,23 @@ import type { Route } from "./+types/dashboard.utlegg.oppgjor.$receiptId";
 export async function loader({ request, params }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   let receiptId: typeof ReceiptId.Type;
+
   try {
     receiptId = Schema.decodeUnknownSync(ReceiptId)(params.receiptId);
   } catch {
     return {
-      evidence: undefined as ReceiptSettlementEvidenceView | undefined,
-      error: {
-        _tag: "ReceiptNotFound",
-        message: "Utlegget ble ikke funnet.",
-      } satisfies ReceiptUiError,
+      evidence: undefined,
+      error: ReceiptUiError.ReceiptNotFound({message: "Utlegget ble ikke funnet."}) satisfies ReceiptUiError,
     };
   }
 
   const client = createAuthenticatedClient(cookie, request);
+
   try {
     const result = await client.receipts.readReceiptSettlementForFinance({
       params: { receiptId },
     });
+
     return {
       evidence: mapReceiptSettlementEvidenceView(result.body),
       error: undefined,
@@ -42,9 +36,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (isUnauthorizedError(error)) {
       throw await expiredSessionRedirect(request);
     }
+
     return {
-      evidence: undefined as ReceiptSettlementEvidenceView | undefined,
-      error: mapSettlementReceiptError(error),
+      evidence: undefined,
+      error: mapApprovalReceiptError(error),
     };
   }
 }

@@ -1,3 +1,5 @@
+import { ContentFailure } from "./model";
+import { FailedCommand } from "./message";
 import { ArticleId } from "@vektorprogrammet/http-api";
 import { DepartmentId } from "@vektorprogrammet/http-api";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
@@ -5,7 +7,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { contentBridgeFailure } from "./bridge";
 import { createBrowserContentWorkspaceClient, type ContentWorkspaceClient } from "./browser-client";
-import { failureFrom, makeContentWorkspaceCommands } from "./command";
+import { failureFrom, commandsFor } from "./command";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -13,29 +15,28 @@ afterEach(() => {
 
 describe("Content workspace failure classification", () => {
   it("renders bridge denial tags as denials", () => {
-    expect(failureFrom(contentBridgeFailure("AuthorityInactive"))).toEqual({
-      _tag: "Denied",
+    expect(failureFrom(contentBridgeFailure("AuthorityInactive"))).toEqual(ContentFailure.cases.Denied.make({
       tag: "AuthorityInactive",
       message: "Tilgangen din til artikkeladministrasjon er ikke aktiv.",
-    });
-    expect(failureFrom(contentBridgeFailure("NotInScope"))).toEqual({
-      _tag: "Denied",
+    }));
+    expect(failureFrom(contentBridgeFailure("NotInScope"))).toEqual(ContentFailure.cases.Denied.make({
       tag: "NotInScope",
       message: "Du har ikke tilgang til artikkeladministrasjon.",
-    });
-    expect(failureFrom(contentBridgeFailure("DepartmentNotFound"))).toEqual({
-      _tag: "Failed",
+    }));
+    expect(failureFrom(contentBridgeFailure("DepartmentNotFound"))).toEqual(ContentFailure.cases.Failed.make({
       tag: "DepartmentNotFound",
       message: "En valgt avdeling finnes ikke lenger.",
-    });
+    }));
   });
 
   it("preserves a failed create tag and never reloads the workspace", async () => {
     let workspaceLoads = 0;
+
     const client: ContentWorkspaceClient = {
       content: {
         readContentWorkspace: () => {
           workspaceLoads += 1;
+
           return Effect.succeed({ workspace: { entries: [] }, knownDepartments: [] });
         },
         readArticle: () => Effect.die("unexpected detail"),
@@ -45,8 +46,9 @@ describe("Content workspace failure classification", () => {
         unpublishArticle: () => Effect.die("unexpected unpublish"),
       },
     };
+
     const message = await Effect.runPromise(
-      makeContentWorkspaceCommands(client).SubmitCreate({
+      commandsFor(client).SubmitCreate({
         requestId: 2,
         commandId: IdempotencyKey.make("AAAAAAAAAAAAAAAAAAAAAA"),
         title: "Tittel",
@@ -56,15 +58,13 @@ describe("Content workspace failure classification", () => {
       }).effect,
     );
 
-    expect(message).toEqual({
-      _tag: "FailedCommand",
+    expect(message).toEqual(FailedCommand({
       requestId: 2,
-      failure: {
-        _tag: "Denied",
+      failure: ContentFailure.cases.Denied.make({
         tag: "NotInScope",
         message: "Du har ikke tilgang til artikkeladministrasjon.",
-      },
-    });
+      }),
+    }));
     expect(workspaceLoads).toBe(0);
   });
 
@@ -78,6 +78,7 @@ describe("Content workspace failure classification", () => {
         }),
       ),
     );
+
     const failure = await Effect.runPromise(
       createBrowserContentWorkspaceClient("/content")
         .content.createArticle({
@@ -93,11 +94,10 @@ describe("Content workspace failure classification", () => {
         ),
     );
 
-    expect(failure).toEqual({
-      _tag: "Failed",
+    expect(failure).toEqual(ContentFailure.cases.Failed.make({
       tag: "DepartmentNotFound",
       message: "En valgt avdeling finnes ikke lenger.",
-    });
+    }));
   });
 
   it("strictly decodes a working-copy observation through the bridge", async () => {
@@ -117,16 +117,19 @@ describe("Content workspace failure classification", () => {
       canPublish: false,
       authorDisplayName: "Forfatter",
     };
+
     const observation = {
       body: detail,
       etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
     };
+
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(observation), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
     );
+
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await Effect.runPromise(
@@ -134,6 +137,7 @@ describe("Content workspace failure classification", () => {
         articleId: ArticleId.make(7),
       }),
     );
+
     expect(result).toEqual(observation);
     expect(fetchMock).toHaveBeenCalledWith(
       "/dashboard/content",
@@ -154,6 +158,7 @@ describe("Content workspace failure classification", () => {
         }),
       ),
     );
+
     const failure = await Effect.runPromise(
       createBrowserContentWorkspaceClient("/content")
         .content.readContentWorkspace()
@@ -163,10 +168,9 @@ describe("Content workspace failure classification", () => {
         ),
     );
 
-    expect(failure).toEqual({
-      _tag: "Failed",
+    expect(failure).toEqual(ContentFailure.cases.Failed.make({
       tag: "ContentDecodeError",
       message: "Artikkeldataene hadde et ugyldig format.",
-    });
+    }));
   });
 });

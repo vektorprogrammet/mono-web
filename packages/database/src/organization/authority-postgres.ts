@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import {
   CreateOrganizationGlobalAdministratorGrantInputSchema,
   EndOrganizationGlobalAdministratorGrantInputSchema,
@@ -33,6 +33,7 @@ const OrganizationAuthorityProjectionRowSchema = Schema.Struct({
   active: Schema.NullOr(Schema.Boolean),
   teamLeader: Schema.NullOr(Schema.Boolean),
 });
+
 type OrganizationAuthorityProjectionRow = typeof OrganizationAuthorityProjectionRowSchema.Type;
 
 const decodeError = (operation: string, cause: unknown) =>
@@ -54,6 +55,7 @@ const membershipFromRow = (
           ),
         );
   }
+
   if (
     row.teamId === null ||
     row.departmentId === null ||
@@ -67,6 +69,7 @@ const membershipFromRow = (
       ),
     );
   }
+
   return Effect.succeed({
     membershipId: row.membershipId,
     teamId: row.teamId,
@@ -80,9 +83,15 @@ export type OrganizationAuthorityRowLockMode = "None" | "ForShare";
 
 const PERSON_AUTHORIZATION_LOCK_NAMESPACE = "vektorprogrammet:person-authorization:v1";
 
+/** Acquire before any person lock when changing the usable administrator set. */
+export const lockOrganizationAdministratorSet = (sql: DatabaseOperations) =>
+  sql`SELECT pg_advisory_xact_lock(hashtextextended('vektorprogrammet:administrator-set:v1', 0))`.pipe(
+    Effect.asVoid,
+  );
+
 /** Serializes one person's protected command with person-keyed authority writers. */
 export const lockPersonAuthorization = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<void, OrganizationPersistenceError> =>
   sql`
@@ -102,6 +111,7 @@ export const lockPersonAuthorization = (
   );
 
 const OrganizationAuthorityPersonRowSchema = Schema.Struct({ personId: PersonId });
+
 type OrganizationAuthorityPersonRow = typeof OrganizationAuthorityPersonRowSchema.Type;
 
 export type OrganizationAuthorityWriteFailure =
@@ -116,16 +126,19 @@ export type OrganizationAuthorityWriteFailure =
  * a delete/reinsert cannot move the authority to another person.
  */
 export const lockOrganizationGlobalAdministratorGrantForWrite = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   grantId: OrganizationGlobalAdministratorGrant["grantId"],
   expectedRevision: number,
 ): Effect.Effect<OrganizationGlobalAdministratorGrant, OrganizationAuthorityWriteFailure> =>
   Effect.gen(function* () {
+    yield* lockOrganizationAdministratorSet(sql);
+
     const observedRows = yield* sql<OrganizationAuthorityPersonRow>`
       SELECT person_id AS "personId"
       FROM public.organization_global_administrator_grants
       WHERE grant_id = ${grantId}
     `;
+
     const observed = yield* Schema.decodeUnknownEffect(
       Schema.Array(OrganizationAuthorityPersonRowSchema),
     )(observedRows, { onExcessProperty: "error" }).pipe(
@@ -133,12 +146,15 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
         decodeError("decode Organization global-administrator grant person", cause),
       ),
     );
+
     const observedPerson = observed[0]?.personId;
+
     if (observedPerson === undefined) {
       return yield* new OrganizationAuthorityRecordNotFound({ grantId });
     }
 
     yield* lockPersonAuthorization(sql, observedPerson);
+
     const lockedRows = yield* sql<OrganizationGlobalAdministratorGrant>`
       SELECT
         grant_id AS "grantId",
@@ -153,6 +169,7 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
       WHERE grant_id = ${grantId}
       FOR UPDATE
     `;
+
     const locked = yield* Schema.decodeUnknownEffect(
       Schema.Array(OrganizationGlobalAdministratorGrantSchema),
     )(lockedRows, { onExcessProperty: "error" }).pipe(
@@ -160,7 +177,9 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
         decodeError("decode locked Organization global-administrator grant", cause),
       ),
     );
+
     const grant = locked[0];
+
     if (
       grant === undefined ||
       grant.personId !== observedPerson ||
@@ -168,6 +187,7 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
     ) {
       return yield* new OrganizationAuthorityWriteConflict({ grantId, expectedRevision });
     }
+
     return grant;
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -181,7 +201,7 @@ export const lockOrganizationGlobalAdministratorGrantForWrite = (
   );
 
 export const createOrganizationGlobalAdministratorGrant = (
-  input: unknown,
+  input: typeof CreateOrganizationGlobalAdministratorGrantInputSchema.Encoded,
 ): Effect.Effect<
   OrganizationGlobalAdministratorGrant,
   OrganizationDecodeError | OrganizationPersistenceError,
@@ -195,10 +215,13 @@ export const createOrganizationGlobalAdministratorGrant = (
         decodeError("decode Organization global-administrator grant creation", cause),
       ),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
+          yield* lockOrganizationAdministratorSet(sql);
           yield* lockPersonAuthorization(sql, grant.personId);
           yield* sql`
             INSERT INTO public.organization_global_administrator_grants (
@@ -215,6 +238,7 @@ export const createOrganizationGlobalAdministratorGrant = (
               0
             )
           `;
+
           return yield* Schema.decodeUnknownEffect(OrganizationGlobalAdministratorGrantSchema)(
             { ...grant, revision: 0 },
             { onExcessProperty: "error" },
@@ -238,7 +262,7 @@ export const createOrganizationGlobalAdministratorGrant = (
   });
 
 export const endOrganizationGlobalAdministratorGrant = (
-  input: unknown,
+  input: typeof EndOrganizationGlobalAdministratorGrantInputSchema.Encoded,
 ): Effect.Effect<
   OrganizationGlobalAdministratorGrant,
   OrganizationAuthorityWriteFailure,
@@ -252,7 +276,9 @@ export const endOrganizationGlobalAdministratorGrant = (
         decodeError("decode Organization global-administrator grant ending", cause),
       ),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -261,6 +287,7 @@ export const endOrganizationGlobalAdministratorGrant = (
             command.grantId,
             command.expectedRevision,
           );
+
           const ended = yield* Schema.decodeUnknownEffect(
             OrganizationGlobalAdministratorGrantSchema,
           )(
@@ -275,6 +302,7 @@ export const endOrganizationGlobalAdministratorGrant = (
               decodeError("decode ended Organization global-administrator grant", cause),
             ),
           );
+
           const updated = yield* sql<{ readonly grantId: string }>`
             UPDATE public.organization_global_administrator_grants
             SET end_at = ${ended.endAt}, revision = revision + 1
@@ -282,12 +310,14 @@ export const endOrganizationGlobalAdministratorGrant = (
               AND revision = ${command.expectedRevision}
             RETURNING grant_id AS "grantId"
           `;
+
           if (updated.length !== 1) {
             return yield* new OrganizationAuthorityWriteConflict({
               grantId: command.grantId,
               expectedRevision: command.expectedRevision,
             });
           }
+
           return ended;
         }),
       )
@@ -304,7 +334,7 @@ export const endOrganizationGlobalAdministratorGrant = (
   });
 
 export const removeOrganizationGlobalAdministratorGrant = (
-  input: unknown,
+  input: typeof RemoveOrganizationGlobalAdministratorGrantInputSchema.Encoded,
 ): Effect.Effect<
   OrganizationGlobalAdministratorGrant,
   OrganizationAuthorityWriteFailure,
@@ -318,7 +348,9 @@ export const removeOrganizationGlobalAdministratorGrant = (
         decodeError("decode Organization global-administrator grant removal", cause),
       ),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -327,18 +359,21 @@ export const removeOrganizationGlobalAdministratorGrant = (
             command.grantId,
             command.expectedRevision,
           );
+
           const removed = yield* sql<{ readonly grantId: string }>`
             DELETE FROM public.organization_global_administrator_grants
             WHERE grant_id = ${command.grantId}
               AND revision = ${command.expectedRevision}
             RETURNING grant_id AS "grantId"
           `;
+
           if (removed.length !== 1) {
             return yield* new OrganizationAuthorityWriteConflict({
               grantId: command.grantId,
               expectedRevision: command.expectedRevision,
             });
           }
+
           return current;
         }),
       )
@@ -359,7 +394,7 @@ export const removeOrganizationGlobalAdministratorGrant = (
  * when the supplied SQL client is the state-transition transaction client.
  */
 export const resolveOrganizationPersonAuthorityWithSql = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
   lockMode: OrganizationAuthorityRowLockMode,
@@ -371,9 +406,12 @@ export const resolveOrganizationPersonAuthorityWithSql = (
     const evaluatedAt = yield* Schema.decodeUnknownEffect(OrganizationAuthorityInstantSchema)(
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization authority instant", cause)));
+
     const globalAdministratorLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
+
     const membershipLock =
       lockMode === "ForShare" ? sql`FOR SHARE OF membership, team, department` : sql``;
+
     const selected = yield* sql<OrganizationAuthorityProjectionRow>`
       WITH locked_global_administrator_grants AS MATERIALIZED (
         SELECT grant_id, start_at, end_at
@@ -444,19 +482,24 @@ export const resolveOrganizationPersonAuthorityWithSql = (
         ),
       ),
     );
+
     const rows = yield* Schema.decodeUnknownEffect(
       Schema.Array(OrganizationAuthorityProjectionRowSchema),
     )(selected, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode Organization person authority", cause)),
     );
+
     const first = rows[0];
+
     if (first === undefined) {
       return yield* decodeError(
         "decode Organization person authority",
         "authority projection query returned no global-administrator status",
       );
     }
+
     const memberships: Array<OrganizationAuthorityMembership> = [];
+
     for (const row of rows) {
       if (row.globalAdministrator !== first.globalAdministrator) {
         return yield* decodeError(
@@ -464,9 +507,12 @@ export const resolveOrganizationPersonAuthorityWithSql = (
           "authority projection returned inconsistent global-administrator statuses",
         );
       }
+
       const membership = yield* membershipFromRow(row);
+
       if (membership !== undefined) memberships.push(membership);
     }
+
     return {
       personId,
       evaluatedAt,
@@ -482,6 +528,7 @@ export const resolveOrganizationPersonAuthority = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     return yield* resolveOrganizationPersonAuthorityWithSql(
       sql,
       personId,
@@ -497,6 +544,7 @@ export const resolveOrganizationPersonAuthorityForRead = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     return yield* resolveOrganizationPersonAuthorityWithSql(
       sql,
       personId,

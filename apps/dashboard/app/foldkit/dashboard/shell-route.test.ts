@@ -1,104 +1,61 @@
-import { NativeProblemRegistry } from "@vektorprogrammet/http-api";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { conditionalReadHeaders, nativeProblemResponse, nativeSessionResponse, sessionCookie } from "../../../test/native-http";
 
-const mocks = vi.hoisted(() => ({
-  requireAuth: vi.fn(),
-  expiredSessionRedirect: vi.fn(),
-  loadSessionIdentity: vi.fn(),
-  createAuthenticatedClient: vi.fn(),
-  profile: vi.fn(),
-}));
-
-vi.mock("../../lib/auth.server", () => ({
-  requireAuth: mocks.requireAuth,
-  expiredSessionRedirect: mocks.expiredSessionRedirect,
-  loadSessionIdentity: mocks.loadSessionIdentity,
-}));
-vi.mock("../../lib/api.server", () => ({
-  createAuthenticatedClient: mocks.createAuthenticatedClient,
-}));
+vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
 import { dashboardShellVisibility } from "./shell";
 import { loadDashboardShell } from "./shell.server";
 
-const load = () =>
-  loadDashboardShell(
-    new Request("http://dashboard.test/dashboard/skoler", {
-      headers: { cookie: "better-auth.session_token=session-value" },
-    }),
-  );
+const profile = { personId: "person-1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.invalid", phone: "+47 12345678", role: "ROLE_TEAM_MEMBER", nameRevision: 0, contactRevision: 0 };
+
+const requests: Request[] = [];
+
+let profileResponse = () => Response.json(profile, { headers: conditionalReadHeaders });
+
+const load = () => loadDashboardShell(new Request("http://dashboard.test/dashboard/skoler", { headers: { cookie: sessionCookie } }));
+
+beforeEach(() => {
+  requests.length = 0;
+  profileResponse = () => Response.json(profile, { headers: conditionalReadHeaders });
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    const path = new URL(request.url).pathname;
+
+    if (path === "/api/session") return nativeSessionResponse();
+
+    if (path === "/api/auth/get-session") return Response.json({ user: { name: "Member Session", email: "member@example.invalid" } });
+
+    if (path === "/api/auth/sign-out") return new Response(null, { status: 204 });
+
+    return profileResponse();
+  }));
+});
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("parent dashboard authority gate", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.requireAuth.mockResolvedValue("better-auth.session_token=session-value");
-    mocks.expiredSessionRedirect.mockResolvedValue(
-      new Response(null, { status: 302, headers: { location: "/login?expired=true" } }),
-    );
-    mocks.createAuthenticatedClient.mockReturnValue({
-      profile: { readOwnProfile: mocks.profile },
-    });
-    mocks.loadSessionIdentity.mockResolvedValue({
-      name: "Member Session",
-      email: "member@example.invalid",
-    });
-  });
-
   it("keeps an authenticated authority-denied actor in a shell with session identity", async () => {
-    mocks.profile.mockRejectedValueOnce({
-      body: { code: "authority.denied", ...NativeProblemRegistry["authority.denied"] },
-    });
-
-    await expect(load()).resolves.toEqual({
-      user: { name: "Member Session", email: "member@example.invalid" },
-      isAdmin: false,
-      hasOrganizationContext: false,
-    });
-    expect(mocks.loadSessionIdentity).toHaveBeenCalledOnce();
-    expect(mocks.expiredSessionRedirect).not.toHaveBeenCalled();
+    profileResponse = () => nativeProblemResponse("authority.denied");
+    await expect(load()).resolves.toEqual({ user: { name: "Member Session", email: "member@example.invalid" }, isAdmin: false, hasOrganizationContext: false });
+    expect(requests.map(request => new URL(request.url).pathname)).toContain("/api/auth/get-session");
+    expect(requests.some(request => new URL(request.url).pathname === "/api/auth/sign-out")).toBe(false);
   });
-
   it("returns a canonical profile identity for an active team member", async () => {
-    mocks.profile.mockResolvedValueOnce({
-      body: {
-        firstName: "Ada",
-        lastName: "Lovelace",
-        email: "ada@example.invalid",
-        role: "ROLE_TEAM_MEMBER",
-      },
-    });
-
-    await expect(load()).resolves.toEqual({
-      user: { name: "Ada Lovelace", email: "ada@example.invalid" },
-      isAdmin: false,
-      hasOrganizationContext: true,
-    });
-    expect(mocks.loadSessionIdentity).not.toHaveBeenCalled();
+    await expect(load()).resolves.toEqual({ user: { name: "Ada Lovelace", email: "ada@example.invalid" }, isAdmin: false, hasOrganizationContext: true });
+    expect(requests.some(request => new URL(request.url).pathname === "/api/auth/get-session")).toBe(false);
   });
-
   it("redirects only an unauthorized profile request as expired", async () => {
-    mocks.profile.mockRejectedValueOnce({
-      body: { code: "credential.invalid", ...NativeProblemRegistry["credential.invalid"] },
-    });
-
-    const failure = await load().catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(Response);
-    expect(failure).toMatchObject({ status: 302 });
-    expect(mocks.expiredSessionRedirect).toHaveBeenCalledOnce();
+    profileResponse = () => nativeProblemResponse("credential.invalid");
+    await expect(load()).rejects.toMatchObject({ status: 302 });
   });
-
-  it.each([
-    [{ code: "dependency.unavailable" }, 503],
-    [{ code: "configuration.invalid" }, 503],
-  ] as const)("surfaces profile infrastructure failure", async (failure, status) => {
-    mocks.profile.mockRejectedValueOnce(failure);
-
-    const response = await load().catch((error: unknown) => error);
-    expect(response).toBeInstanceOf(Response);
-    expect(response).toMatchObject({ status });
-    expect(mocks.expiredSessionRedirect).not.toHaveBeenCalled();
+  it("surfaces a profile infrastructure failure without dropping the session", async () => {
+    profileResponse = () => nativeProblemResponse("profile.unavailable");
+    await expect(load()).rejects.toMatchObject({ status: 503 });
+    expect(requests.some(request => new URL(request.url).pathname === "/api/auth/sign-out")).toBe(false);
   });
 });
+
 
 describe("parent dashboard no-profile shell", () => {
   it("hides identity-only content and retains child route mounting", () => {

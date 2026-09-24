@@ -1,21 +1,24 @@
+import { backendDatabase } from "../../test/database.js";
+import { PeopleDirectoryResponse } from "@vektorprogrammet/http-api";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityActor,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
-import { Database, type DatabaseShape } from "@vektorprogrammet/database";
+
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
 import {
+  MembershipId,
+  TeamId,
   DepartmentId,
   Organization,
   PersonId,
   accumulateOrganizationDirectoryFacts,
-  type OrganizationDirectoryFact,
   type OrganizationDirectoryFacts,
-  type OrganizationShape,
+  type OrganizationOperations,
 } from "@vektorprogrammet/domain/organization";
 import {
   decodeDirectoryCursor,
@@ -25,14 +28,15 @@ import {
   Profile,
   ProfileContactNotFound,
   type DirectoryEntry,
-  type ProfileShape,
+  type ProfileOperations,
 } from "@vektorprogrammet/domain/profile";
-import { DateTime, Effect, Layer } from "effect";
+import { Schema, DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeBackendConfig } from "../config.js";
-import { makeBackendTestHttp as makeBackendHttp } from "../test/native-http.js";
+import { decodeBackendConfig } from "../config.js";
+import { makeBackendTestHttp as backendHttpHandler } from "../test/native-http.js";
 
 const token = "better-auth.session_token";
+
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
   BETTER_AUTH_SECRET: "router-test-secret-with-at-least-32-characters!",
@@ -43,10 +47,13 @@ const environment = {
   OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
 } as const;
-const config = makeBackendConfig(environment);
+
+const config = decodeBackendConfig(environment);
 
 const instant = "2031-09-15T12:00:00.000Z";
+
 const departmentA = DepartmentId.make("department-a");
+
 const departmentB = DepartmentId.make("department-b");
 
 interface SeededMembership {
@@ -65,21 +72,21 @@ interface SeededGrant {
 /** Canonical directory population shared by every scenario unless replaced. */
 const directoryPeople = [
   {
-    personId: "person-leader-a",
+    personId: PersonId.make("person-leader-a"),
     firstName: "Active",
     lastName: "Leader",
     email: "leader-a@example.invalid",
     phone: "90000001",
   },
   {
-    personId: "person-multi-department",
+    personId: PersonId.make("person-multi-department"),
     firstName: "Multi",
     lastName: "Department",
     email: "multi@example.invalid",
     phone: "90000002",
   },
   {
-    personId: "person-ended-membership",
+    personId: PersonId.make("person-ended-membership"),
     firstName: "Ended",
     lastName: "Membership",
     email: "ended@example.invalid",
@@ -94,17 +101,21 @@ let people: Array<{
   email: string;
   phone: string;
 }> = [];
-let membershipsByPerson: Record<string, Array<SeededMembership>> = {};
+
+let membershipsByPerson = new Map<string, Array<SeededMembership>>([]);
+
 let grantsByPerson: Record<string, SeededGrant | undefined> = {};
+
 let missingContactFor: string | undefined;
+
 let callerProjection: {
   globalAdministrator: "Active" | "Inactive" | "Absent";
 } | null = null;
 
-const database = { health: Effect.void } as unknown as DatabaseShape;
+const database = backendDatabase();
 
 /** Profile stub: canonical names joined to canonical contacts, paged. */
-const profile: ProfileShape = {
+const profile: ProfileOperations = {
   readProfiles: (personIds) =>
     Effect.succeed(
       personIds.map(
@@ -139,41 +150,53 @@ const profile: ProfileShape = {
     Effect.gen(function* () {
       const sorted = [...people].sort((left, right) => {
         const byLastName = left.lastName.localeCompare(right.lastName);
+
         if (byLastName !== 0) return byLastName;
         const byFirstName = left.firstName.localeCompare(right.firstName);
+
         if (byFirstName !== 0) return byFirstName;
+
         return left.personId.localeCompare(right.personId);
       });
+
       let offset = 0;
+
       if (cursor !== undefined) {
         const tuple = yield* decodeDirectoryCursor(cursor);
+
         const found = sorted.findIndex(
           (person) =>
             person.lastName === tuple.lastName &&
             person.firstName === tuple.firstName &&
             person.personId === tuple.personId,
         );
+
         if (found < 0)
-          return yield* new ProfileContactNotFound({ personId: tuple.personId as never });
+          return yield* new ProfileContactNotFound({ personId: PersonId.make(tuple.personId) });
         offset = found + 1;
       }
+
       const page = sorted.slice(offset, offset + limit);
       const entries: Array<DirectoryEntry> = [];
+
       for (const person of page) {
         if (missingContactFor === person.personId || !person.email) {
           return yield* new ProfileContactNotFound({
-            personId: person.personId as never,
+            personId: PersonId.make(person.personId),
           });
         }
+
         entries.push({
-          personId: person.personId as never,
+          personId: PersonId.make(person.personId),
           firstName: person.firstName,
           lastName: person.lastName,
           email: person.email,
           phone: person.phone,
         });
       }
+
       const last = entries[entries.length - 1];
+
       return {
         entries,
         nextCursor:
@@ -181,7 +204,7 @@ const profile: ProfileShape = {
             ? encodeDirectoryCursor(last)
             : undefined,
       };
-    }).pipe(Effect.mapError((cause) => cause)) as never,
+    }).pipe(Effect.mapError((cause) => cause)),
 };
 
 /** Organization stub: caller projection plus the frozen membership law. */
@@ -191,14 +214,17 @@ const organization = {
   listFieldOfStudies: Effect.succeed([]),
   resolvePersonAuthority: () => {
     if (callerProjection === null) throw new Error("no caller projection configured");
+
     return Effect.succeed({
-      personId: "person-caller",
+      personId: PersonId.make("person-caller"),
       evaluatedAt: instant,
       globalAdministrator: callerProjection.globalAdministrator,
-      memberships: (membershipsByPerson["person-caller"] ?? []).map((seed) => ({
-        membershipId: `membership-${seed.departmentId}-${seed.personId}`,
-        teamId: seed.teamLeader ? `team-leader-${seed.departmentId}` : `team-${seed.departmentId}`,
-        departmentId: seed.departmentId,
+      memberships: (membershipsByPerson.get("person-caller") ?? []).map((seed) => ({
+        membershipId: MembershipId.make(`membership-${seed.departmentId}-${seed.personId}`),
+        teamId: TeamId.make(
+          seed.teamLeader ? `team-leader-${seed.departmentId}` : `team-${seed.departmentId}`,
+        ),
+        departmentId: DepartmentId.make(seed.departmentId),
         active: seed.active,
         teamLeader: seed.teamLeader,
       })),
@@ -208,31 +234,40 @@ const organization = {
     personIds: ReadonlyArray<string>,
     evaluatedAt: string,
   ): Effect.Effect<OrganizationDirectoryFacts> =>
-    Effect.try(() => {
+    Effect.sync(() => {
       const memberships = personIds.flatMap((personId) => {
-        const seeds = membershipsByPerson[personId] ?? [];
+        const seeds = membershipsByPerson.get(personId) ?? [];
+
         return seeds.map((seed) => ({
-          personId: personId as never,
-          departmentId: seed.departmentId,
+          personId: PersonId.make(personId),
+          departmentId: DepartmentId.make(seed.departmentId),
           // The stub resolves canonical names the way the PostgreSQL
           // interpreter's team->department join does.
           departmentName: `Name of ${seed.departmentId}`,
           active: seed.active,
         }));
       });
+
       const grants = personIds.flatMap((personId) => {
         const grant = grantsByPerson[personId];
-        return grant ? [{ personId: personId as never, globalAdministrator: grant.status }] : [];
+
+        return grant
+          ? [{ personId: PersonId.make(personId), globalAdministrator: grant.status }]
+          : [];
       });
-      const facts = accumulateOrganizationDirectoryFacts({
-        personIds: personIds as never[],
-        instant: evaluatedAt,
-        memberships,
-        grants,
-      }) as unknown as Map<string, OrganizationDirectoryFact>;
+
+      const facts = new Map(
+        accumulateOrganizationDirectoryFacts({
+          personIds: personIds.map((personId) => PersonId.make(personId)),
+          instant: evaluatedAt,
+          memberships,
+          grants,
+        }),
+      );
+
       for (const personId of personIds) {
-        if (!facts.has(personId as never)) {
-          facts.set(personId as never, {
+        if (!facts.has(PersonId.make(personId))) {
+          facts.set(PersonId.make(personId), {
             departments: [],
             departmentNames: [],
             isActive: false,
@@ -240,39 +275,54 @@ const organization = {
           });
         }
       }
-      return facts as unknown as OrganizationDirectoryFacts;
+
+      return facts;
     }),
-} as unknown as OrganizationShape;
+} satisfies Partial<OrganizationOperations>;
 
 const resetScenario = () => {
   people = [...directoryPeople];
-  membershipsByPerson = {
-    "person-leader-a": [
-      { personId: "person-leader-a", departmentId: departmentA, active: true, teamLeader: true },
+  membershipsByPerson = new Map<string, Array<SeededMembership>>([
+    [
+      "person-leader-a",
+      [
+        {
+          personId: PersonId.make("person-leader-a"),
+          departmentId: DepartmentId.make(departmentA),
+          active: true,
+          teamLeader: true,
+        },
+      ],
     ],
-    "person-multi-department": [
-      {
-        personId: "person-multi-department",
-        departmentId: departmentA,
-        active: true,
-        teamLeader: false,
-      },
-      {
-        personId: "person-multi-department",
-        departmentId: departmentB,
-        active: true,
-        teamLeader: false,
-      },
+    [
+      "person-multi-department",
+      [
+        {
+          personId: PersonId.make("person-multi-department"),
+          departmentId: DepartmentId.make(departmentA),
+          active: true,
+          teamLeader: false,
+        },
+        {
+          personId: PersonId.make("person-multi-department"),
+          departmentId: DepartmentId.make(departmentB),
+          active: true,
+          teamLeader: false,
+        },
+      ],
     ],
-    "person-ended-membership": [
-      {
-        personId: "person-ended-membership",
-        departmentId: departmentA,
-        active: false,
-        teamLeader: false,
-      },
+    [
+      "person-ended-membership",
+      [
+        {
+          personId: PersonId.make("person-ended-membership"),
+          departmentId: DepartmentId.make(departmentA),
+          active: false,
+          teamLeader: false,
+        },
+      ],
     ],
-  };
+  ]);
   grantsByPerson = {};
   missingContactFor = undefined;
   // Caller defaults to an active global administrator viewing everything.
@@ -280,6 +330,7 @@ const resetScenario = () => {
 };
 
 resetScenario();
+
 const socialEvents = SocialEvents.of({
   readSnapshotInstant: () => Effect.die("unexpected social-event read"),
   readScope: () => Effect.die("unexpected social-event read"),
@@ -287,6 +338,7 @@ const socialEvents = SocialEvents.of({
   validateScope: () => Effect.die("unexpected social-event validation"),
   create: () => Effect.die("unexpected social-event create"),
 });
+
 const schoolSurveys = SchoolSurveys.of({
   readForm: () => Effect.die("unexpected school-survey read"),
   prepareResponse: () => Effect.die("unexpected school-survey preparation"),
@@ -298,10 +350,12 @@ const schoolSurveys = SchoolSurveys.of({
   closeAdminSurvey: () => Effect.die("unexpected school-survey administration close"),
   readAdminResults: () => Effect.die("unexpected school-survey administration results"),
 });
+
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
-} as never);
+});
+
 const identity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
@@ -312,6 +366,7 @@ const identity = Identity.of({
         expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T00:00:00.000Z")),
       });
     }
+
     throw new IdentitySessionNotFound();
   },
   readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
@@ -322,18 +377,19 @@ const identity = Identity.of({
   revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
   recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
   signOut: async () => ({ setCookies: [] }),
-} satisfies IdentityShape);
+} satisfies IdentityOperations);
+
 const backendServices = Layer.mergeAll(
-  Layer.succeed(Database, database),
+  database.layer,
   Layer.succeed(Profile, profile),
-  Layer.succeed(Organization, organization),
+  Layer.mock(Organization, organization),
   Layer.succeed(SocialEvents, socialEvents),
   Layer.succeed(SchoolSurveys, schoolSurveys),
   Layer.succeed(Identity, identity),
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );
 
-const backend = makeBackendHttp(config, backendServices, {
+const backend = backendHttpHandler(config, backendServices, {
   handle: async () => new Response(null, { status: 404 }),
   recordTrustedOriginRejection: async () => undefined,
 });
@@ -361,9 +417,14 @@ describe("GET /api/people (spec 0077.2)", () => {
   it("denies a plain member with typed 403 AuthorityInactive", async () => {
     resetScenario();
     callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson["person-caller"] = [
-      { personId: "person-caller", departmentId: departmentA, active: true, teamLeader: false },
-    ];
+    membershipsByPerson.set("person-caller", [
+      {
+        personId: PersonId.make("person-caller"),
+        departmentId: DepartmentId.make(departmentA),
+        active: true,
+        teamLeader: false,
+      },
+    ]);
     const response = await request();
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
@@ -378,9 +439,14 @@ describe("GET /api/people (spec 0077.2)", () => {
   it("denies an inactive leader with typed 403 AuthorityInactive", async () => {
     resetScenario();
     callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson["person-caller"] = [
-      { personId: "person-caller", departmentId: departmentA, active: false, teamLeader: true },
-    ];
+    membershipsByPerson.set("person-caller", [
+      {
+        personId: PersonId.make("person-caller"),
+        departmentId: DepartmentId.make(departmentA),
+        active: false,
+        teamLeader: true,
+      },
+    ]);
     const response = await request();
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
@@ -410,11 +476,9 @@ describe("GET /api/people (spec 0077.2)", () => {
     resetScenario();
     const response = await request();
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      activePeople: Array<Record<string, unknown>>;
-      inactivePeople: Array<Record<string, unknown>>;
-      nextCursor: string | null;
-    };
+
+    const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(await response.json());
+
     expect(body.activePeople.map((row) => row.personId)).toEqual([
       "person-multi-department",
       "person-leader-a",
@@ -424,6 +488,7 @@ describe("GET /api/people (spec 0077.2)", () => {
     const multi = body.activePeople.find((row) => row.personId === "person-multi-department");
     // The frozen entry carries department NAMES (spec 0057 falsifier), sorted.
     expect(multi?.departments).toEqual(["Name of department-a", "Name of department-b"]);
+
     for (const row of [...body.activePeople, ...body.inactivePeople]) {
       expect(Object.keys(row).sort()).toEqual([
         "departments",
@@ -443,7 +508,7 @@ describe("GET /api/people (spec 0077.2)", () => {
     resetScenario();
     // Absent grant plus no memberships at all: NotInScope, never a 401.
     callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson["person-caller"] = [];
+    membershipsByPerson.set("person-caller", []);
     const response = await request();
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
@@ -458,15 +523,19 @@ describe("GET /api/people (spec 0077.2)", () => {
   it("scopes a department leader to the intersection of their leader departments", async () => {
     resetScenario();
     callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson["person-caller"] = [
-      { personId: "person-caller", departmentId: departmentB, active: true, teamLeader: true },
-    ];
+    membershipsByPerson.set("person-caller", [
+      {
+        personId: PersonId.make("person-caller"),
+        departmentId: DepartmentId.make(departmentB),
+        active: true,
+        teamLeader: true,
+      },
+    ]);
     const response = await request();
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      activePeople: Array<{ personId: string; departments: string[] }>;
-      inactivePeople: Array<{ personId: string }>;
-    };
+
+    const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(await response.json());
+
     // Only the multi-department person touches department B.
     expect(body.activePeople.map((row) => row.personId)).toEqual(["person-multi-department"]);
     expect(body.inactivePeople).toEqual([]);
@@ -475,14 +544,14 @@ describe("GET /api/people (spec 0077.2)", () => {
   it("returns a legitimate 200 with empty arrays when nothing intersects", async () => {
     resetScenario();
     callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson["person-caller"] = [
+    membershipsByPerson.set("person-caller", [
       {
-        personId: "person-caller",
+        personId: PersonId.make("person-caller"),
         departmentId: DepartmentId.make("department-empty"),
         active: true,
         teamLeader: true,
       },
-    ];
+    ]);
     people = [];
     const response = await request();
     expect(response.status).toBe(200);
@@ -496,20 +565,19 @@ describe("GET /api/people (spec 0077.2)", () => {
   it("walks every page until exhaustion without duplicating or dropping a person", async () => {
     resetScenario();
     people = Array.from({ length: 205 }, (_, index) => ({
-      personId: `person-bulk-${String(index + 1).padStart(4, "0")}`,
+      personId: PersonId.make(`person-bulk-${String(index + 1).padStart(4, "0")}`),
       firstName: "Bulk",
       lastName: `Family${String(index % 7)}`,
       email: `bulk-${index + 1}@example.invalid`,
       phone: "90000000",
     }));
-    membershipsByPerson = {};
+    membershipsByPerson = new Map<string, Array<SeededMembership>>([]);
     grantsByPerson = {};
     const response = await request();
     expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      activePeople: Array<{ personId: string }>;
-      inactivePeople: Array<{ personId: string }>;
-    };
+
+    const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(await response.json());
+
     const ids = [...body.activePeople, ...body.inactivePeople].map((row) => row.personId);
     expect(new Set(ids).size).toBe(205);
     expect(ids.length).toBe(205);
@@ -531,11 +599,13 @@ describe("GET /api/people (spec 0077.2)", () => {
 
   it("rejects a query string with 422", async () => {
     resetScenario();
+
     const response = await backend.fetch(
       new Request("http://backend.test/api/people?page=2", {
         headers: { cookie: `${token}=value` },
       }),
     );
+
     expect(response.status).toBe(422);
   });
 });

@@ -1,5 +1,5 @@
 import { runOnboardingExpirySweeper } from "./onboarding/delivery.js";
-import { makeReceiptDeliveryLayer, receiptDeliveryConfig } from "./receipt/delivery.js";
+import { ReceiptDeliveryLive, receiptDeliveryConfig } from "./receipt/delivery.js";
 import { randomUUID } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
@@ -21,23 +21,23 @@ import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
 import { runPublicApplicationOutboxWorker } from "./application/worker.js";
-import { Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
+import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
-import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
-import { makeBackendConfig } from "./config.js";
+import { publicApplicationHttpEffects } from "./application/effects.js";
+import { decodeBackendConfig } from "./config.js";
 import {
-  makeHttpSchoolServiceNotificationInterpreter,
+  schoolServiceNotificationDelivery,
   runSchoolServiceNotificationWorker,
 } from "./placements/notification.js";
 import {
-  makeHttpSchoolServiceDispatchNotificationInterpreter,
+  schoolServiceDispatchDelivery,
   runSchoolServiceDispatchNotificationWorker,
 } from "./placements/dispatch-notification.js";
 import {
-  makeBackendHttp,
-  makeExternalNativeApiRouterLayer,
-  makeInternalBackendHttp,
-  makeInternalNativeApiRouterLayer,
+  backendHttpHandler,
+  ExternalNativeApiRouterLive,
+  internalBackendHttpHandler,
+  InternalNativeApiRouterLive,
   nativeHttpRouterConfig,
   type BackendAuthHandler,
 } from "./router.js";
@@ -53,31 +53,45 @@ declare const Bun: {
 };
 
 const ingress = process.env.BACKEND_INGRESS ?? "external";
+
 if (ingress !== "external" && ingress !== "internal") {
   throw new TypeError("BACKEND_INGRESS must be external or internal");
 }
 
-const config = makeBackendConfig();
+const config = decodeBackendConfig();
+
 const databaseLayer = DatabaseLive({
   url: Redacted.make(config.postgresUrl),
   applicationName: "vektorprogrammet-backend",
   maxConnections: 8,
 });
+
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
+
 const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
+
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
 const returningAssistantsLayer = ReturningAssistantsLive.pipe(Layer.provide(databaseLayer));
+
 const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
+
 const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
+
 const contentManagementLayer = ContentManagementLive.pipe(Layer.provide(databaseLayer));
+
 const contentLayer = ContentLive.pipe(
   Layer.provide(Layer.mergeAll(databaseLayer, organizationLayer, profileLayer)),
 );
+
 const recruitmentLayer = RecruitmentLive.pipe(
   Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),
 );
+
 const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(databaseLayer));
+
 const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(databaseLayer));
+
 const capabilityLayers = Layer.mergeAll(
   returningAssistantsLayer,
   admissionsLayer,
@@ -91,42 +105,52 @@ const capabilityLayers = Layer.mergeAll(
   socialEventsLayer,
   schoolSurveysLayer,
 );
-const receiptDeliveryLayer = makeReceiptDeliveryLayer(receiptDeliveryConfig(process.env)).pipe(
+
+const receiptDeliveryLayer = ReceiptDeliveryLive(receiptDeliveryConfig(process.env)).pipe(
   Layer.provide(databaseLayer),
 );
+
 const authLayer = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
+
 const backendServicesLayer = Layer.mergeAll(
   databaseLayer,
   capabilityLayers,
   receiptDeliveryLayer,
   authLayer,
 );
+
 const httpPlatformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
+
 const httpRouterLayer = HttpRouter.layer.pipe(
   Layer.provide(Layer.succeed(HttpRouter.RouterConfig)(nativeHttpRouterConfig)),
 );
+
 const httpLayer = Layer.merge(httpPlatformLayer, httpRouterLayer);
+
 const nativeApiLayer = (
-  ingress === "external"
-    ? makeExternalNativeApiRouterLayer(config)
-    : makeInternalNativeApiRouterLayer(config)
+  ingress === "external" ? ExternalNativeApiRouterLive(config) : InternalNativeApiRouterLive(config)
 ).pipe(
   HttpRouter.provideRequest(backendServicesLayer),
   Layer.provide(backendServicesLayer),
   Layer.provide(httpLayer),
 );
+
 const backendLayer = Layer.mergeAll(backendServicesLayer, httpLayer, nativeApiLayer);
+
 const runtime = ManagedRuntime.make(backendLayer);
+
 const router = await runtime.runPromise(HttpRouter.HttpRouter);
+
 const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
+
 const authBoundary = <A>(operation: (engine: AuthEngineService) => Promise<A>) =>
   AuthEngine.use((engine) =>
     Effect.tryPromise({
       try: () => operation(engine),
-      catch: (cause) =>
-        cause instanceof Error ? cause : new Error("Better Auth runtime operation failed"),
+      catch: (cause) => new Cause.UnknownError(cause, "Better Auth runtime operation failed"),
     }),
   );
+
 const authHandler: BackendAuthHandler = {
   handle: (request, context) =>
     runtime.runPromise(authBoundary((engine) => engine.handler(request, context))),
@@ -145,16 +169,18 @@ const authHandler: BackendAuthHandler = {
       authBoundary((engine) => engine.recordTrustedOriginRejection(context, credentialFlow)),
     ),
 };
+
 const api =
   ingress === "external"
-    ? makeBackendHttp(nativeHandler, authHandler, config.sessionBoundary)
-    : makeInternalBackendHttp(nativeHandler, authHandler, config.auth.internalSourceNetworks);
+    ? backendHttpHandler(nativeHandler, authHandler, config.sessionBoundary)
+    : internalBackendHttpHandler(nativeHandler, authHandler, config.auth.internalSourceNetworks);
 
 try {
   await runtime.runPromise(databaseHealth);
 } catch {
   process.stderr.write("backend database initialization failed\n");
   process.exitCode = 1;
+
   try {
     await runtime.dispose();
   } catch {
@@ -164,14 +190,16 @@ try {
 
 if (process.exitCode !== 1) {
   const server = Bun.serve({ hostname: config.host, port: config.port, fetch: api.fetch });
+
   const onboardingExpiryFiber =
     ingress === "external" ? runtime.runFork(runOnboardingExpirySweeper) : undefined;
+
   const workerFiber =
     ingress === "internal" || config.publicApplicationEffects === undefined
       ? undefined
       : runtime.runFork(
           runPublicApplicationOutboxWorker(
-            makeHttpPublicApplicationEffectInterpreter(config.publicApplicationEffects),
+            publicApplicationHttpEffects(config.publicApplicationEffects),
             {
               workerId: `backend-${randomUUID()}`,
               pollIntervalMilliseconds: config.publicApplicationEffects.pollIntervalMilliseconds,
@@ -180,12 +208,13 @@ if (process.exitCode !== 1) {
             },
           ),
         );
+
   const schoolServiceWorkerFiber =
     ingress === "internal" || config.schoolServiceNotifications === undefined
       ? undefined
       : runtime.runFork(
           runSchoolServiceNotificationWorker(
-            makeHttpSchoolServiceNotificationInterpreter(config.schoolServiceNotifications),
+            schoolServiceNotificationDelivery(config.schoolServiceNotifications),
             {
               workerId: `school-service-${randomUUID()}`,
               pollIntervalMilliseconds: config.schoolServiceNotifications.pollIntervalMilliseconds,
@@ -194,14 +223,13 @@ if (process.exitCode !== 1) {
             },
           ),
         );
+
   const schoolServiceDispatchWorkerFiber =
     ingress === "internal" || config.schoolServiceDispatchNotifications === undefined
       ? undefined
       : runtime.runFork(
           runSchoolServiceDispatchNotificationWorker(
-            makeHttpSchoolServiceDispatchNotificationInterpreter(
-              config.schoolServiceDispatchNotifications,
-            ),
+            schoolServiceDispatchDelivery(config.schoolServiceDispatchNotifications),
             {
               workerId: `school-service-dispatch-${randomUUID()}`,
               pollIntervalMilliseconds:
@@ -212,25 +240,32 @@ if (process.exitCode !== 1) {
             },
           ),
         );
+
   if (ingress === "external" && workerFiber === undefined) {
     process.stderr.write("public application effect worker is not configured\n");
   }
+
   if (ingress === "external" && schoolServiceWorkerFiber === undefined) {
     process.stderr.write("school service notification worker is not configured\n");
   }
+
   if (ingress === "external" && schoolServiceDispatchWorkerFiber === undefined) {
     process.stderr.write("school service dispatch notification worker is not configured\n");
   }
+
   process.stdout.write(`${ingress} backend listening on ${config.host}:${config.port}\n`);
   let shutdownPromise: Promise<void> | undefined;
+
   const shutdown = (workerFailed = false) => {
     shutdownPromise ??= (async () => {
       let exitCode = workerFailed ? 1 : 0;
+
       try {
         await server.stop(true);
       } catch {
         exitCode = 1;
       }
+
       if (onboardingExpiryFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(onboardingExpiryFiber));
@@ -238,6 +273,7 @@ if (process.exitCode !== 1) {
           exitCode = 1;
         }
       }
+
       if (workerFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(workerFiber));
@@ -245,6 +281,7 @@ if (process.exitCode !== 1) {
           exitCode = 1;
         }
       }
+
       if (schoolServiceWorkerFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(schoolServiceWorkerFiber));
@@ -252,6 +289,7 @@ if (process.exitCode !== 1) {
           exitCode = 1;
         }
       }
+
       if (schoolServiceDispatchWorkerFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(schoolServiceDispatchWorkerFiber));
@@ -259,15 +297,18 @@ if (process.exitCode !== 1) {
           exitCode = 1;
         }
       }
+
       try {
         await runtime.dispose();
       } catch {
         exitCode = 1;
       }
+
       process.exitCode = exitCode;
       process.exit(exitCode);
     })();
   };
+
   if (onboardingExpiryFiber !== undefined) {
     void runtime.runPromise(Fiber.await(onboardingExpiryFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
@@ -276,6 +317,7 @@ if (process.exitCode !== 1) {
       }
     });
   }
+
   if (workerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(workerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
@@ -284,6 +326,7 @@ if (process.exitCode !== 1) {
       }
     });
   }
+
   if (schoolServiceWorkerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(schoolServiceWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
@@ -292,6 +335,7 @@ if (process.exitCode !== 1) {
       }
     });
   }
+
   if (schoolServiceDispatchWorkerFiber !== undefined) {
     void runtime.runPromise(Fiber.await(schoolServiceDispatchWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
@@ -300,6 +344,7 @@ if (process.exitCode !== 1) {
       }
     });
   }
+
   process.once("SIGINT", () => shutdown());
   process.once("SIGTERM", () => shutdown());
 }

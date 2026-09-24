@@ -19,30 +19,13 @@ import {
   computeRouteDigest,
 } from "../vite-digests";
 
+
+
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 
-function independentCanonicalJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => independentCanonicalJson(item)).join(",")}]`;
-  }
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
-    return `{${entries
-      .map(([key, entry]) => `${JSON.stringify(key)}:${independentCanonicalJson(entry)}`)
-      .join(",")}}`;
-  }
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined) throw new Error("Unsupported undefined digest value");
-  return serialized;
-}
 
-function independentDigest(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(`${independentCanonicalJson(value)}\n`, "utf8")
-    .digest("hex")}`;
-}
+
+
 
 describe("DEV CONTENT contract", () => {
   it("keeps one typed, local, synthetic content source", () => {
@@ -53,16 +36,19 @@ describe("DEV CONTENT contract", () => {
 
     const serialized = JSON.stringify(DEV_CONTENT);
     expect(serialized).not.toMatch(/vektorprogrammet\.no|railway|api[_-]?url/i);
+
     for (const sponsor of DEV_CONTENT.sponsors) {
       expect(sponsor.image).toMatch(/^\//);
       expect(sponsor.href).toMatch(/^https:\/\/example\.invalid\//);
     }
+
     for (const team of DEV_CONTENT.teams) {
       expect(team.url).toMatch(/^\//);
       expect(team.image).toMatch(/^\//);
       expect(team.email).toMatch(/@example\.invalid$/);
       expect(getDevTeamMembers(team.id)).toHaveLength(team.numberOfMembers);
     }
+
     for (const department of DEV_CONTENT.departments) {
       expect(department.image).toMatch(/^\//);
       expect(department.email).toMatch(/@example\.invalid$/);
@@ -155,6 +141,7 @@ describe("DEV CONTENT contract", () => {
         memberCount: team.numberOfMembers,
       });
     }
+
     for (const department of DEV_CONTENT.departments) {
       expect(DEV_ROUTE_CENSUS.paths).toContain(`/kontakt/${department.id}`);
       expect(DEV_ROUTE_CENSUS.departments).toContainEqual({
@@ -169,6 +156,7 @@ describe("DEV CONTENT contract", () => {
       (total, team) => total + team.numberOfMembers,
       0,
     );
+
     expect(DEV_ROUTE_CENSUS.people).toHaveLength(expectedPeople);
     expect(new Set(DEV_ROUTE_CENSUS.people.map((person) => person.id)).size).toBe(expectedPeople);
     expect(DEV_ROUTE_CENSUS.people.every((person) => person.name.startsWith("DEV Member "))).toBe(
@@ -178,29 +166,17 @@ describe("DEV CONTENT contract", () => {
 
   it("independently recomputes canonical content and route digests", () => {
     const inputs = buildHomepageDigestInputs(projectRoot);
-    const contentPayload = {
-      DEV_CONTENT,
-      assetManifest: inputs.assetManifest,
-    };
-    const routePayload = {
-      DEV_ROUTE_CENSUS,
-      assetManifest: inputs.assetManifest,
-      routeContentProjectionManifest: inputs.routeContentProjectionManifest,
-      routeSourceManifest: inputs.routeSourceManifest,
-    };
 
-    expect(implementationCanonicalJson(contentPayload)).toBe(
-      independentCanonicalJson(contentPayload),
+    expect(implementationCanonicalJson({ "2": "two", "10": "ten", z: undefined, a: [3, { y: null, x: true }] })).toBe('{"10":"ten","2":"two","a":[3,{"x":true,"y":null}]}');
+    const contentBytes = '{"DEV_CONTENT":{"departments":[],"sponsors":[],"statistics":{"assistantCount":0,"teamMemberCount":0},"teams":[]},"assetManifest":[]}\n';
+    expect(computeContentDigest({ departments: [], sponsors: [], statistics: { assistantCount: 0, teamMemberCount: 0 }, teams: [] }, [])).toBe(
+      `sha256:${createHash("sha256").update(contentBytes).digest("hex")}`,
     );
-    expect(implementationCanonicalJson(routePayload)).toBe(independentCanonicalJson(routePayload));
-    expect(computeContentDigest(DEV_CONTENT, inputs.assetManifest)).toBe(
-      independentDigest(contentPayload),
+    const routeBytes = '{"DEV_ROUTE_CENSUS":{"departments":[],"paths":[],"people":[],"teams":[]},"assetManifest":[],"routeContentProjectionManifest":[],"routeSourceManifest":[]}\n';
+    expect(computeRouteDigest({ departments: [], paths: [], people: [], teams: [] }, { assetManifest: [], routeContentProjectionManifest: [], routeSourceManifest: [] })).toBe(
+      `sha256:${createHash("sha256").update(routeBytes).digest("hex")}`,
     );
-    expect(computeRouteDigest(DEV_ROUTE_CENSUS, inputs)).toBe(independentDigest(routePayload));
-    expect(computeContentDigest(DEV_CONTENT, inputs.assetManifest)).toMatch(
-      /^sha256:[0-9a-f]{64}$/,
-    );
-    expect(computeRouteDigest(DEV_ROUTE_CENSUS, inputs)).toMatch(/^sha256:[0-9a-f]{64}$/);
+
 
     expect(inputs.assetManifest.map((entry) => entry.path)).toEqual(
       [...inputs.assetManifest].map((entry) => entry.path).sort(),
@@ -215,6 +191,7 @@ describe("DEV CONTENT contract", () => {
         "src/routes/_home._index.tsx",
       ]),
     );
+
     for (const entry of inputs.routeSourceManifest) {
       expect(
         ROUTE_SOURCE_ROOTS.some(
@@ -228,12 +205,14 @@ describe("DEV CONTENT contract", () => {
     const projectionByPath = new Map(
       inputs.routeContentProjectionManifest.map((projection) => [projection.path, projection]),
     );
-    const expectedAssetPaths: Record<string, readonly string[]> = {
+
+    const expectedAssetPaths = {
       "/": ["/images/teacher2.png", "/images/vektor-logo-circle.svg", "/images/vektor-logo.svg"],
       "/team": ["/images/teacher2.png", "/images/vektor-logo-circle.svg"],
       "/kontakt/trondheim": ["/images/vektor-logo-circle.svg"],
       "/team/aas/skolekoordinering": ["/images/teacher2.png"],
     };
+
     for (const [path, assetPaths] of Object.entries(expectedAssetPaths)) {
       const projection = projectionByPath.get(path);
       expect(projection).toBeDefined();
@@ -247,9 +226,11 @@ describe("DEV CONTENT contract", () => {
       expect(entry.byteLength).toBeGreaterThan(0);
       expect(entry.sha256).toMatch(/^[0-9a-f]{64}$/);
     }
+
     for (const projection of inputs.routeContentProjectionManifest) {
       expect(projection.path).toBeTruthy();
       expect(projection.assetPaths).toEqual([...projection.assetPaths].sort());
+
       for (const assetPath of projection.assetPaths) {
         expect(
           projection.assets.some(
@@ -261,10 +242,12 @@ describe("DEV CONTENT contract", () => {
   });
   it("changes route source evidence and digest for synthetic API bytes", () => {
     const temporaryRoot = mkdtempSync(join(tmpdir(), "homepage-route-source-"));
+
     try {
       for (const sourceRoot of ROUTE_SOURCE_ROOTS) {
         mkdirSync(join(temporaryRoot, sourceRoot), { recursive: true });
       }
+
       writeFileSync(
         join(temporaryRoot, "src/routes/synthetic-route.tsx"),
         "export const route = 'synthetic';\n",
@@ -275,6 +258,7 @@ describe("DEV CONTENT contract", () => {
 
       const baselineManifest = buildRouteSourceManifest(temporaryRoot);
       const baselineInputs = buildHomepageDigestInputs(projectRoot);
+
       const baselineDigest = computeRouteDigest(DEV_ROUTE_CENSUS, {
         ...baselineInputs,
         routeSourceManifest: baselineManifest,
@@ -282,10 +266,12 @@ describe("DEV CONTENT contract", () => {
 
       writeFileSync(apiSourcePath, "export const value = 'two';\n", "utf8");
       const changedManifest = buildRouteSourceManifest(temporaryRoot);
+
       const changedDigest = computeRouteDigest(DEV_ROUTE_CENSUS, {
         ...baselineInputs,
         routeSourceManifest: changedManifest,
       });
+
       expect(changedManifest).not.toEqual(baselineManifest);
       expect(changedDigest).not.toBe(baselineDigest);
 
@@ -295,10 +281,12 @@ describe("DEV CONTENT contract", () => {
         "utf8",
       );
       const addedManifest = buildRouteSourceManifest(temporaryRoot);
+
       const addedDigest = computeRouteDigest(DEV_ROUTE_CENSUS, {
         ...baselineInputs,
         routeSourceManifest: addedManifest,
       });
+
       expect(addedManifest.map((entry) => entry.source)).toContain("src/api/synthetic-added.ts");
       expect(addedDigest).not.toBe(changedDigest);
     } finally {

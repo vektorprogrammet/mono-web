@@ -1,3 +1,4 @@
+import { Scope } from "../authz/access.js";
 import { Effect, Schema } from "effect";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
@@ -9,7 +10,12 @@ import {
   ReceiptScopeDenied,
   type ReceiptAuthorityMappingError,
 } from "./errors.js";
-import { ReceiptActorSchema, type ReceiptActor, type ReceiptSettlementActor } from "./schema.js";
+import {
+  ApprovalScopeSchema,
+  ReceiptActorSchema,
+  type ReceiptActor,
+  type ReceiptSettlementActor,
+} from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(
   Schema.check(
@@ -18,30 +24,37 @@ const NonEmpty = Schema.String.pipe(
     }),
   ),
 );
+
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 export const ReceiptPaymentAuthorityId = NonEmpty.pipe(Schema.brand("ReceiptPaymentAuthorityId"));
+
 export type ReceiptPaymentAuthorityId = typeof ReceiptPaymentAuthorityId.Type;
 
 export const ReceiptApprovalGrantId = NonEmpty.pipe(Schema.brand("ReceiptApprovalGrantId"));
+
 export type ReceiptApprovalGrantId = typeof ReceiptApprovalGrantId.Type;
 
 export const ReceiptSettlementGrantId = NonEmpty.pipe(Schema.brand("ReceiptSettlementGrantId"));
+
 export type ReceiptSettlementGrantId = typeof ReceiptSettlementGrantId.Type;
 
 export const ReceiptAuthorityInstantSchema = Rfc3339InstantSchema;
+
 export type ReceiptAuthorityInstant = typeof ReceiptAuthorityInstantSchema.Type;
 
 export const ReceiptApprovalGrantScopeSchema = Schema.TaggedUnion({
   Department: { departmentId: DepartmentId },
   Global: {},
 });
+
 export type ReceiptApprovalGrantScope = typeof ReceiptApprovalGrantScopeSchema.Type;
 
 export const ReceiptSettlementGrantScopeSchema = Schema.TaggedUnion({
   Department: { departmentId: DepartmentId },
   Global: {},
 });
+
 export type ReceiptSettlementGrantScope = typeof ReceiptSettlementGrantScopeSchema.Type;
 
 const ReceiptPaymentAuthorityFields = {
@@ -81,16 +94,19 @@ const orderedAuthorityInterval = Schema.makeFilter(
 export const ReceiptPaymentAuthoritySchema = Schema.Struct(ReceiptPaymentAuthorityFields).pipe(
   Schema.check(orderedAuthorityInterval),
 );
+
 export type ReceiptPaymentAuthority = typeof ReceiptPaymentAuthoritySchema.Type;
 
 export const ReceiptApprovalGrantSchema = Schema.Struct(ReceiptApprovalGrantFields).pipe(
   Schema.check(orderedAuthorityInterval),
 );
+
 export type ReceiptApprovalGrant = typeof ReceiptApprovalGrantSchema.Type;
 
 export const ReceiptSettlementGrantSchema = Schema.Struct(ReceiptSettlementGrantFields).pipe(
   Schema.check(orderedAuthorityInterval),
 );
+
 export type ReceiptSettlementGrant = typeof ReceiptSettlementGrantSchema.Type;
 
 export const CreateReceiptPaymentAuthorityInputSchema = Schema.Struct({
@@ -101,6 +117,7 @@ export const CreateReceiptPaymentAuthorityInputSchema = Schema.Struct({
   startAt: ReceiptAuthorityInstantSchema,
   endAt: Schema.NullOr(ReceiptAuthorityInstantSchema),
 }).pipe(Schema.check(orderedAuthorityInterval));
+
 export type CreateReceiptPaymentAuthorityInput =
   typeof CreateReceiptPaymentAuthorityInputSchema.Type;
 
@@ -109,12 +126,14 @@ export const EndReceiptPaymentAuthorityInputSchema = Schema.Struct({
   endAt: ReceiptAuthorityInstantSchema,
   expectedRevision: Revision,
 });
+
 export type EndReceiptPaymentAuthorityInput = typeof EndReceiptPaymentAuthorityInputSchema.Type;
 
 export const RemoveReceiptPaymentAuthorityInputSchema = Schema.Struct({
   paymentAuthorityId: ReceiptPaymentAuthorityId,
   expectedRevision: Revision,
 });
+
 export type RemoveReceiptPaymentAuthorityInput =
   typeof RemoveReceiptPaymentAuthorityInputSchema.Type;
 
@@ -125,6 +144,7 @@ export const CreateReceiptApprovalGrantInputSchema = Schema.Struct({
   startAt: ReceiptAuthorityInstantSchema,
   endAt: Schema.NullOr(ReceiptAuthorityInstantSchema),
 }).pipe(Schema.check(orderedAuthorityInterval));
+
 export type CreateReceiptApprovalGrantInput = typeof CreateReceiptApprovalGrantInputSchema.Type;
 
 export const EndReceiptApprovalGrantInputSchema = Schema.Struct({
@@ -132,12 +152,14 @@ export const EndReceiptApprovalGrantInputSchema = Schema.Struct({
   endAt: ReceiptAuthorityInstantSchema,
   expectedRevision: Revision,
 });
+
 export type EndReceiptApprovalGrantInput = typeof EndReceiptApprovalGrantInputSchema.Type;
 
 export const RemoveReceiptApprovalGrantInputSchema = Schema.Struct({
   approvalGrantId: ReceiptApprovalGrantId,
   expectedRevision: Revision,
 });
+
 export type RemoveReceiptApprovalGrantInput = typeof RemoveReceiptApprovalGrantInputSchema.Type;
 
 export const CreateReceiptSettlementGrantInputSchema = Schema.Struct({
@@ -147,6 +169,7 @@ export const CreateReceiptSettlementGrantInputSchema = Schema.Struct({
   startAt: ReceiptAuthorityInstantSchema,
   endAt: Schema.NullOr(ReceiptAuthorityInstantSchema),
 }).pipe(Schema.check(orderedAuthorityInterval));
+
 export type CreateReceiptSettlementGrantInput = typeof CreateReceiptSettlementGrantInputSchema.Type;
 
 export const EndReceiptSettlementGrantInputSchema = Schema.Struct({
@@ -154,30 +177,35 @@ export const EndReceiptSettlementGrantInputSchema = Schema.Struct({
   endAt: ReceiptAuthorityInstantSchema,
   expectedRevision: Revision,
 });
+
 export type EndReceiptSettlementGrantInput = typeof EndReceiptSettlementGrantInputSchema.Type;
 
 export const RemoveReceiptSettlementGrantInputSchema = Schema.Struct({
   settlementGrantId: ReceiptSettlementGrantId,
   expectedRevision: Revision,
 });
+
 export type RemoveReceiptSettlementGrantInput = typeof RemoveReceiptSettlementGrantInputSchema.Type;
 
 export const ResolvedReceiptPaymentAuthoritySchema = Schema.Struct({
   ...ReceiptPaymentAuthorityFields,
   active: Schema.Boolean,
 }).pipe(Schema.check(orderedAuthorityInterval));
+
 export type ResolvedReceiptPaymentAuthority = typeof ResolvedReceiptPaymentAuthoritySchema.Type;
 
 export const ResolvedReceiptApprovalGrantSchema = Schema.Struct({
   ...ReceiptApprovalGrantFields,
   active: Schema.Boolean,
 }).pipe(Schema.check(orderedAuthorityInterval));
+
 export type ResolvedReceiptApprovalGrant = typeof ResolvedReceiptApprovalGrantSchema.Type;
 
 export const ResolvedReceiptSettlementGrantSchema = Schema.Struct({
   ...ReceiptSettlementGrantFields,
   active: Schema.Boolean,
 }).pipe(Schema.check(orderedAuthorityInterval));
+
 export type ResolvedReceiptSettlementGrant = typeof ResolvedReceiptSettlementGrantSchema.Type;
 
 export const ReceiptOrganizationAuthorityStatusSchema = Schema.Literals([
@@ -185,6 +213,7 @@ export const ReceiptOrganizationAuthorityStatusSchema = Schema.Literals([
   "Inactive",
   "Absent",
 ]);
+
 export type ReceiptOrganizationAuthorityStatus =
   typeof ReceiptOrganizationAuthorityStatusSchema.Type;
 
@@ -206,18 +235,21 @@ export const ReceiptAuthoritySchema = Schema.Struct({
     ),
   ),
 );
+
 export type ReceiptAuthority = typeof ReceiptAuthoritySchema.Type;
 
 export const ReceiptSubmissionPrincipalSchema = Schema.Struct({
   actor: ReceiptActorSchema,
   paymentAccountCiphertext: NonEmpty,
 });
+
 export type ReceiptSubmissionPrincipal = typeof ReceiptSubmissionPrincipalSchema.Type;
 
 export const ReceiptOwnerPrincipalSchema = Schema.Struct({
   personId: PersonId,
   active: Schema.Boolean,
 });
+
 export type ReceiptOwnerPrincipal = typeof ReceiptOwnerPrincipalSchema.Type;
 
 const compareText = (left: string, right: string): -1 | 0 | 1 =>
@@ -239,6 +271,7 @@ const organizationStatus = (
   ) {
     return "Active";
   }
+
   return authority.globalAdministrator === "Inactive" || authority.memberships.length > 0
     ? "Inactive"
     : "Absent";
@@ -261,6 +294,7 @@ export const projectReceiptAuthority = (
   settlementGrants: ReadonlyArray<ReceiptSettlementGrant> = [],
 ): ReceiptAuthority => {
   const projectedPayments: Array<ResolvedReceiptPaymentAuthority> = [];
+
   for (const authority of paymentAuthorities) {
     if (authority.personId !== organization.personId) continue;
     projectedPayments.push({
@@ -270,6 +304,7 @@ export const projectReceiptAuthority = (
         activeOrganizationAuthorityInDepartment(organization, authority.departmentId),
     });
   }
+
   projectedPayments.sort(
     (left, right) =>
       compareText(left.departmentId, right.departmentId) ||
@@ -279,46 +314,58 @@ export const projectReceiptAuthority = (
 
   const resolvedOrganizationStatus = organizationStatus(organization);
   const projectedGrants: Array<ResolvedReceiptApprovalGrant> = [];
+
   for (const grant of approvalGrants) {
     if (grant.personId !== organization.personId) continue;
     projectedGrants.push({
       ...grant,
       active:
         intervalContains(grant, organization.evaluatedAt) &&
-        (grant.scope._tag === "Global"
+        (ReceiptApprovalGrantScopeSchema.guards.Global(grant.scope)
           ? resolvedOrganizationStatus === "Active"
           : activeOrganizationAuthorityInDepartment(organization, grant.scope.departmentId)),
     });
   }
+
   projectedGrants.sort(
     (left, right) =>
       compareText(left.scope._tag, right.scope._tag) ||
       compareText(
-        left.scope._tag === "Department" ? left.scope.departmentId : "",
-        right.scope._tag === "Department" ? right.scope.departmentId : "",
+        ReceiptApprovalGrantScopeSchema.guards.Department(left.scope)
+          ? left.scope.departmentId
+          : "",
+        ReceiptApprovalGrantScopeSchema.guards.Department(right.scope)
+          ? right.scope.departmentId
+          : "",
       ) ||
       compareRfc3339Instants(left.startAt, right.startAt) ||
       compareText(left.approvalGrantId, right.approvalGrantId),
   );
 
   const projectedSettlementGrants: Array<ResolvedReceiptSettlementGrant> = [];
+
   for (const grant of settlementGrants) {
     if (grant.personId !== organization.personId) continue;
     projectedSettlementGrants.push({
       ...grant,
       active:
         intervalContains(grant, organization.evaluatedAt) &&
-        (grant.scope._tag === "Global"
+        (ReceiptApprovalGrantScopeSchema.guards.Global(grant.scope)
           ? resolvedOrganizationStatus === "Active"
           : activeOrganizationAuthorityInDepartment(organization, grant.scope.departmentId)),
     });
   }
+
   projectedSettlementGrants.sort(
     (left, right) =>
       compareText(left.scope._tag, right.scope._tag) ||
       compareText(
-        left.scope._tag === "Department" ? left.scope.departmentId : "",
-        right.scope._tag === "Department" ? right.scope.departmentId : "",
+        ReceiptApprovalGrantScopeSchema.guards.Department(left.scope)
+          ? left.scope.departmentId
+          : "",
+        ReceiptApprovalGrantScopeSchema.guards.Department(right.scope)
+          ? right.scope.departmentId
+          : "",
       ) ||
       compareRfc3339Instants(left.startAt, right.startAt) ||
       compareText(left.settlementGrantId, right.settlementGrantId),
@@ -341,6 +388,7 @@ type TemporalAuthority = {
 
 const temporalCandidateKind = (authority: TemporalAuthority, instant: string): 0 | 1 | 2 => {
   if (intervalContains(authority, instant)) return 0;
+
   return compareRfc3339Instants(authority.startAt, instant) <= 0 ? 1 : 2;
 };
 
@@ -352,9 +400,12 @@ const preferTemporalCandidate = <A extends TemporalAuthority>(
   if (current === undefined) return candidate;
   const currentKind = temporalCandidateKind(current, instant);
   const candidateKind = temporalCandidateKind(candidate, instant);
+
   if (candidateKind < currentKind) return candidate;
+
   if (candidateKind > currentKind || candidateKind === 0) return current;
   const starts = compareRfc3339Instants(candidate.startAt, current.startAt);
+
   return candidateKind === 1
     ? starts > 0
       ? candidate
@@ -387,6 +438,7 @@ export const mapReceiptSubmissionPrincipal = (
   departmentId?: DepartmentId,
 ): Effect.Effect<ReceiptSubmissionPrincipal, ReceiptAuthorityMappingError> => {
   const candidatesByDepartment = new Map<DepartmentId, ResolvedReceiptPaymentAuthority>();
+
   for (const payment of authority.paymentAuthorities) {
     candidatesByDepartment.set(
       payment.departmentId,
@@ -399,12 +451,15 @@ export const mapReceiptSubmissionPrincipal = (
   }
 
   let selected: ResolvedReceiptPaymentAuthority | undefined;
+
   if (departmentId !== undefined) {
     selected = candidatesByDepartment.get(departmentId);
   } else {
     const candidates = Array.from(candidatesByDepartment.values());
     const active = candidates.filter((payment) => payment.active);
+
     if (active.length > 1) return Effect.fail(ambiguousPayment(authority, active));
+
     if (active.length === 1) {
       selected = active[0];
     } else {
@@ -416,12 +471,13 @@ export const mapReceiptSubmissionPrincipal = (
   if (selected === undefined) {
     return Effect.fail(deny(authority, "Submission", departmentId ?? null));
   }
+
   return Effect.succeed({
     actor: {
       personId: authority.personId,
       departmentId: selected.departmentId,
       active: selected.active,
-      approvalScope: { _tag: "None" },
+      approvalScope: ApprovalScopeSchema.cases.None.make({}),
     },
     paymentAccountCiphertext: selected.paymentAccountCiphertext,
   });
@@ -432,17 +488,24 @@ export const mapReceiptDepartmentApprovalActor = (
   departmentId: DepartmentId,
 ): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> => {
   let selected: ResolvedReceiptApprovalGrant | undefined;
+
   for (const grant of authority.approvalGrants) {
-    if (grant.scope._tag !== "Department" || grant.scope.departmentId !== departmentId) continue;
+    if (
+      !ReceiptApprovalGrantScopeSchema.guards.Department(grant.scope) ||
+      grant.scope.departmentId !== departmentId
+    )
+      continue;
     selected = preferTemporalCandidate(selected, grant, authority.evaluatedAt);
   }
+
   if (selected === undefined)
     return Effect.fail(deny(authority, "DepartmentApproval", departmentId));
+
   return Effect.succeed({
     personId: authority.personId,
     departmentId,
     active: selected.active,
-    approvalScope: { _tag: "Department", departmentId },
+    approvalScope: Scope.Department({ departmentId }),
   });
 };
 
@@ -455,11 +518,14 @@ export const mapReceiptGlobalApprovalPrincipal = (
   authority: ReceiptAuthority,
 ): Effect.Effect<ReceiptGlobalApprovalPrincipal, ReceiptAuthorityDenied> => {
   let selected: ResolvedReceiptApprovalGrant | undefined;
+
   for (const grant of authority.approvalGrants) {
-    if (grant.scope._tag !== "Global") continue;
+    if (!ReceiptApprovalGrantScopeSchema.guards.Global(grant.scope)) continue;
     selected = preferTemporalCandidate(selected, grant, authority.evaluatedAt);
   }
+
   if (selected === undefined) return Effect.fail(deny(authority, "GlobalApproval", null));
+
   return Effect.succeed({ personId: principalPersonId(authority), active: selected.active });
 };
 
@@ -474,7 +540,7 @@ export const mapReceiptGlobalApprovalActor = (
       personId: principal.personId,
       departmentId: receiptDepartmentId,
       active: principal.active,
-      approvalScope: { _tag: "Global" },
+      approvalScope: Scope.Global(),
     })),
   );
 
@@ -488,13 +554,15 @@ export const selectReceiptApprovalGrant = (
 ): ResolvedReceiptApprovalGrant | undefined => {
   let global: ResolvedReceiptApprovalGrant | undefined;
   let department: ResolvedReceiptApprovalGrant | undefined;
+
   for (const grant of authority.approvalGrants) {
-    if (grant.scope._tag === "Global") {
+    if (ReceiptApprovalGrantScopeSchema.guards.Global(grant.scope)) {
       global = preferTemporalCandidate(global, grant, authority.evaluatedAt);
     } else if (grant.scope.departmentId === receiptDepartmentId) {
       department = preferTemporalCandidate(department, grant, authority.evaluatedAt);
     }
   }
+
   return global?.active === true
     ? global
     : department?.active === true
@@ -512,16 +580,17 @@ export const mapReceiptApprovalActor = (
   receiptDepartmentId: DepartmentId,
 ): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> => {
   const selected = selectReceiptApprovalGrant(authority, receiptDepartmentId);
+
   if (selected === undefined)
     return Effect.fail(deny(authority, "DepartmentApproval", receiptDepartmentId));
+
   return Effect.succeed({
     personId: authority.personId,
     departmentId: receiptDepartmentId,
     active: selected.active,
-    approvalScope:
-      selected.scope._tag === "Global"
-        ? { _tag: "Global" }
-        : { _tag: "Department", departmentId: receiptDepartmentId },
+    approvalScope: ReceiptApprovalGrantScopeSchema.guards.Global(selected.scope)
+      ? Scope.Global()
+      : Scope.Department({ departmentId: receiptDepartmentId }),
   });
 };
 
@@ -552,13 +621,15 @@ export const selectReceiptSettlementGrant = (
 ): ResolvedReceiptSettlementGrant | undefined => {
   let global: ResolvedReceiptSettlementGrant | undefined;
   let department: ResolvedReceiptSettlementGrant | undefined;
+
   for (const grant of authority.settlementGrants) {
-    if (grant.scope._tag === "Global") {
+    if (ReceiptApprovalGrantScopeSchema.guards.Global(grant.scope)) {
       global = preferTemporalCandidate(global, grant, authority.evaluatedAt);
     } else if (grant.scope.departmentId === receiptDepartmentId) {
       department = preferTemporalCandidate(department, grant, authority.evaluatedAt);
     }
   }
+
   return global?.active === true
     ? global
     : department?.active === true
@@ -576,14 +647,15 @@ export const mapExistingReceiptSettlementActor = (
   receiptDepartmentId: DepartmentId,
 ): Effect.Effect<ReceiptSettlementActor, ReceiptNotFound> => {
   const selected = selectReceiptSettlementGrant(authority, receiptDepartmentId);
+
   if (selected?.active !== true) return Effect.fail(new ReceiptNotFound({ receiptId }));
+
   return Effect.succeed({
     personId: authority.personId,
     active: true,
-    settlementScope:
-      selected.scope._tag === "Global"
-        ? { _tag: "Global" }
-        : { _tag: "Department", departmentId: receiptDepartmentId },
+    settlementScope: ReceiptApprovalGrantScopeSchema.guards.Global(selected.scope)
+      ? Scope.Global()
+      : Scope.Department({ departmentId: receiptDepartmentId }),
   });
 };
 
@@ -608,6 +680,6 @@ export const mapReceiptOwnerActor = (
       personId: principal.personId,
       departmentId: receiptDepartmentId,
       active: principal.active,
-      approvalScope: { _tag: "None" as const },
+      approvalScope: ApprovalScopeSchema.cases.None.make({}),
     })),
   );

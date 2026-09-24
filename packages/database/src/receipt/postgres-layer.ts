@@ -13,8 +13,7 @@ import {
   readReceiptFileForApproval as readReceiptFileForApprovalPostgres,
 } from "./postgres.js";
 import {
-  authorizeReceiptSettlement,
-  executeAuthorizedReceiptSettlement,
+  readReceiptSettlementRevision,
   listReceiptsForSettlement,
   readReceiptSettlementForFinance,
   recordReceiptSettlement,
@@ -42,12 +41,8 @@ export const EconomyLive = Layer.effect(
         executeAuthorizedReceiptCommand(input, authorization, allocation).pipe(
           Effect.provideService(Database, database),
         ),
-      authorizeReceiptSettlement: (target, principal) =>
-        authorizeReceiptSettlement(target, principal).pipe(
-          Effect.provideService(Database, database),
-        ),
-      executeAuthorizedReceiptSettlement: (input, authorization) =>
-        executeAuthorizedReceiptSettlement(input, authorization).pipe(
+      readReceiptSettlementRevision: (receiptId, principal) =>
+        readReceiptSettlementRevision(receiptId, principal).pipe(
           Effect.provideService(Database, database),
         ),
       recordReceiptSettlement: (input, principal) =>

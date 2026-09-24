@@ -1,21 +1,31 @@
+import { Schema } from "effect";
 import { expect, test, type Page } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
+
 const leaderUsername = "recruitment-leader-0028";
+
 const leaderPassword = "recruitment-e2e-0028";
+
 const applicantName = "Søker 0028";
+
 const interviewerName = "Intervjuer 0028";
+
 const schemaName = "Førstegangsintervju 0028";
+
 function redactTokenBody(rawBody: string): string {
   try {
-    const parsed = JSON.parse(rawBody) as { token?: unknown };
-    if (parsed && typeof parsed === "object" && "token" in parsed) {
+    const parsed = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.mutableKey(Schema.Json)))(JSON.parse(rawBody));
+
+    if ("token" in parsed) {
       parsed.token = "<redacted>";
+
       return JSON.stringify(parsed);
     }
   } catch {
     // Keep non-JSON error responses intact for diagnosis.
   }
+
   return rawBody;
 }
 
@@ -35,7 +45,9 @@ async function probeLoginFailure(
         password: leaderPassword,
       },
     });
+
     const body = redactTokenBody(await response.text());
+
     return { status: response.status(), body };
   } catch (error) {
     return {
@@ -44,11 +56,13 @@ async function probeLoginFailure(
     };
   }
 }
+
 async function diagnoseDashboardAuth(
   page: Page,
   stage: string,
 ): Promise<string> {
   const rawCookies = await page.context().cookies();
+
   const cookies = rawCookies.map((cookie) => ({
     name: cookie.name,
     value: "<redacted>",
@@ -58,12 +72,15 @@ async function diagnoseDashboardAuth(
     httpOnly: cookie.httpOnly,
     sameSite: cookie.sameSite,
   }));
+
   const jwtCookie = rawCookies.find((cookie) => cookie.name === "jwt_token");
-  const headers: Record<string, string> = {
+
+  const headers = new Headers({
     Accept: "application/json",
-  };
+  });
+
   if (jwtCookie) {
-    headers.Authorization = `Bearer ${jwtCookie.value}`;
+    headers.set("Authorization", `Bearer ${jwtCookie.value}`);
   }
 
   const probes = await Promise.all(
@@ -71,8 +88,9 @@ async function diagnoseDashboardAuth(
       try {
         const response = await page.request.get(`${apiOrigin}${endpoint}`, {
           timeout: 10_000,
-          headers,
+          headers: Object.fromEntries(headers),
         });
+
         return {
           endpoint,
           status: response.status(),
@@ -93,6 +111,7 @@ async function diagnoseDashboardAuth(
     body: diagnosticBody,
     contentType: "application/json",
   });
+
   return diagnosticBody;
 }
 
@@ -118,6 +137,7 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
     await page.getByLabel("Brukernavn eller e-post").fill(leaderUsername);
     await page.getByLabel("Passord").fill(leaderPassword);
     await page.getByRole("button", { name: "Logg inn", exact: true }).click();
+
     try {
       await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
     } catch (error) {
@@ -125,6 +145,7 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
         page,
         "login-redirect",
       );
+
       const probe = await probeLoginFailure(page);
       await test.info().attach("real-login-api-response.json", {
         body: JSON.stringify(
@@ -143,6 +164,7 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
         `Real login UI did not reach the dashboard (${reason}); direct API probe returned ${probe.status}: ${probe.body}; dashboard auth diagnostics: ${dashboardDiagnostics}`,
       );
     }
+
     try {
       await page.goto("/dashboard/sokere?status=new", {
         waitUntil: "networkidle",
@@ -153,11 +175,13 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
         page,
         "applicant-list",
       );
+
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(
         `${reason}; dashboard auth diagnostics: ${dashboardDiagnostics}`,
       );
     }
+
     await expect(
       page.getByRole("heading", { name: "Søkere", exact: true }),
     ).toBeVisible();
@@ -165,6 +189,7 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
     const applicantRow = page
       .getByRole("row")
       .filter({ hasText: applicantName });
+
     await expect(applicantRow).toBeVisible();
     await expect(applicantRow).toContainText("—");
 
@@ -197,9 +222,11 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
 
     await page.reload({ waitUntil: "networkidle" });
     await expect(page).toHaveURL(/\/dashboard\/sokere\?status=new$/);
+
     const refreshedApplicantRow = page
       .getByRole("row")
       .filter({ hasText: applicantName });
+
     await expect(refreshedApplicantRow).toContainText(interviewerName);
     await expect(
       refreshedApplicantRow.getByRole("button", {
@@ -211,22 +238,22 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
     const jwtCookie = (await page.context().cookies()).find(
       (cookie) => cookie.name === "jwt_token",
     );
+
     if (!jwtCookie) {
       throw new Error("The real login did not set jwt_token");
     }
+
     const freshRead = await page.request.get(
       `${apiOrigin}/api/admin/applications?status=new`,
       {
         headers: { Authorization: `Bearer ${jwtCookie.value}` },
       },
     );
+
     expect(freshRead.status()).toBe(200);
-    const payload = (await freshRead.json()) as {
-      applications?: Array<{
-        userName?: string;
-        interviewer?: string | null;
-      }>;
-    };
+
+    const payload = Schema.decodeUnknownSync(Schema.Struct({ applications: Schema.optional(Schema.Array(Schema.Struct({ userName: Schema.optional(Schema.String), interviewer: Schema.optional(Schema.Union([Schema.String, Schema.Null])) }))) }))((await freshRead.json()));
+
     expect(payload.applications).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

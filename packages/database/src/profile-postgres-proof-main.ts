@@ -1,22 +1,24 @@
 import assert from "node:assert/strict";
 import {
+  OwnProfile,
+  UpdateOwnProfileCommand,
   Profile,
   ProfileCommandId,
-  type UpdateOwnProfileCommand,
 } from "@vektorprogrammet/domain/profile";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { Database } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
+import { Schema, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 import { databaseSchemaRevision } from "./migrations.js";
 
 const personId = PersonId.make("profile-self-edit-e2e-0064");
+
 const expectedRevision = Number(process.env.PROFILE_E2E_EXPECTED_REVISION ?? "2");
-const left: UpdateOwnProfileCommand = {
-  _tag: "UpdateOwnProfile",
+
+const left: UpdateOwnProfileCommand = UpdateOwnProfileCommand.make({
   commandId: ProfileCommandId.make("profile-concurrency-left-0064"),
   expectedNameRevision: expectedRevision,
   expectedContactRevision: expectedRevision,
@@ -24,7 +26,8 @@ const left: UpdateOwnProfileCommand = {
   lastName: "Profile Contender A",
   email: "profile-contender-a-0064@example.invalid",
   phone: "+47 9000 0011",
-};
+});
+
 const right: UpdateOwnProfileCommand = {
   ...left,
   commandId: ProfileCommandId.make("profile-concurrency-right-0064"),
@@ -38,6 +41,7 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
   const database = DatabaseLive({ url, applicationName, maxConnections: 1 });
   const organization = OrganizationLive.pipe(Layer.provide(database));
   const profile = ProfileLive.pipe(Layer.provide(Layer.merge(database, organization)));
+
   return Layer.mergeAll(database, organization, profile);
 };
 
@@ -52,9 +56,11 @@ const contender = (
     const [connection] = yield* sql<{ readonly pid: number }>`SELECT pg_backend_pid() AS pid`;
     yield* Deferred.succeed(ready, undefined);
     yield* Deferred.await(start);
+
     const outcome = yield* Effect.result(
       profile.updateOwnProfile({ actorPersonId: personId, command }),
     );
+
     return { pid: connection?.pid ?? -1, commandId: command.commandId, outcome };
   });
 
@@ -63,19 +69,23 @@ const race = (url: Redacted.Redacted<string>) =>
     const readyA = yield* Deferred.make<void>();
     const readyB = yield* Deferred.make<void>();
     const start = yield* Deferred.make<void>();
+
     const fiberA = yield* Effect.forkScoped(
       contender(left, readyA, start).pipe(
         Effect.provide(makeProofLayer(url, "profile-concurrency-left-0064")),
       ),
     );
+
     const fiberB = yield* Effect.forkScoped(
       contender(right, readyB, start).pipe(
         Effect.provide(makeProofLayer(url, "profile-concurrency-right-0064")),
       ),
     );
+
     yield* Deferred.await(readyA);
     yield* Deferred.await(readyB);
     yield* Deferred.succeed(start, undefined);
+
     return yield* Effect.all([Fiber.join(fiberA), Fiber.join(fiberB)], {
       concurrency: "unbounded",
     });
@@ -84,6 +94,7 @@ const race = (url: Redacted.Redacted<string>) =>
 const observe = (url: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     const [profile] = yield* sql<{
       readonly personId: string;
       readonly firstName: string;
@@ -98,6 +109,7 @@ const observe = (url: Redacted.Redacted<string>) =>
       FROM person_profiles p INNER JOIN person_contact_profiles c ON c.person_id = p.person_id
       WHERE p.person_id = ${personId}
     `;
+
     const receipts = yield* sql<{
       readonly commandId: string;
       readonly commandSha256: string;
@@ -117,6 +129,7 @@ const observe = (url: Redacted.Redacted<string>) =>
       WHERE command_id IN (${left.commandId}, ${right.commandId})
       ORDER BY command_id
     `;
+
     return { profile, receipts };
   }).pipe(Effect.provide(makeProofLayer(url, "profile-proof-observer-0064")));
 
@@ -128,19 +141,23 @@ const runCommand = (
   Effect.scoped(
     Effect.gen(function* () {
       const profile = yield* Profile;
+
       return yield* profile.updateOwnProfile({ actorPersonId: personId, command });
     }).pipe(Effect.provide(makeProofLayer(url, applicationName))),
   );
 
 export const program = Effect.scoped(
   Effect.gen(function* () {
-    const url = yield* Config.redacted("PROFILE_E2E_PG_URL");
+    const url = yield* Config.Redacted("PROFILE_E2E_PG_URL");
     const raceResults = yield* race(url);
-    const successes = raceResults.filter((entry) => entry.outcome._tag === "Success");
+    const successes = raceResults.filter((entry) => Predicate.isTagged(entry.outcome, "Success"));
+
     const stale = raceResults.filter(
       (entry) =>
-        entry.outcome._tag === "Failure" && entry.outcome.failure._tag === "ProfileStaleRevision",
+        Predicate.isTagged(entry.outcome, "Failure") &&
+        Predicate.isTagged(entry.outcome.failure, "ProfileStaleRevision"),
     );
+
     assert.equal(raceResults.length, 2);
     assert.equal(successes.length, 1);
     assert.equal(stale.length, 1);
@@ -159,6 +176,7 @@ export const program = Effect.scoped(
     assert.equal(observed.profile.phone, winnerCommand.phone);
     const receipt = observed.receipts[0];
     assert.ok(receipt);
+
     const payload = {
       actorPersonId: personId,
       _tag: winnerCommand._tag,
@@ -170,6 +188,7 @@ export const program = Effect.scoped(
       email: winnerCommand.email,
       phone: winnerCommand.phone,
     };
+
     assert.equal(receipt.commandId, winnerCommand.commandId);
     assert.equal(receipt.actorPersonId, personId);
     assert.equal(receipt.commandSha256, sha256Hex(canonicalJsonBytes(payload)));
@@ -181,18 +200,25 @@ export const program = Effect.scoped(
     const replay = yield* Effect.result(
       runCommand(url, winnerCommand, "profile-proof-replay-0064"),
     );
+
     assert.equal(replay._tag, "Success");
-    if (replay._tag === "Success")
+
+    if (Predicate.isTagged(replay, "Success"))
       assert.equal(canonicalJson(replay.success), canonicalJson(receipt.resultJson));
     const conflictCommand = { ...winnerCommand, firstName: `${winnerCommand.firstName} Changed` };
+
     const conflict = yield* Effect.result(
       runCommand(url, conflictCommand, "profile-proof-conflict-0064"),
     );
+
     assert.equal(conflict._tag, "Failure");
-    if (conflict._tag === "Failure") assert.equal(conflict.failure._tag, "ProfileCommandConflict");
+
+    if (Predicate.isTagged(conflict, "Failure"))
+      assert.equal(conflict.failure._tag, "ProfileCommandConflict");
     const afterReplay = yield* observe(url);
     assert.equal(afterReplay.receipts.length, 1);
     assert.deepEqual(afterReplay.profile, observed.profile);
+
     const evidence = {
       specId: "0064",
       database: "PostgreSQL",
@@ -202,10 +228,9 @@ export const program = Effect.scoped(
       contenderOutcomes: raceResults.map((entry) => ({
         commandId: entry.commandId,
         pid: entry.pid,
-        outcome:
-          entry.outcome._tag === "Success"
-            ? { tag: "Success" }
-            : { tag: entry.outcome.failure._tag },
+        outcome: Predicate.isTagged(entry.outcome, "Success")
+          ? { tag: "Success" }
+          : { tag: entry.outcome.failure._tag },
       })),
       winnerCommandId: winnerCommandId(winnerCommand),
       finalProfile: observed.profile,
@@ -219,7 +244,9 @@ export const program = Effect.scoped(
         committedNameRevision: receipt.committedNameRevision,
         committedContactRevision: receipt.committedContactRevision,
         commandFields: Object.keys(payload).sort(),
-        resultFields: Object.keys(receipt.resultJson as Record<string, unknown>).sort(),
+        resultFields: Object.keys(
+          yield* Schema.decodeUnknownEffect(OwnProfile)(receipt.resultJson),
+        ).sort(),
       },
       replay: {
         tag: replay._tag,
@@ -233,6 +260,7 @@ export const program = Effect.scoped(
         receiptUnchanged: true,
       },
     };
+
     process.stdout.write(`${canonicalJson(evidence)}\n`);
   }),
 );

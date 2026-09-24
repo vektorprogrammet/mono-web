@@ -1,10 +1,10 @@
 import { Runtime } from "foldkit";
 import type { InvitationResponseClient } from "./browser-client";
-import { makeInterviewCommands } from "./command";
+import { commandsFor } from "./command";
 import { OpenedInvitationResponse } from "./message";
-import { Model, makeInitialModel } from "./model";
+import { Model, init } from "./model";
 import "./styles.css";
-import { makeUpdate } from "./update";
+import { updateFor } from "./update";
 import { view } from "./view";
 
 export interface InterviewRuntimeInput {
@@ -12,9 +12,10 @@ export interface InterviewRuntimeInput {
 }
 
 export function embedInterview(container: HTMLElement, input: InterviewRuntimeInput): () => void {
-  const commands = makeInterviewCommands(input.client);
-  const update = makeUpdate(commands);
-  const initialModel = makeInitialModel();
+  const commands = commandsFor(input.client);
+  const update = updateFor(commands);
+  const initialModel = init();
+
   const program = Runtime.makeElement({
     Model,
     container,
@@ -36,5 +37,6 @@ export function embedInterview(container: HTMLElement, input: InterviewRuntimeIn
   });
 
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 }

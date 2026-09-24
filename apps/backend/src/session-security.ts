@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
-import { Schema } from "effect";
+import { Data, Schema } from "effect";
 import { allowHeader, nativeProblemResponse } from "./http-semantics.js";
 
 const Deployment = Schema.Literals(["local", "preview", "production"]);
+
 export type IdentityDeployment = typeof Deployment.Type;
 
 const ExactOrigin = Schema.String.pipe(
@@ -12,6 +13,7 @@ const ExactOrigin = Schema.String.pipe(
       (value) => {
         try {
           const url = new URL(value);
+
           return (
             url.origin === value &&
             url.username.length === 0 &&
@@ -47,7 +49,7 @@ export interface NativeSessionBoundaryPolicy {
  * Decodes the one native session-origin configuration authority. Local,
  * preview, and production compositions must all provide it explicitly.
  */
-export const makeNativeSessionBoundaryPolicy = (
+export const decodeNativeSessionBoundaryPolicy = (
   env: Readonly<Record<string, string | undefined>>,
 ): NativeSessionBoundaryPolicy => {
   if (env.BETTER_AUTH_URL !== undefined || env.BETTER_AUTH_TRUSTED_ORIGINS !== undefined) {
@@ -55,16 +57,21 @@ export const makeNativeSessionBoundaryPolicy = (
       "BETTER_AUTH_URL and BETTER_AUTH_TRUSTED_ORIGINS are unsupported; use the native identity origin policy",
     );
   }
+
   const deployment = Schema.decodeUnknownSync(Deployment)(env.NATIVE_IDENTITY_DEPLOYMENT);
+
   const trustedOrigins = Schema.decodeUnknownSync(TrustedOriginsJson)(
     env.NATIVE_IDENTITY_TRUSTED_ORIGINS,
     { onExcessProperty: "error" },
   );
+
   if (new Set(trustedOrigins).size !== trustedOrigins.length) {
     throw new Error("NATIVE_IDENTITY_TRUSTED_ORIGINS must not contain duplicates");
   }
+
   if (deployment === "local") {
     const origin = trustedOrigins.length === 1 ? new URL(trustedOrigins[0]!) : undefined;
+
     if (
       origin === undefined ||
       origin.protocol !== "http:" ||
@@ -75,8 +82,10 @@ export const makeNativeSessionBoundaryPolicy = (
         "local native identity composition requires one fixed-port http://127.0.0.1 origin",
       );
     }
+
     return { deployment, trustedOrigins, secureCookies: false };
   }
+
   if (
     deployment === "preview" &&
     (trustedOrigins.length !== 1 ||
@@ -87,9 +96,11 @@ export const makeNativeSessionBoundaryPolicy = (
       "preview native identity composition requires its frozen dev-main or p20 origin",
     );
   }
+
   if (trustedOrigins.some((origin) => new URL(origin).protocol !== "https:")) {
     throw new Error(`${deployment} native identity origins must use HTTPS`);
   }
+
   return { deployment, trustedOrigins, secureCookies: true };
 };
 
@@ -98,12 +109,14 @@ const safeCorrelation = (value: string | null): string =>
 
 const safeSourceIp = (request: Request): string | null => {
   const value = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-real-ip");
+
   return value !== null && value.length <= 64 && /^[A-Fa-f0-9.:]+$/u.test(value) ? value : null;
 };
 
 const safeUserAgent = (value: string | null): string | null => {
   if (value === null) return null;
   const sanitized = value.replace(/\p{Cc}/gu, "").slice(0, 256);
+
   return sanitized.length === 0 ? null : sanitized;
 };
 
@@ -118,18 +131,19 @@ export const identityRequestContext = (request: Request): IdentityRequestContext
   });
 
 /** Overwrites the private correlation carrier before dispatching a request. */
-export const prepareIdentityBoundaryRequest = (
-  request: Request,
-): { readonly request: Request; readonly context: IdentityRequestContext } => {
+export const prepareIdentityBoundaryRequest = (request: Request) => {
   const headers = new Headers(request.headers);
   headers.set(RequestCorrelationHeader, randomUUID());
   const prepared = new Request(request, { headers });
+
   return { request: prepared, context: identityRequestContext(prepared) };
 };
 
 export type OriginDecision =
   | { readonly _tag: "Allowed"; readonly origin: string | null }
   | { readonly _tag: "Rejected" };
+
+export const OriginDecision = Data.taggedEnum<OriginDecision>();
 
 /** True only when a Cookie header carries Better Auth's local or secure session credential. */
 export const hasBetterAuthSessionCredential = (cookieHeader: string | null): boolean =>
@@ -143,7 +157,9 @@ const isIdentityMutation = (request: Request): boolean => {
   if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
     return false;
   }
+
   const pathname = new URL(request.url).pathname;
+
   return (
     pathname.startsWith("/api/auth/") ||
     pathname === "/api/session" ||
@@ -157,27 +173,35 @@ export const decideTrustedOrigin = (
   request: Request,
 ): OriginDecision => {
   const origin = request.headers.get("origin");
+
   if (origin !== null) {
     return policy.trustedOrigins.includes(origin)
-      ? { _tag: "Allowed", origin }
-      : { _tag: "Rejected" };
+      ? OriginDecision.Allowed({ origin })
+      : OriginDecision.Rejected();
   }
+
   if (!hasSessionCookie(request) && !isIdentityMutation(request)) {
-    return { _tag: "Allowed", origin: null };
+    return OriginDecision.Allowed({ origin: null });
   }
+
   if (request.method === "GET" || request.method === "HEAD") {
     return request.headers.get("sec-fetch-site") === "cross-site"
-      ? { _tag: "Rejected" }
-      : { _tag: "Allowed", origin: null };
+      ? OriginDecision.Rejected()
+      : OriginDecision.Allowed({ origin: null });
   }
+
   const sameOriginBrowserRequest =
     request.headers.get("sec-fetch-site") === "same-origin" &&
     policy.trustedOrigins.includes(new URL(request.url).origin);
-  return sameOriginBrowserRequest ? { _tag: "Allowed", origin: null } : { _tag: "Rejected" };
+
+  return sameOriginBrowserRequest
+    ? OriginDecision.Allowed({ origin: null })
+    : OriginDecision.Rejected();
 };
 
 export const trustedOriginRejectedResponse = (): Response =>
   nativeProblemResponse("origin.denied", 403, { vary: "Origin" });
+
 /**
  * Browser-controlled headers supported by the current native API contract.
  * Cookie and CORS-safelisted headers are intentionally absent because browsers
@@ -199,9 +223,11 @@ const nativeBrowserRequestHeaderSet = new Set(
 /** Rejects any requested non-safelisted browser header outside the native contract. */
 export const allowsNativePreflightHeaders = (request: Request): boolean => {
   const value = request.headers.get("access-control-request-headers");
+
   if (value === null) return true;
   const requested = value.split(",").map((header) => header.trim().toLowerCase());
   const unique = new Set(requested);
+
   return (
     requested.length > 0 &&
     unique.size === requested.length &&
@@ -232,10 +258,13 @@ export const trustedPreflightResponse = (
 
 const mergeVary = (headers: Headers, values: ReadonlyArray<string>): void => {
   const seen = new Map<string, string>();
+
   for (const value of (headers.get("vary") ?? "").split(",")) {
     const trimmed = value.trim();
+
     if (trimmed.length > 0) seen.set(trimmed.toLowerCase(), trimmed);
   }
+
   for (const value of values) seen.set(value.toLowerCase(), value);
   headers.set("vary", [...seen.values()].join(", "));
 };
@@ -244,11 +273,13 @@ const mergeVary = (headers: Headers, values: ReadonlyArray<string>): void => {
 export const withTrustedOriginCors = (response: Response, origin: string | null): Response => {
   const headers = new Headers(response.headers);
   mergeVary(headers, ["Origin"]);
+
   if (origin !== null) {
     headers.set("access-control-allow-credentials", "true");
     headers.set("access-control-expose-headers", "ETag, Location, Retry-After, WWW-Authenticate");
     headers.set("access-control-allow-origin", origin);
   }
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

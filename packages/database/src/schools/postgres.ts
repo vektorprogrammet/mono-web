@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { flow, Predicate, Effect, Schema } from "effect";
 import { Database } from "../service.js";
 import {
   SchoolsDecodeError,
@@ -25,6 +25,7 @@ const DirectoryRowSchema = Schema.Struct({
   departments: SchoolDirectoryDepartmentsSchema,
   isActive: Schema.Boolean,
 });
+
 type DirectoryRow = typeof DirectoryRowSchema.Type;
 
 const decodeError = (operation: string, cause: unknown): SchoolsDecodeError =>
@@ -33,31 +34,36 @@ const decodeError = (operation: string, cause: unknown): SchoolsDecodeError =>
 const persistenceError = (operation: string, cause: unknown): SchoolsPersistenceError =>
   new SchoolsPersistenceError({ operation, message: String(cause) });
 
-const decodeRows = (
-  selected: unknown,
-): Effect.Effect<ReadonlyArray<SchoolDirectoryEntry>, SchoolsDecodeError> =>
-  Effect.gen(function* () {
-    const rows = yield* Schema.decodeUnknownEffect(Schema.Array(DirectoryRowSchema))(selected, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory rows", cause)));
-    const entries: Array<SchoolDirectoryEntry> = [];
-    for (const row of rows) {
-      const schoolId = yield* Schema.decodeUnknownEffect(SchoolId)(Number(row.schoolId)).pipe(
-        Effect.mapError((cause) => decodeError("decode Schools directory schoolId", cause)),
-      );
-      entries.push({
-        schoolId,
-        name: row.name,
-        contactPerson: row.contactPerson,
-        email: row.email,
-        phone: row.phone,
-        language: row.language,
-        departments: row.departments,
-        isActive: row.isActive,
-      });
-    }
-    return entries;
-  });
+const decodeRows = flow(
+  flow(
+    Schema.decodeUnknownEffect(Schema.Array(DirectoryRowSchema), { onExcessProperty: "error" }),
+    Effect.mapError((cause) => decodeError("decode Schools directory rows", cause)),
+  ),
+  Effect.flatMap((rows) =>
+    Effect.gen(function* () {
+      const entries: Array<SchoolDirectoryEntry> = [];
+
+      for (const row of rows) {
+        const schoolId = yield* Schema.decodeUnknownEffect(SchoolId)(Number(row.schoolId)).pipe(
+          Effect.mapError((cause) => decodeError("decode Schools directory schoolId", cause)),
+        );
+
+        entries.push({
+          schoolId,
+          name: row.name,
+          contactPerson: row.contactPerson,
+          email: row.email,
+          phone: row.phone,
+          language: row.language,
+          departments: row.departments,
+          isActive: row.isActive,
+        });
+      }
+
+      return entries;
+    }),
+  ),
+);
 
 /**
  * Reads the full visible directory in deterministic order. The visibility
@@ -71,8 +77,9 @@ export const listSchoolDirectoryPostgres = (
     const decoded = yield* Schema.decodeUnknownEffect(SchoolDirectoryListInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory input", cause)));
+
     if (
-      decoded.scope._tag === "DepartmentIds" &&
+      Predicate.isTagged(decoded.scope, "DepartmentIds") &&
       decoded.departmentId !== undefined &&
       !decoded.scope.departmentIds.includes(decoded.departmentId)
     ) {
@@ -81,23 +88,30 @@ export const listSchoolDirectoryPostgres = (
         "department narrowing exceeds the authorized scope",
       );
     }
+
     const sql = yield* Database;
-    const isAll = decoded.scope._tag === "All";
-    const departmentIds =
-      decoded.scope._tag === "DepartmentIds" ? decoded.scope.departmentIds : undefined;
+    const isAll = Predicate.isTagged(decoded.scope, "All");
+
+    const departmentIds = Predicate.isTagged(decoded.scope, "DepartmentIds")
+      ? decoded.scope.departmentIds
+      : undefined;
+
     const includeUnassigned = isAll && decoded.departmentId === undefined;
+
     const visibilityPredicate =
       decoded.departmentId !== undefined
         ? sql`visible_association.department_id = ${decoded.departmentId}`
         : departmentIds === undefined
           ? sql`TRUE`
           : sql.in("visible_association.department_id", departmentIds);
+
     const directoryPredicate =
       decoded.departmentId !== undefined
         ? sql`directory_association.department_id = ${decoded.departmentId}`
         : departmentIds === undefined
           ? sql`TRUE`
           : sql.in("directory_association.department_id", departmentIds);
+
     const selected = yield* sql<DirectoryRow>`
       SELECT
         school.school_id::text AS "schoolId",
@@ -140,11 +154,14 @@ export const listSchoolDirectoryPostgres = (
         Effect.fail(persistenceError("read Schools directory", cause)),
       ),
     );
+
     const entries = yield* decodeRows(selected);
+
     const directory = {
       activeSchools: entries.filter((school) => school.isActive),
       inactiveSchools: entries.filter((school) => !school.isActive),
     };
+
     return yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory", cause)));

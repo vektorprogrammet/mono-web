@@ -11,17 +11,29 @@ import {
 } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
+
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8791";
+
 const REAL_ADMISSION_PERIOD_E2E = process.env.REAL_ADMISSION_PERIOD_E2E === "1";
+
 const DEPARTMENT_ID = "department-trondheim";
+
 const FOREIGN_DEPARTMENT_ID = "department-bergen";
+
 const SEMESTER_ID = "semester-autumn-2031";
+
 const FIELD_OF_STUDY_ID = "field-mathematics";
+
 const OPEN_START_INPUT = "2031-09-01T08:00";
+
 const OPEN_END_INPUT = "2031-10-01T20:00";
+
 const CLOSED_END_INPUT = "2031-09-10T12:00";
+
 const OPEN_START = `${OPEN_START_INPUT}:00.000Z`;
+
 const OPEN_END = `${OPEN_END_INPUT}:00.000Z`;
+
 const CLOSED_END = `${CLOSED_END_INPUT}:00.000Z`;
 
 const managementPeriodSchema = Schema.Struct({
@@ -33,10 +45,12 @@ const managementPeriodSchema = Schema.Struct({
   revision: Schema.Int,
   etag: Schema.String,
 });
+
 const managementPageSchema = Schema.Struct({
   items: Schema.Array(managementPeriodSchema),
   totalItems: Schema.Int,
 });
+
 const openPeriodSchema = Schema.Struct({
   id: Schema.String,
   departmentId: Schema.String,
@@ -44,10 +58,12 @@ const openPeriodSchema = Schema.Struct({
   startAt: Schema.String,
   endAt: Schema.String,
 });
+
 const openPeriodPageSchema = Schema.Struct({
   items: Schema.Array(openPeriodSchema),
   totalItems: Schema.Int,
 });
+
 const problemSchema = Schema.Struct({
   type: Schema.String,
   title: Schema.String,
@@ -55,23 +71,25 @@ const problemSchema = Schema.Struct({
   code: Schema.String,
   detail: Schema.String,
 });
+
 const applicationSubmissionSchema = Schema.Struct({
   _tag: Schema.Literal("ApplicationConfirmed"),
   applicationId: Schema.String,
 });
 
-const decodeStrict = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown): A =>
-  Schema.decodeUnknownSync(schema)(value, { onExcessProperty: "error" });
+
 
 const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
+
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required for the real admission-period journey`);
   }
+
   return value;
 };
 
-const authorization = (token: string): Record<string, string> => ({
+const authorization = (token: string) => ({
   authorization: `Bearer ${token}`,
 });
 
@@ -79,11 +97,13 @@ const mutationHeaders = (
   token: string,
   idempotencyKey: string,
   ifMatch?: string,
-): Record<string, string> => ({
-  ...authorization(token),
-  "Idempotency-Key": idempotencyKey,
-  ...(ifMatch === undefined ? {} : { "If-Match": ifMatch }),
-});
+) => {
+  const headers = new Headers({ ...authorization(token), "Idempotency-Key": idempotencyKey });
+
+  if (ifMatch !== undefined) headers.set("If-Match", ifMatch);
+
+  return Object.fromEntries(headers);
+};
 
 async function authenticate(page: Page): Promise<void> {
   await page.context().addCookies([
@@ -100,6 +120,7 @@ async function authenticate(page: Page): Promise<void> {
 const waitForNavigationQuiescence = (page: Page): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
   let timeout: ReturnType<typeof setTimeout>;
+
   const settle = () => {
     clearTimeout(timeout);
     timeout = setTimeout(() => {
@@ -107,11 +128,14 @@ const waitForNavigationQuiescence = (page: Page): Promise<void> => {
       resolve();
     }, 6_000);
   };
+
   const onFrameNavigated = (frame: Frame) => {
     if (frame === page.mainFrame()) settle();
   };
+
   page.on("framenavigated", onFrameNavigated);
   settle();
+
   return promise;
 };
 
@@ -122,12 +146,13 @@ async function expectProblemCode(
 ): Promise<{ readonly status: number; readonly code: string }> {
   expect(response.status()).toBe(expectedStatus);
   expect(response.headers()["content-type"]).toContain("application/problem+json");
-  const problem = decodeStrict(problemSchema, await response.json());
+  const problem = Schema.decodeUnknownSync(problemSchema, { onExcessProperty: "error" })(await response.json());
   expect(problem).toMatchObject({
     status: expectedStatus,
     code: expectedCode,
     type: `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
   });
+
   return { status: problem.status, code: problem.code };
 }
 
@@ -138,8 +163,10 @@ async function readManagementPage(
   const response = await request.get(`${BACKEND_ORIGIN}/api/admission-periods`, {
     headers: authorization(token),
   });
+
   expect(response.ok()).toBe(true);
-  return decodeStrict(managementPageSchema, await response.json());
+
+  return Schema.decodeUnknownSync(managementPageSchema, { onExcessProperty: "error" })(await response.json());
 }
 
 async function readOpenPage(
@@ -147,7 +174,8 @@ async function readOpenPage(
 ): Promise<typeof openPeriodPageSchema.Type> {
   const response = await request.get(`${BACKEND_ORIGIN}/api/open-admission-periods`);
   expect(response.ok()).toBe(true);
-  return decodeStrict(openPeriodPageSchema, await response.json());
+
+  return Schema.decodeUnknownSync(openPeriodPageSchema, { onExcessProperty: "error" })(await response.json());
 }
 
 test.describe("Native admission-period management", () => {
@@ -163,15 +191,18 @@ test.describe("Native admission-period management", () => {
     const globalAdminToken = requiredEnvironment("ADMISSION_E2E_GLOBAL_ADMIN_TOKEN");
     const inactiveToken = requiredEnvironment("ADMISSION_E2E_INACTIVE_TOKEN");
     const roleDeniedToken = requiredEnvironment("ADMISSION_E2E_ROLE_DENIED_TOKEN");
+
     const browserMutations: Array<{
       readonly method: string;
       readonly path: string;
       readonly idempotencyKey: string;
       readonly ifMatch?: string;
-      readonly payload: Record<string, unknown>;
+      readonly payload: Record<string, Schema.Json>;
     }> = [];
+
     page.on("request", (browserRequest) => {
       const url = new URL(browserRequest.url());
+
       if (
         url.origin !== BACKEND_ORIGIN ||
         !["POST", "PATCH"].includes(browserRequest.method()) ||
@@ -179,15 +210,17 @@ test.describe("Native admission-period management", () => {
       ) {
         return;
       }
+
       const headers = browserRequest.headers();
       const idempotencyKey = headers["idempotency-key"];
+
       if (idempotencyKey === undefined) return;
       browserMutations.push({
         method: browserRequest.method(),
         path: url.pathname,
         idempotencyKey,
-        ...(headers["if-match"] === undefined ? {} : { ifMatch: headers["if-match"] }),
-        payload: browserRequest.postDataJSON() as Record<string, unknown>,
+        ifMatch: headers["if-match"] === undefined ? undefined : headers["if-match"],
+        payload: Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(browserRequest.postDataJSON()),
       });
     });
     const evidencePath = requiredEnvironment("ADMISSION_E2E_LIFECYCLE_EVIDENCE_PATH");
@@ -223,11 +256,13 @@ test.describe("Native admission-period management", () => {
     await expect(row).toHaveAttribute("data-eligible", "true");
     const admissionPeriodId = await row.getAttribute("data-admission-period-id");
     expect(admissionPeriodId).not.toBeNull();
+
     if (admissionPeriodId === null) throw new Error("created admission-period ID was absent");
 
     const accessibility = await new AxeBuilder({ page })
       .include('section[aria-labelledby="admission-period-page-title"]')
       .analyze();
+
     expect(accessibility.violations).toEqual([]);
 
     const leaderPage = await readManagementPage(request, leaderToken);
@@ -249,7 +284,9 @@ test.describe("Native admission-period management", () => {
     const createMutation = browserMutations.find(
       ({ method, path }) => method === "POST" && path === "/api/admission-periods",
     );
+
     expect(createMutation).toBeDefined();
+
     if (createMutation === undefined) throw new Error("browser create request was not observed");
     expect(createMutation.payload).toEqual({
       semesterId: SEMESTER_ID,
@@ -259,27 +296,34 @@ test.describe("Native admission-period management", () => {
     expect(createMutation.payload).not.toHaveProperty("commandId");
 
     const unauthenticated = await request.get(`${BACKEND_ORIGIN}/api/admission-periods`);
+
     const unauthenticatedError = await expectProblemCode(
       unauthenticated,
       401,
       "credential.missing",
     );
+
     const inactive = await request.get(`${BACKEND_ORIGIN}/api/admission-periods`, {
       headers: authorization(inactiveToken),
     });
+
     const inactiveError = await expectProblemCode(inactive, 403, "authority.denied");
+
     const roleDenied = await request.get(`${BACKEND_ORIGIN}/api/admission-periods`, {
       headers: authorization(roleDeniedToken),
     });
+
     const roleDeniedError = await expectProblemCode(roleDenied, 403, "authority.denied");
 
     const originalCreate = createMutation.payload;
+
     const replayResponse = await request.post(`${BACKEND_ORIGIN}/api/admission-periods`, {
       headers: mutationHeaders(leaderToken, createMutation.idempotencyKey),
       data: originalCreate,
     });
+
     expect(replayResponse.status()).toBe(201);
-    const replay = decodeStrict(managementPeriodSchema, await replayResponse.json());
+    const replay = Schema.decodeUnknownSync(managementPeriodSchema, { onExcessProperty: "error" })(await replayResponse.json());
     expect(replay.id).toBe(admissionPeriodId);
 
     const replayConflictResponse = await request.post(
@@ -289,6 +333,7 @@ test.describe("Native admission-period management", () => {
         data: { ...originalCreate, endAt: "2031-09-30T20:00:00.000Z" },
       },
     );
+
     const replayConflict = await expectProblemCode(
       replayConflictResponse,
       409,
@@ -299,11 +344,13 @@ test.describe("Native admission-period management", () => {
       headers: mutationHeaders(leaderToken, "admission-e2e-duplicate"),
       data: originalCreate,
     });
+
     const duplicate = await expectProblemCode(
       duplicateResponse,
       409,
       "admission-period.already-exists",
     );
+
     const invalidWindowResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admission-periods`,
       {
@@ -315,11 +362,13 @@ test.describe("Native admission-period management", () => {
         },
       },
     );
+
     const invalidWindow = await expectProblemCode(
       invalidWindowResponse,
       422,
       "admission-period.invalid-window",
     );
+
     const crossScopeResponse = await request.post(`${BACKEND_ORIGIN}/api/admission-periods`, {
       headers: mutationHeaders(leaderToken, "admission-e2e-cross-scope"),
       data: {
@@ -327,7 +376,9 @@ test.describe("Native admission-period management", () => {
         departmentId: FOREIGN_DEPARTMENT_ID,
       },
     });
+
     const crossScope = await expectProblemCode(crossScopeResponse, 403, "authority.denied");
+
     const malformedResponse = await request.post(`${BACKEND_ORIGIN}/api/admission-periods`, {
       headers: {
         ...mutationHeaders(leaderToken, "admission-e2e-malformed"),
@@ -335,9 +386,11 @@ test.describe("Native admission-period management", () => {
       },
       data: JSON.stringify({ ...originalCreate, browserAuthority: true }),
     });
+
     const malformed = await expectProblemCode(malformedResponse, 422, "validation.failed");
 
     const applicationIdempotencyKey = "admission-e2e-application-before-close";
+
     const applicationResponse = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
       headers: { "Idempotency-Key": applicationIdempotencyKey },
       data: {
@@ -351,14 +404,15 @@ test.describe("Native admission-period management", () => {
         yearOfStudy: 3,
       },
     });
+
     expect(applicationResponse.status()).toBe(201);
-    const applicationSubmission = decodeStrict(
-      applicationSubmissionSchema,
-      await applicationResponse.json(),
-    );
+
+    const applicationSubmission = Schema.decodeUnknownSync(applicationSubmissionSchema, { onExcessProperty: "error" })(await applicationResponse.json());
+
     expect(applicationSubmission.applicationId).toBeTruthy();
 
     const initialEtag = leaderPage.items[0].etag;
+
     const concurrentRequests = [
       {
         idempotencyKey: "admission-e2e-concurrent-a",
@@ -375,6 +429,7 @@ test.describe("Native admission-period management", () => {
         },
       },
     ] as const;
+
     const concurrentResponses = await Promise.all(
       concurrentRequests.map(({ idempotencyKey, payload }) =>
         request.patch(`${BACKEND_ORIGIN}/api/admission-periods/${admissionPeriodId}`, {
@@ -386,17 +441,19 @@ test.describe("Native admission-period management", () => {
         }),
       ),
     );
+
     const winnerIndexes = concurrentResponses
       .map((response, index) => (response.ok() ? index : -1))
       .filter((index) => index >= 0);
+
     expect(winnerIndexes).toHaveLength(1);
     const winnerIndex = winnerIndexes[0];
     const loserIndex = winnerIndex === 0 ? 1 : 0;
-    const winner = decodeStrict(
-      managementPeriodSchema,
-      await concurrentResponses[winnerIndex].json(),
-    );
+
+    const winner = Schema.decodeUnknownSync(managementPeriodSchema, { onExcessProperty: "error" })(await concurrentResponses[winnerIndex].json());
+
     expect(winner.revision).toBe(1);
+
     const concurrentLoser = await expectProblemCode(
       concurrentResponses[loserIndex],
       412,
@@ -404,9 +461,11 @@ test.describe("Native admission-period management", () => {
     );
 
     await page.reload();
+
     const revisedRow = page.locator(
       `tr[data-admission-period-id=${JSON.stringify(admissionPeriodId)}]`,
     );
+
     await expect(revisedRow).toHaveAttribute("data-revision", "1");
     await revisedRow.getByRole("button", { name: "Revider" }).click();
     const revisionPanel = page.locator("tr[data-admission-period-revision-panel]");
@@ -421,9 +480,11 @@ test.describe("Native admission-period management", () => {
 
     await revisionEnd.fill(CLOSED_END_INPUT);
     await revisionPanel.getByRole("button", { name: "Lagre ny versjon" }).click();
+
     const closedRow = page.locator(
       `tr[data-admission-period-id=${JSON.stringify(admissionPeriodId)}]`,
     );
+
     await expect(closedRow).toHaveAttribute("data-revision", "2");
     await expect(closedRow).toHaveAttribute("data-eligible", "false");
     await expect(closedRow.locator('[data-eligibility="ineligible"]')).toBeVisible();
@@ -432,7 +493,9 @@ test.describe("Native admission-period management", () => {
       ({ method, path }) =>
         method === "PATCH" && path === `/api/admission-periods/${admissionPeriodId}`,
     );
+
     expect(closeMutation).toBeDefined();
+
     if (closeMutation === undefined) throw new Error("browser close request was not observed");
     expect(closeMutation.payload).toEqual({ startAt: OPEN_START, endAt: CLOSED_END });
     expect(closeMutation.payload).not.toHaveProperty("expectedRevision");
@@ -455,6 +518,7 @@ test.describe("Native admission-period management", () => {
         },
       },
     );
+
     const stale = await expectProblemCode(staleResponse, 412, "precondition.failed");
     const openAfterClose = await readOpenPage(request);
     expect(openAfterClose.items).toEqual([]);
@@ -472,6 +536,7 @@ test.describe("Native admission-period management", () => {
         yearOfStudy: 2,
       },
     });
+
     const rejectedApplication = await expectProblemCode(
       rejectedApplicationResponse,
       409,
@@ -479,6 +544,7 @@ test.describe("Native admission-period management", () => {
     );
 
     const invalidBrowserContext = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
+
     try {
       await invalidBrowserContext.addCookies([
         {

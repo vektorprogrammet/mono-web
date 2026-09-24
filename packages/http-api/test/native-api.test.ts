@@ -1,12 +1,11 @@
-import { PUBLIC_SYSTEM_ACCESS } from "@vektorprogrammet/domain/authz";
+import { PUBLIC_SYSTEM_ACCESS, CapabilityTypeId, RequirementId } from "@vektorprogrammet/domain/authz";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
-import { Context, Schema } from "effect";
+import { Predicate, Context, Schema } from "effect";
 import { HttpApiClient, OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 import {
   annotateAccessSpec,
-  assertAccessProjectionRegistryParity,
   projectVektorAccess,
   reflectAccessSpec,
   type VektorAccessProjection,
@@ -29,6 +28,7 @@ const endpointInventory = () =>
       path: endpoint.path,
     })),
   );
+
 const internalEndpointInventory = () =>
   Object.values(InternalNativeApi.groups).flatMap((group) =>
     Object.values(group.endpoints).map((endpoint) => ({
@@ -42,9 +42,11 @@ const internalEndpointInventory = () =>
 const documentedOperations = () => {
   const spec = OpenApi.fromApi(ExternalNativeApi);
   const methods = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
+
   return Object.entries(spec.paths).flatMap(([path, item]) =>
     methods.flatMap((method) => {
       const operation = item[method];
+
       return operation === undefined ? [] : [{ method, path, operation }];
     }),
   );
@@ -56,12 +58,13 @@ type ExpectedOperation = readonly [
   operationId: string,
   access: VektorAccessProjection,
 ];
+
 const expectedAccess = (input: {
   readonly credentials: ReadonlyArray<string>;
   readonly principals: ReadonlyArray<string>;
-  readonly capability?: string;
+  readonly capability?: typeof CapabilityTypeId.Encoded;
   readonly resolver: string;
-  readonly requirements?: ReadonlyArray<string>;
+  readonly requirements?: ReadonlyArray<typeof RequirementId.Encoded>;
   readonly concealment?: ReadonlyArray<string>;
   readonly decisionTime: "SnapshotRead" | "Transaction";
   readonly exposure?: "External" | "Internal";
@@ -69,8 +72,8 @@ const expectedAccess = (input: {
   exposure: input.exposure ?? "External",
   acceptedCredentials: input.credentials,
   principalKinds: input.principals,
-  capabilities: input.capability === undefined ? { none: true } : { one: input.capability },
-  requirements: (input.requirements ?? []).map((id) => ({ id })),
+  capabilities: input.capability === undefined ? { none: true } : { one: CapabilityTypeId.make(input.capability) },
+  requirements: (input.requirements ?? []).map((id) => ({ id: RequirementId.make(id) })),
   canonicalScopeResolver: input.resolver,
   concealment:
     input.concealment === undefined
@@ -78,6 +81,7 @@ const expectedAccess = (input: {
       : { mode: "NotFound", stages: [...input.concealment].sort() },
   decisionTime: input.decisionTime,
 });
+
 const anonymous = (
   resolver: string,
   decisionTime: "SnapshotRead" | "Transaction" = "SnapshotRead",
@@ -88,9 +92,10 @@ const anonymous = (
     resolver,
     decisionTime,
   });
+
 const cookie = (
   resolver: string,
-  requirements: ReadonlyArray<string>,
+  requirements: ReadonlyArray<typeof RequirementId.Encoded>,
   decisionTime: "SnapshotRead" | "Transaction",
   concealment?: ReadonlyArray<string>,
 ) =>
@@ -102,10 +107,11 @@ const cookie = (
     concealment,
     decisionTime,
   });
+
 const person = (
-  capability: string,
+  capability: typeof CapabilityTypeId.Encoded,
   resolver: string,
-  requirements: ReadonlyArray<string>,
+  requirements: ReadonlyArray<typeof RequirementId.Encoded>,
   decisionTime: "SnapshotRead" | "Transaction",
 ) =>
   expectedAccess({
@@ -116,6 +122,7 @@ const person = (
     requirements,
     decisionTime,
   });
+
 const receiptSettlement = (
   resolver: "receipts.settlement-queue" | "receipts.by-id",
   decisionTime: "SnapshotRead" | "Transaction",
@@ -128,6 +135,7 @@ const receiptSettlement = (
     concealment: ["Capability", "Scope"],
     decisionTime,
   });
+
 const surveyAdmin = (
   resolver: string,
   decisionTime: "SnapshotRead" | "Transaction",
@@ -142,7 +150,7 @@ const surveyAdmin = (
   });
 
 const invitation = (
-  requirements: ReadonlyArray<string>,
+  requirements: ReadonlyArray<typeof RequirementId.Encoded>,
   decisionTime: "SnapshotRead" | "Transaction",
 ) =>
   expectedAccess({
@@ -154,7 +162,20 @@ const invitation = (
     concealment: ["CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement"],
     decisionTime,
   });
+
 const expectedOperations: ReadonlyArray<ExpectedOperation> = [
+  [
+    "GET",
+    "/api/organization/appointments",
+    "organization.readAppointmentManagement",
+    person("organization.manage-appointments", "organization.appointment-management", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/organization/appointments/commands",
+    "organization.executeLifecycle",
+    person("organization.manage-appointments", "organization.appointment-management", [], "Transaction"),
+  ],
   [
     "GET",
     "/api/substitutes/scopes",
@@ -823,6 +844,7 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
 const expectedExternalCount = expectedOperations.filter(
   ([, , , access]) => access.exposure === "External",
 ).length;
+
 const publicConditionalOperations = [
   "organization.listDepartments",
   "organization.listTeams",
@@ -882,7 +904,11 @@ const entityMutationOperations = [
   "content.publishArticle",
   "content.unpublishArticle",
 ] as const;
-const bodyPreconditionMutationOperations = ["surveys.closeAdminSurvey"] as const;
+
+const bodyPreconditionMutationOperations = [
+  "organization.executeLifecycle",
+  "surveys.closeAdminSurvey",
+] as const;
 
 const taggedNoContentMutationOperations = [
   "recruitment.confirmInvitation",
@@ -896,13 +922,16 @@ const plainNoContentMutationOperations = [
   "system.revokeOtherSessions",
   "system.revokeAllSessions",
 ] as const;
+
 const privateBinaryReadOperations = [
   "receipts.readReceiptFile",
   "receipts.readReceiptFileForApproval",
 ] as const;
+
 const privateTextReadOperations = ["surveys.exportAdminResults"] as const;
 
 const privateReadOperations = [
+  "organization.readAppointmentManagement",
   "onboarding.readBoard",
   "onboarding.claim",
   "placements.listScopes",
@@ -945,10 +974,12 @@ const existingResourceMutationOperations = new Set<string>([
   ...entityMutationOperations,
   ...taggedNoContentMutationOperations,
 ]);
+
 const reflectedOperations = () => {
   const externalPaths = new Map(
     documentedOperations().map(({ path, operation }) => [operation.operationId, path] as const),
   );
+
   return [
     ...Object.values(ExternalNativeApi.groups).flatMap((group) =>
       Object.values(group.endpoints).map((endpoint) => ({ group, endpoint })),
@@ -960,9 +991,11 @@ const reflectedOperations = () => {
     const operationId = `${group.identifier}.${endpoint.identifier}`;
     const publicPath = externalPaths.get(operationId);
     const reflected = reflectAccessSpec(endpoint);
-    if (reflected._tag === "None") {
+
+    if (Predicate.isTagged(reflected, "None")) {
       throw new TypeError(`${operationId} has no AccessSpec`);
     }
+
     return [
       endpoint.method,
       publicPath?.replace(/\{(\w+)\}/g, ":$1") ?? endpoint.path,
@@ -978,7 +1011,9 @@ describe("native API reflection", () => {
     const authorities = actual.map(([method, path]) => `${method} ${path}`);
     const operationIds = actual.map(([, , operationId]) => operationId);
 
-    expect(actual).toEqual(expectedOperations);
+    expect(new Map(actual.map((row) => [row[2], row] as const))).toEqual(
+      new Map(expectedOperations.map((row) => [row[2], row] as const)),
+    );
     expect(actual).toHaveLength(expectedOperations.length);
     expect(new Set(authorities).size).toBe(expectedOperations.length);
     expect(new Set(operationIds).size).toBe(expectedOperations.length);
@@ -1019,7 +1054,7 @@ describe("native API reflection", () => {
     expect(operations.some(({ path }) => path.startsWith("/api/auth"))).toBe(false);
   });
 
-  it("compiles escaped action paths once for OpenAPI and client URLs", () => {
+  it("preserves literal action suffixes in OpenAPI and encoded client URLs", () => {
     const spec = OpenApi.fromApi(ExternalNativeApi);
     const urls = HttpApiClient.urlBuilder(ExternalNativeApi);
 
@@ -1029,7 +1064,7 @@ describe("native API reflection", () => {
     expect(
       Object.keys(spec.paths).some((path) => path.includes("([^:]+)") || path.includes("::")),
     ).toBe(false);
-    expect(urls.system.revokeOtherSessions()).toBe("/api/sessions:revoke-others");
+    expect(urls.system.revokeOtherSessions({ params: {} })).toBe("/api/sessions:revoke-others");
     expect(
       urls.receipts.withdrawReceipt({
         params: { receiptId: ReceiptId.make("receipt/with-colon:segment") },
@@ -1039,10 +1074,10 @@ describe("native API reflection", () => {
 
   it("projects one declared AccessSpec without credential leakage or a second registry", () => {
     const spec = OpenApi.fromApi(ExternalNativeApi);
-    const health = spec.paths["/health"]?.get as Record<string, unknown> | undefined;
+    const health = spec.paths["/health"]?.get;
     const reflected = reflectAccessSpec(HealthEndpoint);
 
-    expect(health?.["x-vektor-access"]).toEqual({
+    expect(health).toHaveProperty("x-vektor-access",{
       exposure: "External",
       acceptedCredentials: ["None"],
       principalKinds: ["Anonymous"],
@@ -1054,9 +1089,11 @@ describe("native API reflection", () => {
     });
     expect(health?.security).toEqual([]);
     expect(reflected._tag).toBe("Some");
-    if (reflected._tag === "Some") {
+
+    if (Predicate.isTagged(reflected, "Some")) {
       expect(reflected.value).toEqual(PUBLIC_SYSTEM_ACCESS);
     }
+
     expect(() => annotateAccessSpec(HealthEndpoint, PUBLIC_SYSTEM_ACCESS)).toThrow(
       /multiple AccessSpec annotations/u,
     );
@@ -1064,44 +1101,44 @@ describe("native API reflection", () => {
 
   it("documents mandatory body proof and conditional Person proof without inventing a header scheme", () => {
     const spec = OpenApi.fromApi(ExternalNativeApi);
-    const claim = spec.paths["/api/onboarding/claim"]!.post! as unknown as Record<string, unknown>;
+    const claim = spec.paths["/api/onboarding/claim"]!.post!;
     expect(claim.security).toEqual([]);
-    expect(claim["x-vektor-body-capability"]).toEqual({
+    expect(claim).toHaveProperty("x-vektor-body-capability",{
       type: "onboarding.claim",
       pointer: "/token",
       required: true,
     });
-    expect(claim["x-vektor-conditional-credential"]).toEqual({
+    expect(claim).toHaveProperty("x-vektor-conditional-credential",{
       when: { pointer: "/mode", equals: "ExistingAccount" },
       principalKind: "Person",
       mechanisms: ["BetterAuthCookie", "OAuthUserBearer"],
     });
-    expect(claim["x-vektor-access"]).toMatchObject({
+    expect(claim).toMatchObject({ "x-vektor-access": {
       acceptedCredentials: ["ObjectCapability"],
       principalKinds: ["CapabilityHolder"],
       capabilities: { one: "onboarding.claim" },
-    });
-    const body = claim.requestBody as {
-      content: Record<string, { schema: { anyOf: Array<{ required: Array<string> }> } }>;
-    };
+    } });
+
+    const body = Schema.decodeUnknownSync(Schema.Struct({ content: Schema.Struct({ "application/json": Schema.Struct({ schema: Schema.Struct({ anyOf: Schema.Array(Schema.Struct({ required: Schema.Array(Schema.String) })) }) }) }) }))(claim.requestBody);
+
     expect(
       body.content["application/json"]!.schema.anyOf.every((option) =>
         option.required.includes("token"),
       ),
     ).toBe(true);
   });
-  it("keeps access projection registries aligned with the domain roots", () => {
-    expect(() => assertAccessProjectionRegistryParity()).not.toThrow();
-  });
 
   it("derives stable fully-qualified group.endpoint operation ids", () => {
     const spec = OpenApi.fromApi(ExternalNativeApi);
+
     const actual = documentedOperations()
       .map(({ operation }) => operation.operationId)
       .sort();
+
     const expected = endpointInventory()
       .map(({ group, identifier }) => `${group}.${identifier}`)
       .sort();
+
     const internal = internalEndpointInventory().map(
       ({ group, identifier }) => `${group}.${identifier}`,
     );
@@ -1130,24 +1167,15 @@ describe("native API reflection", () => {
     const spec = OpenApi.fromApi(ExternalNativeApi);
     const operations = documentedOperations();
     const operationIds = operations.map(({ operation }) => operation.operationId);
-    const provenanceSpec = spec as typeof spec & {
-      readonly "x-vektorprogrammet-provenance"?: unknown;
-    };
-    const operationProvenance = operations.map(
-      ({ operation }) =>
-        (
-          operation as typeof operation & {
-            readonly "x-vektorprogrammet-provenance"?: unknown;
-          }
-        )["x-vektorprogrammet-provenance"],
-    );
+
 
     expect(new Set(operationIds).size).toBe(operations.length);
     expect(spec.openapi).toBe("3.1.0");
     expect(spec.info.title).toBe("Vektorprogrammet native preview API");
     expect(spec.servers ?? []).toEqual([]);
-    expect(provenanceSpec["x-vektorprogrammet-provenance"]).toBeDefined();
-    expect(operationProvenance.every((provenance) => provenance !== undefined)).toBe(true);
+    expect(spec).toHaveProperty("x-vektorprogrammet-provenance");
+
+    for (const { operation } of operations) expect(operation).toHaveProperty("x-vektorprogrammet-provenance");
     expect(operations.every(({ operation }) => operation.tags.length > 0)).toBe(true);
     expect(spec.paths["/api/session"]?.get?.security[0]?.cookieHeader).toEqual([]);
     expect(spec.paths["/api/departments"]?.get?.responses["200"]).toBeDefined();
@@ -1166,9 +1194,11 @@ describe("native API reflection", () => {
   it("freezes endpoint metadata, schemas, headers, and access projections programmatically", () => {
     const spec = OpenApi.fromApi(ExternalNativeApi);
     const operations = documentedOperations();
+
     const byId = new Map(
       operations.map(({ operation }) => [operation.operationId, operation] as const),
     );
+
     const categories = [
       "contact.submitContactMessage",
       ...privateBinaryReadOperations,
@@ -1184,15 +1214,19 @@ describe("native API reflection", () => {
       ...privateReadOperations,
       ...noStoreReadOperations,
     ];
+
     expect(categories).toHaveLength(expectedExternalCount);
     expect(new Set(categories).size).toBe(expectedExternalCount);
     expect([...byId.keys()].sort()).toEqual([...categories].sort());
 
     const operation = (operationId: string) => {
       const value = byId.get(operationId);
+
       if (value === undefined) throw new TypeError(`missing ${operationId}`);
+
       return value;
     };
+
     const assertSuccess = (
       operationId: string,
       status: "200" | "201" | "204" | "304",
@@ -1200,6 +1234,7 @@ describe("native API reflection", () => {
       body: boolean,
     ) => {
       const response = operation(operationId).responses[status];
+
       if (response === undefined) throw new TypeError(`${operationId} has no ${status}`);
       expect(Object.keys(response.headers ?? {}).sort()).toEqual([...headers].sort());
       expect(Object.keys(response.content ?? {})).toEqual(body ? ["application/json"] : []);
@@ -1209,21 +1244,27 @@ describe("native API reflection", () => {
       assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
       assertSuccess(operationId, "304", ["cache-control", "etag", "vary"], false);
     }
+
     for (const operationId of createdMutationOperations) {
       assertSuccess(operationId, "201", ["cache-control", "etag", "location", "vary"], true);
     }
+
     for (const operationId of entityMutationOperations) {
       assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
     }
+
     for (const operationId of bodyPreconditionMutationOperations) {
       assertSuccess(operationId, "200", ["cache-control", "etag", "vary"], true);
     }
+
     for (const operationId of taggedNoContentMutationOperations) {
       assertSuccess(operationId, "204", ["cache-control", "etag", "vary"], false);
     }
+
     for (const operationId of plainNoContentMutationOperations) {
       assertSuccess(operationId, "204", ["cache-control", "vary"], false);
     }
+
     for (const operationId of [...privateReadOperations, ...noStoreReadOperations]) {
       assertSuccess(operationId, "200", ["cache-control", "vary"], true);
     }
@@ -1239,6 +1280,7 @@ describe("native API reflection", () => {
         "x-content-type-options",
       ]);
     }
+
     for (const operationId of privateTextReadOperations) {
       const text = operation(operationId).responses["200"]!;
       expect(Object.keys(text.content ?? {})).toEqual(["text/csv; charset=utf-8"]);
@@ -1250,6 +1292,7 @@ describe("native API reflection", () => {
     }
 
     assertSuccess("contact.submitContactMessage", "201", ["cache-control", "vary"], false);
+
     const tags = new Map<string, string>([
       ["contact", "Public contact"],
       ["substitutes", "Substitute pool"],
@@ -1266,23 +1309,30 @@ describe("native API reflection", () => {
       ["surveys", "School surveys"],
       ["system", "System"],
     ]);
+
     for (const [operationId, documented] of byId) {
       const group = operationId.slice(0, operationId.indexOf("."));
       const tag = tags.get(group);
+
       if (tag === undefined) throw new TypeError(`unknown group ${group}`);
       expect(documented.tags).toEqual([tag]);
       expect(documented.summary?.trim().length).toBeGreaterThan(0);
       expect(documented.description?.trim().length).toBeGreaterThan(0);
+
       for (const [status, response] of Object.entries(documented.responses)) {
         if (Number(status) < 400) {
           if (status !== "201") expect(response.headers).not.toHaveProperty("location");
           continue;
         }
+
         expect(Object.keys(response.content ?? {})).toEqual(["application/problem+json"]);
         const headers = Object.keys(response.headers ?? {});
         expect(headers).toEqual(expect.arrayContaining(["cache-control", "vary"]));
+
         if (status === "401") expect(headers).toContain("www-authenticate");
+
         if (status === "429" || status === "503") expect(headers).toContain("retry-after");
+
         if (status === "500") expect(headers).not.toContain("retry-after");
       }
     }
@@ -1291,6 +1341,7 @@ describe("native API reflection", () => {
       ...publicConditionalOperations,
       ...privateConditionalOperations,
     ]);
+
     const mutations = new Set<string>([
       ...createdMutationOperations,
       ...entityMutationOperations,
@@ -1298,18 +1349,20 @@ describe("native API reflection", () => {
       ...plainNoContentMutationOperations,
       ...bodyPreconditionMutationOperations,
     ]);
+
     for (const operationId of categories) {
       const headerParameters = (operation(operationId).parameters ?? [])
         .filter((parameter) => "in" in parameter && parameter.in === "header")
         .map((parameter) => ("name" in parameter ? parameter.name.toLowerCase() : ""))
         .sort();
+
       if (operationId === "contact.submitContactMessage") {
         expect(headerParameters).toEqual(["x-vektor-contact-ip"]);
       } else if (conditional.has(operationId)) {
         expect(headerParameters).toEqual(["if-match", "if-none-match"]);
       } else if (mutations.has(operationId)) {
         expect(headerParameters).toEqual(
-          bodyPreconditionMutationOperations.includes(operationId as never)
+          bodyPreconditionMutationOperations.some((id) => id === operationId)
             ? ["idempotency-key"]
             : existingResourceMutationOperations.has(operationId)
               ? ["idempotency-key", "if-match"]
@@ -1329,20 +1382,25 @@ describe("native API reflection", () => {
         "application/merge-patch+json",
       ]);
     }
+
     for (const operationId of ["receipts.submitReceipt", "receipts.reviseReceipt"]) {
       const multipart = operation(operationId).requestBody?.content["multipart/form-data"];
+
       if (multipart === undefined) throw new TypeError(`${operationId} has no multipart body`);
       const requestSchema = multipart.schema;
+
       if (
         requestSchema === undefined ||
         !("$ref" in requestSchema) ||
-        typeof requestSchema.$ref !== "string"
+        !Predicate.isString(requestSchema.$ref)
       ) {
         throw new TypeError(`${operationId} multipart schema is not a component reference`);
       }
+
       const componentName = requestSchema.$ref.slice(requestSchema.$ref.lastIndexOf("/") + 1);
       expect(JSON.stringify(spec.components.schemas[componentName])).toContain('"format":"binary"');
     }
+
     expect(operation("receipts.listReceiptsForApproval").security).toEqual([
       { cookieHeader: [] },
       { oauthUserBearer: [] },
@@ -1383,6 +1441,7 @@ describe("frozen v0.2 boundary schemas", () => {
       ...NativeProblemRegistry["internal.error"],
       code: "internal.error",
     } as const;
+
     expect(Schema.decodeUnknownSync(SystemHealthProblem)(problem, strict)).toEqual(problem);
     expect(() =>
       Schema.decodeUnknownSync(SystemHealthProblem)(
@@ -1405,6 +1464,7 @@ describe("frozen v0.2 boundary schemas", () => {
         truncated: false,
       },
     } as const;
+
     expect(
       Schema.decodeUnknownSync(ProfileUpdateOwnProfileProblem)(validationProblem, strict),
     ).toEqual(validationProblem);

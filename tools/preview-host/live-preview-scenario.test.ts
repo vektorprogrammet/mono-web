@@ -12,6 +12,7 @@ import {
 } from "./live-preview-scenario";
 
 const liveUrl = "postgresql://postgres@127.0.0.1:5434/vektor_preview";
+
 const rehearsalUrl = "postgresql://postgres@127.0.0.1:5435/preview_scenario";
 
 const facts = (digest: string): ScenarioDatabaseFacts => ({
@@ -67,6 +68,7 @@ describe("spec 0076 target validation", () => {
       `--ack=${LIVE_ACKNOWLEDGMENT}`,
       `--database-url=${liveUrl}`,
     ];
+
     expect(parseLivePreviewScenarioCommand(args).mode).toBe("live");
     expect(() =>
       parseLivePreviewScenarioCommand(args.filter((argument) => !argument.startsWith("--ack="))),
@@ -109,6 +111,7 @@ describe("spec 0076 mutation gates", () => {
         },
         async () => {
           applicationCalls += 1;
+
           return undefined;
         },
       ),
@@ -137,6 +140,7 @@ describe("spec 0076 mutation gates", () => {
         mode: "0600",
       },
     };
+
     expect(sanitizeEvidence(safe)).toEqual(safe);
     expect(() => sanitizeEvidence({ databaseUrl: liveUrl })).toThrow("sensitive key");
     expect(() => sanitizeEvidence({ value: liveUrl })).toThrow("URL-like value");

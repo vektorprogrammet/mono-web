@@ -25,10 +25,12 @@ const positiveSafeInt = (brandName: string) =>
   );
 
 export const ArticleId = positiveSafeInt("ArticleId");
+
 export type ArticleId = typeof ArticleId.Type;
 
 /** One-based immutable sequence number issued per publish. */
 export const ArticleVersionNumber = positiveSafeInt("ArticleVersionNumber");
+
 export type ArticleVersionNumber = typeof ArticleVersionNumber.Type;
 
 export const ArticleSlug = text(255).pipe(
@@ -39,14 +41,19 @@ export const ArticleSlug = text(255).pipe(
   ),
   Schema.brand("ArticleSlug"),
 );
+
 export type ArticleSlug = typeof ArticleSlug.Type;
 
 export const ContentCommandId = text(255).pipe(Schema.brand("ContentCommandId"));
+
 export type ContentCommandId = typeof ContentCommandId.Type;
 
 const Title = text(255);
+
 const BodyHtml = text(100000);
+
 const Instant = Rfc3339InstantSchema;
+
 const PersonDisplayName = text(255);
 
 const DepartmentScopeIds = Schema.Array(DepartmentId).pipe(
@@ -63,6 +70,7 @@ const DepartmentScopeIds = Schema.Array(DepartmentId).pipe(
 );
 
 export const ArticleStatusSchema = Schema.Literals(["Draft", "Published"]);
+
 export type ArticleStatus = typeof ArticleStatusSchema.Type;
 
 /**
@@ -117,11 +125,17 @@ export class ArticleDraft extends Model.Class<ArticleDraft>("Content.ArticleDraf
     json: Revision,
   }),
 }) {}
+
 export type ArticleDraftSelect = typeof ArticleDraft.Encoded;
+
 export type ArticleDraftInsert = typeof ArticleDraft.insert.Encoded;
+
 export type ArticleDraftUpdate = typeof ArticleDraft.update.Encoded;
+
 export type ArticleDraftJson = typeof ArticleDraft.json.Type;
+
 export type ArticleDraftJsonCreate = typeof ArticleDraft.jsonCreate.Type;
+
 export type ArticleDraftJsonUpdate = typeof ArticleDraft.jsonUpdate.Type;
 
 /**
@@ -172,8 +186,11 @@ export class PublishedArticleVersion extends Model.Class<PublishedArticleVersion
     insert: PersonId,
   }),
 }) {}
+
 export type PublishedArticleVersionSelect = typeof PublishedArticleVersion.Encoded;
+
 export type PublishedArticleVersionInsert = typeof PublishedArticleVersion.insert.Encoded;
+
 export type PublishedArticleVersionJson = typeof PublishedArticleVersion.json.Type;
 
 /** Semantic identity is the (article, department) pair itself. */
@@ -191,9 +208,13 @@ export class ArticleDepartment extends Model.Class<ArticleDepartment>("Content.A
     jsonCreate: DepartmentId,
   }),
 }) {}
+
 export type ArticleDepartmentSelect = typeof ArticleDepartment.Encoded;
+
 export type ArticleDepartmentInsert = typeof ArticleDepartment.insert.Encoded;
+
 export type ArticleDepartmentJson = typeof ArticleDepartment.json.Type;
+
 export type ArticleDepartmentJsonCreate = typeof ArticleDepartment.jsonCreate.Type;
 
 // --- Staff workspace boundaries ---
@@ -212,7 +233,9 @@ export const ContentWorkspaceEntrySchema = Schema.Struct({
   canPublish: Schema.Boolean,
   authorDisplayName: PersonDisplayName,
 });
+
 export type ContentWorkspaceEntry = typeof ContentWorkspaceEntrySchema.Type;
+
 export const ContentArticleDetailSchema = Schema.Struct({
   articleId: DraftJsonFields.articleId,
   title: DraftJsonFields.title,
@@ -229,10 +252,12 @@ export const ContentArticleDetailSchema = Schema.Struct({
   canPublish: Schema.Boolean,
   authorDisplayName: PersonDisplayName,
 });
+
 export type ContentArticleDetail = typeof ContentArticleDetailSchema.Type;
 
 const compareWorkspaceEntries = (left: ContentWorkspaceEntry, right: ContentWorkspaceEntry) => {
   if (left.updatedAt !== right.updatedAt) return left.updatedAt < right.updatedAt ? 1 : -1;
+
   return right.articleId - left.articleId;
 };
 
@@ -250,11 +275,13 @@ export const ContentWorkspaceSchema = Schema.Struct({
     ),
   ),
 });
+
 export type ContentWorkspace = typeof ContentWorkspaceSchema.Type;
 
 export const ContentWorkspaceQuerySchema = Schema.Struct({
   departmentId: Schema.optional(DepartmentId),
 });
+
 export type ContentWorkspaceQuery = typeof ContentWorkspaceQuerySchema.Type;
 
 // --- Public news boundaries (Content authority) ---
@@ -271,13 +298,16 @@ export const PublishedNewsSummarySchema = Schema.Struct({
   hasImage: Schema.Boolean,
   imageUrl: Schema.optional(Schema.String),
 });
+
 export type PublishedNewsSummary = typeof PublishedNewsSummarySchema.Type;
 
 const compareSummaries = (left: PublishedNewsSummary, right: PublishedNewsSummary): number => {
   if (left.sticky !== right.sticky) return left.sticky ? -1 : 1;
+
   if (left.publishedAt !== right.publishedAt) {
     return left.publishedAt < right.publishedAt ? 1 : -1;
   }
+
   return 0;
 };
 
@@ -296,6 +326,7 @@ export const PublishedNewsListingSchema = Schema.Struct({
     ),
   ),
 });
+
 export type PublishedNewsListing = typeof PublishedNewsListingSchema.Type;
 
 export const PublishedNewsVersionRefSchema = Schema.Struct({
@@ -309,6 +340,7 @@ export const PublishedNewsVersionRefSchema = Schema.Struct({
     ),
   ),
 });
+
 export type PublishedNewsVersionRef = typeof PublishedNewsVersionRefSchema.Type;
 
 export const PublishedNewsArticleSchema = Schema.Struct({
@@ -334,6 +366,7 @@ export const PublishedNewsArticleSchema = Schema.Struct({
     ),
   ),
 });
+
 export type PublishedNewsArticle = typeof PublishedNewsArticleSchema.Type;
 
 // --- Commands ---
@@ -355,6 +388,7 @@ export const CreateArticleDraftInputSchema = Schema.Struct({
   ),
   sticky: Schema.optional(ArticleDraft.jsonCreate.fields.sticky),
 });
+
 export type CreateArticleDraftInput = typeof CreateArticleDraftInputSchema.Type;
 
 export const ReviseArticleDraftInputSchema = Schema.Struct({
@@ -372,34 +406,37 @@ export const ReviseArticleDraftInputSchema = Schema.Struct({
   ),
   sticky: Schema.optional(ArticleDraft.jsonUpdate.fields.sticky),
 });
+
 export type ReviseArticleDraftInput = typeof ReviseArticleDraftInputSchema.Type;
 
 export const PublishArticleInputSchema = Schema.Struct({
   ...CommandFields,
   articleId: ArticleDraft.json.fields.articleId,
 });
+
 export type PublishArticleInput = typeof PublishArticleInputSchema.Type;
 
 export const UnpublishArticleInputSchema = Schema.Struct({
   ...CommandFields,
   articleId: ArticleDraft.json.fields.articleId,
 });
+
 export type UnpublishArticleInput = typeof UnpublishArticleInputSchema.Type;
 
 // --- Observations ---
 
-export const PublishObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["Published"]),
+export const PublishObservationSchema = Schema.TaggedStruct("Published", {
   commandId: ContentCommandId,
   articleId: ArticleId,
   versionNumber: ArticleVersionNumber,
   publishedAt: Instant,
 });
+
 export type PublishObservation = typeof PublishObservationSchema.Type;
 
-export const UnpublishObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["Unpublished"]),
+export const UnpublishObservationSchema = Schema.TaggedStruct("Unpublished", {
   commandId: ContentCommandId,
   articleId: ArticleId,
 });
+
 export type UnpublishObservation = typeof UnpublishObservationSchema.Type;

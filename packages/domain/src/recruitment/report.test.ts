@@ -1,3 +1,4 @@
+import { PersonId, DepartmentId } from "../organization/schema.js";
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import {
@@ -6,6 +7,7 @@ import {
   interviewScoreTotal,
   orderInterviewReport,
 } from "./report.js";
+
 const row = (
   id: string,
   recommendation: "Ja" | "Kanskje" | "Nei" | null,
@@ -22,6 +24,7 @@ const row = (
     roleModel: scores[1],
     suitability: scores[2],
   });
+
 describe("completed interview report derivation", () => {
   it("keeps unrecorded historical recommendations separate and counts only selected rows", () => {
     const input = [
@@ -29,6 +32,7 @@ describe("completed interview report derivation", () => {
       row("b", "Nei", [1, 2, 3]),
       row("c", "Ja", [1, 2, 3]),
     ];
+
     expect(orderInterviewReport(input, { recommendation: "not-recorded" })).toEqual([input[0]]);
     expect(orderInterviewReport(input, { recommendation: "Nei" })).toEqual([input[1]]);
     expect(input).toHaveLength(3);
@@ -39,6 +43,7 @@ describe("completed interview report derivation", () => {
       row("a", "Kanskje", [5, 5, 0]),
       row("c", "Nei", [2, 0, 0]),
     ];
+
     expect(input.map(interviewScoreTotal)).toEqual([10, 10, 2]);
     expect(orderInterviewReport(input, { sort: "total" }).map((r) => r.interviewId)).toEqual([
       "c",
@@ -51,9 +56,9 @@ describe("completed interview report derivation", () => {
   });
   it("does not accept caller authority or classification fields", () => {
     for (const extra of [
-      { departmentId: "foreign" },
+      { departmentId: DepartmentId.make("foreign") },
       { previousParticipation: false },
-      { personId: "reader" },
+      { personId: PersonId.make("reader") },
     ])
       expect(() =>
         Schema.decodeUnknownSync(InterviewReportQuery)(extra, { onExcessProperty: "error" }),

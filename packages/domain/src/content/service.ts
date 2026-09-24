@@ -30,7 +30,7 @@ export interface ContentManagementContext {
  */
 export type ContentCommandFailure = ContentManagementFailure;
 
-export interface ContentManagementShape {
+export interface ContentManagementOperations {
   readonly readArticleDetail: (
     articleId: ArticleId,
     context: ContentManagementContext,
@@ -57,6 +57,7 @@ export interface ContentManagementShape {
   ) => Effect.Effect<UnpublishObservation, ContentCommandFailure, Organization>;
 }
 
-export class ContentManagement extends Context.Service<ContentManagement, ContentManagementShape>()(
-  "@vektorprogrammet/domain/ContentManagement",
-) {}
+export class ContentManagement extends Context.Service<
+  ContentManagement,
+  ContentManagementOperations
+>()("@vektorprogrammet/domain/ContentManagement") {}

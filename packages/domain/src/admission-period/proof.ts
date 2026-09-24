@@ -1,8 +1,10 @@
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { admissionPeriodCommandDigest } from "./digest.js";
 import { decideAdmissionPeriod } from "./update.js";
 import {
+  AdmissionPeriodCommandSchema,
+  AdmissionPeriodActorSchema,
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
   type AdmissionPeriod,
@@ -36,6 +38,7 @@ export const admissionPeriodIsEligible = (
   now: string,
 ): boolean => {
   const instant = Date.parse(now);
+
   return (
     Date.parse(semesterStartAt) <= instant &&
     instant < Date.parse(semesterEndAt) &&
@@ -44,12 +47,11 @@ export const admissionPeriodIsEligible = (
   );
 };
 
-const proofActor: AdmissionPeriodActor = {
-  _tag: "DepartmentLeader",
+const proofActor: AdmissionPeriodActor = AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
   personId: PersonId.make("proof-leader"),
   departmentId: DepartmentId.make("proof-department"),
   active: true,
-};
+});
 
 const proofSemester = {
   semesterId: SemesterId.make("proof-semester"),
@@ -57,13 +59,13 @@ const proofSemester = {
   endAt: "2026-12-31T23:59:59.999Z",
 } as const;
 
-const proofCreate: AdmissionPeriodCommand = {
-  _tag: "CreateAdmissionPeriod",
-  commandId: AdmissionPeriodCommandId.make("proof-create"),
-  semesterId: proofSemester.semesterId,
-  startAt: "2026-09-01T00:00:00.000Z",
-  endAt: "2026-12-01T00:00:00.000Z",
-};
+const proofCreate: AdmissionPeriodCommand =
+  AdmissionPeriodCommandSchema.cases.CreateAdmissionPeriod.make({
+    commandId: AdmissionPeriodCommandId.make("proof-create"),
+    semesterId: proofSemester.semesterId,
+    startAt: "2026-09-01T00:00:00.000Z",
+    endAt: "2026-12-01T00:00:00.000Z",
+  });
 
 export const admissionPeriodProof = Effect.gen(function* () {
   const created = yield* decideAdmissionPeriod(undefined, proofCreate, {
@@ -72,22 +74,23 @@ export const admissionPeriodProof = Effect.gen(function* () {
     now: "2026-09-15T12:00:00.000Z",
     admissionPeriodId: AdmissionPeriodId.make("proof-period"),
   });
+
   const revised = yield* decideAdmissionPeriod(
     created.period,
-    {
-      _tag: "ReviseAdmissionPeriod",
+    AdmissionPeriodCommandSchema.cases.ReviseAdmissionPeriod.make({
       commandId: AdmissionPeriodCommandId.make("proof-revise"),
       admissionPeriodId: created.period.id,
       expectedRevision: 0,
       startAt: "2026-09-01T00:00:00.000Z",
       endAt: "2026-09-15T00:00:00.000Z",
-    },
+    }),
     {
       actor: proofActor,
       semester: proofSemester,
       now: "2026-09-15T12:00:00.000Z",
     },
   );
+
   const invalid = yield* Effect.exit(
     decideAdmissionPeriod(
       undefined,
@@ -103,6 +106,7 @@ export const admissionPeriodProof = Effect.gen(function* () {
       },
     ),
   );
+
   const crossDepartment = yield* Effect.exit(
     decideAdmissionPeriod(
       undefined,
@@ -118,12 +122,13 @@ export const admissionPeriodProof = Effect.gen(function* () {
       },
     ),
   );
+
   return {
     specId: "0038",
     accepted: { create: true, revise: revised.period.revision === 1 },
     rejected: {
-      invalidWindow: invalid._tag === "Failure",
-      crossDepartment: crossDepartment._tag === "Failure",
+      invalidWindow: Predicate.isTagged(invalid, "Failure"),
+      crossDepartment: Predicate.isTagged(crossDepartment, "Failure"),
     },
     eligibility: {
       beforeClose: admissionPeriodIsEligible(

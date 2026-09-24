@@ -1,6 +1,7 @@
+import { Predicate, Schema as S, Data } from "effect";
 import { nativeDashboardRecoveryMode } from "../server/native-account-mode.server";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
-import { Schema as S } from "effect";
+
 import { redirect } from "react-router";
 import { createAuthenticatedClient, serverApiEndpoint } from "./api.server";
 import { nativeProblemFrom } from "./native-problem";
@@ -15,6 +16,8 @@ type SessionInspection =
   | { readonly _tag: "Missing" }
   | { readonly _tag: "Invalid" };
 
+const SessionInspection = Data.taggedEnum<SessionInspection>();
+
 export type SignInResult =
   | {
       readonly _tag: "Authenticated";
@@ -25,6 +28,8 @@ export type SignInResult =
   | { readonly _tag: "InvalidOAuthRequest" }
   | { readonly _tag: "RateLimited" }
   | { readonly _tag: "Unavailable" };
+
+export const SignInResult = Data.taggedEnum<SignInResult>();
 
 const BetterAuthSessionIdentity = S.Struct({
   user: S.Struct({
@@ -40,44 +45,56 @@ function backendRequestHeaders(request: Request, includeCookie: boolean): Header
     Accept: "application/json",
     Origin: request.headers.get("Origin") ?? new URL(request.url).origin,
   });
+
   const cookie = request.headers.get("Cookie");
+
   if (includeCookie && cookie !== null) headers.set("Cookie", cookie);
+
   return headers;
 }
 
 function hasSessionCookie(cookie: string): boolean {
   return cookie.split(";").some((pair) => {
     const separator = pair.indexOf("=");
+
     if (separator < 1 || separator === pair.length - 1) return false;
     const name = pair.slice(0, separator).trim();
+
     return SESSION_COOKIE_NAMES.some((candidate) => candidate === name);
   });
 }
 
 async function inspectSession(request: Request): Promise<SessionInspection> {
   const cookie = request.headers.get("Cookie");
-  if (cookie === null || !hasSessionCookie(cookie)) return { _tag: "Missing" };
+
+  if (cookie === null || !hasSessionCookie(cookie)) return SessionInspection.Missing();
 
   try {
     await createAuthenticatedClient(cookie, request).system.readSession();
-    return { _tag: "Authenticated", cookie };
+
+    return SessionInspection.Authenticated({cookie});
   } catch (error) {
     const code = nativeProblemFrom(error)?.code;
+
     if (code === "credential.missing" || code === "credential.invalid") {
-      return { _tag: "Invalid" };
+      return SessionInspection.Invalid();
     }
+
     throw error;
   }
 }
 
 export function forwardSetCookieHeaders(source: Headers): Headers {
   const target = new Headers();
+
   for (const value of source.getSetCookie()) target.append("Set-Cookie", value);
+
   return target;
 }
 
 export async function loadSessionIdentity(request: Request): Promise<SessionIdentity> {
   let response: Response;
+
   try {
     response = await fetch(serverApiEndpoint("/api/auth/get-session"), {
       headers: backendRequestHeaders(request, true),
@@ -86,15 +103,19 @@ export async function loadSessionIdentity(request: Request): Promise<SessionIden
   } catch {
     throw new Response(null, { status: 502 });
   }
+
   if (response.status === 401) throw await expiredSessionRedirect(request);
+
   if (!response.ok) throw new Response(null, { status: 502 });
 
   let body: unknown;
+
   try {
     body = await response.json();
   } catch {
     throw new Response(null, { status: 502 });
   }
+
   try {
     return S.decodeUnknownSync(BetterAuthSessionIdentity)(body).user;
   } catch {
@@ -112,6 +133,7 @@ export async function signInWithEmail(
   headers.set("Content-Type", "application/json");
 
   let response: Response;
+
   try {
     nativeDashboardRecoveryMode(process.env);
     response = await fetch(serverApiEndpoint("/api/auth/sign-in/email"), {
@@ -120,58 +142,73 @@ export async function signInWithEmail(
       body: JSON.stringify({
         email,
         password,
-        ...(oauthQuery === undefined ? {} : { oauth_query: oauthQuery }),
+        oauth_query: oauthQuery,
       }),
       signal: request.signal,
       redirect: "manual",
     });
   } catch {
-    return { _tag: "Unavailable" };
+    return SignInResult.Unavailable();
   }
-  if (response.status === 429) return { _tag: "RateLimited" };
-  if (response.status === 401) return { _tag: "InvalidCredentials" };
-  if (oauthQuery !== undefined && response.status === 400) return { _tag: "InvalidOAuthRequest" };
-  if (!response.ok) return { _tag: "Unavailable" };
+
+  if (response.status === 429) return SignInResult.RateLimited();
+
+  if (response.status === 401) return SignInResult.InvalidCredentials();
+
+  if (oauthQuery !== undefined && response.status === 400) return SignInResult.InvalidOAuthRequest();
+
+  if (!response.ok) return SignInResult.Unavailable();
 
   const responseHeaders = forwardSetCookieHeaders(response.headers);
+
   const sessionIssued = responseHeaders
     .getSetCookie()
     .some((value) => SESSION_COOKIE_NAMES.some((name) => value.startsWith(`${name}=`)));
-  if (!sessionIssued) return { _tag: "Unavailable" };
-  if (oauthQuery === undefined) return { _tag: "Authenticated", headers: responseHeaders };
+
+  if (!sessionIssued) return SignInResult.Unavailable();
+
+  if (oauthQuery === undefined) return SignInResult.Authenticated({headers: responseHeaders});
   let body: unknown;
+
   try {
     body = await response.json();
   } catch {
-    return { _tag: "Unavailable" };
+    return SignInResult.Unavailable();
   }
+
   if (
     body === null ||
-    typeof body !== "object" ||
+    !Predicate.isObjectOrArray(body) ||
     !("redirect" in body) ||
     body.redirect !== true ||
     !("url" in body) ||
-    typeof body.url !== "string"
+    !Predicate.isString(body.url)
   ) {
-    return { _tag: "Unavailable" };
+    return SignInResult.Unavailable();
   }
-  return { _tag: "Authenticated", headers: responseHeaders, continuation: body.url };
+
+  return SignInResult.Authenticated({headers: responseHeaders,
+continuation: body.url});
 }
 
 function expiredSessionCookieHeaders(request: Request): Headers {
   const headers = new Headers();
   const cookie = request.headers.get("Cookie") ?? "";
+
   for (const name of SESSION_COOKIE_NAMES) {
     if (!cookie.split(";").some((pair) => pair.trimStart().startsWith(`${name}=`))) continue;
     const secure = name.startsWith("__Secure-") ? "; Secure" : "";
     headers.append("Set-Cookie", `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
   }
+
   return headers;
 }
 
 export async function signOut(request: Request): Promise<Headers> {
   const cookie = request.headers.get("Cookie");
+
   if (cookie === null || !hasSessionCookie(cookie)) return expiredSessionCookieHeaders(request);
+
   try {
     await createAuthenticatedClient(cookie, request).system.deleteSession({
       headers: {
@@ -180,20 +217,23 @@ export async function signOut(request: Request): Promise<Headers> {
     });
   } catch (error) {
     const code = nativeProblemFrom(error)?.code;
+
     if (code !== "credential.missing" && code !== "credential.invalid") {
       throw new Response("Sign out failed", { status: 502 });
     }
   }
+
   return expiredSessionCookieHeaders(request);
 }
 
 export async function expiredSessionRedirect(request: Request): Promise<Response> {
   const headers = await signOut(request).catch(() => new Headers());
+
   return redirect("/login?expired=true", { headers });
 }
 
 export async function hasAuthenticatedSession(request: Request): Promise<boolean> {
-  return (await inspectSession(request))._tag === "Authenticated";
+  return Predicate.isTagged(await inspectSession(request), "Authenticated");
 }
 
 export async function requireAuth(
@@ -201,16 +241,20 @@ export async function requireAuth(
   oauthLoginDestination?: string,
 ): Promise<string> {
   const session = await inspectSession(request);
-  if (session._tag === "Authenticated") return session.cookie;
+
+  if (Predicate.isTagged(session, "Authenticated")) return session.cookie;
+
   if (oauthLoginDestination === undefined) {
-    if (session._tag === "Missing") throw redirect("/login");
+    if (Predicate.isTagged(session, "Missing")) throw redirect("/login");
     throw await expiredSessionRedirect(request);
   }
-  if (session._tag === "Missing") {
+
+  if (Predicate.isTagged(session, "Missing")) {
     throw redirect(oauthLoginDestination, {
       headers: { "Cache-Control": "no-store" },
     });
   }
+
   const headers = await signOut(request).catch(() => new Headers());
   headers.set("Cache-Control", "no-store");
   throw redirect(oauthLoginDestination, { headers });
@@ -218,15 +262,17 @@ export async function requireAuth(
 
 export function safeRedirect(destination: FormDataEntryValue | null, fallback = "/"): string {
   if (
-    typeof destination !== "string" ||
+    !Predicate.isString(destination) ||
     !destination.startsWith("/") ||
     destination.startsWith("//")
   ) {
     return fallback;
   }
+
   try {
     const base = new URL("http://dashboard.invalid");
     const target = new URL(destination, base);
+
     return target.origin === base.origin
       ? `${target.pathname}${target.search}${target.hash}`
       : fallback;

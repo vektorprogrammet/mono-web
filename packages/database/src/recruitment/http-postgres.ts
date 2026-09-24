@@ -1,11 +1,11 @@
 import { readInterviewApplicantIdentity } from "./conduct-identity.js";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import type { Profile } from "@vektorprogrammet/domain/profile";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Effect, Schema } from "effect";
+import { Data, Match, Effect, Schema } from "effect";
 import {
   RecruitmentApplicationNotFound,
   RecruitmentDecodeError,
@@ -45,12 +45,14 @@ const RecruitmentInvitationHttpSourceSchema = Schema.Struct({
   responseState: RecruitmentInvitationResponseStateSchema,
   supersededAt: Schema.NullOr(RecruitmentInstantSchema),
 });
+
 export type RecruitmentInvitationHttpSource = typeof RecruitmentInvitationHttpSourceSchema.Type;
 
 const RecruitmentInvitationHttpSnapshotSchema = Schema.Struct({
   source: RecruitmentInvitationHttpSourceSchema,
   observation: RecruitmentInvitationResponseObservationSchema,
 });
+
 export type RecruitmentInvitationHttpSnapshot = typeof RecruitmentInvitationHttpSnapshotSchema.Type;
 
 const RecruitmentApplicationHttpAccessSchema = Schema.Struct({
@@ -58,6 +60,7 @@ const RecruitmentApplicationHttpAccessSchema = Schema.Struct({
   departmentId: DepartmentId,
   interviewerEligible: Schema.Boolean,
 });
+
 export type RecruitmentApplicationHttpAccess = typeof RecruitmentApplicationHttpAccessSchema.Type;
 
 const RecruitmentAuthorityHttpSourceSchema = Schema.Struct({
@@ -65,6 +68,7 @@ const RecruitmentAuthorityHttpSourceSchema = Schema.Struct({
   identity: Schema.String,
   revisions: Schema.Array(Revision),
 });
+
 export type RecruitmentAuthorityHttpSource = typeof RecruitmentAuthorityHttpSourceSchema.Type;
 
 const RecruitmentInterviewHttpSourceSchema = Schema.Struct({
@@ -76,6 +80,7 @@ const RecruitmentInterviewHttpSourceSchema = Schema.Struct({
   linkedApplicantPersonId: Schema.NullOr(PersonId),
   authority: Schema.Array(RecruitmentAuthorityHttpSourceSchema),
 });
+
 export type RecruitmentInterviewHttpSource = typeof RecruitmentInterviewHttpSourceSchema.Type;
 
 const decodeError = (operation: string, cause: unknown) =>
@@ -101,7 +106,9 @@ export const readRecruitmentInvitationHttpSnapshotPostgres = (
         capabilityInput,
         { onExcessProperty: "error" },
       ).pipe(Effect.mapError(() => new RecruitmentInvitationNotFound({})));
+
       const capabilitySha256 = capabilityDigest(capability);
+
       const rows = yield* database<
         RecruitmentInvitationHttpSource & RecruitmentInvitationResponseObservation
       >`
@@ -139,8 +146,11 @@ export const readRecruitmentInvitationHttpSnapshotPostgres = (
           Effect.fail(persistenceError("read recruitment invitation HTTP snapshot", cause)),
         ),
       );
+
       const row = rows[0];
+
       if (row === undefined) return yield* new RecruitmentInvitationNotFound({});
+
       return yield* Schema.decodeUnknownEffect(RecruitmentInvitationHttpSnapshotSchema)(
         {
           source: {
@@ -223,12 +233,15 @@ export const readRecruitmentApplicationHttpAccessPostgres = (input: {
           Effect.fail(persistenceError("read recruitment application HTTP access", cause)),
         ),
       );
+
       const row = rows[0];
+
       if (row === undefined) {
         return yield* new RecruitmentApplicationNotFound({
           applicationId: input.applicationId,
         });
       }
+
       return yield* Schema.decodeUnknownEffect(RecruitmentApplicationHttpAccessSchema)(row, {
         onExcessProperty: "error",
       }).pipe(
@@ -314,10 +327,12 @@ export const readRecruitmentTargetAuthorityPostgres = (input: {
           Effect.fail(persistenceError("read recruitment target actor", cause)),
         ),
       );
+
       const source = yield* Schema.decodeUnknownEffect(RecruitmentTargetActorSourceSchema)(
         rows[0],
         { onExcessProperty: "error" },
       ).pipe(Effect.mapError((cause) => decodeError("decode recruitment target actor", cause)));
+
       const actor = source.globalAdministrator
         ? { _tag: "GlobalAdmin" as const, personId: input.personId, active: true }
         : source.activeLeader
@@ -333,9 +348,11 @@ export const readRecruitmentTargetAuthorityPostgres = (input: {
               departmentId: input.departmentId,
               active: source.activeMember,
             };
+
       const decodedActor = yield* Schema.decodeEffect(RecruitmentActorSchema)(actor, {
         onExcessProperty: "error",
       }).pipe(Effect.mapError((cause) => decodeError("decode recruitment target actor", cause)));
+
       return { actor: decodedActor, activeMember: source.activeMember };
     }),
   );
@@ -345,7 +362,7 @@ export const readRecruitmentTargetActorPostgres = (
 ) => readRecruitmentTargetAuthorityPostgres(input).pipe(Effect.map(({ actor }) => actor));
 
 const readRecruitmentPersonAuthorityHttpSources = (
-  database: DatabaseShape,
+  database: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<
   ReadonlyArray<RecruitmentAuthorityHttpSource>,
@@ -383,6 +400,7 @@ const readRecruitmentPersonAuthorityHttpSources = (
         Effect.fail(persistenceError("read recruitment person authority HTTP sources", cause)),
       ),
     );
+
     return yield* Schema.decodeUnknownEffect(Schema.Array(RecruitmentAuthorityHttpSourceSchema))(
       rows,
       { onExcessProperty: "error" },
@@ -427,7 +445,9 @@ export const readRecruitmentInterviewHttpSourcePostgres = (
           Effect.fail(persistenceError("read recruitment interview HTTP source", cause)),
         ),
       );
+
       const interview = interviewRows[0];
+
       if (interview === undefined) return yield* new RecruitmentInterviewNotFound({ interviewId });
 
       const identity = yield* readInterviewApplicantIdentity(interviewId).pipe(
@@ -435,7 +455,9 @@ export const readRecruitmentInterviewHttpSourcePostgres = (
           Effect.fail(persistenceError("read interview applicant identity", cause)),
         ),
       );
+
       const authority = yield* readRecruitmentPersonAuthorityHttpSources(database, personId);
+
       return yield* Schema.decodeUnknownEffect(RecruitmentInterviewHttpSourceSchema)(
         {
           ...interview,
@@ -454,22 +476,30 @@ export type RecruitmentInvitationHttpTransition =
   | { readonly _tag: "Reject"; readonly message?: RecruitmentInvitationResponseMessage }
   | { readonly _tag: "RequestNewTime"; readonly message: RecruitmentInvitationResponseMessage };
 
+export const RecruitmentInvitationHttpTransition =
+  Data.taggedEnum<RecruitmentInvitationHttpTransition>();
+
 /** Runs one non-replayable invitation transition in its domain transaction. */
 export const executeRecruitmentInvitationTransitionPostgres = (input: {
   readonly capability: RecruitmentInvitationCapability;
   readonly transition: RecruitmentInvitationHttpTransition;
   readonly now: string;
 }): Effect.Effect<RecruitmentInvitationResponseResult, unknown, Database | Admissions | Profile> =>
-  input.transition._tag === "Confirm"
-    ? confirmInvitation(input.capability, { now: input.now })
-    : input.transition._tag === "Reject"
-      ? rejectInvitation(
-          input.capability,
-          input.transition.message === undefined ? {} : { message: input.transition.message },
-          { now: input.now },
-        )
-      : requestNewInvitationTime(
-          input.capability,
-          { message: input.transition.message },
-          { now: input.now },
-        );
+  Match.value(input.transition).pipe(
+    Match.tag("Confirm", () => confirmInvitation(input.capability, { now: input.now })),
+    Match.tag("Reject", (transition) =>
+      rejectInvitation(
+        input.capability,
+        transition.message === undefined ? {} : { message: transition.message },
+        { now: input.now },
+      ),
+    ),
+    Match.tag("RequestNewTime", (transition) =>
+      requestNewInvitationTime(
+        input.capability,
+        { message: transition.message },
+        { now: input.now },
+      ),
+    ),
+    Match.exhaustive,
+  );

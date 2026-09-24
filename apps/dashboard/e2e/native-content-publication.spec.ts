@@ -1,13 +1,23 @@
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { Schema } from "effect";
+import { NativeProblem } from "@vektorprogrammet/http-api";
+import { ContentArticleObservationSchema } from "../app/foldkit/content/bridge";
+
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
+
 const evidencePath = process.env.CONTENT_E2E_BROWSER_EVIDENCE_PATH;
+
 const homepageOrigin = process.env.CONTENT_E2E_HOMEPAGE_ORIGIN ?? "http://127.0.0.1:45264";
+
 const contentApiOrigin = process.env.CONTENT_E2E_API_ORIGIN ?? "http://127.0.0.1:45263";
+
 const departmentAlpha = "content-e2e-0062-department-alpha";
+
 const departmentBeta = "content-e2e-0062-department-beta";
+
 const persons = {
   administrator: {
     email: "administrator.content.0062@example.invalid",
@@ -39,6 +49,7 @@ type BrowserRequest = {
   readonly ifMatch?: string;
   readonly requestFields?: ReadonlyArray<string>;
 };
+
 type BrowserResponse = BrowserRequest & { readonly status: number };
 
 const openContext = async (
@@ -52,21 +63,22 @@ const openContext = async (
     const url = new URL(request.url());
     const headers = request.headers();
     let requestFields: ReadonlyArray<string> | undefined;
+
     try {
-      const payload = request.postDataJSON() as Record<string, unknown> | undefined;
+      const payload = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(request.postDataJSON());
+
       if (payload !== undefined) requestFields = Object.keys(payload).sort();
     } catch {
       // Multipart and bodyless requests do not contribute JSON field evidence.
     }
+
     browserRequests.push({
       method: request.method(),
       pathname: url.pathname,
       search: url.search,
-      ...(headers["idempotency-key"] === undefined
-        ? {}
-        : { idempotencyKey: headers["idempotency-key"] }),
-      ...(headers["if-match"] === undefined ? {} : { ifMatch: headers["if-match"] }),
-      ...(requestFields === undefined ? {} : { requestFields }),
+      idempotencyKey: headers["idempotency-key"] === undefined ? undefined : headers["idempotency-key"],
+      ifMatch: headers["if-match"] === undefined ? undefined : headers["if-match"],
+      requestFields: requestFields === undefined ? undefined : requestFields,
     });
   });
   context.on("response", (response) => {
@@ -80,6 +92,7 @@ const openContext = async (
   });
   const page = await context.newPage();
   page.on("pageerror", (error) => pageErrors.push(error.message));
+
   return { context, page };
 };
 
@@ -93,6 +106,7 @@ const signIn = async (
   await page.getByLabel("E-post").fill(person.email);
   await page.getByLabel("Passord", { exact: true }).fill(person.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
+
   try {
     await page.waitForURL((url) => url.pathname === redirectTo, {
       timeout: 15_000,
@@ -104,6 +118,7 @@ const signIn = async (
       { cause },
     );
   }
+
   await expect
     .poll(async () =>
       (await page.context().cookies()).some(
@@ -124,7 +139,7 @@ test.describe("Native Content publication (spec 0062)", () => {
     test.setTimeout(180_000);
     const pageErrors: string[] = [];
     const contexts: BrowserContext[] = [];
-    const observations: Record<string, unknown> = {};
+    const observations: Record<string, Schema.Json> = {};
 
     try {
       // --- Administrator: full staff arc -------------------------------
@@ -134,6 +149,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         browserResponses,
         pageErrors,
       );
+
       contexts.push(administrator.context);
       await signIn(administrator.page, persons.administrator, "/dashboard/artikler");
       await expect(
@@ -177,6 +193,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       const freshRow = administrator.page
         .getByRole("listitem")
         .filter({ hasText: "Fersk nyhet fra admin" });
+
       await freshRow.getByRole("button", { name: "Publiser", exact: true }).click();
       await expect(freshRow.getByText("Publisert")).toBeVisible();
 
@@ -198,42 +215,28 @@ test.describe("Native Content publication (spec 0062)", () => {
       await twoVersionRow.getByRole("button", { name: /To versjoner/ }).click();
       await expect(leader.page.getByLabel("Brødtekst")).toHaveValue("<p>Versjon én tekst</p>");
       const twoVersionArticleId = Number(await twoVersionRow.getAttribute("data-article-id"));
-      const concurrentRevision = await leader.page.evaluate(async (articleId: number) => {
-        const detailResponse = await fetch("/dashboard/content", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ operation: "readArticle", articleId }),
-        });
-        const observation = (await detailResponse.json()) as {
-          readonly body: Record<string, unknown>;
-          readonly etag: string;
-        };
-        const reviseResponse = await fetch("/dashboard/content", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            operation: "reviseDraft",
-            commandId: "leader-concurrent-revise",
-            articleId,
-            etag: observation.etag,
-            title: observation.body.title,
-            bodyHtml: "<p>Ekstern samtidig endring</p>",
-            departmentIds: observation.body.departmentIds,
-            sticky: observation.body.sticky,
-          }),
-        });
-        return {
-          detailStatus: detailResponse.status,
-          detail: observation.body,
-          reviseStatus: reviseResponse.status,
-        };
+
+      const concurrentDetail = await leader.page.evaluate(async (articleId: number) => {
+        const response = await fetch("/dashboard/content", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ operation: "readArticle", articleId }) });
+
+        return { status: response.status, body: await response.json() };
       }, twoVersionArticleId);
-      expect(concurrentRevision.detailStatus).toBe(200);
-      expect(concurrentRevision.detail.bodyHtml).toBe("<p>Versjon én tekst</p>");
-      expect(concurrentRevision.detail.revision).toBe(1);
-      expect(concurrentRevision.detail).not.toHaveProperty("createdByPersonId");
+
+      expect(concurrentDetail.status).toBe(200);
+      const observation = Schema.decodeUnknownSync(ContentArticleObservationSchema)(concurrentDetail.body, { onExcessProperty: "error" });
+
+      const concurrentRevision = await leader.page.evaluate(async ({articleId, observation}) => {
+        const response = await fetch("/dashboard/content", {
+          method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operation: "reviseDraft", commandId: "leader-concurrent-revise", articleId, etag: observation.etag, title: observation.body.title, bodyHtml: "<p>Ekstern samtidig endring</p>", departmentIds: observation.body.departmentIds, sticky: observation.body.sticky }),
+        });
+
+        return { reviseStatus: response.status };
+      }, { articleId: twoVersionArticleId, observation });
+
+      expect(observation.body.bodyHtml).toBe("<p>Versjon én tekst</p>");
+      expect(observation.body.revision).toBe(1);
+      expect(observation.body).not.toHaveProperty("createdByPersonId");
       expect(concurrentRevision.reviseStatus).toBe(200);
 
       // The stale editor copy fails with a typed optimistic-concurrency conflict.
@@ -259,9 +262,11 @@ test.describe("Native Content publication (spec 0062)", () => {
         browserResponses,
         pageErrors,
       );
+
       contexts.push(publishedAuthor.context);
       await signIn(publishedAuthor.page, persons.authorDepartmentA, "/dashboard/artikler");
-      const publishedMemberRevision = await publishedAuthor.page.evaluate(
+
+      const publishedMemberRevision = Schema.decodeUnknownSync(Schema.Struct({ detailStatus: Schema.Int, status: Schema.Int, body: NativeProblem }))(await publishedAuthor.page.evaluate(
         async ({
           articleId,
           departmentId,
@@ -274,7 +279,9 @@ test.describe("Native Content publication (spec 0062)", () => {
           const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             credentials: "include",
           });
+
           const etag = '"vkr2.u07rIftJrsco7ukQ6cx0H6e8Axg_EHPO4atC27n8zhk"';
+
           const response = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             method: "PATCH",
             credentials: "include",
@@ -290,10 +297,11 @@ test.describe("Native Content publication (spec 0062)", () => {
               sticky: false,
             }),
           });
+
           return {
             detailStatus: detailResponse.status,
             status: response.status,
-            body: (await response.json()) as Record<string, unknown>,
+            body: (await response.json()),
           };
         },
         {
@@ -301,7 +309,8 @@ test.describe("Native Content publication (spec 0062)", () => {
           departmentId: departmentAlpha,
           apiOrigin: contentApiOrigin,
         },
-      );
+      ));
+
       expect(publishedMemberRevision.detailStatus).toBe(403);
       expect(publishedMemberRevision.status).toBe(403);
       expect(publishedMemberRevision.body).toMatchObject({
@@ -344,9 +353,11 @@ test.describe("Native Content publication (spec 0062)", () => {
       await expect(anonPage.getByText("To versjoner")).toHaveCount(0);
       const unpublished = await anonPage.goto(`${homepageOrigin}/nyhet/to-versjoner`);
       expect(unpublished?.status()).toBe(404);
+
       const unpublishedVersion = await anonPage.goto(
         `${homepageOrigin}/nyhet/to-versjoner?versjon=1`,
       );
+
       expect(unpublishedVersion?.status()).toBe(404);
       observations.unpublish = {
         listingAbsentImmediately: true,
@@ -375,21 +386,27 @@ test.describe("Native Content publication (spec 0062)", () => {
       contexts.push(author.context);
       await signIn(author.page, persons.authorDepartmentA, "/dashboard/artikler");
       await expect(author.page.getByText("Kladd fra forfatter").first()).toBeVisible();
+
       const authorDraftRow = author.page
         .getByRole("listitem")
         .filter({ hasText: "Kladd fra forfatter" });
+
       await expect(authorDraftRow).toBeVisible();
       const publishButtons = author.page.getByRole("button", { name: "Publiser", exact: true });
       await expect(publishButtons).toHaveCount(0);
       const authorDraftId = Number(await authorDraftRow.getAttribute("data-article-id"));
       expect(Number.isSafeInteger(authorDraftId)).toBe(true);
-      const directNativePublish = await author.page.evaluate(
+
+      const directNativePublish = Schema.decodeUnknownSync(Schema.Struct({ status: Schema.Int, body: NativeProblem }))(await author.page.evaluate(
         async ({ articleId, apiOrigin }: { articleId: number; apiOrigin: string }) => {
           const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             credentials: "include",
           });
+
           const etag = detailResponse.headers.get("etag");
+
           if (etag === null) throw new Error("content detail response omitted ETag");
+
           const response = await fetch(`${apiOrigin}/api/content/articles/${articleId}:publish`, {
             method: "POST",
             credentials: "include",
@@ -400,13 +417,15 @@ test.describe("Native Content publication (spec 0062)", () => {
             },
             body: "{}",
           });
+
           return {
             status: response.status,
-            body: (await response.json()) as Record<string, unknown>,
+            body: (await response.json()),
           };
         },
         { articleId: authorDraftId, apiOrigin: contentApiOrigin },
-      );
+      ));
+
       expect(directNativePublish.status).toBe(403);
       expect(directNativePublish.body).toMatchObject({
         status: 403,
@@ -444,10 +463,11 @@ test.describe("Native Content publication (spec 0062)", () => {
       const departmentListing = await anonPage.request.get(
         `${contentApiOrigin}/api/news?department=${departmentBeta}`,
       );
+
       expect(departmentListing.status()).toBe(200);
-      const departmentListingBody = (await departmentListing.json()) as {
-        readonly articles: ReadonlyArray<{ readonly slug: string }>;
-      };
+
+      const departmentListingBody = Schema.decodeUnknownSync(Schema.Struct({ articles: Schema.Array(Schema.Struct({ slug: Schema.String })) }))(await departmentListing.json());
+
       expect(departmentListingBody.articles.map((article) => article.slug)).toEqual([
         "festet-fleravdeling",
         "orgomfattende-nyhet",
@@ -475,18 +495,22 @@ test.describe("Native Content publication (spec 0062)", () => {
         unpublishedHistorical404: true,
         teaserVisible: true,
       };
+
       const anonAccessibility = await new AxeBuilder({ page: anonPage })
         .include('section[aria-labelledby="news-teaser-heading"]')
         .analyze();
+
       expect(anonAccessibility.violations).toEqual([]);
 
       // --- Request confinement -----------------------------------------
       const bridgeRequests = browserRequests.filter(
         (request) => request.pathname === "/dashboard/content",
       );
+
       const nativeContentRequests = browserRequests.filter((request) =>
         request.pathname.startsWith("/api/content/articles"),
       );
+
       const publicRequests = browserRequests.filter(
         (request) =>
           request.pathname === "/" ||
@@ -494,6 +518,7 @@ test.describe("Native Content publication (spec 0062)", () => {
           request.pathname.startsWith("/nyhet/") ||
           request.pathname.startsWith("/api/news"),
       );
+
       expect(publicRequests.some((request) => request.pathname === "/nyheter")).toBe(true);
       expect(publicRequests.some((request) => request.pathname.startsWith("/nyhet/"))).toBe(true);
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(3);
@@ -540,6 +565,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         pageErrors,
         accessibilityViolations: accessibility.violations,
       };
+
       if (evidencePath !== undefined) {
         await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
       }

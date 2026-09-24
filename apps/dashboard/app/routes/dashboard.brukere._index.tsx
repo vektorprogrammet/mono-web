@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://react-router.com/start/framework/route-module
 import { DataTable } from "@/components/data-table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,6 +40,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const result = await client.directory.listPeople({});
+
     return {
       users: {
         activeUsers: result.body.activePeople.map(toRow),
@@ -47,14 +49,18 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   } catch (error) {
     const code =
-      typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+      Predicate.isObjectOrArray(error) && error !== null && "code" in error ? error.code : undefined;
+
     if (code === "credential.missing" || code === "credential.invalid") {
       throw await expiredSessionRedirect(request);
     }
-    if (code === "authority.denied" || code === "scope.not-found") {
+
+    if (code === "authority.denied") {
       return { users: null, error: "denied" as const };
     }
+
     console.error("brukere directory load failed", error);
+
     return { users: null, error: "unavailable" as const };
   }
 }
@@ -106,6 +112,7 @@ export default function Brukere() {
   const inActiveUsers = data.users?.inactiveUsers ?? [];
   const unavailable = "error" in data && data.error === "unavailable";
   const denied = !data.users && !unavailable;
+
   return (
     <>
       <h1>Brukere</h1>

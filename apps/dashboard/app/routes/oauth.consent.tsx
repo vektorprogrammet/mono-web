@@ -5,25 +5,30 @@ import type { Route } from "./+types/oauth.consent";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { view } = await loadOAuthConsent(request);
+
   return data(view, { headers: oauthNoStoreHeaders() });
 }
 
 export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const decisions = form.getAll("decision");
+
   if (decisions.length !== 1 || (decisions[0] !== "accept" && decisions[0] !== "deny")) {
     throw Response.json(
       { error: "OAuth-forespørselen kunne ikke behandles. Start tilkoblingen på nytt." },
       { status: 400, headers: oauthNoStoreHeaders() },
     );
   }
+
   const result = await submitOAuthConsent(request, decisions[0] === "accept");
+
   return redirect(result.location, { headers: result.headers });
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function OAuthConsent() {
   const consent = useLoaderData<typeof loader>();
+
   return (
     <main className="grid min-h-dvh place-items-center bg-gray-50 px-4 py-8">
       <section

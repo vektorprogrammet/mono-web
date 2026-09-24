@@ -1,13 +1,24 @@
+import { decodePostgresObservations, type PostgresObservation } from "./postgres-observation.js";
+import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
+import { RecruitmentInterviewConductObservationSchema } from "../../packages/domain/src/recruitment/schema.js";
+import { Schema } from "effect";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+
+type CorrectionRequestHeaders = {
+  origin: string;
+  cookie?: string;
+  "if-match"?: string;
+  "idempotency-key"?: string;
+};
 
 export type InterviewCorrectionReplayRequest = Readonly<{
   key: string;
   etag: string;
   payload: {
     expectedRevision: number;
-    answers: unknown;
+    answers: Detail["answers"];
     score: { explanatoryPower: number; roleModel: number; suitability: number };
     recommendation: "Ja" | "Kanskje" | "Nei";
   };
@@ -35,17 +46,14 @@ export type InterviewCorrectionBoundaryResult = Readonly<{
   statuses: Readonly<Record<string, number>>;
 }>;
 
-type Detail = {
-  readonly answers: unknown;
-  readonly score: { explanatoryPower: number; roleModel: number; suitability: number } | null;
-  readonly recommendation: "Ja" | "Kanskje" | "Nei" | null;
-  readonly revision: number;
-};
-type Row = Readonly<Record<string, unknown>>;
-type OwnedSnapshot = Readonly<Record<string, ReadonlyArray<Row>>>;
+type Detail = typeof RecruitmentInterviewConductObservationSchema.Type;
+
+type OwnedSnapshot = Readonly<Record<string, ReadonlyArray<PostgresObservation>>>;
+
 type Mutation<T> = (client: PoolClient) => Promise<T>;
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 const freshId = (prefix: string) => `${prefix}-${randomBytes(8).toString("hex")}`;
 
 export async function assertInterviewCorrectionBoundaries(
@@ -64,14 +72,18 @@ export async function assertInterviewCorrectionBoundaries(
     acceptedReplay,
     participantRole = "primary",
   } = context;
+
   const gates: string[] = [];
   const statuses: Record<string, number> = {};
+
   const record = (...observations: string[]) => {
     gates.push(...observations);
     context.recordGate?.(...observations);
   };
+
   const status = (name: string, value: number) => {
     statuses[name] = value;
+
     return value;
   };
 
@@ -90,23 +102,41 @@ export async function assertInterviewCorrectionBoundaries(
       ORDER BY i.interview_id`,
     [[interviewId, selfLinkRaceInterviewId]],
   );
+
   assert.equal(
     identityRows.rows.length,
     2,
     "correction fixtures must expose primary and race interviews",
   );
-  const identityById = new Map(
-    identityRows.rows.map((row) => [row.interviewId as string, row as Row]),
-  );
+
+  const identities = Schema.decodeUnknownSync(
+    Schema.Array(
+      Schema.Struct({
+        interviewId: Schema.String,
+        interviewerPersonId: Schema.String,
+        coInterviewerPersonId: Schema.NullOr(Schema.String),
+        applicantId: Schema.String,
+        applicationId: Schema.String,
+        departmentId: Schema.String,
+        linkedPersonId: Schema.NullOr(Schema.String),
+      }),
+    ),
+  )(identityRows.rows);
+
+  const identityById = new Map(identities.map((row) => [row.interviewId, row]));
+
   const identity = identityById.get(interviewId);
   const raceIdentity = identityById.get(selfLinkRaceInterviewId);
   assert.ok(identity && raceIdentity);
   assert.equal(identity.linkedPersonId, null, "target correction fixture must start unlinked");
   assert.equal(raceIdentity.linkedPersonId, null, "self-link race fixture must start unlinked");
+
   const participantColumn =
     participantRole === "primary" ? "interviewer_person_id" : "co_interviewer_person_id";
+
   const participantField =
     participantRole === "primary" ? "interviewerPersonId" : "coInterviewerPersonId";
+
   assert.equal(
     identity[participantField],
     actorPersonId,
@@ -126,22 +156,33 @@ export async function assertInterviewCorrectionBoundaries(
       LIMIT 1`,
     [identity.departmentId],
   );
-  const differentDepartment = departments.rows[0]?.departmentId as string | undefined;
+
+  const differentDepartment = Schema.decodeUnknownSync(Schema.String)(
+    departments.rows[0]?.departmentId,
+  );
+
   assert.ok(differentDepartment, "authority matrix needs a second admission department");
 
-  const headers = (requestCookie: string | null | undefined, etag?: string, key?: string) => ({
-    origin,
-    ...(requestCookie === null || requestCookie === undefined ? {} : { cookie: requestCookie }),
-    ...(etag === undefined ? {} : { "if-match": etag }),
-    ...(key === undefined ? {} : { "idempotency-key": key }),
-  });
+  const headers = (requestCookie: string | null | undefined, etag?: string, key?: string) => {
+    const result: CorrectionRequestHeaders = { origin: origin };
+
+    if (requestCookie !== null && requestCookie !== undefined) result.cookie = requestCookie;
+
+    if (etag !== undefined) result["if-match"] = etag;
+
+    if (key !== undefined) result["idempotency-key"] = key;
+
+    return result;
+  };
+
   const get = (id: string, requestCookie: string | null = cookie) =>
     fetch(`${api}/api/recruitment/interviews/${id}`, {
       headers: headers(requestCookie),
     });
+
   const post = (
     id: string,
-    body: unknown,
+    body: Schema.Json,
     etag: string,
     key: string,
     requestCookie: string | null = cookie,
@@ -154,6 +195,7 @@ export async function assertInterviewCorrectionBoundaries(
       },
       body: JSON.stringify(body),
     });
+
   const postRaw = (
     id: string,
     body: string,
@@ -171,10 +213,11 @@ export async function assertInterviewCorrectionBoundaries(
     });
 
   const interviewIds = [interviewId, selfLinkRaceInterviewId];
-  const applicantIds = [identity.applicantId as string, raceIdentity.applicantId as string];
-  const departmentIds = [identity.departmentId as string, differentDepartment];
+  const applicantIds = [identity.applicantId, raceIdentity.applicantId];
+  const departmentIds = [identity.departmentId, differentDepartment];
+
   const readRows = async (query: string, values: readonly unknown[] = []) =>
-    (await pool.query(query, [...values])).rows as unknown as Row[];
+    decodePostgresObservations((await pool.query(query, [...values])).rows);
 
   /** Exact rows, not counts: failed requests must not create a receipt or alter any owned state. */
   const snapshot = async (): Promise<OwnedSnapshot> => ({
@@ -293,20 +336,25 @@ export async function assertInterviewCorrectionBoundaries(
     const client = await pool.connect();
     let result!: T;
     let actionError: unknown;
+
     try {
       await client.query("BEGIN");
       await mutate(client);
       await client.query("COMMIT");
+
       try {
         result = await action();
       } catch (cause) {
         actionError = cause;
       }
+
       await client.query("BEGIN");
       await restore(client);
       await client.query("COMMIT");
       await assertSnapshot(before, "mutation restoration");
+
       if (actionError !== undefined) throw actionError;
+
       return result;
     } finally {
       await client.query("ROLLBACK").catch(() => undefined);
@@ -319,9 +367,17 @@ export async function assertInterviewCorrectionBoundaries(
     status("detail", response.status);
     assert.equal(response.status, 200, await response.clone().text());
     const etag = response.headers.get("etag");
+
     if (etag === null) throw new Error("detail response did not include an ETag");
-    return { body: (await response.json()) as Detail, etag };
+
+    return {
+      body: Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
+        await response.json(),
+      ),
+      etag,
+    };
   };
+
   const validPayload = (body: Detail) => ({
     expectedRevision: body.revision,
     answers: body.answers,
@@ -340,6 +396,7 @@ export async function assertInterviewCorrectionBoundaries(
     const read = await get(interviewId, requestCookie);
     status(`${name}:read`, read.status);
     assert.equal(read.status, expected, `${name} read: ${await read.text()}`);
+
     const write = await post(
       interviewId,
       validPayload(body),
@@ -347,8 +404,10 @@ export async function assertInterviewCorrectionBoundaries(
       freshId(`correction-boundary-${name}`),
       requestCookie,
     );
+
     status(`${name}:write`, write.status);
     assert.equal(write.status, expected, `${name} write: ${await write.text()}`);
+
     const replay = await post(
       interviewId,
       acceptedReplay.payload,
@@ -356,14 +415,16 @@ export async function assertInterviewCorrectionBoundaries(
       acceptedReplay.key,
       requestCookie,
     );
+
     status(`${name}:replay`, replay.status);
     assert.equal(replay.status, expected, `${name} replay: ${await replay.text()}`);
     await assertSnapshot(before, name);
   };
+
   const initial = await detail();
   await denied("missing-credential", 401, null, initial.body, initial.etag);
   record("anonymous detail and correction deny with no native receipt or domain writes");
-  const originalInterview = identityRows.rows.find((row) => row.interviewId === interviewId) as Row;
+  const originalInterview = identity;
   assert.equal(originalInterview.interviewId, interviewId);
   await withMutation(
     (client) =>
@@ -387,6 +448,7 @@ export async function assertInterviewCorrectionBoundaries(
     () => denied(`wrong-${participantRole}-participant`, 403, cookie, initial.body, initial.etag),
   );
   record(`removed ${participantRole} participant designation denies detail and correction`);
+
   const originalMembership = (
     await readRows(
       `SELECT membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
@@ -396,6 +458,7 @@ export async function assertInterviewCorrectionBoundaries(
       [membershipId],
     )
   )[0];
+
   assert.ok(originalMembership);
   await withMutation(
     (client) =>
@@ -450,6 +513,7 @@ export async function assertInterviewCorrectionBoundaries(
       ORDER BY id`,
     [actorPersonId],
   );
+
   assert.ok(actorSessions.length > 0, "authority fixture must provide an actor session");
   await withMutation(
     (client) =>
@@ -490,6 +554,7 @@ export async function assertInterviewCorrectionBoundaries(
       [identity.departmentId],
     )
   )[0];
+
   assert.ok(originalDepartment);
   await withMutation(
     (client) =>
@@ -530,6 +595,7 @@ export async function assertInterviewCorrectionBoundaries(
 
   const detailFor = async (id: string): Promise<{ body: Detail; etag: string }> => {
     const response = await get(id);
+
     if (response.status !== 200) {
       const diagnostic = await pool.query(
         `SELECT i.interview_id, i.department_id, i.interviewer_person_id,
@@ -556,26 +622,40 @@ export async function assertInterviewCorrectionBoundaries(
           WHERE i.interview_id=$1`,
         [id, actorPersonId],
       );
+
       assert.fail(
         `detail ${id} returned ${response.status}: ${await response.text()}; source=${JSON.stringify(diagnostic.rows)}`,
       );
     }
+
     const etag = response.headers.get("etag");
+
     if (etag === null) throw new Error("detail response did not include an ETag");
-    return { body: (await response.json()) as Detail, etag };
+
+    return {
+      body: Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(
+        await response.json(),
+      ),
+      etag,
+    };
   };
+
   const raceSeed = await detailFor(selfLinkRaceInterviewId);
+
   const raceSeedPayload = {
     ...acceptedReplay.payload,
     expectedRevision: raceSeed.body.revision,
   };
+
   const raceSeedKey = freshId("correction-boundary-self-link-seed");
+
   const raceSeedResponse = await post(
     selfLinkRaceInterviewId,
     raceSeedPayload,
     raceSeed.etag,
     raceSeedKey,
   );
+
   status("self-link-seed:write", raceSeedResponse.status);
   assert.equal(raceSeedResponse.status, 200, await raceSeedResponse.text());
   const acceptedRaceReplay = { key: raceSeedKey, etag: raceSeed.etag, payload: raceSeedPayload };
@@ -586,6 +666,7 @@ export async function assertInterviewCorrectionBoundaries(
   let waiting: Promise<Response> | undefined;
   let exactReplayWaiting: Promise<Response> | undefined;
   const raceInvitation = freshId("correction-boundary-self-link-race");
+
   try {
     await locker.query("BEGIN");
     await locker.query(
@@ -600,17 +681,21 @@ export async function assertInterviewCorrectionBoundaries(
     );
     const lockerPid = Number((await locker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
     let exactReplayBlocked = false;
+
     for (let attempt = 0; attempt < 100; attempt++) {
       const blockingRows = await pool.query(
         `SELECT pid FROM pg_stat_activity WHERE pid <> $1 AND $1 = ANY(pg_blocking_pids(pid))`,
         [lockerPid],
       );
+
       if (blockingRows.rows.length > 0) {
         exactReplayBlocked = true;
         break;
       }
+
       await sleep(10);
     }
+
     assert.ok(
       exactReplayBlocked,
       `exact replay was not blocked by canonical applicant lock lockerPid=${lockerPid}`,
@@ -641,25 +726,34 @@ export async function assertInterviewCorrectionBoundaries(
     await locker.query("COMMIT");
     const exactReplayResponse = await exactReplayWaiting;
     status("self-link-race:exact-replay-while-committing", exactReplayResponse.status);
-    const exactReplayBody = (await exactReplayResponse.json()) as { readonly code?: unknown };
+
+    const exactReplayBody = Schema.decodeUnknownSync(NativeProblem)(
+      await exactReplayResponse.json(),
+    );
+
     assert.ok([403, 409].includes(exactReplayResponse.status), JSON.stringify(exactReplayBody));
+
     if (exactReplayResponse.status === 409) {
       assert.equal(exactReplayBody.code, "transaction.conflict");
     }
+
     const raceResponse = await waiting;
     status("self-link-race:write", raceResponse.status);
-    const raceBody = (await raceResponse.json()) as { readonly code?: unknown };
+    const raceBody = Schema.decodeUnknownSync(NativeProblem)(await raceResponse.json());
     assert.ok([403, 409].includes(raceResponse.status), JSON.stringify(raceBody));
+
     if (raceResponse.status === 409) assert.equal(raceBody.code, "transaction.conflict");
     const deniedRead = await get(selfLinkRaceInterviewId);
     status("self-link-race:read-after-commit", deniedRead.status);
     assert.equal(deniedRead.status, 403, await deniedRead.text());
+
     const replay = await post(
       selfLinkRaceInterviewId,
       acceptedRaceReplay.payload,
       acceptedRaceReplay.etag,
       acceptedRaceReplay.key,
     );
+
     status("self-link-race:replay", replay.status);
     assert.equal(replay.status, 403, await replay.text());
     const raceAfterResponse = await snapshot();
@@ -668,6 +762,7 @@ export async function assertInterviewCorrectionBoundaries(
     await locker.query("ROLLBACK").catch(() => undefined);
     locker.release();
   }
+
   record(
     "genuine accepted self-link fixture correction is denied or transaction-conflicted after committed self-link; fresh read and exact replay deny",
   );
@@ -679,8 +774,9 @@ export async function assertInterviewCorrectionBoundaries(
     Array.isArray(currentAnswers) && currentAnswers.length >= 2,
     "invalid answer probes need two answers",
   );
-  const answerRows = currentAnswers as ReadonlyArray<Readonly<Record<string, unknown>>>;
-  const invalidCases: ReadonlyArray<readonly [string, unknown]> = [
+  const answerRows = currentAnswers;
+
+  const invalidCases: ReadonlyArray<readonly [string, Schema.Json]> = [
     ["malformed-json", "{"],
     [
       "unknown-question-same-cardinality",
@@ -720,13 +816,15 @@ export async function assertInterviewCorrectionBoundaries(
     ],
     ["null-recommendation", { ...currentPayload, recommendation: null }],
   ];
+
   for (const [name, invalid] of invalidCases) {
     const before = await snapshot();
+
     const response =
       name === "malformed-json"
         ? await postRaw(
             interviewId,
-            invalid as string,
+            Schema.decodeUnknownSync(Schema.String)(invalid),
             current.etag,
             freshId(`correction-boundary-invalid-${name}`),
           )
@@ -736,24 +834,29 @@ export async function assertInterviewCorrectionBoundaries(
             current.etag,
             freshId(`correction-boundary-invalid-${name}`),
           );
+
     status(`invalid:${name}`, response.status);
     assert.equal(response.status, name === "malformed-json" ? 400 : 422, await response.text());
     await assertSnapshot(before, `invalid ${name}`);
   }
+
   record(
     "malformed JSON, missing answer/question entry, and strict schema failures map to 400/422; each leaves exact state unchanged",
   );
   const sameKeyBefore = await snapshot();
+
   const conflictingPayload = {
     ...currentPayload,
     recommendation: currentPayload.recommendation === "Nei" ? "Ja" : "Nei",
   };
+
   const sameKeyResponse = await post(
     interviewId,
     conflictingPayload,
     current.etag,
     acceptedReplay.key,
   );
+
   status("same-key-different-payload", sameKeyResponse.status);
   assert.equal(sameKeyResponse.status, 409, await sameKeyResponse.text());
   await assertSnapshot(sameKeyBefore, "same-key different payload");
@@ -764,14 +867,17 @@ export async function assertInterviewCorrectionBoundaries(
   const rollbackSequence = `test_correction_failure_${rollbackSuffix}_seq`;
   const rollbackControl = `test_correction_failure_${rollbackSuffix}_control`;
   const rollbackFunction = `test_correction_failure_${rollbackSuffix}_fn`;
+
   const rollbackTriggers = [
     ["aggregate-revision", "recruitment_interviews", "1", "UPDATE OF revision"],
     ["assessment", "recruitment_interview_correction_assessments", "2", "INSERT"],
     ["domain-receipt", "recruitment_interview_correction_command_receipts", "3", "INSERT"],
     ["audit", "recruitment_interview_correction_audit", "4", "INSERT"],
   ] as const;
+
   const quote = (identifier: string) => `"${identifier}"`;
   const rollbackClient = await pool.connect();
+
   try {
     await rollbackClient.query("BEGIN");
     await rollbackClient.query(`CREATE SEQUENCE public.${quote(rollbackSequence)}`);
@@ -791,20 +897,24 @@ export async function assertInterviewCorrectionBoundaries(
         RETURN NEW;
       END $$;
     `);
+
     for (const [, table, stage, event] of rollbackTriggers) {
       await rollbackClient.query(
         `CREATE TRIGGER ${quote(`${rollbackFunction}_${stage}`)} AFTER ${event} ON public.${table}
          FOR EACH ROW EXECUTE FUNCTION public.${quote(rollbackFunction)}('${stage}')`,
       );
     }
+
     await rollbackClient.query("COMMIT");
   } finally {
     await rollbackClient.query("ROLLBACK").catch(() => undefined);
     rollbackClient.release();
   }
+
   try {
     for (const [name, , stage] of rollbackTriggers) {
       const setup = await pool.connect();
+
       try {
         await setup.query("BEGIN");
         await setup.query(`UPDATE public.${quote(rollbackControl)} SET stage=$1`, [Number(stage)]);
@@ -814,23 +924,27 @@ export async function assertInterviewCorrectionBoundaries(
         await setup.query("ROLLBACK").catch(() => undefined);
         setup.release();
       }
+
       const before = await snapshot();
+
       const response = await post(
         interviewId,
         currentPayload,
         current.etag,
         freshId(`correction-boundary-rollback-${name}`),
       );
+
       status(`rollback:${name}`, response.status);
-      const failureBody = (await response.json()) as {
-        readonly code?: unknown;
-        readonly status?: unknown;
-      };
+
+      const failureBody = Schema.decodeUnknownSync(NativeProblem)(await response.json());
+
       assert.equal(response.status, 503, JSON.stringify(failureBody));
       assert.equal(failureBody.code, "dependency.unavailable", JSON.stringify(failureBody));
+
       const marker = await pool.query(
         `SELECT last_value, is_called FROM public.${quote(rollbackSequence)}`,
       );
+
       assert.equal(marker.rows[0]?.is_called, true, `${name} rollback marker did not fire`);
       assert.equal(
         Number(marker.rows[0]?.last_value),
@@ -839,18 +953,22 @@ export async function assertInterviewCorrectionBoundaries(
       );
       await assertSnapshot(before, `rollback after ${name}`);
     }
+
     record(
       "each aggregate, assessment, domain-receipt, and audit failure trigger fired and rolled back all domain and native HTTP receipt rows",
     );
   } finally {
     const cleanup = await pool.connect();
+
     try {
       await cleanup.query("BEGIN");
+
       for (const [, table, stage] of rollbackTriggers) {
         await cleanup.query(
           `DROP TRIGGER IF EXISTS ${quote(`${rollbackFunction}_${stage}`)} ON public.${table}`,
         );
       }
+
       await cleanup.query(`DROP FUNCTION IF EXISTS public.${quote(rollbackFunction)}()`);
       await cleanup.query(`DROP TABLE IF EXISTS public.${quote(rollbackControl)}`);
       await cleanup.query(`DROP SEQUENCE IF EXISTS public.${quote(rollbackSequence)}`);
@@ -863,6 +981,7 @@ export async function assertInterviewCorrectionBoundaries(
 
   const differentLinkInvitation = freshId("correction-boundary-different-link");
   const differentLinkClient = await pool.connect();
+
   try {
     await differentLinkClient.query("BEGIN");
     await differentLinkClient.query(
@@ -887,11 +1006,13 @@ export async function assertInterviewCorrectionBoundaries(
     await differentLinkClient.query("ROLLBACK").catch(() => undefined);
     differentLinkClient.release();
   }
+
   const differentRead = await get(interviewId);
   status("different-linked-person:read", differentRead.status);
   assert.equal(differentRead.status, 200, await differentRead.text());
   record(
     "different-person applicant link is a committed teardown-owned fixture and remains readable without correction writes",
   );
+
   return { gates, statuses };
 }

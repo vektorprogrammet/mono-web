@@ -5,6 +5,7 @@ import {
   disposableCohortDatabaseUrl,
   summarizeIdentityCohort,
 } from "./identity-cohort-cli.js";
+
 describe("synthetic credential cohort boundary", () => {
   const fixture = {
     sourceRepository: "synthetic",
@@ -16,6 +17,7 @@ describe("synthetic credential cohort boundary", () => {
     occurrences: [{ occurrenceId: "one", row: {} }],
     mappings: [],
   };
+
   it("retains invalid rows for accountable quarantine but rejects ambiguous occurrence identities", () => {
     expect(decodeIdentityCohort(fixture).occurrences).toHaveLength(1);
     expect(() =>
@@ -56,6 +58,7 @@ describe("synthetic credential cohort boundary", () => {
       ],
       aliases: "LegacyUsernameAndCompanyEmailUnsupported",
     });
+
     expect(summary.reasons.UnsupportedHash).toBe(1);
     expect(JSON.stringify(summary)).not.toContain("private-source-id");
   });
@@ -64,6 +67,7 @@ describe("synthetic credential cohort boundary", () => {
       occurrenceId: `row-${i}`,
       row: {},
     }));
+
     expect(decodeIdentityCohort({ ...fixture, occurrences }).occurrences).toHaveLength(10000);
     expect(() =>
       decodeIdentityCohort({
@@ -76,6 +80,7 @@ describe("synthetic credential cohort boundary", () => {
     expect(
       disposableCohortDatabaseUrl("postgres://postgres@127.0.0.1:49123/identity_cohort_rehearsal"),
     ).toContain("identity_cohort_rehearsal");
+
     for (const value of [
       undefined,
       "postgres://localhost:5432/identity_cohort_rehearsal",

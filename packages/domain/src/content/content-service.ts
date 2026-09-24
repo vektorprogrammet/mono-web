@@ -12,7 +12,7 @@ export interface ArticleNotFound {
   readonly _tag: "ArticleNotFound";
 }
 
-export interface ContentShape {
+export interface ContentOperations {
   /**
    * One complete listing snapshot, sticky-first then publishedAt DESC then
    * articleId DESC; pagination is a pure caller-side slice (law 10).
@@ -36,6 +36,6 @@ export interface ContentShape {
   >;
 }
 
-export class Content extends Context.Service<Content, ContentShape>()(
+export class Content extends Context.Service<Content, ContentOperations>()(
   "@vektorprogrammet/domain/Content",
 ) {}

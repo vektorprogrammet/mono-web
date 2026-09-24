@@ -12,6 +12,7 @@ export class NoEligibleAdmissionPeriod extends Schema.TaggedError<NoEligibleAdmi
   "NoEligibleAdmissionPeriod",
   { departmentId: DepartmentId },
 ) {}
+
 export class AmbiguousAdmissionPeriod extends Schema.TaggedError<AmbiguousAdmissionPeriod>()(
   "AmbiguousAdmissionPeriod",
   { departmentId: DepartmentId },

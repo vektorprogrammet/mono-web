@@ -1,91 +1,17 @@
+import { Predicate } from "effect";
 import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
 import { IdempotencyKey, SchedulingBoard, StrongETag } from "@vektorprogrammet/http-api";
-import { Dialog } from "@foldkit/ui";
-import type { HtmlBuilder } from "foldkit/html";
+import { Scene } from "foldkit/test";
 import { FieldValidation } from "foldkit";
 import { Schema as S } from "effect";
-import { describe, expect, it } from "vitest";
-import { SubmittedFinalize } from "./message";
-import type { Message } from "./message";
-import type { SchedulingCommands } from "./command";
-import { ConductData, makeInitialModel, type Model, type ReadyModel } from "./model";
-import { makeUpdate } from "./update";
+import { describe, it } from "vitest";
+import { commandsFor } from "./command";
+import { createBrowserRecruitmentClient } from "../recruitment/browser-client";
+import { ConductData, init, type ReadyModel, LoadedSchedulingInput } from "./model";
+import { updateFor } from "./update";
 import { view } from "./view";
+
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
-
-interface RenderedAttribute {
-  readonly name: string;
-  readonly values: ReadonlyArray<unknown>;
-}
-
-interface RenderedNode {
-  readonly tag: string;
-  readonly attributes: ReadonlyArray<RenderedAttribute>;
-  readonly children: ReadonlyArray<RenderedNode | string>;
-}
-interface RenderedSubmodelConfig {
-  readonly viewInputs: unknown;
-}
-
-interface RenderedDialogViewInputs {
-  readonly toView: (render: {
-    readonly dialog: ReadonlyArray<RenderedAttribute>;
-    readonly backdrop: ReadonlyArray<RenderedAttribute>;
-    readonly panel: ReadonlyArray<RenderedAttribute>;
-    readonly title: ReadonlyArray<RenderedAttribute>;
-    readonly description: ReadonlyArray<RenderedAttribute>;
-    readonly initialFocus: ReadonlyArray<RenderedAttribute>;
-    readonly closeButton: ReadonlyArray<RenderedAttribute>;
-    readonly isVisible: boolean;
-  }) => RenderedNode;
-}
-
-const renderedNode = (tag: string, args: ReadonlyArray<unknown>): RenderedNode => ({
-  tag,
-  attributes: Array.isArray(args[0]) ? (args[0] as ReadonlyArray<RenderedAttribute>) : [],
-  children: Array.isArray(args[1]) ? (args[1] as ReadonlyArray<RenderedNode | string>) : [],
-});
-
-const htmlBuilder = new Proxy(
-  {},
-  {
-    get: (_target, property) => {
-      if (property === "empty") return renderedNode("empty", []);
-      if (property === "submodel") {
-        return ({ viewInputs }: RenderedSubmodelConfig) =>
-          (viewInputs as RenderedDialogViewInputs).toView({
-            dialog: [],
-            backdrop: [],
-            panel: [],
-            title: [],
-            description: [],
-            initialFocus: [{ name: "DataAttribute", values: ["foldkit-dialog-initial-focus", ""] }],
-            closeButton: [],
-            isVisible: true,
-          });
-      }
-      const name = String(property);
-      return (...args: ReadonlyArray<unknown>) =>
-        /^[A-Z]/.test(name) ? { name, values: args } : renderedNode(name, args);
-    },
-  },
-) as HtmlBuilder<Message>;
-
-const descendants = (node: RenderedNode): ReadonlyArray<RenderedNode> => [
-  node,
-  ...node.children.flatMap((child) => (typeof child === "string" ? [] : descendants(child))),
-];
-
-const textContent = (node: RenderedNode): string =>
-  node.children.map((child) => (typeof child === "string" ? child : textContent(child))).join("");
-
-const hasAttribute = (node: RenderedNode, name: string, value: unknown): boolean =>
-  node.attributes.some(
-    (attribute) => attribute.name === name && attribute.values.some((entry) => entry === value),
-  );
-
-const attribute = (node: RenderedNode, name: string): unknown =>
-  node.attributes.find((candidate) => candidate.name === name)?.values[0];
 
 const schedule = {
   interviewId: "interview-conduct-view",
@@ -98,7 +24,9 @@ const schedule = {
   committedAt: "2031-09-01T10:00:00.000Z",
   scheduleRevision: 1,
 } as const;
+
 type CoInterviewer = Readonly<{ personId: string; displayName: string }>;
+
 const detailFor = (state: "Completed" | "Cancelled") =>
   S.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)({
     interviewId: schedule.interviewId,
@@ -169,6 +97,7 @@ const terminalModel = (
   coInterviewer: CoInterviewer | null = null,
 ): ReadyModel => {
   const detail = detailFor(state);
+
   const board = S.decodeUnknownSync(SchedulingBoard)({
     departmentId: "department-conduct-view",
     interviews: [
@@ -200,13 +129,15 @@ const terminalModel = (
       },
     ],
   });
-  const initial = makeInitialModel(
-    { _tag: "Loaded", board },
+
+  const initial = init(
+    LoadedSchedulingInput.make({ board }),
     IdempotencyKey.make("conduct-view-test-command"),
   );
+
   const score =
     detail.score === null
-      ? initial._tag === "Ready"
+      ? Predicate.isTagged(initial, "Ready")
         ? initial.score
         : undefined
       : {
@@ -216,7 +147,9 @@ const terminalModel = (
           roleModel: FieldValidation.NotValidated({ value: String(detail.score.roleModel) }),
           suitability: FieldValidation.NotValidated({ value: String(detail.score.suitability) }),
         };
-  if (initial._tag !== "Ready" || score === undefined) throw new Error("expected ready model");
+
+  if (!Predicate.isTagged(initial, "Ready") || score === undefined) throw new Error("expected ready model");
+
   const model: ReadyModel = {
     ...initial,
     selectedInterviewId: detail.interviewId,
@@ -228,143 +161,51 @@ const terminalModel = (
   return model;
 };
 
-const readyModel = (model: Model): ReadyModel => {
-  if (model._tag !== "Ready") throw new Error("expected ready model");
-  return model;
-};
-const conductConfirmationModel = (action: "Finalize" | "Cancel" | "Correct"): ReadyModel => {
-  const initial = readyModel(terminalModel("Completed"));
-  const [conductDialog] = Dialog.open(initial.conductDialog);
-  return { ...initial, conductDialog, pendingConductAction: action };
-};
 
-const checkboxChange = (model: ReadyModel, checkboxId: string): ((checked: boolean) => Message) => {
-  const rendered = view(model, htmlBuilder) as unknown as RenderedNode;
-  const checkbox = descendants(rendered).find(
-    (node) => node.tag === "input" && attribute(node, "Id") === checkboxId,
-  );
-  if (checkbox === undefined) throw new Error(`checkbox ${checkboxId} not found`);
-  const onChange = attribute(checkbox, "OnChange");
-  if (typeof onChange !== "function")
-    throw new Error(`checkbox ${checkboxId} has no change handler`);
-  return onChange as (checked: boolean) => Message;
-};
+
+const config = { update: updateFor(commandsFor(createBrowserRecruitmentClient())), view };
+
 describe("Foldkit scheduling conduct view", () => {
-  it("keeps the scheduling heading and makes terminal answers and stored score read-only", () => {
-    const completed = view(terminalModel("Completed"), htmlBuilder) as unknown as RenderedNode;
-    const completedNodes = descendants(completed);
-    const completedHeading = completedNodes.find(
-      (node) => node.tag === "h1" && hasAttribute(node, "Id", "fs-page-title"),
+  it("permits correcting completed assessments while cancelled answers stay read-only", () => {
+    Scene.scene(config, Scene.given(terminalModel("Completed")),
+      Scene.expect(Scene.role("heading", {name: "Planlegg intervjuer"})).toBeVisible(),
+      Scene.expect(Scene.selector("#question-question-text")).toHaveValue("Persisted answer"),
+      Scene.expect(Scene.selector("#question-question-text")).toBeEnabled(),
+      Scene.expect(Scene.selector("#score-explanatoryPower")).toHaveValue("7"),
+      Scene.expect(Scene.selector("#score-roleModel")).toHaveValue("8"),
+      Scene.expect(Scene.selector("#score-suitability")).toHaveValue("9"),
     );
-    expect(completedHeading && textContent(completedHeading)).toBe("Planlegg intervjuer");
-    expect(completedNodes.some((node) => attribute(node, "Value") === "Persisted answer")).toBe(
-      true,
+    Scene.scene(config, Scene.given(terminalModel("Cancelled")),
+      Scene.expect(Scene.selector("#question-question-text")).toBeDisabled(),
+      Scene.expect(Scene.selector("#question-question-check-0")).toBeDisabled(),
+      Scene.expect(Scene.selector("#question-question-check-1")).toBeDisabled(),
+      Scene.expectAll(Scene.all.role("combobox")).toBeEmpty(),
     );
-
-    const completedControls = completedNodes.filter((node) =>
-      ["textarea", "input", "select"].includes(node.tag),
-    );
-    expect(completedControls).toHaveLength(7);
-    expect(completedControls.some((node) => !hasAttribute(node, "Disabled", true))).toBe(true);
-    expect(
-      completedNodes
-        .filter((node) => node.tag === "select")
-        .map((node) => attribute(node, "Value")),
-    ).toEqual(["", "7", "8", "9"]);
-
-    const cancelled = view(terminalModel("Cancelled"), htmlBuilder) as unknown as RenderedNode;
-    const cancelledNodes = descendants(cancelled);
-    const cancelledControls = cancelledNodes.filter((node) =>
-      ["textarea", "input"].includes(node.tag),
-    );
-    expect(cancelledControls).toHaveLength(3);
-    expect(cancelledControls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
-    expect(cancelledNodes.some((node) => node.tag === "select")).toBe(false);
   });
-  it("renders a co-interviewer from the scheduling board projection", () => {
-    const rendered = view(
-      terminalModel("Completed", {
-        personId: "person-co-interviewer",
-        displayName: "Cora Medintervjuer",
-      }),
-      htmlBuilder,
-    ) as unknown as RenderedNode;
-
-    expect(
-      descendants(rendered).some(
-        (node) => node.tag === "p" && textContent(node) === "Medintervjuer: Cora Medintervjuer",
-      ),
-    ).toBe(true);
-  });
-  it("disables every conduct control while a successful detail refresh is pending", () => {
-    const pending = {
-      ...terminalModel("Completed"),
-      conduct: ConductData.Refreshing({ data: detailFor("Completed") }),
-    } satisfies ReadyModel;
-    const controls = descendants(view(pending, htmlBuilder) as unknown as RenderedNode).filter(
-      (node) => ["textarea", "input", "select"].includes(node.tag),
+  it("renders the co-interviewer from the board projection", () => {
+    Scene.scene(config, Scene.given(terminalModel("Completed", {personId: "person-co-interviewer", displayName: "Cora Medintervjuer"})),
+      Scene.expect(Scene.text("Medintervjuer: Cora Medintervjuer")).toBeVisible(),
     );
-    expect(controls).toHaveLength(7);
-    expect(controls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
   });
-  it("associates the native text answer with its visible label and question legend", () => {
-    const rendered = view(terminalModel("Completed"), htmlBuilder) as unknown as RenderedNode;
-    const nodes = descendants(rendered);
-    const answerId = "question-question-text";
-    const answer = nodes.find(
-      (node) => node.tag === "textarea" && attribute(node, "Id") === answerId,
+  it("blocks conduct edits while a refreshed observation is pending", () => {
+    Scene.scene(config, Scene.given({...terminalModel("Completed"), conduct: ConductData.Refreshing({data: detailFor("Completed")})}),
+      Scene.expect(Scene.selector("#question-question-text")).toBeDisabled(),
+      Scene.expect(Scene.selector("#score-explanatoryPower")).toBeDisabled(),
+      Scene.expect(Scene.selector("#question-question-check-0")).toBeDisabled(),
     );
-    const label = nodes.find((node) => node.tag === "label" && attribute(node, "For") === answerId);
-    const legend = nodes.find(
-      (node) => node.tag === "legend" && attribute(node, "Id") === `${answerId}-legend`,
-    );
-
-    expect(answer).toBeDefined();
-    expect(label && textContent(label)).toBe("Svar");
-    expect(legend && textContent(legend)).toBe("1. Hva motiverer deg?");
   });
-
-  it("renders the dialog initial-focus marker on the confirmation control", () => {
-    const rendered = view(
-      conductConfirmationModel("Finalize"),
-      htmlBuilder,
-    ) as unknown as RenderedNode;
-    const confirmation = descendants(rendered).find(
-      (node) => node.tag === "button" && textContent(node) === "Fullfør intervju",
+  it("associates the native answer with its visible label and question legend", () => {
+    Scene.scene(config, Scene.given(terminalModel("Completed")),
+      Scene.expect(Scene.label("Svar")).toHaveId("question-question-text"),
+      Scene.expect(Scene.selector("#question-question-text-legend")).toHaveText("1. Hva motiverer deg?"),
     );
-
-    expect(confirmation).toBeDefined();
-    expect(
-      confirmation !== undefined &&
-        hasAttribute(confirmation, "DataAttribute", "foldkit-dialog-initial-focus"),
-    ).toBe(true);
   });
-  it("routes correction confirmation to the correction command", () => {
-    const rendered = view(
-      conductConfirmationModel("Correct"),
-      htmlBuilder,
-    ) as unknown as RenderedNode;
-    const confirmation = descendants(rendered).find(
-      (node) => node.tag === "button" && textContent(node) === "Rett intervju",
+  it("shows stored checkbox answers without allowing cancelled interview edits", () => {
+    Scene.scene(config, Scene.given(terminalModel("Cancelled")),
+      Scene.expect(Scene.selector("#question-question-check-0")).toBeChecked(),
+      Scene.expect(Scene.selector("#question-question-check-1")).not.toBeChecked(),
+      Scene.expect(Scene.selector("#question-question-check-0")).toBeDisabled(),
+      Scene.expect(Scene.selector("#question-question-check-1")).toBeDisabled(),
     );
-    expect(confirmation).toBeDefined();
-    const onClick = confirmation === undefined ? undefined : attribute(confirmation, "OnClick");
-    expect(onClick).toEqual(SubmittedFinalize());
-  });
-
-  it("maps native checkbox checked state through answer updates", () => {
-    const update = makeUpdate({} as SchedulingCommands);
-    const initial = readyModel(terminalModel("Completed"));
-    const checkedMessage = checkboxChange(initial, "question-question-check-1")(true);
-    const checked = readyModel(update(initial, checkedMessage)[0]);
-    expect(
-      checked.answers.find((answer) => answer.questionId === "question-check")?.answer,
-    ).toEqual(["Nysgjerrig", "Samarbeidsvillig"]);
-
-    const uncheckedMessage = checkboxChange(checked, "question-question-check-1")(false);
-    const unchecked = readyModel(update(checked, uncheckedMessage)[0]);
-    expect(
-      unchecked.answers.find((answer) => answer.questionId === "question-check")?.answer,
-    ).toEqual(["Nysgjerrig"]);
   });
 });

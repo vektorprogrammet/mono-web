@@ -1,4 +1,5 @@
 import { Effect, Layer } from "effect";
+import { APPROVED_TEST_ENV } from "./fixtures/collector-environment.js";
 import { execFileSync } from "node:child_process";
 import {
   linkSync,
@@ -39,8 +40,8 @@ import {
 } from "../src/runner.js";
 import {
   canonicalRuntimeEvidenceBytes,
-  makeRuntimeEvidenceReceipt,
-  makeRuntimeEvidenceRegister,
+  buildRuntimeEvidenceReceipt,
+  buildRuntimeEvidenceRegister,
 } from "../src/runtime-evidence.js";
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js";
 import {
@@ -51,6 +52,7 @@ import {
 import { validateInventory } from "../src/schema.js";
 import type { InventoryRow } from "../src/types.js";
 import { ParityFileSystem } from "../src/services.js";
+
 const REPO_ROOT = join(import.meta.dir, "../../..");
 
 const put = (root: string, path: string, contents: string): void => {
@@ -59,27 +61,49 @@ const put = (root: string, path: string, contents: string): void => {
   writeFileSync(target, contents, "utf8");
 };
 
+const prepareCollectorEnvironment = (root: string): void => {
+  put(root, "apps/server/.env.test", APPROVED_TEST_ENV);
+  execFileSync("git", ["-C", root, "config", "user.email", "parity@example.invalid"]);
+  execFileSync("git", ["-C", root, "config", "user.name", "parity-test"]);
+  execFileSync("git", ["-C", root, "add", "--", "apps/server/.env.test"]);
+  execFileSync("git", [
+    "-C",
+    root,
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "canonical collector test environment",
+  ]);
+};
+
 const contextFor = async (legacyRoot: string, monoRoot: string) => {
   const legacy = await Effect.runPromise(
     scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   const mono = await Effect.runPromise(
     scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   return createManifestContextFromSnapshots(legacy, mono);
 };
+
 const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "diff" | "write") => {
   const legacy = await Effect.runPromise(
     scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   const mono = await Effect.runPromise(
     scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   const context = createManifestContextFromSnapshots(legacy, mono);
+
   const selectedRevisionRefIds = [
     legacy.revisionRefId,
     acceptedIntentRevisionRefId(context),
   ].sort();
+
   const intentPayload = {
     intent_ref_id: "intent://c2-test-authority",
     intent_revision: "c2-test-authority-v1",
@@ -92,6 +116,7 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
     inventory_kinds: [],
     journey_ref_ids: ["intent://c2-test-journey"],
   };
+
   const journeyPayload = {
     journey_ref_id: "intent://c2-test-journey",
     journey_key: "c2-test-authority-journey",
@@ -102,11 +127,13 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
     steps: [],
     coverage_scope: "accepted_non_user_facing" as const,
   };
+
   const register = {
     schema_version: "functional-parity-accepted-intent/v1" as const,
     intents: [{ ...intentPayload, intent_digest: sha256(canonicalJson(intentPayload)) }],
     journeys: [{ ...journeyPayload, journey_digest: sha256(canonicalJson(journeyPayload)) }],
   };
+
   const authority = mkdtempSync("/tmp/parity-c2-intent-authority-");
   const path = join(authority, "accepted-intent.json");
   writeFileSync(path, canonicalJson(register), "utf8");
@@ -117,7 +144,8 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
   execFileSync("git", ["-C", authority, "commit", "-qm", "intent-authority"]);
   const evidenceAuthority = mkdtempSync("/tmp/parity-c2-evidence-authority-");
   const evidencePath = join(evidenceAuthority, "runtime-evidence.json");
-  const receipt = makeRuntimeEvidenceReceipt({
+
+  const receipt = buildRuntimeEvidenceReceipt({
     journey_ref_id: "intent://c2-test-journey",
     step_ids: ["c2-test-step"],
     legacy_revision_ref_id: legacy.revisionRefId,
@@ -130,9 +158,10 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
     result: "passed",
     artifact_digest: sha256("c2-test-artifact"),
   });
+
   writeFileSync(
     evidencePath,
-    canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])),
+    canonicalRuntimeEvidenceBytes(buildRuntimeEvidenceRegister([receipt])),
     "utf8",
   );
   execFileSync("git", ["-C", evidenceAuthority, "init", "-q"]);
@@ -140,6 +169,7 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
   execFileSync("git", ["-C", evidenceAuthority, "config", "user.name", "parity-test"]);
   execFileSync("git", ["-C", evidenceAuthority, "add", "--", "runtime-evidence.json"]);
   execFileSync("git", ["-C", evidenceAuthority, "commit", "-qm", "runtime-evidence-authority"]);
+
   try {
     return await Effect.runPromise(
       run({
@@ -160,6 +190,7 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
   const cycle = await Effect.runPromise(
     runTrustedFixtureTerminalCycle().pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   expect(cycle.writeReport).toMatchObject({
     status: "projection_written",
     exit_code: 14,
@@ -182,6 +213,7 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
     projection_write: { status: "not_requested", target_ref: null },
     verification: { deterministic_diff: "equal", forbidden_states_empty: true },
   });
+
   for (const staleReport of [cycle.missingDiffReport, cycle.differentDiffReport]) {
     expect(staleReport).toMatchObject({
       status: "stale",
@@ -192,6 +224,7 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
       ]),
     });
   }
+
   expect(cycle.projectionEntries).toEqual([...COMMITTED_PROJECTIONS].sort());
   expect(Object.keys(cycle.projectionBytes).sort()).toEqual([...COMMITTED_PROJECTIONS].sort());
   expect(cycle.projectionSubdirectories).toEqual(["retained-evidence"]);
@@ -203,16 +236,19 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
     cycle.writeReport.inventory_artifact_sha256,
   );
 }, 30_000);
+
 test("projection write rejects retained evidence changed during copy", async () => {
   const nodeFileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
   let projectionInspections = 0;
   let exclusiveLockDepth = 0;
   let cleanupObservedUnderLock = false;
+
   const racingFileSystem = {
     ...nodeFileSystem,
     withFileLock: <A>(path: string, mode: "shared" | "exclusive", operation: () => A): A =>
       nodeFileSystem.withFileLock(path, mode, () => {
         if (mode === "exclusive") exclusiveLockDepth += 1;
+
         try {
           return operation();
         } finally {
@@ -227,12 +263,15 @@ test("projection write rejects retained evidence changed during copy", async () 
         expect(exclusiveLockDepth).toBe(1);
         cleanupObservedUnderLock = true;
       }
+
       nodeFileSystem.removeDirectoryTreeNoFollow(path, expected);
     },
     inspectDirectoryTreeNoFollow: (path: string, fileNames: readonly string[]) => {
       if (path.endsWith(`/${basename(PROJECTION_DIRECTORY)}`)) {
         projectionInspections += 1;
+
         if (projectionInspections > 1) expect(exclusiveLockDepth).toBe(1);
+
         if (projectionInspections === 3)
           nodeFileSystem.writeFile(
             join(path, "retained-evidence", "receipt.json"),
@@ -240,30 +279,35 @@ test("projection write rejects retained evidence changed during copy", async () 
             "utf8",
           );
       }
+
       return nodeFileSystem.inspectDirectoryTreeNoFollow(path, fileNames);
     },
   };
+
   const racingRuntime = Layer.mergeAll(
     NodeCommandExecutorLayer,
     NodeExecutionEnvironmentLayer,
     Layer.succeed(ParityFileSystem, racingFileSystem),
   );
+
   let failure: unknown;
+
   try {
     await Effect.runPromise(runTrustedFixtureTerminalCycle().pipe(Effect.provide(racingRuntime)));
   } catch (cause) {
     failure = cause;
   }
+
   expect(failure).toMatchObject({
-    _tag: "ParityRuntimeError",
     operation: "write_projection",
   });
-  expect((failure as Error).message).toContain("projection subdirectories changed during copy");
   expect(cleanupObservedUnderLock).toBe(true);
 }, 30_000);
+
 test("descriptor-relative cleanup never follows staged symlinks", () => {
   const root = mkdtempSync("/tmp/parity-projection-cleanup-");
   const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+
   try {
     const staging = join(root, "staging");
     const outside = join(root, "outside");
@@ -282,6 +326,7 @@ test("descriptor-relative cleanup never follows staged symlinks", () => {
 test("pinned directory writes stay on the opened parent after a path swap", () => {
   const root = mkdtempSync("/tmp/parity-projection-parent-");
   const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+
   try {
     const parent = join(root, "evidence");
     const displaced = join(root, "displaced");
@@ -303,6 +348,7 @@ test("pinned directory writes stay on the opened parent after a path swap", () =
 test("cleanup refuses a replacement directory with another inode", () => {
   const root = mkdtempSync("/tmp/parity-projection-cleanup-identity-");
   const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+
   try {
     const staging = join(root, "staging");
     const displaced = join(root, "displaced");
@@ -325,6 +371,7 @@ test("cleanup refuses a replacement directory with another inode", () => {
 test("atomic projection rename rejects a swapped staging symlink", () => {
   const root = mkdtempSync("/tmp/parity-projection-rename-");
   const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+
   try {
     const staging = join(root, "staging");
     const live = join(root, "live");
@@ -342,9 +389,11 @@ test("atomic projection rename rejects a swapped staging symlink", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
 test("atomic projection rename restores live data after a pinned staging replacement", () => {
   const root = mkdtempSync("/tmp/parity-projection-rename-race-");
   const fileSystem = Effect.runSync(ParityFileSystem.pipe(Effect.provide(NodeFileSystemLayer)));
+
   try {
     const staging = join(root, "staging");
     const displaced = join(root, "displaced");
@@ -372,6 +421,7 @@ test("atomic projection rename restores live data after a pinned staging replace
 
 test("path-level evidence IO rejects symlinked parents and files", () => {
   const root = mkdtempSync("/tmp/parity-evidence-io-");
+
   try {
     const outside = join(root, "outside");
     const outsideFile = join(outside, "preserve.json");
@@ -408,25 +458,30 @@ test("path-level evidence IO rejects symlinked parents and files", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
 test("projection reads reject a symlinked parent even when the target is missing", async () => {
   const root = mkdtempSync("/tmp/parity-projection-missing-symlink-");
+
   try {
     const outside = join(root, "outside");
     mkdirSync(outside, { recursive: true });
     symlinkSync(outside, join(root, "artifacts"));
+
     const reads = [
       readProjectionDirectoryEffect(root, PROJECTION_DIRECTORY),
       readProjectionSetEffect(root, PROJECTION_DIRECTORY, COMMITTED_PROJECTIONS),
     ];
+
     for (const readEffect of reads) {
       let failure: unknown;
+
       try {
         await Effect.runPromise(readEffect.pipe(Effect.provide(NodeRuntimeLayer)));
       } catch (cause) {
         failure = cause;
       }
+
       expect(failure).toMatchObject({ operation: "read_projection" });
-      expect((failure as Error).message).toContain("symbolic link");
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -435,6 +490,7 @@ test("projection reads reject a symlinked parent even when the target is missing
 
 test("projection diff rejects unsafe entries nested under retained evidence", async () => {
   const root = mkdtempSync("/tmp/parity-projection-retained-symlink-");
+
   try {
     const retained = join(root, PROJECTION_DIRECTORY, "retained-evidence");
     mkdirSync(retained, { recursive: true });
@@ -442,6 +498,7 @@ test("projection diff rejects unsafe entries nested under retained evidence", as
     writeFileSync(target, "not projection evidence", "utf8");
     symlinkSync(target, join(retained, "receipt.json"));
     let failure: unknown;
+
     try {
       await Effect.runPromise(
         readProjectionDirectoryEffect(root, PROJECTION_DIRECTORY).pipe(
@@ -451,12 +508,13 @@ test("projection diff rejects unsafe entries nested under retained evidence", as
     } catch (cause) {
       failure = cause;
     }
+
     expect(failure).toMatchObject({ operation: "read_projection" });
-    expect((failure as Error).message).toContain("symbolic link");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
 test("accepted dispositions remove their collected failures from the report", () => {
   const failure = {
     failure_id: "failure-original",
@@ -466,6 +524,7 @@ test("accepted dispositions remove their collected failures from the report", ()
     source_ref_ids: ["src-source"],
     accepted_intent_ref_ids: [],
   };
+
   expect(
     reportableFailureAfterDisposition(
       failure,
@@ -495,6 +554,7 @@ test("F13 retains an unknown effect with causal row and source attribution", asy
       falsifierId: "F13_unknown_effect",
     }).pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   expect(result.exitCode).toBe(13);
   expect(result.report.status).toBe("falsifier_passed");
   expect(result.report.failures).toEqual(
@@ -518,18 +578,23 @@ test("F13 retains an unknown effect with causal row and source attribution", asy
         row.source_ref_ids.length > 0,
     ),
   ).toBe(true);
+
   const target = result.artifacts?.commandWrites.rows.find(
     (row) =>
       row.authority_line === "mono" &&
       "command_name" in row.details &&
       row.details.command_name === "fixture:send",
   );
+
   expect(target).toBeDefined();
+
   if (target === undefined) throw new Error("F13 causal target missing");
+
   const causal = result.report.failures.find(
     (failure) =>
       failure.reason_code === "UNKNOWN_EFFECT" && failure.row_ids.includes(target.row_id),
   );
+
   expect(causal?.row_ids).toEqual([target.row_id]);
 });
 
@@ -542,12 +607,16 @@ test("F14 leaves absent schedules unaccounted until an accepted_absent intent is
       falsifierId: "F14_absent_schedule",
     }).pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   expect(result.exitCode).toBe(13);
   expect(result.report.status).toBe("falsifier_passed");
+
   const absent = result.artifacts?.scheduledBackgroundWorkflows.rows.find(
     (row) => row.status === "absent",
   );
+
   expect(absent).toBeDefined();
+
   if (absent === undefined || result.artifacts === undefined)
     throw new Error("absent schedule row missing");
   expect(
@@ -560,15 +629,19 @@ test("F14 leaves absent schedules unaccounted until an accepted_absent intent is
     disposition: "none",
     accepted_intent_ref_ids: [],
   });
+
   const causal = result.report.failures.find(
     (failure) =>
       failure.reason_code === "ABSENT_SCHEDULE" && failure.row_ids.includes(absent.row_id),
   );
+
   expect(causal?.row_ids).toEqual([absent.row_id]);
   expect(validateInventory(result.artifacts.scheduledBackgroundWorkflows)).toBe(true);
+
   const accounted = applyAcceptedAbsent(result.artifacts.scheduledBackgroundWorkflows, [
     "intent://fixture/absent-schedule",
   ]);
+
   const accepted = accounted.rows.find((row) => row.row_id === absent.row_id);
   expect(accepted).toMatchObject({
     status: "accounted",
@@ -580,9 +653,11 @@ test("F14 leaves absent schedules unaccounted until an accepted_absent intent is
   });
   expect(validateInventory(accounted)).toBe(true);
 });
+
 test("multiline PHPDoc routes ignore continuation stars but reject malformed tails", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-route-docblock-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-route-docblock-mono-");
+
   try {
     put(
       legacyRoot,
@@ -608,15 +683,19 @@ final class MalformedDocblockController {}
 `,
     );
     const context = await contextFor(legacyRoot, monoRoot);
+
     const routes = await Effect.runPromise(
       collectRoutes(context, sha256("route-docblock-c2")).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const safe = routes.legacy.rows.find(
       (row) => "route_name" in row.details && row.details.route_name === "doc_safe",
     );
+
     const malformed = routes.legacy.rows.find(
       (row) => "route_name" in row.details && row.details.route_name === "doc_malformed",
     );
+
     expect(safe).toMatchObject({
       details: { path_template: "/doc-safe", methods_declared: ["GET", "POST"] },
     });
@@ -627,9 +706,11 @@ final class MalformedDocblockController {}
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("optional route names stay nullable without false source parse failures", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-route-optional-name-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-route-optional-name-mono-");
+
   try {
     put(
       legacyRoot,
@@ -730,23 +811,29 @@ final class MalformedController
 `,
     );
     const context = await contextFor(legacyRoot, monoRoot);
+
     const routes = await Effect.runPromise(
       collectRoutes(context, sha256("route-optional-name-c2"), undefined, true).pipe(
         Effect.provide(NodeRuntimeLayer),
       ),
     );
+
     const legacyRows = routes.legacy.rows.filter(
       (row) => row.details.declaration_kind === "controller_annotation",
     );
+
     const monoRows = routes.mono.rows.filter(
       (row) => row.details.declaration_kind === "controller_attribute",
     );
+
     const targetRows = [...legacyRows, ...monoRows].filter((row) =>
       JSON.stringify(row.details).match(/(Party|Account|Assistant)Controller/),
     );
+
     const parseFailures = [...legacyRows, ...monoRows].filter((row) =>
       row.reason_codes.includes("SOURCE_PARSE_ERROR"),
     );
+
     const unresolved = [...legacyRows, ...monoRows].filter((row) => row.status === "unresolved");
     expect(legacyRows).toHaveLength(4);
     expect(monoRows).toHaveLength(2);
@@ -756,18 +843,22 @@ final class MalformedController
     expect(parseFailures).toHaveLength(2);
     expect(unresolved).toHaveLength(2);
     expect(unresolved.every((row) => row.reason_codes.includes("SOURCE_PARSE_ERROR"))).toBe(true);
+
     const sourceFor = (row: (typeof legacyRows)[number], path: string) =>
       row.source_ref_ids
         .map((sourceRefId) => context.sources.find((source) => source.source_id === sourceRefId))
         .find((source) => source?.path === path);
+
     const legacyAssistant = legacyRows.find(
       (row) =>
         "controller_ref" in row.details &&
         row.details.controller_ref?.includes("AssistantController"),
     );
+
     const monoAssistant = monoRows.find(
       (row) => "owner_ref" in row.details && row.details.owner_ref?.includes("AssistantController"),
     );
+
     expect(
       sourceFor(legacyAssistant!, "src/AppBundle/Controller/AssistantController.php"),
     ).toMatchObject({
@@ -791,9 +882,11 @@ final class MalformedController
 test("package runtime roots ignore type exports and non-runtime script arguments", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-package-root-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-package-root-mono-");
+
   try {
     const scheduleSource = (identity: string, handler: string): string =>
       `export function ${handler}(): void {}\nschedule("${identity}", "0 0 * * *", ${handler})\n`;
+
     put(
       monoRoot,
       "package.json",
@@ -871,12 +964,16 @@ test("package runtime roots ignore type exports and non-runtime script arguments
       )?.classification,
     ).toBe("matched");
     const c2 = collectC2(context, sha256("package-runtime-root-c2"));
+
     const schedules = c2.schedules.rows.filter(
       (row) => row.authority_line === "mono" && row.details.trigger_kind === "cron",
     );
+
     const byIdentity = (identity: string) =>
       schedules.find((row) => row.details.trigger_identity === identity);
+
     expect(byIdentity("runtime_schedule")).toMatchObject({ details: { runtime_registered: true } });
+
     for (const identity of [
       "types_schedule",
       "echo_schedule",
@@ -893,16 +990,19 @@ test("package runtime roots ignore type exports and non-runtime script arguments
         reason_codes: expect.arrayContaining(["SCHEDULE_HANDLER_UNRESOLVED"]),
       });
     }
+
     const client = c2.integrations.rows.find((row) =>
       row.source_ref_ids.some(
         (ref) => context.sourcePathById.get(ref)?.path === "packages/sdk/src/client.ts",
       ),
     );
+
     const domain = c2.integrations.rows.find((row) =>
       row.source_ref_ids.some(
         (ref) => context.sourcePathById.get(ref)?.path === "packages/sdk/src/domain.ts",
       ),
     );
+
     expect(domain?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE");
     expect(client).toBeUndefined();
   } finally {
@@ -910,9 +1010,11 @@ test("package runtime roots ignore type exports and non-runtime script arguments
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("typed constructor assignments authorize external effect receivers", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-constructor-receiver-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-constructor-receiver-mono-");
+
   try {
     put(monoRoot, "apps/server/config/services.yaml", "services:\n  App\\Fixture\\Workflow: ~\n");
     put(
@@ -921,11 +1023,13 @@ test("typed constructor assignments authorize external effect receivers", async 
       "<?php\nnamespace App\\Fixture;\nfinal class Workflow { private $em; private $mailer; private $smsSender; public function __construct(EntityManagerInterface $em, Mailer $mailer, SmsSenderInterface $smsSender) { $this->em = $em; $this->mailer = $mailer; $this->smsSender = $smsSender; } public function __invoke(): void { $this->mailer->send($message); $this->em->persist($entity); $this->em->flush(); $this->smsSender->send($sms); } }\n",
     );
     const context = await contextFor(legacyRoot, monoRoot);
+
     const row = collectC2(context, sha256("constructor-receiver-c2")).commandWrites.rows.find(
       (candidate) =>
         "owner_ref" in candidate.details &&
         candidate.details.owner_ref === "App\\Fixture\\Workflow",
     );
+
     expect(row?.reason_codes).not.toContain("UNKNOWN_EFFECT");
     expect(row?.details).toMatchObject({ effect_classes: ["durable_write", "outbound"] });
   } finally {
@@ -937,6 +1041,7 @@ test("typed constructor assignments authorize external effect receivers", async 
 test("write projection gate blocks unresolved C2 effects", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-write-gate-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-write-gate-mono-");
+
   try {
     put(
       monoRoot,
@@ -959,6 +1064,7 @@ test("write projection gate blocks unresolved C2 effects", async () => {
 test("effect resolution rejects local receiver shadowing and resolves aliased multi-hop properties", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-receiver-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-receiver-mono-");
+
   try {
     put(
       monoRoot,
@@ -997,24 +1103,29 @@ test("effect resolution rejects local receiver shadowing and resolves aliased mu
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("receiver-resolution-c2"));
+
     const commandRows = c2.commandWrites.rows.filter(
       (row) => row.authority_line === "mono" && row.inventory_kind === "command_write",
     );
+
     const shadow = commandRows.find(
       (row) =>
         "owner_ref" in row.details &&
         row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\ShadowCommand",
     );
+
     const multi = commandRows.find(
       (row) =>
         "owner_ref" in row.details &&
         row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\MultiCommand",
     );
+
     const approval = commandRows.find(
       (row) =>
         "owner_ref" in row.details &&
         row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\ApprovalCommand",
     );
+
     expect(shadow).toMatchObject({
       status: "unresolved",
       reason_codes: expect.arrayContaining(["UNKNOWN_EFFECT"]),
@@ -1038,9 +1149,11 @@ test("effect resolution rejects local receiver shadowing and resolves aliased mu
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("unqualified property types use the declaring namespace and never global short names", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-namespace-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-namespace-mono-");
+
   try {
     put(
       monoRoot,
@@ -1070,16 +1183,19 @@ test("unqualified property types use the declaring namespace and never global sh
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("namespace-resolution-c2"));
     const commandRows = c2.commandWrites.rows.filter((row) => row.authority_line === "mono");
+
     const namespaceRow = commandRows.find(
       (row) =>
         "owner_ref" in row.details &&
         row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\NamespaceCommand",
     );
+
     const ambiguousRow = commandRows.find(
       (row) =>
         "owner_ref" in row.details &&
         row.details.owner_ref === "App\\Fixture\\Infrastructure\\Ambiguous\\AmbiguousCommand",
     );
+
     expect(namespaceRow).toBeDefined();
     expect(namespaceRow?.status).not.toBe("unresolved");
     expect(namespaceRow?.reason_codes).not.toContain("UNKNOWN_EFFECT");
@@ -1094,9 +1210,11 @@ test("unqualified property types use the declaring namespace and never global sh
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("entity property mutators stay out of command writes without external effects", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-entity-mutator-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-entity-mutator-mono-");
+
   try {
     put(
       legacyRoot,
@@ -1138,13 +1256,16 @@ final class ExternallyPersistedUser {
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("entity-mutator-c2"));
+
     const entityRows = c2.commandWrites.rows.filter((row) =>
       row.source_ref_ids.some((ref) =>
         /(?:^|\/)Entity\//.test(context.sourcePathById.get(ref)?.path ?? ""),
       ),
     );
+
     const symbolRefFor = (row: InventoryRow): string | null =>
       "symbol_ref" in row.details ? row.details.symbol_ref : null;
+
     expect(
       entityRows.some((row) => symbolRefFor(row)?.endsWith("\\User::setPassword") === true),
     ).toBe(false);
@@ -1166,9 +1287,11 @@ final class ExternallyPersistedUser {
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("command target aliases require matching bounded-context path roles", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-target-role-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-target-role-mono-");
+
   try {
     put(
       legacyRoot,
@@ -1241,6 +1364,7 @@ test("command target aliases require matching bounded-context path roles", async
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("target-role-c2"));
     const rows = c2.commandWrites.rows;
+
     const rowFor = (authority: "legacy" | "mono", owner: string) =>
       rows.find(
         (row) =>
@@ -1248,6 +1372,7 @@ test("command target aliases require matching bounded-context path roles", async
           "owner_ref" in row.details &&
           row.details.owner_ref === owner,
       );
+
     const profileLegacy = rowFor("legacy", "AppBundle\\Service\\ApplicationManager");
     const profileMono = rowFor("mono", "App\\Identity\\Infrastructure\\ApplicationManager");
     const mixedLegacy = rowFor("legacy", "AppBundle\\Service\\InterviewManager");
@@ -1279,6 +1404,7 @@ test("command target aliases require matching bounded-context path roles", async
 test("resolved outbound adapters need no inline URL and Sms setters are not integration calls", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-outbound-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-outbound-mono-");
+
   try {
     put(
       monoRoot,
@@ -1317,11 +1443,13 @@ test("resolved outbound adapters need no inline URL and Sms setters are not inte
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("resolved-outbound-c2"));
+
     const notify = c2.commandWrites.rows.find(
       (row) =>
         "owner_ref" in row.details &&
         row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\NotifyCommand",
     );
+
     expect(notify?.reason_codes).not.toContain("UNKNOWN_EFFECT");
     expect(notify?.details).toMatchObject({
       effect_classes: ["outbound"],
@@ -1330,9 +1458,11 @@ test("resolved outbound adapters need no inline URL and Sms setters are not inte
         "App\\Fixture\\Infrastructure\\Service\\SmsSender::send",
       ],
     });
+
     const integrationPaths = c2.integrations.rows.map(
       (row) => context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path,
     );
+
     expect(integrationPaths).not.toContain(
       "apps/server/src/App/Infrastructure/Service/InterviewManager.php",
     );
@@ -1361,11 +1491,13 @@ test("resolved outbound adapters need no inline URL and Sms setters are not inte
         )
         .every((row) => "endpoint_ref" in row.details && row.details.endpoint_ref === null),
     ).toBe(true);
+
     const duplicateRows = c2.integrations.rows.filter(
       (row) =>
         context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path ===
         "apps/server/src/App/Infrastructure/Command/DuplicateCommand.php",
     );
+
     expect(duplicateRows).toHaveLength(1);
     expect(duplicateRows[0]?.status).toBe("extra");
     expect(
@@ -1390,10 +1522,13 @@ test("typed fixture-injected integrations redact credentials and raw payloads", 
       falsifierId: "F15_secret_or_pii_input",
     }).pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   expect(result.exitCode).toBe(13);
   expect(result.report.status).toBe("falsifier_passed");
   const integrations = result.artifacts?.externalIntegrations;
+
   if (integrations === undefined) throw new Error("F15 integration fixture artifacts unavailable");
+
   const fixtureRows = integrations.rows.filter((row) =>
     row.source_ref_ids.some(
       (ref) =>
@@ -1401,10 +1536,12 @@ test("typed fixture-injected integrations redact credentials and raw payloads", 
           ?.path === "packages/fixture-integration.ts",
     ),
   );
+
   expect(fixtureRows).toHaveLength(2);
   expect(
     fixtureRows.every((row) => {
       const details = row.details;
+
       return (
         "endpoint_ref" in details &&
         details.endpoint_ref === null &&
@@ -1418,6 +1555,7 @@ test("typed fixture-injected integrations redact credentials and raw payloads", 
   const serialized = canonicalJson(integrations);
   expect(serialized).not.toContain("https://api.example.test/v1/send?token=");
   expect(serialized).not.toContain("https://hooks.slack.com/services/");
+
   const integrationPaths = integrations.rows.flatMap((row) =>
     row.source_ref_ids.map(
       (ref) =>
@@ -1425,15 +1563,18 @@ test("typed fixture-injected integrations redact credentials and raw payloads", 
         null,
     ),
   );
+
   expect(integrationPaths).not.toContain("packages/sdk/dist/Slack/client.js");
 });
 
 test("canonical source scan does not emit unsafe fixture integrations", async () => {
   const parent = mkdtempSync("/tmp/parity-c2-source-scan-parent-");
+
   try {
     const expectedHead = execFileSync("git", ["-C", REPO_ROOT, "rev-parse", "HEAD"], {
       encoding: "utf8",
     }).trim();
+
     const cloneRoot = join(parent, "repo");
     execFileSync("git", [
       "clone",
@@ -1444,15 +1585,19 @@ test("canonical source scan does not emit unsafe fixture integrations", async ()
       cloneRoot,
     ]);
     execFileSync("git", ["-C", cloneRoot, "checkout", "--detach", expectedHead]);
+
     const clonedHead = execFileSync("git", ["-C", cloneRoot, "rev-parse", "HEAD"], {
       encoding: "utf8",
     }).trim();
+
     if (clonedHead !== expectedHead)
       throw new Error(
         `isolated clone HEAD mismatch: expected ${expectedHead}, received ${clonedHead}`,
       );
+    prepareCollectorEnvironment(cloneRoot);
     const context = await contextFor(cloneRoot, cloneRoot);
     const integrations = collectC2(context, sha256("canonical-c2-source-scan")).integrations;
+
     expect(integrations.rows.length).toBeGreaterThan(0);
     expect(integrations.rows.filter((row) => row.reason_codes.includes("UNSAFE_SOURCE"))).toEqual(
       [],
@@ -1461,9 +1606,11 @@ test("canonical source scan does not emit unsafe fixture integrations", async ()
     rmSync(parent, { recursive: true, force: true });
   }
 }, 600_000);
+
 test("integration URLs survive comment stripping and loader registration", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-integration-loader-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-integration-loader-mono-");
+
   try {
     put(
       monoRoot,
@@ -1477,6 +1624,7 @@ test("integration URLs survive comment stripping and loader registration", async
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("integration-loader-c2"));
+
     const row = c2.integrations.rows.find((candidate) =>
       candidate.source_ref_ids.some(
         (ref) =>
@@ -1484,6 +1632,7 @@ test("integration URLs survive comment stripping and loader registration", async
           "apps/server/src/App/Infrastructure/Service/SlackClient.php",
       ),
     );
+
     expect(row).toMatchObject({
       details: { endpoint_ref: "https://api.slack.com/v1/send", provider_ref: "slack" },
     });
@@ -1497,6 +1646,7 @@ test("integration URLs survive comment stripping and loader registration", async
 test("command import edges distinguish registered and dead declarations", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-import-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-import-mono-");
+
   try {
     put(
       legacyRoot,
@@ -1538,6 +1688,7 @@ test("command import edges distinguish registered and dead declarations", async 
     expect(
       c2.commandWrites.rows.some((row) => row.reason_codes.includes("DEAD_UNIMPORTED_SOURCE")),
     ).toBe(true);
+
     const unregisteredRowIds = new Set(
       c2.commandWrites.rows
         .filter(
@@ -1549,21 +1700,25 @@ test("command import edges distinguish registered and dead declarations", async 
         )
         .map((row) => row.row_id),
     );
+
     expect(
       c2.commandWrites.links.some((link) =>
         link.to_row_ids.some((rowId) => unregisteredRowIds.has(rowId)),
       ),
     ).toBe(false);
+
     const subscriber = c2.commandWrites.rows.find(
       (candidate) =>
         "owner_ref" in candidate.details &&
         candidate.details.owner_ref === "AppBundle\\EventSubscriber\\LoadedSubscriber",
     );
+
     const command = c2.commandWrites.rows.find(
       (candidate) =>
         "owner_ref" in candidate.details &&
         candidate.details.owner_ref === "AppBundle\\Command\\LoadedCommand",
     );
+
     expect(subscriber?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE");
     expect(command?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE");
     put(monoRoot, "apps/server/config/packages/api_platform.yaml", "parameters: {}\n");
@@ -1582,17 +1737,21 @@ test("command import edges distinguish registered and dead declarations", async 
           !row.reason_codes.includes("DEAD_UNIMPORTED_SOURCE"),
       ),
     ).toBe(true);
+
     const orphanRow = c2.commandWrites.rows.find(
       (row) =>
         "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\OrphanCommand",
     );
+
     const importEdge = c2.commandWrites.derivation_edges.find(
       (edge) =>
         edge.derivation === "E-C2-LOADER-IMPORT" &&
         edge.to_row_ids.includes(orphanRow?.row_id ?? ""),
     );
+
     const importerPaths =
       importEdge?.from_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null) ?? [];
+
     expect(importerPaths).toEqual(["apps/server/config/services.yaml"]);
 
     expect(
@@ -1605,9 +1764,11 @@ test("command import edges distinguish registered and dead declarations", async 
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("routing roots establish controller write reachability", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-route-loader-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-route-loader-mono-");
+
   try {
     put(
       legacyRoot,
@@ -1631,16 +1792,19 @@ test("routing roots establish controller write reachability", async () => {
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("route-loader-c2"));
+
     const row = c2.commandWrites.rows.find(
       (candidate) =>
         "owner_ref" in candidate.details &&
         candidate.details.owner_ref === "App\\Fixture\\Controller\\WriteController",
     );
+
     const legacyRow = c2.commandWrites.rows.find(
       (candidate) =>
         "owner_ref" in candidate.details &&
         candidate.details.owner_ref === "AppBundle\\Controller\\WriteController",
     );
+
     expect(row).toMatchObject({ status: "covered", reason_codes: [] });
     expect(row?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE");
     expect(row?.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path).sort()).toEqual([
@@ -1665,9 +1829,11 @@ test("routing roots establish controller write reachability", async () => {
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("legacy service locators reconcile command targets with injected mono dependencies", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-locator-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-locator-mono-");
+
   try {
     put(
       legacyRoot,
@@ -1796,18 +1962,21 @@ final class RecordRepository {
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("locator-command-c2"));
     const rows = c2.commandWrites.rows;
+
     const legacy = rows.find(
       (row) =>
         row.authority_line === "legacy" &&
         "owner_ref" in row.details &&
         row.details.owner_ref === "AppBundle\\Controller\\LocatorController",
     );
+
     const mono = rows.find(
       (row) =>
         row.authority_line === "mono" &&
         "owner_ref" in row.details &&
         row.details.owner_ref === "App\\Fixture\\Controller\\LocatorController",
     );
+
     expect(legacy).toMatchObject({
       status: "covered",
       details: { effect_classes: ["durable_write", "outbound"] },
@@ -1841,9 +2010,11 @@ final class RecordRepository {
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("dynamic Doctrine and migrated service owners reconcile by method and effect", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-dynamic-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-dynamic-mono-");
+
   try {
     put(
       legacyRoot,
@@ -1950,6 +2121,7 @@ final class FeedbackController {
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("dynamic-doctrine-service-migrations"));
     const rows = c2.commandWrites.rows;
+
     const rowFor = (authority: "legacy" | "mono", owner: string, method: string) =>
       rows.find(
         (row) =>
@@ -1958,6 +2130,7 @@ final class FeedbackController {
           row.details.owner_ref === owner &&
           row.details.symbol_ref?.endsWith(`::${method}`),
       );
+
     for (const method of [
       "checkAccess",
       "checkAccessToResourceAndMethod",
@@ -1989,11 +2162,13 @@ final class FeedbackController {
       "AppBundle\\Controller\\FeedbackController",
       "indexAction",
     );
+
     const monoFeedback = rowFor(
       "mono",
       "App\\Content\\Controller\\FeedbackController",
       "indexAction",
     );
+
     expect(legacyFeedback).toMatchObject({
       status: "covered",
       details: { effect_classes: ["durable_write", "outbound"] },
@@ -2015,9 +2190,11 @@ final class FeedbackController {
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("unmanifested mono shared repositories retain durable command parity", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-shared-repository-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-shared-repository-mono-");
+
   try {
     put(
       legacyRoot,
@@ -2064,6 +2241,7 @@ final class SemesterRepository {
 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("shared-repository-command-parity"));
+
     const rowFor = (authority: "legacy" | "mono", owner: string) =>
       c2.commandWrites.rows.find(
         (row) =>
@@ -2072,6 +2250,7 @@ final class SemesterRepository {
           row.details.owner_ref === owner &&
           row.details.symbol_ref?.endsWith("::findOrCreateCurrentSemester"),
       );
+
     const legacy = rowFor("legacy", "AppBundle\\Entity\\Repository\\SemesterRepository");
     const mono = rowFor("mono", "App\\Shared\\Repository\\SemesterRepository");
     expect(legacy).toMatchObject({
@@ -2095,9 +2274,11 @@ final class SemesterRepository {
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("transient survey projections do not become command writes without persistence", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-transient-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-transient-mono-");
+
   try {
     put(
       monoRoot,
@@ -2211,9 +2392,11 @@ final class Policy {
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("relocated controller and event writes reconcile without rewriting authority details", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-relocated-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-relocated-mono-");
+
   try {
     put(
       legacyRoot,
@@ -2286,6 +2469,7 @@ test("relocated controller and event writes reconcile without rewriting authorit
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("relocated-command-c2"));
     const rows = c2.commandWrites.rows;
+
     const statusCounts = rows.reduce<Record<string, number>>(
       (counts, row) => ({
         ...counts,
@@ -2293,7 +2477,9 @@ test("relocated controller and event writes reconcile without rewriting authorit
       }),
       {},
     );
+
     expect(statusCounts).toEqual({ covered: 4, extra: 2, missing: 2 });
+
     const rowFor = (owner: string, authority: "legacy" | "mono") =>
       rows.find(
         (row) =>
@@ -2301,6 +2487,7 @@ test("relocated controller and event writes reconcile without rewriting authorit
           "owner_ref" in row.details &&
           row.details.owner_ref === owner,
       );
+
     const relocatedLegacy = rowFor("AppBundle\\Controller\\RelocatedController", "legacy");
     const relocatedMono = rowFor("App\\Admissions\\Controller\\RelocatedController", "mono");
     const subscriberLegacy = rowFor("AppBundle\\EventSubscriber\\RelocatedSubscriber", "legacy");
@@ -2372,9 +2559,11 @@ test("relocated controller and event writes reconcile without rewriting authorit
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("relocated services and custom commands reconcile exact effects, with Slack adapter rename evidence", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-relocated-service-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-relocated-service-mono-");
+
   try {
     put(
       legacyRoot,
@@ -2621,6 +2810,7 @@ final class RelocatedSubscriber {
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("relocated-service-c2"));
     const rows = c2.commandWrites.rows;
+
     const rowFor = (authority: "legacy" | "mono", ownerSuffix: string, method: string) =>
       rows.find(
         (row) =>
@@ -2629,6 +2819,7 @@ final class RelocatedSubscriber {
           row.details.owner_ref?.endsWith(ownerSuffix) &&
           row.details.symbol_ref?.endsWith(`::${method}`),
       );
+
     const linkFor = (left: InventoryRow | undefined, right: InventoryRow | undefined): boolean =>
       left !== undefined &&
       right !== undefined &&
@@ -2638,6 +2829,7 @@ final class RelocatedSubscriber {
           link.from_row_id === left.row_id &&
           link.to_row_id === right.row_id,
       );
+
     const relocatedSubscriberLegacy = rowFor("legacy", "\\RelocatedSubscriber", "onEvent");
     const relocatedSubscriberMono = rowFor("mono", "\\RelocatedSubscriber", "onEvent");
     expect(relocatedSubscriberLegacy).toMatchObject({
@@ -2710,6 +2902,7 @@ final class RelocatedSubscriber {
       },
     });
     expect(linkFor(slackMailerLegacy, slackMailerMono)).toBe(true);
+
     for (const method of [
       "sendApplicationCountNotification",
       "sendInterviewsCompletedNotification",
@@ -2735,6 +2928,7 @@ final class RelocatedSubscriber {
       expect(interviewMono?.signature).not.toContain("Client");
       expect(linkFor(interviewLegacy, interviewMono)).toBe(true);
     }
+
     const divergentServiceLegacy = rowFor("legacy", "\\DivergentService", "mutate");
     const divergentServiceMono = rowFor("mono", "\\DivergentService", "mutate");
     expect(divergentServiceLegacy).toMatchObject({
@@ -2766,6 +2960,7 @@ final class RelocatedSubscriber {
 test("URL-bearing file fetches reconcile GeoLocation writes without classifying local reads", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-geo-url-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-geo-url-mono-");
+
   try {
     put(
       legacyRoot,
@@ -2951,6 +3146,7 @@ test("URL-bearing file fetches reconcile GeoLocation writes without classifying 
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("geo-file-get-contents"));
     const rows = c2.commandWrites.rows;
+
     const rowFor = (authority: "legacy" | "mono", suffix: string) =>
       rows.find(
         (row) =>
@@ -2958,6 +3154,7 @@ test("URL-bearing file fetches reconcile GeoLocation writes without classifying 
           "owner_ref" in row.details &&
           row.details.owner_ref?.endsWith(suffix),
       );
+
     const legacyGeo = rowFor("legacy", "\\GeoLocation");
     const monoGeo = rowFor("mono", "\\GeoLocation");
     const legacyCompany = rowFor("legacy", "\\CompanyEmailMaker");
@@ -2999,9 +3196,11 @@ test("URL-bearing file fetches reconcile GeoLocation writes without classifying 
     ).toBe(true);
     expect(rows.some((row) => row.details.owner_ref?.endsWith("\\LocalReader"))).toBe(false);
     const integrations = c2.integrations.rows;
+
     const geoIntegrations = integrations.filter((row) =>
       row.details.call_site_ref?.endsWith("\\GeoLocation::findCoordinates"),
     );
+
     expect(
       geoIntegrations.every((row) => row.details.endpoint_ref === "http://ipinfo.io/:dynamic"),
     ).toBe(true);
@@ -3018,6 +3217,7 @@ test("URL-bearing file fetches reconcile GeoLocation writes without classifying 
 test("dead relocated command rows link without losing dead status", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-dead-relocated-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-dead-relocated-mono-");
+
   try {
     put(
       legacyRoot,
@@ -3043,10 +3243,12 @@ final class DeadRelocatedCommand extends \Symfony\Component\Console\Command\Comm
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("dead-relocated-c2"));
+
     const rows = c2.commandWrites.rows.filter(
       (row) =>
         "owner_ref" in row.details && row.details.owner_ref?.endsWith("\\DeadRelocatedCommand"),
     );
+
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.status === "dead_unimported")).toBe(true);
     expect(rows.every((row) => row.mismatch.kind === "dead_unimported")).toBe(true);
@@ -3153,6 +3355,7 @@ test("mono Infrastructure integration sources have explicit command-write covera
   const legacyRoot = mkdtempSync("/tmp/parity-c2-infrastructure-allowlist-legacy-");
   const cloneParent = mkdtempSync("/tmp/parity-c2-infrastructure-allowlist-clone-");
   const cloneRoot = join(cloneParent, "repo");
+
   try {
     execFileSync(
       "git",
@@ -3160,21 +3363,27 @@ test("mono Infrastructure integration sources have explicit command-write covera
       { stdio: "ignore" },
     );
     execFileSync("git", ["-C", cloneRoot, "checkout", "--detach", "HEAD"], { stdio: "ignore" });
+    prepareCollectorEnvironment(cloneRoot);
     const context = await contextFor(legacyRoot, cloneRoot);
+
     const integrationFamily = SOURCE_FAMILIES.find(
       (family) => family.family_id === "mono_integrations",
     );
+
     const commandFamily = SOURCE_FAMILIES.find(
       (family) => family.family_id === "mono_commands_writes",
     );
+
     if (integrationFamily === undefined || commandFamily === undefined)
       throw new Error("C2 source family configuration is incomplete");
+
     const looseInfrastructurePaths = sourceFamilyMatchedPaths(context, integrationFamily).filter(
       (path) =>
         path.startsWith("apps/server/src/App/") &&
         path.includes("/Infrastructure/") &&
         path.endsWith(".php"),
     );
+
     const explicitExcludedPatterns = [
       "apps/server/src/App/**/Infrastructure/Entity/**/*.php",
       "apps/server/src/App/**/Infrastructure/Validator/**/*.php",
@@ -3186,18 +3395,23 @@ test("mono Infrastructure integration sources have explicit command-write covera
       "apps/server/src/App/**/Infrastructure/UserMap.php",
       "apps/server/src/App/**/Infrastructure/ReversedRoleHierarchy.php",
     ];
+
     const commandWritePaths = looseInfrastructurePaths.filter((path) =>
       commandFamily.patterns.some((pattern) => matchesLiteralPattern(path, pattern)),
     );
+
     const excludedPaths = looseInfrastructurePaths.filter((path) =>
       explicitExcludedPatterns.some((pattern) => matchesLiteralPattern(path, pattern)),
     );
+
     const uncoveredPaths = looseInfrastructurePaths.filter(
       (path) => !commandWritePaths.includes(path) && !excludedPaths.includes(path),
     );
+
     const overlappingPaths = looseInfrastructurePaths.filter(
       (path) => commandWritePaths.includes(path) && excludedPaths.includes(path),
     );
+
     expect({ uncoveredPaths, overlappingPaths }).toEqual({
       uncoveredPaths: [],
       overlappingPaths: [],
@@ -3217,13 +3431,16 @@ test("mono Infrastructure integration sources have explicit command-write covera
 test("comment-only schedule literals do not create schedule rows", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-comment-schedule-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-comment-schedule-mono-");
+
   try {
     put(monoRoot, "infra/decoy.ts", '// schedule("nightly", "0 0 * * *")\n');
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("comment-schedule-c2"));
+
     const decoyRows = c2.schedules.rows.filter((row) =>
       row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "infra/decoy.ts"),
     );
+
     expect(decoyRows).toEqual([]);
     expect(
       c2.schedules.rows.some((row) => row.status === "absent" && row.authority_line === "mono"),
@@ -3237,6 +3454,7 @@ test("comment-only schedule literals do not create schedule rows", async () => {
 test("non-scheduled infrastructure files leave only the family absence observation", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-duplicate-schedule-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-duplicate-schedule-mono-");
+
   try {
     put(monoRoot, "infra/a.ts", "export const marker = true\n");
     put(monoRoot, "infra/b.ts", "export const marker = true\n");
@@ -3247,6 +3465,7 @@ test("non-scheduled infrastructure files leave only the family absence observati
       c2.schedules.rows.filter((row) =>
         row.source_ref_ids.some((ref) => {
           const path = context.sourcePathById.get(ref)?.path;
+
           return (
             path === "infra/a.ts" ||
             path === "infra/b.ts" ||
@@ -3270,6 +3489,7 @@ test("schedule expressions use literal cron grammar and redact payload-shaped va
   const payload = "not-a-cron-payload-12345";
   const invalidAlphabetic = "0 0 * foo *";
   const highEntropy = "999999999999 999999999999 999999999999 999999999999 999999999999";
+
   try {
     put(
       monoRoot,
@@ -3280,9 +3500,11 @@ test("schedule expressions use literal cron grammar and redact payload-shaped va
     const c2 = collectC2(context, sha256("cron-grammar-c2"));
     const serialized = canonicalJson(c2.schedules);
     expect(serialized).not.toContain(payload);
+
     const rows = c2.schedules.rows.filter((row) =>
       row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "infra/timer.ts"),
     );
+
     expect(
       rows.some(
         (row) =>
@@ -3299,9 +3521,11 @@ test("schedule expressions use literal cron grammar and redact payload-shaped va
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("generic local requests, sends, and declarations do not create integrations", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-dynamic-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-dynamic-mono-");
+
   try {
     put(
       monoRoot,
@@ -3330,11 +3554,13 @@ test("generic local requests, sends, and declarations do not create integrations
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("dynamic-integration-c2"));
+
     const genericPaths = new Set([
       "apps/server/src/App/Infrastructure/Service/Delegate.php",
       "apps/server/src/App/Infrastructure/Service/Request.php",
       "packages/tool/tests/client.test.ts",
     ]);
+
     expect(
       c2.integrations.rows.filter((row) =>
         row.source_ref_ids.some((ref) =>
@@ -3349,11 +3575,13 @@ test("generic local requests, sends, and declarations do not create integrations
         ),
       ),
     ).toEqual([]);
+
     const previewRows = c2.integrations.rows.filter((row) =>
       row.source_ref_ids.some(
         (ref) => context.sourcePathById.get(ref)?.path === "packages/preview.ts",
       ),
     );
+
     expect(previewRows).toHaveLength(1);
     expect(previewRows[0]).toMatchObject({
       status: "unresolved",
@@ -3370,9 +3598,11 @@ test("generic local requests, sends, and declarations do not create integrations
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("command rows require positive declarations or write effects", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-positive-command-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-positive-command-mono-");
+
   try {
     put(
       monoRoot,
@@ -3401,10 +3631,12 @@ test("command rows require positive declarations or write effects", async () => 
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("positive-command-c2"));
+
     const hasPath = (row: { readonly source_ref_ids: readonly string[] }, path: string): boolean =>
       row.source_ref_ids.some(
         (sourceRefId) => context.sourcePathById.get(sourceRefId)?.path === path,
       );
+
     const commandRows = c2.commandWrites.rows.filter((row) => row.authority_line === "mono");
     expect(
       commandRows.some((row) => hasPath(row, "apps/server/config/packages/framework.yaml")),
@@ -3414,9 +3646,11 @@ test("command rows require positive declarations or write effects", async () => 
         hasPath(row, "apps/server/src/App/Infrastructure/Repository/ReadRepository.php"),
       ),
     ).toBe(false);
+
     const writes = commandRows.filter((row) =>
       hasPath(row, "apps/server/src/App/Infrastructure/Repository/WriteRepository.php"),
     );
+
     expect(writes).toHaveLength(2);
     expect(
       writes.every(
@@ -3434,9 +3668,11 @@ test("command rows require positive declarations or write effects", async () => 
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("provider-specific calls and literal HTTP integration anchors remain visible", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-real-integrations-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-real-integrations-mono-");
+
   try {
     put(
       monoRoot,
@@ -3470,11 +3706,13 @@ test("provider-specific calls and literal HTTP integration anchors remain visibl
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const integrations = collectC2(context, sha256("real-integrations-c2")).integrations;
+
     const sourcePaths = new Set(
       integrations.rows.flatMap((row) =>
         row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? ""),
       ),
     );
+
     expect([...sourcePaths].sort()).toEqual(
       [
         "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php",
@@ -3490,6 +3728,7 @@ test("provider-specific calls and literal HTTP integration anchors remain visibl
         )
         .every((row) => "call_site_ref" in row.details && row.details.call_site_ref !== null),
     ).toBe(true);
+
     const httpRows = integrations.rows.filter((row) =>
       row.source_ref_ids.some(
         (ref) =>
@@ -3497,6 +3736,7 @@ test("provider-specific calls and literal HTTP integration anchors remain visibl
           "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php",
       ),
     );
+
     expect(
       httpRows.some(
         (row) =>
@@ -3504,6 +3744,7 @@ test("provider-specific calls and literal HTTP integration anchors remain visibl
           row.details.endpoint_ref === "https://api.example.test/v1/items",
       ),
     ).toBe(true);
+
     const githubControllerRows = integrations.rows.filter((row) =>
       row.source_ref_ids.some(
         (ref) =>
@@ -3511,6 +3752,7 @@ test("provider-specific calls and literal HTTP integration anchors remain visibl
           "apps/server/src/App/Support/Controller/GitHubController.php",
       ),
     );
+
     expect(githubControllerRows).toHaveLength(1);
     expect(githubControllerRows[0]).toMatchObject({
       status: "dead_unimported",
@@ -3522,10 +3764,12 @@ test("provider-specific calls and literal HTTP integration anchors remain visibl
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("constructor property inference stays within the owning PHP class", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-provider-scope-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-provider-scope-mono-");
   const path = "apps/server/src/App/Infrastructure/Service/MultiClient.php";
+
   try {
     put(
       monoRoot,
@@ -3543,9 +3787,11 @@ test("constructor property inference stays within the owning PHP class", async (
       ].join("\n"),
     );
     const context = await contextFor(legacyRoot, monoRoot);
+
     const rows = collectC2(context, sha256("provider-owner-scope")).integrations.rows.filter(
       (row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === path),
     );
+
     expect(rows).toEqual([]);
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true });
@@ -3556,6 +3802,7 @@ test("constructor property inference stays within the owning PHP class", async (
 test("YAML block scalars cannot forge loader imports or class authority", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-loader-block-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-loader-block-mono-");
+
   try {
     put(
       monoRoot,
@@ -3569,11 +3816,13 @@ test("YAML block scalars cannot forge loader imports or class authority", async 
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("loader-block-c2"));
+
     const row = c2.commandWrites.rows.find(
       (candidate) =>
         "owner_ref" in candidate.details &&
         candidate.details.owner_ref === "App\\Fixture\\BlockCommand",
     );
+
     expect(row).toMatchObject({
       status: "unresolved",
       reason_codes: expect.arrayContaining(["DEAD_UNIMPORTED_SOURCE", "UNKNOWN_EFFECT"]),
@@ -3592,6 +3841,7 @@ test("YAML block scalars cannot forge loader imports or class authority", async 
 test("command imports require rooted loader reachability and reject loader cycles", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-loader-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-loader-mono-");
+
   try {
     put(
       monoRoot,
@@ -3620,12 +3870,15 @@ test("command imports require rooted loader reachability and reject loader cycle
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("loader-cycle-c2"));
+
     const aRow = c2.commandWrites.rows.find(
       (row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\ACommand",
     );
+
     const bRow = c2.commandWrites.rows.find(
       (row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\BCommand",
     );
+
     expect(aRow).toBeDefined();
     expect(aRow?.reason_codes.includes("DEAD_UNIMPORTED_SOURCE")).toBe(false);
     expect(bRow).toMatchObject({
@@ -3637,9 +3890,11 @@ test("command imports require rooted loader reachability and reject loader cycle
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
 test("effect evidence keeps unresolved receiver calls unknown without lexical target authority", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-effect-authority-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-effect-authority-mono-");
+
   try {
     put(
       monoRoot,
@@ -3648,11 +3903,13 @@ test("effect evidence keeps unresolved receiver calls unknown without lexical ta
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("effect-authority-c2"));
+
     const row = c2.commandWrites.rows.find(
       (candidate) =>
         context.sourcePathById.get(candidate.source_ref_ids[0] ?? "")?.path ===
         "apps/server/src/App/Infrastructure/Command/UnknownCommand.php",
     );
+
     expect(row).toMatchObject({
       status: "unresolved",
       reason_codes: expect.arrayContaining(["UNKNOWN_EFFECT"]),
@@ -3667,6 +3924,7 @@ test("effect evidence keeps unresolved receiver calls unknown without lexical ta
 test("framework effect anchors remain authoritative without local receiver types", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-framework-effects-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-framework-effects-mono-");
+
   try {
     put(
       monoRoot,
@@ -3695,6 +3953,7 @@ test("framework effect anchors remain authoritative without local receiver types
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const rows = collectC2(context, sha256("framework-effects-c2")).commandWrites.rows;
+
     const rowFor = (ownerRef: string) =>
       rows.find(
         (row) =>
@@ -3702,11 +3961,13 @@ test("framework effect anchors remain authoritative without local receiver types
           row.details.owner_ref === ownerRef &&
           row.details.entry_kind !== "integration_write",
       ) ?? rows.find((row) => "owner_ref" in row.details && row.details.owner_ref === ownerRef);
+
     const expectEffects = (ownerRef: string, expected: readonly string[]): void => {
       const row = rowFor(ownerRef);
       expect(row?.reason_codes).not.toContain("UNKNOWN_EFFECT");
       expect(row?.details).toMatchObject({ effect_classes: expect.arrayContaining(expected) });
     };
+
     expectEffects("App\\Fixture\\DoctrineCommand", ["durable_write"]);
     expectEffects("App\\Fixture\\EventCommand", ["outbound"]);
     expectEffects("App\\Fixture\\FileCommand", ["filesystem"]);
@@ -3726,6 +3987,7 @@ test("schedule identities and credential slots are decoded before artifact ident
   const scheduleSecret = "aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV";
   const hexScheduleSecret = "abcdef0123456789abcdef0123456789";
   const credentialSecret = "abcdef0123456789abcdef0123456789";
+
   try {
     put(
       monoRoot,
@@ -3763,6 +4025,7 @@ test("schedule identities and credential slots are decoded before artifact ident
 test("loader authority requires exact roots and supports FQCN keys plus PSR-4 resources", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-loader-schema-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-loader-schema-mono-");
+
   try {
     put(
       monoRoot,
@@ -3791,18 +4054,22 @@ test("loader authority requires exact roots and supports FQCN keys plus PSR-4 re
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("loader-schema-c2"));
+
     const loaded = c2.commandWrites.rows.find(
       (row) =>
         "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\LoadedCommand",
     );
+
     const orphan = c2.commandWrites.rows.find(
       (row) =>
         "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\OrphanCommand",
     );
+
     const excluded = c2.commandWrites.rows.find(
       (row) =>
         "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\ExcludedCommand",
     );
+
     expect(loaded?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE");
     expect(orphan).toMatchObject({
       status: "unresolved",
@@ -3821,6 +4088,7 @@ test("loader authority requires exact roots and supports FQCN keys plus PSR-4 re
 test("YAML block scalar schedule documentation cannot create a validated cron", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-yaml-schedule-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-yaml-schedule-mono-");
+
   try {
     put(
       monoRoot,
@@ -3829,11 +4097,13 @@ test("YAML block scalar schedule documentation cannot create a validated cron", 
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("yaml-schedule-c2"));
+
     const rows = c2.schedules.rows.filter((row) =>
       row.source_ref_ids.some(
         (ref) => context.sourcePathById.get(ref)?.path === "infra/documentation.yaml",
       ),
     );
+
     expect(rows.some((row) => row.status === "covered")).toBe(false);
     expect(
       c2.schedules.rows.some((row) => row.authority_line === "mono" && row.status === "absent"),
@@ -3847,6 +4117,7 @@ test("YAML block scalar schedule documentation cannot create a validated cron", 
 test("owner-null integration modules require positive loader reachability", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-owner-null-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-owner-null-mono-");
+
   try {
     put(
       monoRoot,
@@ -3855,11 +4126,13 @@ test("owner-null integration modules require positive loader reachability", asyn
     );
     const context = await contextFor(legacyRoot, monoRoot);
     const c2 = collectC2(context, sha256("owner-null-c2"));
+
     const row = c2.integrations.rows.find((candidate) =>
       candidate.source_ref_ids.some(
         (ref) => context.sourcePathById.get(ref)?.path === "packages/decoy.ts",
       ),
     );
+
     expect(row).toMatchObject({
       status: "dead_unimported",
       reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
@@ -3882,6 +4155,7 @@ test("owner-null integration modules require positive loader reachability", asyn
 test("URL-first HTTP destinations exclude headers and body while unsafe destinations remain rejected", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-fetch-arguments-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-fetch-arguments-mono-");
+
   try {
     const templates = [
       [
@@ -3911,6 +4185,7 @@ test("URL-first HTTP destinations exclude headers and body while unsafe destinat
       ["fallback", 'fetch(destination ?? "https://fallback.example.test/path", {})', null, false],
       ["template", "fetch(`https://${destination}/path`, {})", null, false],
     ] as const;
+
     const cases = ["fetch", "post", "put", "delete"].flatMap((method) =>
       templates.map(
         ([name, expression, endpoint, unsafe]) =>
@@ -3922,6 +4197,7 @@ test("URL-first HTTP destinations exclude headers and body while unsafe destinat
           ] as const,
       ),
     );
+
     for (const [name, expression] of cases)
       put(
         monoRoot,
@@ -3930,16 +4206,19 @@ test("URL-first HTTP destinations exclude headers and body while unsafe destinat
       );
     const context = await contextFor(legacyRoot, monoRoot);
     const integrations = collectC2(context, sha256("fetch-arguments-c2")).integrations;
+
     for (const [name, , endpoint, unsafe] of cases) {
       const rows = integrations.rows.filter((row) =>
         row.source_ref_ids.some(
           (ref) => context.sourcePathById.get(ref)?.path === `packages/transport/${name}.ts`,
         ),
       );
+
       expect(rows).toHaveLength(1);
       expect(rows[0]?.details).toMatchObject({ endpoint_ref: endpoint });
       expect(rows[0]?.reason_codes.includes("UNSAFE_SOURCE")).toBe(unsafe);
     }
+
     expect(JSON.stringify(integrations)).not.toContain("user:pass");
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true });

@@ -1,54 +1,11 @@
+import { Scene } from "foldkit/test";
 import { DepartmentJsonSchema,
 FieldOfStudyJsonSchema,
 TeamJsonSchema, } from "@vektorprogrammet/http-api"
 import { Schema as S } from "effect";
-import type { HtmlBuilder } from "foldkit/html";
-import { describe, expect, it } from "vitest";
-import type { Message } from "./message";
-import { OrganizationCatalogData, makeInitialModel, type Model } from "./model";
+import { describe, it } from "vitest";
+import { OrganizationCatalogData, init, type Model, TeamCatalogSnapshot, FieldOfStudyCatalogSnapshot } from "./model";
 import { view } from "./view";
-
-interface RenderedAttribute {
-  readonly name: string;
-  readonly values: ReadonlyArray<unknown>;
-}
-
-interface RenderedNode {
-  readonly tag: string;
-  readonly attributes: ReadonlyArray<RenderedAttribute>;
-  readonly children: ReadonlyArray<RenderedNode | string>;
-}
-
-const renderedNode = (tag: string, args: ReadonlyArray<unknown>): RenderedNode => ({
-  tag,
-  attributes: Array.isArray(args[0]) ? (args[0] as ReadonlyArray<RenderedAttribute>) : [],
-  children: Array.isArray(args[1]) ? (args[1] as ReadonlyArray<RenderedNode | string>) : [],
-});
-
-const htmlBuilder = new Proxy(
-  {},
-  {
-    get: (_target, property) => {
-      if (property === "empty") return renderedNode("empty", []);
-      const name = String(property);
-      return (...args: ReadonlyArray<unknown>) =>
-        /^[A-Z]/.test(name) ? { name, values: args } : renderedNode(name, args);
-    },
-  },
-) as HtmlBuilder<Message>;
-
-const descendants = (node: RenderedNode): ReadonlyArray<RenderedNode> => [
-  node,
-  ...node.children.flatMap((child) => (typeof child === "string" ? [] : descendants(child))),
-];
-
-const textContent = (node: RenderedNode): string =>
-  node.children.map((child) => (typeof child === "string" ? child : textContent(child))).join("");
-
-const hasAttribute = (node: RenderedNode, name: string, value: unknown): boolean =>
-  node.attributes.some(
-    (attribute) => attribute.name === name && attribute.values.some((entry) => entry === value),
-  );
 
 const department = S.decodeUnknownSync(DepartmentJsonSchema)({
   departmentId: "department-trondheim",
@@ -88,16 +45,15 @@ const fieldOfStudy = S.decodeUnknownSync(FieldOfStudyJsonSchema)({
 });
 
 const readyModel = (catalogKind: Model["catalogKind"]): Model => ({
-  ...makeInitialModel(catalogKind),
+  ...init(catalogKind),
   catalog: OrganizationCatalogData.Success({
     data:
       catalogKind === "Team"
-        ? { _tag: "Team", departments: [department], records: [team] }
-        : {
-            _tag: "FieldOfStudy",
+        ? TeamCatalogSnapshot.make({ departments: [department], records: [team] })
+        : FieldOfStudyCatalogSnapshot.make({
             departments: [department],
             records: [fieldOfStudy],
-          },
+          }),
   }),
 });
 
@@ -107,30 +63,13 @@ const assertAccessibleTable = (
   caption: string,
   recordName: string,
 ): void => {
-  const rendered = view(model, htmlBuilder) as unknown as RenderedNode;
-  const nodes = descendants(rendered);
-  const pageHeading = nodes.find(
-    (node) => node.tag === "h1" && hasAttribute(node, "Id", "organization-catalog-title"),
+  Scene.scene({view, update: (current: Model) => ({model: current})}, Scene.given(model),
+    Scene.expect(Scene.role("heading", {name: heading})).toHaveId("organization-catalog-title"),
+    Scene.expect(Scene.selector("section")).toHaveAttr("aria-labelledby", "organization-catalog-title"),
+    Scene.expect(Scene.role("table", {name: caption})).toBeVisible(),
+    Scene.expect(Scene.role("rowheader", {name: recordName})).toHaveAttr("scope", "row"),
+    Scene.expectAll(Scene.all.role("columnheader")).not.toBeEmpty(),
   );
-  const table = nodes.find((node) => node.tag === "table");
-  const tableNodes = table === undefined ? [] : descendants(table);
-
-  expect(pageHeading).toBeDefined();
-  expect(pageHeading === undefined ? "" : textContent(pageHeading)).toBe(heading);
-  expect(hasAttribute(rendered, "AriaLabelledBy", "organization-catalog-title")).toBe(true);
-  expect(table).toBeDefined();
-  expect(tableNodes.some((node) => node.tag === "caption" && textContent(node) === caption)).toBe(
-    true,
-  );
-  expect(tableNodes.some((node) => node.tag === "th" && hasAttribute(node, "Scope", "col"))).toBe(
-    true,
-  );
-  expect(
-    tableNodes.some(
-      (node) =>
-        node.tag === "th" && hasAttribute(node, "Scope", "row") && textContent(node) === recordName,
-    ),
-  ).toBe(true);
 };
 
 describe("Foldkit Organization catalog accessibility", () => {

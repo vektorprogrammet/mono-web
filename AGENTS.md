@@ -19,21 +19,47 @@ logs, generated references, or runtime evidence in the repository.
 Current executable contracts, package manifests, and source code define the
 implemented surface. Local observations do not authorize production action.
 
+## Building reference
+
+Use [rat-stack](https://ratstack.sh/llms.txt) as the architectural reference.
+Before code changes, search its rules and skills for the affected concern.
+Before simplification, read its [uncomplect skill](https://ratstack.sh/skills/uncomplect).
+Read the installed Effect package's `AGENTS.md`, linked `ai-docs`, and source before Effect changes.
+Check APIs against installed versions, not unrelated examples or newer package copies.
+
+Effect owns effectful work, typed failures, services, and resource cleanup.
+Alchemy owns cloud infrastructure and bindings.
+Lifecycle definitions own legal transitions; clients display state and submit commands.
+Keep one authoritative contract and derive its transport interfaces.
+Enforce boundaries with types first, then compiler or lint checks, rather than prose alone.
+Report violations with their source location, preserved behavior, proposed deletion, and enforcing check.
+
+Keep the product boundaries below, including Bun, Foldkit, and generated HTTP clients.
+Check peer compatibility before adopting reference dependencies, including XState and its Effect integration.
+Reference examples do not authorize production actions or replace the active journey contract.
+
+The root catalog and lockfile own dependency versions. Do not copy version pins into instructions.
+The PostgreSQL adapter pin preserves `PgClient.fromPool` and the pool shared by Database and Better Auth.
+Before changing it, inspect the candidate adapter source.
+Verify pool ownership, transaction behavior, and shutdown against PostgreSQL.
+Keep infrastructure dependencies separate from the application catalog.
+
 ## Commands
 
-| Command                           | Purpose                           |
-| --------------------------------- | --------------------------------- |
-| `bun install`                     | Install workspace dependencies    |
-| `bun run build`                   | Build all product packages        |
-| `bun run check-types`             | Check TypeScript packages         |
-| `bun run test`                    | Run package test suites           |
-| `bun run lint`                    | Run Oxlint                        |
-| `bun run format:check`            | Check Oxfmt output                |
-| `turbo -F @monoweb/homepage dev`  | Start the public frontend         |
-| `turbo -F @monoweb/dashboard dev` | Start the staff frontend          |
-| `bun run dev:server`              | Start the retained Symfony server |
+Use [README.md#toolchain](README.md#toolchain) for local commands and prerequisites.
+Package manifests own exact scripts. Use `bun run`, not `bun test`, for package scripts.
 
-Package manifests are authoritative for exact scripts.
+For focused Vitest checks, invoke Vitest directly through the package:
+
+```bash
+bun run --cwd packages/domain vitest run src/receipt/update.property.test.ts --no-file-parallelism --maxWorkers=1
+bun run --cwd apps/backend vitest run src/http-api/receipt-transaction.test.ts --no-file-parallelism --maxWorkers=1
+bun run --cwd packages/http-api generate:check
+```
+
+The domain aggregate `test` script also runs fixture programs and D1 proofs.
+Do not append Vitest flags to that aggregate script.
+Focused Vitest does not prove those additional gates or the dashboard bundle gate.
 
 ## Packages
 
@@ -82,6 +108,52 @@ For a permanent behavior change:
 
 Production data, credentials, providers, deployments, writer transfer, and
 legacy shutdown require explicit operator authority.
+
+## Boundary practices
+
+- Expose complete business commands through the existing domain service. Avoid generic CRUD and additional repository layers.
+- Resolve authority inside the committing transaction. Never reuse an authorization result across transactions or retries.
+- Preserve state, revision, command receipts, audit, and outbox writes in one transaction. Keep provider I/O after commit.
+- Keep HTTP response receipts and preconditions in the transport layer. A revision preflight grants no write authority.
+- Reuse domain field schemas with `SqlSchema`. Keep SQL projections, joins, ordering, scope, and storage codecs in database adapters.
+- Use Model variants for useful representations, not automatic business commands or partial PATCH schemas.
+- Encode through the explicit public schema. Raw `JSON.stringify(model)` does not enforce private-field omission.
+- Make absence explicit in schemas. For canonical command encoding, use absent keys rather than present `undefined` values.
+- Generate HTTP, OpenAPI, and SDK artifacts from the existing contract. Never maintain parallel operation lists.
+- Keep lifecycle rules in the owning domain and UI workflow state in one Foldkit Model.
+
+The Economy query and settlement command in [architecture.md](docs/architecture.md#domain-services) are the current boundary precedent.
+A compatible dependency is not an adoption decision.
+Do not introduce XState, EventLog, or PersistedQueue without an approved behavioral need and a complete replacement contract.
+A queue replacement must preserve atomic enqueue, claim fencing, predecessor ordering, immutable envelopes, retry, cancellation, and secret cleanup.
+EventLog does not replace command idempotency or external delivery.
+
+## Verification and resources
+
+Use the configured rules in `oxlint.config.ts`. Do not copy their rule inventory into prose or suppress a failure.
+Use existing typed test Layers or disposable infrastructure. Do not substitute module mocks or SDK echoes for a real boundary.
+Keep regression tests for plausible behavior failures, not field forwarding, source text, or incidental wording.
+Use disposable probes for other implementation observations.
+
+For property checks, generate reachable command sequences and assert business invariants.
+Use the installed Arbitrary API with bounded runs, deterministic seeds, and typed options.
+Valid schema generation does not cover malformed wire input.
+
+Run only one heavy validation job at a time across this task and its workers.
+Bound worker counts and PostgreSQL connections.
+Use private database instances and ports. Dispose runtimes before removing their storage.
+Stop only resources owned by the task. Do not terminate an unrelated process to free a port.
+
+Bind acceptance to the exact source artifact, not a branch name or an agent report.
+If the operator tree is dirty, preserve it and use a separate committed snapshot for acceptance.
+Verify source equality with a file manifest and checksums.
+Retain evidence and source bundles outside the product repository.
+Report the exercised journey, source revision, environment, results, and unverified boundaries.
+Remove owned disposable scripts, checkouts, processes, and completed specifications after acceptance.
+
+A failed aggregate command is not a passing suite because its earlier tests passed.
+A local browser journey is not provider proof. A deployed provider journey is not production cutover authority.
+Keep current acceptance and the next gate in `STATE.md`. Keep enduring behavior in the system and architecture documents.
 
 ## Symfony source
 

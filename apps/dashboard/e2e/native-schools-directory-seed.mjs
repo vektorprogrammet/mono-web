@@ -4,23 +4,31 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const databaseRequire = createRequire(
   new URL("../../../packages/database/package.json", import.meta.url),
 );
+
 const { Pool } = databaseRequire("pg");
+
 const postgresUrl = process.env.SCHOOLS_E2E_PG_URL;
+
 const dashboardOrigin = process.env.SCHOOLS_E2E_DASHBOARD_ORIGIN ?? "http://127.0.0.1:45161";
+
 if (postgresUrl === undefined) throw new Error("SCHOOLS_E2E_PG_URL is required");
 
 const parsedUrl = new URL(postgresUrl);
+
 assert.ok(
   parsedUrl.protocol === "postgres:" || parsedUrl.protocol === "postgresql:",
   "Schools seed requires PostgreSQL",
 );
+
 assert.ok(
   ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsedUrl.hostname),
   "Schools seed is restricted to loopback PostgreSQL",
 );
+
 assert.match(
   decodeURIComponent(parsedUrl.pathname.slice(1)),
   /^schools_e2e_0061$/u,
@@ -72,9 +80,13 @@ export const schoolsJourneyDepartments = {
 };
 
 const persons = Object.values(schoolsJourneyPersons);
+
 const personIds = persons.map((person) => person.personId);
+
 const departmentIds = Object.values(schoolsJourneyDepartments);
+
 const teamIds = ["schools-e2e-0061-team-alpha", "schools-e2e-0061-team-beta"];
+
 const membershipIds = [
   "schools-e2e-0061-membership-two-alpha",
   "schools-e2e-0061-membership-two-beta",
@@ -93,6 +105,7 @@ const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
   },
   encoding: "utf8",
 });
+
 assert.equal(
   identitySeed.status,
   0,
@@ -105,7 +118,9 @@ const pool = new Pool({
   max: 1,
   application_name: "native-schools-directory-seed-0061",
 });
+
 const client = await pool.connect();
+
 try {
   await client.query("BEGIN");
   await client.query("DELETE FROM schools_directory_schools");
@@ -238,6 +253,7 @@ try {
        WHERE department_id = $4) AS empty_department_associations`,
     [personIds, departmentIds, membershipIds, schoolsJourneyDepartments.empty],
   );
+
   assert.deepEqual(evidence.rows[0], {
     persons: 5,
     departments: 3,

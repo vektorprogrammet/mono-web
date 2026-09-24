@@ -1,18 +1,23 @@
 import { createHash } from "node:crypto";
-import { Schema } from "effect";
+import { flow, Option, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
+
 const Label = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
   Schema.check(Schema.isMaxLength(256)),
 );
+
 const Digest = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)));
+
 const Day = Schema.Literals(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
+
 const Block = Schema.Literals(["1", "2", "Both"]);
+
 const LegacyAssignmentRow = Schema.Struct({
   sourceAssignmentId: Id,
   sourceRowDigest: Digest,
@@ -30,6 +35,7 @@ const LegacyAssignmentRow = Schema.Struct({
   block: Block,
   active: Schema.Boolean,
 });
+
 const CurrentAssignmentMapping = Schema.Struct({
   sourceAssignmentId: Id,
   sourceUserId: Id,
@@ -41,6 +47,7 @@ const CurrentAssignmentMapping = Schema.Struct({
   semesterId: SemesterId,
   schoolId: SchoolId,
 });
+
 export const CurrentAssignmentSnapshot = Schema.Struct({
   sourceRepository: Label,
   sourceRevision: Id,
@@ -55,9 +62,13 @@ export const CurrentAssignmentSnapshot = Schema.Struct({
   ),
   mappings: Schema.Array(CurrentAssignmentMapping).pipe(Schema.check(Schema.isMaxLength(1000))),
 });
+
 export type CurrentAssignmentSnapshot = typeof CurrentAssignmentSnapshot.Type;
+
 type LegacyAssignmentRow = typeof LegacyAssignmentRow.Type;
+
 type CurrentAssignmentMapping = typeof CurrentAssignmentMapping.Type;
+
 type NativeBlock = "1" | "2" | "Both";
 
 export class CurrentAssignmentFailure extends Error {
@@ -105,30 +116,35 @@ export interface CurrentAssignmentReport {
   readonly audit: "ImportProvenanceOnly";
 }
 
-const digest = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
+const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+
 const declaredSnapshotDigest = (snapshot: CurrentAssignmentSnapshot): string => {
   const { snapshotDigest: _snapshotDigest, ...unsignedSnapshot } = snapshot;
+
   return digest(unsignedSnapshot);
 };
+
 export const currentAssignmentPlacementId = (
   sourceRepository: string,
   sourceAssignmentId: string,
 ): string =>
   `placement-${digest(["current-assignment-placement", sourceRepository, sourceAssignmentId])}`;
-const sourceIdOf = (row: unknown): string | undefined =>
-  typeof row === "object" &&
-  row !== null &&
-  "sourceAssignmentId" in row &&
-  typeof row.sourceAssignmentId === "string"
-    ? row.sourceAssignmentId
-    : undefined;
+
+const sourceIdOf = flow(
+  Schema.decodeUnknownOption(Schema.Struct({ sourceAssignmentId: Schema.String })),
+  Option.map((row) => row.sourceAssignmentId),
+  Option.getOrUndefined,
+);
+
 const increment = (counts: Map<string, number>, key: string | undefined) => {
   if (key !== undefined) counts.set(key, (counts.get(key) ?? 0) + 1);
 };
+
 const sourceRowDigest = ({
   sourceRowDigest: _sourceRowDigest,
   ...row
 }: LegacyAssignmentRow): string => digest(row);
+
 const targetSlots = (
   mapping: CurrentAssignmentMapping,
   block: NativeBlock,
@@ -136,6 +152,7 @@ const targetSlots = (
   (block === "Both" ? (["1", "2"] as const) : [block]).map((slot) =>
     canonicalJson([mapping.personId, mapping.schoolId, mapping.semesterId, slot]),
   );
+
 const referencesMatch = (row: LegacyAssignmentRow, mapping: CurrentAssignmentMapping): boolean =>
   row.sourceAssignmentId === mapping.sourceAssignmentId &&
   row.sourceUserId === mapping.sourceUserId &&
@@ -143,22 +160,24 @@ const referencesMatch = (row: LegacyAssignmentRow, mapping: CurrentAssignmentMap
   row.sourceSemesterId === mapping.sourceSemesterId &&
   row.sourceSchoolId === mapping.sourceSchoolId;
 
-export const decodeCurrentAssignmentSnapshot = (input: unknown): CurrentAssignmentSnapshot => {
-  try {
-    const snapshot = Schema.decodeUnknownSync(CurrentAssignmentSnapshot)(input, {
-      onExcessProperty: "error",
-    });
-    if (
-      new Set(snapshot.occurrences.map(({ occurrenceId }) => occurrenceId)).size !==
-        snapshot.occurrences.length ||
-      snapshot.snapshotDigest !== declaredSnapshotDigest(snapshot)
-    )
-      throw new Error();
-    return snapshot;
-  } catch {
-    throw new CurrentAssignmentFailure("InvalidSnapshot");
-  }
-};
+export const decodeCurrentAssignmentSnapshot = flow(
+  Schema.decodeUnknownOption(CurrentAssignmentSnapshot, { onExcessProperty: "error" }),
+  Option.getOrThrowWith(() => new CurrentAssignmentFailure("InvalidSnapshot")),
+  (snapshot) => {
+    try {
+      if (
+        new Set(snapshot.occurrences.map(({ occurrenceId }) => occurrenceId)).size !==
+          snapshot.occurrences.length ||
+        snapshot.snapshotDigest !== declaredSnapshotDigest(snapshot)
+      )
+        throw new Error();
+
+      return snapshot;
+    } catch {
+      throw new CurrentAssignmentFailure("InvalidSnapshot");
+    }
+  },
+);
 
 const cohortReport = async (
   tx: PoolClient,
@@ -171,7 +190,9 @@ const cohortReport = async (
       ORDER BY occurrence_id`,
     [snapshotKey],
   );
+
   const accepted = rows.rows.filter(({ disposition }) => disposition === "Accepted").length;
+
   return {
     snapshotKey,
     input: rows.rows.length,
@@ -186,11 +207,12 @@ const cohortReport = async (
 /** One serialized transaction establishes canonical current facts and immutable import provenance. */
 export const importCurrentAssignmentCohort = async (
   pool: Pool,
-  input: unknown,
+  input: typeof CurrentAssignmentSnapshot.Encoded,
 ): Promise<CurrentAssignmentReport> => {
   const snapshot = decodeCurrentAssignmentSnapshot(input);
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
   const snapshotDigest = snapshot.snapshotDigest;
+
   const decoded = snapshot.occurrences.map((occurrence) => {
     try {
       return {
@@ -203,38 +225,50 @@ export const importCurrentAssignmentCohort = async (
       return { ...occurrence, value: undefined };
     }
   });
+
   const mappingsBySource = new Map<string, CurrentAssignmentMapping[]>();
+
   for (const mapping of snapshot.mappings) {
     const mappings = mappingsBySource.get(mapping.sourceAssignmentId);
+
     if (mappings === undefined) mappingsBySource.set(mapping.sourceAssignmentId, [mapping]);
     else mappings.push(mapping);
   }
+
   const sourceCounts = new Map<string, number>();
   const targetCounts = new Map<string, number>();
+
   for (const occurrence of decoded) {
     increment(sourceCounts, sourceIdOf(occurrence.row));
+
     if (!occurrence.value) continue;
     const mappings = mappingsBySource.get(occurrence.value.sourceAssignmentId) ?? [];
+
     if (mappings.length !== 1 || !referencesMatch(occurrence.value, mappings[0]!)) continue;
+
     for (const slot of targetSlots(mappings[0]!, occurrence.value.block))
       increment(targetCounts, slot);
   }
 
   const tx = await pool.connect();
+
   try {
     await tx.query("BEGIN");
     await tx.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('native-current-assignment-import', 0))",
     );
+
     const prior = await tx.query<{ snapshot_digest: string }>(
       `SELECT snapshot_digest FROM public.current_assignment_snapshots WHERE snapshot_key = $1`,
       [snapshotKey],
     );
+
     if (prior.rows[0]) {
       if (prior.rows[0].snapshot_digest !== snapshotDigest)
         throw new CurrentAssignmentFailure("SnapshotConflict");
       const result = await cohortReport(tx, snapshotKey);
       await tx.query("COMMIT");
+
       return result;
     }
 
@@ -247,17 +281,22 @@ export const importCurrentAssignmentCohort = async (
         WHERE source_repository = $1`,
       [snapshot.sourceRepository],
     );
+
     const importedBySource = new Map(
       acceptedImports.rows.map((row) => [row.source_assignment_id, row.source_digest] as const),
     );
+
     for (const occurrence of decoded) {
       const sourceAssignmentId = sourceIdOf(occurrence.row);
+
       const previousDigest = sourceAssignmentId
         ? importedBySource.get(sourceAssignmentId)
         : undefined;
+
       if (previousDigest === undefined) continue;
       const mappings = sourceAssignmentId ? (mappingsBySource.get(sourceAssignmentId) ?? []) : [];
       const mapping = mappings.length === 1 ? mappings[0] : undefined;
+
       if (
         !occurrence.value ||
         !mapping ||
@@ -293,6 +332,7 @@ export const importCurrentAssignmentCohort = async (
       let sourceDigest: string | undefined;
       let placementId: string | undefined;
       let createAffiliation = false;
+
       if (!row || row.sourceRowDigest !== sourceRowDigest(row)) reason = "InvalidRow";
       else if (!row.active) reason = "Inactive";
       else if ((sourceCounts.get(row.sourceAssignmentId) ?? 0) > 1) reason = "DuplicateSource";
@@ -306,6 +346,7 @@ export const importCurrentAssignmentCohort = async (
           row.sourceAssignmentId,
         );
         const previous = importedBySource.get(row.sourceAssignmentId);
+
         if (previous === sourceDigest) reason = "ExactReplay";
         else {
           const personEvidence = await tx.query(
@@ -314,6 +355,7 @@ export const importCurrentAssignmentCohort = async (
               FOR SHARE`,
             [snapshot.sourceRepository, row.sourceUserId, mapping!.personId],
           );
+
           if (!personEvidence.rowCount) reason = "PersonReconciliationMissing";
           else {
             const references = (
@@ -332,6 +374,7 @@ export const importCurrentAssignmentCohort = async (
                 [mapping!.departmentId, mapping!.semesterId, mapping!.schoolId],
               )
             ).rows[0]!;
+
             if (
               !references.department_exists ||
               !references.semester_exists ||
@@ -353,6 +396,7 @@ export const importCurrentAssignmentCohort = async (
                   [mapping!.personId, mapping!.departmentId],
                 )
               ).rows[0];
+
               const affiliationProvenance = await tx.query<{ source_repository: string }>(
                 `SELECT source_repository
                    FROM public.current_assignment_affiliation_imports
@@ -360,10 +404,12 @@ export const importCurrentAssignmentCohort = async (
                   FOR SHARE`,
                 [mapping!.personId, mapping!.departmentId],
               );
+
               const deterministicPlacement = await tx.query(
                 `SELECT 1 FROM public.assistant_placements WHERE placement_id = $1 FOR SHARE`,
                 [placementId],
               );
+
               const overlappingPlacement = await tx.query(
                 `SELECT 1
                    FROM public.assistant_placements
@@ -377,6 +423,7 @@ export const importCurrentAssignmentCohort = async (
                   row.block === "Both" ? ["1", "2"] : [row.block],
                 ],
               );
+
               if (affiliation) {
                 if (
                   affiliation.status !== "Active" ||
@@ -407,6 +454,7 @@ export const importCurrentAssignmentCohort = async (
          VALUES ($1,$2,$3,$4)`,
         [snapshotKey, occurrence.occurrenceId, accepted ? "Accepted" : "Quarantined", reason],
       );
+
       if (reason === "Imported" && row && mapping && sourceDigest && placementId) {
         if (createAffiliation)
           await tx.query(
@@ -461,6 +509,7 @@ export const importCurrentAssignmentCohort = async (
             occurrence.occurrenceId,
           ],
         );
+
         if (createAffiliation)
           await tx.query(
             `INSERT INTO public.current_assignment_affiliation_imports
@@ -480,9 +529,11 @@ export const importCurrentAssignmentCohort = async (
     }
 
     const result = await cohortReport(tx, snapshotKey);
+
     if (result.input !== snapshot.occurrences.length)
       throw new CurrentAssignmentFailure("PersistenceFailure");
     await tx.query("COMMIT");
+
     return result;
   } catch (cause) {
     await tx.query("ROLLBACK");

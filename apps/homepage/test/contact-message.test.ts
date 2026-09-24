@@ -1,20 +1,25 @@
 import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/http-api"
 import { Schema } from "effect";
-import { afterEach, describe, expect, it, vi } from "vitest";
-const contactApi = vi.hoisted(() => ({
-  departments: [] as DepartmentJson[],
-}));
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/lib/api.server", () => ({
-  createHomepageApiClient: () => ({
-    organization: {
-      listDepartments: async () => ({
-        body: contactApi.departments,
-        headers: {},
-      }),
-    },
-  }),
-}));
+const contactApi = { departments: Array<DepartmentJson>() };
+
+const withDepartmentResponse = (deliver: typeof globalThis.fetch): typeof globalThis.fetch => async (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : String(input));
+
+  if (url.pathname === "/api/departments") return Response.json(contactApi.departments, { headers: {
+    "cache-control": "public, max-age=60, s-maxage=300, must-revalidate",
+    vary: "Origin",
+    etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
+  } });
+
+  return deliver(input, init);
+};
+
+beforeEach(() => {
+  vi.stubEnv("API_URL", "http://api.test");
+  vi.stubGlobal("fetch", withDepartmentResponse(async () => { throw new Error("Unexpected contact request"); }));
+});
 
 import { contactDepartmentSlug, type ContactFormValues } from "../src/lib/contact-message";
 import {
@@ -28,10 +33,11 @@ const submitContactMessage = (request: Request, slug?: string) =>
     backendToken: "backend-test-00000000000000000000000",
     visitorIp: ContactVisitorIp.make("127.0.0.1"),
   });
+
 import { ContactVisitorIp } from "@vektorprogrammet/http-api"
 import { makeNativeProblem } from "@vektorprogrammet/http-api";
 
-const makeDepartment = (overrides: Record<string, unknown> = {}): DepartmentJson =>
+const makeDepartment = (overrides: Partial<typeof DepartmentJsonSchema.Encoded> = {}): DepartmentJson =>
   Schema.decodeUnknownSync(DepartmentJsonSchema)({
     departmentId: "department-17",
     name: "Vektorprogrammet Ås",
@@ -49,6 +55,7 @@ const makeDepartment = (overrides: Record<string, unknown> = {}): DepartmentJson
   });
 
 const department = makeDepartment();
+
 contactApi.departments = [department];
 
 const formRequest = (values: ContactFormValues): Request =>
@@ -70,15 +77,18 @@ describe("homepage contact-message boundary", () => {
 
   it("submits the route-selected department without returning the draft", async () => {
     vi.stubEnv("API_URL", "http://api.test");
+
     const fetchMock = vi
-      .fn()
+      .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(
         new Response(null, {
           status: 201,
           headers: { "cache-control": "no-store", vary: "Origin" },
         }),
       );
-    vi.stubGlobal("fetch", fetchMock);
+
+    vi.stubGlobal("fetch", withDepartmentResponse(fetchMock));
+
     const values = {
       name: "Ola Nordmann",
       email: "ola@example.com",
@@ -91,9 +101,9 @@ describe("homepage contact-message boundary", () => {
     expect(result).toEqual({ ok: true });
     expect(JSON.stringify(result)).not.toContain(values.email);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe("http://api.test/api/contact-messages");
-    expect(await new Response(init.body).json()).toEqual({
+    expect(await new Response(init?.body).json()).toEqual({
       ...values,
       departmentId: department.departmentId,
     });
@@ -134,8 +144,9 @@ describe("homepage contact-message boundary", () => {
   it("keeps invalid private input out of the action response", async () => {
     vi.stubEnv("API_URL", "http://api.test");
     const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", withDepartmentResponse(fetchMock));
     const privateCanary = "private-contact-canary";
+
     const result = await submitContactMessage(
       formRequest({
         name: "Ola Nordmann",
@@ -152,14 +163,16 @@ describe("homepage contact-message boundary", () => {
 
   it("classifies the typed native validation and rate-limit responses", async () => {
     vi.stubEnv("API_URL", "http://api.test");
+
     const values = {
       name: "Ola Nordmann",
       email: "ola@example.com",
       subject: "Et spørsmål",
       message: "Når starter neste opptak?",
     } as const;
+
     const validationFetch = vi
-      .fn()
+      .fn<typeof globalThis.fetch>()
       .mockResolvedValue(
         new Response(
           JSON.stringify({
@@ -176,7 +189,8 @@ describe("homepage contact-message boundary", () => {
           },
         ),
       );
-    vi.stubGlobal("fetch", validationFetch);
+
+    vi.stubGlobal("fetch", withDepartmentResponse(validationFetch));
 
     await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
       ok: false,
@@ -185,7 +199,7 @@ describe("homepage contact-message boundary", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi
+      withDepartmentResponse(vi
         .fn()
         .mockResolvedValue(
           new Response(JSON.stringify(makeNativeProblem("rate-limit.exceeded", 429)), {
@@ -197,7 +211,7 @@ describe("homepage contact-message boundary", () => {
               "retry-after": "3600",
             },
           }),
-        ),
+        )),
     );
     await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
       ok: false,

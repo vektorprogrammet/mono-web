@@ -4,8 +4,11 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const databaseRoot = join(repositoryRoot, "packages", "database");
+
 const require = createRequire(join(repositoryRoot, "packages/database/package.json"));
+
 const { Pool } = require("pg");
 
 export const persons = {
@@ -26,21 +29,37 @@ export const persons = {
 };
 
 const departmentId = "department-native-conduct-0063";
+
 const teamId = "team-native-conduct-0063";
+
 const applicantA = "applicant-native-conduct-a-0063";
+
 const applicantB = "applicant-native-conduct-b-0063";
+
 const applicationA = "application-native-conduct-a-0063";
+
 const applicationB = "application-native-conduct-b-0063";
+
 const periodId = "admission-period-native-conduct-0063";
+
 const semesterId = "semester-native-conduct-0063";
+
 const fieldId = "field-native-conduct-0063";
+
 const schemaId = "interview-schema-native-conduct-0063";
+
 const interviewA = "interview-native-conduct-a-0063";
+
 const interviewB = "interview-native-conduct-b-0063";
+
 const invitationA = "invitation-native-conduct-a-0063";
+
 const invitationB = "invitation-native-conduct-b-0063";
+
 const scheduleA = "2026-09-19T13:30:00.000Z";
+
 const scheduleB = "2026-09-19T15:00:00.000Z";
+
 const questions = [
   ["q0", 0, "Fortell kort om motivasjonen din.", null, "text", []],
   [
@@ -140,12 +159,15 @@ COMMIT;
 
 const postgresUrl =
   process.env.JOURNEY_SEED_PG_URL ?? "postgres://postgres@127.0.0.1:45121/postgres";
+
 const parsed = new URL(postgresUrl);
+
 if (
   !["postgres:", "postgresql:"].includes(parsed.protocol) ||
   !["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)
 )
   throw new Error("conduct seed requires loopback PostgreSQL");
+
 const identity =
   process.env.CONDUCT_SEED_SKIP_IDENTITY === "1"
     ? { status: 0 }
@@ -158,20 +180,26 @@ const identity =
         },
         encoding: "utf8",
       });
+
 if (identity.status !== 0)
   throw new Error(`identity:seed failed:\n${identity.stdout}\n${identity.stderr}`);
+
 const pool = new Pool({
   connectionString: postgresUrl,
   options: "-c search_path=public",
   max: 1,
   application_name: "native-conduct-journey-seed",
 });
+
 try {
   await pool.query(sql);
+
   const result = await pool.query(
     `SELECT (SELECT count(*) FROM recruitment_interviews WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS interviews, (SELECT count(*) FROM recruitment_interview_schedules WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS schedules, (SELECT count(*) FROM recruitment_invitations WHERE interview_id IN ('${interviewA}', '${interviewB}') AND response_state = 'Accepted') AS accepted, (SELECT count(*) FROM public.recruitment_interview_question_snapshots WHERE interview_id IN ('${interviewA}', '${interviewB}')) AS snapshots`,
   );
+
   const row = result.rows[0];
+
   if (
     Number(row.interviews) !== 2 ||
     Number(row.schedules) !== 2 ||

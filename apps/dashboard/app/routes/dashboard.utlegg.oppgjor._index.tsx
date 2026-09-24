@@ -1,15 +1,7 @@
+import { Predicate } from "effect";
 import { SettlementReceiptList } from "@/components/receipts/SettlementReceiptList";
 import { Button } from "@/components/ui/button";
-import {
-  isUnauthorizedError,
-  mapReceiptSettlementEvidenceView,
-  mapSettlementReceiptError,
-  mapSettlementReceiptView,
-  type ReceiptSettlementFailure,
-  type ReceiptSettlementNotice,
-  type ReceiptUiError,
-  type SettlementReceiptView,
-} from "@/lib/receipt-view";
+import { isUnauthorizedError, mapReceiptSettlementEvidenceView, mapApprovalReceiptError, mapSettlementReceiptView, type ReceiptSettlementFailure, type ReceiptSettlementNotice, ReceiptUiError } from "@/lib/receipt-view";
 import {
   IdempotencyKey,
   ReceiptId,
@@ -37,19 +29,25 @@ type SettlementCommandParseResult =
 
 function readFormText(form: FormData, name: string): string | null {
   const value = form.get(name);
-  return typeof value === "string" ? value : null;
+
+  return Predicate.isString(value) ? value : null;
 }
 
 function utcInstantFromInput(value: string): string | undefined {
   const trimmed = value.trim();
   const localMatch = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2}))?$/.exec(trimmed);
+
   const candidate =
     localMatch === null ? trimmed : `${localMatch[1]}:${localMatch[2] ?? "00"}.000Z`;
+
   const date = new Date(candidate);
+
   if (Number.isNaN(date.getTime())) return undefined;
+
   if (localMatch !== null && date.toISOString().slice(0, 19) !== `${localMatch[1]}:${localMatch[2] ?? "00"}`) {
     return undefined;
   }
+
   return date.toISOString();
 }
 
@@ -64,6 +62,7 @@ function parseSettlementCommand(form: FormData): SettlementCommandParseResult {
   const settledAt = utcInstantFromInput(settledAtInput);
   const expectedRevision = Number(expectedRevisionText);
   let etag: StrongETagValue | undefined;
+
   try {
     etag = Schema.decodeUnknownSync(StrongETag)(etagText);
   } catch {
@@ -73,7 +72,7 @@ function parseSettlementCommand(form: FormData): SettlementCommandParseResult {
   const failure = (error: ReceiptUiError): SettlementCommandParseResult => ({
     failure: {
       receiptId: receiptIdText,
-      ...(etag === undefined ? {} : { etag }),
+      etag: etag === undefined ? undefined : etag,
       commandId: commandIdText,
       externalAuthority,
       externalReference,
@@ -83,31 +82,22 @@ function parseSettlementCommand(form: FormData): SettlementCommandParseResult {
   });
 
   if (externalAuthority.length === 0) {
-    return failure({
-      _tag: "ReceiptDecodeError",
-      message: "Ekstern autoritet er påkrevd.",
-      field: "externalAuthority",
-    });
+    return failure(ReceiptUiError.ReceiptDecodeError({message: "Ekstern autoritet er påkrevd.",
+field: "externalAuthority"}));
   }
+
   if (externalReference.length === 0) {
-    return failure({
-      _tag: "ReceiptDecodeError",
-      message: "Ekstern referanse er påkrevd.",
-      field: "externalReference",
-    });
+    return failure(ReceiptUiError.ReceiptDecodeError({message: "Ekstern referanse er påkrevd.",
+field: "externalReference"}));
   }
+
   if (settledAt === undefined) {
-    return failure({
-      _tag: "ReceiptDecodeError",
-      message: "Oppgi et gyldig oppgjørstidspunkt i UTC.",
-      field: "settledAt",
-    });
+    return failure(ReceiptUiError.ReceiptDecodeError({message: "Oppgi et gyldig oppgjørstidspunkt i UTC.",
+field: "settledAt"}));
   }
+
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
-    return failure({
-      _tag: "ReceiptDecodeError",
-      message: "Utleggsversjonen er ugyldig. Åpne oppgjøret på nytt og prøv igjen.",
-    });
+    return failure(ReceiptUiError.ReceiptDecodeError({message: "Utleggsversjonen er ugyldig. Åpne oppgjøret på nytt og prøv igjen."}));
   }
 
 
@@ -126,10 +116,7 @@ function parseSettlementCommand(form: FormData): SettlementCommandParseResult {
       },
     };
   } catch {
-    return failure({
-      _tag: "ReceiptDecodeError",
-      message: "Oppgjørsgrunnlaget er ugyldig. Åpne oppgjøret på nytt og prøv igjen.",
-    });
+    return failure(ReceiptUiError.ReceiptDecodeError({message: "Oppgjørsgrunnlaget er ugyldig. Åpne oppgjøret på nytt og prøv igjen."}));
   }
 }
 
@@ -139,6 +126,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const result = await client.receipts.listReceiptsForSettlement({});
+
     return {
       receipts: result.body.items.map(mapSettlementReceiptView),
       error: undefined,
@@ -147,9 +135,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (isUnauthorizedError(error)) {
       throw await expiredSessionRedirect(request);
     }
+
     return {
-      receipts: [] as SettlementReceiptView[],
-      error: mapSettlementReceiptError(error),
+      receipts: [],
+      error: mapApprovalReceiptError(error),
     };
   }
 }
@@ -160,19 +149,19 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
 
   if (readFormText(form, "_intent") !== "settle") {
-    const actionError: ReceiptUiError = {
-      _tag: "ReceiptDecodeError",
-      message: "Ukjent oppgjørshandling. Åpne bekreftelsen på nytt og prøv igjen.",
-    };
+    const actionError: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({message: "Ukjent oppgjørshandling. Åpne bekreftelsen på nytt og prøv igjen."});
+
     return { success: false as const, actionError };
   }
 
   const parsed = parseSettlementCommand(form);
+
   if ("failure" in parsed) {
     return { success: false as const, actionFailure: parsed.failure };
   }
 
   const command = parsed.value;
+
   try {
     const result = await client.receipts.settleReceipt({
       params: { receiptId: command.receiptId },
@@ -182,15 +171,18 @@ export async function action({ request }: Route.ActionArgs) {
       },
       payload: command.payload,
     });
+
     const actionNotice: ReceiptSettlementNotice = {
       commandId: command.commandId,
       settlement: mapReceiptSettlementEvidenceView(result.body),
     };
+
     return { success: true as const, actionNotice };
   } catch (error) {
     if (isUnauthorizedError(error)) {
       throw await expiredSessionRedirect(request);
     }
+
     return {
       success: false as const,
       actionFailure: {
@@ -198,7 +190,7 @@ export async function action({ request }: Route.ActionArgs) {
         externalAuthority: command.payload.externalAuthority,
         externalReference: command.payload.externalReference,
         settledAt: command.payload.settledAt,
-        error: mapSettlementReceiptError(error),
+        error: mapApprovalReceiptError(error),
       },
     };
   }
@@ -209,12 +201,15 @@ export default function ReceiptSettlementQueue() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+
   const actionError =
     actionData?.success === false && "actionError" in actionData ? actionData.actionError : undefined;
+
   const actionFailure =
     actionData?.success === false && "actionFailure" in actionData
       ? actionData.actionFailure
       : undefined;
+
   const actionNotice = actionData?.success === true ? actionData.actionNotice : undefined;
 
   return (

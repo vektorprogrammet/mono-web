@@ -1,3 +1,4 @@
+import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
@@ -28,7 +29,7 @@ import {
   ListSubstituteScopesEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { Effect, Option, Schema } from "effect";
+import { flow, Match, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   resolveRequestPersonAuthorityInTransaction,
@@ -55,14 +56,17 @@ import {
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
 import { conditionalJsonResponse } from "../recruitment/http.js";
+
 const semantic = <A>(operation: () => A) =>
   Effect.try({
     try: operation,
     catch: (cause) =>
       cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
   });
+
 const header = (request: Request, key: string) =>
   request.headers.has(key) ? [request.headers.get(key)!] : [];
+
 export const substituteResource = <A extends SubstituteEntry>(
   entry: A,
 ): A & { readonly etag: (typeof SubstituteResource.Type)["etag"] } => ({
@@ -74,27 +78,37 @@ export const substituteResource = <A extends SubstituteEntry>(
   }),
 });
 
-const json = (body: unknown, etag?: string) =>
-  new Response(JSON.stringify(body), {
-    headers: {
-      "content-type": "application/json",
-      "cache-control": etag ? "no-store" : "private, no-store",
-      vary: "Origin",
-      ...(etag ? { etag } : {}),
-    },
+const json = (body: Schema.Json, etag?: string) => {
+  const nativeHeaders = new Headers();
+  nativeHeaders.set("content-type", "application/json");
+  nativeHeaders.set("cache-control", etag ? "no-store" : "private, no-store");
+  nativeHeaders.set("vary", "Origin");
+
+  if (etag) {
+    nativeHeaders.set("etag", etag);
+  }
+
+  return new Response(JSON.stringify(body), {
+    headers: nativeHeaders,
   });
-const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S, value: unknown) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+};
+
+const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
+
 const output = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S, value: S["Type"]) =>
   Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
     Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
   );
+
 const noQuery = (request: Request) =>
   semantic(() => {
     if (new URL(request.url).search) throw new HttpSemanticFailure("request.malformed", 400);
   });
+
 type Endpoint =
   | typeof ActivateSubstituteEndpoint
   | typeof EditSubstituteEndpoint
@@ -102,6 +116,7 @@ type Endpoint =
   | typeof ReadSubstituteEndpoint
   | typeof ReadSubstitutePoolEndpoint
   | typeof ListSubstituteScopesEndpoint;
+
 const authorize = (
   request: Request,
   endpoint: Endpoint,
@@ -113,6 +128,7 @@ const authorize = (
   Effect.gen(function* () {
     const auth = captured ?? (yield* resolveRequestPersonAuthorityInTransaction(request, { now }));
     const permission = substitutePermission(auth.authority, departmentId);
+
     if (permission === "Denied" || (manage && permission !== "Manage"))
       return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
     yield* authorizePersonNativeOperation({
@@ -129,26 +145,37 @@ const authorize = (
           }),
         ],
       },
-      grantScopes: [{ _tag: "Department", departmentId }],
+      grantScopes: [Scope.Department({ departmentId })],
       now: auth.authorizationInstant,
     });
+
     return { ...auth, permission };
   });
+
 const errorResponse = (cause: unknown) => {
   if (cause instanceof HttpSemanticFailure || cause instanceof SubstituteFailure)
     return nativeProblemResponse(cause.code, cause.status);
-  const tag = typeof cause === "object" && cause !== null && "_tag" in cause ? cause._tag : "";
+
+  const tag =
+    (cause === null || Predicate.isObjectOrArray(cause)) && cause !== null && "_tag" in cause
+      ? cause._tag
+      : "";
+
   if (tag === "UnauthenticatedActor") return nativeProblemResponse("credential.invalid", 401);
+
   // SQLSTATE is preserved through the existing shared transaction error wrapper.
-  const serialization = (value: unknown, depth = 0): boolean =>
+  const serialization = (cause: unknown, depth = 0): boolean =>
     depth < 6 &&
-    typeof value === "object" &&
-    value !== null &&
-    (("code" in value && (value.code === "40001" || value.code === "40P01")) ||
-      ("cause" in value && serialization(value.cause, depth + 1)));
+    (cause === null || Predicate.isObjectOrArray(cause)) &&
+    cause !== null &&
+    (("code" in cause && (cause.code === "40001" || cause.code === "40P01")) ||
+      ("cause" in cause && serialization(cause.cause, depth + 1)));
+
   if (serialization(cause)) return nativeProblemResponse("transaction.conflict", 409);
+
   return nativeProblemResponse("internal.error", 500);
 };
+
 export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
   const read = (request: Request, mode: "scopes" | "pool" | "entry", applicationId?: string) =>
     Database.use((sql) =>
@@ -157,13 +184,17 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
           yield* Database.use(
             (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
           );
+
           // Snapshot reads use the same canonical credential snapshot and SQL connection.
           if (mode === "scopes") {
             yield* noQuery(request);
+
             const auth = yield* resolveRequestPersonAuthorityInTransaction(request, {
               now: input.now,
             });
+
             const scopes = yield* readSubstituteScopes(auth.authority);
+
             for (const department of scopes.departments)
               yield* authorize(
                 request,
@@ -173,11 +204,14 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
                 input.now,
                 auth,
               );
+
             return json(yield* output(SubstituteScopes, scopes));
           }
+
           if (mode === "pool") {
             const values = yield* semantic(() => {
               const url = new URL(request.url);
+
               if (
                 [...url.searchParams.keys()].some(
                   (key) => !["departmentId", "semesterId"].includes(key),
@@ -187,9 +221,12 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
                 )
               )
                 throw new HttpSemanticFailure("request.malformed", 400);
+
               return Object.fromEntries(url.searchParams);
             });
-            const scope = yield* decode(SubstituteScope, values);
+
+            const scope = yield* decode(SubstituteScope)(values);
+
             const auth = yield* authorize(
               request,
               ReadSubstitutePoolEndpoint,
@@ -197,26 +234,31 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               false,
               input.now,
             );
+
             const admissionPeriodId = yield* readSubstitutePeriod(scope);
             const rows = admissionPeriodId === null ? [] : yield* readSubstituteEntries(scope);
-            const entries = rows.filter((row) => row.active).map(substituteResource);
+            const entries = rows.flatMap((row) => (row.active ? [substituteResource(row)] : []));
+
             return json(
               yield* output(
                 SubstituteBoard,
                 auth.permission === "Manage"
-                  ? {
-                      _tag: "Manage",
+                  ? SubstituteBoard.cases.Manage.make({
                       ...scope,
                       admissionPeriodId,
                       entries,
-                      candidates: rows.filter((row) => !row.active).map(substituteResource),
-                    }
-                  : { _tag: "ReadOnly", ...scope, admissionPeriodId, entries },
+                      candidates: rows.flatMap((row) =>
+                        !row.active ? [substituteResource(row)] : [],
+                      ),
+                    })
+                  : SubstituteBoard.cases.ReadOnly.make({ ...scope, admissionPeriodId, entries }),
               ),
             );
           }
+
           yield* noQuery(request);
           const entry = yield* readSubstituteEntry(applicationId!);
+
           const auth = yield* authorize(
             request,
             ReadSubstituteEndpoint,
@@ -224,13 +266,16 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
             false,
             input.now,
           );
+
           if (!entry.active && auth.permission !== "Manage")
             return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
           const resource = yield* output(SubstituteResource, substituteResource(entry));
+
           return yield* conditionalJsonResponse(request, resource, resource.etag);
         }),
       ),
     );
+
   const mutation = (
     request: Request,
     applicationId: string,
@@ -238,27 +283,34 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
   ) =>
     Effect.gen(function* () {
       yield* noQuery(request);
+
       if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
         return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
       const body = yield* readBoundedJson(request, 8192);
-      if (action === "deactivate") yield* decode(Schema.Struct({}), body);
+
+      if (action === "deactivate") yield* decode(Schema.Struct({}))(body);
+
       const command =
         action === "deactivate"
           ? ({ action } as const)
-          : { action, input: yield* decode(SubstituteMutation, body) };
+          : { action, input: yield* decode(SubstituteMutation)(body) };
+
       const ifMatch = yield* semantic(() => parseRequiredIfMatch(header(request, "if-match")));
       const key = yield* semantic(() => parseIdempotencyKey(header(request, "idempotency-key")));
-      const endpoint =
-        action === "activate"
-          ? ActivateSubstituteEndpoint
-          : action === "edit"
-            ? EditSubstituteEndpoint
-            : DeactivateSubstituteEndpoint;
+
+      const endpoint = Match.value(action).pipe(
+        Match.when("activate", () => ActivateSubstituteEndpoint),
+        Match.when("edit", () => EditSubstituteEndpoint),
+        Match.orElse(() => DeactivateSubstituteEndpoint),
+      );
+
       const operationId = `substitutes.${action}`;
+
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
           const selected = yield* readSubstituteEntry(applicationId);
           const auth = yield* authorize(request, endpoint, selected.departmentId, true, input.now);
+
           const identity = yield* semantic(() =>
             deriveHttpIdentity({
               credentialSubject: `Person:${auth.authority.personId}`,
@@ -269,6 +321,7 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               idempotencyKey: key,
             }),
           );
+
           return {
             identity: {
               identitySha256: identity.identitySha256,
@@ -278,19 +331,23 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
             execute: Effect.gen(function* () {
               yield* lockSubstituteApplication(applicationId);
               const current = yield* readSubstituteEntry(applicationId);
+
               const precondition = evaluateMutationPrecondition(
                 substituteResource(current).etag,
                 ifMatch,
               );
-              if (precondition._tag === "Failed")
+
+              if (Predicate.isTagged(precondition, "Failed"))
                 return yield* Effect.fail(
                   new HttpSemanticFailure(precondition.code, precondition.status),
                 );
               const changed = yield* mutateSubstitute(current, command);
+
               const resource = yield* Schema.decodeUnknownEffect(SubstituteResource)(
                 substituteResource(changed),
                 { onExcessProperty: "error" },
               ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
               return yield* Effect.tryPromise({
                 try: () => responseCapsule(json(resource, resource.etag)),
                 catch: (cause) =>
@@ -302,8 +359,10 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
           };
         }),
       );
+
       return nativeCommandOutcomeResponse(outcome);
     });
+
   return HttpApiBuilder.group(ExternalNativeApi, "substitutes", (handlers) =>
     Effect.succeed(
       handlers

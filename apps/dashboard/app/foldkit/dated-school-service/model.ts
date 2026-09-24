@@ -8,6 +8,7 @@ export const Input = S.Struct({
   coverage: S.NullOr(CoverageBoardResource),
   ownCoverage: S.NullOr(OwnCoverageResource),
 });
+
 export type Input = S.Schema.Type<typeof Input>;
 
 export const Model = S.Struct({
@@ -22,9 +23,10 @@ export const Model = S.Struct({
   reason: S.String,
   commandSeed: S.String,
 });
+
 export type Model = S.Schema.Type<typeof Model>;
 
-export const makeInitialModel = (input: Input): Model => ({
+export const init = (input: Input): Model => ({
   input,
   scheduleDate: "",
   selectedCommitmentId: null,

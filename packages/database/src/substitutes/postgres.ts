@@ -17,16 +17,20 @@ export const readSubstituteScopes = (authority: OrganizationPersonAuthority) =>
     Effect.gen(function* () {
       const departments = yield* sql<{ departmentId: DepartmentId; name: string }>`
     SELECT department_id AS "departmentId", name FROM public.organization_departments ORDER BY name, department_id`;
+
       const visible = departments.filter(
         (department) => substitutePermission(authority, department.departmentId) !== "Denied",
       );
+
       if (visible.length === 0)
         return yield* Effect.fail(new SubstituteFailure({ code: "authority.denied", status: 403 }));
+
       const semesters = yield* sql`
     SELECT semester_id AS "semesterId",
       to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
       to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt"
     FROM public.admission_period_semesters ORDER BY start_at DESC, semester_id`;
+
       return yield* Schema.decodeUnknownEffect(SubstituteScopes)({
         departments: visible,
         semesters,
@@ -42,6 +46,7 @@ export const readSubstituteEntries = (selection: { applicationId: string } | Sub
         "applicationId" in selection
           ? sql`application.application_id = ${selection.applicationId}`
           : sql`period.department_id = ${selection.departmentId} AND period.semester_id = ${selection.semesterId}`;
+
       const rows = yield* sql`
     SELECT application.application_id AS "applicationId", application.admission_period_id AS "admissionPeriodId",
       period.department_id AS "departmentId", period.semester_id AS "semesterId",
@@ -58,9 +63,11 @@ export const readSubstituteEntries = (selection: { applicationId: string } | Sub
     INNER JOIN public.admission_applicants AS applicant ON applicant.applicant_id = application.applicant_id
     LEFT JOIN public.admission_substitute_preferences AS preferences ON preferences.application_id = application.application_id
     WHERE ${where} ORDER BY applicant.last_name, applicant.first_name, application.application_id`;
+
       return yield* Schema.decodeUnknownEffect(Schema.Array(SubstituteEntry))(rows);
     }),
   );
+
 export const readSubstituteEntry = (applicationId: string) =>
   readSubstituteEntries({ applicationId }).pipe(
     Effect.flatMap((rows) =>
@@ -75,12 +82,15 @@ export const readSubstitutePeriod = (scope: SubstituteScope) =>
     Effect.gen(function* () {
       const semesters =
         yield* sql`SELECT semester_id FROM public.admission_period_semesters WHERE semester_id = ${scope.semesterId}`;
+
       if (semesters.length === 0)
         return yield* Effect.fail(new SubstituteFailure({ code: "scope.invalid", status: 422 }));
+
       const periods = yield* sql<{
         admissionPeriodId: string;
       }>`SELECT admission_period_id AS "admissionPeriodId"
     FROM public.admission_periods WHERE department_id = ${scope.departmentId} AND semester_id = ${scope.semesterId}`;
+
       return periods[0] === undefined
         ? null
         : yield* Schema.decodeUnknownEffect(AdmissionPeriodId)(periods[0].admissionPeriodId);
@@ -95,21 +105,26 @@ export const lockSubstituteApplication = (applicationId: string) =>
       Effect.asVoid,
     ),
   );
+
 export type SubstituteCommand =
   | { readonly action: "deactivate" }
   | { readonly action: "activate" | "edit"; readonly input: SubstituteMutation };
+
 export const mutateSubstitute = (entry: SubstituteEntry, command: SubstituteCommand) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const { action } = command;
+
       if (action === "activate" && entry.active)
         return yield* Effect.fail(
           new SubstituteFailure({ code: "substitute.already-active", status: 400 }),
         );
+
       if (action !== "activate" && !entry.active)
         return yield* Effect.fail(
           new SubstituteFailure({ code: "substitute.inactive", status: 400 }),
         );
+
       if (command.action === "deactivate") {
         yield* sql`UPDATE public.admission_substitute_preferences SET active = false, revision = revision + 1 WHERE application_id = ${entry.applicationId}`;
       } else {
@@ -123,6 +138,7 @@ export const mutateSubstitute = (entry: SubstituteEntry, command: SubstituteComm
         yield* sql`UPDATE public.admission_applications SET year_of_study = ${input.yearOfStudy}, revision = revision + 1
       WHERE application_id = ${entry.applicationId}`;
       }
+
       return yield* readSubstituteEntry(entry.applicationId);
     }),
   );

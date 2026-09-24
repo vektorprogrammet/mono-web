@@ -1,16 +1,23 @@
+import { Scope } from "@vektorprogrammet/domain/authz";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Database } from "@vektorprogrammet/database";
-import { Effect, Option, Schema } from "effect";
+import { Match, Cause, Predicate, Effect, Option, Schema } from "effect";
 import {
+  AdmissionPeriodNotFound,
+  AdmissionPeriodPersistenceError,
+  AdmissionPeriodActorSchema,
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
   type AdmissionPeriodActor,
+  AdmissionPeriodCommandSchema,
 } from "@vektorprogrammet/domain/admission-period";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
+  PublicApplicationPersistenceError,
+  PublicApplicationRateLimitExceeded,
   ApplicantProgressResponseSchema,
   ReturningAssistants,
   ReturningAssistantOptionsSchema,
@@ -101,15 +108,9 @@ export interface AdmissionApiHttpOptions {
   >;
 }
 
-type TaggedHttpError = Error & { readonly _tag: string };
+type TaggedHttpError = HttpSemanticFailure;
 
-const taggedError = (tag: string): TaggedHttpError => {
-  const error = new Error(tag) as TaggedHttpError;
-  Object.defineProperty(error, "_tag", { value: tag, enumerable: true });
-  return error;
-};
-
-const jsonResponse = (body: unknown, status = 200): Response =>
+const jsonResponse = (body: Schema.Json, status = 200): Response =>
   new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -119,27 +120,42 @@ const jsonResponse = (body: unknown, status = 200): Response =>
   });
 
 const errorTag = (cause: unknown): string =>
-  cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
+  cause !== null &&
+  (cause === null || Predicate.isObjectOrArray(cause)) &&
+  "_tag" in cause &&
+  Predicate.isString(cause._tag)
     ? cause._tag
     : "AdmissionPeriodPersistenceError";
 
 const errorResponse = (cause: unknown): Response => {
+  while (Cause.isUnknownError(cause)) cause = cause.cause;
+
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(cause.code, cause.status);
   }
-  if (cause !== null && typeof cause === "object" && "_tag" in cause) {
-    switch (cause._tag) {
-      case "NativeHttpReceiptInFlightError":
+
+  if (cause !== null && (cause === null || Predicate.isObjectOrArray(cause)) && "_tag" in cause) {
+    const response = Match.value(cause).pipe(
+      Match.when(Predicate.isTagged("NativeHttpReceiptInFlightError"), () => {
         return nativeProblemResponse("idempotency.in-flight", 409, { "retry-after": "1" });
-      case "NativeHttpReceiptDigestConflictError":
+      }),
+      Match.when(Predicate.isTagged("NativeHttpReceiptDigestConflictError"), () => {
         return nativeProblemResponse("idempotency.digest-conflict", 409);
-      case "NativeHttpReceiptExpiredError":
+      }),
+      Match.when(Predicate.isTagged("NativeHttpReceiptExpiredError"), () => {
         return nativeProblemResponse("idempotency.response-expired", 409);
-      case "NativeHttpReceiptPersistenceError":
+      }),
+      Match.when(Predicate.isTagged("NativeHttpReceiptPersistenceError"), () => {
         return nativeProblemResponse("idempotency.unavailable", 503);
-    }
+      }),
+      Match.orElse(() => undefined),
+    );
+
+    if (response !== undefined) return response;
   }
+
   const tag = errorTag(cause);
+
   switch (tag) {
     case "UnauthenticatedActor":
       return nativeProblemResponse("credential.invalid", 401, {
@@ -210,13 +226,13 @@ const errorResponse = (cause: unknown): Response => {
   }
 };
 
-const returningPersonResource = (personId: string) => ({
-  _tag: "Resource" as const,
-  resource: {
-    kind: ResourceKind.make("person-profile"),
-    id: ResourceId.make(personId),
-  },
-});
+const returningPersonResource = (personId: string) =>
+  Scope.Resource({
+    resource: {
+      kind: ResourceKind.make("person-profile"),
+      id: ResourceId.make(personId),
+    },
+  });
 
 const returningAuthorization = (
   request: Request,
@@ -229,6 +245,7 @@ const returningAuthorization = (
     const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
       now: input.config.now,
     });
+
     yield* authorizePersonNativeOperation({
       spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
       credential: authorization.credential,
@@ -248,26 +265,31 @@ const returningAuthorization = (
       grantScopes: [returningPersonResource(authorization.authority.personId)],
       now: authorization.authorizationInstant,
     });
+
     return authorization;
   });
 
 const readReturningAssistantOptions = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
+
     const authorization = yield* returningAuthorization(
       request,
       input,
       ReadReturningAssistantOptionsEndpoint,
     );
+
     const options = yield* ReturningAssistants.use(({ readOptions }) =>
       readOptions({
         personId: authorization.authority.personId,
         now: authorization.authorizationInstant,
       }),
     );
+
     const body = yield* Schema.decodeUnknownEffect(ReturningAssistantOptionsSchema)(options, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => taggedError("ReturningAssistantDecodeError")));
+    }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+
     return jsonResponse(body);
   });
 
@@ -275,15 +297,17 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const contentType = request.headers.get("content-type") ?? "";
+
     if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
       return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
     }
+
     const payload = yield* decodeJson(
       request,
       ReturningAssistantRegistrationInputSchema,
       input.config.maxBodyBytes,
-      "ReturningAssistantDecodeError",
     );
+
     const idempotencyKey = yield* Effect.try({
       try: () =>
         parseIdempotencyKey(
@@ -291,9 +315,16 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
             ? []
             : [request.headers.get("idempotency-key")!],
         ),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ||
+        cause instanceof InactiveActor ||
+        cause instanceof UnauthenticatedActor
+          ? cause
+          : new Cause.UnknownError(cause),
     });
+
     const operationId = "admissions.registerReturningAssistant";
+
     const result = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const authorization = yield* returningAuthorization(
@@ -301,6 +332,7 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
           input,
           RegisterReturningAssistantEndpoint,
         );
+
         yield* ReturningAssistants.use(({ preflight }) =>
           preflight(
             {
@@ -313,6 +345,7 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
             },
           ),
         );
+
         const derived = yield* Effect.try({
           try: () =>
             deriveHttpIdentity({
@@ -321,8 +354,14 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
               normalizedTarget: "/api/returning-assistant/registrations",
               idempotencyKey,
             }),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ||
+            cause instanceof InactiveActor ||
+            cause instanceof UnauthenticatedActor
+              ? cause
+              : new Cause.UnknownError(cause),
         });
+
         return {
           identity: {
             identitySha256: derived.identitySha256,
@@ -341,6 +380,7 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
                   now: input.config.now,
                 },
               );
+
               return {
                 status: 201,
                 mediaType: "application/json",
@@ -361,6 +401,7 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
       }),
       { retry: "serialization-once" },
     );
+
     return nativeCommandOutcomeResponse(result);
   });
 
@@ -375,7 +416,7 @@ const actorFor = (request: Request, input: AdmissionApiHttpOptions, departmentSc
     .pipe(
       Effect.catch((cause) =>
         Effect.fail(
-          cause !== null && typeof cause === "object" && "_tag" in cause
+          cause !== null && (cause === null || Predicate.isObjectOrArray(cause)) && "_tag" in cause
             ? cause
             : new UnauthenticatedActor({ message: "authentication required" }),
         ),
@@ -391,29 +432,37 @@ const admissionActorForAuthority = (
       if (departmentScope !== undefined) {
         return admissionActorForDepartment(authority, DepartmentId.make(departmentScope));
       }
+
       if (authority.globalAdministrator !== "Active") {
         throw authority.globalAdministrator === "Inactive"
           ? new InactiveActor({ personId: authority.personId })
           : new UnauthenticatedActor({ message: "no authority for unscoped management route" });
       }
-      return {
-        _tag: "GlobalAdmin" as const,
+
+      return AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
         personId: authority.personId,
         active: true,
-      };
+      });
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ||
+      cause instanceof InactiveActor ||
+      cause instanceof UnauthenticatedActor
+        ? cause
+        : new Cause.UnknownError(cause),
   }).pipe(Effect.flatMap(requireActive));
 
-const requireNoQuery = (request: Request, tag = "AdmissionPeriodDecodeError") =>
-  new URL(request.url).search === "" ? Effect.void : Effect.fail(taggedError(tag));
+const requireNoQuery = (request: Request) =>
+  new URL(request.url).search === ""
+    ? Effect.void
+    : Effect.fail(new HttpSemanticFailure("validation.failed", 422));
 
-const boundedJsonWithTag = (request: Request, maxBytes: number, tag: string) =>
+const boundedJsonWithTag = (request: Request, maxBytes: number) =>
   readBoundedJson(request, maxBytes).pipe(
     Effect.mapError((cause) =>
       cause instanceof HttpSemanticFailure && cause.code === "request.too-large"
-        ? taggedError("RequestBodyTooLarge")
-        : taggedError(tag),
+        ? new HttpSemanticFailure("request.too-large", 413)
+        : new HttpSemanticFailure("validation.failed", 422),
     ),
   );
 
@@ -421,41 +470,49 @@ const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
   schema: S,
   maxBodyBytes: number,
-  tag: string,
 ): Effect.Effect<S["Type"], TaggedHttpError> =>
   Effect.gen(function* () {
     const contentType = request.headers.get("content-type") ?? "";
+
     if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(taggedError(tag));
+      return yield* Effect.fail(new HttpSemanticFailure("validation.failed", 422));
     }
-    const body = yield* boundedJsonWithTag(request, maxBodyBytes, tag);
+
+    const body = yield* boundedJsonWithTag(request, maxBodyBytes);
+
     return yield* Schema.decodeUnknownEffect(schema)(body, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => taggedError(tag)));
+    }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
   });
 
 const decodeAdmissionPeriodPatch = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     const contentType = request.headers.get("content-type") ?? "";
+
     if (!/^application\/merge-patch\+json(?:\s*;|$)/iu.test(contentType)) {
       return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
     }
+
     const body = yield* readBoundedJson(request, input.config.maxBodyBytes).pipe(
       Effect.mapError((cause) =>
         cause instanceof HttpSemanticFailure && cause.code === "request.too-large"
-          ? taggedError("RequestBodyTooLarge")
+          ? new HttpSemanticFailure("request.too-large", 413)
           : new HttpSemanticFailure("request.malformed", 400),
       ),
     );
+
     const patch = yield* Schema.decodeUnknownEffect(AdmissionPeriodMergePatch)(body, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+
     if (!Object.hasOwn(patch, "startAt") && !Object.hasOwn(patch, "endAt")) {
       return yield* Effect.fail(new HttpSemanticFailure("validation.no-change", 422));
     }
+
     if (patch.startAt === null || patch.endAt === null) {
       return yield* Effect.fail(new HttpSemanticFailure("validation.field-not-deletable", 422));
     }
+
     return patch;
   });
 
@@ -473,6 +530,7 @@ const conditionalJsonResponse = (input: {
         resourceIdentity: "collection",
         version: input.version,
       });
+
       const decision = evaluateReadPreconditions({
         currentETag: etag,
         ifMatch: parseReadIfMatch(
@@ -486,16 +544,19 @@ const conditionalJsonResponse = (input: {
             : [input.request.headers.get("if-none-match")!],
         ),
       });
-      if (decision._tag === "Failed") {
+
+      if (Predicate.isTagged(decision, "Failed")) {
         return nativeProblemResponse(decision.code, decision.status);
       }
-      if (decision._tag === "NotModified") {
+
+      if (Predicate.isTagged(decision, "NotModified")) {
         return notModifiedResponse({
           etag,
           cacheControl: input.cacheControl,
           vary: "Origin",
         });
       }
+
       return new Response(JSON.stringify(input.body), {
         status: 200,
         headers: {
@@ -506,25 +567,35 @@ const conditionalJsonResponse = (input: {
         },
       });
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ||
+      cause instanceof InactiveActor ||
+      cause instanceof UnauthenticatedActor
+        ? cause
+        : new Cause.UnknownError(cause),
   });
 
 const dynamicAdmissionCache = (now: string, boundaries: ReadonlyArray<string>): string => {
   const nowMillis = Date.parse(now);
+
   const next = boundaries
+    .values()
     .map(Date.parse)
     .filter((boundary) => Number.isFinite(boundary) && boundary >= nowMillis)
+    .toArray()
     .sort((left, right) => left - right)[0];
+
   const ttl =
     next === undefined ? 30 : Math.max(0, Math.min(30, Math.floor((next - nowMillis) / 1_000)));
+
   return `public, max-age=${ttl}, s-maxage=${ttl}, must-revalidate`;
 };
 
 const admissionGrantScopes = (actor: AdmissionPeriodActor) =>
-  actor._tag === "GlobalAdmin"
-    ? ([{ _tag: "Global" }] as const)
-    : actor._tag === "DepartmentLeader"
-      ? ([{ _tag: "Department", departmentId: actor.departmentId }] as const)
+  Predicate.isTagged(actor, "GlobalAdmin")
+    ? ([Scope.Global()] as const)
+    : Predicate.isTagged(actor, "DepartmentLeader")
+      ? ([Scope.Department({ departmentId: actor.departmentId })] as const)
       : [];
 
 const listManagement = (request: Request, input: AdmissionApiHttpOptions) =>
@@ -541,7 +612,7 @@ const listManagement = (request: Request, input: AdmissionApiHttpOptions) =>
         contexts: [
           genericContext({
             domainId: "admissions",
-            departmentId: actor._tag === "DepartmentLeader" ? actor.departmentId : null,
+            departmentId: Predicate.isTagged(actor, "DepartmentLeader") ? actor.departmentId : null,
             authorityVersion: `admissions:${actor._tag}`,
           }),
         ],
@@ -549,9 +620,11 @@ const listManagement = (request: Request, input: AdmissionApiHttpOptions) =>
       grantScopes: admissionGrantScopes(actor),
       now,
     });
+
     const rows = yield* Admissions.use(({ listAdmissionPeriodsForManagement }) =>
       listAdmissionPeriodsForManagement({ actor, now }),
     );
+
     const items = rows.map((row) => ({
       id: row.id,
       departmentId: row.departmentId,
@@ -565,11 +638,19 @@ const listManagement = (request: Request, input: AdmissionApiHttpOptions) =>
         version: row.revision,
       }),
     }));
+
     const body = yield* Schema.decodeUnknownEffect(
       Schema.Struct({ items: Schema.Array(AdmissionPeriodManagementItem), totalItems: Schema.Int }),
     )({ items, totalItems: items.length }, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => taggedError("AdmissionPeriodPersistenceError")),
+      Effect.mapError(
+        () =>
+          new AdmissionPeriodPersistenceError({
+            operation: "HTTP",
+            message: "Invalid admission response",
+          }),
+      ),
     );
+
     return yield* conditionalJsonResponse({
       request,
       body,
@@ -582,13 +663,15 @@ const listManagement = (request: Request, input: AdmissionApiHttpOptions) =>
 const create = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
+
     const payload = yield* decodeJson(
       request,
       CreateAdmissionPeriodRequest,
       input.config.maxBodyBytes,
-      "AdmissionPeriodDecodeError",
     );
+
     const admissionPeriodId = input.config.nextAdmissionPeriodId();
+
     const idempotencyKey = yield* Effect.try({
       try: () =>
         parseIdempotencyKey(
@@ -596,18 +679,27 @@ const create = (request: Request, input: AdmissionApiHttpOptions) =>
             ? []
             : [request.headers.get("idempotency-key")!],
         ),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ||
+        cause instanceof InactiveActor ||
+        cause instanceof UnauthenticatedActor
+          ? cause
+          : new Cause.UnknownError(cause),
     });
+
     const operationId = "admissions.createAdmissionPeriod";
+
     const result = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
           now: input.config.now,
         });
+
         const actor = yield* admissionActorForAuthority(
           authorization.authority,
           payload.departmentId,
         );
+
         const now = authorization.authorizationInstant;
         yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(CreateAdmissionPeriodEndpoint)),
@@ -618,24 +710,23 @@ const create = (request: Request, input: AdmissionApiHttpOptions) =>
             contexts: [
               genericContext({
                 domainId: "admissions",
-                departmentId:
-                  actor._tag === "DepartmentLeader"
-                    ? actor.departmentId
-                    : (payload.departmentId ?? null),
+                departmentId: Predicate.isTagged(actor, "DepartmentLeader")
+                  ? actor.departmentId
+                  : (payload.departmentId ?? null),
                 resourceKind: "admission-period",
                 resourceId: admissionPeriodId,
                 authorityVersion: `admissions:${actor._tag}`,
               }),
             ],
           },
-          grantScopes:
-            actor._tag === "GlobalAdmin"
-              ? [{ _tag: "Global" }]
-              : actor._tag === "DepartmentLeader"
-                ? [{ _tag: "Department", departmentId: actor.departmentId }]
-                : [],
+          grantScopes: Predicate.isTagged(actor, "GlobalAdmin")
+            ? [Scope.Global()]
+            : Predicate.isTagged(actor, "DepartmentLeader")
+              ? [Scope.Department({ departmentId: actor.departmentId })]
+              : [],
           now,
         });
+
         const derived = yield* Effect.try({
           try: () =>
             deriveHttpIdentity({
@@ -644,8 +735,14 @@ const create = (request: Request, input: AdmissionApiHttpOptions) =>
               normalizedTarget: "/api/admission-periods",
               idempotencyKey,
             }),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ||
+            cause instanceof InactiveActor ||
+            cause instanceof UnauthenticatedActor
+              ? cause
+              : new Cause.UnknownError(cause),
         });
+
         return {
           identity: {
             identitySha256: derived.identitySha256,
@@ -655,19 +752,21 @@ const create = (request: Request, input: AdmissionApiHttpOptions) =>
           execute: Admissions.use((admissions) =>
             Effect.gen(function* () {
               const created = yield* admissions.executeAdmissionPeriod(
-                {
-                  _tag: "CreateAdmissionPeriod",
+                AdmissionPeriodCommandSchema.cases.CreateAdmissionPeriod.make({
                   commandId: AdmissionPeriodCommandId.make(derived.commandId),
                   ...payload,
-                },
+                }),
                 { actor, now, admissionPeriodId },
               );
+
               const period = created.period;
+
               const etag = deriveStrongETag({
                 representationKind: "AdmissionPeriodManagementItem",
                 resourceIdentity: period.id,
                 version: period.revision,
               });
+
               return {
                 status: 201,
                 mediaType: "application/json",
@@ -691,16 +790,19 @@ const create = (request: Request, input: AdmissionApiHttpOptions) =>
         };
       }),
     );
+
     return nativeCommandOutcomeResponse(result);
   });
 
 const revise = (request: Request, admissionPeriodId: string, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
+
     const { typedAdmissionPeriodId, ifMatch, idempotencyKey, normalizedTarget } = yield* Effect.try(
       {
         try: () => {
           const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
+
           return {
             typedAdmissionPeriodId,
             ifMatch: parseRequiredIfMatch(
@@ -714,25 +816,39 @@ const revise = (request: Request, admissionPeriodId: string, input: AdmissionApi
             normalizedTarget: `/api/admission-periods/${encodePathIdentity(typedAdmissionPeriodId)}`,
           };
         },
-        catch: (cause) => cause,
+        catch: (cause) =>
+          cause instanceof HttpSemanticFailure ||
+          cause instanceof InactiveActor ||
+          cause instanceof UnauthenticatedActor
+            ? cause
+            : new Cause.UnknownError(cause),
       },
     );
+
     const patch = yield* decodeAdmissionPeriodPatch(request, input);
     const operationId = "admissions.reviseAdmissionPeriod";
+
     const result = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
           now: input.config.now,
         });
+
         const actor = yield* admissionActorForAuthority(authorization.authority);
         const now = authorization.authorizationInstant;
+
         const periods = yield* Admissions.use(({ listAdmissionPeriodsForManagement }) =>
           listAdmissionPeriodsForManagement({ actor, now }),
         );
+
         const current = periods.find((period) => period.id === typedAdmissionPeriodId);
+
         if (current === undefined) {
-          return yield* Effect.fail(taggedError("AdmissionPeriodNotFound"));
+          return yield* Effect.fail(
+            new AdmissionPeriodNotFound({ admissionPeriodId: typedAdmissionPeriodId }),
+          );
         }
+
         yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(ReviseAdmissionPeriodEndpoint)),
           credential: authorization.credential,
@@ -752,20 +868,29 @@ const revise = (request: Request, admissionPeriodId: string, input: AdmissionApi
           grantScopes: admissionGrantScopes(actor),
           now,
         });
+
         const currentETag = deriveStrongETag({
           representationKind: "AdmissionPeriodManagementItem",
           resourceIdentity: current.id,
           version: current.revision,
         });
+
         const precondition = yield* Effect.try({
           try: () => evaluateMutationPrecondition(currentETag, ifMatch),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ||
+            cause instanceof InactiveActor ||
+            cause instanceof UnauthenticatedActor
+              ? cause
+              : new Cause.UnknownError(cause),
         });
-        if (precondition._tag === "Failed") {
+
+        if (Predicate.isTagged(precondition, "Failed")) {
           return yield* Effect.fail(
             new HttpSemanticFailure(precondition.code, precondition.status),
           );
         }
+
         const derived = yield* Effect.try({
           try: () =>
             deriveHttpIdentity({
@@ -774,8 +899,14 @@ const revise = (request: Request, admissionPeriodId: string, input: AdmissionApi
               normalizedTarget,
               idempotencyKey,
             }),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ||
+            cause instanceof InactiveActor ||
+            cause instanceof UnauthenticatedActor
+              ? cause
+              : new Cause.UnknownError(cause),
         });
+
         return {
           identity: {
             identitySha256: derived.identitySha256,
@@ -785,22 +916,24 @@ const revise = (request: Request, admissionPeriodId: string, input: AdmissionApi
           execute: Admissions.use((admissions) =>
             Effect.gen(function* () {
               const revised = yield* admissions.executeAdmissionPeriod(
-                {
-                  _tag: "ReviseAdmissionPeriod",
+                AdmissionPeriodCommandSchema.cases.ReviseAdmissionPeriod.make({
                   commandId: AdmissionPeriodCommandId.make(derived.commandId),
                   admissionPeriodId: typedAdmissionPeriodId,
                   expectedRevision: current.revision,
                   startAt: patch.startAt ?? current.startAt,
                   endAt: patch.endAt ?? current.endAt,
-                },
+                }),
                 { actor, now, admissionPeriodId: typedAdmissionPeriodId },
               );
+
               const period = revised.period;
+
               const etag = deriveStrongETag({
                 representationKind: "AdmissionPeriodManagementItem",
                 resourceIdentity: period.id,
                 version: period.revision,
               });
+
               const body = {
                 id: period.id,
                 departmentId: period.departmentId,
@@ -810,6 +943,7 @@ const revise = (request: Request, admissionPeriodId: string, input: AdmissionApi
                 revision: period.revision,
                 etag,
               };
+
               return {
                 status: 200,
                 mediaType: "application/json",
@@ -821,6 +955,7 @@ const revise = (request: Request, admissionPeriodId: string, input: AdmissionApi
         };
       }),
     );
+
     return nativeCommandOutcomeResponse(result);
   });
 
@@ -841,9 +976,11 @@ const listOpen = (request: Request, input: AdmissionApiHttpOptions) =>
       },
       now,
     );
+
     const rows = yield* Admissions.use(({ listOpenAdmissionPeriods }) =>
       listOpenAdmissionPeriods(now),
     );
+
     const body = {
       items: rows.map((row) => ({
         id: row.id,
@@ -854,6 +991,7 @@ const listOpen = (request: Request, input: AdmissionApiHttpOptions) =>
       })),
       totalItems: rows.length,
     };
+
     return yield* conditionalJsonResponse({
       request,
       body,
@@ -874,7 +1012,7 @@ const publicRateLimitKey = (_request: Request): string => "public";
 
 const listPublicCatalog = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* requireNoQuery(request, "PublicApplicationDecodeError");
+    yield* requireNoQuery(request);
     const now = input.config.now();
     yield* authorizeAnonymousNativeOperation(
       Option.getOrThrow(reflectAccessSpec(ReadApplicationCatalogEndpoint)),
@@ -889,9 +1027,11 @@ const listPublicCatalog = (request: Request, input: AdmissionApiHttpOptions) =>
       },
       now,
     );
+
     const source = yield* Admissions.use(({ listPublicApplicationCatalog }) =>
       listPublicApplicationCatalog({ now }),
     );
+
     return yield* conditionalJsonResponse({
       request,
       body: source.catalog,
@@ -909,17 +1049,15 @@ const listPublicCatalog = (request: Request, input: AdmissionApiHttpOptions) =>
 
 const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* requireNoQuery(request, "PublicApplicationDecodeError");
+    yield* requireNoQuery(request);
     const now = input.config.now();
+
     if (!input.config.rateLimit.consume(publicRateLimitKey(request), now)) {
-      return yield* Effect.fail(taggedError("PublicApplicationRateLimitExceeded"));
+      return yield* Effect.fail(new PublicApplicationRateLimitExceeded({}));
     }
-    const payload = yield* decodeJson(
-      request,
-      SubmitApplicationRequest,
-      input.config.maxBodyBytes,
-      "PublicApplicationDecodeError",
-    );
+
+    const payload = yield* decodeJson(request, SubmitApplicationRequest, input.config.maxBodyBytes);
+
     const idempotencyKey = yield* Effect.try({
       try: () =>
         parseIdempotencyKey(
@@ -927,9 +1065,16 @@ const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
             ? []
             : [request.headers.get("idempotency-key")!],
         ),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ||
+        cause instanceof InactiveActor ||
+        cause instanceof UnauthenticatedActor
+          ? cause
+          : new Cause.UnknownError(cause),
     });
+
     const operationId = "admissions.submitApplication";
+
     const result = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         yield* authorizeAnonymousNativeOperation(
@@ -945,6 +1090,7 @@ const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
           },
           now,
         );
+
         const derived = yield* Effect.try({
           try: () =>
             deriveHttpIdentity({
@@ -953,8 +1099,14 @@ const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
               normalizedTarget: "/api/applications",
               idempotencyKey,
             }),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ||
+            cause instanceof InactiveActor ||
+            cause instanceof UnauthenticatedActor
+              ? cause
+              : new Cause.UnknownError(cause),
         });
+
         return {
           identity: {
             identitySha256: derived.identitySha256,
@@ -975,10 +1127,12 @@ const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
                   activationToken: input.config.nextActivationToken(),
                 },
               );
+
               const confirmation = {
                 _tag: "ApplicationConfirmed" as const,
                 applicationId: submitted.observation.applicationId,
               };
+
               return {
                 status: 201,
                 mediaType: "application/json",
@@ -998,6 +1152,7 @@ const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
         };
       }),
     );
+
     return nativeCommandOutcomeResponse(result);
   });
 
@@ -1007,7 +1162,7 @@ const publicConfirmation = (
   input: AdmissionApiHttpOptions,
 ) =>
   Effect.gen(function* () {
-    yield* requireNoQuery(request, "PublicApplicationDecodeError");
+    yield* requireNoQuery(request);
     const now = input.config.now();
     yield* authorizeAnonymousNativeOperation(
       Option.getOrThrow(reflectAccessSpec(ReadApplicationConfirmationEndpoint)),
@@ -1024,9 +1179,11 @@ const publicConfirmation = (
       },
       now,
     );
+
     const confirmation = yield* Admissions.use(({ findPublicApplicationConfirmation }) =>
       findPublicApplicationConfirmation(applicationId),
     );
+
     return jsonResponse(confirmation);
   });
 
@@ -1037,12 +1194,15 @@ const applicantProgress = (request: Request, input: AdmissionApiHttpOptions) =>
         if (new URL(request.url).search !== "") {
           return yield* Effect.fail(new HttpSemanticFailure("request.malformed", 400));
         }
+
         yield* Database.use(
           (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
         );
+
         const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
           now: input.config.now,
         });
+
         yield* authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(ReadApplicantProgressEndpoint)),
           credential: authorization.credential,
@@ -1062,15 +1222,26 @@ const applicantProgress = (request: Request, input: AdmissionApiHttpOptions) =>
           grantScopes: [returningPersonResource(authorization.authority.personId)],
           now: authorization.authorizationInstant,
         });
+
         const body = yield* Admissions.use(({ readApplicantProgress }) =>
           readApplicantProgress(
             authorization.authority.personId,
             authorization.authorizationInstant,
           ),
         );
+
         const decoded = yield* Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(body, {
           onExcessProperty: "error",
-        }).pipe(Effect.mapError(() => taggedError("PublicApplicationPersistenceError")));
+        }).pipe(
+          Effect.mapError(
+            () =>
+              new PublicApplicationPersistenceError({
+                operation: "HTTP",
+                message: "Invalid application response",
+              }),
+          ),
+        );
+
         return new Response(JSON.stringify(decoded), {
           headers: {
             "content-type": "application/json; charset=utf-8",

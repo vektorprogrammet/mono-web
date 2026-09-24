@@ -19,6 +19,7 @@ export const makeControlledTestRuntime = <R, ER>(
       if (disposed) {
         return Promise.reject(new Error("controlled test runtime is already disposed"));
       }
+
       return runtime.runPromise(effect, options);
     },
     dispose: async () => {

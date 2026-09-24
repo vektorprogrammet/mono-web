@@ -10,105 +10,90 @@ import {
   SucceededSave,
   SucceededTransition,
 } from "./message";
-import type { ContentFailure } from "./model";
+import { ContentFailure } from "./model";
 import type { WorkspaceCommandFactories } from "./update";
 
 const failureFrom = (error: ContentBridgeFailure): ContentFailure => {
   switch (error.error.tag) {
     case "UnauthenticatedActor":
-      return {
-        _tag: "Denied",
+      return ContentFailure.cases.Denied.make({
         tag: "UnauthenticatedActor",
         message: "Økten din er utløpt. Logg inn på nytt.",
-      };
+      });
     case "AuthorityInactive":
-      return {
-        _tag: "Denied",
+      return ContentFailure.cases.Denied.make({
         tag: "AuthorityInactive",
         message: "Tilgangen din til artikkeladministrasjon er ikke aktiv.",
-      };
+      });
     case "NotInScope":
-      return {
-        _tag: "Denied",
+      return ContentFailure.cases.Denied.make({
         tag: "NotInScope",
         message: "Du har ikke tilgang til artikkeladministrasjon.",
-      };
+      });
     case "NotPublisher":
-      return {
-        _tag: "Denied",
+      return ContentFailure.cases.Denied.make({
         tag: "NotPublisher",
         message: "Kun ledere og administratorer kan publisere, avpublisere eller endre reklame.",
-      };
+      });
     case "DraftNotOwned":
-      return {
-        _tag: "Denied",
+      return ContentFailure.cases.Denied.make({
         tag: "DraftNotOwned",
         message: "Du kan bare redigere egne kladder.",
-      };
+      });
     case "SlugConflict":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "SlugConflict",
         message: "Lenkenavnet er allerede i bruk. Prøv et annet navn.",
-      };
+      });
     case "CommandConflict":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "CommandConflict",
         message: "Artikkelen er endret av andre samtidig. Last siden på nytt.",
-      };
+      });
     case "ArticleNotFound":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "ArticleNotFound",
         message: "Artikkelen finnes ikke lenger.",
-      };
+      });
     case "DepartmentNotFound":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "DepartmentNotFound",
         message: "En valgt avdeling finnes ikke lenger.",
-      };
+      });
     case "ContentDecodeError":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "ContentDecodeError",
         message: "Artikkeldataene hadde et ugyldig format.",
-      };
+      });
     case "ContentIntegrityError":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "ContentIntegrityError",
         message: "Artikkeldataene er midlertidig utilgjengelige.",
-      };
+      });
     case "ContentPersistenceError":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "ContentPersistenceError",
         message: "Artikkeladministrasjonen er midlertidig utilgjengelig.",
-      };
+      });
     case "Network":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "Network",
         message: "Nettverksforbindelsen til artikkeladministrasjonen feilet.",
-      };
+      });
     case "Configuration":
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "Configuration",
         message: "Artikkeladministrasjonen er ikke konfigurert.",
-      };
+      });
     default:
-      return {
-        _tag: "Failed",
+      return ContentFailure.cases.Failed.make({
         tag: "ContentPersistenceError",
         message: "Artikkeladministrasjonen er midlertidig utilgjengelig.",
-      };
+      });
   }
 };
 
-export const makeContentWorkspaceCommands = (
+export const commandsFor = (
   client: ContentWorkspaceClient,
 ): WorkspaceCommandFactories => ({
   LoadWorkspace: ({ requestId }) => ({

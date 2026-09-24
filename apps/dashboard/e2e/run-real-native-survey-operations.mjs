@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -20,27 +21,47 @@ import {
 } from "./fixtures/survey-operations.mjs";
 
 const { Client } = pg;
+
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
+
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const contractPath = join(repositoryRoot, "docs/specs/0113-school-survey-operations.md");
+
 const manifestPath =
   process.env.SURVEY_OPERATIONS_EVIDENCE_MANIFEST_PATH ??
   join(repositoryRoot, "artifacts/runtime/survey-operations-0113.json");
+
 const postgresPort = 45430;
+
 const backendPort = 45431;
+
 const proxyPort = 45432;
+
 const dashboardPort = 5174;
+
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/survey_operations_e2e_0113`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const apiOrigin = `http://127.0.0.1:${proxyPort}`;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
 const commandTimeoutMs = 600_000;
+
 const adminPath = "/api/surveys/admin";
+
 const readinessTimeoutMs = 60_000;
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -53,11 +74,13 @@ const run = (command, args, { cwd = repositoryRoot, env = process.env, label }) 
     timeout: commandTimeoutMs,
     killSignal: "SIGKILL",
   });
+
   if (result.status !== 0) {
     throw new Error(
       `${label} failed (${String(result.status)}):\n${result.stdout ?? ""}\n${result.stderr ?? ""}`,
     );
   }
+
   return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 };
 
@@ -68,23 +91,31 @@ const start = (command, args, { cwd, env, label }) => {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
+
   const output = [];
   const handle = { child, label, output, startupError: null };
+
   const capture = (chunk) => {
     output.push(String(chunk));
+
     if (output.length > 400) output.shift();
   };
+
   child.stdout.on("data", capture);
   child.stderr.on("data", capture);
   child.once("error", (cause) => {
     handle.startupError = cause;
     capture(`${label} failed to start: ${cause instanceof Error ? cause.stack : String(cause)}\n`);
   });
+
   return handle;
 };
+
 const assertProcessStarting = (handle) => {
   if (handle === undefined) return;
+
   if (handle.startupError !== null) throw handle.startupError;
+
   if (handle.child.exitCode !== null || handle.child.signalCode !== null) {
     throw new Error(
       `${handle.label} exited before readiness (code=${String(handle.child.exitCode)}, signal=${String(handle.child.signalCode)}):\n${handle.output.join("")}`,
@@ -96,11 +127,13 @@ const stop = async (handle) => {
   if (handle === undefined || handle.child.exitCode !== null || handle.child.signalCode !== null) {
     return;
   }
+
   try {
     process.kill(-handle.child.pid, "SIGTERM");
   } catch (cause) {
     if (cause?.code !== "ESRCH") throw cause;
   }
+
   await Promise.race([
     new Promise((resolve) => handle.child.once("exit", resolve)),
     delay(5_000).then(() => {
@@ -122,8 +155,10 @@ const assertPortAvailable = (port) =>
 
 const waitForPort = async (port, label, handle) => {
   const deadline = Date.now() + readinessTimeoutMs;
+
   while (Date.now() < deadline) {
     assertProcessStarting(handle);
+
     const ready = await new Promise((resolve) => {
       const socket = createConnection({ host: "127.0.0.1", port });
       socket.once("connect", () => {
@@ -135,35 +170,45 @@ const waitForPort = async (port, label, handle) => {
         resolve(false);
       });
     });
+
     if (ready) return;
     await delay(100);
   }
+
   throw new Error(`${label} timed out after ${readinessTimeoutMs}ms`);
 };
 
 const waitForHttp = async (url, label, handle) => {
   const deadline = Date.now() + readinessTimeoutMs;
+
   while (Date.now() < deadline) {
     assertProcessStarting(handle);
+
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
+
       if (response.ok) return;
     } catch {
       // The owned process is still starting.
     }
+
     await delay(150);
   }
+
   throw new Error(`${label} timed out after ${readinessTimeoutMs}ms`);
 };
 
 const readRequestBody = async (request) => {
   const chunks = [];
   let length = 0;
+
   for await (const chunk of request) {
     length += chunk.length;
+
     if (length > 2_000_000) throw new Error("recorded request exceeded 2 MB");
     chunks.push(chunk);
   }
+
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 };
 
@@ -172,15 +217,19 @@ const startRecordingProxy = async (ledger) => {
     const url = new URL(request.url ?? "/", apiOrigin);
     const body = await readRequestBody(request);
     const headers = new Headers();
+
     for (const [name, value] of Object.entries(request.headers)) {
       if (value === undefined || ["connection", "content-length", "host"].includes(name)) continue;
+
       if (Array.isArray(value)) {
         for (const item of value) headers.append(name, item);
       } else {
         headers.set(name, value);
       }
     }
+
     let requestJson = null;
+
     if (body !== undefined && headers.get("content-type")?.includes("json")) {
       try {
         requestJson = JSON.parse(body.toString("utf8"));
@@ -188,6 +237,7 @@ const startRecordingProxy = async (ledger) => {
         requestJson = "malformed";
       }
     }
+
     const entry = {
       sequence: ledger.length + 1,
       method: request.method ?? "GET",
@@ -202,7 +252,9 @@ const startRecordingProxy = async (ledger) => {
       responseJson: null,
       responseText: "",
     };
+
     ledger.push(entry);
+
     try {
       const upstream = await fetch(new URL(`${url.pathname}${url.search}`, backendOrigin), {
         method: request.method,
@@ -210,10 +262,12 @@ const startRecordingProxy = async (ledger) => {
         body,
         redirect: "manual",
       });
+
       const bytes = Buffer.from(await upstream.arrayBuffer());
       entry.status = upstream.status;
       entry.responseHeaders = Object.fromEntries(upstream.headers.entries());
       entry.responseText = bytes.toString("utf8");
+
       if (upstream.headers.get("content-type")?.includes("json") && bytes.length > 0) {
         try {
           entry.responseJson = JSON.parse(entry.responseText);
@@ -221,7 +275,9 @@ const startRecordingProxy = async (ledger) => {
           entry.responseJson = "malformed";
         }
       }
+
       const forwardedHeaders = {};
+
       for (const [name, value] of upstream.headers) {
         if (
           [
@@ -234,9 +290,12 @@ const startRecordingProxy = async (ledger) => {
         ) {
           continue;
         }
+
         forwardedHeaders[name] = value;
       }
+
       const setCookies = upstream.headers.getSetCookie();
+
       if (setCookies.length > 0) forwardedHeaders["set-cookie"] = setCookies;
       response.writeHead(upstream.status, forwardedHeaders);
       response.end(bytes);
@@ -255,10 +314,12 @@ const startRecordingProxy = async (ledger) => {
       );
     }
   });
+
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(proxyPort, "127.0.0.1", resolve);
   });
+
   return server;
 };
 
@@ -272,11 +333,13 @@ const closeServer = (server) =>
 const connect = async () => {
   const client = new Client({ connectionString: postgresUrl });
   await client.connect();
+
   return client;
 };
 
 const query = async (text, values = []) => {
   const client = await connect();
+
   try {
     return await client.query(text, values);
   } finally {
@@ -285,23 +348,28 @@ const query = async (text, values = []) => {
 };
 
 const api = async (cookie, method, path, { body, key } = {}) => {
-  const response = await fetch(`${apiOrigin}${path}`, {
-    method,
-    headers: {
-      origin: dashboardOrigin,
-      ...(cookie === undefined ? {} : { cookie }),
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(key === undefined ? {} : { "idempotency-key": key }),
-    },
-    redirect: "manual",
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  const headers = new Headers({ origin: dashboardOrigin });
+
+  if (cookie !== undefined) headers.set("cookie", cookie);
+
+  if (body !== undefined) headers.set("content-type", "application/json");
+
+  if (key !== undefined) headers.set("idempotency-key", key);
+
+  const init = { method, headers, redirect: "manual" };
+
+  if (body !== undefined) init.body = JSON.stringify(body);
+
+  const response = await fetch(`${apiOrigin}${path}`, init);
+
   const bytes = Buffer.from(await response.arrayBuffer());
   const text = bytes.toString("utf8");
   let decoded = null;
+
   if (response.headers.get("content-type")?.includes("json") && bytes.length > 0) {
     decoded = JSON.parse(text);
   }
+
   return {
     status: response.status,
     headers: Object.fromEntries(response.headers.entries()),
@@ -334,6 +402,7 @@ const counts = async () => {
       (SELECT count(*)::int FROM public.native_http_idempotency_receipts
          WHERE operation_id IN ('surveys.createAdminSurvey', 'surveys.closeAdminSurvey', 'surveys.submitSchoolSurveyResponse')) AS receipts
   `);
+
   return result.rows[0];
 };
 
@@ -342,6 +411,7 @@ const signIn = async (browser, persona) => {
     baseURL: dashboardOrigin,
     viewport: { width: 1440, height: 960 },
   });
+
   const page = await context.newPage();
   await page.goto("/login");
   await page.getByRole("heading", { name: "Vektorprogrammet", exact: true }).waitFor();
@@ -353,10 +423,13 @@ const signIn = async (browser, persona) => {
       url.pathname === "/dashboard" || url.pathname === "/dashboard/" || url.pathname === "/",
     { timeout: 15_000 },
   );
+
   const cookies = (await context.cookies(dashboardOrigin)).filter(({ name }) =>
     ["better-auth.session_token", "__Secure-better-auth.session_token"].includes(name),
   );
+
   assert.equal(cookies.length, 1, `one Better Auth cookie for ${persona.email}`);
+
   return {
     context,
     page,
@@ -366,14 +439,20 @@ const signIn = async (browser, persona) => {
 
 const streamToText = async (stream) => {
   const chunks = [];
+
   for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+
   return Buffer.concat(chunks).toString("utf8");
 };
 
 const closeSurveyPath = (surveyId) => `${adminPath}/${encodeURIComponent(surveyId)}/close`;
+
 const resultsPath = (surveyId) => `${adminPath}/${encodeURIComponent(surveyId)}/results`;
+
 const resultsCsvPath = (surveyId) => `${resultsPath(surveyId)}.csv`;
+
 const publicSurveyPath = (surveyId) => `/api/surveys/public/${encodeURIComponent(surveyId)}`;
+
 const publicResponsePath = (surveyId) => `${publicSurveyPath(surveyId)}/responses`;
 
 const exerciseJourney = async ({ browser, ledger }) => {
@@ -417,10 +496,12 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await leader.page.goto("/dashboard/undersokelser");
   await leader.page.getByRole("heading", { name: "Undersøkelser" }).waitFor();
   await leader.page.getByRole("button", { name: "Assistenter", exact: true }).click();
+
   const surveyNavigation = leader.page.getByRole("link", {
     name: "Undersøkelser",
     exact: true,
   });
+
   await surveyNavigation.waitFor();
   assert.equal(
     new URL(await surveyNavigation.getAttribute("href"), dashboardOrigin).pathname,
@@ -480,9 +561,10 @@ const exerciseJourney = async ({ browser, ledger }) => {
       entry.requestJson?.title === "Skolenes tilbakemelding 0113" &&
       entry.status === 201,
   );
+
   assert.ok(browserCreate, "dashboard create reached the generated SDK backend path");
   const surveyId = browserCreate.responseJson?.surveyId;
-  assert.equal(typeof surveyId, "string");
+  assert.equal(Predicate.isString(surveyId), true);
   const createdRow = leader.page.locator(`tr[data-survey-id="${surveyId}"]`);
   await createdRow.waitFor();
   assert.equal(
@@ -495,6 +577,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
     baseURL: dashboardOrigin,
     viewport: { width: 1440, height: 960 },
   });
+
   const publicPage = await publicContext.newPage();
   await publicPage.goto(schoolSurveyPath(surveyId));
   await publicPage.getByRole("heading", { name: "Skolenes tilbakemelding 0113" }).waitFor();
@@ -570,10 +653,12 @@ const exerciseJourney = async ({ browser, ledger }) => {
       "",
     ].join("\r\n"),
   );
+
   const csvApi = ledger.find(
     (entry) =>
       entry.method === "GET" && entry.path === resultsCsvPath(surveyId) && entry.status === 200,
   );
+
   assert.ok(csvApi, "download traversed the server SDK bridge to CSV export");
   assert.match(csvApi.responseHeaders["cache-control"] ?? "", /private, no-store/u);
   assert.equal(
@@ -581,7 +666,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
     `attachment; filename="school-survey-${encodeURIComponent(surveyId)}-results.csv"`,
   );
   const createdRevision = browserCreate.responseJson.revision;
-  assert.equal(typeof createdRevision, "number");
+  assert.equal(Predicate.isNumber(createdRevision), true);
   await leader.page.getByRole("button", { name: "Lukk undersøkelse" }).click();
   await leader.page
     .getByText("Undersøkelsen er lukket. Oversikten oppdateres fra serveren.")
@@ -611,11 +696,14 @@ const exerciseJourney = async ({ browser, ledger }) => {
     key: "survey-operations-stale-close-0113",
     body: { expectedRevision: createdRevision },
   });
+
   assertProblem(staleClose, 412, "precondition.failed");
+
   const repeatedClose = await api(leader.cookie, "POST", closeSurveyPath(surveyId), {
     key: "survey-operations-repeated-close-0113",
     body: { expectedRevision: createdRevision + 1 },
   });
+
   assertProblem(repeatedClose, 412, "precondition.failed");
   assert.deepEqual(await counts(), beforeClosedPublicWrite);
 
@@ -631,6 +719,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
   assert.deepEqual(await counts(), beforeInvalid);
 
   const unbrokenTitle = "U".repeat(255);
+
   const confidential = await api(administrator.cookie, "POST", adminPath, {
     key: "survey-operations-confidential-0113",
     body: createSurveyBody({
@@ -638,8 +727,9 @@ const exerciseJourney = async ({ browser, ledger }) => {
       resultsVisibility: "GlobalAdministrators",
     }),
   });
+
   assert.equal(confidential.status, 201);
-  assert.equal(typeof confidential.body?.surveyId, "string");
+  assert.equal(Predicate.isString(confidential.body?.surveyId), true);
   assertDenied(
     await api(leader.cookie, "GET", resultsPath(confidential.body.surveyId)),
     "department leader confidential results",
@@ -652,14 +742,17 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const beforeReplay = await counts();
   const replayBody = createSurveyBody({ title: "Idempotent skoleundersøkelse" });
   const replayKey = "survey-operations-idempotent-create-0113";
+
   const firstReplay = await api(leader.cookie, "POST", adminPath, {
     key: replayKey,
     body: replayBody,
   });
+
   const secondReplay = await api(leader.cookie, "POST", adminPath, {
     key: replayKey,
     body: replayBody,
   });
+
   assert.equal(firstReplay.status, 201);
   assert.equal(secondReplay.status, 201);
   assert.deepEqual(secondReplay.body, firstReplay.body);
@@ -674,21 +767,26 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const beforeConcurrent = await counts();
   const concurrentBody = createSurveyBody({ title: "Samtidig skoleundersøkelse" });
   const concurrentKey = "survey-operations-concurrent-create-0113";
+
   const concurrent = await Promise.all([
     api(leader.cookie, "POST", adminPath, { key: concurrentKey, body: concurrentBody }),
     api(leader.cookie, "POST", adminPath, { key: concurrentKey, body: concurrentBody }),
   ]);
+
   assert.ok(concurrent.some((result) => result.status === 201));
+
   for (const result of concurrent) {
     assert.ok(
       result.status === 201 || result.body?.code === "idempotency.in-flight",
       `concurrent create must be accepted or in flight, received ${result.status}`,
     );
   }
+
   const recoveredConcurrent = await api(leader.cookie, "POST", adminPath, {
     key: concurrentKey,
     body: concurrentBody,
   });
+
   assert.equal(recoveredConcurrent.status, 201);
   const afterConcurrent = await counts();
   assert.deepEqual(afterConcurrent, {
@@ -706,25 +804,33 @@ const exerciseJourney = async ({ browser, ledger }) => {
     .click();
   await leader.page.getByRole("heading", { name: unbrokenTitle }).waitFor();
   await leader.page.locator(`tr[data-survey-id="${surveyId}"]`).waitFor();
+
   const desktopAxe = await new AxeBuilder({ page: leader.page })
     .include('section[aria-labelledby="school-surveys-page-title"]')
     .analyze();
+
   assert.equal(desktopAxe.violations.length, 0, JSON.stringify(desktopAxe.violations, null, 2));
+
   const desktopOverflow = await leader.page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
+
   assert.ok(desktopOverflow <= 0, `desktop horizontal overflow: ${desktopOverflow}`);
   await leader.page.setViewportSize({ width: 390, height: 844 });
+
   const mobileTitleOverflow = await leader.page
     .locator("#school-surveys-detail-title")
     .evaluate((element) => element.scrollWidth - element.clientWidth);
+
   assert.ok(
     mobileTitleOverflow <= 0,
     `390px unbroken survey title overflow: ${mobileTitleOverflow}`,
   );
+
   const mobileOverflow = await leader.page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
+
   assert.ok(mobileOverflow <= 0, `390px horizontal overflow: ${mobileOverflow}`);
   assert.equal(pageErrors.length, 0);
 
@@ -761,7 +867,9 @@ const exerciseJourney = async ({ browser, ledger }) => {
 const initialRevision = run("git", ["rev-parse", "HEAD"], {
   label: "0113 source revision",
 }).stdout.trim();
+
 assert.notEqual(initialRevision, "");
+
 assert.equal(
   run("git", ["status", "--short"], { label: "0113 source cleanliness" }).stdout.trim(),
   "",
@@ -769,22 +877,36 @@ assert.equal(
 );
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "native-survey-operations-0113-"));
+
 const postgresData = join(temporaryRoot, "postgres");
+
 const ledger = [];
+
 let postgres;
+
 let backend;
+
 let dashboard;
+
 let proxy;
+
 let browser;
+
 let journey;
+
 let version;
+
 let primaryError;
+
 let cleanupError;
+
 let cleanupPromise;
+
 const cleanupRuntime = () => {
   if (cleanupPromise !== undefined) return cleanupPromise;
   cleanupPromise = (async () => {
     const cleanupFailures = [];
+
     const cleanup = async (operation) => {
       try {
         await operation();
@@ -792,6 +914,7 @@ const cleanupRuntime = () => {
         cleanupFailures.push(cause);
       }
     };
+
     await cleanup(async () => {
       if (browser !== undefined) await browser.close();
     });
@@ -803,6 +926,7 @@ const cleanupRuntime = () => {
     await cleanup(() =>
       Promise.all([postgresPort, backendPort, proxyPort, dashboardPort].map(assertPortAvailable)),
     );
+
     if (cleanupFailures.length > 0) {
       cleanupError =
         cleanupFailures.length === 1
@@ -810,9 +934,12 @@ const cleanupRuntime = () => {
           : new AggregateError(cleanupFailures, "0113 cleanup failed");
     }
   })();
+
   return cleanupPromise;
 };
+
 let terminationStarted = false;
+
 const terminateAfterCleanup = (signal) => {
   if (terminationStarted) return;
   terminationStarted = true;
@@ -820,9 +947,13 @@ const terminateAfterCleanup = (signal) => {
   process.removeListener("SIGTERM", onSigterm);
   void cleanupRuntime().finally(() => process.kill(process.pid, signal));
 };
+
 const onSigint = () => terminateAfterCleanup("SIGINT");
+
 const onSigterm = () => terminateAfterCleanup("SIGTERM");
+
 process.once("SIGINT", onSigint);
+
 process.once("SIGTERM", onSigterm);
 
 try {
@@ -860,6 +991,7 @@ try {
     RECEIPT_AUTH_TOKENS: "{}",
     ORGANIZATION_AUTH_TOKENS: "{}",
   };
+
   backend = start("bun", ["run", "src/main.ts"], {
     cwd: backendRoot,
     env: backendEnvironment,
@@ -890,6 +1022,7 @@ try {
     PORT: String(dashboardPort),
     NODE_ENV: "production",
   };
+
   run("bun", ["run", "build"], {
     cwd: sdkRoot,
     env: dashboardEnvironment,
@@ -915,8 +1048,10 @@ try {
   journey = await exerciseJourney({ browser, ledger });
 } catch (cause) {
   primaryError = cause;
+
   if (backend !== undefined) process.stderr.write(`Backend tail:\n${backend.output.join("")}\n`);
   process.stderr.write(`Native transport tail:\n${JSON.stringify(ledger.slice(-10), null, 2)}\n`);
+
   if (dashboard !== undefined)
     process.stderr.write(`Dashboard tail:\n${dashboard.output.join("")}\n`);
 } finally {
@@ -928,7 +1063,9 @@ try {
 if (primaryError !== undefined && cleanupError !== undefined) {
   throw new AggregateError([primaryError, cleanupError], "0113 journey and cleanup failed");
 }
+
 if (primaryError !== undefined) throw primaryError;
+
 if (cleanupError !== undefined) throw cleanupError;
 
 const checksum = async (path) =>
@@ -968,7 +1105,11 @@ const manifest = {
     productionResourcesUsed: false,
   },
 };
+
 await mkdir(dirname(manifestPath), { recursive: true });
+
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+
 await chmod(manifestPath, 0o600);
+
 process.stdout.write(`${JSON.stringify(manifest)}\n`);

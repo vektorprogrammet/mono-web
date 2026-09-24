@@ -1,9 +1,11 @@
-import type { Pool } from "pg";
-import { describe, expect, it } from "vitest";
+import { Pool } from "pg";
+import { afterAll, describe, expect, it } from "vitest";
 import { makeAuthEngineOptions } from "./auth-engine.js";
 import { OAUTH_NATIVE_API_RESOURCE } from "./oauth-config.js";
 
-const database = Object.create(null) as Pool;
+const database = new Pool();
+
+afterAll(() => database.end());
 
 describe("native password recovery release boundary", () => {
   it("keeps recovery callbacks absent without the owned outbox boundary", () => {

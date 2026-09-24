@@ -15,14 +15,20 @@ type Equal<Left, Right> =
     : false;
 
 type Assert<Condition extends true> = Condition;
+
 type ApproveRequest = Parameters<EffectSdk["receipts"]["approveReceipt"]>[0];
+
 type SubmitRequest = Parameters<EffectSdk["receipts"]["submitReceipt"]>[0];
+
 type ApproveHeaders = ApproveRequest extends { readonly headers: infer Headers } ? Headers : never;
+
 type SubmitHeaders = SubmitRequest extends { readonly headers: infer Headers } ? Headers : never;
 
 const reflectedIdempotencyIfMatchHeaders: Assert<Equal<ApproveHeaders, IdempotencyIfMatchHeaders>> =
   true;
+
 const reflectedIdempotencyHeaders: Assert<Equal<SubmitHeaders, IdempotencyHeaders>> = true;
 
 void reflectedIdempotencyIfMatchHeaders;
+
 void reflectedIdempotencyHeaders;

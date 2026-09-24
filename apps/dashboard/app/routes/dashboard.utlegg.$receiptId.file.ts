@@ -1,8 +1,9 @@
+import { Predicate, Schema, flow } from "effect";
 import { ReceiptId } from "@vektorprogrammet/http-api"
-import { Schema } from "effect";
+
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
-import { nativeProblemFrom } from "../lib/native-problem";
+import { nativeFailureFrom } from "../lib/native-problem";
 import type { Route } from "./+types/dashboard.utlegg.$receiptId.file";
 
 const privateErrorHeaders = {
@@ -31,8 +32,8 @@ function privateFailure(status: ReceiptFileFailureStatus): Response {
   return new Response(null, { status, headers: privateErrorHeaders });
 }
 
-function receiptFileFailureStatus(error: unknown): ReceiptFileFailureStatus {
-  switch (nativeProblemFrom(error)?.code) {
+const receiptFileFailureStatus = flow(nativeFailureFrom, (error): ReceiptFileFailureStatus => {
+  switch ((error instanceof Error || error instanceof Response ? undefined : error?.code)) {
     case "credential.missing":
     case "credential.invalid":
       return 401;
@@ -57,20 +58,23 @@ function receiptFileFailureStatus(error: unknown): ReceiptFileFailureStatus {
             return 404;
         }
       }
+
       return 503;
   }
-}
+});
 
-function authenticatedFailureStatus(error: unknown): 401 | 503 {
+const authenticatedFailureStatus = flow(nativeFailureFrom, (error): 401 | 503 => {
   if (receiptFileFailureStatus(error) === 401) return 401;
+
   if (
     error instanceof Response &&
     (error.status === 401 || (error.status >= 300 && error.status < 400))
   ) {
     return 401;
   }
+
   return 503;
-}
+});
 
 function receiptFileResponseHeaders(
   headers: ReceiptFileHeaders,
@@ -84,20 +88,21 @@ function receiptFileResponseHeaders(
   const vary = headers.vary;
 
   if (
-    typeof contentType !== "string" ||
+    !Predicate.isString(contentType) ||
     (contentType !== "image/jpeg" &&
       contentType !== "image/png" &&
       contentType !== "application/pdf") ||
-    typeof contentLength !== "string" ||
-    typeof contentDisposition !== "string" ||
-    typeof contentTypeOptions !== "string" ||
-    typeof cacheControl !== "string" ||
-    typeof vary !== "string"
+    !Predicate.isString(contentLength) ||
+    !Predicate.isString(contentDisposition) ||
+    !Predicate.isString(contentTypeOptions) ||
+    !Predicate.isString(cacheControl) ||
+    !Predicate.isString(vary)
   ) {
     return undefined;
   }
 
   const extension = fileExtensionByContentType[contentType];
+
   if (
     !/^[1-9]\d*$/u.test(contentLength) ||
     Number(contentLength) !== bytes.byteLength ||
@@ -121,6 +126,7 @@ function receiptFileResponseHeaders(
 
 export async function loader({ request, params }: Route.LoaderArgs): Promise<Response> {
   let cookie: string;
+
   try {
     cookie = await requireAuth(request);
   } catch (error) {
@@ -128,6 +134,7 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Res
   }
 
   let receiptId: typeof ReceiptId.Type;
+
   try {
     receiptId = Schema.decodeUnknownSync(ReceiptId)(params.receiptId);
   } catch {
@@ -141,12 +148,16 @@ export async function loader({ request, params }: Route.LoaderArgs): Promise<Res
     ).receipts.readReceiptFileForApproval({
       params: { receiptId },
     });
+
     const headers = receiptFileResponseHeaders(result.headers, result.body);
+
     if (headers === undefined) return privateFailure(503);
+
     const responseBytes =
       result.body.buffer instanceof ArrayBuffer
-        ? (result.body as Uint8Array<ArrayBuffer>)
+        ? new Uint8Array(result.body.buffer, result.body.byteOffset, result.body.byteLength)
         : Uint8Array.from(result.body);
+
     return new Response(responseBytes, { headers });
   } catch (error) {
     return privateFailure(receiptFileFailureStatus(error));

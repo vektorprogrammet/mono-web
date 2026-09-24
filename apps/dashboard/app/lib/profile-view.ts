@@ -1,4 +1,5 @@
 import type { UserProfileResponse } from "@vektorprogrammet/http-api";
+
 export interface ProfileView {
   readonly firstName: string;
   readonly lastName: string;
@@ -16,6 +17,7 @@ export function projectProfile(data: typeof UserProfileResponse.Type): ProfileVi
     role: data.role,
   };
 }
+
 export async function loadProfile(
   read: () => Promise<typeof UserProfileResponse.Type>,
 ): Promise<ProfileView> {

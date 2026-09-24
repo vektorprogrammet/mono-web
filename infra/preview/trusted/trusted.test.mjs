@@ -23,6 +23,7 @@ import {
 import { createOwnershipManifest } from "./ownership.mjs";
 
 const headSha = "a".repeat(40);
+
 const digests = {
   sourceDigest: `sha256:${"1".repeat(64)}`,
   imageDigest: `sha256:${"2".repeat(64)}`,
@@ -51,6 +52,7 @@ function resources() {
 
 function ownershipManifest() {
   const currentIdentity = identity();
+
   return createOwnershipManifest({
     identity: currentIdentity,
     ...digests,
@@ -100,6 +102,7 @@ test("keeps the attempt cap and tombstone across a third-attempt refusal", () =>
   const directory = mkdtempSync(join(tmpdir(), "preview-ledger-test-"));
   const store = join(directory, "ledger.json");
   const currentIdentity = identity();
+
   try {
     expect(initializeLedger(store, currentIdentity).attemptCount).toBe(0);
     const first = incrementAttempt(store, currentIdentity);
@@ -109,11 +112,13 @@ test("keeps the attempt cap and tombstone across a third-attempt refusal", () =>
     const second = incrementAttempt(store, currentIdentity);
     expect(second.attemptCount).toBe(2);
     transitionLedger(store, currentIdentity, "Failed", { attemptStatus: "Failed" });
+
     const tombstone = writeTombstone(store, currentIdentity, {
       attemptCount: 2,
       terminalState: "Absent",
       generation: "generation-2",
     });
+
     expect(tombstone.attemptCount).toBe(2);
     expect(() => incrementAttempt(store, currentIdentity)).toThrow("AttemptLimitExceeded");
     expect(assertTombstoneSurvives(store, currentIdentity, 2)).toMatchObject({
@@ -133,6 +138,7 @@ test("constructs separated Alchemy argv and rejects shell injection", () => {
   const manifest = ownershipManifest();
   writeFileSync(manifestPath, canonicalJson(manifest), "utf8");
   const currentIdentity = identity();
+
   const base = {
     action: "plan",
     identity: currentIdentity,
@@ -140,6 +146,7 @@ test("constructs separated Alchemy argv and rejects shell injection", () => {
     ...digests,
     remoteState: "vektor/p20",
   };
+
   try {
     const command = buildAlchemyCommand(base);
     expect(command.command).toBe("bun");

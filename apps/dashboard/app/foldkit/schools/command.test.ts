@@ -1,12 +1,15 @@
+import { SucceededDirectory, FailedDirectory } from "./message";
+import { SchoolDirectoryFailure } from "./model";
 import { DepartmentId } from "@vektorprogrammet/http-api"
 import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/http-api"
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { SchoolsDirectoryClient } from "./browser-client";
 import { schoolsBridgeFailure } from "./bridge";
-import { makeSchoolsDirectoryCommands } from "./command";
+import { commandsFor } from "./command";
 
 const department = DepartmentId.make("department-a");
+
 const directory: SchoolDirectory = {
   activeSchools: [
     {
@@ -24,20 +27,24 @@ const directory: SchoolDirectory = {
 };
 
 const departmentFailure = schoolsBridgeFailure("SchoolsDepartmentOutOfScope");
+
 const persistenceFailure = schoolsBridgeFailure("SchoolsPersistenceError");
 
 describe("Foldkit Schools directory commands", () => {
   it("makes exactly one scoped native SDK request and returns the full directory", async () => {
     const inputs: Array<unknown> = [];
+
     const client: SchoolsDirectoryClient = {
       directory: {
         listSchools: (input) => {
           inputs.push(input);
+
           return Effect.succeed(directory);
         },
       },
     };
-    const command = makeSchoolsDirectoryCommands(client).LoadDirectory({
+
+    const command = commandsFor(client).LoadDirectory({
       requestId: 4,
       department,
     });
@@ -45,12 +52,11 @@ describe("Foldkit Schools directory commands", () => {
     const message = await Effect.runPromise(command.effect);
 
     expect(inputs).toEqual([{ department }]);
-    expect(message).toEqual({
-      _tag: "SucceededDirectory",
+    expect(message).toEqual(SucceededDirectory({
       requestId: 4,
       department,
       directory,
-    });
+    }));
   });
 
   it("maps authority denials and operational failures to safe UI messages", async () => {
@@ -63,8 +69,9 @@ describe("Foldkit Schools directory commands", () => {
             listSchools: () => Effect.fail(failure),
           },
         };
+
         return Effect.runPromise(
-          makeSchoolsDirectoryCommands(client).LoadDirectory({
+          commandsFor(client).LoadDirectory({
             requestId: index + 1,
             department: null,
           }).effect,
@@ -73,24 +80,20 @@ describe("Foldkit Schools directory commands", () => {
     );
 
     expect(messages).toEqual([
-      {
-        _tag: "FailedDirectory",
+      FailedDirectory({
         requestId: 1,
         department: null,
-        failure: {
-          _tag: "Denied",
+        failure: SchoolDirectoryFailure.cases.Denied.make({
           message: "Du har ikke tilgang til den valgte avdelingen.",
-        },
-      },
-      {
-        _tag: "FailedDirectory",
+        }),
+      }),
+      FailedDirectory({
         requestId: 2,
         department: null,
-        failure: {
-          _tag: "Failed",
+        failure: SchoolDirectoryFailure.cases.Failed.make({
           message: "Skoleoversikten kunne ikke hentes. Prøv på nytt.",
-        },
-      },
+        }),
+      }),
     ]);
   });
 });

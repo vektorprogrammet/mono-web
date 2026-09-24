@@ -6,6 +6,7 @@ export const DATED_SERVICE_ELEMENT = "vektor-dated-school-service";
 
 export const registerDatedServiceElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
+
   if (customElements.get(DATED_SERVICE_ELEMENT) !== undefined) return;
   customElements.define(
     DATED_SERVICE_ELEMENT,
@@ -17,8 +18,10 @@ export const registerDatedServiceElement = (): void => {
         const container = document.createElement("div");
         container.id = "foldkit-dated-school-service";
         this.replaceChildren(container);
+
         try {
           const raw = this.getAttribute("data-state");
+
           if (raw === null) throw new Error("Missing dated service state");
           const input = Schema.decodeUnknownSync(Input)(JSON.parse(raw));
           this.#dispose = embedDatedService(container, input);

@@ -1,6 +1,8 @@
+import { nativeFailureFrom } from "../lib/native-problem";
+import { Schema as S, flow } from "effect";
 import { DepartmentId } from "@vektorprogrammet/http-api"
 import { SchoolDirectorySchema } from "@vektorprogrammet/http-api"
-import { Schema as S } from "effect";
+
 import { data } from "react-router";
 import { schoolsBridgeFailure, type SchoolsBridgeErrorTag } from "../foldkit/schools/bridge";
 import { createAuthenticatedClient } from "../lib/api.server";
@@ -32,48 +34,60 @@ const statusFor = (tag: SchoolsBridgeErrorTag): number => {
   }
 };
 
-const tagFrom = (error: unknown): SchoolsBridgeErrorTag => {
+const tagFrom = flow(nativeFailureFrom, (error): SchoolsBridgeErrorTag => {
   if (error instanceof Response && error.status >= 300 && error.status < 400) {
     return "UnauthenticatedActor";
   }
-  const code =
-    typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-      ? error.code
-      : "";
+
+  const code = error instanceof Error || error instanceof Response ? "" : error?.code ?? "";
+
   if (code === "credential.missing" || code === "credential.invalid") {
     return "UnauthenticatedActor";
   }
-  if (code === "authority.denied" || code === "scope.not-found") return "NotInScope";
+
+  if (code === "authority.denied") return "NotInScope";
+
   if (code.includes("department") && code.includes("scope")) {
     return "SchoolsDepartmentOutOfScope";
   }
+
   if (code.includes("department") || code === "resource.not-found") {
     return "SchoolsDepartmentNotFound";
   }
+
   if (code.startsWith("validation.") || code === "request.malformed") {
     return "SchoolsDecodeError";
   }
+
   if (code === "dependency.unavailable") return "Network";
+
   return "SchoolsPersistenceError";
-};
+});
 
 const decodeDepartment = (request: Request): typeof DepartmentId.Type | undefined => {
   const search = new URL(request.url).searchParams;
+
   if ([...search.keys()].some((key) => key !== "department")) {
     throw new Error("unexpected Schools bridge query parameter");
   }
+
   const values = search.getAll("department");
+
   if (values.length === 0) return undefined;
+
   if (values.length !== 1) throw new Error("duplicate Schools bridge department");
+
   return S.decodeUnknownSync(DepartmentId)(values[0]);
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
   let cookie: string;
+
   try {
     cookie = await requireAuth(request);
   } catch (error) {
     const tag = tagFrom(error);
+
     return data(schoolsBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,
@@ -81,6 +95,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   let department: typeof DepartmentId.Type | undefined;
+
   try {
     department = decodeDepartment(request);
   } catch {
@@ -92,14 +107,17 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const client = createAuthenticatedClient(cookie, request);
+
     const result = await client.directory.listSchools({
       query: department === undefined ? {} : { department },
     });
+
     return data(S.decodeUnknownSync(SchoolDirectorySchema)(result.body), {
       headers: responseHeaders,
     });
   } catch (error) {
     const tag = tagFrom(error);
+
     return data(schoolsBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,

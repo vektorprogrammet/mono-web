@@ -12,6 +12,7 @@ const FIXTURE_ROOT = join(import.meta.dir, "fixtures/integration-scanner");
 test("preview workers resolve lexical owners and outbound integration contracts", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-integration-scanner-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-integration-scanner-mono-");
+
   const fixturePaths = [
     ["worker.ts", "infra/alchemy/preview/worker.ts"],
     ["apex-worker.ts", "infra/alchemy/preview/apex-worker.ts"],
@@ -23,6 +24,7 @@ test("preview workers resolve lexical owners and outbound integration contracts"
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, readFileSync(join(FIXTURE_ROOT, fixturePath), "utf8"), "utf8");
     }
+
     const declarationPath = join(monoRoot, "packages/declarations.ts");
     mkdirSync(dirname(declarationPath), { recursive: true });
     writeFileSync(
@@ -37,8 +39,10 @@ test("preview workers resolve lexical owners and outbound integration contracts"
       ),
       Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer))),
     ]);
+
     const context = createManifestContextFromSnapshots(legacy, mono);
     const result = collectC2(context, sha256("preview-worker-integration-regression"));
+
     const rowsByPath = new Map(
       fixturePaths.map(([, path]) => [
         path,
@@ -47,6 +51,7 @@ test("preview workers resolve lexical owners and outbound integration contracts"
         ),
       ]),
     );
+
     const workerRows = rowsByPath.get("infra/alchemy/preview/worker.ts") ?? [];
     const apexRows = rowsByPath.get("infra/alchemy/preview/apex-worker.ts") ?? [];
     const regressionRows = [...workerRows, ...apexRows];
@@ -155,19 +160,23 @@ test("loopback-only guards require structural proof and preserve every near miss
   ) => {
     const legacyRoot = mkdtempSync("/tmp/parity-integration-loopback-legacy-");
     const monoRoot = mkdtempSync("/tmp/parity-integration-loopback-mono-");
+
     try {
       for (const [fixturePath, targetPath] of fixturePaths) {
         const target = join(monoRoot, targetPath);
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, readFileSync(join(FIXTURE_ROOT, fixturePath), "utf8"), "utf8");
       }
+
       const [legacy, mono] = await Promise.all([
         Effect.runPromise(
           scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
         ),
         Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer))),
       ]);
+
       const context = createManifestContextFromSnapshots(legacy, mono);
+
       return {
         context,
         result: collectC2(context, sha256("loopback-integration-boundary-regression")),
@@ -180,14 +189,17 @@ test("loopback-only guards require structural proof and preserve every near miss
 
   const guardedPath = "packages/runtime/loopback-guard.ts";
   const remotePath = "packages/runtime/unguarded-network.ts";
+
   const baseline = await collectFixtures([
     ["loopback-guard.ts", guardedPath],
     ["unguarded-network.ts", remotePath],
   ]);
+
   const baselineRowsFor = (path: string) =>
     baseline.result.integrations.rows.filter((row) =>
       row.source_ref_ids.some((ref) => baseline.context.sourcePathById.get(ref)?.path === path),
     );
+
   expect(baselineRowsFor(guardedPath)).toEqual([]);
   expect(baselineRowsFor(remotePath)).toEqual(
     expect.arrayContaining([
@@ -202,9 +214,9 @@ test("loopback-only guards require structural proof and preserve every near miss
     ]),
   );
   expect(baselineRowsFor(remotePath)).toHaveLength(2);
-  expect(
-    new Set(baselineRowsFor(remotePath).map((row) => row.canonical_key)).size,
-  ).toBe(baselineRowsFor(remotePath).length);
+  expect(new Set(baselineRowsFor(remotePath).map((row) => row.canonical_key)).size).toBe(
+    baselineRowsFor(remotePath).length,
+  );
   expect(
     baseline.result.failures.some(
       (failure) =>
@@ -227,14 +239,17 @@ test("loopback-only guards require structural proof and preserve every near miss
     "nonexecuting-rejection.ts",
     "unguarded-admission.ts",
   ] as const;
+
   for (const fixturePath of nearMissFixtures) {
     const targetPath = `packages/runtime/${fixturePath}`;
     const nearMiss = await collectFixtures([[fixturePath, targetPath]]);
+
     const rows = nearMiss.result.integrations.rows.filter((row) =>
       row.source_ref_ids.some(
         (ref) => nearMiss.context.sourcePathById.get(ref)?.path === targetPath,
       ),
     );
+
     expect(rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -250,11 +265,13 @@ test("loopback-only guards require structural proof and preserve every near miss
 
   const classifiedPath = "packages/runtime/classified-boundaries.ts";
   const classified = await collectFixtures([["classified-boundaries.ts", classifiedPath]]);
+
   const classifiedRows = classified.result.integrations.rows.filter((row) =>
     row.source_ref_ids.some(
       (ref) => classified.context.sourcePathById.get(ref)?.path === classifiedPath,
     ),
   );
+
   expect(
     classifiedRows.some(
       (row) =>
@@ -265,9 +282,7 @@ test("loopback-only guards require structural proof and preserve every near miss
     ),
   ).toBe(false);
   expect(
-    classifiedRows.map((row) =>
-      "provider_ref" in row.details ? row.details.provider_ref : null,
-    ),
+    classifiedRows.map((row) => ("provider_ref" in row.details ? row.details.provider_ref : null)),
   ).toEqual(
     expect.arrayContaining([
       "configured-http-endpoint",

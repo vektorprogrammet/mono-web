@@ -22,6 +22,7 @@ export const ContentManagementLive: Layer.Layer<ContentManagement, never, Databa
   ContentManagement,
   Effect.gen(function* () {
     const database = yield* Database;
+
     return ContentManagement.of({
       readArticleDetail: (articleId, context) =>
         readArticleDetailPostgres({ articleId, ...context }).pipe(
@@ -60,6 +61,7 @@ export const ContentLive: Layer.Layer<Content, never, Database | Organization | 
       const database = yield* Database;
       const organization = yield* Organization;
       const profile = yield* Profile;
+
       return Content.of({
         readNewsListing: (departmentId) =>
           readNewsListingPostgres(departmentId).pipe(

@@ -1,16 +1,11 @@
-import { ArticleId } from "@vektorprogrammet/http-api";
-import {
-  ArticleMergePatch,
-  CreateArticleRequest,
-  IdempotencyKey,
-  StrongETag,
-} from "@vektorprogrammet/http-api";
-import { Schema as S } from "effect";
+
+import { StrongETag } from "@vektorprogrammet/http-api";
+import { Schema as S, flow } from "effect";
 import { data } from "react-router";
-import { contentBridgeFailure, type ContentBridgeErrorTag } from "../foldkit/content/bridge";
+import { contentBridgeFailure, type ContentBridgeErrorTag, ContentBridgeActionSchema } from "../foldkit/content/bridge";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
-import { nativeProblemFrom } from "../lib/native-problem";
+import { nativeFailureFrom } from "../lib/native-problem";
 import type { Route } from "./+types/__foldkit.content";
 
 const responseHeaders = {
@@ -18,27 +13,6 @@ const responseHeaders = {
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
 } as const;
-
-const ContentBridgeActionSchema = S.Union([
-  S.Struct({ operation: S.Literals(["readArticle"]), articleId: ArticleId }),
-  S.Struct({
-    operation: S.Literals(["createDraft"]),
-    commandId: IdempotencyKey,
-    ...CreateArticleRequest.fields,
-  }),
-  S.Struct({
-    operation: S.Literals(["reviseDraft"]),
-    commandId: IdempotencyKey,
-    articleId: ArticleId,
-    etag: StrongETag,
-    ...ArticleMergePatch.fields,
-  }),
-  S.Struct({
-    operation: S.Literals(["publish", "unpublish"]),
-    commandId: IdempotencyKey,
-    articleId: ArticleId,
-  }),
-]);
 
 const statusFor = (tag: ContentBridgeErrorTag): number => {
   switch (tag) {
@@ -66,32 +40,43 @@ const statusFor = (tag: ContentBridgeErrorTag): number => {
   }
 };
 
-const tagFrom = (error: unknown): ContentBridgeErrorTag => {
+const tagFrom = flow(nativeFailureFrom, (error): ContentBridgeErrorTag => {
   if (error instanceof Response && error.status >= 300 && error.status < 400) {
     return "UnauthenticatedActor";
   }
-  const code = nativeProblemFrom(error)?.code ?? "";
+
+  const code = error instanceof Error || error instanceof Response ? "" : error?.code ?? "";
+
   if (code === "credential.missing" || code === "credential.invalid") {
     return "UnauthenticatedActor";
   }
-  if (code === "authority.denied" || code === "scope.not-found") return "NotInScope";
+
+  if (code === "authority.denied") return "NotInScope";
+
   if (code === "resource.not-found" || code === "content.article-not-found") {
     return "ArticleNotFound";
   }
+
   if (code.includes("slug")) return "SlugConflict";
+
   if (code.includes("department")) return "DepartmentNotFound";
+
   if (code.startsWith("precondition.") || code.startsWith("idempotency.")) {
     return "CommandConflict";
   }
+
   if (code.startsWith("validation.") || code === "request.malformed") {
     return "ContentDecodeError";
   }
+
   if (code === "content.integrity-error" || code === "internal.error") {
     return "ContentIntegrityError";
   }
+
   if (code === "dependency.unavailable") return "Network";
+
   return "ContentPersistenceError";
-};
+});
 
 const articleObservation = <
   A extends {
@@ -102,15 +87,18 @@ const articleObservation = <
   result: A,
 ) => {
   if (result.body === undefined) throw new Error("Content response did not include a body");
+
   return { body: result.body, etag: result.headers.etag };
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
   let cookie: string;
+
   try {
     cookie = await requireAuth(request);
   } catch (error) {
     const tag = tagFrom(error);
+
     return data(contentBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,
@@ -119,13 +107,16 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const client = createAuthenticatedClient(cookie, request);
+
     const [workspaceResult, departmentsResult] = await Promise.all([
       client.content.readContentWorkspace({ query: {} }),
       client.organization.listDepartments({ headers: {} }),
     ]);
+
     if (workspaceResult.body === undefined || departmentsResult.body === undefined) {
       throw new Error("Content workspace response did not include a body");
     }
+
     return data(
       {
         workspace: workspaceResult.body,
@@ -137,6 +128,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     );
   } catch (error) {
     const tag = tagFrom(error);
+
     return data(contentBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,
@@ -146,10 +138,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   let cookie: string;
+
   try {
     cookie = await requireAuth(request);
   } catch (error) {
     const tag = tagFrom(error);
+
     return data(contentBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,
@@ -157,6 +151,7 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   let command: typeof ContentBridgeActionSchema.Type;
+
   try {
     command = S.decodeUnknownSync(ContentBridgeActionSchema)(
       await request.json().catch(() => null),
@@ -171,6 +166,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     const client = createAuthenticatedClient(cookie, request);
+
     switch (command.operation) {
       case "readArticle":
         return data(
@@ -184,6 +180,7 @@ export async function action({ request }: Route.ActionArgs) {
         );
       case "createDraft": {
         const { operation: _, commandId, ...payload } = command;
+
         return data(
           articleObservation(
             await client.content.createArticle({
@@ -194,8 +191,10 @@ export async function action({ request }: Route.ActionArgs) {
           { headers: responseHeaders },
         );
       }
+
       case "reviseDraft": {
         const { operation: _, commandId, articleId, etag, ...payload } = command;
+
         return data(
           articleObservation(
             await client.content.reviseArticle({
@@ -207,16 +206,19 @@ export async function action({ request }: Route.ActionArgs) {
           { headers: responseHeaders },
         );
       }
+
       case "publish":
       case "unpublish": {
         const current = await client.content.readArticle({
           params: { articleId: command.articleId },
           headers: {},
         });
+
         const method =
           command.operation === "publish"
             ? client.content.publishArticle
             : client.content.unpublishArticle;
+
         await method({
           params: { articleId: command.articleId },
           headers: {
@@ -225,11 +227,13 @@ export async function action({ request }: Route.ActionArgs) {
           },
           payload: {},
         });
+
         return data({}, { headers: responseHeaders });
       }
     }
   } catch (error) {
     const tag = tagFrom(error);
+
     return data(contentBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,

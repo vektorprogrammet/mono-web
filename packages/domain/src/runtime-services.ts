@@ -3,35 +3,36 @@
  *
  * @since 0.1.0
  */
-import { Context, Effect } from "effect";
+import { Cause, Context, Effect } from "effect";
 
-export interface DomainFileSystemShape {
-  readonly readTextFile: (path: string | URL) => Effect.Effect<string, unknown>;
+export interface DomainFileSystemOperations {
+  readonly readTextFile: (path: string | URL) => Effect.Effect<string, Cause.UnknownError>;
   readonly joinPath: (directory: string, file: string) => string;
   readonly writeTextFile: (
     path: string | URL,
     contents: string | Uint8Array,
-  ) => Effect.Effect<void, unknown>;
-  readonly makeTempDirectory: (prefix: string) => Effect.Effect<string, unknown>;
-  readonly removeTree: (path: string) => Effect.Effect<void, unknown>;
+  ) => Effect.Effect<void, Cause.UnknownError>;
+  readonly makeTempDirectory: (prefix: string) => Effect.Effect<string, Cause.UnknownError>;
+  readonly removeTree: (path: string) => Effect.Effect<void, Cause.UnknownError>;
 }
 
-export class DomainFileSystem extends Context.Service<DomainFileSystem, DomainFileSystemShape>()(
-  "@vektorprogrammet/domain/DomainFileSystem",
-) {}
+export class DomainFileSystem extends Context.Service<
+  DomainFileSystem,
+  DomainFileSystemOperations
+>()("@vektorprogrammet/domain/DomainFileSystem") {}
 
-export interface DomainProcessShape {
+export interface DomainProcessOperations {
   readonly writeStandardOutput: (text: string) => Effect.Effect<void>;
   readonly writeStandardError: (text: string) => Effect.Effect<void>;
 }
 
-export class DomainProcess extends Context.Service<DomainProcess, DomainProcessShape>()(
+export class DomainProcess extends Context.Service<DomainProcess, DomainProcessOperations>()(
   "@vektorprogrammet/domain/DomainProcess",
 ) {}
 
 export const readTextFile = (
   path: string | URL,
-): Effect.Effect<string, unknown, DomainFileSystem> =>
+): Effect.Effect<string, Cause.UnknownError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.readTextFile(path));
 
 export const joinPath = (
@@ -43,15 +44,17 @@ export const joinPath = (
 export const writeTextFile = (
   path: string | URL,
   contents: string | Uint8Array,
-): Effect.Effect<void, unknown, DomainFileSystem> =>
+): Effect.Effect<void, Cause.UnknownError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.writeTextFile(path, contents));
 
 export const makeTempDirectory = (
   prefix: string,
-): Effect.Effect<string, unknown, DomainFileSystem> =>
+): Effect.Effect<string, Cause.UnknownError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.makeTempDirectory(prefix));
 
-export const removeTree = (path: string): Effect.Effect<void, unknown, DomainFileSystem> =>
+export const removeTree = (
+  path: string,
+): Effect.Effect<void, Cause.UnknownError, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.removeTree(path));
 
 export const writeStandardOutput = (text: string): Effect.Effect<void, never, DomainProcess> =>

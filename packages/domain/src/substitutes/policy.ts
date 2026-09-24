@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Predicate, Data } from "effect";
 import {
   mapOrganizationAuthorityToAdmissionPeriodActor,
   type OrganizationPersonAuthority,
@@ -21,9 +21,10 @@ export const substitutePermission = (
   departmentId: DepartmentId,
 ): "Denied" | "ReadOnly" | "Manage" => {
   const decision = mapOrganizationAuthorityToAdmissionPeriodActor(authority, departmentId);
-  return decision._tag === "Deny"
+
+  return Predicate.isTagged(decision, "Deny")
     ? "Denied"
-    : decision.value._tag === "Member"
+    : Predicate.isTagged(decision.value, "Member")
       ? "ReadOnly"
       : "Manage";
 };

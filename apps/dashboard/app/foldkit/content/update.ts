@@ -1,10 +1,11 @@
+import { Predicate } from "effect";
 import type { ArticleId, ContentWorkspace } from "@vektorprogrammet/http-api"
 import type { DepartmentId } from "@vektorprogrammet/http-api"
 import type { StrongETag } from "@vektorprogrammet/http-api";
 import { Match as M } from "effect";
-import { Command } from "foldkit";
+import { Command, Update } from "foldkit";
 import type { Message } from "./message";
-import { makeEditorValues, type Model } from "./model";
+import { emptyEditor, type Model, ContentWorkspaceData } from "./model";
 
 export interface WorkspaceCommandFactories {
   readonly LoadWorkspace: (args: { readonly requestId: number }) => Command.Command<Message>;
@@ -42,19 +43,20 @@ export interface WorkspaceCommandFactories {
   }) => Command.Command<Message>;
 }
 
-type UpdateResult = readonly [Model, ReadonlyArray<Command.Command<Message>>];
+type UpdateResult = Update.Return<Model, Message>;
 
 /** Client-side narrowing of the visible rows; it never issues a request. */
 export const visibleEntries = (model: Model): ContentWorkspace["entries"] => {
-  if (model.workspace._tag !== "Success") return [];
+  if (!Predicate.isTagged(model.workspace, "Success")) return [];
   const entries = model.workspace.data.entries;
   const filter = model.departmentFilter;
+
   return filter === null
     ? entries
     : entries.filter((entry) => entry.departmentIds.includes(filter));
 };
 
-export const makeUpdate =
+export const updateFor =
   (commands: WorkspaceCommandFactories) =>
   (model: Model, message: Message): UpdateResult =>
     M.value(message).pipe(
@@ -62,26 +64,27 @@ export const makeUpdate =
       M.tagsExhaustive({
         LoadedWorkspace: ({ requestId, workspace, knownDepartments }) => {
           // Stale-result rejection: a mismatched requestId leaves the Model unchanged.
-          if (requestId !== model.requestId) return [model, []];
-          return [
+          if (requestId !== model.requestId) return ({ model: model, commands: [] });
+
+          return ({ model: 
             {
               ...model,
-              workspace: { _tag: "Success", data: workspace },
+              workspace: ContentWorkspaceData.Success({data: workspace}),
               knownDepartments: [...knownDepartments],
-            },
-            [],
-          ];
+            }, commands: [] });
         },
         LoadedArticleDetail: ({ requestId, observation }) => {
           const { body: detail, etag } = observation;
+
           if (
             requestId !== model.requestId ||
             model.selectedArticleId !== detail.articleId ||
             model.pendingCommand !== "Detail"
           ) {
-            return [model, []];
+            return ({ model: model, commands: [] });
           }
-          return [
+
+          return ({ model: 
             {
               ...model,
               selectedEtag: etag,
@@ -94,92 +97,94 @@ export const makeUpdate =
               dirty: false,
               pendingCommand: null,
               banner: null,
-            },
-            [],
-          ];
+            }, commands: [] });
         },
         FailedWorkspace: ({ requestId, failure }) => {
-          if (requestId !== model.requestId) return [model, []];
-          return [
-            { ...model, workspace: { _tag: "Failure", error: failure }, banner: failure },
-            [],
-          ];
+          if (requestId !== model.requestId) return ({ model: model, commands: [] });
+
+          return ({ model: 
+            { ...model, workspace: ContentWorkspaceData.Failure({error: failure}), banner: failure }, commands: [] });
         },
         RetriedWorkspace: () => {
-          if (model.pendingCommand !== null) return [model, []];
+          if (model.pendingCommand !== null) return ({ model: model, commands: [] });
           // A retry creates a new request id.
           const requestId = model.requestId + 1;
-          return [
+
+          return ({ model: 
             {
               ...model,
-              workspace: { _tag: "Loading" },
+              workspace: ContentWorkspaceData.Loading({}),
               requestId,
               retryCount: model.retryCount + 1,
               banner: null,
-            },
-            [commands.LoadWorkspace({ requestId })],
-          ];
+            }, commands: [commands.LoadWorkspace({ requestId })] });
         },
         SelectedArticle: ({ articleId }) => {
-          if (model.workspace._tag !== "Success" || model.pendingCommand !== null) {
-            return [model, []];
+          if (!Predicate.isTagged(model.workspace, "Success") || model.pendingCommand !== null) {
+            return ({ model: model, commands: [] });
           }
+
           const entry = model.workspace.data.entries.find(
             (candidate) => candidate.articleId === articleId,
           );
-          if (entry === undefined) return [model, []];
-          if (!entry.canRevise) return [model, []];
+
+          if (entry === undefined) return ({ model: model, commands: [] });
+
+          if (!entry.canRevise) return ({ model: model, commands: [] });
+
           if (model.selectedArticleId === articleId && model.selectedEtag !== null) {
-            return [{ ...model, banner: null }, []];
+            return ({ model: { ...model, banner: null }, commands: [] });
           }
+
           const requestId = model.requestId + 1;
           const changedSelection = model.selectedArticleId !== articleId;
-          return [
+
+          return ({ model: 
             {
               ...model,
               requestId,
               selectedArticleId: articleId,
               selectedEtag: null,
-              editor: changedSelection ? makeEditorValues() : model.editor,
+              editor: changedSelection ? emptyEditor() : model.editor,
               dirty: changedSelection ? false : model.dirty,
               pendingCommand: "Detail",
               banner: null,
-            },
-            [commands.LoadArticleDetail({ requestId, articleId })],
-          ];
+            }, commands: [commands.LoadArticleDetail({ requestId, articleId })] });
         },
-        EditedField: ({ title, bodyHtml, sticky }) => [
+        EditedField: ({ title, bodyHtml, sticky }) => ({ model: 
           {
             // Mark dirty; validate locally; send nothing.
             ...model,
             editor: {
               ...model.editor,
-              ...(title === null ? {} : { title }),
-              ...(bodyHtml === null ? {} : { bodyHtml }),
-              ...(sticky === null ? {} : { sticky }),
+              title: title ?? model.editor.title,
+              bodyHtml: bodyHtml ?? model.editor.bodyHtml,
+              sticky: sticky ?? model.editor.sticky,
             },
             dirty: true,
-          },
-          [],
-        ],
+          }, commands: [] }),
         ChangedDepartmentSelection: ({ departmentId, checked }) => {
           const current = model.editor.departmentIds;
+
           const next = checked
             ? current.includes(departmentId)
               ? current
               : [...current, departmentId].sort()
             : current.filter((id) => id !== departmentId);
-          if (next === current) return [model, []];
-          return [{ ...model, editor: { ...model.editor, departmentIds: next }, dirty: true }, []];
+
+          if (next === current) return ({ model: model, commands: [] });
+
+          return ({ model: { ...model, editor: { ...model.editor, departmentIds: next }, dirty: true }, commands: [] });
         },
         SubmittedCreate: ({ commandId }) => {
           if (!model.dirty || model.selectedArticleId !== null || model.pendingCommand !== null) {
-            return [model, []];
+            return ({ model: model, commands: [] });
           }
+
           const requestId = model.requestId + 1;
-          return [
-            { ...model, requestId, pendingCommand: "Create", banner: null },
-            [
+
+          return ({ model: 
+            { ...model, requestId, pendingCommand: "Create", banner: null }, commands: [
               commands.SubmitCreate({
                 requestId,
                 commandId,
@@ -188,24 +193,25 @@ export const makeUpdate =
                 departmentIds: model.editor.departmentIds,
                 sticky: model.editor.sticky,
               }),
-            ],
-          ];
+            ] });
         },
         SubmittedRevise: ({ commandId }) => {
           if (!model.dirty || model.selectedEtag === null || model.pendingCommand !== null) {
-            return [model, []];
+            return ({ model: model, commands: [] });
           }
+
           const entry =
-            model.workspace._tag === "Success" && model.selectedArticleId !== null
+            Predicate.isTagged(model.workspace, "Success") && model.selectedArticleId !== null
               ? model.workspace.data.entries.find(
                   (candidate) => candidate.articleId === model.selectedArticleId,
                 )
               : undefined;
-          if (entry === undefined || !entry.canRevise) return [model, []];
+
+          if (entry === undefined || !entry.canRevise) return ({ model: model, commands: [] });
           const requestId = model.requestId + 1;
-          return [
-            { ...model, requestId, pendingCommand: "Revise", banner: null },
-            [
+
+          return ({ model: 
+            { ...model, requestId, pendingCommand: "Revise", banner: null }, commands: [
               commands.SubmitRevise({
                 requestId,
                 commandId,
@@ -216,15 +222,15 @@ export const makeUpdate =
                 departmentIds: model.editor.departmentIds,
                 sticky: model.editor.sticky,
               }),
-            ],
-          ];
+            ] });
         },
         SucceededSave: ({ requestId, observation }) => {
           // A stale success leaves the Model unchanged.
-          if (requestId !== model.requestId) return [model, []];
+          if (requestId !== model.requestId) return ({ model: model, commands: [] });
           const { body: draft, etag } = observation;
+
           const workspace =
-            model.workspace._tag === "Success"
+            Predicate.isTagged(model.workspace, "Success")
               ? {
                   _tag: "Success" as const,
                   data: {
@@ -246,7 +252,8 @@ export const makeUpdate =
                   },
                 }
               : model.workspace;
-          return [
+
+          return ({ model: 
             {
               ...model,
               workspace,
@@ -261,89 +268,84 @@ export const makeUpdate =
               dirty: false,
               pendingCommand: null,
               banner: null,
-            },
-            [commands.LoadWorkspace({ requestId })],
-          ];
+            }, commands: [commands.LoadWorkspace({ requestId })] });
         },
         SucceededTransition: ({ requestId }) => {
-          if (requestId !== model.requestId) return [model, []];
-          return [
-            { ...model, selectedEtag: null, pendingCommand: null, banner: null },
-            [commands.LoadWorkspace({ requestId })],
-          ];
+          if (requestId !== model.requestId) return ({ model: model, commands: [] });
+
+          return ({ model: 
+            { ...model, selectedEtag: null, pendingCommand: null, banner: null }, commands: [commands.LoadWorkspace({ requestId })] });
         },
         FailedCommand: ({ requestId, failure }) => {
           // Show the typed safe failure; preserve selection, editor, and dirty state.
-          if (requestId !== model.requestId) return [model, []];
-          return [
+          if (requestId !== model.requestId) return ({ model: model, commands: [] });
+
+          return ({ model: 
             {
               ...model,
               selectedEtag: failure.tag === "CommandConflict" ? null : model.selectedEtag,
               pendingCommand: null,
               banner: failure,
-            },
-            [],
-          ];
+            }, commands: [] });
         },
         SubmittedPublish: ({ commandId, articleId }) => {
-          if (model.workspace._tag !== "Success" || model.pendingCommand !== null) {
-            return [model, []];
+          if (!Predicate.isTagged(model.workspace, "Success") || model.pendingCommand !== null) {
+            return ({ model: model, commands: [] });
           }
+
           const entry = model.workspace.data.entries.find(
             (candidate) => candidate.articleId === articleId,
           );
-          if (entry === undefined || !entry.canPublish) return [model, []];
+
+          if (entry === undefined || !entry.canPublish) return ({ model: model, commands: [] });
           const requestId = model.requestId + 1;
-          return [
+
+          return ({ model: 
             {
               ...model,
               requestId,
               selectedArticleId: articleId,
               pendingCommand: "Publish",
               banner: null,
-            },
-            [commands.SubmitPublish({ requestId, commandId, articleId })],
-          ];
+            }, commands: [commands.SubmitPublish({ requestId, commandId, articleId })] });
         },
         SubmittedUnpublish: ({ commandId, articleId }) => {
-          if (model.workspace._tag !== "Success" || model.pendingCommand !== null) {
-            return [model, []];
+          if (!Predicate.isTagged(model.workspace, "Success") || model.pendingCommand !== null) {
+            return ({ model: model, commands: [] });
           }
+
           const entry = model.workspace.data.entries.find(
             (candidate) => candidate.articleId === articleId,
           );
-          if (entry === undefined || !entry.canPublish) return [model, []];
+
+          if (entry === undefined || !entry.canPublish) return ({ model: model, commands: [] });
           const requestId = model.requestId + 1;
-          return [
+
+          return ({ model: 
             {
               ...model,
               requestId,
               selectedArticleId: articleId,
               pendingCommand: "Unpublish",
               banner: null,
-            },
-            [commands.SubmitUnpublish({ requestId, commandId, articleId })],
-          ];
+            }, commands: [commands.SubmitUnpublish({ requestId, commandId, articleId })] });
         },
-        ChangedDepartmentFilter: ({ departmentId }) => [
+        ChangedDepartmentFilter: ({ departmentId }) => ({ model: 
           // Narrow the visible rows; no new server request.
-          { ...model, departmentFilter: departmentId },
-          [],
-        ],
+          { ...model, departmentFilter: departmentId }, commands: [] }),
         DeselectedArticle: () => {
-          if (model.pendingCommand !== null) return [model, []];
-          return [
+          if (model.pendingCommand !== null) return ({ model: model, commands: [] });
+
+          return ({ model: 
             {
               ...model,
               selectedArticleId: null,
               selectedEtag: null,
-              editor: makeEditorValues(),
+              editor: emptyEditor(),
               dirty: false,
               banner: null,
-            },
-            [],
-          ];
+            }, commands: [] });
         },
-        DismissedBanner: () => [{ ...model, banner: null }, []],
+        DismissedBanner: () => ({ model: { ...model, banner: null }, commands: [] }),
       }),
     );

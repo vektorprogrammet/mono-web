@@ -25,6 +25,7 @@ export interface NewsDetailData {
 }
 
 export const NEWS_TEASER_COUNT = 5;
+
 export const NEWS_PAGE_SIZE = 10;
 
 /** Sticky-first first-five slice of the SAME listing read (law: teaser). */
@@ -40,29 +41,34 @@ export const teaserFrom = (listing: PublishedNewsListing): readonly PublishedNew
 export const resolveDepartmentFilter = (
   departments: readonly HomepageDepartment[],
   departmentSlugOrId: string | undefined,
-): { readonly departmentId: string | null; readonly degraded: boolean } => {
+) => {
   if (departmentSlugOrId === undefined || departmentSlugOrId === "") {
     return { departmentId: null, degraded: false };
   }
+
   const direct = departments.find(
     (department) => department.departmentId === departmentSlugOrId && department.active,
   );
+
   if (direct !== undefined) return { departmentId: direct.departmentId, degraded: false };
+
   const byShortName = departments.find(
     (department) =>
       department.active &&
       department.shortName.trim().toLowerCase() === departmentSlugOrId.trim().toLowerCase(),
   );
+
   if (byShortName !== undefined) {
     return { departmentId: byShortName.departmentId, degraded: false };
   }
+
   return { departmentId: null, degraded: true };
 };
 
 /** Client-side filter of the already-read listing (never a second read). */
 export const applyDepartmentFilter = (
   listing: PublishedNewsListing,
-  departmentId: string | null,
+  departmentId: HomepageDepartment["departmentId"] | null,
 ): PublishedNewsListing =>
   departmentId === null
     ? listing
@@ -70,7 +76,7 @@ export const applyDepartmentFilter = (
         articles: listing.articles.filter(
           (article) =>
             article.departmentIds.length === 0 ||
-            article.departmentIds.includes(departmentId as never),
+            article.departmentIds.includes(departmentId),
         ),
       };
 

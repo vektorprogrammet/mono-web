@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { DepartmentId } from "@vektorprogrammet/http-api"
 import type { SchoolDirectory, SchoolDirectoryEntry } from "@vektorprogrammet/http-api"
 import { Input, Select } from "@foldkit/ui";
@@ -17,7 +18,9 @@ const languageLabel = (language: SchoolDirectoryEntry["language"]): string =>
 
 const matchesSearch = (school: SchoolDirectoryEntry, searchText: string): boolean => {
   const query = searchText.trim().toLocaleLowerCase("nb-NO");
+
   if (query.length === 0) return true;
+
   return [
     school.name,
     school.contactPerson,
@@ -252,7 +255,7 @@ const directoryState = (model: Model, h: HtmlBuilder<Message>): Html =>
         [
           h.h2(
             [],
-            [failure._tag === "Denied" ? "Ingen tilgang" : "Skoleoversikten kunne ikke hentes"],
+            [Predicate.isTagged(failure, "Denied") ? "Ingen tilgang" : "Skoleoversikten kunne ikke hentes"],
           ),
           h.p([], [failure.message]),
           retryButton(h),

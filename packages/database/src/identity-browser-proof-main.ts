@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { Effect, Redacted } from "effect";
+import { Effect, Redacted, Schema, flow } from "effect";
 import { Pool } from "pg";
 import { Database } from "./service.js";
 import { DatabaseLive } from "./layers.js";
 
 const personId = "journey-0065-admin";
+
 const identityMigrationId = 15;
+
 const authTables = [
   "account",
   "identity_security_audit",
@@ -13,21 +15,25 @@ const authTables = [
   "user",
   "verification",
 ] as const;
+
 const authzTables = ["authz_rules", "authz_tag_assignments", "authz_tags"] as const;
+
 const orthogonalPersonId = "identity-0056-orthogonal-person";
+
 const activeRuleId = "identity-0056-active-other-person-rule";
+
 const expiredRuleId = "identity-0056-expired-journey-person-rule";
 
-const readBaseline = (name: string): unknown => {
+const readBaseline = (name: string): Schema.Json => {
   const raw = process.env[name];
   assert.ok(raw !== undefined && raw.length > 0, `${name} is required`);
-  const decoded: unknown = JSON.parse(raw);
-  return decoded;
+
+  return Schema.decodeUnknownSync(Schema.Json)(JSON.parse(raw));
 };
 
-const normalizeRows = (
-  rows: ReadonlyArray<Record<string, unknown>>,
-): ReadonlyArray<Record<string, unknown>> =>
+const SqlEvidenceRow = Schema.Record(Schema.String, Schema.Union([Schema.Json, Schema.Date]));
+
+const normalizeRows = flow(Schema.decodeUnknownSync(Schema.Array(SqlEvidenceRow)), (rows) =>
   rows.map((row) =>
     Object.fromEntries(
       Object.entries(row).map(([key, value]) => [
@@ -35,28 +41,33 @@ const normalizeRows = (
         value instanceof Date ? value.toISOString() : value,
       ]),
     ),
-  );
+  ),
+);
 
 const readAuthSchemaState = async (observer: Pool) => {
-  const users = await observer.query<Record<string, unknown>>(
+  const users = await observer.query<typeof SqlEvidenceRow.Type>(
     `SELECT id, name, email, "emailVerified", image, "createdAt", "updatedAt"
      FROM auth."user" ORDER BY id`,
   );
-  const accounts = await observer.query<Record<string, unknown>>(
+
+  const accounts = await observer.query<typeof SqlEvidenceRow.Type>(
     `SELECT id, "accountId", "providerId", "userId", issuer, "createdAt", "updatedAt",
        ("password" IS NOT NULL) AS "passwordPresent",
        ("accessToken" IS NOT NULL OR "refreshToken" IS NOT NULL OR "idToken" IS NOT NULL)
          AS "providerSecretPresent"
      FROM auth.account ORDER BY id`,
   );
+
   const sessions = await observer.query<{ readonly total: number; readonly live: number }>(
     `SELECT count(*)::integer AS total,
        count(*) FILTER (WHERE "expiresAt" > now())::integer AS live
      FROM auth.session`,
   );
+
   const verification = await observer.query<{ readonly total: number }>(
     `SELECT count(*)::integer AS total FROM auth.verification`,
   );
+
   return {
     users: normalizeRows(users.rows),
     accounts: normalizeRows(accounts.rows),
@@ -69,16 +80,18 @@ const readAuthSchemaState = async (observer: Pool) => {
 };
 
 const readPublicAuthzState = async (observer: Pool) => {
-  const tags = await observer.query<Record<string, unknown>>(
+  const tags = await observer.query<typeof SqlEvidenceRow.Type>(
     `SELECT tag_id AS "tagId", name, revision
      FROM public.authz_tags ORDER BY tag_id`,
   );
-  const assignments = await observer.query<Record<string, unknown>>(
+
+  const assignments = await observer.query<typeof SqlEvidenceRow.Type>(
     `SELECT assignment_id AS "assignmentId", tag_id AS "tagId", person_id AS "personId",
        start_at AS "startAt", end_at AS "endAt", revision
      FROM public.authz_tag_assignments ORDER BY assignment_id`,
   );
-  const rules = await observer.query<Record<string, unknown>>(
+
+  const rules = await observer.query<typeof SqlEvidenceRow.Type>(
     `SELECT rule_id AS "ruleId", capability_id AS "capabilityId",
        effect_kind AS "effectKind", subject_kind AS "subjectKind",
        subject_person_id AS "subjectPersonId", subject_tag_id AS "subjectTagId",
@@ -86,6 +99,7 @@ const readPublicAuthzState = async (observer: Pool) => {
        start_at AS "startAt", end_at AS "endAt", revision
      FROM public.authz_rules ORDER BY rule_id`,
   );
+
   return {
     tags: normalizeRows(tags.rows),
     assignments: normalizeRows(assignments.rows),
@@ -110,6 +124,7 @@ const runMigrations = (url: string) =>
     Effect.gen(function* () {
       const database = yield* Database;
       yield* database.health;
+
       return database.schemaRevision;
     }).pipe(
       Effect.provide(
@@ -128,14 +143,16 @@ const run = async () => {
   const authSchemaBaseline = readBaseline("IDENTITY_EVIDENCE_AUTH_SCHEMA_BASELINE");
   const publicAuthzBaseline = readBaseline("IDENTITY_EVIDENCE_PUBLIC_AUTHZ_BASELINE");
   loopbackDatabase(url);
-  // oxlint-disable-next-line effect/no-premature-execution -- runtime proof composes the migration observer
+
   const schemaRevision = await Effect.runPromise(runMigrations(url));
+
   const observer = new Pool({
     connectionString: url,
     options: "-c search_path=public",
     max: 1,
     application_name: "identity-browser-0056-proof-observer",
   });
+
   try {
     const migration = await observer.query(
       `SELECT migration_id AS "migrationId", name
@@ -143,51 +160,65 @@ const run = async () => {
        WHERE migration_id = $1`,
       [identityMigrationId],
     );
+
     assert.deepEqual(migration.rows, [{ migrationId: 15, name: "native-identity-better-auth" }]);
+
     const authzMigration = await observer.query(
       `SELECT migration_id AS "migrationId", name
        FROM public.vektorprogrammet_schema_migrations
        WHERE migration_id = 23`,
     );
+
     assert.deepEqual(authzMigration.rows, [
       { migrationId: 23, name: "declarative-authorization-rules" },
     ]);
+
     const auditMigration = await observer.query(
       `SELECT migration_id AS "migrationId", name
        FROM public.vektorprogrammet_schema_migrations
        WHERE migration_id = 24`,
     );
+
     assert.deepEqual(auditMigration.rows, [{ migrationId: 24, name: "identity-security-audit" }]);
+
     const tables = await observer.query<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authTables]],
     );
+
     assert.deepEqual(
       tables.rows.map((row) => row.tableName),
       [...authTables],
     );
+
     const publicTables = await observer.query<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authTables]],
     );
+
     assert.deepEqual(publicTables.rows, []);
+
     const publicAuthzTables = await observer.query<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authzTables]],
     );
+
     assert.deepEqual(
       publicAuthzTables.rows.map((row) => row.tableName),
       [...authzTables],
     );
+
     const authAuthzTables = await observer.query<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authzTables]],
     );
+
     assert.deepEqual(authAuthzTables.rows, []);
+
     const identityForeignKey = await observer.query(
       `SELECT 1 FROM pg_constraint c
        JOIN pg_class source ON source.oid = c.conrelid
@@ -198,7 +229,9 @@ const run = async () => {
          AND target_schema.nspname = 'public' AND target.relname = 'person_profiles'
          AND c.conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = source.oid AND attname = 'id')]::smallint[]`,
     );
+
     assert.equal(identityForeignKey.rowCount, 1);
+
     const facts = await observer.query(
       `SELECT
          (SELECT count(*) FROM public.person_profiles WHERE person_id = $1) AS profiles,
@@ -211,10 +244,13 @@ const run = async () => {
          (SELECT count(*) FROM auth.session WHERE "userId" = $1 AND "expiresAt" > now()) AS "sessionsLive"`,
       [personId],
     );
+
     const row = facts.rows[0];
+
     const counts = Object.fromEntries(
       Object.entries(row).map(([key, value]) => [key, Number(value)]),
     );
+
     assert.deepEqual(counts, {
       profiles: 1,
       contacts: 1,
@@ -228,6 +264,7 @@ const run = async () => {
     assert.deepEqual(authSchemaState, authSchemaBaseline);
     const publicAuthz = await readPublicAuthzState(observer);
     assert.deepEqual(publicAuthz, publicAuthzBaseline);
+
     const auditRows = await observer.query<{
       readonly eventKind: string;
       readonly eventCount: string;
@@ -263,9 +300,11 @@ const run = async () => {
        GROUP BY event_kind
        ORDER BY event_kind`,
     );
+
     const auditCounts = Object.fromEntries(
       auditRows.rows.map((event) => [event.eventKind, Number(event.eventCount)]),
     );
+
     assert.deepEqual(auditCounts, {
       "account-provisioned-administratively": 2,
       "session-revoked-all": 1,
@@ -283,14 +322,17 @@ const run = async () => {
           requestBindingValid && detailsClosed && subjectsLinked,
       ),
     );
+
     const firstAuditEvent = await observer.query<{ readonly eventId: string }>(
       `SELECT event_id AS "eventId"
        FROM auth.identity_security_audit
        ORDER BY occurred_at, event_id
        LIMIT 1`,
     );
+
     const eventId = firstAuditEvent.rows[0]?.eventId;
     assert.ok(eventId !== undefined);
+
     const updateRejected = await observer
       .query(`UPDATE auth.identity_security_audit SET details = details WHERE event_id = $1`, [
         eventId,
@@ -299,14 +341,17 @@ const run = async () => {
         () => false,
         () => true,
       );
+
     const deleteRejected = await observer
       .query(`DELETE FROM auth.identity_security_audit WHERE event_id = $1`, [eventId])
       .then(
         () => false,
         () => true,
       );
+
     assert.equal(updateRejected, true);
     assert.equal(deleteRejected, true);
+
     const activityResult = await observer.query<{
       readonly observedAt: Date;
       readonly activeAssignments: string;
@@ -341,8 +386,10 @@ const run = async () => {
            AS "expiredJourneyPersonRules"`,
       [personId, activeRuleId, orthogonalPersonId, expiredRuleId],
     );
+
     const activityRow = activityResult.rows[0];
     assert.ok(activityRow !== undefined);
+
     const authzActivity = {
       observedAt: activityRow.observedAt.toISOString(),
       activeAssignments: Number(activityRow.activeAssignments),
@@ -362,6 +409,7 @@ const run = async () => {
         personId,
       },
     };
+
     assert.deepEqual(
       {
         activeAssignments: authzActivity.activeAssignments,

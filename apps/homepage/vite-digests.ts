@@ -1,3 +1,5 @@
+type DigestValue = null | boolean | number | string | readonly DigestValue[] | { readonly [key: string]: DigestValue | undefined };
+
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -8,6 +10,8 @@ import {
   type DevContent,
   type DevRouteCensus,
 } from "./src/lib/dev-content.ts";
+import { Array as Arr, Predicate } from "effect";
+
 
 export type AssetManifestEntry = {
   readonly path: string;
@@ -23,7 +27,7 @@ export type RouteSourceManifestEntry = {
 
 export type RouteContentProjection = {
   readonly path: string;
-  readonly projection: unknown;
+  readonly projection: ReturnType<typeof routeProjection>;
   readonly assetPaths: readonly string[];
   readonly assets: readonly AssetManifestEntry[];
 };
@@ -38,25 +42,22 @@ function compareStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+export function canonicalJson(value: DigestValue | undefined): string {
+  if (value === null || value === undefined || Predicate.isBoolean(value) || Predicate.isNumber(value) || Predicate.isString(value)) {
+    const serialized = JSON.stringify(value);
+
+    if (serialized === undefined) throw new Error("Digest input contains unsupported undefined value");
+
+    return serialized;
   }
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => compareStrings(left, right));
-    return `{${entries
-      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
-      .join(",")}}`;
-  }
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined)
-    throw new Error("Digest input contains unsupported undefined value");
-  return serialized;
+
+  if (Arr.isArray<DigestValue>(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const entries = Object.entries(value).filter(([, entry]) => entry !== undefined).sort(([left], [right]) => compareStrings(left, right));
+
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
 }
 
-export function digestCanonicalJson(value: unknown): string {
+export function digestCanonicalJson(value: DigestValue): string {
   return `sha256:${createHash("sha256")
     .update(`${canonicalJson(value)}\n`, "utf8")
     .digest("hex")}`;
@@ -70,16 +71,20 @@ function listFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true })
     .flatMap((entry) => {
       const path = join(directory, entry.name);
+
       if (entry.isDirectory()) return listFiles(path);
+
       if (entry.isFile()) return [path];
       throw new Error(`Unsupported file entry: ${path}`);
     })
     .sort(compareStrings);
 }
+
 export const ROUTE_SOURCE_ROOTS = ["src/api", "src/routes"] as const;
 
 function sourceManifestEntry(projectRoot: string, absolutePath: string): RouteSourceManifestEntry {
   const bytes = readFileSync(absolutePath);
+
   return {
     source: projectRelativePath(projectRoot, absolutePath),
     byteLength: bytes.byteLength,
@@ -101,8 +106,10 @@ function projectRelativePath(projectRoot: string, absolutePath: string): string 
 
 export function buildApprovedAssetManifest(projectRoot: string): readonly AssetManifestEntry[] {
   const assetRoot = resolve(projectRoot, "public/images");
+
   return listFiles(assetRoot).map((absolutePath) => {
     const bytes = readFileSync(absolutePath);
+
     return {
       path: projectRelativePath(projectRoot, absolutePath),
       byteLength: bytes.byteLength,
@@ -111,22 +118,29 @@ export function buildApprovedAssetManifest(projectRoot: string): readonly AssetM
   });
 }
 
-function collectAssetPaths(value: unknown): readonly string[] {
+function collectAssetPaths(value: DigestValue): readonly string[] {
   const paths = new Set<string>();
-  const visit = (candidate: unknown): void => {
-    if (typeof candidate === "string") {
+
+  const visit = (candidate: DigestValue | undefined): void => {
+    if (candidate === null || candidate === undefined || Predicate.isBoolean(candidate) || Predicate.isNumber(candidate)) return;
+
+    if (Predicate.isString(candidate)) {
       if (candidate.startsWith("/images/")) paths.add(candidate);
+
       return;
     }
-    if (Array.isArray(candidate)) {
+
+    if (Arr.isArray<DigestValue>(candidate)) {
       for (const item of candidate) visit(item);
+
       return;
     }
-    if (candidate !== null && typeof candidate === "object") {
-      for (const item of Object.values(candidate)) visit(item);
-    }
+
+    for (const item of Object.values(candidate)) visit(item);
   };
+
   visit(value);
+
   return Array.from(paths).sort(compareStrings);
 }
 
@@ -134,7 +148,7 @@ function assetUrlForManifestPath(path: string): string {
   return `/${path.replace(/^public\//, "")}`;
 }
 
-function routeProjection(path: string, content: DevContent, census: DevRouteCensus): unknown {
+function routeProjection(path: string, content: DevContent, census: DevRouteCensus) {
   if (path === "/") {
     return {
       source: DEV_CONTENT_SOURCE,
@@ -145,32 +159,46 @@ function routeProjection(path: string, content: DevContent, census: DevRouteCens
       people: census.people,
     };
   }
+
   if (path === "/team") {
     return { teams: content.teams, departments: content.departments, people: census.people };
   }
+
   if (path === "/team/:department") {
     return { teams: content.teams, people: census.people };
   }
+
   if (path.startsWith("/team/")) {
     const team = content.teams.find((item) => item.url === path);
+
     if (!team) throw new Error(`Missing DEV CONTENT team for route ${path}`);
+
     return {
       team,
       people: census.people.filter((person) => person.teamId === team.id),
     };
   }
+
   if (path === "/kontakt" || path === "/kontakt/:department") {
     return { departments: content.departments };
   }
+
   if (path.startsWith("/kontakt/")) {
     const department = content.departments.find((item) => `/kontakt/${item.id}` === path);
+
     if (!department) throw new Error(`Missing DEV CONTENT department for route ${path}`);
+
     return { department };
   }
+
   if (path === "/nyheter") return { source: "native-backend:/api/news" };
+
   if (path.startsWith("/nyhet/")) return { source: "native-backend:/api/news" };
+
   if (path === "/om-oss") return { sponsors: content.sponsors, statistics: content.statistics };
+
   if (path === "/assistenter") return { statistics: content.statistics };
+
   return { source: DEV_CONTENT_SOURCE };
 }
 
@@ -182,15 +210,18 @@ export function buildRouteContentProjectionManifest(
   return census.paths.map((path) => {
     const projection = routeProjection(path, content, census);
     const assetPaths = collectAssetPaths(projection);
+
     const assets = assetManifest.filter((entry) =>
       assetPaths.includes(assetUrlForManifestPath(entry.path)),
     );
+
     return { path, projection, assetPaths, assets };
   });
 }
 
 export function buildHomepageDigestInputs(projectRoot: string): HomepageDigestInputs {
   const assetManifest = buildApprovedAssetManifest(projectRoot);
+
   return {
     assetManifest,
     routeSourceManifest: buildRouteSourceManifest(projectRoot),
@@ -224,12 +255,9 @@ export function computeRouteDigest(
   });
 }
 
-export function computeHomepageDigests(projectRoot: string): {
-  readonly contentDigest: string;
-  readonly routeDigest: string;
-  readonly inputs: HomepageDigestInputs;
-} {
+export function computeHomepageDigests(projectRoot: string) {
   const inputs = buildHomepageDigestInputs(projectRoot);
+
   return {
     contentDigest: computeContentDigest(DEV_CONTENT, inputs.assetManifest),
     routeDigest: computeRouteDigest(DEV_ROUTE_CENSUS, inputs),

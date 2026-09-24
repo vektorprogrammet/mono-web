@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Data, Match, flow, Predicate, Effect, Schema } from "effect";
 import { DepartmentId } from "../organization/schema.js";
 import {
   InactiveActor,
@@ -11,7 +11,7 @@ import {
   StaleReceiptRevision,
   type ReceiptFailure,
 } from "./errors.js";
-import { makeReceiptOutboxRequest, sameReceiptFile, type ReceiptOutboxRequest } from "./effects.js";
+import { receiptOutboxRequest, sameReceiptFile, type ReceiptOutboxRequest } from "./effects.js";
 import {
   ReceiptActorSchema,
   ReceiptCommandRequestSchema,
@@ -24,7 +24,7 @@ import {
   type ReceiptObservation,
 } from "./schema.js";
 
-const AuthorizedReceiptCommandSchema = Schema.TaggedUnion({
+export const AuthorizedReceiptCommandSchema = Schema.TaggedUnion({
   SubmitReceipt: {
     ...ReceiptCommandRequestSchema.cases.SubmitReceipt.fields,
     actor: ReceiptActorSchema,
@@ -52,6 +52,7 @@ const AuthorizedReceiptCommandSchema = Schema.TaggedUnion({
     actor: ReceiptActorSchema,
   },
 });
+
 type AuthorizedReceiptCommand = typeof AuthorizedReceiptCommandSchema.Type;
 
 export interface ReceiptDecisionContext {
@@ -121,9 +122,10 @@ const approver = (
   actor: ReceiptActor,
 ): Effect.Effect<void, ReceiptScopeDenied> => {
   const allowed =
-    actor.approvalScope._tag === "Global" ||
-    (actor.approvalScope._tag === "Department" &&
+    Predicate.isTagged(actor.approvalScope, "Global") ||
+    (Predicate.isTagged(actor.approvalScope, "Department") &&
       actor.approvalScope.departmentId === receipt.departmentId);
+
   return allowed
     ? Effect.void
     : Effect.fail(
@@ -143,45 +145,42 @@ const observation = (commandId: string, receipt: Receipt): ReceiptObservation =>
   replayed: false,
 });
 
-const effect = makeReceiptOutboxRequest;
+const effect = receiptOutboxRequest;
+
 type KeepCurrentFileSelection = Extract<ReceiptFileSelection, { readonly _tag: "KeepCurrentFile" }>;
 
 const isKeepCurrentFile = (file: ReceiptFileSelection): file is KeepCurrentFileSelection =>
-  "_tag" in file && file._tag === "KeepCurrentFile";
+  "_tag" in file && Predicate.isTagged(file, "KeepCurrentFile");
 
-type ReceiptAccessAuthorization =
-  | {
-      readonly _tag: "SubmitReceipt";
-      readonly actor: ReceiptActor;
-      readonly departmentId: DepartmentId;
-    }
-  | {
-      readonly _tag:
-        | "RevisePendingReceipt"
-        | "WithdrawPendingReceipt"
-        | "ApproveReceipt"
-        | "RejectReceipt"
-        | "ReopenRejectedReceipt";
-      readonly actor: ReceiptActor;
-      readonly current: Receipt;
-    };
+type ReceiptAccessAuthorization = Data.TaggedEnum<{
+  SubmitReceipt: { readonly actor: ReceiptActor; readonly departmentId: DepartmentId };
+  RevisePendingReceipt: { readonly actor: ReceiptActor; readonly current: Receipt };
+  WithdrawPendingReceipt: { readonly actor: ReceiptActor; readonly current: Receipt };
+  ApproveReceipt: { readonly actor: ReceiptActor; readonly current: Receipt };
+  RejectReceipt: { readonly actor: ReceiptActor; readonly current: Receipt };
+  ReopenRejectedReceipt: { readonly actor: ReceiptActor; readonly current: Receipt };
+}>;
+
+const ReceiptAccessAuthorization = Data.taggedEnum<ReceiptAccessAuthorization>();
 
 export const authorizeReceiptMutationAccess = (
   authorization: ReceiptAccessAuthorization,
 ): Effect.Effect<void, ReceiptFailure> =>
   Effect.gen(function* () {
     yield* activeActor(authorization.actor);
-    switch (authorization._tag) {
-      case "SubmitReceipt":
-        return;
-      case "RevisePendingReceipt":
-      case "WithdrawPendingReceipt":
-        return yield* owner(authorization.current, authorization.actor);
-      case "ApproveReceipt":
-      case "RejectReceipt":
-      case "ReopenRejectedReceipt":
-        return yield* approver(authorization.current, authorization.actor);
-    }
+
+    return yield* Match.value(authorization).pipe(
+      Match.tag("SubmitReceipt", () => {
+        return Effect.void;
+      }),
+      Match.tag("RevisePendingReceipt", "WithdrawPendingReceipt", (authorization) => {
+        return owner(authorization.current, authorization.actor);
+      }),
+      Match.tag("ApproveReceipt", "RejectReceipt", "ReopenRejectedReceipt", (authorization) => {
+        return approver(authorization.current, authorization.actor);
+      }),
+      Match.exhaustive,
+    );
   });
 
 const decideCommand = (
@@ -191,18 +190,17 @@ const decideCommand = (
 ): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
   Effect.gen(function* () {
     yield* authorizeReceiptMutationAccess(
-      command._tag === "SubmitReceipt"
-        ? {
-            _tag: command._tag,
+      Predicate.isTagged(command, "SubmitReceipt")
+        ? ReceiptAccessAuthorization.SubmitReceipt({
             actor: command.actor,
             departmentId: command.departmentId,
-          }
-        : {
-            _tag: command._tag,
+          })
+        : ReceiptAccessAuthorization[command._tag]({
             actor: command.actor,
             current: yield* requireReceipt(existing, command.receiptId),
-          },
+          }),
     );
+
     return yield* AuthorizedReceiptCommandSchema.match<
       Effect.Effect<ReceiptDecision, ReceiptFailure>
     >(command, {
@@ -211,6 +209,7 @@ const decideCommand = (
           if (existing !== undefined) {
             return yield* new ReceiptAlreadyExists({ receiptId: context.receiptId });
           }
+
           const receipt: Receipt = {
             receiptId: ReceiptId.make(context.receiptId),
             visualId: ReceiptVisualId.make(context.visualId),
@@ -227,6 +226,7 @@ const decideCommand = (
             file: input.file,
             revision: 0,
           };
+
           return {
             receipt,
             observation: observation(input.commandId, receipt),
@@ -244,6 +244,7 @@ const decideCommand = (
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
           const nextFile = isKeepCurrentFile(input.file) ? current.file : input.file;
+
           const receipt: Receipt = {
             ...current,
             amountOre: input.amountOre,
@@ -252,9 +253,11 @@ const decideCommand = (
             file: nextFile,
             revision: current.revision + 1,
           };
+
           const outbox: ReceiptOutboxRequest[] = [
             effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
           ];
+
           if (!sameReceiptFile(current.file, nextFile)) {
             outbox.unshift(
               effect(input.commandId, receipt.receiptId, "PromoteReceiptFile", nextFile),
@@ -263,6 +266,7 @@ const decideCommand = (
               effect(input.commandId, receipt.receiptId, "DeleteReceiptFile", current.file),
             );
           }
+
           return {
             receipt,
             observation: observation(input.commandId, receipt),
@@ -275,11 +279,13 @@ const decideCommand = (
           const current = yield* requireReceipt(existing, input.receiptId);
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
+
           const receipt: Receipt = {
             ...current,
             status: "Withdrawn",
             revision: current.revision + 1,
           };
+
           return {
             receipt,
             observation: observation(input.commandId, receipt),
@@ -295,12 +301,14 @@ const decideCommand = (
           const current = yield* requireReceipt(existing, input.receiptId);
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
+
           const receipt: Receipt = {
             ...current,
             status: "Approved",
             approvedAt: context.now,
             revision: current.revision + 1,
           };
+
           return {
             receipt,
             observation: observation(input.commandId, receipt),
@@ -315,6 +323,7 @@ const decideCommand = (
         Effect.gen(function* () {
           const current = yield* requireReceipt(existing, input.receiptId);
           yield* currentRevision(current, input.expectedRevision);
+
           if (current.status !== "Rejected") {
             return yield* new InvalidReceiptTransition({
               receiptId: current.receiptId,
@@ -322,11 +331,13 @@ const decideCommand = (
               command: input._tag,
             });
           }
+
           const receipt: Receipt = {
             ...current,
             status: "Pending",
             revision: current.revision + 1,
           };
+
           return {
             receipt,
             observation: observation(input.commandId, receipt),
@@ -339,12 +350,14 @@ const decideCommand = (
           const current = yield* requireReceipt(existing, input.receiptId);
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
+
           const receipt: Receipt = {
             ...current,
             status: "Rejected",
             approvedAt: null,
             revision: current.revision + 1,
           };
+
           return {
             receipt,
             observation: observation(input.commandId, receipt),
@@ -358,23 +371,23 @@ const decideCommand = (
     });
   });
 
-const decodeReceiptCommand = (
-  input: unknown,
-): Effect.Effect<AuthorizedReceiptCommand, ReceiptDecodeError> =>
-  Schema.decodeUnknownEffect(AuthorizedReceiptCommandSchema)(input, {
+const decodeReceiptCommand = flow(
+  Schema.decodeUnknownEffect(AuthorizedReceiptCommandSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+  }),
+  Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })),
+);
 
-const decodeReceiptDecisionContext = (
-  input: unknown,
-): Effect.Effect<ReceiptDecisionContext, ReceiptDecodeError> =>
-  Schema.decodeUnknownEffect(ReceiptDecisionContextSchema)(input, {
+const decodeReceiptDecisionContext = flow(
+  Schema.decodeUnknownEffect(ReceiptDecisionContextSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+  }),
+  Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })),
+);
 
 export const decideReceipt = (
   existing: Receipt | undefined,
-  input: unknown,
+  input: Schema.Json,
   context: ReceiptDecisionContext,
 ): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
   decodeReceiptCommand(input).pipe(

@@ -1,14 +1,7 @@
+import { Predicate } from "effect";
 import { AdmissionPeriodCreateForm } from "@/components/admission-periods/AdmissionPeriodCreateForm";
 import { AdmissionPeriodList } from "@/components/admission-periods/AdmissionPeriodList";
-import {
-  isAdmissionPeriodUnauthorizedError,
-  mapAdmissionPeriodError,
-  mapAdmissionPeriodView,
-  parseAdmissionPeriodForm,
-  type AdmissionPeriodCreateFailure,
-  type AdmissionPeriodRevisionFailure,
-  type AdmissionPeriodView,
-} from "@/lib/admission-period-view";
+import { isAdmissionPeriodUnauthorizedError, mapAdmissionPeriodError, mapAdmissionPeriodView, parseAdmissionPeriodForm, type AdmissionPeriodCreateFailure, type AdmissionPeriodRevisionFailure } from "@/lib/admission-period-view";
 import { useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
@@ -20,9 +13,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const result = await client.admissions.listAdmissionPeriods({ headers: {} });
+
     if (result.body === undefined) {
       throw new Error("Admission-period response did not include a body");
     }
+
     return {
       periods: result.body.items.map(mapAdmissionPeriodView),
       error: undefined,
@@ -31,8 +26,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (isAdmissionPeriodUnauthorizedError(error)) {
       throw await expiredSessionRedirect(request);
     }
+
     return {
-      periods: [] as AdmissionPeriodView[],
+      periods: [],
       error: mapAdmissionPeriodError(error),
     };
   }
@@ -49,12 +45,14 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const command = parsed.value;
+
   try {
-    if (command._tag === "CreateAdmissionPeriod") {
+    if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
       const result = await client.admissions.createAdmissionPeriod({
         headers: { "idempotency-key": command.commandId },
         payload: command.payload,
       });
+
       return {
         success: true as const,
         notice: {
@@ -74,6 +72,7 @@ export async function action({ request }: Route.ActionArgs) {
       },
       payload: command.payload,
     });
+
     return {
       success: true as const,
       notice: {
@@ -87,14 +86,17 @@ export async function action({ request }: Route.ActionArgs) {
     if (isAdmissionPeriodUnauthorizedError(error)) {
       throw await expiredSessionRedirect(request);
     }
+
     const mappedError = mapAdmissionPeriodError(error);
-    if (command._tag === "CreateAdmissionPeriod") {
+
+    if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
       const failure: AdmissionPeriodCreateFailure = {
         intent: "create",
         commandId: command.commandId,
         draft: command.draft,
         error: mappedError,
       };
+
       return { success: false as const, failure };
     }
 
@@ -103,12 +105,13 @@ export async function action({ request }: Route.ActionArgs) {
       admissionPeriodId: command.admissionPeriodId,
       etag: command.etag,
       commandId:
-        mappedError._tag === "StaleAdmissionPeriodRevision"
+        Predicate.isTagged(mappedError, "StaleAdmissionPeriodRevision")
           ? crypto.randomUUID()
           : command.commandId,
       draft: command.draft,
       error: mappedError,
     };
+
     return { success: false as const, failure };
   }
 }
@@ -118,25 +121,31 @@ export default function Opptaksperioder() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+
   const createFailure =
     actionData?.success === false && actionData.failure.intent === "create"
       ? actionData.failure
       : undefined;
+
   const revisionFailure =
     actionData?.success === false && actionData.failure.intent === "revise"
       ? actionData.failure
       : undefined;
+
   const createNotice =
     actionData?.success === true && actionData.notice.intent === "create"
       ? actionData.notice
       : undefined;
+
   const revisionNotice =
     actionData?.success === true && actionData.notice.intent === "revise"
       ? actionData.notice
       : undefined;
+
   const semesterIds = Array.from(
     new Set(loaderData.periods.map((period) => period.semesterId)),
   ).sort();
+
   const departmentIds = Array.from(
     new Set(loaderData.periods.map((period) => period.departmentId)),
   ).sort();

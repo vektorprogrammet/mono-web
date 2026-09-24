@@ -18,6 +18,7 @@ declare global {
     __MONO_WEB_HYDRATED__?: boolean;
   }
 }
+
 type RootLoaderArgs = {
   request: Request;
   context: Readonly<RouterContextProvider>;
@@ -25,9 +26,12 @@ type RootLoaderArgs = {
 
 export function loader({ request, context }: RootLoaderArgs): HomepageRequest {
   const resolved = context.get(homepageRequestContext);
+
   if (resolved !== undefined) return resolved;
   const host = request.headers.get("host");
+
   if (!host) throw new Response("Missing Host", { status: 421 });
+
   return resolveHomepageRequest(host);
 }
 
@@ -36,6 +40,7 @@ export function Layout({ children }: { children: ReactNode }) {
     stage: "p000",
     host: "",
   };
+
   return (
     <html lang="en">
       <head>
@@ -71,5 +76,6 @@ export default function Root() {
   useEffect(() => {
     window.__MONO_WEB_HYDRATED__ = true;
   }, []);
+
   return <Outlet />;
 }

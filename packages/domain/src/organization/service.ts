@@ -5,6 +5,12 @@
  */
 import { Context, Effect } from "effect";
 import type {
+  AppointmentManagement,
+  OrganizationLifecycleCommand,
+  OrganizationLifecycleResult,
+  OrganizationLifecycleFailure,
+} from "./lifecycle.js";
+import type {
   CreateDepartmentCommand,
   CreateDepartmentResult,
   CreateFieldOfStudyCommand,
@@ -42,7 +48,6 @@ import type { LegacyOrganizationSnapshot, OrganizationImportResult } from "./imp
 import type { MailingList, MailingListType } from "./mailing-lists.js";
 import type { ProfileFailure } from "../profile/errors.js";
 import type { Profile } from "../profile/service.js";
-import type { MembershipRevisionCommand } from "./transitions.js";
 
 /** Spec 0059 read filter: the authorized scope is explicit input (0055). */
 export interface TeamInterestFilter {
@@ -52,6 +57,7 @@ export interface TeamInterestFilter {
 }
 
 export type OrganizationListFailure = OrganizationDecodeError | OrganizationPersistenceError;
+
 export type OrganizationReadError =
   | OrganizationDecodeError
   | OrganizationPersistenceError
@@ -67,7 +73,14 @@ export type OrganizationRevisionError =
   | MembershipInvalidInterval
   | MembershipRevisionConflict;
 
-export interface OrganizationShape {
+export interface OrganizationOperations {
+  readonly readAppointmentManagement: (
+    actorPersonId: PersonId,
+  ) => Effect.Effect<AppointmentManagement, OrganizationLifecycleFailure>;
+  readonly executeLifecycle: (
+    command: OrganizationLifecycleCommand,
+    actorPersonId: PersonId,
+  ) => Effect.Effect<OrganizationLifecycleResult, OrganizationLifecycleFailure>;
   readonly readDepartment: (
     departmentId: DepartmentId,
   ) => Effect.Effect<Department, OrganizationReadError>;
@@ -160,15 +173,7 @@ export interface OrganizationShape {
     OrganizationDirectoryFacts,
     OrganizationDecodeError | OrganizationPersistenceError
   >;
-  readonly reviseMembership: (
-    command: Extract<MembershipRevisionCommand, { readonly _tag: "ReviseMembership" }>,
-  ) => Effect.Effect<Membership, OrganizationRevisionError>;
-  readonly suspendMembership: (
-    command: Extract<MembershipRevisionCommand, { readonly _tag: "SuspendMembership" }>,
-  ) => Effect.Effect<Membership, OrganizationRevisionError>;
-  readonly reinstateMembership: (
-    command: Extract<MembershipRevisionCommand, { readonly _tag: "ReinstateMembership" }>,
-  ) => Effect.Effect<Membership, OrganizationRevisionError>;
+
   readonly importLegacyOrganization: (
     snapshot: LegacyOrganizationSnapshot,
   ) => Effect.Effect<
@@ -177,6 +182,6 @@ export interface OrganizationShape {
   >;
 }
 
-export class Organization extends Context.Service<Organization, OrganizationShape>()(
+export class Organization extends Context.Service<Organization, OrganizationOperations>()(
   "@vektorprogrammet/domain/Organization",
 ) {}

@@ -1,9 +1,14 @@
+import { Schema, Predicate } from "effect";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
+
 const operatorUsername = "survey-admin-operator-0032";
+
 const operatorPassword = "survey-admin-password-0032";
+
 const viewerUsername = "survey-admin-viewer-0032";
+
 const viewerPassword = "survey-admin-viewer-password-0032";
 
 function requireSurveyAdminMode(): void {
@@ -30,13 +35,15 @@ async function loginWithApi(page: Page, username: string, password: string): Pro
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     data: { username, password },
   });
+
   expect(response.status()).toBe(200);
-  const payload = (await response.json()) as { token?: unknown };
-  expect(typeof payload.token).toBe("string");
-  return payload.token as string;
+  const payload = Schema.decodeUnknownSync(Schema.Struct({ token: Schema.String }))((await response.json()));
+  expect(Predicate.isString(payload.token)).toBe(true);
+
+  return payload.token;
 }
 
-function headers(token: string): Record<string, string> {
+function headers(token: string) {
   return {
     Accept: "application/ld+json",
     Authorization: `Bearer ${token}`,
@@ -54,7 +61,9 @@ async function currentSemesterId(page: Page): Promise<number> {
     .locator('select[name="survey[semester]"] option')
     .filter({ hasText: "Vår 2032" })
     .getAttribute("value");
+
   expect(value).toMatch(/^\d+$/);
+
   return Number(value);
 }
 
@@ -65,9 +74,11 @@ test.describe("Real Symfony survey administration journey", () => {
     requireSurveyAdminMode();
 
     const viewerToken = await loginWithApi(page, viewerUsername, viewerPassword);
+
     const unauthorized = await page.request.get(`${apiOrigin}/api/admin/surveys`, {
       headers: { Accept: "application/ld+json", Authorization: `Bearer ${viewerToken}` },
     });
+
     await expectProblem(unauthorized, [401, 403]);
 
     await loginWithUi(page, operatorUsername, operatorPassword);
@@ -87,9 +98,11 @@ test.describe("Real Symfony survey administration journey", () => {
         finishPageContent: "Survey administration complete.",
       },
     });
+
     await expectProblem(invalid, [400, 422]);
 
     const name = "Survey administration 0032";
+
     const created = await page.request.post(`${apiOrigin}/api/admin/surveys`, {
       headers: headers(operatorToken),
       data: {
@@ -108,15 +121,17 @@ test.describe("Real Symfony survey administration journey", () => {
         ],
       },
     });
+
     expect(created.status()).toBe(201);
-    const createdPayload = (await created.json()) as { id?: unknown };
-    expect(typeof createdPayload.id).toBe("number");
+    const createdPayload = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Number }))((await created.json()));
+    expect(Predicate.isNumber(createdPayload.id)).toBe(true);
 
     const freshRead = await page.request.get(`${apiOrigin}/api/admin/surveys?semester=${semesterId}`, {
       headers: { Accept: "application/ld+json", Authorization: `Bearer ${operatorToken}` },
     });
+
     expect(freshRead.status()).toBe(200);
-    const listPayload = (await freshRead.json()) as { surveys?: Array<{ name?: unknown }> };
+    const listPayload = Schema.decodeUnknownSync(Schema.Struct({ surveys: Schema.optional(Schema.Array(Schema.Struct({ name: Schema.optional(Schema.Json) }))) }))((await freshRead.json()));
     expect(listPayload.surveys?.some((survey) => survey.name === name)).toBe(true);
 
     const rendered = await page.goto(`${apiOrigin}/kontrollpanel/undersokelse/admin?semester=${semesterId}`);

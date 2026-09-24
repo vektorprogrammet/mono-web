@@ -18,7 +18,7 @@ import type {
 } from "./schema.js";
 
 /** Portable anonymous school-survey capability; callers retain transaction ownership. */
-export interface SchoolSurveysShape {
+export interface SchoolSurveysOperations {
   readonly readForm: (
     surveyId: SurveyId,
   ) => Effect.Effect<SchoolSurveyFormResource, SchoolSurveyFailure>;
@@ -58,6 +58,6 @@ export interface SchoolSurveysShape {
   ) => Effect.Effect<SchoolSurveyResultsResource, SchoolSurveyFailure>;
 }
 
-export class SchoolSurveys extends Context.Service<SchoolSurveys, SchoolSurveysShape>()(
+export class SchoolSurveys extends Context.Service<SchoolSurveys, SchoolSurveysOperations>()(
   "@vektorprogrammet/domain/SchoolSurveys",
 ) {}

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -8,33 +9,52 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const postgresPort = 55465;
+
 const backendPort = 8865;
+
 const dashboardPort = 5265;
+
 const postgresDatabase = "identity_evidence_proof_0065";
+
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/${postgresDatabase}`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const chromiumExecutablePath =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
   "/etc/profiles/per-user/nori/bin/chromium-browser";
+
 const password = process.env.IDENTITY_EVIDENCE_PASSWORD ?? "identity-evidence-password-0065";
+
 const wrongPassword =
   process.env.IDENTITY_EVIDENCE_WRONG_PASSWORD ?? "identity-evidence-wrong-0065";
+
 const secret =
   process.env.IDENTITY_EVIDENCE_AUTH_SECRET ?? "identity-evidence-secret-0065-0123456789";
+
 const memberEmail =
   process.env.IDENTITY_EVIDENCE_MEMBER_EMAIL ?? "member.dashboard-0073@example.invalid";
+
 const adminScreenshotPath =
   process.env.IDENTITY_EVIDENCE_ADMIN_SCREENSHOT_PATH ??
   join(tmpdir(), "vektor-dashboard-0073-admin.png");
+
 const memberScreenshotPath =
   process.env.IDENTITY_EVIDENCE_MEMBER_SCREENSHOT_PATH ??
   join(tmpdir(), "vektor-dashboard-0073-member.png");
+
 const timeoutMs = 300_000;
+
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 const detail = (error) => (error instanceof Error ? error.message : String(error));
+
 const sanitizedCommandFailure = (value) =>
   value
     .replaceAll(postgresUrl, "[redacted-loopback-database]")
@@ -42,6 +62,7 @@ const sanitizedCommandFailure = (value) =>
     .replaceAll(wrongPassword, "[redacted-wrong-password]")
     .replaceAll(secret, "[redacted-auth-secret]")
     .slice(-8_000);
+
 const authorityDataPatterns = [
   {
     label: "seeded-authorization-row",
@@ -62,54 +83,71 @@ const authorityDataPatterns = [
       /(?:ruleId|rule_id|tagId|tag_id|assignmentId|assignment_id|capabilityId|capability_id|subjectTagId|subject_tag_id)/u,
   },
 ];
+
 const findAuthorityData = (value) =>
-  authorityDataPatterns.filter(({ pattern }) => pattern.test(value)).map(({ label }) => label);
+  authorityDataPatterns.flatMap(({ pattern, label }) => pattern.test(value) ? [label] : []);
+
 const isLegacyOrProviderPath = (path) =>
   /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
     path,
   ) ||
   (path.startsWith("/api/auth/sign-in/") && path !== "/api/auth/sign-in/email") ||
   /\/api\/auth\/(?:callback|oauth|sso|social|link-social|unlink-account)(?:\/|$)/iu.test(path);
+
 const rememberCookieValue = (values, value) => {
   if (value.length < 8) return;
   values.add(value);
+
   try {
     values.add(decodeURIComponent(value));
   } catch {}
 };
+
 const rememberCookieHeader = (values, header) => {
-  if (typeof header !== "string") return;
+  if (!Predicate.isString(header)) return;
+
   for (const pair of header.split(";")) {
     const separator = pair.indexOf("=");
+
     if (separator >= 0) rememberCookieValue(values, pair.slice(separator + 1).trim());
   }
 };
+
 const rememberSetCookie = (values, header) => {
   const pair = header.split(";", 1)[0] ?? "";
   const separator = pair.indexOf("=");
+
   if (separator >= 0) rememberCookieValue(values, pair.slice(separator + 1).trim());
 };
+
 const sanitizationFacts = (candidate, capturedCookieValues) => {
   const serialized = JSON.stringify(candidate);
+
   const processSecretMatches = [
     ["database-url", postgresUrl],
     ["identity-password", password],
     ["wrong-password", wrongPassword],
     ["better-auth-secret", secret],
   ]
-    .filter(([, value]) => value.length > 0 && serialized.includes(value))
-    .map(([label]) => label);
+    .flatMap(([label, value]) => value.length > 0 && serialized.includes(value) ? [label] : []);
+
   const databaseUrlMatches = /postgres(?:ql)?:\/\//iu.test(serialized) ? ["database-url"] : [];
+
   const cookieAssignmentMatches = /better-auth\.session_token(?:=|%3D)/iu.test(serialized)
     ? ["session-cookie-assignment"]
     : [];
-  const capturedCookieValueMatches = [...capturedCookieValues]
-    .filter((value) => value.length > 0 && serialized.includes(value))
-    .map((_, index) => `captured-cookie-${index + 1}`);
+
+  const capturedCookieValueMatches = [];
+
+  for (const value of capturedCookieValues) {
+    if (value.length > 0 && serialized.includes(value)) capturedCookieValueMatches.push(`captured-cookie-${capturedCookieValueMatches.length + 1}`);
+  }
+
   assert.deepEqual(processSecretMatches, []);
   assert.deepEqual(databaseUrlMatches, []);
   assert.deepEqual(cookieAssignmentMatches, []);
   assert.deepEqual(capturedCookieValueMatches, []);
+
   return {
     processSecretMatches,
     databaseUrlMatches,
@@ -127,6 +165,7 @@ const assertPortClosed = (port) =>
     });
     socket.once("error", (error) => {
       socket.destroy();
+
       if (error?.code === "ECONNREFUSED") resolve();
       else reject(error);
     });
@@ -134,38 +173,46 @@ const assertPortClosed = (port) =>
 
 const run = (command, args, options) => {
   const { promise, resolve, reject } = Promise.withResolvers();
+
   const child = spawn(command, args, {
     cwd: options.cwd,
     env: options.env,
     detached: true,
     stdio: options.capture ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
   });
+
   const stdout = [];
   const stderr = [];
+
   if (options.capture) {
     child.stdout.on("data", (chunk) => stdout.push(chunk));
     child.stderr.on("data", (chunk) => stderr.push(chunk));
   }
+
   const timer = setTimeout(() => {
     if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
     reject(new Error(`${options.label} timed out`));
   }, timeoutMs);
+
   child.once("error", (error) => {
     clearTimeout(timer);
     reject(error);
   });
   child.once("close", (code, signal) => {
     clearTimeout(timer);
+
     const output = {
       stdout: Buffer.concat(stdout).toString(),
       stderr: Buffer.concat(stderr).toString(),
     };
+
     if (code === 0) {
       resolve(options.capture ? output : undefined);
     } else {
       const captured = options.capture
         ? sanitizedCommandFailure(`${output.stdout}\n${output.stderr}`.trim())
         : "";
+
       reject(
         new Error(
           `${options.label} exited with ${signal ?? `code ${code}`}${captured.length === 0 ? "" : `\n${captured}`}`,
@@ -173,6 +220,7 @@ const run = (command, args, options) => {
       );
     }
   });
+
   return promise;
 };
 
@@ -181,10 +229,13 @@ const start = (command, args, env, cwd) =>
 
 const stop = async (child) => {
   if (child === undefined || child.exitCode !== null || child.pid === undefined) return;
+
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch {}
+
   await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(5_000)]);
+
   if (child.exitCode === null) {
     try {
       process.kill(-child.pid, "SIGKILL");
@@ -194,28 +245,36 @@ const stop = async (child) => {
 
 const waitForHttp = async (url, child, label) => {
   const deadline = Date.now() + timeoutMs;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`${label} exited before readiness`);
+
     try {
       const response = await fetch(url, { redirect: "manual" });
+
       if (response.status < 500) return;
     } catch {}
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 };
 
 const startRecordingBoundary = async (targetOrigin) => {
   const records = [];
   const sensitiveCookieValues = new Set();
+
   const server = createServer(async (request, response) => {
     const started = Date.now();
     const method = request.method ?? "GET";
     const target = new URL(request.url ?? "/", targetOrigin);
     const chunks = [];
+
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
     rememberCookieHeader(sensitiveCookieValues, request.headers.cookie);
+
     const record = {
       direction: "dashboard-to-native-backend",
       destination: "loopback-recording-boundary-to-native-backend",
@@ -231,9 +290,12 @@ const startRecordingBoundary = async (targetOrigin) => {
       durationMs: 0,
       responseByteLength: 0,
     };
+
     records.push(record);
+
     try {
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (
           value === undefined ||
@@ -242,12 +304,14 @@ const startRecordingBoundary = async (targetOrigin) => {
           continue;
         headers.set(name, Array.isArray(value) ? value.join(", ") : value);
       }
+
       const upstream = await fetch(target, {
         method,
         headers,
         body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
+
       const bytes = Buffer.from(await upstream.arrayBuffer());
       const bodyText = bytes.toString("utf8");
       record.status = upstream.status;
@@ -255,6 +319,7 @@ const startRecordingBoundary = async (targetOrigin) => {
       record.responseByteLength = bytes.byteLength;
       record.authorityDataMatches.response = findAuthorityData(bodyText);
       response.statusCode = upstream.status;
+
       if (target.pathname === "/api/session") {
         if (upstream.status === 200) {
           const projection = JSON.parse(bodyText);
@@ -267,17 +332,19 @@ const startRecordingBoundary = async (targetOrigin) => {
             "updatedAt",
             "userAgent",
           ]);
-          assert.ok(typeof projection.sessionId === "string" && projection.sessionId.length > 0);
+          assert.ok(Predicate.isString(projection.sessionId) && projection.sessionId.length > 0);
           assert.equal(projection.current, true);
+
           for (const field of ["createdAt", "updatedAt", "expiresAt"]) {
             assert.ok(
-              typeof projection[field] === "string" &&
+              Predicate.isString(projection[field]) &&
                 Number.isFinite(Date.parse(projection[field])),
             );
           }
+
           assert.ok(Date.parse(projection.expiresAt) > Date.now());
-          assert.ok(projection.ipAddress === null || typeof projection.ipAddress === "string");
-          assert.ok(projection.userAgent === null || typeof projection.userAgent === "string");
+          assert.ok(projection.ipAddress === null || Predicate.isString(projection.ipAddress));
+          assert.ok(projection.userAgent === null || Predicate.isString(projection.userAgent));
           assert.equal(bodyText, JSON.stringify(projection));
           record.sessionProjection = {
             keys: Object.keys(projection),
@@ -299,19 +366,26 @@ const startRecordingBoundary = async (targetOrigin) => {
           };
         }
       }
+
       const retryAfter = upstream.headers.get("x-retry-after");
+
       if (retryAfter !== null && /^\d+$/u.test(retryAfter))
         record.retryAfterSeconds = Number(retryAfter);
       const setCookies = upstream.headers.getSetCookie();
+
       for (const setCookie of setCookies) rememberSetCookie(sensitiveCookieValues, setCookie);
+
       for (const [name, value] of upstream.headers.entries()) {
         if (["content-encoding", "content-length", "transfer-encoding"].includes(name)) continue;
+
         if (name === "set-cookie") {
           response.setHeader(name, setCookies);
           continue;
         }
+
         response.setHeader(name, value);
       }
+
       response.setHeader("content-length", String(bytes.byteLength));
       response.end(bytes);
     } catch {
@@ -321,6 +395,7 @@ const startRecordingBoundary = async (targetOrigin) => {
       response.end();
     }
   });
+
   const { promise, resolve, reject } = Promise.withResolvers();
   server.once("error", reject);
   server.listen(0, "127.0.0.1", () => {
@@ -329,7 +404,8 @@ const startRecordingBoundary = async (targetOrigin) => {
   });
   await promise;
   const address = server.address();
-  assert.ok(address && typeof address !== "string");
+  assert.ok(address && !Predicate.isString(address));
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     records,
@@ -354,6 +430,7 @@ const main = async () => {
   let boundary;
   let evidence;
   let failure;
+
   try {
     await run(
       "initdb",
@@ -390,6 +467,7 @@ const main = async () => {
     await waitForHttp(`http://127.0.0.1:${postgresPort}`, postgres, "PostgreSQL").catch(
       async () => {
         const deadline = Date.now() + 30_000;
+
         while (Date.now() < deadline) {
           try {
             await run(
@@ -413,11 +491,13 @@ const main = async () => {
                 label: "PostgreSQL readiness",
               },
             );
+
             return;
           } catch {
             await sleep(250);
           }
         }
+
         throw new Error("PostgreSQL did not become ready");
       },
     );
@@ -426,6 +506,7 @@ const main = async () => {
       ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", postgresDatabase],
       { cwd: repositoryRoot, env: baseEnvironment, label: "Identity database creation" },
     );
+
     const seed = await run("node", ["apps/dashboard/e2e/native-identity-browser-seed.mjs"], {
       cwd: repositoryRoot,
       env: {
@@ -439,6 +520,7 @@ const main = async () => {
       capture: true,
       label: "Identity 0065 seed",
     });
+
     const seedEvidence = JSON.parse(seed.stdout.trim());
     assert.equal(seedEvidence.personId, "journey-0065-admin");
     assert.deepEqual(seedEvidence.member, {
@@ -492,6 +574,7 @@ const main = async () => {
       },
       label: "Identity dashboard production build",
     });
+
     const dashboardEnvironment = {
       ...baseEnvironment,
       API_URL: boundary.origin,
@@ -508,6 +591,7 @@ const main = async () => {
       IDENTITY_EVIDENCE_MEMBER_SCREENSHOT_PATH: memberScreenshotPath,
       IDENTITY_HARDENING_BROWSER_PATH: hardeningEvidencePath,
     };
+
     dashboard = start(
       "node",
       ["node_modules/@react-router/serve/bin.cjs", "build/server/index.js"],
@@ -582,6 +666,7 @@ const main = async () => {
       member: memberScreenshotPath,
       syntheticPersonasOnly: true,
     });
+
     for (const screenshotPath of [adminScreenshotPath, memberScreenshotPath]) {
       const screenshot = await readFile(screenshotPath);
       assert.deepEqual(
@@ -590,6 +675,7 @@ const main = async () => {
         `${screenshotPath} must be a PNG`,
       );
     }
+
     assert.deepEqual(browserEvidence.requestLedger.forbidden, []);
     assert.deepEqual(browserEvidence.requestLedger.unexpectedDestinations, []);
     assert.ok(
@@ -602,9 +688,11 @@ const main = async () => {
       ),
       "member shell must recover identity from Better Auth session",
     );
+
     const nativeSignIn = boundary.records.filter(
       (entry) => entry.path === "/api/auth/sign-in/email",
     );
+
     assert.equal(nativeSignIn.length, 17);
     assert.equal(
       nativeSignIn.filter(({ status }) => status === 200).length,
@@ -614,9 +702,11 @@ const main = async () => {
     assert.equal(nativeSignIn[0].status, 200);
     const wrongStatuses = nativeSignIn.slice(-10).map((entry) => entry.status);
     assert.deepEqual(wrongStatuses, [401, 401, 401, 429, 429, 429, 429, 429, 429, 429]);
+
     const nativeSignOut = boundary.records.filter(
       (entry) => entry.path === "/api/session" && entry.method === "DELETE",
     );
+
     const explicitSignOut = nativeSignOut.filter(({ status }) => status === 204);
     const revokedReplaySignOut = nativeSignOut.filter(({ status }) => status === 401);
     assert.ok(
@@ -627,24 +717,29 @@ const main = async () => {
       revokedReplaySignOut.length >= 3,
       "revoked-cookie sign-out retries must fail before another mutation",
     );
+
     const sessionRequests = boundary.records.filter(
       (entry) => entry.path === "/api/session" && entry.method === "GET",
     );
+
     assert.ok(sessionRequests.some((entry) => entry.status === 200));
     assert.ok(sessionRequests.some((entry) => entry.status === 401));
+
     const successfulSessionProjections = sessionRequests
       .filter((entry) => entry.status === 200)
       .map((entry) => entry.sessionProjection);
+
     const unauthenticatedSessionProjections = sessionRequests
       .filter((entry) => entry.status === 401)
       .map((entry) => entry.unauthenticatedProjection);
+
     assert.ok(
       successfulSessionProjections.every(
         (projection) =>
           projection !== undefined &&
           projection.exactJsonBytes === true &&
           projection.current === true &&
-          typeof projection.sessionId === "string" &&
+          Predicate.isString(projection.sessionId) &&
           projection.sessionId.length > 0 &&
           [...projection.keys].sort().join(",") ===
             "createdAt,current,expiresAt,ipAddress,sessionId,updatedAt,userAgent",
@@ -660,11 +755,14 @@ const main = async () => {
       ),
     );
     const forbidden = boundary.records.filter((entry) => entry.legacyOrProvider);
+
     const apiAuthorityRequests = boundary.records.filter((entry) =>
       Object.values(entry.authorityDataMatches).some((matches) => matches.length > 0),
     );
+
     assert.deepEqual(forbidden, []);
     assert.deepEqual(apiAuthorityRequests, []);
+
     const proofOutput = await run(
       "bun",
       ["run", "--cwd", "packages/database", "proof:identity-browser"],
@@ -682,6 +780,7 @@ const main = async () => {
         label: "Identity 0056 PostgreSQL orthogonality proof",
       },
     );
+
     const postgresEvidence = JSON.parse(proofOutput.stdout.trim());
     assert.equal(postgresEvidence.extensionSpecId, "0056");
     assert.deepEqual(postgresEvidence.authSchemaState, seedEvidence.authSchema.afterPublicAuthz);
@@ -729,6 +828,7 @@ const main = async () => {
       capture: true,
       label: "Identity adapter audit rollback proof",
     });
+
     const identityBehavior = {
       login: {
         nativeStatus: nativeSignIn[0].status,
@@ -760,6 +860,7 @@ const main = async () => {
         semantics: browserEvidence.observations.accessibility,
       },
     };
+
     const versions = await Promise.all([
       run("node", ["--version"], {
         cwd: repositoryRoot,
@@ -786,6 +887,7 @@ const main = async () => {
         label: "Chromium version",
       }),
     ]);
+
     const ledger = [...browserEvidence.requestLedger.browserToDashboard, ...boundary.records];
     evidence = {
       specId: "0065",
@@ -869,7 +971,9 @@ const main = async () => {
   } catch (error) {
     failure = error;
   }
+
   const cleanupErrors = [];
+
   for (const [label, child] of [
     ["dashboard", dashboard],
     ["backend", backend],
@@ -880,6 +984,7 @@ const main = async () => {
       cleanupErrors.push(new Error(`${label}: ${detail(error)}`));
     }
   }
+
   try {
     if (postgres !== undefined)
       await run("pg_ctl", ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
@@ -890,24 +995,30 @@ const main = async () => {
   } catch (error) {
     cleanupErrors.push(error);
   }
+
   try {
     await boundary?.close();
   } catch (error) {
     cleanupErrors.push(error);
   }
+
   try {
     await rm(temporaryRoot, { recursive: true, force: true });
   } catch (error) {
     cleanupErrors.push(error);
   }
+
   const boundaryPort = boundary === undefined ? undefined : Number(new URL(boundary.origin).port);
   const cleanupPorts = [...selectedPorts, ...(boundaryPort === undefined ? [] : [boundaryPort])];
+
   try {
     await Promise.all(cleanupPorts.map(assertPortClosed));
   } catch (error) {
     cleanupErrors.push(error);
   }
+
   if (failure !== undefined) throw failure;
+
   if (cleanupErrors.length > 0)
     throw new AggregateError(cleanupErrors, "Identity evidence cleanup failed");
   assert.ok(evidence);

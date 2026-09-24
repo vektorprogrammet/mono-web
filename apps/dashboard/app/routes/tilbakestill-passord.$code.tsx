@@ -28,6 +28,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     throw redirect("/login?reset=true");
   } catch (e) {
     if (e instanceof Response) throw e;
+
     return { error: "Kunne ikke tilbakestille passordet. Lenken kan være ugyldig eller utløpt." };
   }
 }

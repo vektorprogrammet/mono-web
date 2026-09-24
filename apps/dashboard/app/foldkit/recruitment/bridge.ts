@@ -1,3 +1,5 @@
+import { nativeProblemFrom } from "../../lib/native-problem";
+import { Predicate, Match, Schema as S, flow, Option } from "effect";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/http-api"
 import { CancelInterviewObservationSchema,
 FinalizeInterviewObservationSchema,
@@ -6,27 +8,11 @@ RecruitmentAssignmentBoardQuerySchema,
 RecruitmentAssignmentBoardSchema,
 RecruitmentInterviewConductObservationSchema,
 RecruitmentInterviewId, } from "@vektorprogrammet/http-api"
-import {
-  CancelInterviewRequest,
-  CancelInterviewResponse,
-  ConditionalReadHeaders,
-  CreateApplicationInterviewRequest,
-  FinalizeInterviewRequest,
-  CorrectInterviewAssessmentRequest,
-  CorrectInterviewAssessmentResponse,
-  FinalizeInterviewResponse,
-  IdempotencyHeaders,
-  IdempotencyIfMatchHeaders,
-  NativeProblem,
-  RecruitmentInterviewResource,
-  SchedulingBoard,
-  ScheduleInterviewRequest,
-  ScheduleInterviewResponse,
-  StrongETag,
-} from "@vektorprogrammet/http-api";
-import { Match, Schema as S } from "effect";
+import { CancelInterviewRequest, CancelInterviewResponse, ConditionalReadHeaders, CreateApplicationInterviewRequest, FinalizeInterviewRequest, CorrectInterviewAssessmentRequest, CorrectInterviewAssessmentResponse, FinalizeInterviewResponse, IdempotencyHeaders, IdempotencyIfMatchHeaders, RecruitmentInterviewResource, SchedulingBoard, ScheduleInterviewRequest, ScheduleInterviewResponse, StrongETag } from "@vektorprogrammet/http-api";
+
 
 export const RecruitmentBoardStatus = RecruitmentAssignmentBoardQuerySchema.fields.status;
+
 export type RecruitmentBoardStatus = S.Schema.Type<typeof RecruitmentBoardStatus>;
 
 const ReadAssignmentBoardOperation = S.Struct({
@@ -39,6 +25,7 @@ export const CreateApplicationInterviewInputSchema = S.Struct({
   headers: IdempotencyHeaders,
   payload: CreateApplicationInterviewRequest,
 });
+
 const CreateApplicationInterviewOperation = S.Struct({
   operation: S.Literal("createApplicationInterview"),
   ...CreateApplicationInterviewInputSchema.fields,
@@ -53,6 +40,7 @@ export const ScheduleInterviewInputSchema = S.Struct({
   headers: IdempotencyIfMatchHeaders,
   payload: ScheduleInterviewRequest,
 });
+
 const ScheduleInterviewOperation = S.Struct({
   operation: S.Literal("scheduleInterview"),
   ...ScheduleInterviewInputSchema.fields,
@@ -62,6 +50,7 @@ export const ReadInterviewConductInputSchema = S.Struct({
   params: S.Struct({ interviewId: RecruitmentInterviewId }),
   headers: ConditionalReadHeaders,
 });
+
 const ReadInterviewConductOperation = S.Struct({
   operation: S.Literal("readInterviewConduct"),
   ...ReadInterviewConductInputSchema.fields,
@@ -72,6 +61,7 @@ export const FinalizeInterviewInputSchema = S.Struct({
   headers: IdempotencyIfMatchHeaders,
   payload: FinalizeInterviewRequest,
 });
+
 const FinalizeInterviewOperation = S.Struct({
   operation: S.Literal("finalizeInterview"),
   ...FinalizeInterviewInputSchema.fields,
@@ -82,11 +72,13 @@ export const CancelInterviewInputSchema = S.Struct({
   headers: IdempotencyIfMatchHeaders,
   payload: CancelInterviewRequest,
 });
+
 export const CorrectInterviewAssessmentInputSchema = S.Struct({
   params: S.Struct({ interviewId: RecruitmentInterviewId }),
   headers: IdempotencyIfMatchHeaders,
   payload: CorrectInterviewAssessmentRequest,
 });
+
 const CorrectInterviewAssessmentOperation = S.Struct({
   operation: S.Literal("correctInterviewAssessment"),
   ...CorrectInterviewAssessmentInputSchema.fields,
@@ -101,6 +93,7 @@ export const RecruitmentInterviewConductResourceSchema = S.Struct({
   detail: RecruitmentInterviewConductObservationSchema,
   etag: StrongETag,
 });
+
 export type RecruitmentInterviewConductResource = S.Schema.Type<
   typeof RecruitmentInterviewConductResourceSchema
 >;
@@ -135,77 +128,68 @@ export const RecruitmentBridgeOperation = S.Union([
   CorrectInterviewAssessmentOperation,
   CancelInterviewOperation,
 ]);
+
 export type RecruitmentBridgeOperation = S.Schema.Type<typeof RecruitmentBridgeOperation>;
+
 export const RecruitmentBridgeOperationJson = S.fromJsonString(RecruitmentBridgeOperation);
 
-export const RecruitmentBridgeFailure = S.Struct({
-  _tag: S.Literals([
-    "Unauthorized",
-    "Forbidden",
-    "NotFound",
-    "Validation",
-    "Conflict",
-    "Network",
-    "RateLimited",
-    "Configuration",
-  ]),
-  message: S.String,
+export const RecruitmentBridgeFailure = S.TaggedUnion({
+"Unauthorized": { message: S.String },
+"Forbidden": { message: S.String },
+"NotFound": { message: S.String },
+"Validation": { message: S.String },
+"Conflict": { message: S.String },
+"Network": { message: S.String },
+"RateLimited": { message: S.String },
+"Configuration": { message: S.String }
 });
+
 export type RecruitmentBridgeFailure = S.Schema.Type<typeof RecruitmentBridgeFailure>;
 
-const NativeProblemSummary = S.Struct({ status: S.Number, code: S.String });
-type NativeProblemSummary = S.Schema.Type<typeof NativeProblemSummary>;
-
-const nativeProblem = (error: unknown): NativeProblemSummary | undefined => {
-  const problem = S.is(NativeProblem)(error)
-    ? error
-    : typeof error === "object" &&
-        error !== null &&
-        "body" in error &&
-        S.is(NativeProblem)(error.body)
-      ? error.body
-      : undefined;
-  return problem === undefined ? undefined : S.decodeUnknownSync(NativeProblemSummary)(problem);
-};
-
-export const toRecruitmentBridgeFailure = (error: unknown): RecruitmentBridgeFailure => {
+export const toRecruitmentBridgeFailure = flow(
+ S.decodeUnknownOption(S.Union([RecruitmentBridgeFailure, S.Struct({_tag: S.String}), S.Struct({body: S.Json}), S.Json])),
+ Option.getOrUndefined,
+ (error): RecruitmentBridgeFailure => {
   if (S.is(RecruitmentBridgeFailure)(error)) return error;
 
-  const problem = nativeProblem(error);
+  const problem = nativeProblemFrom(error);
+
   if (problem !== undefined) {
     switch (problem.status) {
       case 401:
-        return { _tag: "Unauthorized", message: "Authentication is required" };
+        return RecruitmentBridgeFailure.cases.Unauthorized.make({ message: "Authentication is required" });
       case 403:
-        return { _tag: "Forbidden", message: "Recruitment access is denied" };
+        return RecruitmentBridgeFailure.cases.Forbidden.make({ message: "Recruitment access is denied" });
       case 404:
-        return { _tag: "NotFound", message: "Recruitment record was not found" };
+        return RecruitmentBridgeFailure.cases.NotFound.make({ message: "Recruitment record was not found" });
       case 409:
       case 412:
       case 428:
-        return { _tag: "Conflict", message: "Recruitment state has changed" };
+        return RecruitmentBridgeFailure.cases.Conflict.make({ message: "Recruitment state has changed" });
       case 400:
       case 413:
       case 415:
       case 422:
-        return { _tag: "Validation", message: "Recruitment input is invalid" };
+        return RecruitmentBridgeFailure.cases.Validation.make({ message: "Recruitment input is invalid" });
       case 429:
-        return { _tag: "RateLimited", message: "Recruitment requests are rate limited" };
+        return RecruitmentBridgeFailure.cases.RateLimited.make({ message: "Recruitment requests are rate limited" });
       case 500:
       case 503:
-        return { _tag: "Network", message: "Recruitment request failed" };
+        return RecruitmentBridgeFailure.cases.Network.make({ message: "Recruitment request failed" });
     }
   }
 
   const tag =
-    typeof error === "object" && error !== null && "_tag" in error && typeof error._tag === "string"
+    Predicate.isObjectOrArray(error) && error !== null && "_tag" in error && Predicate.isString(error._tag)
       ? error._tag
       : "";
+
   if (tag.toLowerCase().includes("configuration")) {
-    return { _tag: "Configuration", message: "Recruitment is not configured" };
+    return RecruitmentBridgeFailure.cases.Configuration.make({ message: "Recruitment is not configured" });
   }
-  return { _tag: "Network", message: "Recruitment request failed" };
-};
+
+  return RecruitmentBridgeFailure.cases.Network.make({ message: "Recruitment request failed" });
+});
 
 export const boardFailureMessage = (failure: RecruitmentBridgeFailure): string =>
   Match.value(failure._tag).pipe(

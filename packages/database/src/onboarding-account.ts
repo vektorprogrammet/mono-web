@@ -3,13 +3,16 @@ import { OnboardingFailure, type AccountProvisionInput } from "@vektorprogrammet
 import { Effect } from "effect";
 import { nativePasswordHash } from "./password-codec.js";
 import { createLocalAccountIssuer } from "better-auth";
+
 export const hashOnboardingPassword = nativePasswordHash;
+
 /** Runs on the caller's Database transaction, including Person/link/token consumption. */
 export const provisionOnboardingAccount = (input: AccountProvisionInput) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       const collision =
         yield* sql`SELECT id FROM auth."user" WHERE lower(email)=lower(${input.email})`;
+
       if (collision.length)
         return yield* Effect.fail(
           new OnboardingFailure({ code: "onboarding.sign-in-required", status: 409 }),

@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Match, Predicate, Effect, Schema } from "effect";
 import { Database } from "../service.js";
 import type { OrganizationAuthorityInstant } from "@vektorprogrammet/domain/organization";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
@@ -40,6 +40,7 @@ export const readSchoolsDirectory = (
     const decodedQuery = yield* Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(query, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory query", cause)));
+
     const database = yield* Database;
     const organization = yield* Organization;
     const schools = yield* Schools;
@@ -51,6 +52,7 @@ export const readSchoolsDirectory = (
           yield* database`
             SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY
           `.pipe(Effect.asVoid);
+
           const authority = yield* organization
             .resolvePersonAuthorityForRead(personId, authorizationInstant)
             .pipe(
@@ -61,38 +63,51 @@ export const readSchoolsDirectory = (
                 Effect.fail(persistenceError("resolve Schools directory authority", cause)),
               ),
             );
+
           if (authority.evaluatedAt !== authorizationInstant) {
             return yield* decodeError(
               "resolve Schools directory authority",
               "Organization authority used a different authorization instant",
             );
           }
+
           const decision = resolveSchoolsDirectoryScope(authority);
-          if (decision._tag === "Deny") {
+
+          if (Predicate.isTagged(decision, "Deny")) {
             return yield* decision.reason === "AuthorityInactive"
               ? new SchoolsAuthorityInactive({})
               : new SchoolsNotInScope({});
           }
+
           const scope = decision.value;
           const departmentId = decodedQuery.departmentId;
+
           if (departmentId !== undefined) {
             yield* organization.readDepartment(departmentId).pipe(
               Effect.asVoid,
               Effect.mapError((cause) => {
-                switch (cause._tag) {
-                  case "DepartmentNotFound":
+                return Match.value(cause).pipe(
+                  Match.tag("DepartmentNotFound", () => {
                     return new SchoolsDepartmentNotFound({ departmentId });
-                  case "OrganizationPersistenceError":
+                  }),
+                  Match.tag("OrganizationPersistenceError", (cause) => {
                     return persistenceError("read Schools directory department", cause);
-                  default:
+                  }),
+                  Match.orElse((cause) => {
                     return decodeError("read Schools directory department", cause);
-                }
+                  }),
+                );
               }),
             );
-            if (scope._tag === "DepartmentIds" && !scope.departmentIds.includes(departmentId)) {
+
+            if (
+              Predicate.isTagged(scope, "DepartmentIds") &&
+              !scope.departmentIds.includes(departmentId)
+            ) {
               return yield* new SchoolsDepartmentOutOfScope({ departmentId });
             }
           }
+
           return yield* schools.listDirectory({ ...decodedQuery, scope });
         }),
       )

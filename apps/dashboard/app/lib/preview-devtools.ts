@@ -9,7 +9,7 @@ import type { DashboardPreviewStage } from "../../workers/preview-stage";
  * Production has no stage in this set, so the capability is structurally
  * absent there — it is a build-time constant, not a runtime flag.
  */
-const DEVTOOLS_STAGES: Record<string, string> = {
+const DEVTOOLS_STAGES = {
   "dev-main": "vektor.phibkro.org",
   p20: "p20.vektor.phibkro.org",
 };
@@ -34,11 +34,17 @@ export const previewDevtoolsEnabled = (
   host?: string,
 ): boolean => {
   if (source === "local-dev") return true;
-  if (source === "server-stage") return stage !== undefined && stage in DEVTOOLS_STAGES;
+
+  const stageHost = Object.entries(DEVTOOLS_STAGES).find(([key]) => key === stage)?.[1];
+
+  if (source === "server-stage") return stageHost !== undefined;
+
   if (source === "preview-stage") {
     if (stage === undefined || host === undefined) return false;
-    return DEVTOOLS_STAGES[stage] === host?.toLowerCase();
+
+    return stageHost !== undefined && stageHost === host.toLowerCase();
   }
+
   return false;
 };
 

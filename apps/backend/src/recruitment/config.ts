@@ -19,7 +19,7 @@ export const makeRecruitmentInvitationId = (): typeof RecruitmentInvitationId.Ty
 export const makeRecruitmentResponseCapability = (): string =>
   randomBytes(32).toString("base64url");
 
-export const makeRecruitmentApiConfig = (admission: AdmissionApiConfig) => ({
+export const recruitmentApiConfig = (admission: AdmissionApiConfig) => ({
   maxBodyBytes: admission.maxBodyBytes,
   now: admission.now,
   nextInterviewId: () => RecruitmentInterviewId.make(`recruitment_interview_${randomUUID()}`),

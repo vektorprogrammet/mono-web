@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 
 test.describe("Login page", () => {

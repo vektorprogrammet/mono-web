@@ -1,4 +1,6 @@
+import { Predicate } from "effect";
 import {
+  PrincipalSchema,
   AuthorityVersion,
   RECEIPT_DOMAIN_ID,
   RECEIPT_RESOURCE_KIND,
@@ -22,6 +24,7 @@ export type ReceiptApprovalCandidate = Pick<
   ReceiptListItem,
   "receiptId" | "ownerPersonId" | "departmentId" | "status" | "revision"
 >;
+
 export type ReceiptApprovalSelection = {
   readonly receiptIds: ReadonlyArray<string>;
 };
@@ -106,30 +109,37 @@ export const selectAuthorizedReceiptApprovals = (
     if (directAuthority.approvalGrants.some(({ active }) => active)) {
       return allow({ receiptIds: [] });
     }
+
     return deny(directAuthority.approvalGrants.length > 0 ? "AuthorityInactive" : "NotInScope");
   }
+
   const receiptIds: string[] = [];
   let denialReason: DecisionReason | undefined;
   let inactiveGrantSeen = directAuthority.approvalGrants.length > 0;
 
   for (const receipt of candidates) {
     const context = makeReceiptApprovalContext(receipt, organization, directAuthority, rules);
+
     const composition = composeCapabilityEvidence("approveReceipt", directEvidence, rules, {
-      principal: { _tag: "Person", personId: directAuthority.personId },
+      principal: PrincipalSchema.cases.Person.make({ personId: directAuthority.personId }),
       authorizationInstant: directAuthority.evaluatedAt,
       context,
       tagAssignments,
     });
-    if (composition.decision._tag === "Deny") {
+
+    if (Predicate.isTagged(composition.decision, "Deny")) {
       denialReason ??= composition.decision.reason;
       continue;
     }
+
     const authority = projectReceiptAuthority(
       organization,
       [],
       composition.decision.value.approvalGrants ?? [],
     );
+
     const selected = selectReceiptApprovalGrant(authority, receipt.departmentId);
+
     if (selected?.active === true) {
       receiptIds.push(receipt.receiptId);
     } else {
@@ -138,7 +148,9 @@ export const selectAuthorizedReceiptApprovals = (
   }
 
   if (receiptIds.length > 0) return allow({ receiptIds });
+
   if (denialReason !== undefined) return deny(denialReason);
+
   return deny(inactiveGrantSeen ? "AuthorityInactive" : "NotInScope");
 };
 

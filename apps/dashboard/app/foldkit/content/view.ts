@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { DepartmentId as DepartmentIdSchema } from "@vektorprogrammet/http-api"
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Message } from "./message";
@@ -17,12 +18,13 @@ import type { Model } from "./model";
 
 const bannerView = (model: Model, h: HtmlBuilder<Message>): Html => {
   if (model.banner === null) return h.empty;
+
   return h.div(
     [h.Class("content-workspace__banner"), h.Role("alert")],
     [
       h.p([], [model.banner.message]),
       // A failed load offers exactly one recovery action: a new request id.
-      model.banner._tag === "Failed"
+      Predicate.isTagged(model.banner, "Failed")
         ? h.button([h.Type("button"), h.OnClick(RetriedWorkspace())], ["Prøv igjen"])
         : h.empty,
     ],
@@ -30,30 +32,34 @@ const bannerView = (model: Model, h: HtmlBuilder<Message>): Html => {
 };
 
 const stateView = (model: Model, h: HtmlBuilder<Message>): Html => {
-  if (model.workspace._tag === "Loading") {
+  if (Predicate.isTagged(model.workspace, "Loading")) {
     return h.p(
       [h.Role("status"), h.Class("content-workspace__loading")],
       ["Laster artikkeladministrasjonen …"],
     );
   }
-  if (model.workspace._tag === "Failure") {
+
+  if (Predicate.isTagged(model.workspace, "Failure")) {
     return h.div(
       [h.Role("status"), h.Class("content-workspace__empty")],
       [h.h3([], ["Ingen artikler vist"]), h.p([], ["Prøv å laste på nytt."])],
     );
   }
+
   return h.empty;
 };
 
 const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
-  if (model.workspace._tag !== "Success") return h.empty;
+  if (!Predicate.isTagged(model.workspace, "Success")) return h.empty;
   const entries = visibleEntries(model);
+
   if (entries.length === 0) {
     return h.p(
       [h.Role("status"), h.Class("content-workspace__empty")],
       ["Ingen artikler i denne visningen."],
     );
   }
+
   return h.ul(
     [h.Class("content-workspace__list"), h.Role("list")],
     entries.map((entry) =>
@@ -120,7 +126,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.p([h.Class("content-workspace__eyebrow")], ["Innhold"]),
           h.h1([h.Id("content-workspace-title")], ["Artikler"]),
           bannerView(model, h),
-          model.workspace._tag === "Loading" ? stateView(model, h) : rows(model, h),
+          Predicate.isTagged(model.workspace, "Loading") ? stateView(model, h) : rows(model, h),
         ],
       ),
       h.section(
@@ -219,7 +225,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
             [
               h.Id("content-department-filter"),
               h.OnChange((value) =>
-                ChangedDepartmentFilter({ departmentId: value === "" ? null : (value as never) }),
+                ChangedDepartmentFilter({ departmentId: model.knownDepartments.find((department) => department.departmentId === value)?.departmentId ?? null }),
               ),
             ],
             [

@@ -1,5 +1,9 @@
 export { Identity } from "./service.js";
-export type { IdentityShape } from "./service.js";
+
+export * from "./access.js";
+
+export type { IdentityOperations } from "./service.js";
+
 export {
   IdentityEngineError,
   IdentityInvalidCredentials,
@@ -8,6 +12,7 @@ export {
   IdentitySessionExpired,
   IdentitySessionNotFound,
 } from "./errors.js";
+
 export {
   decodeIdentityActor,
   decodeIdentitySession,
@@ -20,6 +25,7 @@ export {
   IdentitySession,
   IdentitySessionId,
 } from "./schema.js";
+
 export type {
   IdentitySessionMutationSuccess,
   IdentitySignInInput,

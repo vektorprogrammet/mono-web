@@ -1,10 +1,14 @@
-import type { DatabaseShape } from "../service.js";
-import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Effect } from "effect";
+import type { DatabaseOperations } from "../service.js";
+import {
+  canonicalJsonValue,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "@vektorprogrammet/domain/evidence";
+import { Schema, Record as EffectRecord, Effect } from "effect";
 
 export interface StableTableProjection {
   readonly qualifiedName: string;
-  readonly rows: ReadonlyArray<Record<string, unknown>>;
+  readonly rows: ReadonlyArray<Schema.Json>;
 }
 
 export interface StableByteSet {
@@ -56,6 +60,7 @@ const makeStableByteSet = (
   const bytes = canonicalJsonBytes(
     projections.map(({ qualifiedName, rows }) => ({ qualifiedName, rows })),
   );
+
   return {
     name,
     bytes,
@@ -63,6 +68,7 @@ const makeStableByteSet = (
     byteLength: bytes.byteLength,
     tables: projections.map(({ qualifiedName, rows }) => {
       const rowBytes = canonicalJsonBytes(rows);
+
       return {
         qualifiedName,
         rowCount: rows.length,
@@ -73,47 +79,37 @@ const makeStableByteSet = (
   };
 };
 
-const table = (
+const table = <A extends object>(
   qualifiedName: string,
-  rows: ReadonlyArray<Record<string, unknown>>,
-): StableTableProjection => ({ qualifiedName, rows });
+  rows: ReadonlyArray<A>,
+): StableTableProjection => ({ qualifiedName, rows: rows.map(canonicalJsonValue) });
 
 export const stableByteSetEvidence = (state: OrganizationImportStableState) =>
-  Object.fromEntries(
-    Object.entries(state.byteSets).map(([name, byteSet]) => [
-      name,
-      {
-        byteLength: byteSet.byteLength,
-        sha256: byteSet.sha256,
-        tables: byteSet.tables,
-      },
-    ]),
-  );
+  EffectRecord.map(state.byteSets, (byteSet) => ({
+    byteLength: byteSet.byteLength,
+    sha256: byteSet.sha256,
+    tables: byteSet.tables,
+  }));
 
 export const compareStableByteSets = (
   before: OrganizationImportStableState,
   after: OrganizationImportStableState,
 ): StableByteSetComparison =>
-  Object.fromEntries(
-    (Object.keys(before.byteSets) as Array<StableByteSet["name"]>).map((name) => {
-      const left = before.byteSets[name];
-      const right = after.byteSets[name];
-      return [
-        name,
-        {
-          byteLengthEqual: left.byteLength === right.byteLength,
-          sha256Equal: left.sha256 === right.sha256,
-          directBytesEqual: Buffer.from(left.bytes).equals(Buffer.from(right.bytes)),
-        },
-      ];
-    }),
-  ) as StableByteSetComparison;
+  EffectRecord.map(before.byteSets, (left, name) => {
+    const right = after.byteSets[name];
+
+    return {
+      byteLengthEqual: left.byteLength === right.byteLength,
+      sha256Equal: left.sha256 === right.sha256,
+      directBytesEqual: Buffer.from(left.bytes).equals(Buffer.from(right.bytes)),
+    };
+  });
 
 export const readOrganizationImportStableState = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
 ): Effect.Effect<OrganizationImportStableState, unknown> =>
   Effect.gen(function* () {
-    const departments = yield* sql<Record<string, unknown>>`
+    const departments = yield* sql`
       SELECT
         department_id AS "departmentId",
         name,
@@ -131,7 +127,8 @@ export const readOrganizationImportStableState = (
       FROM public.organization_departments
       ORDER BY department_id ASC
     `;
-    const teams = yield* sql<Record<string, unknown>>`
+
+    const teams = yield* sql`
       SELECT
         team_id AS "teamId",
         department_id AS "departmentId",
@@ -149,7 +146,8 @@ export const readOrganizationImportStableState = (
       FROM public.organization_teams
       ORDER BY team_id ASC
     `;
-    const memberships = yield* sql<Record<string, unknown>>`
+
+    const memberships = yield* sql`
       SELECT
         membership_id AS "membershipId",
         person_id AS "personId",
@@ -166,7 +164,8 @@ export const readOrganizationImportStableState = (
       FROM public.organization_memberships
       ORDER BY membership_id ASC
     `;
-    const quarantine = yield* sql<Record<string, unknown>>`
+
+    const quarantine = yield* sql`
       SELECT
         source_repository AS "sourceRepository",
         source_revision AS "sourceRevision",
@@ -189,7 +188,8 @@ export const readOrganizationImportStableState = (
         source_occurrence ASC,
         transformation_revision ASC
     `;
-    const ledger = yield* sql<Record<string, unknown>>`
+
+    const ledger = yield* sql`
       SELECT
         source_repository AS "sourceRepository",
         source_revision AS "sourceRevision",
@@ -215,17 +215,19 @@ export const readOrganizationImportStableState = (
         transformation_revision ASC
     `;
 
-    const profiles = yield* sql<Record<string, unknown>>`
+    const profiles = yield* sql`
       SELECT person_id AS "personId", first_name AS "firstName", last_name AS "lastName", revision
       FROM public.person_profiles
       ORDER BY person_id ASC
     `;
-    const contacts = yield* sql<Record<string, unknown>>`
+
+    const contacts = yield* sql`
       SELECT person_id AS "personId", email, phone, revision
       FROM public.person_contact_profiles
       ORDER BY person_id ASC
     `;
-    const grants = yield* sql<Record<string, unknown>>`
+
+    const grants = yield* sql`
       SELECT
         grant_id AS "grantId",
         person_id AS "personId",
@@ -238,12 +240,13 @@ export const readOrganizationImportStableState = (
       ORDER BY grant_id ASC
     `;
 
-    const authzTags = yield* sql<Record<string, unknown>>`
+    const authzTags = yield* sql`
       SELECT tag_id AS "tagId", name, revision
       FROM public.authz_tags
       ORDER BY tag_id ASC
     `;
-    const authzAssignments = yield* sql<Record<string, unknown>>`
+
+    const authzAssignments = yield* sql`
       SELECT
         assignment_id AS "assignmentId",
         tag_id AS "tagId",
@@ -256,7 +259,8 @@ export const readOrganizationImportStableState = (
       FROM public.authz_tag_assignments
       ORDER BY assignment_id ASC
     `;
-    const authzRules = yield* sql<Record<string, unknown>>`
+
+    const authzRules = yield* sql`
       SELECT
         rule_id AS "ruleId",
         capability_id AS "capabilityId",
@@ -276,13 +280,14 @@ export const readOrganizationImportStableState = (
       ORDER BY rule_id ASC
     `;
 
-    const authTables = yield* sql<Record<string, unknown>>`
+    const authTables = yield* sql`
       SELECT table_name AS "tableName"
       FROM information_schema.tables
       WHERE table_schema = 'auth' AND table_type = 'BASE TABLE'
       ORDER BY table_name ASC
     `;
-    const authColumns = yield* sql<Record<string, unknown>>`
+
+    const authColumns = yield* sql`
       SELECT
         table_name AS "tableName",
         column_name AS "columnName",
@@ -295,7 +300,8 @@ export const readOrganizationImportStableState = (
       WHERE table_schema = 'auth'
       ORDER BY table_name ASC, ordinal_position ASC
     `;
-    const authConstraints = yield* sql<Record<string, unknown>>`
+
+    const authConstraints = yield* sql`
       SELECT
         relation.relname AS "tableName",
         constraint_record.conname AS "constraintName",
@@ -307,7 +313,8 @@ export const readOrganizationImportStableState = (
       WHERE namespace.nspname = 'auth'
       ORDER BY relation.relname ASC, constraint_record.conname ASC
     `;
-    const authIndexes = yield* sql<Record<string, unknown>>`
+
+    const authIndexes = yield* sql`
       SELECT
         relation.relname AS "tableName",
         index_relation.relname AS "indexName",
@@ -319,7 +326,8 @@ export const readOrganizationImportStableState = (
       WHERE namespace.nspname = 'auth'
       ORDER BY relation.relname ASC, index_relation.relname ASC
     `;
-    const authTriggers = yield* sql<Record<string, unknown>>`
+
+    const authTriggers = yield* sql`
       SELECT
         relation.relname AS "tableName",
         trigger_record.tgname AS "triggerName",
@@ -330,7 +338,8 @@ export const readOrganizationImportStableState = (
       WHERE namespace.nspname = 'auth' AND NOT trigger_record.tgisinternal
       ORDER BY relation.relname ASC, trigger_record.tgname ASC
     `;
-    const authFunctions = yield* sql<Record<string, unknown>>`
+
+    const authFunctions = yield* sql`
       SELECT
         procedure.proname AS "functionName",
         pg_get_function_identity_arguments(procedure.oid) AS arguments,
@@ -340,7 +349,8 @@ export const readOrganizationImportStableState = (
       WHERE namespace.nspname = 'auth'
       ORDER BY procedure.proname ASC, pg_get_function_identity_arguments(procedure.oid) ASC
     `;
-    const authRowCounts = yield* sql<Record<string, unknown>>`
+
+    const authRowCounts = yield* sql`
       SELECT 'account' AS "tableName", count(*)::integer AS "rowCount" FROM auth."account"
       UNION ALL
       SELECT 'session', count(*)::integer FROM auth."session"
@@ -351,7 +361,7 @@ export const readOrganizationImportStableState = (
       ORDER BY "tableName" ASC
     `;
 
-    const receipts = yield* sql<Record<string, unknown>>`
+    const receipts = yield* sql`
       SELECT
         receipt_id AS "receiptId", visual_id AS "visualId", owner_person_id AS "ownerPersonId",
         department_id AS "departmentId", amount_ore::text AS "amountOre", currency, description,
@@ -367,7 +377,8 @@ export const readOrganizationImportStableState = (
       FROM public.economy_receipts
       ORDER BY receipt_id ASC
     `;
-    const receiptCommands = yield* sql<Record<string, unknown>>`
+
+    const receiptCommands = yield* sql`
       SELECT
         command_id AS "commandId", command_sha256 AS "commandSha256", command_json AS "commandJson",
         observation_json AS "observationJson", receipt_id AS "receiptId",
@@ -375,7 +386,8 @@ export const readOrganizationImportStableState = (
       FROM public.economy_receipt_command_receipts
       ORDER BY command_id ASC
     `;
-    const receiptOutbox = yield* sql<Record<string, unknown>>`
+
+    const receiptOutbox = yield* sql`
       SELECT
         effect_id AS "effectId", effect_type AS "effectType", receipt_id AS "receiptId",
         command_id AS "commandId", ordinal, payload_json AS "payloadJson", status, attempts,
@@ -387,7 +399,8 @@ export const readOrganizationImportStableState = (
       FROM public.economy_receipt_outbox
       ORDER BY effect_id ASC
     `;
-    const receiptAudit = yield* sql<Record<string, unknown>>`
+
+    const receiptAudit = yield* sql`
       SELECT
         command_id AS "commandId", receipt_id AS "receiptId", actor_person_id AS "actorPersonId",
         action, receipt_revision AS "receiptRevision",
@@ -395,7 +408,8 @@ export const readOrganizationImportStableState = (
       FROM public.economy_receipt_audit
       ORDER BY command_id ASC
     `;
-    const receiptLedger = yield* sql<Record<string, unknown>>`
+
+    const receiptLedger = yield* sql`
       SELECT
         source_repository AS "sourceRepository", source_revision AS "sourceRevision",
         snapshot_id AS "snapshotId", source_watermark AS "sourceWatermark",
@@ -408,7 +422,8 @@ export const readOrganizationImportStableState = (
         source_repository ASC, source_revision ASC, snapshot_id ASC, source_primary_key ASC,
         source_occurrence ASC, transformation_revision ASC
     `;
-    const paymentAuthorities = yield* sql<Record<string, unknown>>`
+
+    const paymentAuthorities = yield* sql`
       SELECT
         payment_authority_id AS "paymentAuthorityId", person_id AS "personId",
         department_id AS "departmentId", payment_account_ciphertext AS "paymentAccountCiphertext",
@@ -420,7 +435,8 @@ export const readOrganizationImportStableState = (
       FROM public.economy_payment_authorities
       ORDER BY payment_authority_id ASC
     `;
-    const approvalGrants = yield* sql<Record<string, unknown>>`
+
+    const approvalGrants = yield* sql`
       SELECT
         approval_grant_id AS "approvalGrantId", person_id AS "personId", scope,
         department_id AS "departmentId",
@@ -433,7 +449,7 @@ export const readOrganizationImportStableState = (
       ORDER BY approval_grant_id ASC
     `;
 
-    const admissionPeriodOutbox = yield* sql<Record<string, unknown>>`
+    const admissionPeriodOutbox = yield* sql`
       SELECT
         effect_id AS "effectId", effect_type AS "effectType", admission_period_id AS "admissionPeriodId",
         command_id AS "commandId", ordinal, payload_json AS "payloadJson", status, attempts,
@@ -445,7 +461,8 @@ export const readOrganizationImportStableState = (
       FROM public.admission_period_outbox
       ORDER BY effect_id ASC
     `;
-    const applicationOutbox = yield* sql<Record<string, unknown>>`
+
+    const applicationOutbox = yield* sql`
       SELECT
         effect_id AS "effectId", effect_type AS "effectType", application_id AS "applicationId",
         applicant_id AS "applicantId", command_id AS "commandId", ordinal,
@@ -457,7 +474,8 @@ export const readOrganizationImportStableState = (
       FROM public.admission_application_outbox
       ORDER BY effect_id ASC
     `;
-    const invitationOutbox = yield* sql<Record<string, unknown>>`
+
+    const invitationOutbox = yield* sql`
       SELECT
         effect_id AS "effectId", effect_type AS "effectType", command_id AS "commandId",
         interview_id AS "interviewId", invitation_id AS "invitationId",
@@ -473,7 +491,8 @@ export const readOrganizationImportStableState = (
       FROM public.recruitment_invitation_outbox
       ORDER BY effect_id ASC
     `;
-    const invitationResponseOutbox = yield* sql<Record<string, unknown>>`
+
+    const invitationResponseOutbox = yield* sql`
       SELECT
         effect_id AS "effectId", effect_type AS "effectType", invitation_id AS "invitationId",
         interview_id AS "interviewId", schedule_revision AS "scheduleRevision",
@@ -496,20 +515,24 @@ export const readOrganizationImportStableState = (
       table("public.organization_teams", teams),
       table("public.organization_memberships", memberships),
     ]);
+
     const provenance = makeStableByteSet("provenance", [
       table("public.organization_membership_quarantine", quarantine),
       table("public.organization_import_ledger", ledger),
     ]);
+
     const prerequisite = makeStableByteSet("prerequisite", [
       table("public.person_profiles", profiles),
       table("public.person_contact_profiles", contacts),
       table("public.organization_global_administrator_grants", grants),
     ]);
+
     const rule = makeStableByteSet("rule", [
       table("public.authz_tags", authzTags),
       table("public.authz_tag_assignments", authzAssignments),
       table("public.authz_rules", authzRules),
     ]);
+
     const auth = makeStableByteSet("auth", [
       table("auth.catalog.tables", authTables),
       table("auth.catalog.columns", authColumns),
@@ -519,6 +542,7 @@ export const readOrganizationImportStableState = (
       table("auth.catalog.functions", authFunctions),
       table("auth.row-counts", authRowCounts),
     ]);
+
     const receipt = makeStableByteSet("receipt", [
       table("public.economy_receipts", receipts),
       table("public.economy_receipt_command_receipts", receiptCommands),
@@ -528,6 +552,7 @@ export const readOrganizationImportStableState = (
       table("public.economy_payment_authorities", paymentAuthorities),
       table("public.economy_receipt_approval_grants", approvalGrants),
     ]);
+
     const outbox = makeStableByteSet("outbox", [
       table("public.admission_application_outbox", applicationOutbox),
       table("public.admission_period_outbox", admissionPeriodOutbox),
@@ -548,7 +573,7 @@ export const readOrganizationImportStableState = (
     };
   });
 
-export const installOrganizationImportFailureTrigger = (sql: DatabaseShape) =>
+export const installOrganizationImportFailureTrigger = (sql: DatabaseOperations) =>
   sql.unsafe(`CREATE FUNCTION public.spec_0067_fail_organization_ledger()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -565,7 +590,7 @@ BEFORE INSERT ON public.organization_import_ledger
 FOR EACH STATEMENT
 EXECUTE FUNCTION public.spec_0067_fail_organization_ledger();`);
 
-export const removeOrganizationImportFailureTrigger = (sql: DatabaseShape) =>
+export const removeOrganizationImportFailureTrigger = (sql: DatabaseOperations) =>
   sql.unsafe(`DROP TRIGGER spec_0067_fail_organization_ledger
   ON public.organization_import_ledger;
 DROP FUNCTION public.spec_0067_fail_organization_ledger();`);

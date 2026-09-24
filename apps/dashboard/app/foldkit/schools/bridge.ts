@@ -11,11 +11,13 @@ export const SchoolsBridgeErrorTagSchema = S.Literals([
   "Network",
   "Configuration",
 ]);
+
 export type SchoolsBridgeErrorTag = typeof SchoolsBridgeErrorTagSchema.Type;
 
 export const SchoolsBridgeFailureSchema = S.Struct({
   error: S.Struct({ tag: SchoolsBridgeErrorTagSchema }),
 });
+
 export type SchoolsBridgeFailure = typeof SchoolsBridgeFailureSchema.Type;
 
 export const schoolsBridgeFailure = (tag: SchoolsBridgeErrorTag): SchoolsBridgeFailure => ({

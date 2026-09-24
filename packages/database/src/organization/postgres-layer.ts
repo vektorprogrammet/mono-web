@@ -1,4 +1,5 @@
 import { Database } from "../service.js";
+import { readAppointmentManagement, executeOrganizationLifecycle } from "./lifecycle-postgres.js";
 import {
   createOrganizationDepartment,
   createOrganizationFieldOfStudy,
@@ -21,9 +22,6 @@ import {
   readOrganizationDepartment,
   readOrganizationMembership,
   readOrganizationTeam,
-  reinstateOrganizationMembership,
-  reviseOrganizationMembership,
-  suspendOrganizationMembership,
 } from "./postgres.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import type {
@@ -44,7 +42,14 @@ export const OrganizationLive = Layer.effect(
   Organization,
   Effect.gen(function* () {
     const database = yield* Database;
+
     return Organization.of({
+      readAppointmentManagement: (personId) =>
+        readAppointmentManagement(personId).pipe(Effect.provideService(Database, database)),
+      executeLifecycle: (command, personId) =>
+        executeOrganizationLifecycle(command, personId).pipe(
+          Effect.provideService(Database, database),
+        ),
       readDepartment: (departmentId) =>
         readOrganizationDepartment(departmentId).pipe(Effect.provideService(Database, database)),
       listDepartments: listOrganizationDepartments().pipe(
@@ -89,41 +94,54 @@ export const OrganizationLive = Layer.effect(
           const profile = yield* Profile;
           const semesterWindow = input.semesterWindow;
           const membersByDepartment = new Map<DepartmentId, ReadonlyArray<PersonId>>();
+
           for (const departmentId of input.authorizedDepartmentIds) {
             if (input.departmentId !== undefined && input.departmentId !== departmentId) continue;
+
             const teams = yield* listOrganizationTeams(departmentId).pipe(
               Effect.provideService(Database, database),
             );
+
             const persons: Array<string> = [];
+
             for (const team of teams) {
               const memberships = yield* listOrganizationMembershipsForTeam(team.teamId).pipe(
                 Effect.provideService(Database, database),
               );
+
               for (const membership of memberships) {
                 if (!membership.isSuspended && membership.teamId !== null) {
                   const covers =
                     semesterWindow === undefined ||
                     membershipCoversSemester(membership, semesterWindow);
+
                   if (covers) persons.push(String(membership.personId));
                 }
               }
             }
+
             membersByDepartment.set(
               departmentId,
               [...new Set(persons)].map((value) => PersonId.make(value)),
             );
           }
+
           const wantedPersonIds = new Set<string>();
+
           for (const persons of membersByDepartment.values()) {
             for (const person of persons) wantedPersonIds.add(person);
           }
+
           for (const persons of input.assistantsByDepartment?.values() ?? []) {
             for (const person of persons) wantedPersonIds.add(String(person));
           }
+
           const contactByPerson = new Map();
           const uniquePersonIds = [...wantedPersonIds].map((value) => PersonId.make(value));
+
           for (let offset = 0; offset < uniquePersonIds.length; offset += PROFILE_READ_LIMIT) {
             const batch = uniquePersonIds.slice(offset, offset + PROFILE_READ_LIMIT);
+
             // Missing contacts shrink the list silently (spec 0060 law 4):
             // readContacts fails on any missing row, so probe one by one.
             const contacts = yield* Effect.forEach(
@@ -135,6 +153,7 @@ export const OrganizationLive = Layer.effect(
                 ),
               { concurrency: 1 },
             );
+
             for (const contact of contacts) {
               if (contact === undefined) continue;
               contactByPerson.set(String(contact.personId), {
@@ -143,6 +162,7 @@ export const OrganizationLive = Layer.effect(
               });
             }
           }
+
           return projectOrganizationMailingLists({
             type: input.type,
             authorizedDepartmentIds: input.authorizedDepartmentIds,
@@ -165,12 +185,7 @@ export const OrganizationLive = Layer.effect(
         deriveOrganizationDirectoryFacts(personIds, authorizationInstant).pipe(
           Effect.provideService(Database, database),
         ),
-      reviseMembership: (command) =>
-        reviseOrganizationMembership(command).pipe(Effect.provideService(Database, database)),
-      suspendMembership: (command) =>
-        suspendOrganizationMembership(command).pipe(Effect.provideService(Database, database)),
-      reinstateMembership: (command) =>
-        reinstateOrganizationMembership(command).pipe(Effect.provideService(Database, database)),
+
       importLegacyOrganization: (snapshot) =>
         importOrganizationSnapshot(snapshot).pipe(Effect.provideService(Database, database)),
     });

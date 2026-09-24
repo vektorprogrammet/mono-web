@@ -1,47 +1,45 @@
+import { Schema, flow, Match, Predicate } from "effect";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { Evidence } from "./schema.js";
 
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<JsonValue>
-  | { readonly [key: string]: JsonValue };
+export const canonicalJsonValue = Match.type<unknown>().pipe(
+  Match.when(Predicate.isNull, () => null),
+  Match.when(Predicate.isString, (value) => value),
+  Match.when(Predicate.isBoolean, (value) => value),
+  Match.when(Predicate.isNumber, (value) => (Number.isFinite(value) ? value : null)),
+  Match.when(Array.isArray, (values): Schema.Json => values.map(canonicalJsonValue)),
+  Match.when(Predicate.isObjectOrArray, (input): Schema.Json => {
+    const output: Record<string, Schema.Json> = {};
 
-const sortedJsonValue = (input: unknown): JsonValue => {
-  if (input === null) return null;
-  if (typeof input === "string" || typeof input === "boolean" || typeof input === "number")
-    return input;
-  if (Array.isArray(input)) return input.map((value) => sortedJsonValue(value));
-  if (typeof input === "object") {
-    const output: Record<string, JsonValue> = {};
     for (const [key, value] of Object.entries(input).sort(([left], [right]) =>
       left < right ? -1 : left > right ? 1 : 0,
-    )) {
-      output[key] = sortedJsonValue(value);
-    }
-    return output;
-  }
-  throw new Error("canonical JSON cannot contain undefined or executable values");
-};
+    ))
+      output[key] = canonicalJsonValue(value);
 
-const encodeJsonValue = (value: JsonValue): string => {
+    return output;
+  }),
+  Match.orElse((): never => {
+    throw new Error("canonical JSON cannot contain undefined or executable values");
+  }),
+);
+
+const encodeJsonValue = (value: Schema.Json): string => {
   const encoded = JSON.stringify(value);
+
   if (encoded === undefined) throw new Error("canonical JSON encoding failed");
+
   return encoded;
 };
 
-export const canonicalJson = (value: unknown): string => encodeJsonValue(sortedJsonValue(value));
+export const canonicalJson = flow(canonicalJsonValue, encodeJsonValue);
 
-export const canonicalJsonBytes = (value: unknown): Uint8Array =>
-  new TextEncoder().encode(canonicalJson(value));
+export const canonicalJsonBytes = flow(canonicalJson, (json) => new TextEncoder().encode(json));
 
 export const sha256Hex = (bytes: Uint8Array): string => bytesToHex(sha256(bytes));
 
 export const canonicalEvidenceJson = (evidence: Evidence): string => {
-  const orderedEntries: ReadonlyArray<readonly [string, unknown]> = [
+  const orderedEntries = [
     ["formatVersion", evidence.formatVersion],
     ["specId", evidence.specId],
     ["baseCommit", evidence.baseCommit],
@@ -54,10 +52,12 @@ export const canonicalEvidenceJson = (evidence: Evidence): string => {
     ["eventIds", evidence.eventIds],
     ["effectDescriptors", evidence.effectDescriptors],
     ["provenance", evidence.provenance],
-  ];
+  ] as const;
+
   const encodedEntries = orderedEntries.map(
     ([key, value]) => `${JSON.stringify(key)}:${canonicalJson(value)}`,
   );
+
   return `{${encodedEntries.join(",")}}`;
 };
 
@@ -74,6 +74,7 @@ export interface EvidenceArtifact {
 export const renderEvidence = (document: Evidence): EvidenceArtifact => {
   const canonical = canonicalEvidenceJson(document);
   const bytes = new TextEncoder().encode(`${canonical}\n`);
+
   return {
     document,
     canonicalJson: canonical,

@@ -1,7 +1,7 @@
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { data } from "react-router";
-import { toProfileBridgeFailure, type ProfileBridgeFailure } from "../foldkit/profile/bridge";
+import { toProfileBridgeFailure, ProfileBridgeFailure } from "../foldkit/profile/bridge";
 import { ProfileCommand, ProfileInput } from "../foldkit/profile/model";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
@@ -35,40 +35,38 @@ const statusFor = (failure: ProfileBridgeFailure["_tag"]): number => {
 
 export async function action({ request }: Route.ActionArgs) {
   let cookie: string;
+
   try {
     cookie = await requireAuth(request);
   } catch {
     return data(
-      {
-        _tag: "Unauthorized",
-        message: "Sesjonen har utløpt. Logg inn på nytt.",
-      } satisfies ProfileBridgeFailure,
+      ProfileBridgeFailure.cases.Unauthorized.make({message: "Sesjonen har utløpt. Logg inn på nytt."}) satisfies ProfileBridgeFailure,
       { status: 401, headers: responseHeaders },
     );
   }
 
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim();
+
   if (request.method !== "PUT" || contentType !== "application/json") {
     return new Response(null, { status: 405, headers: responseHeaders });
   }
 
   let command: typeof ProfileCommand.Type;
+
   try {
     command = S.decodeUnknownSync(ProfileCommand)(await request.json(), {
       onExcessProperty: "error",
     });
   } catch {
     return data(
-      {
-        _tag: "Validation",
-        message: "Serveren godtok ikke verdiene. Kontroller feltene og prøv igjen.",
-      } satisfies ProfileBridgeFailure,
+      ProfileBridgeFailure.cases.Validation.make({message: "Serveren godtok ikke verdiene. Kontroller feltene og prøv igjen."}) satisfies ProfileBridgeFailure,
       { status: 422, headers: responseHeaders },
     );
   }
 
   const { commandId, etag, ...payload } = command;
   const client = createAuthenticatedClient(cookie, request);
+
   try {
     const result = await client.profile.updateOwnProfile({
       headers: {
@@ -77,6 +75,7 @@ export async function action({ request }: Route.ActionArgs) {
       },
       payload,
     });
+
     return data(
       S.decodeUnknownSync(ProfileInput)(
         { profile: result.body, etag: result.headers.etag },
@@ -86,6 +85,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   } catch (error) {
     const failure = toProfileBridgeFailure(error);
+
     return data(failure, { status: statusFor(failure._tag), headers: responseHeaders });
   }
 }

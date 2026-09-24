@@ -1,18 +1,23 @@
 import { Schema as S } from "effect";
-import { m } from "foldkit/message";
+import { taggedStruct } from "foldkit/schema";
 
-export const OpenedMobileNavigation = m("OpenedMobileNavigation");
-export const ClosedMobileNavigation = m("ClosedMobileNavigation");
-export const ToggledAdmissionMenu = m("ToggledAdmissionMenu", {
+export const OpenedMobileNavigation = taggedStruct("OpenedMobileNavigation", {});
+
+export const ClosedMobileNavigation = taggedStruct("ClosedMobileNavigation", {});
+
+export const ToggledAdmissionMenu = taggedStruct("ToggledAdmissionMenu", {
   isOpen: S.Boolean,
 });
-export const ToggledProfileMenu = m("ToggledProfileMenu", {
+
+export const ToggledProfileMenu = taggedStruct("ToggledProfileMenu", {
   isOpen: S.Boolean,
 });
-export const ActivatedNavigation = m("ActivatedNavigation", {
+
+export const ActivatedNavigation = taggedStruct("ActivatedNavigation", {
   path: S.String,
 });
-export const DismissedNavigation = m("DismissedNavigation");
+
+export const DismissedNavigation = taggedStruct("DismissedNavigation", {});
 
 export const Message = S.Union([
   OpenedMobileNavigation,
@@ -22,4 +27,5 @@ export const Message = S.Union([
   ActivatedNavigation,
   DismissedNavigation,
 ]);
+
 export type Message = S.Schema.Type<typeof Message>;

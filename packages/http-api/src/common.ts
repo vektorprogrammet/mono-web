@@ -156,7 +156,7 @@ const InvitationNotFoundBody = problemUnion("InvitationNotFoundProblem", [
 export const InvitationNotFoundResponse = HttpApiSchema.WithHeaders(InvitationNotFoundBody, {
   "cache-control": Schema.Literal("no-store"),
   vary: Schema.Literal("Origin"),
-}) as unknown as Schema.Codec<unknown, unknown>;
+});
 
 /**
  * Contract security marker for invitation-capability operations.

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { Schema as S } from "effect";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
@@ -10,13 +11,11 @@ import type { Route } from "./+types/dashboard._index";
  * them for the signed-in actor; any read failure renders the explicit
  * Unavailable state. No fixture fallback exists in this route module.
  */
-const LandingSummary = S.Union([
-  S.Struct({
-    _tag: S.Literal("Available"),
-    name: S.String,
-  }),
-  S.Struct({ _tag: S.Literal("Unavailable") }),
-]);
+const LandingSummary = S.TaggedUnion({
+  Available: { name: S.String },
+  Unavailable: {},
+});
+
 export type LandingSummary = S.Schema.Type<typeof LandingSummary>;
 
 export async function loader({ request }: Route.LoaderArgs): Promise<{ summary: LandingSummary }> {
@@ -25,17 +24,18 @@ export async function loader({ request }: Route.LoaderArgs): Promise<{ summary: 
 
   try {
     const result = await client.profile.readOwnProfile({ headers: {} });
+
     if (result.body === undefined) {
       throw new Error("Profile read returned 304 without cache validators");
     }
+
     return {
-      summary: S.decodeUnknownSync(LandingSummary)({
-        _tag: "Available",
+      summary: LandingSummary.cases.Available.make({
         name: `${result.body.firstName} ${result.body.lastName}`,
       }),
     };
   } catch {
-    return { summary: { _tag: "Unavailable" } };
+    return { summary: LandingSummary.cases.Unavailable.make({}) };
   }
 }
 
@@ -43,7 +43,7 @@ export async function loader({ request }: Route.LoaderArgs): Promise<{ summary: 
 export default function Index() {
   const { summary } = useLoaderData<typeof loader>();
 
-  if (summary._tag === "Unavailable") {
+  if (!Predicate.isTagged(summary, "Available")) {
     return (
       <section className="flex w-full min-w-0 flex-col items-center" role="alert">
         <h1 className="mb-2 font-semibold text-2xl">Oversikten kunne ikke hentes</h1>

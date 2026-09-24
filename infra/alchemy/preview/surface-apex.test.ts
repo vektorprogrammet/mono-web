@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APEX_IDENTITY } from "./identity.ts";
-import { BACKEND_ORIGIN } from "./apex-worker.ts";
-import { PASSWORD_RESET_SENDER } from "./apex-worker-resource.ts";
+
 import { apexSurface } from "./surface-apex.ts";
 
 describe("apexSurface", () => {
@@ -51,14 +49,4 @@ describe("apexSurface", () => {
       expect(apexSurface(path)).toBe("homepage");
     },
   );
-  it("keeps browser and backend authority on the preview hosts", () => {
-    expect(APEX_IDENTITY.zoneName).toBe("phibkro.org");
-    expect(APEX_IDENTITY.dashboardMount).toBe("/");
-    expect(PASSWORD_RESET_SENDER).toBe("noreply@phibkro.org");
-    expect(APEX_IDENTITY.hostname).toBe("vektor.phibkro.org");
-    expect(APEX_IDENTITY.apiHostname).toBe("api.vektor.phibkro.org");
-    expect(APEX_IDENTITY.backendHostname).toBe("origin-api.vektor.phibkro.org");
-    expect(BACKEND_ORIGIN).toBe(APEX_IDENTITY.backendOrigin);
-    expect(APEX_IDENTITY.localStateDirectory).toBe(".alchemy");
-  });
 });

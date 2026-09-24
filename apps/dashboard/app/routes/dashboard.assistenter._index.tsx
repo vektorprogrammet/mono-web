@@ -11,7 +11,7 @@ import {
   type OwnCoverageResource,
   type PlacementBoardResource,
 } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
+import { Record, Option, Schema, Match } from "effect";
 import { createElement, type ReactNode, useState } from "react";
 import { Form, data, useActionData, useFetcher, useLoaderData, useLocation } from "react-router";
 import { Button } from "../components/ui/button";
@@ -22,27 +22,33 @@ import { nativeProblemFrom } from "../lib/native-problem";
 import { substituteSemesterLabel } from "../lib/substitute-form";
 import { DATED_SERVICE_ELEMENT } from "../foldkit/dated-school-service/elements";
 import type { Route } from "./+types/dashboard.assistenter._index";
+
 const privateData = <T,>(value: T, status = 200) =>
   data(value, { status, headers: { "Cache-Control": "private, no-store" } });
+
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
   const q = new URL(request.url).searchParams;
   const departmentId = q.get("departmentId") ?? "";
   const semesterId = q.get("semesterId") ?? "";
+
   try {
     const scopes = (await client.placements.listScopes()).body;
     let own: typeof OwnAffiliationResource.Type | null = null;
     let board: typeof PlacementBoardResource.Type | null = null;
     let ownCoverage: typeof OwnCoverageResource.Type | null = null;
     let coverage: typeof CoverageBoardResource.Type | null = null;
+
     if (departmentId) {
       const scope = Schema.decodeUnknownSync(AffiliationScope)({ departmentId });
       own = (await client.placements.readOwnAffiliation({ query: scope })).body;
     }
+
     if (departmentId && semesterId) {
       const scope = Schema.decodeUnknownSync(PlacementScope)({ departmentId, semesterId });
       ownCoverage = (await client.placements.readOwnCoverage({ query: scope })).body;
+
       if (
         scopes.departments.some(
           (department) => department.departmentId === departmentId && department.canManage,
@@ -52,10 +58,12 @@ export async function loader({ request }: Route.LoaderArgs) {
           client.placements.readBoard({ query: scope }),
           client.placements.readCoverageBoard({ query: scope }),
         ]);
+
         board = placement.body;
         coverage = coverageBoard.body;
       }
     }
+
     return privateData({
       scopes,
       own,
@@ -64,7 +72,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       coverage,
       departmentId,
       semesterId,
-      error: null as string | null,
+      error: null,
     });
   } catch {
     return privateData({
@@ -79,17 +87,21 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 }
+
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
+
   try {
     const headers = Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
       "if-match": form.get("etag"),
       "idempotency-key": form.get("commandId"),
     });
+
     const departmentId = form.get("departmentId");
     const action = form.get("action");
+
     if (action === "Request" || action === "Withdraw") {
       await client.placements.commandOwnAffiliation({
         query: Schema.decodeUnknownSync(AffiliationScope)({ departmentId }),
@@ -104,6 +116,7 @@ export async function action({ request }: Route.ActionArgs) {
         departmentId,
         semesterId: form.get("semesterId"),
       });
+
       const payload = Schema.decodeUnknownSync(OwnCoverageCommand)(
         action === "ReportAbsence"
           ? {
@@ -117,6 +130,7 @@ export async function action({ request }: Route.ActionArgs) {
             },
         { onExcessProperty: "error" },
       );
+
       switch (payload.action) {
         case "ReportAbsence":
           await client.placements.commandOwnCoverage({ query, headers, payload });
@@ -138,29 +152,33 @@ export async function action({ request }: Route.ActionArgs) {
         departmentId,
         semesterId: form.get("semesterId"),
       });
+
       const payload = Schema.decodeUnknownSync(CoverageCommand)(
-        action === "ReportAbsenceForVolunteer"
-          ? {
+        Match.value(action).pipe(
+Match.when("ReportAbsenceForVolunteer", (action) => ({
               action,
               commitmentId: form.get("commitmentId"),
               personId: form.get("personId"),
-            }
-          : action === "DispatchSubstituteOffer"
-            ? {
+            })),
+Match.when("DispatchSubstituteOffer", (action) => ({
                 action,
                 absenceId: form.get("absenceId"),
                 candidatePersonId: form.get("candidatePersonId"),
-              }
-            : action === "WithdrawSubstituteOffer" || action === "AcknowledgeCoverage"
+              })),
+Match.orElse((action) => (action === "WithdrawSubstituteOffer" || action === "AcknowledgeCoverage"
               ? {
                   action,
                   offerId: form.get("offerId"),
                 }
               : action === "CancelService"
                 ? { action, commitmentId: form.get("commitmentId"), reason: form.get("reason"), evidenceSource: form.get("evidenceSource") }
-                : { action, commitmentId: form.get("commitmentId"), attendedPersonIds: form.getAll("attendedPersonId"), evidenceSource: form.get("evidenceSource"), ...(action === "MarkUnfulfilledService" ? { reason: form.get("reason") } : {}) },
+                : action === "MarkUnfulfilledService"
+                  ? { action, commitmentId: form.get("commitmentId"), attendedPersonIds: form.getAll("attendedPersonId"), evidenceSource: form.get("evidenceSource"), reason: form.get("reason") }
+                  : { action, commitmentId: form.get("commitmentId"), attendedPersonIds: form.getAll("attendedPersonId"), evidenceSource: form.get("evidenceSource") }))
+),
         { onExcessProperty: "error" },
       );
+
       switch (payload.action) {
         case "ReportAbsenceForVolunteer":
           await client.placements.commandCoverageBoard({ query, headers, payload });
@@ -189,43 +207,41 @@ export async function action({ request }: Route.ActionArgs) {
         departmentId,
         semesterId: form.get("semesterId"),
       });
+
       const values = {
         schoolId: Number(form.get("schoolId")),
         workdays: Number(form.get("workdays")),
         day: form.get("day"),
         block: form.get("block"),
       };
+
       const command =
-        action === "Affiliation"
-          ? { action, personId: form.get("personId"), transition: form.get("transition") }
-          : action === "Create"
-            ? { action, personId: form.get("personId"), ...values }
-            : action === "Edit"
-              ? { action, placementId: form.get("placementId"), ...values }
-              : action === "Remove"
-                ? { action, placementId: form.get("placementId") }
-                : action === "SetDemand"
-                  ? {
+        Match.value(action).pipe(
+Match.when("Affiliation", (action) => ({ action, personId: form.get("personId"), transition: form.get("transition") })),
+Match.when("Create", (action) => ({ action, personId: form.get("personId"), ...values })),
+Match.when("Edit", (action) => ({ action, placementId: form.get("placementId"), ...values })),
+Match.when("Remove", (action) => ({ action, placementId: form.get("placementId") })),
+Match.when("SetDemand", (action) => ({
                       action,
                       schoolId: Number(form.get("schoolId")),
                       day: form.get("day"),
                       block: form.get("block"),
                       requiredVolunteers: Number(form.get("requiredVolunteers")),
-                    }
-                  : action === "GenerateProposal"
-                    ? { action }
-                    : action === "ConfirmProposal"
-                      ? {
+                    })),
+Match.when("GenerateProposal", (action) => ({ action })),
+Match.when("ConfirmProposal", (action) => ({
                           action,
                           proposalId: form.get("proposalId"),
                           reviewedExceptionIds: form.getAll("reviewedExceptionId"),
-                        }
-                      : action === "ScheduleService"
-                        ? { action, proposalId: form.get("proposalId"), schoolId: Number(form.get("schoolId")), day: form.get("day"), block: form.get("block"), serviceDate: form.get("serviceDate"), startTime: form.get("startTime"), endTime: form.get("endTime") }
-                        : { action };
+                        })),
+Match.when("ScheduleService", (action) => ({ action, proposalId: form.get("proposalId"), schoolId: Number(form.get("schoolId")), day: form.get("day"), block: form.get("block"), serviceDate: form.get("serviceDate"), startTime: form.get("startTime"), endTime: form.get("endTime") })),
+Match.orElse((action) => ({ action }))
+);
+
       const payload = Schema.decodeUnknownSync(PlacementCommand)(command, {
         onExcessProperty: "error",
       });
+
       switch (payload.action) {
         case "Affiliation":
           await client.placements.commandBoard({ query, headers, payload });
@@ -253,6 +269,7 @@ export async function action({ request }: Route.ActionArgs) {
           break;
       }
     }
+
     return privateData({
       success: true as const,
       message: "Endringen er lagret.",
@@ -261,7 +278,8 @@ export async function action({ request }: Route.ActionArgs) {
     });
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
-    const messages: Record<string, string> = {
+
+    const messages = {
       "authority.denied": "Du har ikke lenger tilgang til denne avdelingen.",
       "resource.not-found":
         "Den valgte fraværssaken eller det valgte vikartilbudet finnes ikke lenger. Hent oppdatert oversikt.",
@@ -300,13 +318,15 @@ export async function action({ request }: Route.ActionArgs) {
       "coverage.acknowledgement-invalid":
         "Bare det gjeldende aksepterte tilbudet kan bekreftes som dekning.",
     };
+
     const conflict = problem?.status === 412 || problem?.code === "transaction.conflict";
+
     return privateData(
       {
         success: false as const,
         message: conflict
           ? "Oversikten er endret av noen andre. Hent oppdatert oversikt før du prøver igjen."
-          : (messages[problem?.code ?? ""] ??
+          : (Option.getOrUndefined(Record.get<string, string>(messages, problem?.code ?? "")) ??
             "Endringen kunne ikke lagres. Kontroller feltene og prøv igjen."),
         conflict,
         commandId: String(form.get("commandId")),
@@ -315,14 +335,18 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 }
+
 const selectClass = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
+
 const statusLabel = {
   Absent: "Ikke forespurt",
   Pending: "Venter på godkjenning",
   Active: "Aktiv",
   Inactive: "Inaktiv",
 };
+
 type RefreshResource = "own" | "board" | "ownCoverage" | "coverage";
+
 function CommandForm({
   etag,
   refreshResource = "board",
@@ -345,10 +369,13 @@ function CommandForm({
   const [accepted, setAccepted] = useState("");
   const [dirty, setDirty] = useState(false);
   const [fieldRevision, setFieldRevision] = useState(etag);
+
   if (!dirty && baseline !== etag) setBaseline(etag);
+
   if (!dirty && fieldRevision !== etag) setFieldRevision(etag);
   const busy = fetcher.state !== "idle";
   const completed = fetcher.data?.success ? fetcher.data.commandId : "";
+
   if (completed && completed !== accepted) {
     setAccepted(completed);
     setDirty(false);
@@ -356,7 +383,9 @@ function CommandForm({
     setCommandId("");
     setSignature("");
   }
+
   const refreshed = refresh.data?.[refreshResource] ?? null;
+
   const refreshedSummary =
     refreshed === null
       ? null
@@ -373,6 +402,7 @@ function CommandForm({
           : "candidates" in refreshed
             ? `Oppdatert dekningsoversikt: ${refreshed.absences.length} fravær, ${refreshed.offers.length} tilbud og ${refreshed.closures.length} avsluttede dekninger.`
             : `Oppdatert status: ${statusLabel[refreshed.status]}`;
+
   return (
     <fetcher.Form
       aria-label={label}
@@ -383,17 +413,21 @@ function CommandForm({
       onSubmit={(event) => {
         if (busy || event.currentTarget.dataset.pending === "true") {
           event.preventDefault();
+
           return;
         }
+
         event.currentTarget.dataset.pending = "true";
         setDirty(true);
         const draft = new FormData(event.currentTarget);
-        const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        const submitter = event.nativeEvent instanceof SubmitEvent ? event.nativeEvent.submitter : null;
+
         if (submitter instanceof HTMLButtonElement && submitter.name)
           draft.set(submitter.name, submitter.value);
         draft.delete("commandId");
         const nextSignature = JSON.stringify([...draft]);
         const field = event.currentTarget.elements.namedItem("commandId");
+
         if (field instanceof HTMLInputElement && (!field.value || nextSignature !== signature)) {
           const key = crypto.randomUUID();
           field.value = key;
@@ -452,6 +486,7 @@ function CommandForm({
     </fetcher.Form>
   );
 }
+
 function PlacementFields({
   board,
   entry,
@@ -460,6 +495,7 @@ function PlacementFields({
   entry?: (typeof PlacementBoardResource.Type)["placements"][number];
 }) {
   const prefix = entry?.placementId ?? "new";
+
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <label htmlFor={`${prefix}-school`}>
@@ -539,6 +575,7 @@ function PlacementFields({
     </div>
   );
 }
+
 function SchoolServicePanel({
   board,
   scope,
@@ -547,6 +584,7 @@ function SchoolServicePanel({
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
   const proposal = board.proposal;
+
   return (
     <section className="space-y-4" aria-labelledby="school-service-title">
       <div>
@@ -712,6 +750,7 @@ function SchoolServicePanel({
     </section>
   );
 }
+
 const deliveryStatusLabel = {
   Pending: "Venter på levering",
   Processing: "Leveres",
@@ -719,6 +758,7 @@ const deliveryStatusLabel = {
   Failed: "Levering feilet",
   Quarantined: "Levering stoppet",
 } as const;
+
 const offerStatusLabel = {
   Offered: "Sendt og venter på svar",
   Accepted: "Akseptert",
@@ -726,29 +766,42 @@ const offerStatusLabel = {
   Withdrawn: "Trukket tilbake",
   Acknowledged: "Bekreftet som dekning",
 } as const;
+
 const responseStatusLabel = {
   Accept: "Akseptert",
   Decline: "Avslått",
 } as const;
+
 const closureOutcomeLabel = { Covered: "Dekket", Uncovered: "Ikke dekket" } as const;
+
 type CoverageOffer = (typeof CoverageBoardResource.Type)["offers"][number];
+
 const offerServiceTitle = (offer: CoverageOffer): string => {
   const interval = offer.startTime === null || offer.endTime === null
     ? "tidspunkt ikke registrert for historisk tilbud"
     : `kl. ${offer.startTime}–${offer.endTime}`;
+
   return `${offer.schoolName}, ${offer.serviceDate} ${interval} — ${offer.day}, bolk ${offer.block}`;
 };
+
 type CoverageResponse = (typeof CoverageBoardResource.Type)["responses"][number];
+
 type CoverageAcknowledgement = (typeof CoverageBoardResource.Type)["acknowledgements"][number];
+
 type CoverageCandidate = (typeof CoverageBoardResource.Type)["candidates"][number];
+
 type CoverageNotification = (typeof CoverageBoardResource.Type)["dispatchNotifications"][number];
+
 function deliverySummary(notification: CoverageNotification | undefined): string {
   if (notification === undefined) return "Venter på leveringsstatus";
   const attempts = notification.attempts === 1 ? "1 forsøk" : `${notification.attempts} forsøk`;
+
   const failure =
     notification.lastFailureTag === null ? "" : `, siste feil: ${notification.lastFailureTag}`;
+
   return `${deliveryStatusLabel[notification.status]} (${attempts}${failure})`;
 }
+
 function OfferLifecycle({
   offer,
   response,
@@ -776,6 +829,7 @@ function OfferLifecycle({
     </div>
   );
 }
+
 function OwnCoveragePanel({
   coverage,
   scope,
@@ -784,10 +838,13 @@ function OwnCoveragePanel({
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
   const responsesByOfferId = new Map<string, CoverageResponse>();
+
   for (const response of coverage.responses) responsesByOfferId.set(response.offerId, response);
   const notificationsByOfferId = new Map<string, CoverageNotification>();
+
   for (const notification of coverage.dispatchNotifications)
     notificationsByOfferId.set(notification.offerId, notification);
+
   return (
     <section
       className="min-w-0 space-y-5 rounded-lg border p-4 sm:p-6"
@@ -823,6 +880,7 @@ function OwnCoveragePanel({
         {coverage.offers.map((offer) => {
           const response = responsesByOfferId.get(offer.offerId);
           const notification = notificationsByOfferId.get(offer.offerId);
+
           return (
             <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
               <h4 className="break-words font-medium">
@@ -858,6 +916,7 @@ function OwnCoveragePanel({
     </section>
   );
 }
+
 function CoordinatorCoveragePanel({
   coverage,
   scope,
@@ -866,31 +925,41 @@ function CoordinatorCoveragePanel({
   scope: { readonly departmentId: string; readonly semesterId: string };
 }) {
   const offersByAbsenceId = new Map<string, Array<CoverageOffer>>();
+
   for (const offer of coverage.offers) {
     const offers = offersByAbsenceId.get(offer.absenceId);
+
     if (offers === undefined) offersByAbsenceId.set(offer.absenceId, [offer]);
     else offers.push(offer);
   }
+
   const responsesByOfferId = new Map<string, CoverageResponse>();
+
   for (const response of coverage.responses) responsesByOfferId.set(response.offerId, response);
   const notificationsByOfferId = new Map<string, CoverageNotification>();
+
   for (const notification of coverage.dispatchNotifications)
     notificationsByOfferId.set(notification.offerId, notification);
   const acknowledgementsByOfferId = new Map<string, CoverageAcknowledgement>();
+
   for (const acknowledgement of coverage.acknowledgements)
     acknowledgementsByOfferId.set(acknowledgement.offerId, acknowledgement);
   const closuresByAbsenceId = new Map(coverage.closures.map((closure) => [closure.absenceId, closure]));
   const candidatesByAbsenceId = new Map<string, Array<CoverageCandidate>>();
+
   for (const candidate of coverage.candidates) {
     const candidates = candidatesByAbsenceId.get(candidate.absenceId);
+
     if (candidates === undefined) candidatesByAbsenceId.set(candidate.absenceId, [candidate]);
     else candidates.push(candidate);
   }
+
   const openCommitments = coverage.commitments.filter((commitment) =>
     commitment.decision === null && commitment.assignments.some((assignment) =>
       !coverage.absences.some((absence) => absence.commitmentId === commitment.commitmentId && absence.personId === assignment.personId),
     ),
   );
+
   return (
     <section
       className="min-w-0 space-y-5 rounded-lg border p-4 sm:p-6"
@@ -942,14 +1011,17 @@ function CoordinatorCoveragePanel({
         {coverage.absences.map((absence) => {
           const candidates = candidatesByAbsenceId.get(absence.absenceId) ?? [];
           const offers = offersByAbsenceId.get(absence.absenceId) ?? [];
+
           const activeOffer = offers.find(
             (offer) =>
               offer.status === "Offered" ||
               offer.status === "Accepted" ||
               offer.status === "Acknowledged",
           );
+
           const closure = closuresByAbsenceId.get(absence.absenceId);
           const absenceId = absence.absenceId;
+
           return (
             <article key={absenceId} className="min-w-0 space-y-3 rounded-md border p-4">
               <h4 className="break-words font-medium">
@@ -1007,6 +1079,7 @@ function CoordinatorCoveragePanel({
           const response = responsesByOfferId.get(offer.offerId);
           const notification = notificationsByOfferId.get(offer.offerId);
           const acknowledgement = acknowledgementsByOfferId.get(offer.offerId);
+
           return (
             <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
               <h4 className="break-words font-medium">
@@ -1050,11 +1123,14 @@ function CoordinatorCoveragePanel({
     </section>
   );
 }
+
 export default function Assistenter() {
   const { scopes, own, board, ownCoverage, coverage, departmentId, semesterId, error } =
     useLoaderData<typeof loader>();
+
   const scope = { departmentId, semesterId };
   const actionResult = useActionData<typeof action>();
+
   return (
     <section
       aria-labelledby="placement-title"

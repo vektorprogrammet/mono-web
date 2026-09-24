@@ -1,3 +1,4 @@
+import { Schema, Predicate } from "effect";
 /** 0097 extends the owned 0095 PostgreSQL/API rehearsal after its zero-effect import window. */
 import assert from "node:assert/strict";
 import { observeReceiptReopening } from "./receipt-reopen-observation.js";
@@ -21,6 +22,7 @@ export const observeReceiptDelivery = async (options: {
   const token = randomBytes(24).toString("hex");
   options.registerSecret(token);
   let mode: "accept" | "reject" | "ambiguous" | "redirect" = "accept";
+
   const attempts: Array<{
     deliveryId: string;
     from: string;
@@ -28,43 +30,62 @@ export const observeReceiptDelivery = async (options: {
     subject: string;
     text: string;
   }> = [];
+
   const accepted = new Map<string, string>();
   let redirected = 0;
+
   const sink = createServer(async (req, res) => {
     if (req.url === "/uncontrolled") {
       redirected++;
       res.writeHead(500).end();
+
       return;
     }
+
     if (req.url !== "/accept" || req.headers.authorization !== `Bearer ${token}`) {
       res.writeHead(401).end();
+
       return;
     }
+
     const chunks: Buffer[] = [];
+
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const raw = Buffer.concat(chunks).toString();
     const body = JSON.parse(raw);
     assert.equal(req.headers["idempotency-key"], body.deliveryId);
     assert.ok(!/ciphertext|paymentAccount|objectKey|fileRef|synthetic:/.test(raw));
     attempts.push(body);
+
     if (mode === "redirect") {
       res.writeHead(307, { location: "/uncontrolled" }).end();
+
       return;
     }
+
     if (mode === "reject") {
       res.writeHead(503).end();
+
       return;
     }
+
     if (accepted.has(body.deliveryId) && accepted.get(body.deliveryId) !== raw) {
       res.writeHead(409).end();
+
       return;
     }
+
     accepted.set(body.deliveryId, raw);
+
     if (mode === "ambiguous") return; // accepted remotely; intentionally withhold acknowledgement
     res.writeHead(202).end();
   });
+
   await new Promise<void>((resolve) => sink.listen(0, "127.0.0.1", resolve));
-  const port = (sink.address() as { port: number }).port;
+  const address = sink.address();
+  assert.ok(address !== null && !Predicate.isString(address));
+  const port = address.port;
+
   const env = {
     ...options.env,
     RECEIPT_DELIVERY_URL: `http://127.0.0.1:${port}/accept`,
@@ -75,6 +96,7 @@ export const observeReceiptDelivery = async (options: {
       "receipt-department-0095": "finance0097@example.invalid",
     }),
   };
+
   const operatorDrain = (
     receiptId: string,
     selectedEnv: Readonly<Record<string, string | undefined>> = env,
@@ -85,16 +107,19 @@ export const observeReceiptDelivery = async (options: {
         env: selectedEnv,
         stdio: "ignore",
       });
+
       const timer = setTimeout(() => {
         child.kill("SIGTERM");
         reject(new Error("bounded drain timeout"));
       }, 30_000);
+
       child.on("error", reject);
       child.on("exit", (code) => {
         clearTimeout(timer);
         resolve(code ?? 1);
       });
     });
+
   const outbox = async (id: string) =>
     (
       await pool.query(
@@ -102,17 +127,30 @@ export const observeReceiptDelivery = async (options: {
         [id],
       )
     ).rows;
+
   const keys = new Map<string, string>();
+
   const identity = (key: string) => {
     if (!keys.has(key)) keys.set(key, randomUUID());
+
     return keys.get(key)!;
   };
-  const headers = (session: string, key: string, etag?: string) => ({
-    cookie: session,
-    origin: "http://127.0.0.1:5174",
-    "idempotency-key": identity(key),
-    ...(etag ? { "if-match": etag, "content-type": "application/json" } : {}),
-  });
+
+  const headers = (session: string, key: string, etag?: string) => {
+    const result = new Headers({
+      cookie: session,
+      origin: "http://127.0.0.1:5174",
+      "idempotency-key": identity(key),
+    });
+
+    if (etag) {
+      result.set("if-match", etag);
+      result.set("content-type", "application/json");
+    }
+
+    return result;
+  };
+
   const submit = async (key: string) => {
     const form = new FormData();
     form.set("description", "Synthetic acknowledged delivery");
@@ -122,16 +160,24 @@ export const observeReceiptDelivery = async (options: {
       "file",
       new File(["%PDF-1.4\nSynthetic 0097\n%%EOF"], "receipt.pdf", { type: "application/pdf" }),
     );
+
     const response = await fetch(`${origin}/api/receipts?departmentId=receipt-department-0095`, {
       method: "POST",
       headers: headers(cookie, key),
       body: form,
     });
+
     assert.equal(response.status, 201, await response.clone().text());
-    const body = (await response.json()) as { receiptId: string };
-    assert.ok(body.receiptId);
+
+    const body = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(
+      await response.json(),
+    );
+
+    assert.ok(Predicate.isString(body.receiptId) && body.receiptId.length > 0);
+
     return { id: body.receiptId, etag: response.headers.get("etag")! };
   };
+
   try {
     await pool.query(
       "INSERT INTO person_contact_profiles(person_id,email,phone) VALUES ('receipt-owner-0095','owner0095@example.invalid','90000000'),('receipt-foreign-0095','foreign0095@example.invalid','90000001')",
@@ -158,6 +204,7 @@ export const observeReceiptDelivery = async (options: {
     assert.equal(await operatorDrain(missing.id), 0);
     assert.ok((await outbox(missing.id)).every((r) => r.status === "Delivered"));
     assert.equal(attempts[0]!.to, "finance0097@example.invalid");
+
     const commandCount = Number(
       (
         await pool.query(
@@ -166,17 +213,20 @@ export const observeReceiptDelivery = async (options: {
         )
       ).rows[0].count,
     );
+
     assert.equal(commandCount, 1);
     mode = "reject";
     const failed = await submit("receipt0097-rejection");
     assert.ok((await outbox(failed.id)).some((r) => r.status === "Failed"));
     const first = attempts.at(-1)!;
+
     const changedEnv = {
       ...env,
       RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: JSON.stringify({
         "receipt-department-0095": "changed@example.invalid",
       }),
     };
+
     mode = "accept";
     await options.restart(changedEnv);
     assert.equal(await operatorDrain(failed.id, changedEnv), 0);
@@ -188,11 +238,13 @@ export const observeReceiptDelivery = async (options: {
     );
     // Refund uses owner contact, then freezes it across ambiguous acceptance and restart.
     mode = "ambiguous";
+
     const refund = await fetch(`${origin}/api/receipts/${failed.id}:refund`, {
       method: "POST",
       headers: headers(approverCookie, "receipt0097-refund", failed.etag),
       body: "{}",
     });
+
     assert.equal(refund.status, 200, await refund.clone().text());
     assert.ok((await outbox(failed.id)).some((r) => r.status === "Failed"));
     const refundEnvelope = attempts.at(-1)!;
@@ -217,18 +269,22 @@ export const observeReceiptDelivery = async (options: {
       [concurrent.id],
     );
     mode = "accept";
+
     const concurrentResults = await Promise.all([
       operatorDrain(concurrent.id),
       operatorDrain(concurrent.id),
     ]);
+
     assert.ok(concurrentResults.some((code) => code === 0));
     assert.ok((await outbox(concurrent.id)).every((r) => r.status === "Delivered"));
     mode = "redirect";
+
     const rejected = await fetch(`${origin}/api/receipts/${concurrent.id}:reject`, {
       method: "POST",
       headers: headers(approverCookie, "receipt0097-reject", concurrent.etag),
       body: "{}",
     });
+
     assert.equal(rejected.status, 200, await rejected.clone().text());
     assert.ok((await outbox(concurrent.id)).some((r) => r.status === "Failed"));
     assert.equal(redirected, 0);
@@ -241,6 +297,7 @@ export const observeReceiptDelivery = async (options: {
     assert.equal(attempts.at(-1)!.to, "changed-owner@example.invalid");
     assert.match(attempts.at(-1)!.subject, /avvist/);
     assert.match(attempts.at(-1)!.text, /Kontakt økonomiansvarlig/);
+
     const reopening =
       process.env.RECEIPT_REOPEN_REHEARSAL === "1"
         ? await observeReceiptReopening({
@@ -257,17 +314,21 @@ export const observeReceiptDelivery = async (options: {
             },
           })
         : undefined;
+
     const countBefore = Number(
       (await pool.query("SELECT count(*) FROM economy_receipt_command_receipts")).rows[0].count,
     );
+
     await pool.query(
       "UPDATE economy_receipt_approval_grants SET end_at=now(),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
     );
+
     const denied = await fetch(`${origin}/api/receipts/${missing.id}:reject`, {
       method: "POST",
       headers: headers(approverCookie, "receipt0097-denied", missing.etag),
       body: "{}",
     });
+
     assert.equal(denied.status, 403);
     assert.equal(
       Number(
@@ -277,6 +338,7 @@ export const observeReceiptDelivery = async (options: {
     );
     const audit = (await pool.query("SELECT count(*) FROM economy_receipt_audit")).rows[0].count;
     assert.equal(Number(audit), countBefore);
+
     return {
       specId: "0097",
       reopening,

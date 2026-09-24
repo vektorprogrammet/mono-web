@@ -21,6 +21,7 @@ describe("synthetic current assignment boundary", () => {
     occurrences: [{ occurrenceId: "one", row: {} }],
     mappings: [],
   };
+
   const fixture = {
     ...fixtureBody,
     snapshotDigest: createHash("sha256").update(canonicalJson(fixtureBody)).digest("hex"),
@@ -66,9 +67,11 @@ describe("synthetic current assignment boundary", () => {
         deployment: process.env.NATIVE_IDENTITY_DEPLOYMENT,
         provider: process.env[key],
       };
+
       process.env.CURRENT_ASSIGNMENT_MODE = "synthetic";
       process.env.NATIVE_IDENTITY_DEPLOYMENT = "local";
       process.env[key] = value;
+
       try {
         await expect(runCurrentAssignmentCohortCli()).rejects.toThrow("InvalidSnapshot");
       } finally {
@@ -90,6 +93,7 @@ describe("synthetic current assignment boundary", () => {
         "postgres://postgres@127.0.0.1:49123/current_assignment_rehearsal",
       ),
     ).toContain("current_assignment_rehearsal");
+
     for (const value of [
       undefined,
       "postgres://localhost:5432/current_assignment_rehearsal",

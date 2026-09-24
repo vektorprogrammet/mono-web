@@ -17,6 +17,11 @@ import {
   type TeamJson,
 } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
+import {
+  AppointmentManagement,
+  OrganizationLifecycleCommand,
+  OrganizationLifecycleResult,
+} from "@vektorprogrammet/domain/organization";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
 import { operationAnnotations, PersonSecurity } from "./common.js";
@@ -37,12 +42,15 @@ import {
   IdempotencyHeaders,
   privateReadResponse,
   publicConditionalResponses,
+  entityMutationResponse,
+  problemUnion,
 } from "./http-semantics.js";
 import {
   CreateDepartmentRequest,
   CreateFieldOfStudyRequest,
   CreateTeamRequest,
 } from "./v2-schemas.js";
+
 export {
   DepartmentId,
   DepartmentJsonSchema,
@@ -51,6 +59,7 @@ export {
   SemesterId,
   TeamJsonSchema,
 };
+
 export type { DepartmentJson, FieldOfStudyJson, TeamJson };
 
 /**
@@ -379,8 +388,84 @@ export const CreateFieldOfStudyEndpoint = HttpApiEndpoint.post(
  * @since 0.1.0
  * @category Groups
  */
+const OrganizationLifecycleProblem = problemUnion("OrganizationLifecycleProblem", [
+  ["credential.missing", 401],
+  ["credential.invalid", 401],
+  ["authority.denied", 403],
+  ["origin.denied", 403],
+  ["resource.not-found", 404],
+  ["precondition.failed", 412],
+  ["validation.failed", 422],
+  ["request.malformed", 400],
+  ["request.too-large", 413],
+  ["idempotency-key.invalid", 400],
+  ["idempotency.digest-conflict", 409],
+  ["idempotency.in-flight", 409],
+  ["idempotency.response-expired", 409],
+  ["idempotency.unavailable", 503],
+  ["organization.unavailable", 503],
+]);
+
+export const ReadAppointmentManagementEndpoint = HttpApiEndpoint.get(
+  "readAppointmentManagement",
+  "/api/organization/appointments",
+  {
+    success: privateReadResponse(AppointmentManagement),
+    error: endpointProblemResponses(OrganizationLifecycleProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.manage-appointments",
+        canonicalScopeResolver: "organization.appointment-management",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read appointment management",
+      "Returns authorized people, units, appointments, account access and history.",
+    ),
+  );
+
+export const ExecuteOrganizationLifecycleEndpoint = HttpApiEndpoint.post(
+  "executeLifecycle",
+  "/api/organization/appointments/commands",
+  {
+    headers: IdempotencyHeaders,
+    payload: OrganizationLifecycleCommand,
+    success: entityMutationResponse(OrganizationLifecycleResult),
+    error: endpointProblemResponses(OrganizationLifecycleProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.manage-appointments",
+        canonicalScopeResolver: "organization.appointment-management",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Manage appointments and account access",
+      "Applies one authorized, revision-checked lifecycle command with atomic history.",
+    ),
+  );
+
+export { AppointmentManagement, OrganizationLifecycleCommand, OrganizationLifecycleResult };
+
 export class OrganizationApi extends HttpApiGroup.make("organization")
   .add(
+    ReadAppointmentManagementEndpoint,
+    ExecuteOrganizationLifecycleEndpoint,
     ListDepartmentsEndpoint,
     ListTeamsEndpoint,
     ListFieldOfStudiesEndpoint,

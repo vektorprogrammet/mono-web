@@ -7,8 +7,10 @@ import {
   substituteSemesterLabel,
   weekdays,
 } from "./substitute-form";
+
 const form = () => {
   const value = new FormData();
+
   for (const [key, item] of Object.entries({
     intent: "activate",
     applicationId: "application-0094",
@@ -18,13 +20,17 @@ const form = () => {
     yearOfStudy: "3",
   }))
     value.set(key, item);
+
   for (const [key] of weekdays) value.set(key, "false");
+
   return value;
 };
+
 describe("substitute coordinator declarations", () => {
   it("accepts an explicit all-unavailable declaration without inventing an eligibility rule", () => {
     const command = parseSubstituteForm(form());
     expect(command.intent).toBe("activate");
+
     if (command.intent !== "deactivate") expect(command.payload.monday).toBe(false);
   });
   it.each(weekdays)("requires an explicit value for %s", (key) => {
@@ -44,6 +50,7 @@ describe("substitute coordinator declarations", () => {
       value.set(key, invalid);
       expect(() => parseSubstituteForm(value)).toThrow();
     }
+
     const value = form();
     value.append("monday", "true");
     expect(() => parseSubstituteForm(value)).toThrow();
@@ -52,6 +59,7 @@ describe("substitute coordinator declarations", () => {
     const value = form();
     value.set("intent", "deactivate");
     value.delete("language");
+
     for (const [key] of weekdays) value.delete(key);
     expect(parseSubstituteForm(value)).not.toHaveProperty("payload");
   });
@@ -69,13 +77,16 @@ it("labels canonical semesters with Norwegian dates rather than storage identifi
 
 it("keeps explicit conflict recovery for the generated SDK's response-header envelope", () => {
   const problem = makeNativeProblem("precondition.failed");
+
   const wrapped = HttpApiSchema.withHeaders({
     body: problem,
     headers: { "cache-control": "no-store", vary: "Origin" },
   });
+
   expect(substituteFailure(wrapped)).toEqual(substituteFailure(problem));
   expect(substituteFailure(wrapped).conflict).toBe(true);
 });
+
 it("does not manufacture conflict or authority decisions from malformed error objects", () => {
   for (const error of [
     { code: "precondition.failed" },

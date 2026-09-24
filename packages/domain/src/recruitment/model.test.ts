@@ -1,6 +1,8 @@
+import { PersonId, DepartmentId } from "../organization/schema.js";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import {
+  RecruitmentInvitationResponseResultSchema,
   InterviewQuestionDefinitionSchema,
   InterviewSchema,
   RecruitmentAssignmentBoardQuerySchema,
@@ -13,11 +15,11 @@ import {
   RecruitmentInvitationRequestNewTimeInputSchema,
   RecruitmentInvitationResponseMessageSchema,
   RecruitmentInvitationResponseObservationSchema,
-  RecruitmentInvitationResponseResultSchema,
   RecruitmentInvitationResponseStateSchema,
   RecruitmentSchedulingInterviewSchema,
   RecruitmentSchedulingCoInterviewerSchema,
 } from "./schema.js";
+
 const sourceQuestion = (ordinal: number, questionId = `question-${ordinal}`) => ({
   questionId,
   ordinal,
@@ -35,6 +37,7 @@ it.effect("strictly validates native question sources and immutable snapshots", 
         onExcessProperty: "error",
       }),
     ).toEqual(source);
+
     for (const invalid of [
       [sourceQuestion(0), sourceQuestion(2)],
       [sourceQuestion(0), sourceQuestion(1, "question-0")],
@@ -50,6 +53,7 @@ it.effect("strictly validates native question sources and immutable snapshots", 
         ),
       ).toBeDefined();
     }
+
     expect(Object.keys(RecruitmentInterviewQuestionSnapshot.update.fields)).toEqual([]);
     expect(Object.keys(RecruitmentInterviewQuestionSnapshot.insert.fields)).toEqual([
       "interviewId",
@@ -80,7 +84,7 @@ it.effect("requires a nullable persisted co-interviewer designation", () =>
     const interview = {
       interviewId: "interview-1",
       applicationId: "application-1",
-      departmentId: "department-1",
+      departmentId: DepartmentId.make("department-1"),
       interviewerPersonId: "person-1",
       coInterviewerPersonId: null,
       interviewSchemaId: "schema-1",
@@ -88,6 +92,7 @@ it.effect("requires a nullable persisted co-interviewer designation", () =>
       assignedAt: "2031-09-15T12:00:00.000Z",
       revision: 0,
     };
+
     expect(
       (yield* Schema.decodeUnknownEffect(RecruitmentInterview)(interview, {
         onExcessProperty: "error",
@@ -99,7 +104,7 @@ it.effect("requires a nullable persisted co-interviewer designation", () =>
           {
             interviewId: "interview-1",
             applicationId: "application-1",
-            departmentId: "department-1",
+            departmentId: DepartmentId.make("department-1"),
             interviewerPersonId: "person-1",
             interviewSchemaId: "schema-1",
             assignedByPersonId: "leader-1",
@@ -117,9 +122,13 @@ it.effect("decodes contact-free co-interviewer scheduling projections", () =>
   Effect.gen(function* () {
     const coInterviewer = yield* Schema.decodeUnknownEffect(
       RecruitmentSchedulingCoInterviewerSchema,
-    )({ personId: "person-2", displayName: "Cora Co-interviewer" }, { onExcessProperty: "error" });
+    )(
+      { personId: PersonId.make("person-2"), displayName: "Cora Co-interviewer" },
+      { onExcessProperty: "error" },
+    );
+
     expect(coInterviewer).toEqual({
-      personId: "person-2",
+      personId: PersonId.make("person-2"),
       displayName: "Cora Co-interviewer",
     });
     expect(
@@ -139,7 +148,9 @@ it.effect("strictly decodes board status and assignment commands", () =>
       { status: "new" },
       { onExcessProperty: "error" },
     );
+
     expect(query.status).toBe("new");
+
     const command = yield* Schema.decodeUnknownEffect(RecruitmentAssignmentCommandSchema)(
       {
         commandId: "command-1",
@@ -149,13 +160,16 @@ it.effect("strictly decodes board status and assignment commands", () =>
       },
       { onExcessProperty: "error" },
     );
+
     expect(command.applicationId).toBe("application-1");
+
     const failure = yield* Effect.flip(
       Schema.decodeUnknownEffect(RecruitmentAssignmentBoardQuerySchema)(
         { status: "pending" },
         { onExcessProperty: "error" },
       ),
     );
+
     expect(failure).toBeDefined();
   }),
 );
@@ -166,11 +180,13 @@ it.effect("decodes only exact invitation capabilities and every response state",
     expect(
       yield* Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(capability),
     ).toBe(capability);
+
     for (const state of ["Pending", "Accepted", "Rejected", "RequestedNewTime"] as const) {
       expect(
         yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseStateSchema)(state),
       ).toBe(state);
     }
+
     for (const invalid of [capability.slice(1), `${capability}x`, capability.replace("_", "=")]) {
       expect(
         yield* Effect.flip(
@@ -197,6 +213,7 @@ it.effect(
           `  ${validNearbyMessage}  `,
         ),
       ).toBe(validNearbyMessage);
+
       for (const invalid of [
         "   ",
         "x".repeat(2_001),
@@ -241,6 +258,7 @@ it.effect("normalizes optional rejection messages without weakening new-time mes
         ),
       ),
     ).toBeDefined();
+
     for (const message of [capabilitySequence, `Please use another time (${capabilitySequence})`]) {
       expect(
         yield* Effect.flip(
@@ -276,6 +294,7 @@ it.effect("keeps applicant observations capability-free and response results str
       },
       { onExcessProperty: "error" },
     );
+
     expect(Object.keys(observation).sort()).toEqual([
       "campus",
       "responseMessage",
@@ -291,9 +310,9 @@ it.effect("keeps applicant observations capability-free and response results str
         ),
       ),
     ).toBeDefined();
+
     const result = yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseResultSchema)(
-      {
-        _tag: "InvitationResponseRecorded",
+      RecruitmentInvitationResponseResultSchema.make({
         interviewRevision: 1,
         scheduleRevision: 1,
         responseRevision: 1,
@@ -301,9 +320,10 @@ it.effect("keeps applicant observations capability-free and response results str
         responseMessage: null,
         respondedAt: "2031-09-15T12:03:00.000Z",
         notificationState: "NotRequired",
-      },
+      }),
       { onExcessProperty: "error" },
     );
+
     expect(result._tag).toBe("InvitationResponseRecorded");
   }),
 );
@@ -315,6 +335,7 @@ it.effect("rejects impossible response state and message pairs at every observat
       room: "A-101",
       campus: null,
     };
+
     for (const invalid of [
       {
         ...applicantObservationBase,
@@ -335,18 +356,21 @@ it.effect("rejects impossible response state and message pairs at every observat
         ),
       ).toBeDefined();
     }
+
     expect(
       yield* Effect.flip(
         Schema.decodeUnknownEffect(RecruitmentInvitationResponseResultSchema)(
           {
-            _tag: "InvitationResponseRecorded",
-            interviewRevision: 1,
-            scheduleRevision: 1,
-            responseRevision: 1,
+            ...RecruitmentInvitationResponseResultSchema.make({
+              interviewRevision: 1,
+              scheduleRevision: 1,
+              responseRevision: 1,
+              responseState: "Accepted",
+              responseMessage: null,
+              respondedAt: "2031-09-15T12:03:00.000Z",
+              notificationState: "NotRequired",
+            }),
             responseState: "Rejected",
-            responseMessage: null,
-            respondedAt: "2031-09-15T12:03:00.000Z",
-            notificationState: "NotRequired",
           },
           { onExcessProperty: "error" },
         ),
@@ -358,9 +382,9 @@ it.effect("rejects impossible response state and message pairs at every observat
           {
             interviewId: "interview-1",
             applicationId: "application-1",
-            departmentId: "department-1",
+            departmentId: DepartmentId.make("department-1"),
             interviewer: {
-              personId: "person-1",
+              personId: PersonId.make("person-1"),
               displayName: "Ivar Interviewer",
               email: "interviewer@example.invalid",
               phone: "91111111",

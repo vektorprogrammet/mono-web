@@ -1,64 +1,53 @@
+import { Predicate } from "effect";
 import { Match as M } from "effect";
-import type { Command } from "foldkit";
+import { Update } from "foldkit";
 import type { Message } from "./message";
 import type { Model } from "./model";
 
 export const update = (
   model: Model,
   message: Message,
-): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
-  if (model._tag === "InvalidInput") return [model, []];
+): Update.Return<Model, Message> => {
+  if (Predicate.isTagged(model, "InvalidInput")) return ({ model: model, commands: [] });
 
   return M.value(message).pipe(
-    M.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
+    M.withReturnType<Update.Return<Model, Message>>(),
     M.tagsExhaustive({
-      OpenedMobileNavigation: () => [
+      OpenedMobileNavigation: () => ({ model: 
         {
           ...model,
           isMobileNavigationOpen: true,
-        },
-        [],
-      ],
-      ClosedMobileNavigation: () => [
+        }, commands: [] }),
+      ClosedMobileNavigation: () => ({ model: 
         {
           ...model,
           isMobileNavigationOpen: false,
           isProfileMenuOpen: false,
-        },
-        [],
-      ],
-      ToggledAdmissionMenu: ({ isOpen }) => [
+        }, commands: [] }),
+      ToggledAdmissionMenu: ({ isOpen }) => ({ model: 
         {
           ...model,
           isAdmissionMenuOpen: isOpen,
-        },
-        [],
-      ],
-      ToggledProfileMenu: ({ isOpen }) => [
+        }, commands: [] }),
+      ToggledProfileMenu: ({ isOpen }) => ({ model: 
         {
           ...model,
           isProfileMenuOpen: isOpen,
-        },
-        [],
-      ],
-      ActivatedNavigation: ({ path }) => [
+        }, commands: [] }),
+      ActivatedNavigation: ({ path }) => ({ model: 
         {
           ...model,
           activePath: path,
           isMobileNavigationOpen: false,
           isProfileMenuOpen: false,
-        },
-        [],
-      ],
-      DismissedNavigation: () => [
+        }, commands: [] }),
+      DismissedNavigation: () => ({ model: 
         {
           ...model,
           isMobileNavigationOpen: false,
           isAdmissionMenuOpen: false,
           isProfileMenuOpen: false,
-        },
-        [],
-      ],
+        }, commands: [] }),
     }),
   );
 };

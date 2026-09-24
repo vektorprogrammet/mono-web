@@ -1,3 +1,4 @@
+import { Schema, Predicate } from "effect";
 import {
   expect,
   test,
@@ -7,19 +8,30 @@ import {
 } from "@playwright/test";
 
 const nativeApiOrigin = process.env.API_URL ?? "http://127.0.0.1:8872";
+
 const legacyAdminUsername = "org-ops-admin-0032";
+
 const legacyLeaderUsername = "org-ops-leader-0032";
+
 const legacyMemberUsername = "org-ops-member-0032";
+
 const legacyPassword = "org-operations-password-0032";
+
 const nativeAdministrator = {
   email: "administrator.schools.0061@example.invalid",
   password: "schools-admin-0061-password",
 } as const;
+
 const nativeDirectoryEmail = "two-departments.schools.0061@example.invalid";
+
 const fixtureDepartmentShortName = "OPS32";
+
 const fixtureFieldShortName = "OPS32-STUDY";
+
 const createdIdentityEmail = "identity-admin-created-0032@example.invalid";
+
 const createdSchoolName = "Org operations created school 0032";
+
 const createdSemester = { semesterTime: "Vår", year: "2032" };
 
 const journeys = {
@@ -45,14 +57,15 @@ const journeys = {
 
 export { journeys };
 
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-type JsonObject = { [key: string]: JsonValue };
+
 
 function requiredLegacyOrigin(): string {
   const origin = process.env.LEGACY_SYMFONY_URL;
+
   if (origin === undefined || origin.length === 0) {
     throw new Error("LEGACY_SYMFONY_URL is required for hybrid organization evidence");
   }
+
   return new URL(origin).origin;
 }
 
@@ -67,35 +80,42 @@ function requireOrgOperationsMode(): void {
   expect(new URL(nativeApiOrigin).origin).not.toBe(requiredLegacyOrigin());
 }
 
-function apiHeaders(token?: string, withBody = false): Record<string, string> {
-  return {
-    Accept: "application/json",
-    ...(withBody ? { "Content-Type": "application/json" } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+function apiHeaders(token?: string, withBody = false) {
+  const headers = new Headers({ Accept: "application/json" });
+
+  if (withBody) headers.set("Content-Type", "application/json");
+
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  return Object.fromEntries(headers);
 }
 
-async function readJson(response: APIResponse): Promise<JsonValue> {
+async function readJson(response: APIResponse): Promise<Schema.Json> {
   const text = await response.text();
+
   if (text.length === 0) return null;
-  return JSON.parse(text) as JsonValue;
+
+  return Schema.decodeUnknownSync(Schema.Json)(JSON.parse(text));
 }
 
-function collectionItems(value: JsonValue): JsonObject[] {
+function collectionItems(value: Schema.Json): Schema.JsonObject[] {
   if (Array.isArray(value)) return value.filter(isJsonObject);
+
   if (!isJsonObject(value)) return [];
   const members = value["hydra:member"] ?? value.member ?? value.items;
+
   return Array.isArray(members) ? members.filter(isJsonObject) : [];
 }
 
-function isJsonObject(value: JsonValue): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isJsonObject(value: Schema.Json): value is Schema.JsonObject {
+  return Predicate.isObjectOrArray(value) && value !== null && !Array.isArray(value);
 }
 
-function numericId(value: JsonValue): number {
-  if (!isJsonObject(value) || typeof value.id !== "number") {
+function numericId(value: Schema.Json): number {
+  if (!isJsonObject(value) || !Predicate.isNumber(value.id)) {
     throw new Error("Expected a numeric API identifier");
   }
+
   return value.id;
 }
 
@@ -104,13 +124,14 @@ async function requestLegacyJson(
   token: string | undefined,
   method: string,
   path: string,
-  body?: JsonObject,
-): Promise<{ response: APIResponse; value: JsonValue }> {
+  body?: Schema.JsonObject,
+): Promise<{ response: APIResponse; value: Schema.Json }> {
   const response = await request.fetch(`${requiredLegacyOrigin()}${path}`, {
     method,
     headers: apiHeaders(token, body !== undefined),
     data: body,
   });
+
   return { response, value: await readJson(response) };
 }
 
@@ -119,10 +140,13 @@ async function loginViaLegacyApi(request: APIRequestContext, username: string): 
     username,
     password: legacyPassword,
   });
+
   expect(response.status()).toBe(200);
-  if (!isJsonObject(value) || typeof value.token !== "string") {
+
+  if (!isJsonObject(value) || !Predicate.isString(value.token)) {
     throw new Error("Symfony login did not return a token");
   }
+
   return value.token;
 }
 
@@ -146,10 +170,13 @@ async function loginDashboard(
       ),
     )
     .toBe(true);
+
   const response = await page.request.get(`${nativeApiOrigin}${nativeReadPath}`, {
     headers: { Accept: "application/json" },
   });
+
   expect(response.status()).toBe(200);
+
   return response;
 }
 
@@ -168,16 +195,20 @@ async function fixtureIds(
 ): Promise<{ departmentId: number; fieldOfStudyId: number }> {
   const departments = await requestLegacyJson(request, token, "GET", "/api/departments");
   expect(departments.response.status()).toBe(200);
+
   const department = collectionItems(departments.value).find(
     (item) => item.shortName === fixtureDepartmentShortName,
   );
+
   if (!department) throw new Error("Org operations fixture department was not found");
 
   const fields = await requestLegacyJson(request, token, "GET", "/api/field_of_studies");
   expect(fields.response.status()).toBe(200);
+
   const field = collectionItems(fields.value).find(
     (item) => item.shortName === fixtureFieldShortName,
   );
+
   if (!field) throw new Error("Org operations fixture field of study was not found");
 
   return { departmentId: numericId(department), fieldOfStudyId: numericId(field) };
@@ -189,10 +220,11 @@ async function expectLegacyStatus(
   method: string,
   path: string,
   status: number,
-  body?: JsonObject,
-): Promise<JsonValue> {
+  body?: Schema.JsonObject,
+): Promise<Schema.Json> {
   const result = await requestLegacyJson(request, token, method, path, body);
   expect(result.response.status()).toBe(status);
+
   return result.value;
 }
 
@@ -207,12 +239,13 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
       "/dashboard/brukere",
       "/api/people",
     );
-    const nativeUsers = (await nativeUsersResponse.json()) as JsonValue;
+
+    const nativeUsers = Schema.decodeUnknownSync(Schema.Json)((await nativeUsersResponse.json()));
     expect(isJsonObject(nativeUsers)).toBe(true);
     const activePeople = isJsonObject(nativeUsers) ? nativeUsers.activePeople : null;
     expect(Array.isArray(activePeople)).toBe(true);
     expect(
-      (activePeople as JsonValue[]).some(
+      (Schema.decodeUnknownSync(Schema.Array(Schema.Json))(activePeople)).some(
         (item) => isJsonObject(item) && item.email === nativeDirectoryEmail,
       ),
     ).toBe(true);
@@ -223,6 +256,7 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
 
     const leaderToken = await loginViaLegacyApi(request, legacyLeaderUsername);
     const { fieldOfStudyId } = await fixtureIds(request, leaderToken);
+
     const created = await requestLegacyJson(request, leaderToken, "POST", "/api/admin/users", {
       firstName: "Identity",
       lastName: "Admin Created",
@@ -230,6 +264,7 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
       phone: "90000320",
       fieldOfStudyId,
     });
+
     expect(created.response.status(), JSON.stringify(created.value)).toBe(201);
 
     const freshUsers = await requestLegacyJson(request, leaderToken, "GET", "/api/admin/users");
@@ -238,7 +273,7 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
     const users = isJsonObject(freshUsers.value) ? freshUsers.value.activeUsers : null;
     expect(Array.isArray(users)).toBe(true);
     expect(
-      (users as JsonValue[]).some(
+      (Schema.decodeUnknownSync(Schema.Array(Schema.Json))(users)).some(
         (item) => isJsonObject(item) && item.email === createdIdentityEmail,
       ),
     ).toBe(true);
@@ -260,6 +295,7 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
     });
 
     const legacyIdentityPage = await browser.newPage();
+
     try {
       await loginSymfony(legacyIdentityPage, legacyLeaderUsername);
       await legacyIdentityPage.goto(`${requiredLegacyOrigin()}/kontrollpanel/brukeradmin`, {
@@ -280,12 +316,13 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
       "/dashboard/skoler",
       "/api/schools",
     );
-    const nativeSchools = (await nativeSchoolsResponse.json()) as JsonValue;
+
+    const nativeSchools = Schema.decodeUnknownSync(Schema.Json)((await nativeSchoolsResponse.json()));
     expect(isJsonObject(nativeSchools)).toBe(true);
     const activeSchools = isJsonObject(nativeSchools) ? nativeSchools.activeSchools : null;
     expect(Array.isArray(activeSchools)).toBe(true);
     expect(
-      (activeSchools as JsonValue[]).some(
+      (Schema.decodeUnknownSync(Schema.Array(Schema.Json))(activeSchools)).some(
         (item) => isJsonObject(item) && item.name === "Alfaskolen",
       ),
     ).toBe(true);
@@ -304,6 +341,7 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
       "/api/admin/semesters",
       createdSemester,
     );
+
     expect(semester.response.status()).toBe(201);
     expect(numericId(semester.value)).toBeGreaterThan(0);
     await expectLegacyStatus(
@@ -324,10 +362,12 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
       active: true,
       departmentId,
     });
+
     expect(school.response.status()).toBe(201);
     const schoolId = numericId(school.value);
 
     const legacyAdminPage = await browser.newPage();
+
     try {
       await loginSymfony(legacyAdminPage, legacyAdminUsername);
       await legacyAdminPage.goto(`${requiredLegacyOrigin()}/kontrollpanel/semesteradmin`, {
@@ -336,6 +376,7 @@ test.describe("Hybrid cross-line identity and school evidence", () => {
       await expect(legacyAdminPage.getByText("Vår 2032", { exact: true })).toBeVisible();
 
       const legacyLeaderPage = await browser.newPage();
+
       try {
         await loginSymfony(legacyLeaderPage, legacyLeaderUsername);
         await legacyLeaderPage.goto(`${requiredLegacyOrigin()}/kontrollpanel/skole/capacity/`, {

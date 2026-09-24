@@ -1,22 +1,12 @@
 import { Effect, Schema as S } from "effect";
-import {
-  SchoolSurveyAdminCatalogResource,
-  SchoolSurveyAdminListResource,
-  SchoolSurveyAdminResource,
-  SchoolSurveyResultsResource,
-  SchoolSurveysBridgeFailure,
-  SchoolSurveysBridgeOperationJson,
-  schoolSurveysBridgeFailure,
-  type SchoolSurveyCloseCommand,
-  type SchoolSurveyCreateCommand,
-  type SchoolSurveyListInput,
-  type SchoolSurveysBridgeFailure as SchoolSurveysBridgeFailureType,
-  type SchoolSurveysBridgeOperation,
-} from "./bridge";
+import { SchoolSurveyAdminCatalogResource, SchoolSurveyAdminListResource, SchoolSurveyAdminResource, SchoolSurveyResultsResource, SchoolSurveysBridgeFailure, SchoolSurveysBridgeOperationJson, schoolSurveysBridgeFailure, type SchoolSurveyCloseCommand, type SchoolSurveyCreateCommand, type SchoolSurveyListInput, type SchoolSurveysBridgeFailure as SchoolSurveysBridgeFailureType, type SchoolSurveysBridgeOperation, SurveyId } from "./bridge";
 
 type Catalog = S.Schema.Type<typeof SchoolSurveyAdminCatalogResource>;
+
 type SurveyList = S.Schema.Type<typeof SchoolSurveyAdminListResource>;
+
 type Survey = S.Schema.Type<typeof SchoolSurveyAdminResource>;
+
 type Results = S.Schema.Type<typeof SchoolSurveyResultsResource>;
 
 export interface SchoolSurveysOperations {
@@ -66,7 +56,9 @@ const bridgeRequest = <A>(
               body: S.encodeSync(SchoolSurveysBridgeOperationJson)(operation),
             },
       );
-      const payload = (await response.json().catch(() => null)) as unknown;
+
+      const payload = (await response.json().catch(() => null));
+
       return { response, payload };
     },
     catch: () => schoolSurveysBridgeFailure("Network"),
@@ -80,6 +72,7 @@ const bridgeRequest = <A>(
           Effect.flatMap(Effect.fail),
         );
       }
+
       return S.decodeUnknownEffect(schema)(payload, {
         onExcessProperty: "error",
       }).pipe(Effect.mapError(() => schoolSurveysBridgeFailure("SurveyDecodeError")));
@@ -108,6 +101,6 @@ export const createBrowserSchoolSurveysClient = (): SchoolSurveysClient => ({
         ...command,
       }),
     readAdminResults: ({ surveyId }) =>
-      bridgeRequest(SchoolSurveyResultsResource, { operation: "results", surveyId: surveyId as never }),
+      bridgeRequest(SchoolSurveyResultsResource, { operation: "results", surveyId: SurveyId.make(surveyId) }),
   },
 });

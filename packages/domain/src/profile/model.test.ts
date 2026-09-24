@@ -1,3 +1,4 @@
+import { PersonId } from "../organization/schema.js";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { PersonContactEmail, PersonProfile, personProfileDisplayName } from "./schema.js";
@@ -16,14 +17,16 @@ it("derives strict PersonProfile persistence variants", () => {
 it.effect("decodes canonical names and rejects excess fields", () =>
   Effect.gen(function* () {
     const profile = yield* Schema.decodeUnknownEffect(PersonProfile)(
-      { personId: "person-1", firstName: "Ada", lastName: "Lovelace", revision: 0 },
+      { personId: PersonId.make("person-1"), firstName: "Ada", lastName: "Lovelace", revision: 0 },
       { onExcessProperty: "error" },
     );
+
     expect(personProfileDisplayName(profile)).toBe("Ada Lovelace");
+
     const failure = yield* Effect.flip(
       Schema.decodeUnknownEffect(PersonProfile)(
         {
-          personId: "person-1",
+          personId: PersonId.make("person-1"),
           firstName: "Ada",
           lastName: "Lovelace",
           revision: 0,
@@ -32,9 +35,11 @@ it.effect("decodes canonical names and rejects excess fields", () =>
         { onExcessProperty: "error" },
       ),
     );
+
     expect(String(failure)).toContain("displayName");
   }),
 );
+
 it("matches the persisted visible-ASCII email boundary", () => {
   expect(() => Schema.decodeUnknownSync(PersonContactEmail)("ada@example.invalid")).not.toThrow();
   expect(() => Schema.decodeUnknownSync(PersonContactEmail)("søker@example.invalid")).toThrow();

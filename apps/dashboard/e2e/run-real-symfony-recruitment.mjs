@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -10,7 +11,9 @@ import {
 } from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
+
 const journeyRefId = "intent://journey:recruitment:applicant-assignment:v1";
+
 const journeyStepIds = [
   "assign-interview",
   "fresh-read-applicant-list",
@@ -19,6 +22,7 @@ const journeyStepIds = [
   "load-interviewer-options",
   "mono-session-login",
 ];
+
 const defaultJourneyEntries = [
   { journeyRefId, stepIds: journeyStepIds },
   {
@@ -26,11 +30,17 @@ const defaultJourneyEntries = [
     stepIds: ["list-current-applicants", "mono-session-login"],
   },
 ];
+
 const apiOrigin = "http://127.0.0.1:8000";
+
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const commandTimeoutMs = 120_000;
+
 const shutdownTimeoutMs = 5_000;
 
 const sleep = (milliseconds) =>
@@ -40,6 +50,7 @@ function requireOpenSsl() {
   const result = spawnSync("openssl", ["version"], {
     stdio: "ignore",
   });
+
   if (result.error || result.status !== 0) {
     throw new Error(
       "Missing prerequisite: openssl must be installed and available on PATH for disposable JWT key generation.",
@@ -50,35 +61,46 @@ function requireOpenSsl() {
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
+
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: captureOutput ? ["ignore", "pipe", "inherit"] : "inherit",
     });
+
     const stdoutChunks = [];
+
     if (captureOutput) child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
     let settled = false;
+
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
+
       const hardKill = setTimeout(() => {
         if (child.exitCode === null) child.kill("SIGKILL");
       }, shutdownTimeoutMs);
+
       hardKill.unref();
       settle(rejectCommand, new Error(`${command} ${args.join(" ")} timed out`));
     }, commandTimeoutMs);
+
     timeout.unref();
+
     const settle = (callback, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       callback(value);
     };
+
     child.once("error", (error) => settle(rejectCommand, error));
     child.once(captureOutput ? "close" : "exit", (code, signal) => {
       if (code === 0) {
         settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
+
         return;
       }
+
       settle(
         rejectCommand,
         new Error(
@@ -96,9 +118,11 @@ function startProcess(command, args, options) {
     stdio: "inherit",
     detached: true,
   });
+
   child.once("error", (error) => {
     console.error(`${command} failed to start:`, error);
   });
+
   return child;
 }
 
@@ -115,6 +139,7 @@ async function waitForHttp(url, child) {
       const response = await fetch(url, { redirect: "manual" });
       const body = await response.text();
       const phpFailure = /\b(?:Warning|Fatal error|Parse error|Notice):/i.test(body);
+
       if (phpFailure) {
         lastError = "PHP runtime failure in readiness response";
       } else if (response.status < 500) {
@@ -125,6 +150,7 @@ async function waitForHttp(url, child) {
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
+
     await sleep(250);
   }
 
@@ -133,41 +159,51 @@ async function waitForHttp(url, child) {
 
 function signalProcessGroup(child, signal) {
   if (child.pid === undefined) return;
+
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ESRCH") {
       return;
     }
+
     throw error;
   }
 }
 
 async function stopProcess(child) {
   if (!child || child.pid === undefined) return;
+
   if (child.exitCode !== null) {
     signalProcessGroup(child, "SIGTERM");
+
     return;
   }
 
   let resolveExit;
+
   const exited = new Promise((resolvePromise) => {
     resolveExit = resolvePromise;
   });
+
   child.once("exit", resolveExit);
   signalProcessGroup(child, "SIGTERM");
+
   const graceful = await Promise.race([
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (graceful || child.exitCode !== null) return;
 
   signalProcessGroup(child, "SIGKILL");
   await Promise.race([exited, sleep(shutdownTimeoutMs).then(() => undefined)]);
 }
+
 function assertDisposableDatabase(databasePath, temporaryRoot) {
   const resolvedDatabasePath = resolve(databasePath);
   const resolvedTemporaryRoot = resolve(temporaryRoot);
+
   if (
     databasePath === ":memory:" ||
     databasePath.includes(":memory:") ||
@@ -180,9 +216,11 @@ function assertDisposableDatabase(databasePath, temporaryRoot) {
 
 function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
   const prefix = "sqlite:///";
+
   if (!databaseUrl.startsWith(prefix)) {
     throw new Error(`Refusing non-SQLite e2e database URL: ${databaseUrl}`);
   }
+
   assertDisposableDatabase(databaseUrl.slice(prefix.length), temporaryRoot);
 }
 
@@ -228,6 +266,7 @@ async function main() {
     RECAPTCHA_PUBLIC_KEY: "",
     RECAPTCHA_PRIVATE_KEY: "",
   };
+
   assertDisposableDatabaseUrl(serverEnv.DATABASE_URL, temporaryRoot);
   assertDisposableDatabaseUrl(serverEnv.E2E_DATABASE_URL, temporaryRoot);
 
@@ -277,11 +316,13 @@ async function main() {
         process.exitCode = signal === "SIGINT" ? 130 : 143;
       });
   };
+
   process.once("SIGINT", handleSignal);
   process.once("SIGTERM", handleSignal);
 
   let primaryError;
   let primaryFailed = false;
+
   try {
     await rm(symfonyCacheDir, { recursive: true, force: true });
     await rm(symfonyLogDir, { recursive: true, force: true });
@@ -311,6 +352,7 @@ async function main() {
       ],
       { cwd: serverRoot, env: serverEnv },
     );
+
     const fixtureInputBytes = await readFile(
       join(serverRoot, "tests/Fixtures/RecruitmentAssignmentFixture.php"),
     );
@@ -341,19 +383,23 @@ async function main() {
       "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
       "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
       "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+    ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
+
     const e2eArgs = [
       resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
       "test",
       "e2e/real-symfony-recruitment.spec.ts",
       "--project=real-symfony",
     ];
+
     if (receiptRequested) e2eArgs.push("--reporter=json");
+
     const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
       cwd: dashboardRoot,
       env: dashboardEnv,
       captureOutput: receiptRequested,
     });
+
     if (receiptRequested) {
       const runnerSourceInputBytes = [
         {
@@ -371,9 +417,11 @@ async function main() {
           ),
         },
       ];
+
       const explicitJourneyOverride =
         process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID !== undefined ||
         process.env.RUNTIME_EVIDENCE_STEP_IDS !== undefined;
+
       const evidenceJourneys = explicitJourneyOverride
         ? [
             {
@@ -385,6 +433,7 @@ async function main() {
             },
           ]
         : defaultJourneyEntries;
+
       await emitRuntimeEvidenceReceipts({
         journeys: evidenceJourneys,
         fixtureId: "recruitment-assignment-0028",
@@ -400,6 +449,7 @@ async function main() {
 
   let cleanupError;
   let cleanupFailed = false;
+
   try {
     await cleanup();
   } catch (error) {
@@ -417,6 +467,7 @@ async function main() {
       throw cleanupError;
     }
   }
+
   if (primaryFailed) throw primaryError;
 }
 
@@ -424,6 +475,7 @@ if (process.versions.bun === undefined) {
   const result = spawnSync("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
     stdio: "inherit",
   });
+
   process.exitCode = result.status ?? 1;
 } else {
   main().catch((error) => {

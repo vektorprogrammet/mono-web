@@ -16,7 +16,12 @@ import {
   SubmitSchoolSurveyResponseRequest,
   SurveyId,
 } from "@vektorprogrammet/domain";
-import { makeAccessSpec } from "@vektorprogrammet/domain/authz";
+import {
+  makeAccessSpec,
+  CredentialMechanismSchema,
+  CapabilityExpressionSchema,
+  ConcealmentPolicySchema,
+} from "@vektorprogrammet/domain/authz";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { annotateAccessSpec, anonymousNativeAccess } from "./access.js";
@@ -152,6 +157,7 @@ export const schoolSurveyResultsCsvContentDisposition = (surveyId: SurveyId): st
     /[!'()*]/gu,
     (character) => `%${character.codePointAt(0)!.toString(16).toUpperCase()}`,
   );
+
   return `attachment; filename="school-survey-${encodedSurveyId}-results.csv"`;
 };
 
@@ -164,6 +170,7 @@ const SchoolSurveyResultsCsvContentDisposition = Schema.String.pipe(
     ),
   ),
 );
+
 const SchoolSurveyResultsCsvResponse = HttpApiSchema.WithHeaders(
   Schema.String.pipe(HttpApiSchema.asText({ contentType: "text/csv; charset=utf-8" })),
   {
@@ -187,12 +194,17 @@ const schoolSurveyAdminAccess = (
 ) =>
   makeAccessSpec({
     exposure: "External",
-    acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+    acceptedCredentials: [
+      CredentialMechanismSchema.cases.BetterAuthCookie.make({}),
+      CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+    ],
     principalKinds: ["Person"],
-    capabilities: { _tag: "None" },
+    capabilities: CapabilityExpressionSchema.cases.None.make({}),
     requirements: [],
     canonicalScopeResolver,
-    concealment: concealScope ? { _tag: "NotFound", conceal: ["Scope"] } : { _tag: "Reveal" },
+    concealment: concealScope
+      ? ConcealmentPolicySchema.cases.NotFound.make({ conceal: ["Scope"] })
+      : ConcealmentPolicySchema.cases.Reveal.make({}),
     decisionTime,
   });
 

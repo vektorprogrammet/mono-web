@@ -1,5 +1,5 @@
-import { Effect, Schema } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
+import { Match, Predicate, Effect, Schema } from "effect";
+import { Database, type DatabaseOperations } from "../service.js";
 import type {
   OrganizationAuthorityInstant,
   OrganizationPersonAuthority,
@@ -8,6 +8,8 @@ import { lockPersonAuthorization } from "../organization/authority-postgres.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
 import {
+  ReceiptApprovalGrantScopeSchema,
+  ReceiptSettlementGrantScopeSchema,
   CreateReceiptApprovalGrantInputSchema,
   CreateReceiptPaymentAuthorityInputSchema,
   CreateReceiptSettlementGrantInputSchema,
@@ -46,8 +48,11 @@ const NonEmpty = Schema.String.pipe(
     }),
   ),
 );
+
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+
 const ApprovalScope = Schema.Literals(["Department", "Global"]);
+
 const SettlementScope = Schema.Literals(["Department", "Global"]);
 
 const ReceiptAuthorityDatabaseRowSchema = Schema.Struct({
@@ -66,24 +71,36 @@ const ReceiptAuthorityDatabaseRowSchema = Schema.Struct({
     Schema.makeFilter(
       (row) =>
         (row.endAt === null || compareRfc3339Instants(row.endAt, row.startAt) > 0) &&
-        (row.authorityKind === "Payment"
-          ? row.departmentId !== null &&
-            row.paymentAccountCiphertext !== null &&
-            row.approvalScope === null &&
-            row.settlementScope === null
-          : row.authorityKind === "Approval"
-            ? row.paymentAccountCiphertext === null &&
+        Match.value(row.authorityKind).pipe(
+          Match.when(
+            "Payment",
+            () =>
+              row.departmentId !== null &&
+              row.paymentAccountCiphertext !== null &&
+              row.approvalScope === null &&
+              row.settlementScope === null,
+          ),
+          Match.when(
+            "Approval",
+            () =>
+              row.paymentAccountCiphertext === null &&
               row.settlementScope === null &&
               ((row.approvalScope === "Department" && row.departmentId !== null) ||
-                (row.approvalScope === "Global" && row.departmentId === null))
-            : row.paymentAccountCiphertext === null &&
+                (row.approvalScope === "Global" && row.departmentId === null)),
+          ),
+          Match.orElse(
+            () =>
+              row.paymentAccountCiphertext === null &&
               row.approvalScope === null &&
               ((row.settlementScope === "Department" && row.departmentId !== null) ||
-                (row.settlementScope === "Global" && row.departmentId === null))),
+                (row.settlementScope === "Global" && row.departmentId === null)),
+          ),
+        ),
       { message: "a valid persisted Receipt authority row" },
     ),
   ),
 );
+
 type ReceiptAuthorityDatabaseRow = typeof ReceiptAuthorityDatabaseRowSchema.Type;
 
 const decodeError = (operation: string, cause: unknown) =>
@@ -104,6 +121,7 @@ const paymentRecord = (
   ) {
     return Effect.fail(decodeError("decode Receipt payment authority", "invalid row shape"));
   }
+
   return Effect.succeed({
     paymentAuthorityId: ReceiptPaymentAuthorityId.make(row.authorityId),
     personId: row.personId,
@@ -126,18 +144,25 @@ const approvalGrantRecord = (
   ) {
     return Effect.fail(decodeError("decode Receipt approval grant", "invalid row shape"));
   }
+
   let scope: ReceiptApprovalGrant["scope"];
+
   if (row.approvalScope === "Global") {
     if (row.departmentId !== null) {
       return Effect.fail(decodeError("decode Receipt approval grant", "invalid global scope"));
     }
-    scope = { _tag: "Global" };
+
+    scope = ReceiptApprovalGrantScopeSchema.cases.Global.make({});
   } else {
     if (row.departmentId === null) {
       return Effect.fail(decodeError("decode Receipt approval grant", "missing department scope"));
     }
-    scope = { _tag: "Department", departmentId: row.departmentId };
+
+    scope = ReceiptApprovalGrantScopeSchema.cases.Department.make({
+      departmentId: row.departmentId,
+    });
   }
+
   return Effect.succeed({
     approvalGrantId: ReceiptApprovalGrantId.make(row.authorityId),
     personId: row.personId,
@@ -159,20 +184,27 @@ const settlementGrantRecord = (
   ) {
     return Effect.fail(decodeError("decode Receipt settlement grant", "invalid row shape"));
   }
+
   let scope: ReceiptSettlementGrant["scope"];
+
   if (row.settlementScope === "Global") {
     if (row.departmentId !== null) {
       return Effect.fail(decodeError("decode Receipt settlement grant", "invalid global scope"));
     }
-    scope = { _tag: "Global" };
+
+    scope = ReceiptSettlementGrantScopeSchema.cases.Global.make({});
   } else {
     if (row.departmentId === null) {
       return Effect.fail(
         decodeError("decode Receipt settlement grant", "missing department scope"),
       );
     }
-    scope = { _tag: "Department", departmentId: row.departmentId };
+
+    scope = ReceiptSettlementGrantScopeSchema.cases.Department.make({
+      departmentId: row.departmentId,
+    });
   }
+
   return Effect.succeed({
     settlementGrantId: ReceiptSettlementGrantId.make(row.authorityId),
     personId: row.personId,
@@ -184,6 +216,7 @@ const settlementGrantRecord = (
 };
 
 const ReceiptAuthorityPersonRowSchema = Schema.Struct({ personId: PersonId });
+
 type ReceiptAuthorityPersonRow = typeof ReceiptAuthorityPersonRowSchema.Type;
 
 export type ReceiptAuthorityWriteFailure =
@@ -193,7 +226,7 @@ export type ReceiptAuthorityWriteFailure =
   | ReceiptAuthorityWriteConflict;
 
 const lockAuthorityPerson = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<void, ReceiptPersistenceError> =>
   lockPersonAuthorization(sql, personId).pipe(
@@ -201,7 +234,7 @@ const lockAuthorityPerson = (
   );
 
 export const lockReceiptPaymentAuthorityForWrite = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   paymentAuthorityId: ReceiptPaymentAuthority["paymentAuthorityId"],
   expectedRevision: number,
 ): Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure> =>
@@ -211,12 +244,15 @@ export const lockReceiptPaymentAuthorityForWrite = (
       FROM public.economy_payment_authorities
       WHERE payment_authority_id = ${paymentAuthorityId}
     `;
+
     const observed = yield* Schema.decodeUnknownEffect(
       Schema.Array(ReceiptAuthorityPersonRowSchema),
     )(observedRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt payment authority person", cause)),
     );
+
     const observedPerson = observed[0]?.personId;
+
     if (observedPerson === undefined) {
       return yield* new ReceiptAuthorityRecordNotFound({
         entity: "PaymentAuthority",
@@ -225,6 +261,7 @@ export const lockReceiptPaymentAuthorityForWrite = (
     }
 
     yield* lockAuthorityPerson(sql, observedPerson);
+
     const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
       SELECT
         'Payment'::text AS "authorityKind",
@@ -244,12 +281,15 @@ export const lockReceiptPaymentAuthorityForWrite = (
       WHERE payment_authority_id = ${paymentAuthorityId}
       FOR UPDATE
     `;
+
     const locked = yield* Schema.decodeUnknownEffect(
       Schema.Array(ReceiptAuthorityDatabaseRowSchema),
     )(lockedRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode locked Receipt payment authority", cause)),
     );
+
     const row = locked[0];
+
     if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
       return yield* new ReceiptAuthorityWriteConflict({
         entity: "PaymentAuthority",
@@ -257,6 +297,7 @@ export const lockReceiptPaymentAuthorityForWrite = (
         expectedRevision,
       });
     }
+
     return yield* paymentRecord(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -265,7 +306,7 @@ export const lockReceiptPaymentAuthorityForWrite = (
   );
 
 export const lockReceiptApprovalGrantForWrite = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   approvalGrantId: ReceiptApprovalGrant["approvalGrantId"],
   expectedRevision: number,
 ): Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure> =>
@@ -275,12 +316,15 @@ export const lockReceiptApprovalGrantForWrite = (
       FROM public.economy_receipt_approval_grants
       WHERE approval_grant_id = ${approvalGrantId}
     `;
+
     const observed = yield* Schema.decodeUnknownEffect(
       Schema.Array(ReceiptAuthorityPersonRowSchema),
     )(observedRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt approval grant person", cause)),
     );
+
     const observedPerson = observed[0]?.personId;
+
     if (observedPerson === undefined) {
       return yield* new ReceiptAuthorityRecordNotFound({
         entity: "ApprovalGrant",
@@ -289,6 +333,7 @@ export const lockReceiptApprovalGrantForWrite = (
     }
 
     yield* lockAuthorityPerson(sql, observedPerson);
+
     const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
       SELECT
         'Approval'::text AS "authorityKind",
@@ -308,12 +353,15 @@ export const lockReceiptApprovalGrantForWrite = (
       WHERE approval_grant_id = ${approvalGrantId}
       FOR UPDATE
     `;
+
     const locked = yield* Schema.decodeUnknownEffect(
       Schema.Array(ReceiptAuthorityDatabaseRowSchema),
     )(lockedRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode locked Receipt approval grant", cause)),
     );
+
     const row = locked[0];
+
     if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
       return yield* new ReceiptAuthorityWriteConflict({
         entity: "ApprovalGrant",
@@ -321,6 +369,7 @@ export const lockReceiptApprovalGrantForWrite = (
         expectedRevision,
       });
     }
+
     return yield* approvalGrantRecord(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -329,7 +378,7 @@ export const lockReceiptApprovalGrantForWrite = (
   );
 
 export const lockReceiptSettlementGrantForWrite = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   settlementGrantId: ReceiptSettlementGrant["settlementGrantId"],
   expectedRevision: number,
 ): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure> =>
@@ -339,12 +388,15 @@ export const lockReceiptSettlementGrantForWrite = (
       FROM public.economy_receipt_settlement_grants
       WHERE settlement_grant_id = ${settlementGrantId}
     `;
+
     const observed = yield* Schema.decodeUnknownEffect(
       Schema.Array(ReceiptAuthorityPersonRowSchema),
     )(observedRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant person", cause)),
     );
+
     const observedPerson = observed[0]?.personId;
+
     if (observedPerson === undefined) {
       return yield* new ReceiptAuthorityRecordNotFound({
         entity: "SettlementGrant",
@@ -353,6 +405,7 @@ export const lockReceiptSettlementGrantForWrite = (
     }
 
     yield* lockAuthorityPerson(sql, observedPerson);
+
     const lockedRows = yield* sql<ReceiptAuthorityDatabaseRow>`
       SELECT
         'Settlement'::text AS "authorityKind",
@@ -372,12 +425,15 @@ export const lockReceiptSettlementGrantForWrite = (
       WHERE settlement_grant_id = ${settlementGrantId}
       FOR UPDATE
     `;
+
     const locked = yield* Schema.decodeUnknownEffect(
       Schema.Array(ReceiptAuthorityDatabaseRowSchema),
     )(lockedRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode locked Receipt settlement grant", cause)),
     );
+
     const row = locked[0];
+
     if (row === undefined || row.personId !== observedPerson || row.revision !== expectedRevision) {
       return yield* new ReceiptAuthorityWriteConflict({
         entity: "SettlementGrant",
@@ -385,6 +441,7 @@ export const lockReceiptSettlementGrantForWrite = (
         expectedRevision,
       });
     }
+
     return yield* settlementGrantRecord(row);
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -393,7 +450,7 @@ export const lockReceiptSettlementGrantForWrite = (
   );
 
 export const createReceiptPaymentAuthority = (
-  input: unknown,
+  input: typeof CreateReceiptPaymentAuthorityInputSchema.Encoded,
 ): Effect.Effect<ReceiptPaymentAuthority, ReceiptDecodeError | ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(CreateReceiptPaymentAuthorityInputSchema)(
@@ -402,13 +459,16 @@ export const createReceiptPaymentAuthority = (
     ).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt payment authority creation", cause)),
     );
+
     const created = yield* Schema.decodeUnknownEffect(ReceiptPaymentAuthoritySchema)(
       { ...command, revision: 0 },
       { onExcessProperty: "error" },
     ).pipe(
       Effect.mapError((cause) => decodeError("decode created Receipt payment authority", cause)),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -432,6 +492,7 @@ export const createReceiptPaymentAuthority = (
               0
             )
           `;
+
           return created;
         }),
       )
@@ -443,7 +504,7 @@ export const createReceiptPaymentAuthority = (
   });
 
 export const endReceiptPaymentAuthority = (
-  input: unknown,
+  input: typeof EndReceiptPaymentAuthorityInputSchema.Encoded,
 ): Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(EndReceiptPaymentAuthorityInputSchema)(
@@ -452,7 +513,9 @@ export const endReceiptPaymentAuthority = (
     ).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt payment authority ending", cause)),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -461,6 +524,7 @@ export const endReceiptPaymentAuthority = (
             command.paymentAuthorityId,
             command.expectedRevision,
           );
+
           const ended = yield* Schema.decodeUnknownEffect(ReceiptPaymentAuthoritySchema)(
             {
               ...current,
@@ -473,6 +537,7 @@ export const endReceiptPaymentAuthority = (
               decodeError("decode ended Receipt payment authority", cause),
             ),
           );
+
           const updated = yield* sql<{ readonly paymentAuthorityId: string }>`
             UPDATE public.economy_payment_authorities
             SET end_at = ${ended.endAt}, revision = revision + 1
@@ -480,6 +545,7 @@ export const endReceiptPaymentAuthority = (
               AND revision = ${command.expectedRevision}
             RETURNING payment_authority_id AS "paymentAuthorityId"
           `;
+
           if (updated.length !== 1) {
             return yield* new ReceiptAuthorityWriteConflict({
               entity: "PaymentAuthority",
@@ -487,6 +553,7 @@ export const endReceiptPaymentAuthority = (
               expectedRevision: command.expectedRevision,
             });
           }
+
           return ended;
         }),
       )
@@ -498,7 +565,7 @@ export const endReceiptPaymentAuthority = (
   });
 
 export const removeReceiptPaymentAuthority = (
-  input: unknown,
+  input: typeof RemoveReceiptPaymentAuthorityInputSchema.Encoded,
 ): Effect.Effect<ReceiptPaymentAuthority, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(RemoveReceiptPaymentAuthorityInputSchema)(
@@ -507,7 +574,9 @@ export const removeReceiptPaymentAuthority = (
     ).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt payment authority removal", cause)),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -516,12 +585,14 @@ export const removeReceiptPaymentAuthority = (
             command.paymentAuthorityId,
             command.expectedRevision,
           );
+
           const removed = yield* sql<{ readonly paymentAuthorityId: string }>`
             DELETE FROM public.economy_payment_authorities
             WHERE payment_authority_id = ${command.paymentAuthorityId}
               AND revision = ${command.expectedRevision}
             RETURNING payment_authority_id AS "paymentAuthorityId"
           `;
+
           if (removed.length !== 1) {
             return yield* new ReceiptAuthorityWriteConflict({
               entity: "PaymentAuthority",
@@ -529,6 +600,7 @@ export const removeReceiptPaymentAuthority = (
               expectedRevision: command.expectedRevision,
             });
           }
+
           return current;
         }),
       )
@@ -540,7 +612,7 @@ export const removeReceiptPaymentAuthority = (
   });
 
 export const createReceiptApprovalGrant = (
-  input: unknown,
+  input: typeof CreateReceiptApprovalGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptApprovalGrant, ReceiptDecodeError | ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(CreateReceiptApprovalGrantInputSchema)(
@@ -549,17 +621,23 @@ export const createReceiptApprovalGrant = (
     ).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt approval grant creation", cause)),
     );
+
     const created = yield* Schema.decodeUnknownEffect(ReceiptApprovalGrantSchema)(
       { ...command, revision: 0 },
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode created Receipt approval grant", cause)));
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           yield* lockAuthorityPerson(sql, created.personId);
-          const departmentId =
-            created.scope._tag === "Department" ? created.scope.departmentId : null;
+
+          const departmentId = Predicate.isTagged(created.scope, "Department")
+            ? created.scope.departmentId
+            : null;
+
           yield* sql`
             INSERT INTO public.economy_receipt_approval_grants (
               approval_grant_id,
@@ -579,6 +657,7 @@ export const createReceiptApprovalGrant = (
               0
             )
           `;
+
           return created;
         }),
       )
@@ -590,13 +669,15 @@ export const createReceiptApprovalGrant = (
   });
 
 export const endReceiptApprovalGrant = (
-  input: unknown,
+  input: typeof EndReceiptApprovalGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(EndReceiptApprovalGrantInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode Receipt approval grant ending", cause)));
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -605,6 +686,7 @@ export const endReceiptApprovalGrant = (
             command.approvalGrantId,
             command.expectedRevision,
           );
+
           const ended = yield* Schema.decodeUnknownEffect(ReceiptApprovalGrantSchema)(
             {
               ...current,
@@ -615,6 +697,7 @@ export const endReceiptApprovalGrant = (
           ).pipe(
             Effect.mapError((cause) => decodeError("decode ended Receipt approval grant", cause)),
           );
+
           const updated = yield* sql<{ readonly approvalGrantId: string }>`
             UPDATE public.economy_receipt_approval_grants
             SET end_at = ${ended.endAt}, revision = revision + 1
@@ -622,6 +705,7 @@ export const endReceiptApprovalGrant = (
               AND revision = ${command.expectedRevision}
             RETURNING approval_grant_id AS "approvalGrantId"
           `;
+
           if (updated.length !== 1) {
             return yield* new ReceiptAuthorityWriteConflict({
               entity: "ApprovalGrant",
@@ -629,6 +713,7 @@ export const endReceiptApprovalGrant = (
               expectedRevision: command.expectedRevision,
             });
           }
+
           return ended;
         }),
       )
@@ -640,14 +725,16 @@ export const endReceiptApprovalGrant = (
   });
 
 export const removeReceiptApprovalGrant = (
-  input: unknown,
+  input: typeof RemoveReceiptApprovalGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptApprovalGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(RemoveReceiptApprovalGrantInputSchema)(
       input,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode Receipt approval grant removal", cause)));
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -656,12 +743,14 @@ export const removeReceiptApprovalGrant = (
             command.approvalGrantId,
             command.expectedRevision,
           );
+
           const removed = yield* sql<{ readonly approvalGrantId: string }>`
             DELETE FROM public.economy_receipt_approval_grants
             WHERE approval_grant_id = ${command.approvalGrantId}
               AND revision = ${command.expectedRevision}
             RETURNING approval_grant_id AS "approvalGrantId"
           `;
+
           if (removed.length !== 1) {
             return yield* new ReceiptAuthorityWriteConflict({
               entity: "ApprovalGrant",
@@ -669,6 +758,7 @@ export const removeReceiptApprovalGrant = (
               expectedRevision: command.expectedRevision,
             });
           }
+
           return current;
         }),
       )
@@ -680,7 +770,7 @@ export const removeReceiptApprovalGrant = (
   });
 
 export const createReceiptSettlementGrant = (
-  input: unknown,
+  input: typeof CreateReceiptSettlementGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptSettlementGrant, ReceiptDecodeError | ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(CreateReceiptSettlementGrantInputSchema)(
@@ -689,19 +779,25 @@ export const createReceiptSettlementGrant = (
     ).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant creation", cause)),
     );
+
     const created = yield* Schema.decodeUnknownEffect(ReceiptSettlementGrantSchema)(
       { ...command, revision: 0 },
       { onExcessProperty: "error" },
     ).pipe(
       Effect.mapError((cause) => decodeError("decode created Receipt settlement grant", cause)),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           yield* lockAuthorityPerson(sql, created.personId);
-          const departmentId =
-            created.scope._tag === "Department" ? created.scope.departmentId : null;
+
+          const departmentId = Predicate.isTagged(created.scope, "Department")
+            ? created.scope.departmentId
+            : null;
+
           yield* sql`
             INSERT INTO public.economy_receipt_settlement_grants (
               settlement_grant_id,
@@ -721,6 +817,7 @@ export const createReceiptSettlementGrant = (
               0
             )
           `;
+
           return created;
         }),
       )
@@ -732,7 +829,7 @@ export const createReceiptSettlementGrant = (
   });
 
 export const endReceiptSettlementGrant = (
-  input: unknown,
+  input: typeof EndReceiptSettlementGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(EndReceiptSettlementGrantInputSchema)(input, {
@@ -740,7 +837,9 @@ export const endReceiptSettlementGrant = (
     }).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant ending", cause)),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -749,6 +848,7 @@ export const endReceiptSettlementGrant = (
             command.settlementGrantId,
             command.expectedRevision,
           );
+
           const ended = yield* Schema.decodeUnknownEffect(ReceiptSettlementGrantSchema)(
             {
               ...current,
@@ -759,6 +859,7 @@ export const endReceiptSettlementGrant = (
           ).pipe(
             Effect.mapError((cause) => decodeError("decode ended Receipt settlement grant", cause)),
           );
+
           const updated = yield* sql<{ readonly settlementGrantId: string }>`
             UPDATE public.economy_receipt_settlement_grants
             SET end_at = ${ended.endAt}, revision = revision + 1
@@ -766,6 +867,7 @@ export const endReceiptSettlementGrant = (
               AND revision = ${command.expectedRevision}
             RETURNING settlement_grant_id AS "settlementGrantId"
           `;
+
           if (updated.length !== 1) {
             return yield* new ReceiptAuthorityWriteConflict({
               entity: "SettlementGrant",
@@ -773,6 +875,7 @@ export const endReceiptSettlementGrant = (
               expectedRevision: command.expectedRevision,
             });
           }
+
           return ended;
         }),
       )
@@ -784,7 +887,7 @@ export const endReceiptSettlementGrant = (
   });
 
 export const removeReceiptSettlementGrant = (
-  input: unknown,
+  input: typeof RemoveReceiptSettlementGrantInputSchema.Encoded,
 ): Effect.Effect<ReceiptSettlementGrant, ReceiptAuthorityWriteFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(RemoveReceiptSettlementGrantInputSchema)(
@@ -793,7 +896,9 @@ export const removeReceiptSettlementGrant = (
     ).pipe(
       Effect.mapError((cause) => decodeError("decode Receipt settlement grant removal", cause)),
     );
+
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -802,12 +907,14 @@ export const removeReceiptSettlementGrant = (
             command.settlementGrantId,
             command.expectedRevision,
           );
+
           const removed = yield* sql<{ readonly settlementGrantId: string }>`
             DELETE FROM public.economy_receipt_settlement_grants
             WHERE settlement_grant_id = ${command.settlementGrantId}
               AND revision = ${command.expectedRevision}
             RETURNING settlement_grant_id AS "settlementGrantId"
           `;
+
           if (removed.length !== 1) {
             return yield* new ReceiptAuthorityWriteConflict({
               entity: "SettlementGrant",
@@ -815,6 +922,7 @@ export const removeReceiptSettlementGrant = (
               expectedRevision: command.expectedRevision,
             });
           }
+
           return current;
         }),
       )
@@ -833,7 +941,7 @@ export type ReceiptAuthorityRowLockMode = "None" | "ForShare";
  * until that transaction commits or rolls back.
  */
 export const resolveReceiptAuthorityWithSql = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
   organizationProjection: OrganizationPersonAuthority,
@@ -843,6 +951,7 @@ export const resolveReceiptAuthorityWithSql = (
     const evaluatedAt = yield* Schema.decodeUnknownEffect(ReceiptAuthorityInstantSchema)(
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Receipt authority instant", cause)));
+
     if (
       organizationProjection.personId !== personId ||
       organizationProjection.evaluatedAt !== evaluatedAt
@@ -856,6 +965,7 @@ export const resolveReceiptAuthorityWithSql = (
     }
 
     const authorityLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
+
     const selected = yield* sql<ReceiptAuthorityDatabaseRow>`
       WITH locked_payment_authorities AS MATERIALIZED (
         SELECT
@@ -972,6 +1082,7 @@ export const resolveReceiptAuthorityWithSql = (
         Effect.fail(persistenceError("resolve Receipt authority", cause)),
       ),
     );
+
     const rows = yield* Schema.decodeUnknownEffect(Schema.Array(ReceiptAuthorityDatabaseRowSchema))(
       selected,
       { onExcessProperty: "error" },
@@ -980,6 +1091,7 @@ export const resolveReceiptAuthorityWithSql = (
     const paymentAuthorities: Array<ReceiptPaymentAuthority> = [];
     const approvalGrants: Array<ReceiptApprovalGrant> = [];
     const settlementGrants: Array<ReceiptSettlementGrant> = [];
+
     for (const row of rows) {
       if (row.personId !== personId) {
         return yield* decodeError(
@@ -987,6 +1099,7 @@ export const resolveReceiptAuthorityWithSql = (
           "query returned an authority for another person",
         );
       }
+
       if (row.authorityKind === "Payment") {
         paymentAuthorities.push(yield* paymentRecord(row));
       } else if (row.authorityKind === "Approval") {
@@ -995,6 +1108,7 @@ export const resolveReceiptAuthorityWithSql = (
         settlementGrants.push(yield* settlementGrantRecord(row));
       }
     }
+
     return projectReceiptAuthority(
       organizationProjection,
       paymentAuthorities,
@@ -1011,6 +1125,7 @@ export const resolveReceiptAuthorityForRead = (
 ): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     return yield* resolveReceiptAuthorityWithSql(
       sql,
       personId,

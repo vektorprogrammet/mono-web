@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
-import { Database, type DatabaseShape } from "./service.js";
+import { Database, type DatabaseOperations } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
+  CreateDepartmentCommandSchema,
   Organization,
   OrganizationCommandId,
   PersonId,
   type CreateDepartmentCommand,
 } from "@vektorprogrammet/domain/organization";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
-import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
+import { Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 import { databaseSchemaRevision } from "./migrations.js";
 
@@ -19,7 +20,9 @@ const proofCohort = {
 } as const;
 
 const headSeparator = databaseSchemaRevision.indexOf("_");
+
 const headMigrationId = Number(databaseSchemaRevision.slice(0, headSeparator));
+
 const headMigrationName = databaseSchemaRevision.slice(headSeparator + 1);
 
 const administrator = {
@@ -27,8 +30,7 @@ const administrator = {
   personId: PersonId.make("organization-postgres-proof-administrator"),
 };
 
-const replayCommand: CreateDepartmentCommand = {
-  _tag: "CreateDepartment",
+const replayCommand: CreateDepartmentCommand = CreateDepartmentCommandSchema.make({
   commandId: OrganizationCommandId.make(proofCohort.replayCommandId),
   name: "Concurrent Replay Department",
   shortName: "CRD",
@@ -37,10 +39,9 @@ const replayCommand: CreateDepartmentCommand = {
   city: "Bergen",
   latitude: null,
   longitude: null,
-};
+});
 
-const conflictCommandA: CreateDepartmentCommand = {
-  _tag: "CreateDepartment",
+const conflictCommandA: CreateDepartmentCommand = CreateDepartmentCommandSchema.make({
   commandId: OrganizationCommandId.make(proofCohort.conflictCommandId),
   name: "Conflict Winner A",
   shortName: "CWA",
@@ -49,7 +50,7 @@ const conflictCommandA: CreateDepartmentCommand = {
   city: "Bergen",
   latitude: null,
   longitude: null,
-};
+});
 
 const conflictCommandB: CreateDepartmentCommand = {
   ...conflictCommandA,
@@ -64,11 +65,13 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
     applicationName,
     maxConnections: 1,
   });
+
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
   return Layer.merge(databaseLayer, organizationLayer);
 };
 
-const resetProofCohort = (sql: DatabaseShape) =>
+const resetProofCohort = (sql: DatabaseOperations) =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
@@ -97,12 +100,15 @@ const contender = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const organization = yield* Organization;
+
     const [connection] = yield* sql<{ readonly pid: number }>`
       SELECT pg_backend_pid() AS pid
     `;
+
     yield* Deferred.succeed(ready, undefined);
     yield* Deferred.await(start);
     const outcome = yield* Effect.result(organization.createDepartment(command, administrator));
+
     return { pid: connection?.pid ?? -1, outcome };
   });
 
@@ -116,19 +122,23 @@ const raceDepartmentCommands = (
     const readyA = yield* Deferred.make<void>();
     const readyB = yield* Deferred.make<void>();
     const start = yield* Deferred.make<void>();
+
     const contenderA = yield* Effect.forkScoped(
       contender(leftCommand, readyA, start).pipe(
         Effect.provide(makeProofLayer(databaseUrl, `${raceName}-a`)),
       ),
     );
+
     const contenderB = yield* Effect.forkScoped(
       contender(rightCommand, readyB, start).pipe(
         Effect.provide(makeProofLayer(databaseUrl, `${raceName}-b`)),
       ),
     );
+
     yield* Deferred.await(readyA);
     yield* Deferred.await(readyB);
     yield* Deferred.succeed(start, undefined);
+
     return yield* Effect.all([Fiber.join(contenderA), Fiber.join(contenderB)], {
       concurrency: "unbounded",
     });
@@ -136,7 +146,8 @@ const raceDepartmentCommands = (
 
 export const program = Effect.scoped(
   Effect.gen(function* () {
-    const databaseUrl = yield* Config.redacted("DATABASE_URL");
+    const databaseUrl = yield* Config.Redacted("DATABASE_URL");
+
     const setup = yield* Effect.gen(function* () {
       const sql = yield* Database;
       assert.equal(sql.schemaRevision, databaseSchemaRevision);
@@ -146,12 +157,14 @@ export const program = Effect.scoped(
         WHERE migration_id = ${headMigrationId}
       `;
       yield* sql.migrate;
+
       const [migration] = yield* sql<{ readonly count: string }>`
         SELECT count(*)::text AS count
         FROM vektorprogrammet_schema_migrations
         WHERE migration_id = ${headMigrationId}
           AND name = ${headMigrationName}
       `;
+
       return { migrationReplayed: Number(migration?.count ?? "-1") === 1 };
     }).pipe(Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-setup")));
 
@@ -161,6 +174,7 @@ export const program = Effect.scoped(
       replayCommand,
       replayCommand,
     );
+
     const conflicting = yield* raceDepartmentCommands(
       databaseUrl,
       "organization-postgres-proof-conflicting",
@@ -170,6 +184,7 @@ export const program = Effect.scoped(
 
     const durable = yield* Effect.gen(function* () {
       const sql = yield* Database;
+
       const [row] = yield* sql<{
         readonly receipts: string;
         readonly audits: string;
@@ -217,6 +232,7 @@ export const program = Effect.scoped(
             WHERE audit_command_id = command_id
               AND native_creation_command_id = command_id) AS "exactLinks"
       `;
+
       return {
         receipts: Number(row?.receipts ?? "-1"),
         audits: Number(row?.audits ?? "-1"),
@@ -225,20 +241,26 @@ export const program = Effect.scoped(
       };
     }).pipe(Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-observer")));
 
-    const identicalSuccesses = identical.filter((entry) => entry.outcome._tag === "Success");
+    const identicalSuccesses = identical.filter((entry) =>
+      Predicate.isTagged(entry.outcome, "Success"),
+    );
+
     const identicalCommitted = identicalSuccesses.filter(
-      (entry) => entry.outcome._tag === "Success" && entry.outcome.success.committed,
+      (entry) => Predicate.isTagged(entry.outcome, "Success") && entry.outcome.success.committed,
     ).length;
+
     const identicalReplayed = identicalSuccesses.filter(
-      (entry) => entry.outcome._tag === "Success" && !entry.outcome.success.committed,
+      (entry) => Predicate.isTagged(entry.outcome, "Success") && !entry.outcome.success.committed,
     ).length;
+
     const conflictingCommitted = conflicting.filter(
-      (entry) => entry.outcome._tag === "Success" && entry.outcome.success.committed,
+      (entry) => Predicate.isTagged(entry.outcome, "Success") && entry.outcome.success.committed,
     ).length;
+
     const conflictingRejected = conflicting.filter(
       (entry) =>
-        entry.outcome._tag === "Failure" &&
-        entry.outcome.failure._tag === "OrganizationCommandConflict",
+        Predicate.isTagged(entry.outcome, "Failure") &&
+        Predicate.isTagged(entry.outcome.failure, "OrganizationCommandConflict"),
     ).length;
 
     const evidence = {

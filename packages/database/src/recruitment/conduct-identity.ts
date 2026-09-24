@@ -18,10 +18,13 @@ export const readInterviewApplicantIdentity = (interviewId: RecruitmentInterview
         departmentId: DepartmentId;
         linkedApplicantPersonId: PersonId | null;
       }>`SELECT a.applicant_id AS "applicantId",i.department_id AS "departmentId",l.person_id AS "linkedApplicantPersonId" FROM public.recruitment_interviews i JOIN public.admission_applications a USING(application_id) LEFT JOIN public.applicant_account_links l USING(applicant_id) WHERE i.interview_id=${interviewId}`;
+
       if (!rows[0]) return yield* new RecruitmentInterviewNotFound({ interviewId });
+
       return rows[0];
     }),
   );
+
 /** Caller holds a transaction. Applicant custody precedes interview/receipt locks. */
 export const guardInterviewApplicantIdentity = (
   interviewId: RecruitmentInterviewId,
@@ -31,7 +34,9 @@ export const guardInterviewApplicantIdentity = (
     const source = yield* readInterviewApplicantIdentity(interviewId);
     yield* lockOnboardingApplicant(source.applicantId);
     const current = yield* readInterviewApplicantIdentity(interviewId);
+
     if (isKnownSelfInterview(current.linkedApplicantPersonId, personId))
       return yield* new RecruitmentScopeDenied({ personId, departmentId: current.departmentId });
+
     return current;
   });

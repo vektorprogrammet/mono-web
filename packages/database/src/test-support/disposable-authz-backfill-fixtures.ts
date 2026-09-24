@@ -65,6 +65,7 @@ export const validDisposableAuthzBackfillInput = () => ({
 
 export const reversedDisposableAuthzBackfillInput = () => {
   const input = validDisposableAuthzBackfillInput();
+
   return {
     ...input,
     tags: [...input.tags].reverse(),

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { Button } from "@foldkit/ui";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -28,6 +29,7 @@ const departmentNames = (
 
 const teamTable = (snapshot: TeamCatalogSnapshot, h: HtmlBuilder<Message>): Html => {
   const namesByDepartment = departmentNames(snapshot);
+
   return h.div(
     [
       h.Class("organization-catalog__table-scroll"),
@@ -80,6 +82,7 @@ const fieldOfStudyTable = (
   h: HtmlBuilder<Message>,
 ): Html => {
   const namesByDepartment = departmentNames(snapshot);
+
   return h.div(
     [
       h.Class("organization-catalog__table-scroll"),
@@ -134,10 +137,10 @@ const successfulCatalog = (
       [h.Class("organization-catalog__empty"), h.AriaLabelledBy("organization-empty-title")],
       [
         h.h2([h.Id("organization-empty-title")], [
-          snapshot._tag === "Team" ? "Ingen team er registrert" : "Ingen studieretninger er registrert",
+          Predicate.isTagged(snapshot, "Team") ? "Ingen team er registrert" : "Ingen studieretninger er registrert",
         ]),
         h.p([], [
-          snapshot._tag === "Team"
+          Predicate.isTagged(snapshot, "Team")
             ? "Nye team vises her når de er opprettet av en organisasjonsadministrator."
             : "Nye studieretninger vises her når de er opprettet av en organisasjonsadministrator.",
         ]),
@@ -150,7 +153,7 @@ const successfulCatalog = (
     [
       h.div([h.Class("organization-catalog__results-heading")], [
         h.h2([h.Id("organization-results-title")], [
-          snapshot._tag === "Team" ? "Registrerte team" : "Registrerte studieretninger",
+          Predicate.isTagged(snapshot, "Team") ? "Registrerte team" : "Registrerte studieretninger",
         ]),
         h.p([], [
           snapshot.records.length === 1
@@ -158,7 +161,7 @@ const successfulCatalog = (
             : `${snapshot.records.length} oppføringer`,
         ]),
       ]),
-      snapshot._tag === "Team" ? teamTable(snapshot, h) : fieldOfStudyTable(snapshot, h),
+      Predicate.isTagged(snapshot, "Team") ? teamTable(snapshot, h) : fieldOfStudyTable(snapshot, h),
     ],
   );
 };

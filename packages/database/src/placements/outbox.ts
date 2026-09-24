@@ -5,8 +5,8 @@ import {
   type SchoolServiceNotificationRequest as SchoolServiceNotificationRequestType,
 } from "@vektorprogrammet/domain/placements";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { Effect, Schema } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
+import { flow, Data, Predicate, Effect, Schema } from "effect";
+import { Database, type DatabaseOperations } from "../service.js";
 
 const ClaimedRow = Schema.Struct({
   effectId: Schema.String,
@@ -16,6 +16,7 @@ const ClaimedRow = Schema.Struct({
   attempts: Schema.Int,
   payloadJson: Schema.Unknown,
 });
+
 const CanonicalRow = Schema.Struct({
   proposalId: Schema.String,
   departmentId: Schema.String,
@@ -26,12 +27,14 @@ const CanonicalRow = Schema.Struct({
 });
 
 type ClaimedRow = typeof ClaimedRow.Type;
+
 export interface ClaimedSchoolServiceNotification {
   readonly effectId: string;
   readonly claimId: string;
   readonly attempts: number;
   readonly request: SchoolServiceNotificationRequestType;
 }
+
 export type SchoolServiceNotificationDeliveryResult =
   | { readonly _tag: "Idle" }
   | { readonly _tag: "Delivered"; readonly claim: ClaimedSchoolServiceNotification }
@@ -41,6 +44,9 @@ export type SchoolServiceNotificationDeliveryResult =
       readonly failureTag: string;
     }
   | { readonly _tag: "Quarantined"; readonly effectId: string; readonly failureTag: string };
+
+export const SchoolServiceNotificationDeliveryResult =
+  Data.taggedEnum<SchoolServiceNotificationDeliveryResult>();
 
 export type SchoolServiceNotificationInterpreter = (
   request: SchoolServiceNotificationRequestType,
@@ -52,19 +58,25 @@ const outboxError = (operation: string, cause?: unknown) =>
     message: cause instanceof Error ? cause.message : "school service notification outbox failed",
   });
 
-const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+const decode = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError((cause) => outboxError("decode school service notification", cause)),
   );
 
-const quarantine = (sql: DatabaseShape, effectId: string, claimId: string, failureTag: string) =>
+const quarantine = (
+  sql: DatabaseOperations,
+  effectId: string,
+  claimId: string,
+  failureTag: string,
+) =>
   sql`UPDATE public.school_service_notification_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_tag=${failureTag} WHERE effect_id=${effectId} AND status='Processing' AND claim_id=${claimId}`.pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(outboxError("quarantine school service notification", cause)),
     ),
   );
 
-const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: string) =>
+const claimInTransaction = (sql: DatabaseOperations, claimId: string, claimedAt: string) =>
   Effect.gen(function* () {
     const rows = yield* sql<ClaimedRow>`
       WITH candidate AS (
@@ -88,22 +100,27 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
         Effect.fail(outboxError("claim school service notification", cause)),
       ),
     );
+
     const row = rows[0];
+
     if (row === undefined) return undefined;
-    const decodedRow = yield* decode(ClaimedRow, row).pipe(
+
+    const decodedRow = yield* decode(ClaimedRow)(row).pipe(
       Effect.matchEffect({
         onFailure: () => Effect.succeed(undefined),
         onSuccess: Effect.succeed,
       }),
     );
+
     if (decodedRow === undefined || decodedRow.claimId !== claimId) {
       yield* quarantine(sql, row.effectId, claimId, "SchoolServiceDecodeError");
-      return {
-        _tag: "Quarantined" as const,
+
+      return SchoolServiceNotificationDeliveryResult.Quarantined({
         effectId: row.effectId,
         failureTag: "SchoolServiceDecodeError" as const,
-      };
+      });
     }
+
     const canonicalRows = yield* sql<{
       proposalId: string;
       departmentId: string;
@@ -112,31 +129,35 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
       confirmedAt: string;
       assignments: unknown;
     }>`SELECT proposal_id AS "proposalId",department_id AS "departmentId",semester_id AS "semesterId",status,to_char(confirmed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "confirmedAt",assignment_snapshot AS assignments FROM public.school_service_proposals WHERE proposal_id=${decodedRow.proposalId} FOR SHARE`;
+
     const canonical =
       canonicalRows[0] === undefined
         ? undefined
-        : yield* decode(CanonicalRow, canonicalRows[0]).pipe(
+        : yield* decode(CanonicalRow)(canonicalRows[0]).pipe(
             Effect.matchEffect({
               onFailure: () => Effect.succeed(undefined),
               onSuccess: Effect.succeed,
             }),
           );
-    const request = yield* decode(SchoolServiceNotificationRequest, decodedRow.payloadJson).pipe(
+
+    const request = yield* decode(SchoolServiceNotificationRequest)(decodedRow.payloadJson).pipe(
       Effect.matchEffect({
         onFailure: () => Effect.succeed(undefined),
         onSuccess: Effect.succeed,
       }),
     );
+
     const assignments =
       canonical !== undefined && Array.isArray(canonical.assignments)
         ? canonical.assignments.filter(
             (assignment) =>
-              typeof assignment === "object" &&
+              (assignment === null || Predicate.isObjectOrArray(assignment)) &&
               assignment !== null &&
               "personId" in assignment &&
               assignment.personId === decodedRow.personId,
           )
         : [];
+
     const valid =
       canonical !== undefined &&
       request !== undefined &&
@@ -151,14 +172,16 @@ const claimInTransaction = (sql: DatabaseShape, claimId: string, claimedAt: stri
       request.confirmedAt === canonical.confirmedAt &&
       assignments.length > 0 &&
       canonicalJson(request.assignments) === canonicalJson(assignments);
+
     if (!valid) {
       yield* quarantine(sql, decodedRow.effectId, decodedRow.claimId, "AuthorityEnvelopeMismatch");
-      return {
-        _tag: "Quarantined" as const,
+
+      return SchoolServiceNotificationDeliveryResult.Quarantined({
         effectId: decodedRow.effectId,
         failureTag: "AuthorityEnvelopeMismatch" as const,
-      };
+      });
     }
+
     return {
       _tag: "Claimed" as const,
       claim: {
@@ -204,15 +227,18 @@ export const deliverNextSchoolServiceNotification = (
 > =>
   Effect.gen(function* () {
     const selected = yield* claimNextSchoolServiceNotification(claimId, claimedAt);
-    if (selected === undefined) return { _tag: "Idle" as const };
-    if (selected._tag === "Quarantined") {
-      return {
-        _tag: "Quarantined" as const,
+
+    if (selected === undefined) return SchoolServiceNotificationDeliveryResult.Idle();
+
+    if (Predicate.isTagged(selected, "Quarantined")) {
+      return SchoolServiceNotificationDeliveryResult.Quarantined({
         effectId: selected.effectId,
         failureTag: selected.failureTag,
-      };
+      });
     }
+
     const claim = selected.claim;
+
     return yield* interpreter(claim.request).pipe(
       Effect.matchEffect({
         onFailure: (failure) =>
@@ -220,7 +246,9 @@ export const deliverNextSchoolServiceNotification = (
             (sql) =>
               sql`UPDATE public.school_service_notification_outbox SET status='Failed',claim_id=NULL,claimed_at=NULL,last_failure_tag=${failure._tag} WHERE effect_id=${claim.effectId} AND status='Processing' AND claim_id=${claim.claimId}`,
           ).pipe(
-            Effect.as({ _tag: "Failed" as const, claim, failureTag: failure._tag }),
+            Effect.as(
+              SchoolServiceNotificationDeliveryResult.Failed({ claim, failureTag: failure._tag }),
+            ),
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(outboxError("fail school service notification", cause)),
             ),
@@ -230,7 +258,7 @@ export const deliverNextSchoolServiceNotification = (
             (sql) =>
               sql`UPDATE public.school_service_notification_outbox SET status='Delivered',claim_id=NULL,claimed_at=NULL,delivered_at=${claimedAt},last_failure_tag=NULL WHERE effect_id=${claim.effectId} AND status='Processing' AND claim_id=${claim.claimId}`,
           ).pipe(
-            Effect.as({ _tag: "Delivered" as const, claim }),
+            Effect.as(SchoolServiceNotificationDeliveryResult.Delivered({ claim })),
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(outboxError("deliver school service notification", cause)),
             ),

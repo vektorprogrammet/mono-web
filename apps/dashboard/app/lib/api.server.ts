@@ -16,5 +16,6 @@ export function serverApiEndpoint(path: string): string {
   if (serverApiUrl === undefined || serverApiUrl.trim() === "") {
     throw new Error("API URL is not configured");
   }
+
   return new URL(path, serverApiUrl).toString();
 }

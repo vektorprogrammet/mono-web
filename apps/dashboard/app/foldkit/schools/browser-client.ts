@@ -23,8 +23,10 @@ export interface SchoolsDirectoryClient {
 
 const readBridge = async (input: SchoolsListInput, signal: AbortSignal): Promise<Response> => {
   const search = new URLSearchParams();
+
   if (input.department !== undefined) search.set("department", input.department);
   const query = search.size === 0 ? "" : `?${search.toString()}`;
+
   return fetch(`${import.meta.env.BASE_URL}schools${query}`, {
     method: "GET",
     credentials: "same-origin",
@@ -42,7 +44,7 @@ const listSchools = (
   }).pipe(
     Effect.flatMap((response) =>
       Effect.tryPromise({
-        try: () => response.json() as Promise<unknown>,
+        try: () => response.json(),
         catch: () => schoolsBridgeFailure("SchoolsDecodeError"),
       }).pipe(Effect.map((payload) => ({ response, payload }))),
     ),
@@ -52,6 +54,7 @@ const listSchools = (
           onExcessProperty: "error",
         }).pipe(Effect.mapError(() => schoolsBridgeFailure("SchoolsDecodeError")));
       }
+
       return S.decodeUnknownEffect(SchoolsBridgeFailureSchema)(payload, {
         onExcessProperty: "error",
       }).pipe(

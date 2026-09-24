@@ -1,3 +1,4 @@
+import { RecruitmentInvitationDeliveryResult } from "./recruitment/outbox.js";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
@@ -10,11 +11,16 @@ import {
   type PublicApplicationOutboxRequest,
 } from "@vektorprogrammet/domain/application";
 import {
+  AdmissionPeriodActorSchema,
+  AdmissionPeriodCommandSchema,
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
 } from "@vektorprogrammet/domain/admission-period";
 import { runPublicApplicationOutboxWorker } from "../../../apps/backend/src/application/worker.js";
-import { deliverNextPublicApplicationOutbox } from "./application/outbox.js";
+import {
+  PublicApplicationOutboxDeliveryResult,
+  deliverNextPublicApplicationOutbox,
+} from "./application/outbox.js";
 import { executePublicApplicationCommand } from "./application/postgres.js";
 import {
   executeAdmissionPeriodCommand,
@@ -33,6 +39,8 @@ import {
   OrganizationCommandId,
 } from "@vektorprogrammet/domain/organization";
 import {
+  RecruitmentAssignmentObservationSchema,
+  RecruitmentScheduleObservationSchema,
   InterviewSchemaId,
   Recruitment,
   RecruitmentAssignmentCommandId,
@@ -57,26 +65,33 @@ import {
   NotificationGateway,
 } from "@vektorprogrammet/domain/notification";
 import {
+  ReceiptCommandRequestSchema,
   Economy,
   ReceiptId,
   ReceiptVisualId,
   importLegacyReceipt,
 } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/database/receipt";
-import { storeReceiptImportResult } from "./receipt/postgres.js";
-import { Deferred, Effect, Fiber, Layer } from "effect";
+import { executeReceiptCommand, storeReceiptImportResult } from "./receipt/postgres.js";
+import { Match, Predicate, Deferred, Effect, Fiber, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
+
 const runtime = makeControlledTestRuntime(EconomyLive.pipe(Layer.provideMerge(databaseLayer)));
+
 const recruitmentPglite = new PGlite({ extensions: { btree_gist } });
+
 const recruitmentDatabaseLayer = DatabaseTest({ liveClient: recruitmentPglite });
+
 const recruitmentBaseLayer = Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(
   Layer.provideMerge(recruitmentDatabaseLayer),
 );
+
 const recruitmentProfileLayer = ProfileLive.pipe(Layer.provideMerge(recruitmentBaseLayer));
+
 const recruitmentRuntime = makeControlledTestRuntime(
   RecruitmentLive.pipe(Layer.provideMerge(recruitmentProfileLayer)),
 );
@@ -95,6 +110,7 @@ const seedSchedulingFixture = (fixtureId: string) =>
     const interviewSchemaId = InterviewSchemaId.make(`${fixtureId}-schema`);
     const interviewId = RecruitmentInterviewId.make(`${fixtureId}-interview`);
     const now = "2031-09-15T12:00:00.000Z";
+
     const actor = {
       _tag: "DepartmentLeader" as const,
       personId: leaderPersonId,
@@ -345,6 +361,7 @@ const runWithIsolatedDatabase = async <A, E>(
   const pglite = new PGlite({ extensions: { btree_gist } });
   await pglite.waitReady;
   const isolatedRuntime = makeControlledTestRuntime(DatabaseTest({ liveClient: pglite }));
+
   try {
     return await isolatedRuntime.runPromise(program(pglite));
   } finally {
@@ -365,6 +382,7 @@ describe("DatabaseTest", () => {
       Effect.gen(function* () {
         const database = yield* Database;
         yield* database.health;
+
         const migrations = yield* database<{
           readonly migration_id: number;
           readonly name: string;
@@ -373,6 +391,7 @@ describe("DatabaseTest", () => {
           FROM vektorprogrammet_schema_migrations
           ORDER BY migration_id
         `;
+
         const tables = yield* database<{ readonly table_name: string }>`
           SELECT table_name
           FROM information_schema.tables
@@ -414,6 +433,7 @@ describe("DatabaseTest", () => {
             )
           ORDER BY table_name
         `;
+
         return {
           revision: database.schemaRevision,
           migrations,
@@ -421,6 +441,7 @@ describe("DatabaseTest", () => {
         };
       }),
     );
+
     expect(evidence).toEqual({
       revision: databaseSchemaRevision,
       migrations: databaseMigrationDefinitions.map(({ id, name }) => ({
@@ -634,19 +655,23 @@ describe("DatabaseTest", () => {
           departmentId: DepartmentId.make("recruitment-department"),
           active: true,
         };
+
         const now = "2031-09-15T12:00:00.000Z";
         const before = yield* recruitment.readAssignmentBoard({ status: "new" }, { actor, now });
+
         const command = {
           commandId: RecruitmentAssignmentCommandId.make("recruitment-command"),
           applicationId: PublicApplicationIdSchema.make("recruitment-application"),
           interviewerPersonId: PersonId.make("recruitment-interviewer"),
           interviewSchemaId: InterviewSchemaId.make("recruitment-schema"),
         };
+
         yield* database`
           UPDATE recruitment_interview_schemas
           SET active = FALSE
           WHERE interview_schema_id = 'recruitment-schema'
         `;
+
         const inactiveSchema = yield* Effect.flip(
           recruitment.assignApplicant(
             {
@@ -660,16 +685,19 @@ describe("DatabaseTest", () => {
             },
           ),
         );
+
         yield* database`
           UPDATE recruitment_interview_schemas
           SET active = TRUE
           WHERE interview_schema_id = 'recruitment-schema'
         `;
+
         const assigned = yield* recruitment.assignApplicant(command, {
           actor,
           now,
           interviewId: RecruitmentInterviewId.make("recruitment-interview"),
         });
+
         const snapshotMutation = {
           update: yield* Effect.result(database`
             UPDATE public.recruitment_interview_question_snapshots
@@ -681,11 +709,13 @@ describe("DatabaseTest", () => {
             WHERE interview_id = 'recruitment-interview' AND ordinal = 0
           `),
         };
+
         const replayed = yield* recruitment.assignApplicant(command, {
           actor,
           now,
           interviewId: RecruitmentInterviewId.make("ignored-replay-interview"),
         });
+
         const conflictingReplay = yield* Effect.flip(
           recruitment.assignApplicant(
             {
@@ -699,6 +729,7 @@ describe("DatabaseTest", () => {
             },
           ),
         );
+
         const duplicateAssignment = yield* Effect.flip(
           recruitment.assignApplicant(
             {
@@ -712,6 +743,7 @@ describe("DatabaseTest", () => {
             },
           ),
         );
+
         const closedPeriodReplay = yield* Effect.flip(
           recruitment.assignApplicant(command, {
             actor,
@@ -719,7 +751,9 @@ describe("DatabaseTest", () => {
             interviewId: RecruitmentInterviewId.make("closed-period-replay-interview"),
           }),
         );
+
         const after = yield* recruitment.readAssignmentBoard({ status: "new" }, { actor, now });
+
         const persistence = yield* database<{
           readonly receipts: string;
           readonly audits: string;
@@ -730,6 +764,7 @@ describe("DatabaseTest", () => {
             (SELECT count(*)::text FROM recruitment_assignment_audit) AS audits,
             (SELECT count(*)::text FROM recruitment_interviews) AS interviews
         `;
+
         const sourceBefore = yield* database<{
           readonly interviews: string;
           readonly receipts: string;
@@ -740,10 +775,12 @@ describe("DatabaseTest", () => {
             (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
             (SELECT count(*)::text FROM public.recruitment_interview_question_snapshots) AS snapshots
         `;
+
         yield* database`
           DELETE FROM public.recruitment_interview_schema_questions
           WHERE interview_schema_id = 'recruitment-schema'
         `;
+
         const missingSource = yield* Effect.flip(
           recruitment.assignApplicant(
             {
@@ -753,6 +790,7 @@ describe("DatabaseTest", () => {
             { actor, now, interviewId: RecruitmentInterviewId.make("missing-source-interview") },
           ),
         );
+
         yield* database`
           INSERT INTO public.recruitment_interview_schema_questions (
             interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
@@ -771,6 +809,7 @@ describe("DatabaseTest", () => {
           DELETE FROM public.recruitment_interview_schema_questions
           WHERE interview_schema_id = 'recruitment-schema' AND ordinal = 7
         `;
+
         const partialSource = yield* Effect.flip(
           recruitment.assignApplicant(
             {
@@ -780,6 +819,7 @@ describe("DatabaseTest", () => {
             { actor, now, interviewId: RecruitmentInterviewId.make("partial-source-interview") },
           ),
         );
+
         yield* database`
           INSERT INTO public.recruitment_interview_schema_questions (
             interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
@@ -791,6 +831,7 @@ describe("DatabaseTest", () => {
           SET ordinal = 8
           WHERE interview_schema_id = 'recruitment-schema' AND question_id = 'recruitment-q7'
         `;
+
         const invalidSource = yield* Effect.flip(
           recruitment.assignApplicant(
             {
@@ -800,11 +841,13 @@ describe("DatabaseTest", () => {
             { actor, now, interviewId: RecruitmentInterviewId.make("invalid-source-interview") },
           ),
         );
+
         yield* database`
           UPDATE public.recruitment_interview_schema_questions
           SET ordinal = 7
           WHERE interview_schema_id = 'recruitment-schema' AND question_id = 'recruitment-q7'
         `;
+
         const sourceAfter = yield* database<{
           readonly interviews: string;
           readonly receipts: string;
@@ -815,6 +858,7 @@ describe("DatabaseTest", () => {
             (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
             (SELECT count(*)::text FROM public.recruitment_interview_question_snapshots) AS snapshots
         `;
+
         const applicationScopeResult = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
@@ -830,16 +874,19 @@ describe("DatabaseTest", () => {
             }),
           ),
         );
+
         const blankAssignerResult = yield* Effect.result(database`
           UPDATE recruitment_interviews
           SET assigned_by_person_id = ''
           WHERE interview_id = 'recruitment-interview'
         `);
+
         const blankAuditActorResult = yield* Effect.result(database`
           UPDATE recruitment_assignment_audit
           SET actor_person_id = ''
           WHERE command_id = 'recruitment-command'
         `);
+
         const receiptLinkResult = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
@@ -874,6 +921,7 @@ describe("DatabaseTest", () => {
             }),
           ),
         );
+
         return {
           before,
           inactiveSchema,
@@ -897,6 +945,7 @@ describe("DatabaseTest", () => {
         };
       }),
     );
+
     expect(evidence.before.candidates).toEqual([
       expect.objectContaining({
         applicationId: "recruitment-application",
@@ -918,32 +967,33 @@ describe("DatabaseTest", () => {
     ]);
     expect(evidence.inactiveSchema._tag).toBe("RecruitmentInterviewSchemaInactive");
     expect(evidence.assigned).toEqual({
-      observation: {
-        _tag: "ApplicantAssigned",
-        commandId: "recruitment-command",
+      observation: RecruitmentAssignmentObservationSchema.make({
+        commandId: RecruitmentAssignmentCommandId.make("recruitment-command"),
         interview: {
-          interviewId: "recruitment-interview",
-          applicationId: "recruitment-application",
-          departmentId: "recruitment-department",
-          interviewerPersonId: "recruitment-interviewer",
+          interviewId: RecruitmentInterviewId.make("recruitment-interview"),
+          applicationId: PublicApplicationIdSchema.make("recruitment-application"),
+          departmentId: DepartmentId.make("recruitment-department"),
+          interviewerPersonId: PersonId.make("recruitment-interviewer"),
           coInterviewerPersonId: null,
-          interviewSchemaId: "recruitment-schema",
-          assignedByPersonId: "recruitment-leader",
+          interviewSchemaId: InterviewSchemaId.make("recruitment-schema"),
+          assignedByPersonId: PersonId.make("recruitment-leader"),
           assignedAt: "2031-09-15T12:00:00.000Z",
           revision: 0,
         },
-      },
+      }),
       replayed: false,
     });
     expect(evidence.snapshotMutation.update._tag).toBe("Failure");
     expect(evidence.snapshotMutation.delete._tag).toBe("Failure");
+
     if (
-      evidence.snapshotMutation.update._tag === "Failure" &&
-      evidence.snapshotMutation.delete._tag === "Failure"
+      Predicate.isTagged(evidence.snapshotMutation.update, "Failure") &&
+      Predicate.isTagged(evidence.snapshotMutation.delete, "Failure")
     ) {
-      expect(evidence.snapshotMutation.update.failure).toMatchObject({ _tag: "SqlError" });
-      expect(evidence.snapshotMutation.delete.failure).toMatchObject({ _tag: "SqlError" });
+      expect(evidence.snapshotMutation.update.failure).toHaveProperty("_tag", "SqlError");
+      expect(evidence.snapshotMutation.delete.failure).toHaveProperty("_tag", "SqlError");
     }
+
     expect(evidence.replayed).toEqual({
       observation: evidence.assigned.observation,
       replayed: true,
@@ -957,20 +1007,24 @@ describe("DatabaseTest", () => {
     expect(evidence.partialSource._tag).toBe("InterviewQuestionsUnavailable");
     expect(evidence.invalidSource._tag).toBe("InterviewQuestionsUnavailable");
     expect(evidence.sourceAfter).toEqual(evidence.sourceBefore);
+
     const constraintResults = [
       evidence.applicationScopeResult,
       evidence.receiptLinkResult,
       evidence.blankAssignerResult,
       evidence.blankAuditActorResult,
     ];
+
     expect(constraintResults.map((result) => result._tag)).toEqual([
       "Failure",
       "Failure",
       "Failure",
       "Failure",
     ]);
+
     for (const result of constraintResults) {
-      if (result._tag === "Failure") expect(result.failure).toMatchObject({ _tag: "SqlError" });
+      if (Predicate.isTagged(result, "Failure"))
+        expect(result.failure).toHaveProperty("_tag", "SqlError");
     }
   });
 
@@ -978,26 +1032,32 @@ describe("DatabaseTest", () => {
     const fixtureId = "scheduling-main";
     const deliveredAt = "2031-09-15T12:05:00.000Z";
     const gateway = makeRecordingNotificationGateway(deliveredAt);
+
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
         const recruitment = yield* Recruitment;
         const fixture = yield* seedSchedulingFixture(fixtureId);
+
         const context = {
           actor: fixture.actor,
           now: fixture.now,
           invitationId: fixture.invitationId,
           responseCapability: fixture.responseCapability,
         };
+
         const before = yield* recruitment.readSchedulingBoard({
           actor: fixture.actor,
           now: fixture.now,
         });
+
         const accepted = yield* recruitment.scheduleInterview(fixture.command, context);
         const replayed = yield* recruitment.scheduleInterview(fixture.command, context);
+
         const conflictingReplay = yield* Effect.flip(
           recruitment.scheduleInterview({ ...fixture.command, room: "A-102" }, context),
         );
+
         const pendingPersistence = yield* database<{
           readonly schedules: string;
           readonly invitations: string;
@@ -1038,18 +1098,22 @@ describe("DatabaseTest", () => {
               WHERE interview_id = ${fixture.interviewId}
             ) AS "interviewRevision"
         `;
+
         const pendingBoard = yield* recruitment.readSchedulingBoard({
           actor: fixture.actor,
           now: fixture.now,
         });
+
         const delivery = yield* deliverNextRecruitmentInvitation(
           `${fixtureId}-claim`,
           "2031-09-15T12:04:00.000Z",
         ).pipe(Effect.provide(gateway.layer));
+
         const deliveredBoard = yield* recruitment.readSchedulingBoard({
           actor: fixture.actor,
           now: fixture.now,
         });
+
         const deliveredOutbox = yield* database<{
           readonly status: string;
           readonly attempts: number;
@@ -1069,6 +1133,7 @@ describe("DatabaseTest", () => {
           FROM recruitment_invitation_outbox
           WHERE command_id = ${fixture.command.commandId}
         `;
+
         return {
           before,
           accepted,
@@ -1114,25 +1179,24 @@ describe("DatabaseTest", () => {
       ],
     });
     expect(evidence.accepted).toEqual({
-      observation: {
-        _tag: "InterviewScheduled",
-        commandId: `${fixtureId}-schedule-command`,
-        interviewId: `${fixtureId}-interview`,
+      observation: RecruitmentScheduleObservationSchema.make({
+        commandId: RecruitmentScheduleCommandId.make(`${fixtureId}-schedule-command`),
+        interviewId: RecruitmentInterviewId.make(`${fixtureId}-interview`),
         schedule: {
-          interviewId: `${fixtureId}-interview`,
+          interviewId: RecruitmentInterviewId.make(`${fixtureId}-interview`),
           scheduledAt: "2031-09-20T10:00:00.000Z",
           room: "A-101",
           campus: "Main Campus",
           mapLink: "https://maps.example.invalid/interview-room",
           message: "Welcome to your interview.",
-          scheduledByPersonId: `${fixtureId}-leader`,
+          scheduledByPersonId: PersonId.make(`${fixtureId}-leader`),
           committedAt: "2031-09-15T12:00:00.000Z",
           scheduleRevision: 1,
         },
         interviewRevision: 1,
         responseState: "Pending",
         notificationState: "Pending",
-      },
+      }),
       replayed: false,
     });
     expect(evidence.replayed).toEqual({
@@ -1160,9 +1224,9 @@ describe("DatabaseTest", () => {
       }),
     ]);
     expect(evidence.delivery._tag).toBe("Delivered");
+    expect(gateway.requests).toHaveProperty("0._tag", "SendInterviewInvitation");
     expect(gateway.requests).toEqual([
       expect.objectContaining({
-        _tag: "SendInterviewInvitation",
         commandId: `${fixtureId}-schedule-command`,
         interviewId: `${fixtureId}-interview`,
         invitationId: `${fixtureId}-invitation`,
@@ -1198,6 +1262,7 @@ describe("DatabaseTest", () => {
     const firstFixtureId = "scheduling-poison-first";
     const laterFixtureId = "scheduling-poison-later";
     const gateway = makeRecordingNotificationGateway("2031-09-15T12:04:00.000Z");
+
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -1221,11 +1286,14 @@ describe("DatabaseTest", () => {
           SET payload_json = '{"_tag":"Poison"}'::jsonb
           WHERE command_id = ${first.command.commandId}
         `;
+
         const quarantinePass = yield* deliverNextRecruitmentInvitation(
           "scheduling-poison-claim",
           "2031-09-15T12:02:00.000Z",
         ).pipe(Effect.provide(gateway.layer));
+
         const requestsAfterQuarantine = gateway.requests.length;
+
         const afterQuarantine = yield* database<{
           readonly commandId: string;
           readonly status: string;
@@ -1249,10 +1317,12 @@ describe("DatabaseTest", () => {
             ELSE 1
           END
         `;
+
         const continuedPass = yield* deliverNextRecruitmentInvitation(
           "scheduling-later-claim",
           "2031-09-15T12:03:00.000Z",
         ).pipe(Effect.provide(gateway.layer));
+
         const finalRows = yield* database<{
           readonly commandId: string;
           readonly status: string;
@@ -1276,6 +1346,7 @@ describe("DatabaseTest", () => {
             ELSE 1
           END
         `;
+
         return {
           quarantinePass,
           requestsAfterQuarantine,
@@ -1286,7 +1357,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.quarantinePass).toEqual({ _tag: "Idle" });
+    expect(evidence.quarantinePass).toEqual(RecruitmentInvitationDeliveryResult.Idle());
     expect(evidence.requestsAfterQuarantine).toBe(0);
     expect(evidence.afterQuarantine).toEqual([
       {
@@ -1330,6 +1401,7 @@ describe("DatabaseTest", () => {
       Effect.gen(function* () {
         const database = yield* Database;
         const recruitment = yield* Recruitment;
+
         const readScheduleWrites = (interviewId: string) =>
           database<{
             readonly revision: string;
@@ -1373,6 +1445,7 @@ describe("DatabaseTest", () => {
           `;
 
         const staleFixture = yield* seedSchedulingFixture("scheduling-stale");
+
         const staleFailure = yield* Effect.flip(
           recruitment.scheduleInterview(
             { ...staleFixture.command, expectedRevision: 1 },
@@ -1384,6 +1457,7 @@ describe("DatabaseTest", () => {
             },
           ),
         );
+
         const staleWrites = yield* readScheduleWrites(staleFixture.interviewId);
 
         const scheduledFixture = yield* seedSchedulingFixture("scheduling-already");
@@ -1394,6 +1468,7 @@ describe("DatabaseTest", () => {
           responseCapability: scheduledFixture.responseCapability,
         });
         const beforeAlreadyScheduled = yield* readScheduleWrites(scheduledFixture.interviewId);
+
         const alreadyScheduledFailure = yield* Effect.flip(
           recruitment.scheduleInterview(
             {
@@ -1411,9 +1486,11 @@ describe("DatabaseTest", () => {
             },
           ),
         );
+
         const afterAlreadyScheduled = yield* readScheduleWrites(scheduledFixture.interviewId);
 
         const rollbackFixture = yield* seedSchedulingFixture("scheduling-rollback");
+
         const rollbackFailure = yield* Effect.flip(
           recruitment.scheduleInterview(rollbackFixture.command, {
             actor: rollbackFixture.actor,
@@ -1422,7 +1499,9 @@ describe("DatabaseTest", () => {
             responseCapability: rollbackFixture.responseCapability,
           }),
         );
+
         const rollbackWrites = yield* readScheduleWrites(rollbackFixture.interviewId);
+
         return {
           staleFailure,
           staleWrites,
@@ -1435,8 +1514,8 @@ describe("DatabaseTest", () => {
       }),
     );
 
+    expect(evidence.staleFailure).toHaveProperty("_tag", "RecruitmentInterviewStaleRevision");
     expect(evidence.staleFailure).toMatchObject({
-      _tag: "RecruitmentInterviewStaleRevision",
       interviewId: "scheduling-stale-interview",
       expectedRevision: 1,
       actualRevision: 0,
@@ -1451,8 +1530,11 @@ describe("DatabaseTest", () => {
         outbox: "0",
       },
     ]);
+    expect(evidence.alreadyScheduledFailure).toHaveProperty(
+      "_tag",
+      "RecruitmentInterviewAlreadyScheduled",
+    );
     expect(evidence.alreadyScheduledFailure).toMatchObject({
-      _tag: "RecruitmentInterviewAlreadyScheduled",
       interviewId: "scheduling-already-interview",
     });
     expect(evidence.beforeAlreadyScheduled).toEqual([
@@ -1481,16 +1563,20 @@ describe("DatabaseTest", () => {
 
   it("records all invitation outcomes with atomic audits, conditional outbox, and fresh projections", async () => {
     const gateway = makeRecordingNotificationGateway("2031-09-15T12:10:00.000Z");
+
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
         const recruitment = yield* Recruitment;
+
         const cases = [
           { fixtureId: "response-accepted", action: "Accepted" as const },
           { fixtureId: "response-rejected", action: "Rejected" as const },
           { fixtureId: "response-new-time", action: "RequestedNewTime" as const },
         ];
+
         const observations = [];
+
         for (const item of cases) {
           const fixture = yield* seedSchedulingFixture(item.fixtureId);
           yield* recruitment.scheduleInterview(fixture.command, {
@@ -1502,30 +1588,38 @@ describe("DatabaseTest", () => {
           const capability = RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability);
           const pending = yield* recruitment.readInvitationResponse(capability);
           const context = { now: "2031-09-15T12:03:00.000Z" };
-          const result =
-            item.action === "Accepted"
-              ? yield* recruitment.confirmInvitation(capability, context)
-              : item.action === "Rejected"
-                ? yield* recruitment.rejectInvitation(capability, { message: "   " }, context)
-                : yield* recruitment.requestNewInvitationTime(
-                    capability,
-                    { message: "  Please offer an afternoon time.  " },
-                    context,
-                  );
+
+          const result = yield* Match.value(item.action).pipe(
+            Match.when("Accepted", () => recruitment.confirmInvitation(capability, context)),
+            Match.when("Rejected", () =>
+              recruitment.rejectInvitation(capability, { message: "   " }, context),
+            ),
+            Match.when("RequestedNewTime", () =>
+              recruitment.requestNewInvitationTime(
+                capability,
+                { message: "  Please offer an afternoon time.  " },
+                context,
+              ),
+            ),
+            Match.exhaustive,
+          );
+
           const freshApplicant = yield* recruitment.readInvitationResponse(capability);
+
           const freshLeader = yield* recruitment.readSchedulingBoard({
             actor: fixture.actor,
             now: context.now,
           });
+
           const freshMember = yield* recruitment.readSchedulingBoard({
-            actor: {
-              _tag: "Member",
+            actor: AdmissionPeriodActorSchema.cases.Member.make({
               personId: fixture.interviewerPersonId,
               departmentId: fixture.departmentId,
               active: true,
-            },
+            }),
             now: context.now,
           });
+
           const persisted = yield* database<{
             readonly responseState: string;
             readonly responseMessage: string | null;
@@ -1570,6 +1664,7 @@ describe("DatabaseTest", () => {
             FROM recruitment_invitations AS invitation
             WHERE invitation.invitation_id = ${fixture.invitationId}
           `;
+
           observations.push({
             action: item.action,
             pending,
@@ -1586,6 +1681,7 @@ describe("DatabaseTest", () => {
             persisted,
           });
         }
+
         const deliveries = [
           yield* deliverNextRecruitmentInvitationResponse(
             "response-recording-claim-1",
@@ -1596,6 +1692,7 @@ describe("DatabaseTest", () => {
             "2031-09-15T12:09:00.000Z",
           ).pipe(Effect.provide(gateway.layer)),
         ];
+
         return { observations, deliveries };
       }),
     );
@@ -1605,23 +1702,32 @@ describe("DatabaseTest", () => {
       "Pending",
       "Pending",
     ]);
+    expect(evidence.observations.map((item) => item.result)).toHaveProperty(
+      "0._tag",
+      "InvitationResponseRecorded",
+    );
+    expect(evidence.observations.map((item) => item.result)).toHaveProperty(
+      "1._tag",
+      "InvitationResponseRecorded",
+    );
+    expect(evidence.observations.map((item) => item.result)).toHaveProperty(
+      "2._tag",
+      "InvitationResponseRecorded",
+    );
     expect(evidence.observations.map((item) => item.result)).toEqual([
       expect.objectContaining({
-        _tag: "InvitationResponseRecorded",
         responseState: "Accepted",
         responseMessage: null,
         responseRevision: 1,
         notificationState: "NotRequired",
       }),
       expect.objectContaining({
-        _tag: "InvitationResponseRecorded",
         responseState: "Rejected",
         responseMessage: null,
         responseRevision: 1,
         notificationState: "Pending",
       }),
       expect.objectContaining({
-        _tag: "InvitationResponseRecorded",
         responseState: "RequestedNewTime",
         responseMessage: "Please offer an afternoon time.",
         responseRevision: 1,
@@ -1703,12 +1809,15 @@ describe("DatabaseTest", () => {
     const migration = databaseMigrationDefinitions.find(
       ({ id }) => id === "15_native-identity-better-auth",
     )!;
+
     const migrationSource = await readFile(migration.url, "utf8");
+
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
         const recruitment = yield* Recruitment;
         yield* Effect.promise(() => recruitmentPglite.exec(migrationSource));
+
         const [replayedMigration] = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS count
           FROM vektorprogrammet_schema_migrations
@@ -1718,6 +1827,7 @@ describe("DatabaseTest", () => {
         const fixture = yield* seedSchedulingFixture(
           "response-message-confinement-with-long-stable-identifier",
         );
+
         yield* recruitment.scheduleInterview(fixture.command, {
           actor: fixture.actor,
           now: fixture.now,
@@ -1729,6 +1839,7 @@ describe("DatabaseTest", () => {
         const capabilitySequence = "C".repeat(43);
         const embeddedCapabilitySequence = `Do not persist (${capabilitySequence}) here`;
         const outboxEffectId = `recruitment-invitation-response:${fixture.invitationId}:1`;
+
         const before = yield* database<{
           readonly responseState: string;
           readonly responseMessage: string | null;
@@ -1753,6 +1864,7 @@ describe("DatabaseTest", () => {
           FROM recruitment_invitations AS invitation
           WHERE invitation.invitation_id = ${fixture.invitationId}
         `;
+
         const stageRejectedInvitation = (message: string) => database`
           UPDATE recruitment_invitations
           SET response_state = 'Rejected',
@@ -1761,6 +1873,7 @@ describe("DatabaseTest", () => {
             response_revision = 1
           WHERE invitation_id = ${fixture.invitationId}
         `;
+
         const insertAudit = (message: string) => database`
           INSERT INTO recruitment_invitation_response_audit (
             invitation_id,
@@ -1780,23 +1893,28 @@ describe("DatabaseTest", () => {
             ${responseInstant}
           )
         `;
+
         const invitationMessage = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
               yield* stageRejectedInvitation(capabilitySequence);
+
               return yield* Effect.fail("InvitationMessageConfinementMissing");
             }),
           ),
         );
+
         const auditMessage = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
               yield* stageRejectedInvitation(ordinaryMessage);
               yield* insertAudit(embeddedCapabilitySequence);
+
               return yield* Effect.fail("AuditMessageConfinementMissing");
             }),
           ),
         );
+
         const outboxMessage = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
@@ -1827,10 +1945,12 @@ describe("DatabaseTest", () => {
                   '{}'::jsonb
                 )
               `;
+
               return yield* Effect.fail("OutboxMessageConfinementMissing");
             }),
           ),
         );
+
         const outboxPayload = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
@@ -1861,10 +1981,12 @@ describe("DatabaseTest", () => {
                   jsonb_build_object('note', ${embeddedCapabilitySequence})
                 )
               `;
+
               return yield* Effect.fail("OutboxPayloadConfinementMissing");
             }),
           ),
         );
+
         const afterCounterexamples = yield* database<{
           readonly responseState: string;
           readonly responseMessage: string | null;
@@ -1891,11 +2013,13 @@ describe("DatabaseTest", () => {
         `;
 
         const validNearbyMessage = "V".repeat(42);
+
         const validResult = yield* recruitment.rejectInvitation(
           RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability),
           { message: validNearbyMessage },
           { now: responseInstant },
         );
+
         const validRows = yield* database<{
           readonly invitationMessage: string | null;
           readonly auditMessage: string | null;
@@ -1914,6 +2038,7 @@ describe("DatabaseTest", () => {
             ON outbox.invitation_id = invitation.invitation_id
           WHERE invitation.invitation_id = ${fixture.invitationId}
         `;
+
         return {
           replayedMigration,
           counterexamples: [invitationMessage, auditMessage, outboxMessage, outboxPayload],
@@ -1927,12 +2052,15 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence.replayedMigration).toEqual({ count: "1" });
+
     for (const counterexample of evidence.counterexamples) {
       expect(counterexample._tag).toBe("Failure");
-      if (counterexample._tag === "Failure") {
-        expect(counterexample.failure).toMatchObject({ _tag: "SqlError" });
+
+      if (Predicate.isTagged(counterexample, "Failure")) {
+        expect(counterexample.failure).toHaveProperty("_tag", "SqlError");
       }
     }
+
     expect(evidence.afterCounterexamples).toEqual(evidence.before);
     expect(evidence.before).toEqual([
       {
@@ -1961,6 +2089,7 @@ describe("DatabaseTest", () => {
         const recruitment = yield* Recruitment;
         const missingAuditFixture = yield* seedSchedulingFixture("response-link-missing-audit");
         const missingOutboxFixture = yield* seedSchedulingFixture("response-link-missing-outbox");
+
         const mismatchedOutboxFixture = yield* seedSchedulingFixture(
           "response-link-mismatched-outbox",
         );
@@ -1993,6 +2122,7 @@ describe("DatabaseTest", () => {
             }),
           ),
         );
+
         const missingOutbox = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
@@ -2027,6 +2157,7 @@ describe("DatabaseTest", () => {
             }),
           ),
         );
+
         const mismatchedOutbox = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
@@ -2086,6 +2217,7 @@ describe("DatabaseTest", () => {
             }),
           ),
         );
+
         const rows = yield* database<{
           readonly invitationId: string;
           readonly responseState: string;
@@ -2115,6 +2247,7 @@ describe("DatabaseTest", () => {
           )
           ORDER BY invitation.invitation_id
         `;
+
         return {
           failures: [missingAudit, missingOutbox, mismatchedOutbox].map((result) => result._tag),
           rows,
@@ -2161,9 +2294,11 @@ describe("DatabaseTest", () => {
           invitationId: winnerFixture.invitationId,
           responseCapability: winnerFixture.responseCapability,
         });
+
         const winnerCapability = RecruitmentInvitationCapabilitySchema.make(
           winnerFixture.responseCapability,
         );
+
         const outcomes = yield* Effect.all(
           [
             Effect.result(
@@ -2179,11 +2314,13 @@ describe("DatabaseTest", () => {
           ],
           { concurrency: "unbounded" },
         );
+
         const outcomeTags = outcomes.map((outcome) =>
-          outcome._tag === "Success"
+          Predicate.isTagged(outcome, "Success")
             ? `Recorded:${outcome.success.responseState}`
             : outcome.failure._tag,
         );
+
         const winnerRows = yield* database<{
           readonly audits: string;
           readonly outbox: string;
@@ -2223,12 +2360,15 @@ describe("DatabaseTest", () => {
           SET superseded_at = '2031-09-15T12:01:00.000Z'
           WHERE invitation_id = ${supersededFixture.invitationId}
         `;
+
         const supersededCapability = RecruitmentInvitationCapabilitySchema.make(
           supersededFixture.responseCapability,
         );
+
         const supersededRead = yield* Effect.flip(
           recruitment.readInvitationResponse(supersededCapability),
         );
+
         const supersededWrite = yield* Effect.flip(
           recruitment.confirmInvitation(supersededCapability, {
             now: "2031-09-15T12:03:00.000Z",
@@ -2242,6 +2382,7 @@ describe("DatabaseTest", () => {
           invitationId: invalidFixture.invitationId,
           responseCapability: invalidFixture.responseCapability,
         });
+
         const invalidInput = yield* Effect.flip(
           recruitment.requestNewInvitationTime(
             RecruitmentInvitationCapabilitySchema.make(invalidFixture.responseCapability),
@@ -2257,6 +2398,7 @@ describe("DatabaseTest", () => {
           invitationId: rollbackFixture.invitationId,
           responseCapability: rollbackFixture.responseCapability,
         });
+
         const rollback = yield* Effect.result(
           database.withTransaction(
             Effect.gen(function* () {
@@ -2290,6 +2432,7 @@ describe("DatabaseTest", () => {
             }),
           ),
         );
+
         const afterRollback = yield* database<{
           readonly responseState: string;
           readonly responseRevision: number;
@@ -2312,6 +2455,7 @@ describe("DatabaseTest", () => {
           FROM recruitment_invitations AS invitation
           WHERE invitation.invitation_id = ${rollbackFixture.invitationId}
         `;
+
         const illegalRow = yield* Effect.result(database`
           UPDATE recruitment_invitations
           SET response_state = 'RequestedNewTime',
@@ -2320,6 +2464,7 @@ describe("DatabaseTest", () => {
             response_revision = 1
           WHERE invitation_id = ${rollbackFixture.invitationId}
         `);
+
         return {
           outcomeTags,
           winnerRows,
@@ -2355,6 +2500,7 @@ describe("DatabaseTest", () => {
 
   it("keeps a committed response when response-notification delivery fails", async () => {
     const fixtureId = "response-delivery-failure";
+
     const failingGateway = Layer.succeed(
       NotificationGateway,
       NotificationGateway.of({
@@ -2381,7 +2527,9 @@ describe("DatabaseTest", () => {
           ),
       }),
     );
+
     const recording = makeRecordingNotificationGateway("2031-09-15T12:08:00.000Z");
+
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -2393,15 +2541,18 @@ describe("DatabaseTest", () => {
           invitationId: fixture.invitationId,
           responseCapability: fixture.responseCapability,
         });
+
         const recorded = yield* recruitment.rejectInvitation(
           RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability),
           { message: "Cannot attend." },
           { now: "2031-09-15T12:03:00.000Z" },
         );
+
         const failedDelivery = yield* deliverNextRecruitmentInvitationResponse(
           "response-failure-claim",
           "2031-09-15T12:04:00.000Z",
         ).pipe(Effect.provide(failingGateway));
+
         const afterFailure = yield* database<{
           readonly responseState: string;
           readonly responseRevision: number;
@@ -2424,10 +2575,12 @@ describe("DatabaseTest", () => {
           FROM recruitment_invitations AS invitation
           WHERE invitation.invitation_id = ${fixture.invitationId}
         `;
+
         const recoveredDelivery = yield* deliverNextRecruitmentInvitationResponse(
           "response-retry-claim",
           "2031-09-15T12:05:00.000Z",
         ).pipe(Effect.provide(recording.layer));
+
         return { recorded, failedDelivery, afterFailure, recoveredDelivery };
       }),
     );
@@ -2449,10 +2602,12 @@ describe("DatabaseTest", () => {
 
   it("enforces scheduling map and contact-email relational constraints", async () => {
     const fixtureId = "scheduling-constraints";
+
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
         const fixture = yield* seedSchedulingFixture(fixtureId);
+
         const invalidMap = yield* Effect.result(database`
           INSERT INTO recruitment_interview_schedules (
             interview_id,
@@ -2477,11 +2632,13 @@ describe("DatabaseTest", () => {
             1
           )
         `);
+
         const invalidEmail = yield* Effect.result(database`
           UPDATE person_contact_profiles
           SET email = 'not-an-email'
           WHERE person_id = ${fixture.interviewerPersonId}
         `);
+
         const persisted = yield* database<{
           readonly schedules: string;
           readonly interviewRevision: string;
@@ -2504,17 +2661,21 @@ describe("DatabaseTest", () => {
               WHERE person_id = ${fixture.interviewerPersonId}
             ) AS "interviewerEmail"
         `;
+
         return { invalidMap, invalidEmail, persisted };
       }),
     );
 
     expect([evidence.invalidMap._tag, evidence.invalidEmail._tag]).toEqual(["Failure", "Failure"]);
-    if (evidence.invalidMap._tag === "Failure") {
-      expect(evidence.invalidMap.failure).toMatchObject({ _tag: "SqlError" });
+
+    if (Predicate.isTagged(evidence.invalidMap, "Failure")) {
+      expect(evidence.invalidMap.failure).toHaveProperty("_tag", "SqlError");
     }
-    if (evidence.invalidEmail._tag === "Failure") {
-      expect(evidence.invalidEmail.failure).toMatchObject({ _tag: "SqlError" });
+
+    if (Predicate.isTagged(evidence.invalidEmail, "Failure")) {
+      expect(evidence.invalidEmail.failure).toHaveProperty("_tag", "SqlError");
     }
+
     expect(evidence.persisted).toEqual([
       {
         schedules: "0",
@@ -2528,6 +2689,7 @@ describe("DatabaseTest", () => {
     const first = await runtime.runPromise(Database);
     await runtime.runPromise(Database.use((database) => database.migrate));
     const second = await runtime.runPromise(Database);
+
     const rows = await runtime.runPromise(
       Database.use(
         (database) =>
@@ -2554,25 +2716,25 @@ describe("DatabaseTest", () => {
           INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
           VALUES ('adapter-semester', '2035-01-01T00:00:00.000Z', '2035-07-01T00:00:00.000Z')
         `;
+
         const created = yield* executeAdmissionPeriodCommand(
-          {
-            _tag: "CreateAdmissionPeriod",
+          AdmissionPeriodCommandSchema.cases.CreateAdmissionPeriod.make({
             commandId: AdmissionPeriodCommandId.make("adapter-create"),
             departmentId: DepartmentId.make("adapter-department"),
             semesterId: SemesterId.make("adapter-semester"),
             startAt: "2035-02-01T00:00:00.000Z",
             endAt: "2035-03-01T00:00:00.000Z",
-          },
+          }),
           {
-            actor: {
-              _tag: "GlobalAdmin",
+            actor: AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
               personId: PersonId.make("adapter-admin"),
               active: true,
-            },
+            }),
             now: "2035-01-15T00:00:00.000Z",
             admissionPeriodId: AdmissionPeriodId.make("adapter-period"),
           },
         );
+
         const open = yield* listOpenAdmissionPeriods("2035-02-15T00:00:00.000Z");
 
         const organizationSnapshot = {
@@ -2592,6 +2754,7 @@ describe("DatabaseTest", () => {
           teams: [],
           memberships: [{ id: "malformed" }],
         } as const;
+
         const imported = yield* importOrganizationSnapshot(organizationSnapshot);
         yield* importOrganizationSnapshot({
           ...organizationSnapshot,
@@ -2605,11 +2768,13 @@ describe("DatabaseTest", () => {
           ],
           memberships: [],
         });
+
         const collisions = yield* database<{ readonly reason: string }>`
           SELECT reason
           FROM organization_membership_quarantine
           WHERE source_revision = 'adapter-revision-2'
         `;
+
         return {
           created: created.observation._tag,
           open: open.map((period) => period.id),
@@ -2618,6 +2783,7 @@ describe("DatabaseTest", () => {
         };
       }),
     );
+
     expect(evidence).toEqual({
       created: "Created",
       open: ["adapter-period"],
@@ -2665,22 +2831,26 @@ describe("DatabaseTest", () => {
           destinationIdentity: receiptId,
         },
       );
+
     const accepted = makeImport(
       "receipt-replay-source",
       "receipt-replay-1",
       "receipt-replay-canonical",
       "REPLAY-VISUAL",
     );
+
     const collision = makeImport(
       "receipt-collision-source",
       "receipt-replay-2",
       "receipt-collision-canonical",
       "REPLAY-VISUAL",
     );
+
     await runtime.runPromise(storeReceiptImportResult(accepted));
     await runtime.runPromise(storeReceiptImportResult(accepted));
     await runtime.runPromise(storeReceiptImportResult(collision));
     await runtime.runPromise(storeReceiptImportResult(collision));
+
     const rows = await runtime.runPromise(
       Database.use(
         (database) =>
@@ -2692,6 +2862,7 @@ describe("DatabaseTest", () => {
         `,
       ),
     );
+
     expect(rows).toEqual([
       { result: "Quarantined", reconciliation_result: "NotApplicable" },
       { result: "Accepted", reconciliation_result: "Pending" },
@@ -2739,6 +2910,7 @@ describe("DatabaseTest", () => {
         `);
       }),
     );
+
     const command = {
       _tag: "SubmitReceipt" as const,
       commandId: "pglite-command-submit",
@@ -2754,34 +2926,39 @@ describe("DatabaseTest", () => {
         sha256: "c".repeat(64),
       },
     };
+
     const principal = {
       personId: PersonId.make("pglite-owner"),
       authorizationInstant: "2026-08-23T12:00:00.000Z",
     };
+
     const allocation = {
       receiptId: ReceiptId.make("pglite-receipt"),
       visualId: ReceiptVisualId.make("PGLITE-0001"),
     };
-    await expect(
-      runtime.runPromise(
-        Economy.use(({ executeReceipt }) =>
-          executeReceipt(
-            command,
-            { ...principal, authorizationInstant: "2026-08-23 12:00:00" as never },
-            allocation,
-          ),
+
+    {
+      const actual = runtime.runPromise(
+        executeReceiptCommand(
+          command,
+          { ...principal, authorizationInstant: "2026-08-23 12:00:00" },
+          allocation,
         ),
-      ),
-    ).rejects.toMatchObject({ _tag: "ReceiptDecodeError" });
+      );
+
+      await expect(actual).rejects.toHaveProperty("_tag", "ReceiptDecodeError");
+    }
 
     const execute = Economy.use(({ executeReceipt }) =>
       executeReceipt(command, principal, allocation),
     );
 
     const first = await runtime.runPromise(execute);
+
     const replayWithIgnoredAllocation = await runtime.runPromise(
       Economy.use(({ executeReceipt }) => executeReceipt(command, principal)),
     );
+
     expect(replayWithIgnoredAllocation).toMatchObject({
       replayed: true,
       observation: { ...first.observation, replayed: true },
@@ -2795,10 +2972,14 @@ describe("DatabaseTest", () => {
         `.pipe(Effect.asVoid),
       ),
     );
-    await expect(runtime.runPromise(execute)).rejects.toMatchObject({
-      _tag: "ReceiptPersistenceError",
-      operation: "decode stored observation",
-    });
+    {
+      const actual = runtime.runPromise(execute);
+      await expect(actual).rejects.toHaveProperty("_tag", "ReceiptPersistenceError");
+      await expect(actual).rejects.toMatchObject({
+        operation: "decode stored observation",
+      });
+    }
+
     await runtime.runPromise(
       Database.use((database) =>
         database`
@@ -2820,10 +3001,12 @@ describe("DatabaseTest", () => {
   it("does not let a rule-only submit choose an omitted canonical department", async () => {
     const rulePersonId = PersonId.make("rule-scope-submit-person");
     const ruleDepartmentId = DepartmentId.make("rule-scope-submit-department");
+
     const principal = {
       personId: rulePersonId,
       authorizationInstant: "2032-06-01T12:00:00.000Z",
     };
+
     await runtime.runPromise(
       Database.use((database) =>
         Effect.gen(function* () {
@@ -2907,6 +3090,7 @@ describe("DatabaseTest", () => {
         sha256: "e".repeat(64),
       },
     };
+
     const omitted = await runtime.runPromise(
       Effect.flip(
         Economy.use(({ executeReceipt }) =>
@@ -2917,8 +3101,9 @@ describe("DatabaseTest", () => {
         ),
       ),
     );
+
+    expect(omitted).toHaveProperty("_tag", "ReceiptAuthorityDenied");
     expect(omitted).toMatchObject({
-      _tag: "ReceiptAuthorityDenied",
       operation: "Submission",
       departmentId: null,
     });
@@ -2939,6 +3124,7 @@ describe("DatabaseTest", () => {
         ),
       ),
     );
+
     expect(explicit.observation).toMatchObject({
       receiptId: "rule-scope-submit-explicit-receipt",
       status: "Pending",
@@ -3030,56 +3216,55 @@ describe("DatabaseTest", () => {
 
         const directGlobalFailure = yield* Effect.flip(
           economy.executeReceipt(
-            {
-              _tag: "ApproveReceipt",
+            ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
               commandId: "missing-receipt-command-global-direct",
-              receiptId: "missing-receipt-global-direct-target",
+              receiptId: ReceiptId.make("missing-receipt-global-direct-target"),
               expectedRevision: 0,
-            },
+            }),
             { personId: globalDirect, authorizationInstant },
           ),
         );
+
         const globalRuleFailure = yield* Effect.flip(
           economy.executeReceipt(
-            {
-              _tag: "RejectReceipt",
+            ReceiptCommandRequestSchema.cases.RejectReceipt.make({
               commandId: "missing-receipt-command-global-rule",
-              receiptId: "missing-receipt-global-rule-target",
+              receiptId: ReceiptId.make("missing-receipt-global-rule-target"),
               expectedRevision: 0,
-            },
+            }),
             { personId: globalRule, authorizationInstant },
           ),
         );
+
         const receiptRuleFailure = yield* Effect.flip(
           economy.executeReceipt(
-            {
-              _tag: "ApproveReceipt",
+            ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
               commandId: "missing-receipt-command-receipt-rule",
-              receiptId: "missing-receipt-receipt-rule-target",
+              receiptId: ReceiptId.make("missing-receipt-receipt-rule-target"),
               expectedRevision: 0,
-            },
+            }),
             { personId: receiptRule, authorizationInstant },
           ),
         );
+
         const directDepartmentFailure = yield* Effect.flip(
           economy.executeReceipt(
-            {
-              _tag: "RejectReceipt",
+            ReceiptCommandRequestSchema.cases.RejectReceipt.make({
               commandId: "missing-receipt-command-department-direct",
-              receiptId: "missing-receipt-department-direct-target",
+              receiptId: ReceiptId.make("missing-receipt-department-direct-target"),
               expectedRevision: 0,
-            },
+            }),
             { personId: departmentDirect, authorizationInstant },
           ),
         );
+
         const departmentRuleFailure = yield* Effect.flip(
           economy.executeReceipt(
-            {
-              _tag: "ApproveReceipt",
+            ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
               commandId: "missing-receipt-command-department-rule",
-              receiptId: "missing-receipt-department-rule-target",
+              receiptId: ReceiptId.make("missing-receipt-department-rule-target"),
               expectedRevision: 0,
-            },
+            }),
             { personId: departmentRule, authorizationInstant },
           ),
         );
@@ -3105,6 +3290,7 @@ describe("DatabaseTest", () => {
 
   it("returns failed applicant effects to the durable retry queue", async () => {
     const interpreter = makeRecordingPublicApplicationEffectInterpreter();
+
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -3128,6 +3314,7 @@ describe("DatabaseTest", () => {
             activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           },
         );
+
         const rows = yield* database<{
           readonly effect_id: string;
           readonly effect_type: string;
@@ -3139,19 +3326,25 @@ describe("DatabaseTest", () => {
           WHERE command_id = 'outbox-application-submit'
           ORDER BY ordinal
         `;
+
         const firstEffectId = rows[0]?.effect_id;
+
         if (firstEffectId === undefined) throw new Error("missing applicant outbox effect");
+
         const applicantRows = yield* database<{ readonly activation_digest: string | null }>`
           SELECT activation_digest
           FROM admission_applicants
           WHERE applicant_id = 'outbox-applicant'
         `;
+
         interpreter.failOnce(firstEffectId);
+
         const failed = yield* deliverNextPublicApplicationOutbox(
           "outbox-failed-claim",
           "2031-09-15T12:00:01.000Z",
           interpreter,
         );
+
         const failedRows = yield* database<{
           readonly status: string;
           readonly claim_id: string | null;
@@ -3161,11 +3354,13 @@ describe("DatabaseTest", () => {
           FROM admission_application_outbox
           WHERE effect_id = ${firstEffectId}
         `;
+
         const retried = yield* deliverNextPublicApplicationOutbox(
           "outbox-retry-claim",
           "2031-09-15T12:00:02.000Z",
           interpreter,
         );
+
         const remaining = [
           yield* deliverNextPublicApplicationOutbox(
             "outbox-remaining-claim-1",
@@ -3178,6 +3373,7 @@ describe("DatabaseTest", () => {
             interpreter,
           ),
         ];
+
         const deliveredRows = yield* database<{
           readonly ordinal: number;
           readonly status: string;
@@ -3188,6 +3384,7 @@ describe("DatabaseTest", () => {
           WHERE command_id = 'outbox-application-submit'
           ORDER BY ordinal
         `;
+
         const deliveryEvidence = interpreter.snapshot();
         yield* executePublicApplicationCommand(
           {
@@ -3227,24 +3424,30 @@ describe("DatabaseTest", () => {
             activationToken: "newapplicationabcdefghijklmnopqrstuvwxyzABC",
           },
         );
+
         const fairnessRows = yield* database<{ readonly effect_id: string }>`
           SELECT effect_id
           FROM admission_application_outbox
           WHERE command_id = 'outbox-fairness-old' AND ordinal = 0
         `;
+
         const fairnessOldEffectId = fairnessRows[0]?.effect_id;
+
         if (fairnessOldEffectId === undefined) throw new Error("missing fairness outbox effect");
         interpreter.failOnce(fairnessOldEffectId);
+
         const fairnessFailure = yield* deliverNextPublicApplicationOutbox(
           "outbox-fairness-failed",
           "2031-09-15T12:12:00.000Z",
           interpreter,
         );
+
         const fairnessNext = yield* deliverNextPublicApplicationOutbox(
           "outbox-fairness-next",
           "2031-09-15T12:12:01.000Z",
           interpreter,
         );
+
         const fairnessDrain = yield* Effect.forEach(
           Array.from({ length: 5 }, (_, index) => index),
           (index) =>
@@ -3254,6 +3457,7 @@ describe("DatabaseTest", () => {
               interpreter,
             ),
         );
+
         const fairnessIdle = yield* deliverNextPublicApplicationOutbox(
           "outbox-fairness-idle",
           "2031-09-15T12:12:07.000Z",
@@ -3288,8 +3492,8 @@ describe("DatabaseTest", () => {
     expect(evidence.applicantDigest).toBe(
       publicApplicationActivationDigest("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ"),
     );
+    expect(evidence.failed).toHaveProperty("_tag", "Failed");
     expect(evidence.failed).toMatchObject({
-      _tag: "Failed",
       failureTag: "PublicApplicationEffectDeliveryError",
     });
     expect(evidence.failedRow).toEqual({
@@ -3297,7 +3501,7 @@ describe("DatabaseTest", () => {
       claim_id: null,
       last_failure_tag: "PublicApplicationEffectDeliveryError",
     });
-    expect(evidence.retried).toMatchObject({ _tag: "Delivered" });
+    expect(evidence.retried).toHaveProperty("_tag", "Delivered");
     expect(evidence.effects).toEqual([
       {
         effectId: expect.any(String),
@@ -3318,13 +3522,15 @@ describe("DatabaseTest", () => {
     expect(evidence.failed).toMatchObject({
       claim: { effectId: evidence.effects[0]?.effectId },
     });
+    expect(evidence.retried).toHaveProperty("_tag", "Delivered");
     expect(evidence.retried).toMatchObject({
-      _tag: "Delivered",
       claim: { effectId: evidence.effects[0]?.effectId, ordinal: 0 },
     });
+    expect(evidence.remaining).toHaveProperty("0._tag", "Delivered");
+    expect(evidence.remaining).toHaveProperty("1._tag", "Delivered");
     expect(evidence.remaining).toMatchObject([
-      { _tag: "Delivered", claim: { effectId: evidence.effects[1]?.effectId, ordinal: 1 } },
-      { _tag: "Delivered", claim: { effectId: evidence.effects[2]?.effectId, ordinal: 2 } },
+      { claim: { effectId: evidence.effects[1]?.effectId, ordinal: 1 } },
+      { claim: { effectId: evidence.effects[2]?.effectId, ordinal: 2 } },
     ]);
     expect(evidence.deliveryEvidence).toMatchObject([
       { effectId: evidence.effects[0]?.effectId, ordinal: 0, attempts: 2 },
@@ -3336,32 +3542,37 @@ describe("DatabaseTest", () => {
       { ordinal: 1, status: "Delivered", payload_json: {} },
       { ordinal: 2, status: "Delivered", payload_json: {} },
     ]);
+    expect(evidence.fairnessFailure).toHaveProperty("_tag", "Failed");
     expect(evidence.fairnessFailure).toMatchObject({
-      _tag: "Failed",
       claim: { commandId: "outbox-fairness-old", ordinal: 0 },
     });
+    expect(evidence.fairnessNext).toHaveProperty("_tag", "Delivered");
     expect(evidence.fairnessNext).toMatchObject({
-      _tag: "Delivered",
       claim: { commandId: "outbox-fairness-new", ordinal: 0 },
     });
     expect(evidence.fairnessDrain).toHaveLength(5);
-    expect(evidence.fairnessDrain.every((result) => result._tag === "Delivered")).toBe(true);
-    expect(evidence.fairnessIdle).toEqual({ _tag: "Idle" });
+    expect(evidence.fairnessDrain.every((result) => Predicate.isTagged(result, "Delivered"))).toBe(
+      true,
+    );
+    expect(evidence.fairnessIdle).toEqual(PublicApplicationOutboxDeliveryResult.Idle());
   });
 
   it("makes applicant transaction linkage and effect ordering unrepresentable", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
+
         const orderFailure = yield* Effect.flip(database`
           UPDATE admission_application_outbox
           SET effect_type = 'CreateAdmissionSubscription'
           WHERE command_id = 'outbox-application-submit' AND ordinal = 0
         `);
+
         const receiptFailure = yield* Effect.flip(database`
           DELETE FROM admission_application_command_receipts
           WHERE command_id = 'outbox-application-submit'
         `);
+
         const rows = yield* database<{
           readonly ordinal: number;
           readonly effect_type: string;
@@ -3370,12 +3581,13 @@ describe("DatabaseTest", () => {
           FROM admission_application_outbox
           WHERE command_id = 'outbox-application-submit' AND ordinal = 0
         `;
+
         return { orderFailure, receiptFailure, row: rows[0] };
       }),
     );
 
-    expect(evidence.orderFailure).toMatchObject({ _tag: "SqlError" });
-    expect(evidence.receiptFailure).toMatchObject({ _tag: "SqlError" });
+    expect(evidence.orderFailure).toHaveProperty("_tag", "SqlError");
+    expect(evidence.receiptFailure).toHaveProperty("_tag", "SqlError");
     expect(evidence.row).toEqual({
       ordinal: 0,
       effect_type: "SendApplicantActivationOrConfirmation",
@@ -3386,7 +3598,9 @@ describe("DatabaseTest", () => {
     const migration = databaseMigrationDefinitions.find(
       ({ id }) => id === "5_public-applicant-effect-lifecycle",
     )!;
+
     const migrationSource = await readFile(migration.url, "utf8");
+
     const evidence = await runWithIsolatedDatabase((pglite) =>
       Effect.gen(function* () {
         const database = yield* Database;
@@ -3423,6 +3637,7 @@ describe("DatabaseTest", () => {
           WHERE command_id = 'legacy-effect-application-submit' AND ordinal = 1
         `;
         yield* Effect.promise(() => pglite.exec(migrationSource));
+
         return yield* database<{
           readonly ordinal: number;
           readonly status: string;
@@ -3467,7 +3682,9 @@ describe("DatabaseTest", () => {
     const migration = databaseMigrationDefinitions.find(
       ({ id }) => id === "6_public-applicant-delivered-payload-cleanup",
     )!;
+
     const migrationSource = await readFile(migration.url, "utf8");
+
     const evidence = await runWithIsolatedDatabase((pglite) =>
       Effect.gen(function* () {
         const database = yield* Database;
@@ -3521,6 +3738,7 @@ describe("DatabaseTest", () => {
           WHERE command_id = 'legacy-delivered-application-submit'
         `;
         yield* Effect.promise(() => pglite.exec(migrationSource));
+
         const outbox = yield* database<{
           readonly ordinal: number;
           readonly status: string;
@@ -3531,6 +3749,7 @@ describe("DatabaseTest", () => {
           WHERE command_id = 'legacy-delivered-application-submit'
           ORDER BY ordinal
         `;
+
         const snapshots = yield* database<{
           readonly application_digest: string | null;
           readonly applicant_digest: string | null;
@@ -3542,6 +3761,7 @@ describe("DatabaseTest", () => {
             ON applicant.applicant_id = application.applicant_id
           WHERE application.application_id = 'legacy-delivered-application'
         `;
+
         return { outbox, snapshot: snapshots[0] };
       }),
     );
@@ -3589,11 +3809,13 @@ describe("DatabaseTest", () => {
           SET payload_json = '{"_tag":"SendApplicantActivationOrConfirmation"}'::jsonb
           WHERE command_id = 'malformed-effect-application-submit' AND ordinal = 0
         `;
+
         const result = yield* deliverNextPublicApplicationOutbox(
           "malformed-effect-claim",
           "2031-09-15T12:21:01.000Z",
           makeRecordingPublicApplicationEffectInterpreter(),
         );
+
         const rows = yield* database<{
           readonly status: string;
           readonly attempts: number;
@@ -3605,15 +3827,17 @@ describe("DatabaseTest", () => {
           FROM admission_application_outbox
           WHERE command_id = 'malformed-effect-application-submit' AND ordinal = 0
         `;
+
         yield* database`
           DELETE FROM admission_application_outbox
           WHERE command_id = 'malformed-effect-application-submit'
         `;
+
         return { result, row: rows[0] };
       }),
     );
 
-    expect(evidence.result).toEqual({ _tag: "Idle" });
+    expect(evidence.result).toEqual(PublicApplicationOutboxDeliveryResult.Idle());
     expect(evidence.row).toEqual({
       status: "Quarantined",
       attempts: 1,
@@ -3655,11 +3879,13 @@ describe("DatabaseTest", () => {
           )
           WHERE command_id = 'tampered-effect-application-submit' AND ordinal = 0
         `;
+
         const result = yield* deliverNextPublicApplicationOutbox(
           "tampered-effect-claim",
           "2031-09-15T12:22:01.000Z",
           makeRecordingPublicApplicationEffectInterpreter(),
         );
+
         const rows = yield* database<{
           readonly status: string;
           readonly attempts: number;
@@ -3671,15 +3897,17 @@ describe("DatabaseTest", () => {
           FROM admission_application_outbox
           WHERE command_id = 'tampered-effect-application-submit' AND ordinal = 0
         `;
+
         yield* database`
           DELETE FROM admission_application_outbox
           WHERE command_id = 'tampered-effect-application-submit'
         `;
+
         return { result, row: rows[0] };
       }),
     );
 
-    expect(evidence.result).toEqual({ _tag: "Idle" });
+    expect(evidence.result).toEqual(PublicApplicationOutboxDeliveryResult.Idle());
     expect(evidence.row).toEqual({
       status: "Quarantined",
       attempts: 1,
@@ -3693,6 +3921,7 @@ describe("DatabaseTest", () => {
     const firstToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
     const secondToken = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq";
     const interpreter = makeRecordingPublicApplicationEffectInterpreter();
+
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -3756,11 +3985,13 @@ describe("DatabaseTest", () => {
             activationToken: secondToken,
           },
         );
+
         const delivery = yield* deliverNextPublicApplicationOutbox(
           "snapshot-old-period-claim",
           "2032-09-15T12:22:31.000Z",
           interpreter,
         );
+
         const applications = yield* database<{
           readonly application_id: string;
           readonly activation_digest: string | null;
@@ -3773,11 +4004,13 @@ describe("DatabaseTest", () => {
           )
           ORDER BY application_id
         `;
+
         const applicants = yield* database<{ readonly activation_digest: string | null }>`
           SELECT activation_digest
           FROM admission_applicants
           WHERE applicant_id = 'snapshot-applicant'
         `;
+
         yield* database`
           DELETE FROM admission_application_outbox
           WHERE command_id IN (
@@ -3785,6 +4018,7 @@ describe("DatabaseTest", () => {
             'snapshot-second-period-submit'
           )
         `;
+
         return {
           delivery,
           applications,
@@ -3793,8 +4027,8 @@ describe("DatabaseTest", () => {
       }),
     );
 
+    expect(evidence.delivery).toHaveProperty("_tag", "Delivered");
     expect(evidence.delivery).toMatchObject({
-      _tag: "Delivered",
       claim: {
         commandId: "snapshot-first-period-submit",
         request: { activationToken: firstToken },
@@ -3864,11 +4098,13 @@ describe("DatabaseTest", () => {
           SET application_id = 'cross-linked-target-application'
           WHERE command_id = 'cross-linked-source-submit'
         `;
+
         const result = yield* deliverNextPublicApplicationOutbox(
           "cross-linked-claim",
           "2031-09-15T12:23:02.000Z",
           makeRecordingPublicApplicationEffectInterpreter(),
         );
+
         const rows = yield* database<{
           readonly status: string;
           readonly attempts: number;
@@ -3880,6 +4116,7 @@ describe("DatabaseTest", () => {
           FROM admission_application_outbox
           WHERE command_id = 'cross-linked-source-submit' AND ordinal = 0
         `;
+
         yield* database`
           DELETE FROM admission_application_outbox
           WHERE command_id = 'cross-linked-source-submit'
@@ -3889,11 +4126,12 @@ describe("DatabaseTest", () => {
           SET application_id = 'cross-linked-source-application'
           WHERE command_id = 'cross-linked-source-submit'
         `;
+
         return { result, row: rows[0] };
       }),
     );
 
-    expect(evidence.result).toEqual({ _tag: "Idle" });
+    expect(evidence.result).toEqual(PublicApplicationOutboxDeliveryResult.Idle());
     expect(evidence.row).toEqual({
       status: "Quarantined",
       attempts: 1,
@@ -3906,6 +4144,7 @@ describe("DatabaseTest", () => {
   it("releases an interrupted applicant worker claim before shutdown", async () => {
     let starts = 0;
     let stops = 0;
+
     const evidence = await runtime.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -3937,6 +4176,7 @@ describe("DatabaseTest", () => {
             WHERE command_id = 'worker-application-submit' AND ordinal = 0
           `;
           const deliveryStarted = yield* Deferred.make<void>();
+
           const interpreter = {
             deliver: (
               request: PublicApplicationOutboxRequest,
@@ -3953,6 +4193,7 @@ describe("DatabaseTest", () => {
                     status: "Delivered" as const,
                   }),
           };
+
           const fiber = yield* Effect.forkScoped(
             runPublicApplicationOutboxWorker(interpreter, {
               workerId: "database-test-worker",
@@ -3967,7 +4208,9 @@ describe("DatabaseTest", () => {
               },
             }),
           );
+
           yield* Deferred.await(deliveryStarted);
+
           const processing = yield* database<{
             readonly status: string;
             readonly claim_id: string | null;
@@ -3976,7 +4219,9 @@ describe("DatabaseTest", () => {
             FROM admission_application_outbox
             WHERE command_id = 'worker-application-submit' AND ordinal = 0
           `;
+
           yield* Fiber.interrupt(fiber);
+
           const released = yield* database<{
             readonly status: string;
             readonly claim_id: string | null;
@@ -3986,6 +4231,7 @@ describe("DatabaseTest", () => {
             FROM admission_application_outbox
             WHERE command_id = 'worker-application-submit' AND ordinal = 0
           `;
+
           return { processing: processing[0], released: released[0] };
         }),
       ),
@@ -4005,6 +4251,7 @@ describe("DatabaseTest", () => {
     let acquisitionCount = 0;
     let migrationCount = 0;
     let releaseCount = 0;
+
     const observedRuntime = makeControlledTestRuntime(
       DatabaseTest(undefined, {
         onAcquire: () => {
@@ -4087,11 +4334,13 @@ describe("DatabaseTest", () => {
         const authorizedRows = yield* listOrganizationTeamInterestRegistrations({
           authorizedDepartmentIds: [departmentA, departmentB],
         });
+
         const filteredRows = yield* listOrganizationTeamInterestRegistrations({
           authorizedDepartmentIds: [departmentA, departmentB],
           departmentId: departmentB,
           semesterId: SemesterId.make("semester-scope"),
         });
+
         return { authorizedRows, filteredRows };
       }),
     );
@@ -4121,6 +4370,7 @@ describe("DatabaseTest", () => {
           _tag: "OrganizationAdministrator" as const,
           personId: PersonId.make("organization-pglite-administrator"),
         };
+
         const member = {
           _tag: "OrganizationMember" as const,
           personId: PersonId.make("organization-pglite-member"),
@@ -4137,7 +4387,9 @@ describe("DatabaseTest", () => {
           latitude: null,
           longitude: null,
         };
+
         const denied = yield* Effect.flip(organization.createDepartment(deniedCommand, member));
+
         const deniedRows = yield* database<{ readonly count: string }>`
           SELECT (
             (SELECT count(*) FROM organization_departments
@@ -4160,26 +4412,32 @@ describe("DatabaseTest", () => {
           latitude: "60.3913",
           longitude: "5.3221",
         };
+
         const departmentCreated = yield* organization.createDepartment(
           departmentCommand,
           administrator,
         );
+
         const departmentReplayed = yield* organization.createDepartment(
           departmentCommand,
           administrator,
         );
+
         const departmentConflict = yield* Effect.flip(
           organization.createDepartment(
             { ...departmentCommand, name: "Changed PGlite Department" },
             administrator,
           ),
         );
-        if (departmentCreated.observation._tag !== "DepartmentCreated") {
-          return yield* Effect.fail(new Error("expected DepartmentCreated"));
+
+        if (!Predicate.isTagged(departmentCreated.observation, "DepartmentCreated")) {
+          return yield* Effect.die(new Error("expected DepartmentCreated"));
         }
-        if (departmentReplayed.observation._tag !== "Replayed") {
-          return yield* Effect.fail(new Error("expected Department replay"));
+
+        if (!Predicate.isTagged(departmentReplayed.observation, "Replayed")) {
+          return yield* Effect.die(new Error("expected Department replay"));
         }
+
         expect(departmentReplayed.observation.original).toEqual(departmentCreated.observation);
         const departmentId = departmentCreated.observation.department.departmentId;
 
@@ -4195,14 +4453,17 @@ describe("DatabaseTest", () => {
           deadline: "2036-09-20T10:00:00.000Z",
           active: true,
         };
+
         const teamCreated = yield* organization.createTeam(teamCommand, administrator);
         const teamReplayed = yield* organization.createTeam(teamCommand, administrator);
+
         if (
-          teamCreated.observation._tag !== "TeamCreated" ||
-          teamReplayed.observation._tag !== "Replayed"
+          !Predicate.isTagged(teamCreated.observation, "TeamCreated") ||
+          !Predicate.isTagged(teamReplayed.observation, "Replayed")
         ) {
-          return yield* Effect.fail(new Error("expected Team create and replay"));
+          return yield* Effect.die(new Error("expected Team create and replay"));
         }
+
         expect(teamReplayed.observation.original).toEqual(teamCreated.observation);
 
         const fieldCommand = {
@@ -4212,15 +4473,19 @@ describe("DatabaseTest", () => {
           shortName: "CS",
           departmentId: null,
         };
+
         const fieldCreated = yield* organization.createFieldOfStudy(fieldCommand, administrator);
         const fieldReplayed = yield* organization.createFieldOfStudy(fieldCommand, administrator);
+
         if (
-          fieldCreated.observation._tag !== "FieldOfStudyCreated" ||
-          fieldReplayed.observation._tag !== "Replayed"
+          !Predicate.isTagged(fieldCreated.observation, "FieldOfStudyCreated") ||
+          !Predicate.isTagged(fieldReplayed.observation, "Replayed")
         ) {
-          return yield* Effect.fail(new Error("expected FieldOfStudy create and replay"));
+          return yield* Effect.die(new Error("expected FieldOfStudy create and replay"));
         }
+
         expect(fieldReplayed.observation.original).toEqual(fieldCreated.observation);
+
         const scopedFieldCommand = {
           ...fieldCommand,
           commandId: OrganizationCommandId.make("organization-pglite-scoped-field"),
@@ -4228,6 +4493,7 @@ describe("DatabaseTest", () => {
           shortName: "DCS",
           departmentId,
         };
+
         const scopedFieldCreated = yield* organization.createFieldOfStudy(
           scopedFieldCommand,
           administrator,
@@ -4238,17 +4504,21 @@ describe("DatabaseTest", () => {
           commandId: OrganizationCommandId.make("organization-pglite-invalid-team"),
           departmentId: DepartmentId.make("organization-pglite-unknown-department"),
         };
+
         const invalidReference = yield* Effect.flip(
           organization.createTeam(invalidTeamCommand, administrator),
         );
+
         const invalidFieldCommand = {
           ...fieldCommand,
           commandId: OrganizationCommandId.make("organization-pglite-invalid-field"),
           departmentId: DepartmentId.make("organization-pglite-unknown-field-department"),
         };
+
         const invalidFieldReference = yield* Effect.flip(
           organization.createFieldOfStudy(invalidFieldCommand, administrator),
         );
+
         const invalidRows = yield* database<{ readonly count: string }>`
           SELECT (
             (SELECT count(*) FROM organization_teams
@@ -4269,7 +4539,9 @@ describe("DatabaseTest", () => {
         const rollbackCommandId = OrganizationCommandId.make(
           "organization-pglite-deferred-rollback",
         );
+
         const rollbackDepartmentId = departmentIdForCommand(rollbackCommandId);
+
         const rollback = yield* Effect.exit(
           database.withTransaction(
             database`
@@ -4291,6 +4563,7 @@ describe("DatabaseTest", () => {
             `,
           ),
         );
+
         const rollbackRows = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS count
           FROM organization_departments
@@ -4320,6 +4593,7 @@ describe("DatabaseTest", () => {
             'Imported Team'
           )
         `;
+
         const imported = yield* database<{
           readonly departmentCommandId: string | null;
           readonly teamCommandId: string | null;
@@ -4425,12 +4699,12 @@ describe("DatabaseTest", () => {
             departments: departments.some((department) => department.departmentId === departmentId),
             teams: teams.some(
               (team) =>
-                teamCreated.observation._tag === "TeamCreated" &&
+                Predicate.isTagged(teamCreated.observation, "TeamCreated") &&
                 team.teamId === teamCreated.observation.team.teamId,
             ),
             fields: fields.some(
               (field) =>
-                fieldCreated.observation._tag === "FieldOfStudyCreated" &&
+                Predicate.isTagged(fieldCreated.observation, "FieldOfStudyCreated") &&
                 field.fieldOfStudyId === fieldCreated.observation.fieldOfStudy.fieldOfStudyId,
             ),
           },
@@ -4473,6 +4747,7 @@ describe("DatabaseTest", () => {
   });
   it("finalizes native Recruitment conduct atomically and replays without writes in PGlite", async () => {
     const fixtureId = "conduct-core";
+
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -4504,6 +4779,7 @@ describe("DatabaseTest", () => {
             `;
           }),
         );
+
         const context = {
           actor: {
             _tag: "Member" as const,
@@ -4513,11 +4789,14 @@ describe("DatabaseTest", () => {
           },
           now: "2031-09-15T12:02:00.000Z",
         };
+
         const before = yield* recruitment.readInterviewConduct(fixture.interviewId, context);
+
         const answers = Array.from({ length: 8 }, (_, ordinal) => ({
           questionId: `${fixtureId}-q${ordinal}`,
           answer: `Answer ${ordinal}`,
         }));
+
         const command = {
           commandId: RecruitmentConductCommandId.make(`${fixtureId}-finalize`),
           interviewId: fixture.interviewId,
@@ -4526,18 +4805,22 @@ describe("DatabaseTest", () => {
           score: { explanatoryPower: 0, roleModel: 10, suitability: 5 },
           recommendation: "Ja" as const,
         };
+
         const finalized = yield* recruitment.finalizeInterview(command, context);
         const replayed = yield* recruitment.finalizeInterview(command, context);
         const after = yield* recruitment.readInterviewConduct(fixture.interviewId, context);
         const recording = makeRecordingNotificationGateway("2031-09-15T12:03:00.000Z");
+
         const delivery = yield* deliverNextRecruitmentInterviewCompletion(
           `${fixtureId}-completion-claim`,
           "2031-09-15T12:02:30.000Z",
         ).pipe(Effect.provide(recording.layer));
+
         const idle = yield* deliverNextRecruitmentInterviewCompletion(
           `${fixtureId}-completion-idle`,
           "2031-09-15T12:04:00.000Z",
         ).pipe(Effect.provide(recording.layer));
+
         const counts = yield* database<{
           readonly conducts: string;
           readonly receipts: string;
@@ -4558,6 +4841,7 @@ describe("DatabaseTest", () => {
             (SELECT provider_reference FROM public.recruitment_interview_completion_outbox WHERE interview_id = ${fixture.interviewId}) AS "providerReference",
             (SELECT revision::text FROM recruitment_interviews WHERE interview_id = ${fixture.interviewId}) AS revision
         `;
+
         return {
           before: before.completionState,
           finalized: [finalized.replayed, finalized.observation.notificationState],
@@ -4570,7 +4854,15 @@ describe("DatabaseTest", () => {
         };
       }),
     );
-    expect(evidence).toEqual({
+
+    const completionRequests = evidence.completionRequests.map(
+      ({ _tag: _, ...request }) => request,
+    );
+
+    expect(evidence.completionRequests.map((request) => request._tag)).toEqual([
+      "SendInterviewCompletionReceipt",
+    ]);
+    expect({ ...evidence, completionRequests }).toEqual({
       before: "NotCompleted",
       finalized: [false, "Pending"],
       replayed: [true, "Pending"],
@@ -4578,7 +4870,6 @@ describe("DatabaseTest", () => {
       idle: "Idle",
       completionRequests: [
         {
-          _tag: "SendInterviewCompletionReceipt",
           effectId: expect.stringMatching(/^recruitment-completion:[a-f0-9]{64}$/u),
           commandId: "conduct-core-finalize",
           interviewId: "conduct-core-interview",
@@ -4639,6 +4930,7 @@ describe("DatabaseTest", () => {
             `;
           }),
         );
+
         const context = {
           actor: {
             _tag: "Member" as const,
@@ -4648,6 +4940,7 @@ describe("DatabaseTest", () => {
           },
           now: "2031-09-15T12:02:00.000Z",
         };
+
         const cancelled = yield* recruitment.cancelInterview(
           {
             commandId: RecruitmentCancellationCommandId.make("conduct-cancel-command"),
@@ -4656,7 +4949,9 @@ describe("DatabaseTest", () => {
           },
           context,
         );
+
         const after = yield* recruitment.readInterviewConduct(fixture.interviewId, context);
+
         const counts = yield* database<{
           readonly cancellations: string;
           readonly receipts: string;
@@ -4669,9 +4964,11 @@ describe("DatabaseTest", () => {
             (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_audit WHERE interview_id = ${fixture.interviewId}) AS audits,
             (SELECT revision::text FROM recruitment_interviews WHERE interview_id = ${fixture.interviewId}) AS revision
         `;
+
         return { replayed: cancelled.replayed, state: after.cancellationState, counts };
       }),
     );
+
     expect(evidence).toEqual({
       replayed: false,
       state: "Cancelled",

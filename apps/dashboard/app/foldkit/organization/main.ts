@@ -1,9 +1,9 @@
 import { Runtime } from "foldkit";
 import type { OrganizationCatalogClient } from "./browser-client";
-import { makeOrganizationCatalogCommands } from "./command";
-import { Model, makeInitialModel, type OrganizationCatalogKind } from "./model";
+import { commandsFor } from "./command";
+import { Model, init, type OrganizationCatalogKind } from "./model";
 import "./styles.css";
-import { makeUpdate } from "./update";
+import { updateFor } from "./update";
 import { view } from "./view";
 
 export interface OrganizationCatalogRuntimeInput {
@@ -15,16 +15,15 @@ export const embedOrganizationCatalog = (
   container: HTMLElement,
   input: OrganizationCatalogRuntimeInput,
 ): (() => void) => {
-  const commands = makeOrganizationCatalogCommands(input.client);
-  const initialModel = makeInitialModel(input.catalogKind);
+  const commands = commandsFor(input.client);
+  const initialModel = init(input.catalogKind);
+
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => [
-      initialModel,
-      [commands.LoadCatalog({ catalogKind: initialModel.catalogKind, requestId: initialModel.requestId })],
-    ],
-    update: makeUpdate(commands),
+    init: () => ({ model: 
+      initialModel, commands: [commands.LoadCatalog({ catalogKind: initialModel.catalogKind, requestId: initialModel.requestId })] }),
+    update: updateFor(commands),
     view,
     devTools: false,
     slow: false,
@@ -41,5 +40,6 @@ export const embedOrganizationCatalog = (
   });
 
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 };

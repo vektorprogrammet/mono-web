@@ -60,10 +60,8 @@ describe("preview devtools panel", () => {
 
   it("re-embeds dashboard elements when Foldkit devtools toggle", async () => {
     const setDevTools = vi.fn<(config: DevToolsEmbedConfig) => void>();
-    const dashboard = document.createElement("vektor-foldkit-dashboard") as HTMLElement & {
-      setDevTools: (config: DevToolsEmbedConfig) => void;
-    };
-    dashboard.setDevTools = setDevTools;
+
+    const dashboard = Object.assign(document.createElement("vektor-foldkit-dashboard"), { setDevTools });
     document.body.appendChild(dashboard);
     const { toggleFoldkitDevTools } = await import("./preview-devtools-panel");
 

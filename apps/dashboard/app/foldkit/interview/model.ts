@@ -24,9 +24,10 @@ export const Model = S.Struct({
   failure: S.NullOr(InvitationBridgeFailureSchema),
   validationFeedback: S.NullOr(S.String),
 });
+
 export type Model = S.Schema.Type<typeof Model>;
 
-export const makeInitialModel = (): Model => ({
+export const init = (): Model => ({
   responseMessage: FieldValidation.NotValidated({ value: "" }),
   invitationResponse: AsyncData.Idle(),
   etag: null,

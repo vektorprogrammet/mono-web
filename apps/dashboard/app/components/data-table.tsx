@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -59,12 +60,14 @@ export function DataTable<Data, Value>({
     },
   });
 
+  const nameFilter = table.getColumn("name")?.getFilterValue();
+
   return (
     <div className="flex max-h-[80vh] w-full flex-col justify-between rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
       <div className="flex items-center py-4">
         <Input
           placeholder="Filtrer navn..."
-          value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
+          value={Predicate.isString(nameFilter) ? nameFilter : ""}
           onChange={(event) =>
             table.getColumn("name")?.setFilterValue(event.target.value)
           }

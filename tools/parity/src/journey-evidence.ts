@@ -1,23 +1,30 @@
 import { join } from "node:path";
-import { Context, Effect, Schema } from "effect";
+import { Array as Arr, Predicate, Context, Effect, Schema } from "effect";
 import { resolveCollectorExecutablesWithServices } from "./api.js";
 import { canonicalJson, sha256 } from "./canonical.js";
 import {
   ParityCommandExecutor,
-  type ParityCommandExecutorShape,
+  type ParityCommandExecutorOperations,
   ParityExecutionEnvironment,
   ParityFileSystem,
-  type ParityFileSystemShape,
+  type ParityFileSystemOperations,
 } from "./services.js";
 
 /** Runtime application for spec 0078.1. Authority is supplied by services. */
 
-export type ClaimJourney = "applicant_admission" | "interview_invitation" | "owner_approval";
+export const ClaimJourneySchema = Schema.Literals([
+  "applicant_admission",
+  "interview_invitation",
+  "owner_approval",
+]);
+
+export type ClaimJourney = typeof ClaimJourneySchema.Type;
+
 export type HttpMethod = "GET" | "POST";
 
 export interface JourneyJsonBody {
   readonly kind: "json";
-  readonly value: unknown;
+  readonly value: Schema.Json;
 }
 
 export interface JourneyMultipartBody {
@@ -39,24 +46,27 @@ export interface JourneyHttpRequest {
 }
 
 export interface JourneyHttpResponse {
-  readonly body: unknown;
+  readonly body: Schema.Json;
   readonly headers: Readonly<Record<string, string>>;
   readonly status: number;
 }
 
-export interface JourneyHttpClientShape {
-  readonly request: (request: JourneyHttpRequest) => Promise<JourneyHttpResponse>;
+export interface JourneyHttpClientOperations {
+  readonly request: (
+    request: Omit<JourneyHttpRequest, "method"> & { readonly method: "GET" | "POST" | "PUT" },
+  ) => Promise<JourneyHttpResponse>;
 }
 
-export class JourneyHttpClient extends Context.Service<JourneyHttpClient, JourneyHttpClientShape>()(
-  "@monoweb/parity-inventory/JourneyHttpClient",
-) {}
+export class JourneyHttpClient extends Context.Service<
+  JourneyHttpClient,
+  JourneyHttpClientOperations
+>()("@monoweb/parity-inventory/JourneyHttpClient") {}
 
 export interface JourneyProcessHandle {
   readonly id: string;
 }
 
-export interface JourneyProcessExecutorShape {
+export interface JourneyProcessExecutorOperations {
   readonly start: (
     executable: string,
     arguments_: readonly string[],
@@ -71,7 +81,7 @@ export interface JourneyProcessExecutorShape {
 
 export class JourneyProcessExecutor extends Context.Service<
   JourneyProcessExecutor,
-  JourneyProcessExecutorShape
+  JourneyProcessExecutorOperations
 >()("@monoweb/parity-inventory/JourneyProcessExecutor") {}
 
 export class JourneyEvidenceError extends Schema.TaggedError<JourneyEvidenceError>()(
@@ -87,6 +97,7 @@ const ObservedOperationSchema = Schema.Struct({
   response_digest: Schema.String,
   status: Schema.Int,
 });
+
 const VerifiedSemanticsSchema = Schema.Struct({
   assertion_ids: Schema.Array(Schema.String),
   effect_ids: Schema.Array(Schema.String),
@@ -94,8 +105,11 @@ const VerifiedSemanticsSchema = Schema.Struct({
   precondition_ids: Schema.Array(Schema.String),
   rejection_ids: Schema.Array(Schema.String),
 });
+
 export type VerifiedSemantics = typeof VerifiedSemanticsSchema.Type;
+
 export type ObservedOperation = typeof ObservedOperationSchema.Type;
+
 export const JourneyObservationArtifactSchema = Schema.Struct({
   artifact_schema_version: Schema.Literal("claim-specific-journey-observation/v1"),
   backend: Schema.Literal("native_effect"),
@@ -115,30 +129,35 @@ export const JourneyObservationArtifactSchema = Schema.Struct({
   result: Schema.Literal("passed"),
   verified_semantics: VerifiedSemanticsSchema,
 });
+
 export type JourneyObservationArtifact = typeof JourneyObservationArtifactSchema.Type;
 
-export interface JourneyRunRecord {
-  readonly artifact_digest: string;
-  readonly artifact_pointer: string;
-  readonly backend: "native_effect";
-  readonly database_digest: string;
-  readonly fixture_digest: string;
-  readonly intent_ref_id: string;
-  readonly journey: ClaimJourney;
-  readonly observations: readonly ObservedOperation[];
-  readonly result: "passed";
-  readonly runner_digest: string;
-}
+const JourneyRunRecordSchema = Schema.Struct({
+  artifact_digest: Schema.String,
+  artifact_pointer: Schema.String,
+  backend: Schema.Literal("native_effect"),
+  database_digest: Schema.String,
+  fixture_digest: Schema.String,
+  intent_ref_id: Schema.String,
+  journey: ClaimJourneySchema,
+  observations: Schema.Array(ObservedOperationSchema),
+  result: Schema.Literal("passed"),
+  runner_digest: Schema.String,
+});
 
-export interface NativeJourneyRunManifest {
-  readonly schema_version: "claim-specific-journey-run/v1";
-  readonly legacy_gate: {
-    readonly backend: "legacy_symfony";
-    readonly result: "observed_absent" | "ready";
-    readonly reason: string;
-  };
-  readonly native: readonly JourneyRunRecord[];
-}
+export type JourneyRunRecord = typeof JourneyRunRecordSchema.Type;
+
+export const NativeJourneyRunManifestSchema = Schema.Struct({
+  schema_version: Schema.Literal("claim-specific-journey-run/v1"),
+  legacy_gate: Schema.Struct({
+    backend: Schema.Literal("legacy_symfony"),
+    result: Schema.Literals(["observed_absent", "ready"]),
+    reason: Schema.String,
+  }),
+  native: Schema.Array(JourneyRunRecordSchema),
+});
+
+export type NativeJourneyRunManifest = typeof NativeJourneyRunManifestSchema.Type;
 
 export interface NativeJourneyConfig {
   readonly artifactDirectory: string;
@@ -146,26 +165,39 @@ export interface NativeJourneyConfig {
   readonly runnerSourcePath: string;
 }
 
-const JsonUnknownFromText = Schema.fromJsonString(Schema.Unknown);
-const decodeJsonText = Schema.decodeUnknownSync(JsonUnknownFromText, {
+const JsonFromText = Schema.fromJsonString(Schema.Json);
+
+const decodeJsonText = Schema.decodeUnknownSync(JsonFromText, {
   onExcessProperty: "error",
 });
 
-const asRecord = (value: unknown, label: string): Record<string, unknown> => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+const asRecord = (value: Schema.Json | undefined, label: string): Schema.JsonObject => {
+  if (
+    value === undefined ||
+    value === null ||
+    Predicate.isString(value) ||
+    Predicate.isNumber(value) ||
+    Predicate.isBoolean(value) ||
+    Arr.isArray<Schema.Json | undefined>(value)
+  ) {
     throw new Error(`${label} was not an object`);
   }
-  return value as Record<string, unknown>;
-};
-const asArray = (value: unknown, label: string): readonly unknown[] => {
-  if (!Array.isArray(value)) throw new Error(`${label} was not an array`);
+
   return value;
 };
 
-const requireString = (value: unknown, label: string): string => {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`${label} was absent`);
+const asArray = (value: Schema.Json | undefined, label: string): readonly Schema.Json[] => {
+  if (!Arr.isArray<Schema.Json | undefined>(value)) throw new Error(`${label} was not an array`);
+
   return value;
 };
+
+const requireString = (value: Schema.Json | undefined, label: string): string => {
+  if (!Predicate.isString(value) || value.length === 0) throw new Error(`${label} was absent`);
+
+  return value;
+};
+
 const requireHeader = (response: JourneyHttpResponse, name: string, label: string): string =>
   requireString(response.headers[name], label);
 
@@ -187,12 +219,15 @@ const requireStatus = (
   if (!allowed.includes(response.status)) {
     throw new Error(`${label} returned ${response.status}: ${canonicalJson(response.body)}`);
   }
+
   return response;
 };
 
-const normalizedRequestBody = (body: JourneyHttpRequest["body"]): unknown => {
+const normalizedRequestBody = (body: JourneyHttpRequest["body"]): Schema.Json => {
   if (body === undefined) return null;
+
   if (body.kind === "json") return body.value;
+
   return {
     fields: body.fields,
     file: {
@@ -206,7 +241,7 @@ const normalizedRequestBody = (body: JourneyHttpRequest["body"]): unknown => {
 };
 
 const observedRequest = async (
-  http: JourneyHttpClientShape,
+  http: JourneyHttpClientOperations,
   observations: ObservedOperation[],
   request: JourneyHttpRequest,
   pathTemplate: string,
@@ -221,11 +256,12 @@ const observedRequest = async (
     response_digest: sha256(canonicalJson({ body: response.body, status: response.status })),
     status: response.status,
   });
+
   return response;
 };
 
 const command = (
-  commands: ParityCommandExecutorShape,
+  commands: ParityCommandExecutorOperations,
   executable: string,
   arguments_: readonly string[],
   options: {
@@ -241,7 +277,7 @@ const command = (
   });
 
 const nixPostgres = (
-  commands: ParityCommandExecutorShape,
+  commands: ParityCommandExecutorOperations,
   arguments_: readonly string[],
   options: Parameters<typeof command>[3] = {},
 ): string =>
@@ -251,7 +287,7 @@ const nixPostgres = (
   });
 
 const psql = (
-  commands: ParityCommandExecutorShape,
+  commands: ParityCommandExecutorOperations,
   repositoryRoot: string,
   postgresUrl: string,
   sql: string,
@@ -313,7 +349,7 @@ const fixtureDigest = sha256(
 );
 
 const signIn = async (
-  http: JourneyHttpClientShape,
+  http: JourneyHttpClientOperations,
   origin: string,
   email: string,
   password: string,
@@ -328,7 +364,9 @@ const signIn = async (
     [200],
     `sign in ${email}`,
   );
+
   const setCookie = response.headers["set-cookie"] ?? "";
+
   const session = setCookie
     .split("\n")
     .map((value) => value.trim().split(";", 1)[0] ?? "")
@@ -337,41 +375,50 @@ const signIn = async (
         value.startsWith("better-auth.session_token=") ||
         value.startsWith("__Secure-better-auth.session_token="),
     );
+
   if (session === undefined) throw new Error(`sign in ${email} returned no session cookie`);
+
   const sessionCheck = await http.request({
     headers: { cookie: session },
     method: "GET",
     url: `${origin}/api/auth/get-session`,
   });
+
   const sessionBody = asRecord(sessionCheck.body, "session verification");
+
   if (sessionCheck.status !== 200 || sessionBody.session == null || sessionBody.user == null) {
     throw new Error(
       `sign in ${email} session verification failed with ${sessionCheck.status}: ${canonicalJson(sessionCheck.body)}`,
     );
   }
+
   return session;
 };
 
+type DatabaseObservation = { readonly digest: string; readonly rowCounts: Record<string, number> };
+
 const freshDatabaseObservation = (
-  commands: ParityCommandExecutorShape,
+  commands: ParityCommandExecutorOperations,
   repositoryRoot: string,
   postgresUrl: string,
   sql: string,
-): { readonly digest: string; readonly rowCounts: Record<string, number> } => {
+): DatabaseObservation => {
   const raw = psql(commands, repositoryRoot, postgresUrl, sql);
   const decoded = asRecord(decodeJsonText(raw), "database observation");
   const rowCountsValue = asRecord(decoded.row_counts, "database row counts");
   const rowCounts: Record<string, number> = {};
+
   for (const [name, value] of Object.entries(rowCountsValue)) {
     if (!Number.isSafeInteger(value) || Number(value) < 0)
       throw new Error(`invalid row count ${name}`);
     rowCounts[name] = Number(value);
   }
+
   return { digest: sha256(canonicalJson(decoded)), rowCounts };
 };
 
 const writeArtifact = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   artifactDirectory: string,
   journey: ClaimJourney,
   intentRefId: string,
@@ -399,12 +446,14 @@ const writeArtifact = (
     result: "passed",
     verified_semantics: verifiedSemantics,
   };
+
   Schema.decodeUnknownSync(JourneyObservationArtifactSchema, { onExcessProperty: "error" })(
     artifact,
   );
   const bytes = canonicalJson(artifact);
   const fileName = `${journey}-native-effect.json`;
   fileSystem.writeFileNoFollow(join(artifactDirectory, fileName), bytes);
+
   return {
     artifact_digest: sha256(bytes),
     artifact_pointer: `artifacts/${fileName}`,
@@ -420,15 +469,16 @@ const writeArtifact = (
 };
 
 const applicantJourney = async (
-  http: JourneyHttpClientShape,
-  commands: ParityCommandExecutorShape,
-  fileSystem: ParityFileSystemShape,
+  http: JourneyHttpClientOperations,
+  commands: ParityCommandExecutorOperations,
+  fileSystem: ParityFileSystemOperations,
   config: NativeJourneyConfig,
   origin: string,
   postgresUrl: string,
   runnerDigest: string,
 ): Promise<JourneyRunRecord> => {
   const observations: ObservedOperation[] = [];
+
   const unauthorized = await observedRequest(
     http,
     observations,
@@ -436,7 +486,9 @@ const applicantJourney = async (
     "/api/admission-periods",
     "authorization_rejection_without_session",
   );
+
   requireStatus(unauthorized, [401, 403], "applicant admission authorization rejection");
+
   const catalog = await observedRequest(
     http,
     observations,
@@ -444,7 +496,9 @@ const applicantJourney = async (
     "/api/application-options",
     "real_http_operation",
   );
+
   requireStatus(catalog, [200], "application catalog");
+
   const input = {
     departmentId: "department-applicant-claim-0078",
     email: "claim-applicant@example.invalid",
@@ -455,6 +509,7 @@ const applicantJourney = async (
     phone: "+47 900 00 781",
     yearOfStudy: 3,
   };
+
   const submitted = requireStatus(
     await observedRequest(
       http,
@@ -474,9 +529,13 @@ const applicantJourney = async (
     [201],
     "application submission",
   );
+
   const submittedBody = asRecord(submitted.body, "submitted application");
-  if (submittedBody._tag !== "Submitted") throw new Error("application did not submit");
+
+  if (!Schema.is(Schema.Struct({ _tag: Schema.Literal("Submitted") }))(submittedBody))
+    throw new Error("application did not submit");
   const applicationId = requireString(submittedBody.applicationId, "application id");
+
   const duplicate = await observedRequest(
     http,
     observations,
@@ -498,7 +557,9 @@ const applicantJourney = async (
     "/api/applications",
     "invalid_transition_rejection",
   );
+
   requireStatus(duplicate, [409], "duplicate application rejection");
+
   const confirmation = await observedRequest(
     http,
     observations,
@@ -509,22 +570,27 @@ const applicantJourney = async (
     "/api/applications/{applicationId}",
     "fresh_http_read_after_write",
   );
+
   requireStatus(confirmation, [200], "application confirmation");
   const confirmationBody = asRecord(confirmation.body, "application confirmation");
+
   if (
-    confirmationBody._tag !== "ApplicationConfirmed" ||
+    !Schema.is(Schema.Struct({ _tag: Schema.Literal("ApplicationConfirmed") }))(confirmationBody) ||
     confirmationBody.applicationId !== applicationId ||
     Object.keys(confirmationBody).sort().join(",") !== "_tag,applicationId"
   ) {
     throw new Error("application confirmation was not privacy-safe");
   }
+
   const database = freshDatabaseObservation(
     commands,
     config.repositoryRoot,
     postgresUrl,
     `SELECT json_build_object('row_counts', json_build_object('applications', (SELECT count(*) FROM admission_applications WHERE application_id = '${applicationId}'), 'audit', (SELECT count(*) FROM admission_application_audit WHERE application_id = '${applicationId}'), 'outbox', (SELECT count(*) FROM admission_application_outbox WHERE application_id = '${applicationId}')), 'state', (SELECT json_build_object('application_id', application_id, 'revision', revision) FROM admission_applications WHERE application_id = '${applicationId}'), 'outbox', (SELECT coalesce(json_agg(json_build_object('ordinal', ordinal, 'status', status) ORDER BY ordinal), '[]'::json) FROM admission_application_outbox WHERE application_id = '${applicationId}'));`,
   );
+
   requirePositiveRows(database, ["applications", "audit", "outbox"], "applicant admission");
+
   return writeArtifact(
     fileSystem,
     config.artifactDirectory,
@@ -550,15 +616,16 @@ const applicantJourney = async (
 };
 
 const recruitmentJourney = async (
-  http: JourneyHttpClientShape,
-  commands: ParityCommandExecutorShape,
-  fileSystem: ParityFileSystemShape,
+  http: JourneyHttpClientOperations,
+  commands: ParityCommandExecutorOperations,
+  fileSystem: ParityFileSystemOperations,
   config: NativeJourneyConfig,
   origin: string,
   postgresUrl: string,
   runnerDigest: string,
 ): Promise<JourneyRunRecord> => {
   const observations: ObservedOperation[] = [];
+
   const unauthorized = await observedRequest(
     http,
     observations,
@@ -566,7 +633,9 @@ const recruitmentJourney = async (
     "/api/recruitment/interviews",
     "authorization_rejection_without_session",
   );
+
   requireStatus(unauthorized, [401, 403], "recruitment authorization rejection");
+
   const invalidCapability = await observedRequest(
     http,
     observations,
@@ -578,13 +647,16 @@ const recruitmentJourney = async (
     "/api/recruitment/invitation-response",
     "authorization_rejection_without_capability",
   );
+
   requireStatus(invalidCapability, [404], "recruitment capability rejection");
+
   const leaderCookie = await signIn(
     http,
     origin,
     "claim.leader@example.invalid",
     "native-claim-0078-secret-0123456789",
   );
+
   const board = await observedRequest(
     http,
     observations,
@@ -596,18 +668,23 @@ const recruitmentJourney = async (
     "/api/recruitment/interviews",
     "real_http_operation",
   );
+
   requireStatus(board, [200], "scheduling board");
   const selectedInterviewId = "interview-native-claim-0078";
+
   const selectedInterview = asArray(
     asRecord(board.body, "scheduling board").interviews,
     "scheduling board interviews",
   )
     .map((item) => asRecord(item, "scheduling board interview"))
     .find((item) => item.interviewId === selectedInterviewId);
+
   if (selectedInterview === undefined) {
     throw new Error("scheduling board did not include the selected interview");
   }
+
   const scheduleEtag = requireString(selectedInterview.etag, "selected interview etag");
+
   const schedule = requireStatus(
     await observedRequest(
       http,
@@ -638,20 +715,25 @@ const recruitmentJourney = async (
     [200],
     "schedule interview",
   );
+
   const scheduleBody = asRecord(schedule.body, "schedule response");
   const scheduleObservation = asRecord(scheduleBody.observation, "schedule observation");
   const interviewId = requireString(scheduleObservation.interviewId, "scheduled interview id");
+
   if (interviewId !== selectedInterviewId || scheduleObservation.responseState !== "Pending") {
     throw new Error("scheduled interview did not create a pending invitation");
   }
+
   const capabilityRaw = psql(
     commands,
     config.repositoryRoot,
     postgresUrl,
     `SELECT payload_json->>'responseCapability' FROM recruitment_invitation_outbox WHERE interview_id = '${interviewId}';`,
   );
+
   const capability = requireString(capabilityRaw, "invitation response capability");
   const capabilityHeaders = { "x-recruitment-invitation-capability": capability };
+
   const invitation = await observedRequest(
     http,
     observations,
@@ -663,8 +745,10 @@ const recruitmentJourney = async (
     "/api/recruitment/invitation-response",
     "real_http_operation",
   );
+
   const invitationResponse = requireStatus(invitation, [200], "read invitation response");
   const invitationEtag = requireHeader(invitationResponse, "etag", "invitation response etag");
+
   const rejected = await observedRequest(
     http,
     observations,
@@ -682,8 +766,10 @@ const recruitmentJourney = async (
     "/api/recruitment/invitation-response:reject",
     "real_http_operation",
   );
+
   const rejectedResponse = requireStatus(rejected, [204], "reject invitation");
   const rejectedEtag = requireHeader(rejectedResponse, "etag", "rejected invitation etag");
+
   const invalid = await observedRequest(
     http,
     observations,
@@ -701,7 +787,9 @@ const recruitmentJourney = async (
     "/api/recruitment/invitation-response:confirm",
     "invalid_transition_rejection",
   );
+
   requireStatus(invalid, [409, 422], "double invitation response rejection");
+
   const fresh = await observedRequest(
     http,
     observations,
@@ -713,11 +801,14 @@ const recruitmentJourney = async (
     "/api/recruitment/invitation-response",
     "fresh_http_read_after_write",
   );
+
   requireStatus(fresh, [200], "fresh invitation response");
   const freshBody = asRecord(fresh.body, "fresh invitation response");
+
   if (freshBody.responseState !== "Rejected") {
     throw new Error("fresh invitation response was not rejected");
   }
+
   const freshBoard = await observedRequest(
     http,
     observations,
@@ -729,18 +820,22 @@ const recruitmentJourney = async (
     "/api/recruitment/interviews",
     "fresh_http_read_after_write",
   );
+
   requireStatus(freshBoard, [200], "fresh scheduling board");
+
   const database = freshDatabaseObservation(
     commands,
     config.repositoryRoot,
     postgresUrl,
     `SELECT json_build_object('row_counts', json_build_object('schedules', (SELECT count(*) FROM recruitment_interview_schedules WHERE interview_id = '${interviewId}'), 'invitations', (SELECT count(*) FROM recruitment_invitations WHERE interview_id = '${interviewId}'), 'invitation_outbox', (SELECT count(*) FROM recruitment_invitation_outbox WHERE interview_id = '${interviewId}'), 'response_outbox', (SELECT count(*) FROM recruitment_invitation_response_outbox WHERE interview_id = '${interviewId}')), 'invitation', (SELECT json_build_object('response_state', response_state, 'schedule_revision', schedule_revision) FROM recruitment_invitations WHERE interview_id = '${interviewId}'), 'outbox', (SELECT coalesce(json_agg(json_build_object('effect_type', effect_type, 'status', status) ORDER BY ordinal), '[]'::json) FROM recruitment_invitation_response_outbox WHERE interview_id = '${interviewId}'));`,
   );
+
   requirePositiveRows(
     database,
     ["schedules", "invitations", "invitation_outbox", "response_outbox"],
     "interview invitation",
   );
+
   return writeArtifact(
     fileSystem,
     config.artifactDirectory,
@@ -772,15 +867,16 @@ const recruitmentJourney = async (
 };
 
 const receiptJourney = async (
-  http: JourneyHttpClientShape,
-  commands: ParityCommandExecutorShape,
-  fileSystem: ParityFileSystemShape,
+  http: JourneyHttpClientOperations,
+  commands: ParityCommandExecutorOperations,
+  fileSystem: ParityFileSystemOperations,
   config: NativeJourneyConfig,
   origin: string,
   postgresUrl: string,
   runnerDigest: string,
 ): Promise<JourneyRunRecord> => {
   const observations: ObservedOperation[] = [];
+
   const unauthorized = await observedRequest(
     http,
     observations,
@@ -788,7 +884,9 @@ const receiptJourney = async (
     "/api/receipt-approval-queue",
     "authorization_rejection_without_session",
   );
+
   requireStatus(unauthorized, [401, 403], "receipt authorization rejection");
+
   const unauthorizedOwner = await observedRequest(
     http,
     observations,
@@ -796,19 +894,23 @@ const receiptJourney = async (
     "/api/receipts",
     "authorization_rejection_without_session",
   );
+
   requireStatus(unauthorizedOwner, [401, 403], "receipt owner-session rejection");
+
   const ownerCookie = await signIn(
     http,
     origin,
     "owner-a.receipt.0037@example.invalid",
     "receipt-approval-0037-password",
   );
+
   const approverCookie = await signIn(
     http,
     origin,
     "approver-a.receipt.0037@example.invalid",
     "receipt-approval-0037-password",
   );
+
   const submit = requireStatus(
     await observedRequest(
       http,
@@ -841,9 +943,12 @@ const receiptJourney = async (
     [201],
     "receipt submission",
   );
+
   const submitBody = asRecord(submit.body, "receipt submission");
   const receiptId = requireString(submitBody.receiptId, "receipt id");
+
   if (submitBody.status !== "Pending") throw new Error("submitted receipt was not pending");
+
   const ownerRead = await observedRequest(
     http,
     observations,
@@ -851,11 +956,14 @@ const receiptJourney = async (
     "/api/receipts",
     "real_http_operation",
   );
+
   requireStatus(ownerRead, [200], "owner receipt read");
+
   const ownerItems = asArray(
     asRecord(ownerRead.body, "owner receipt list").items,
     "owner items",
   ).map((item) => asRecord(item, "owner receipt"));
+
   if (
     ownerItems.length < 1 ||
     ownerItems.some((item) => item.ownerPersonId !== "owner-a") ||
@@ -863,6 +971,7 @@ const receiptJourney = async (
   ) {
     throw new Error("owner receipt list was not owner-scoped and pending");
   }
+
   const approvalRead = await observedRequest(
     http,
     observations,
@@ -874,11 +983,14 @@ const receiptJourney = async (
     "/api/receipt-approval-queue",
     "real_http_operation",
   );
+
   requireStatus(approvalRead, [200], "approval list read");
+
   const approvalItems = asArray(
     asRecord(approvalRead.body, "approval receipt list").items,
     "approval items",
   ).map((item) => asRecord(item, "approval receipt"));
+
   if (
     approvalItems.length < 1 ||
     approvalItems.some((item) => item.departmentId !== "department-a") ||
@@ -886,11 +998,15 @@ const receiptJourney = async (
   ) {
     throw new Error("approval receipt list was not department-scoped");
   }
+
   const pendingApproval = approvalItems.find((item) => item.receiptId === receiptId);
+
   if (pendingApproval === undefined) {
     throw new Error("approval queue did not include the submitted receipt");
   }
+
   const approvalEtag = requireString(pendingApproval.etag, "approval receipt etag");
+
   const reject = await observedRequest(
     http,
     observations,
@@ -908,11 +1024,15 @@ const receiptJourney = async (
     "/api/receipts/{receiptId}:reject",
     "real_http_operation",
   );
+
   requireStatus(reject, [200], "receipt rejection");
+
   if (asRecord(reject.body, "receipt rejection").status !== "Rejected") {
     throw new Error("receipt did not transition to rejected");
   }
+
   const rejectedReceiptEtag = requireHeader(reject, "etag", "rejected receipt etag");
+
   const invalid = await observedRequest(
     http,
     observations,
@@ -930,7 +1050,9 @@ const receiptJourney = async (
     "/api/receipts/{receiptId}:reject",
     "invalid_transition_rejection",
   );
+
   requireStatus(invalid, [409], "terminal receipt transition rejection");
+
   const fresh = await observedRequest(
     http,
     observations,
@@ -938,16 +1060,20 @@ const receiptJourney = async (
     "/api/receipts",
     "fresh_http_read_after_write",
   );
+
   requireStatus(fresh, [200], "fresh owner receipt read");
+
   const freshItems = asArray(asRecord(fresh.body, "fresh receipt list").items, "fresh items").map(
     (item) => asRecord(item, "fresh receipt"),
   );
+
   if (
     freshItems.some((item) => item.ownerPersonId !== "owner-a") ||
     !freshItems.some((item) => item.receiptId === receiptId && item.status === "Rejected")
   ) {
     throw new Error("fresh owner receipt list did not show the rejected receipt");
   }
+
   const freshApproval = await observedRequest(
     http,
     observations,
@@ -959,24 +1085,30 @@ const receiptJourney = async (
     "/api/receipt-approval-queue",
     "fresh_http_read_after_write",
   );
+
   requireStatus(freshApproval, [200], "fresh approval receipt read");
+
   const freshApprovalItems = asArray(
     asRecord(freshApproval.body, "fresh approval list").items,
     "fresh approval items",
   ).map((item) => asRecord(item, "fresh approval receipt"));
+
   if (
     freshApprovalItems.some((item) => item.departmentId !== "department-a") ||
     !freshApprovalItems.some((item) => item.receiptId === receiptId && item.status === "Rejected")
   ) {
     throw new Error("fresh approval list did not show the scoped rejected receipt");
   }
+
   const database = freshDatabaseObservation(
     commands,
     config.repositoryRoot,
     postgresUrl,
     `SELECT json_build_object('row_counts', json_build_object('receipts', (SELECT count(*) FROM economy_receipts WHERE receipt_id = '${receiptId}'), 'commands', (SELECT count(*) FROM economy_receipt_command_receipts WHERE receipt_id = '${receiptId}'), 'audit', (SELECT count(*) FROM economy_receipt_audit WHERE receipt_id = '${receiptId}'), 'outbox', (SELECT count(*) FROM economy_receipt_outbox WHERE receipt_id = '${receiptId}')), 'receipt', (SELECT json_build_object('status', status, 'revision', revision, 'owner_person_id', owner_person_id) FROM economy_receipts WHERE receipt_id = '${receiptId}'), 'outbox', (SELECT coalesce(json_agg(json_build_object('effect_type', effect_type, 'ordinal', ordinal, 'status', status) ORDER BY command_id, ordinal), '[]'::json) FROM economy_receipt_outbox WHERE receipt_id = '${receiptId}'));`,
   );
+
   requirePositiveRows(database, ["receipts", "commands", "audit", "outbox"], "owner approval");
+
   return writeArtifact(
     fileSystem,
     config.artifactDirectory,
@@ -1010,12 +1142,13 @@ const receiptJourney = async (
 };
 
 const legacyGate = (
-  commands: ParityCommandExecutorShape,
-  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorOperations,
+  fileSystem: ParityFileSystemOperations,
   environment: Readonly<Record<string, string | undefined>>,
   repositoryRoot: string,
 ): NativeJourneyRunManifest["legacy_gate"] => {
   const executables = resolveCollectorExecutablesWithServices(fileSystem, undefined, environment);
+
   if (executables === null) {
     return {
       backend: "legacy_symfony",
@@ -1023,12 +1156,15 @@ const legacyGate = (
       result: "observed_absent",
     };
   }
+
   const php = executables.php.path;
   const bwrap = executables.bwrap.path;
   const serverRoot = join(repositoryRoot, "apps/server");
+
   try {
     command(commands, php, ["-v"], { cwd: serverRoot, timeout: 30_000 });
     command(commands, bwrap, ["--version"], { cwd: serverRoot, timeout: 30_000 });
+
     const console = commands.spawnText(php, ["bin/console", "about", "--env=e2e"], {
       cwd: serverRoot,
       env: { APP_ENV: "e2e" },
@@ -1036,6 +1172,7 @@ const legacyGate = (
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 120_000,
     });
+
     if (console.status !== 0) {
       return {
         backend: "legacy_symfony",
@@ -1043,6 +1180,7 @@ const legacyGate = (
         result: "observed_absent",
       };
     }
+
     return {
       backend: "legacy_symfony",
       reason: "LEGACY_DISPOSABLE_DATABASE_FIXTURE_PATH_REQUIRES_MYSQL_NOT_PRESENT",
@@ -1074,11 +1212,13 @@ export const runClaimSpecificJourneyEvidence = (
     const fileSystem = yield* ParityFileSystem;
     const http = yield* JourneyHttpClient;
     const processes = yield* JourneyProcessExecutor;
+
     return yield* Effect.tryPromise({
       try: async () => {
         const temporaryRoot = fileSystem.makeTempDirectory(
           join(fileSystem.temporaryDirectory(), "mono-web-claim-evidence-"),
         );
+
         const postgresData = join(temporaryRoot, "postgres");
         const stagingRoot = join(temporaryRoot, "receipt-staging");
         const committedRoot = join(temporaryRoot, "receipt-committed");
@@ -1091,6 +1231,7 @@ export const runClaimSpecificJourneyEvidence = (
         const origin = `http://127.0.0.1:${backendPort}`;
         const baseEnvironment = { ...environment.environment };
         const betterAuthSecret = "claim-specific-0078-better-auth-secret-0123456789";
+
         const backendEnvironment = {
           ...baseEnvironment,
           ADMISSION_FIXED_NOW: "2031-09-15T12:00:00.000Z",
@@ -1106,8 +1247,10 @@ export const runClaimSpecificJourneyEvidence = (
           RECEIPT_MAX_FILE_BYTES: "10485760",
           RECEIPT_STAGING_ROOT: stagingRoot,
         };
+
         let backend: JourneyProcessHandle | undefined;
         let postgresStarted = false;
+
         try {
           nixPostgres(
             commands,
@@ -1160,9 +1303,11 @@ export const runClaimSpecificJourneyEvidence = (
             env: backendEnvironment,
           });
           let ready = false;
+
           for (let attempt = 0; attempt < 120; attempt += 1) {
             try {
               const response = await http.request({ method: "GET", url: `${origin}/health` });
+
               if (response.status === 200) {
                 ready = true;
                 break;
@@ -1170,8 +1315,10 @@ export const runClaimSpecificJourneyEvidence = (
             } catch {
               // Bounded readiness retry; no evidence is emitted before success.
             }
+
             await processes.sleep(250);
           }
+
           if (!ready) throw new Error("native backend readiness timed out");
 
           command(commands, "bun", ["apps/dashboard/e2e/native-receipt-approval-seed.mjs"], {
@@ -1215,12 +1362,14 @@ export const runClaimSpecificJourneyEvidence = (
             },
             timeout: 300_000,
           });
+
           const applicantLeaderCookie = await signIn(
             http,
             origin,
             "applicant.claim.leader@example.invalid",
             "native-claim-0078-secret-0123456789",
           );
+
           const period = await http.request({
             body: {
               kind: "json",
@@ -1239,9 +1388,11 @@ export const runClaimSpecificJourneyEvidence = (
             method: "POST",
             url: `${origin}/api/admission-periods`,
           });
+
           requireStatus(period, [201], "create applicant admission period");
 
           const runnerDigest = sha256(fileSystem.readBytes(config.runnerSourcePath));
+
           const native = [
             await applicantJourney(
               http,
@@ -1271,6 +1422,7 @@ export const runClaimSpecificJourneyEvidence = (
               runnerDigest,
             ),
           ];
+
           return {
             legacy_gate: legacyGate(
               commands,
@@ -1283,6 +1435,7 @@ export const runClaimSpecificJourneyEvidence = (
           } satisfies NativeJourneyRunManifest;
         } finally {
           if (backend !== undefined) await processes.stop(backend);
+
           if (postgresStarted) {
             try {
               nixPostgres(commands, ["pg_ctl", "-D", postgresData, "-m", "fast", "-w", "stop"], {
@@ -1292,6 +1445,7 @@ export const runClaimSpecificJourneyEvidence = (
               // Cleanup continues to remove the disposable root; the caller observes primary failures.
             }
           }
+
           fileSystem.remove(temporaryRoot, { force: true, recursive: true });
         }
       },

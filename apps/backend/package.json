@@ -24,7 +24,7 @@
   "devDependencies": {
     "@types/node": "^22",
     "oxlint": "^1.41.0",
-    "typescript": "^5",
+    "typescript": "7.0.2",
     "vitest": "catalog:effect-v4"
   }
 }

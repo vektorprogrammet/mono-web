@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Result, Array, Predicate, Data } from "effect";
 import {
   mapOrganizationAuthorityToAdmissionPeriodActor,
   type OrganizationPersonAuthority,
@@ -79,7 +79,8 @@ export const canManagePlacements = (
   departmentId: DepartmentId,
 ): boolean => {
   const decision = mapOrganizationAuthorityToAdmissionPeriodActor(authority, departmentId);
-  return decision._tag === "Allow" && decision.value._tag !== "Member";
+
+  return Predicate.isTagged(decision, "Allow") && !Predicate.isTagged(decision.value, "Member");
 };
 
 export const nextAffiliationStatus = (
@@ -87,9 +88,13 @@ export const nextAffiliationStatus = (
   action: OwnAffiliationCommand["action"] | "Establish" | "Reject" | "Revoke",
 ): Affiliation["status"] | null => {
   if (action === "Request" && (status === "Absent" || status === "Inactive")) return "Pending";
+
   if (action === "Establish" && status === "Pending") return "Active";
+
   if ((action === "Withdraw" || action === "Reject") && status === "Pending") return "Inactive";
+
   if (action === "Revoke" && status === "Active") return "Inactive";
+
   return null;
 };
 
@@ -120,6 +125,7 @@ export const buildSchoolServiceProposal = (input: {
     .filter((placement) => placement.active)
     .flatMap((placement): ReadonlyArray<SchoolServiceProposalAssignment> => {
       const blocks = placement.block === "Both" ? (["1", "2"] as const) : [placement.block];
+
       return blocks.map((block) => ({
         placementId: placement.placementId,
         personId: placement.personId,
@@ -132,6 +138,7 @@ export const buildSchoolServiceProposal = (input: {
       }));
     })
     .sort(assignmentOrder);
+
   const assignments = [
     ...new Map(
       expandedAssignments.map((assignment) => [
@@ -140,30 +147,39 @@ export const buildSchoolServiceProposal = (input: {
       ]),
     ).values(),
   ];
+
   const demands = [...input.board.demands].sort((left, right) =>
     compareText(assignmentKey(left), assignmentKey(right)),
   );
+
   const demandBySlot = new Map(demands.map((demand) => [assignmentKey(demand), demand]));
   const assignmentsBySlot = Map.groupBy(assignments, assignmentKey);
+
   const slotKeys = [...new Set([...demandBySlot.keys(), ...assignmentsBySlot.keys()])].sort(
     compareText,
   );
+
   const schoolNames = new Map(
     input.board.schools.map((school) => [school.schoolId, school.name] as const),
   );
+
   const exceptions: Array<SchoolServiceProposalException> = [];
+
   for (const key of slotKeys) {
     const demand = demandBySlot.get(key);
     const assigned = assignmentsBySlot.get(key) ?? [];
     const requiredVolunteers = demand?.requiredVolunteers ?? 0;
+
     if (assigned.length === requiredVolunteers) continue;
     const first = demand ?? assigned[0]!;
+
     const code =
       demand === undefined
         ? "AssignmentWithoutDemand"
         : assigned.length < requiredVolunteers
           ? "DemandUnfilled"
           : "DemandExceeded";
+
     exceptions.push({
       exceptionId: `${key}:${code}`,
       code,
@@ -176,6 +192,7 @@ export const buildSchoolServiceProposal = (input: {
       assignedVolunteers: assigned.length,
     });
   }
+
   return {
     proposalId: input.proposalId,
     status: "Draft",
@@ -197,6 +214,7 @@ const exactUniqueValues = (
 ): boolean => {
   const sortedExpected = [...new Set(expected)].sort(compareText);
   const sortedSubmitted = [...new Set(submitted)].sort(compareText);
+
   return (
     sortedSubmitted.length === submitted.length &&
     sortedExpected.length === sortedSubmitted.length &&
@@ -222,11 +240,13 @@ export const isEligibleSchoolServiceAttendance = (
 ): boolean => {
   if (new Set(attendees).size !== attendees.length) return false;
   const absentIds = new Set(absences.map((absence) => absence.personId));
+
   const eligible = new Set([
-    ...commitment.assignments
-      .filter((assignment) => !absentIds.has(assignment.personId))
-      .map((assignment) => assignment.personId),
+    ...Array.filterMap(commitment.assignments, (assignment) =>
+      !absentIds.has(assignment.personId) ? Result.succeed(assignment.personId) : Result.failVoid,
+    ),
     ...acknowledgements.map((acknowledgement) => acknowledgement.candidatePersonId),
   ]);
+
   return attendees.every((personId) => eligible.has(personId));
 };

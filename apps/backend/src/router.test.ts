@@ -1,3 +1,4 @@
+import { backendDatabase } from "../test/database.js";
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   Identity,
@@ -7,34 +8,38 @@ import {
   IdentitySessionExpired,
   IdentityOwnedSessionNotFound,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
-import { Database, type DatabaseShape } from "@vektorprogrammet/database";
+import { Database } from "@vektorprogrammet/database";
 import {
+  MembershipId,
+  TeamId,
+  DepartmentId,
   Organization,
   PersonId,
   type OrganizationAuthorityInstant,
-  type OrganizationShape,
+  type OrganizationOperations,
 } from "@vektorprogrammet/domain/organization";
 import {
   PersonContactProfile,
   PersonProfile,
   Profile,
-  type ProfileShape,
+  type ProfileOperations,
 } from "@vektorprogrammet/domain/profile";
 import { Schools } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
 import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeBackendConfig } from "./config.js";
+import { decodeBackendConfig } from "./config.js";
 import {
   externalNativePreflightAttachmentGaps,
   externalNativePreflightMethodsForPath,
 } from "./native-api-preflight.js";
-import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
+import { makeBackendTestHttp as backendHttpHandler } from "./test/native-http.js";
 
 const token = "better-auth.session_token";
+
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
   BETTER_AUTH_SECRET: "router-test-secret-with-at-least-32-characters!",
@@ -46,38 +51,19 @@ const environment = {
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
   ADMISSION_FIXED_NOW: "2031-09-15T12:00:00.000Z",
 } as const;
-const config = makeBackendConfig(environment);
 
-const database = Object.assign(
-  ((strings: TemplateStringsArray) => {
-    const statement = strings.join(" ");
-    if (statement.includes("FROM public.person_profiles AS profile")) {
-      return Effect.succeed([
-        {
-          personId: "member-1",
-          firstName: "Member",
-          lastName: "One",
-          nameRevision: 0,
-          representationRevision: 0,
-          contactPersonId: "member-1",
-          email: "member@example.invalid",
-          phone: "90000000",
-          contactRevision: 0,
-        },
-      ]);
-    }
-    if (statement.includes("SELECT pg_try_advisory_xact_lock")) {
-      return Effect.succeed([{ acquired: true }]);
-    }
-    return Effect.succeed([]);
-  }) as unknown as DatabaseShape,
-  {
-    health: Effect.void,
-    json: (value: unknown) => value,
-    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
-  },
+const config = decodeBackendConfig(environment);
+
+const database = backendDatabase(
+  Database.use((sql) =>
+    Effect.gen(function* () {
+      yield* sql`INSERT INTO person_profiles VALUES ('member-1','Member','One',0)`;
+      yield* sql`INSERT INTO person_contact_profiles VALUES ('member-1','member@example.invalid','90000000',0)`;
+    }),
+  ),
 );
-const profile: ProfileShape = {
+
+const profile: ProfileOperations = {
   readProfiles: (personIds) =>
     Effect.succeed(
       personIds.map(
@@ -109,7 +95,7 @@ const profile: ProfileShape = {
     }),
   updateOwnProfile: (input) =>
     Effect.as(profile.readOwnProfile(input.actorPersonId), {
-      personId: input.actorPersonId,
+      personId: PersonId.make(input.actorPersonId),
       firstName: input.command.firstName,
       lastName: input.command.lastName,
       email: input.command.email,
@@ -119,20 +105,24 @@ const profile: ProfileShape = {
     }),
   readDirectoryPage: () => Effect.succeed({ entries: [], nextCursor: undefined }),
 };
+
 const organization = {
   listDepartments: Effect.succeed([]),
   listTeams: () => Effect.succeed([]),
   listFieldOfStudies: Effect.succeed([]),
-  resolvePersonAuthority: () =>
+  resolvePersonAuthority: (
+    _personId: PersonId,
+    _authorizationInstant: OrganizationAuthorityInstant,
+  ) =>
     Effect.succeed({
-      personId: "member-1",
+      personId: PersonId.make("member-1"),
       evaluatedAt: "2031-09-15T12:00:00.000Z",
       globalAdministrator: "Absent",
       memberships: [
         {
-          membershipId: "membership-1",
-          teamId: "team-1",
-          departmentId: "department-1",
+          membershipId: MembershipId.make("membership-1"),
+          teamId: TeamId.make("team-1"),
+          departmentId: DepartmentId.make("department-1"),
           active: true,
           teamLeader: false,
         },
@@ -148,18 +138,20 @@ const organization = {
       globalAdministrator: "Absent",
       memberships: [
         {
-          membershipId: "membership-1",
-          teamId: "team-1",
-          departmentId: "department-1",
+          membershipId: MembershipId.make("membership-1"),
+          teamId: TeamId.make("team-1"),
+          departmentId: DepartmentId.make("department-1"),
           active: true,
           teamLeader: false,
         },
       ],
     }),
-} as unknown as OrganizationShape;
+} satisfies Partial<OrganizationOperations>;
+
 const schools = Schools.of({
   listDirectory: () => Effect.succeed({ activeSchools: [], inactiveSchools: [] }),
 });
+
 const socialEvents = SocialEvents.of({
   readSnapshotInstant: () => Effect.die("unexpected social-event read"),
   readScope: () => Effect.die("unexpected social-event read"),
@@ -167,6 +159,7 @@ const socialEvents = SocialEvents.of({
   validateScope: () => Effect.die("unexpected social-event validation"),
   create: () => Effect.die("unexpected social-event create"),
 });
+
 const schoolSurveys = SchoolSurveys.of({
   readForm: () => Effect.die("unexpected school-survey read"),
   prepareResponse: () => Effect.die("unexpected school-survey preparation"),
@@ -182,16 +175,16 @@ const schoolSurveys = SchoolSurveys.of({
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
-} as never);
+});
 
 const makeBackendServices = (
-  identity: IdentityShape,
-  organizationService: OrganizationShape = organization,
+  identity: IdentityOperations,
+  organizationService: Partial<OrganizationOperations> = organization,
 ) =>
   Layer.mergeAll(
-    Layer.succeed(Database, database),
+    database.layer,
     Layer.succeed(Profile, profile),
-    Layer.succeed(Organization, organizationService),
+    Layer.mock(Organization, organizationService),
     Layer.succeed(Schools, schools),
     Layer.succeed(Identity, identity),
     Layer.succeed(SocialEvents, socialEvents),
@@ -214,7 +207,13 @@ const makeBackendServices = (
         revokeSession: (_actor, sessionId, request) =>
           Effect.tryPromise({
             try: () => identity.revokeSession(undefined, sessionId, request),
-            catch: (cause) => cause as IdentityOwnedSessionNotFound,
+            catch: (cause) =>
+              cause instanceof IdentityOwnedSessionNotFound
+                ? cause
+                : new IdentityEngineError({
+                    operation: "revokeSession",
+                    message: "Session revocation failed",
+                  }),
           }),
         revokeOtherSessions: () => Effect.succeed({ setCookies: [] }),
         revokeAllSessions: () => Effect.succeed({ setCookies: [] }),
@@ -232,6 +231,7 @@ const currentSession = new IdentitySession({
   userAgent: "router-test",
   current: true,
 });
+
 const successfulIdentity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
@@ -242,6 +242,7 @@ const successfulIdentity = Identity.of({
         expiresAt: currentSession.expiresAt,
       });
     }
+
     throw new IdentitySessionNotFound();
   },
   readCurrentSession: async () => currentSession,
@@ -252,7 +253,7 @@ const successfulIdentity = Identity.of({
   revokeAllSessions: async () => ({ setCookies: [] }),
   recordSecurityEvent: async () => undefined,
   signOut: async () => ({ setCookies: [] }),
-} satisfies IdentityShape);
+} satisfies IdentityOperations);
 
 const unavailableAuthHandler = {
   handle: async () => new Response(null, { status: 404 }),
@@ -260,10 +261,12 @@ const unavailableAuthHandler = {
 };
 
 const successfulServices = makeBackendServices(successfulIdentity);
-const backend = makeBackendHttp(config, successfulServices, unavailableAuthHandler);
+
+const backend = backendHttpHandler(config, successfulServices, unavailableAuthHandler);
 
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
+
 const expectedProblem = (code: string, title: string, status: number, detail: string) => ({
   type: `urn:vektorprogrammet:problem:v0.2:${code}`,
   title,
@@ -311,7 +314,7 @@ describe("unified backend router", () => {
     expect({ status: profile.status, body: await profile.json() }).toEqual({
       status: 200,
       body: {
-        personId: "member-1",
+        personId: PersonId.make("member-1"),
         firstName: "Member",
         lastName: "One",
         email: "member@example.invalid",
@@ -371,6 +374,7 @@ describe("unified backend router", () => {
         "The requested resource was not found.",
       ),
     });
+
     for (const response of [missing, internalEvidence]) {
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 404,
@@ -427,18 +431,20 @@ describe("unified backend router", () => {
 
   it("exposes exactly the six safe native session resources and removes the old path", async () => {
     const cookieHeaders = { cookie: `${token}=value; other=1` };
+
     const mutationHeaders = {
       ...cookieHeaders,
       origin: "http://127.0.0.1:5174",
       "idempotency-key": "session-mutation-key-0001",
     };
+
     const current = await request("/api/session", { headers: cookieHeaders });
     expect(current.headers.get("cache-control")).toBe("private, no-store");
     expect({ status: current.status, body: await current.json() }).toEqual({
       status: 200,
       body: {
         sessionId: "session-1",
-        personId: "member-1",
+        personId: PersonId.make("member-1"),
         createdAt: "2031-09-15T12:00:00.000Z",
         updatedAt: "2031-09-15T12:00:00.000Z",
         expiresAt: "2031-09-16T12:00:00.000Z",
@@ -459,11 +465,12 @@ describe("unified backend router", () => {
           expiresAt: "2031-09-16T12:00:00.000Z",
           ipAddress: "127.0.0.1",
           userAgent: "router-test",
-          personId: "member-1",
+          personId: PersonId.make("member-1"),
           current: true,
         },
       ],
     });
+
     for (const [path, method] of [
       ["/api/session", "DELETE"],
       ["/api/sessions/session-1", "DELETE"],
@@ -475,31 +482,37 @@ describe("unified backend router", () => {
       expect(await response.text()).toBe("");
       expect(response.headers.getSetCookie()).toHaveLength(0);
     }
+
     expect((await request("/api/session")).status).toBe(401);
     expect((await request("/api/me/session", { headers: cookieHeaders })).status).toBe(404);
   });
 
   it("requires a recognized Better Auth session cookie before authoritative handlers run", async () => {
     let currentReads = 0;
-    const guardedBackend = makeBackendHttp(
+
+    const guardedBackend = backendHttpHandler(
       config,
       makeBackendServices({
         ...successfulIdentity,
         readCurrentSession: async () => {
           currentReads += 1;
+
           return currentSession;
         },
       }),
       unavailableAuthHandler,
     );
+
     for (const cookie of [undefined, "", "theme=dark", "vp.session_token=opaque"]) {
       const response = await guardedBackend.fetch(
         new Request("http://backend.test/api/session", {
           headers: cookie === undefined ? undefined : { cookie },
         }),
       );
+
       expect(response.status).toBe(401);
     }
+
     expect(currentReads).toBe(0);
 
     for (const cookie of [
@@ -509,33 +522,40 @@ describe("unified backend router", () => {
       const response = await guardedBackend.fetch(
         new Request("http://backend.test/api/session", { headers: { cookie } }),
       );
+
       expect(response.status).toBe(200);
     }
+
     expect(currentReads).toBe(2);
   });
 
   it("conceals missing, non-owned, and already-revoked session ids identically", async () => {
     const owned = new Set(["owned-session"]);
     let revokeCalls = 0;
-    const ownerBackend = makeBackendHttp(
+
+    const ownerBackend = backendHttpHandler(
       config,
       makeBackendServices({
         ...successfulIdentity,
         revokeSession: async (_cookie, sessionId) => {
           revokeCalls += 1;
+
           if (!owned.delete(sessionId)) {
             throw new IdentityOwnedSessionNotFound({ sessionId });
           }
+
           return { setCookies: [] };
         },
       }),
       unavailableAuthHandler,
     );
+
     const headers = {
       cookie: `${token}=value`,
       origin: "http://127.0.0.1:5174",
       "idempotency-key": "owned-session-delete-key-01",
     };
+
     expect(
       (
         await ownerBackend.fetch(
@@ -546,13 +566,22 @@ describe("unified backend router", () => {
         )
       ).status,
     ).toBe(204);
+
+    const replay = await ownerBackend.fetch(
+      new Request("http://backend.test/api/sessions/owned-session", { method: "DELETE", headers }),
+    );
+
+    expect(replay.status).toBe(204);
+    expect(revokeCalls).toBe(1);
+
     for (const sessionId of ["owned-session", "missing-session", "another-person-session"]) {
       const response = await ownerBackend.fetch(
         new Request(`http://backend.test/api/sessions/${sessionId}`, {
           method: "DELETE",
-          headers,
+          headers: { ...headers, "idempotency-key": `conceal-session-${sessionId}-key` },
         }),
       );
+
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 404,
         body: expectedProblem(
@@ -563,28 +592,34 @@ describe("unified backend router", () => {
         ),
       });
     }
+
     expect(revokeCalls).toBe(4);
   });
 
   it("centralizes trusted-origin, CSRF rejection, audit, and credentialed CORS", async () => {
     const handled: string[] = [];
     const rejectedCorrelations: string[] = [];
-    const originBackend = makeBackendHttp(config, successfulServices, {
+
+    const originBackend = backendHttpHandler(config, successfulServices, {
       handle: async (request) => {
         handled.push(new URL(request.url).pathname);
+
         return new Response(null, { status: 204 });
       },
       recordTrustedOriginRejection: async (context) => {
         rejectedCorrelations.push(context.requestCorrelation);
       },
     });
+
     const trustedOrigin = "http://127.0.0.1:5174";
+
     const trusted = await originBackend.fetch(
       new Request("http://backend.test/api/auth/sign-in/email", {
         method: "POST",
         headers: { origin: trustedOrigin },
       }),
     );
+
     expect(trusted.status).toBe(204);
     expect(trusted.headers.get("access-control-allow-origin")).toBe(trustedOrigin);
     expect(trusted.headers.get("access-control-allow-credentials")).toBe("true");
@@ -600,6 +635,7 @@ describe("unified backend router", () => {
           headers,
         }),
       );
+
       expect({ status: rejected.status, body: await rejected.json() }).toEqual({
         status: 403,
         body: {
@@ -621,6 +657,7 @@ describe("unified backend router", () => {
         },
       }),
     );
+
     expect(protectedCrossOrigin.status).toBe(403);
 
     const preflight = await originBackend.fetch(
@@ -629,6 +666,7 @@ describe("unified backend router", () => {
         headers: { origin: trustedOrigin, "access-control-request-method": "GET" },
       }),
     );
+
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe(trustedOrigin);
     expect(preflight.headers.get("access-control-allow-credentials")).toBe("true");
@@ -639,10 +677,12 @@ describe("unified backend router", () => {
   it("keeps OAuth protocol errors outside the native origin problem boundary", async () => {
     const oauthCalls: string[] = [];
     const rejectedCorrelations: string[] = [];
-    const oauthBackend = makeBackendHttp(config, successfulServices, {
+
+    const oauthBackend = backendHttpHandler(config, successfulServices, {
       handle: async () => new Response(null, { status: 404 }),
       handleOAuth: async (request) => {
         oauthCalls.push(`${request.method} ${new URL(request.url).pathname}`);
+
         return new Response(JSON.stringify({ error: "invalid_request" }), {
           status: 400,
           headers: {
@@ -662,6 +702,7 @@ describe("unified backend router", () => {
         headers: { origin: "https://untrusted.example.invalid" },
       }),
     );
+
     expect({ status: response.status, body: await response.json() }).toEqual({
       status: 400,
       body: { error: "invalid_request" },
@@ -675,9 +716,11 @@ describe("unified backend router", () => {
     const dispatched: string[] = [];
     const rejectedCorrelations: string[] = [];
     const origin = "http://127.0.0.1:5174";
-    const backend = makeBackendHttp(config, successfulServices, {
+
+    const backend = backendHttpHandler(config, successfulServices, {
       handle: async (request) => {
         dispatched.push(new URL(request.url).pathname);
+
         return new Response(null, { status: 204 });
       },
       recordTrustedOriginRejection: async (context) => {
@@ -696,6 +739,7 @@ describe("unified backend router", () => {
         },
       }),
     );
+
     expect(allowed.status).toBe(204);
     expect(allowed.headers.get("access-control-allow-headers")).toBe(
       "Authorization, Content-Type, Idempotency-Key, If-Match, If-None-Match, X-Recruitment-Invitation-Capability",
@@ -715,6 +759,7 @@ describe("unified backend router", () => {
         },
       }),
     );
+
     expect({ status: unknown.status, body: await unknown.json() }).toEqual({
       status: 400,
       body: {
@@ -735,6 +780,7 @@ describe("unified backend router", () => {
         },
       }),
     );
+
     expect(wrongMethod.status).toBe(405);
     expect(wrongMethod.headers.get("allow")).toBe("GET, HEAD, DELETE, OPTIONS");
     expect(dispatched).toEqual([]);
@@ -748,7 +794,7 @@ describe("unified backend router", () => {
       secureCookies: false,
     });
     expect(
-      makeBackendConfig({
+      decodeBackendConfig({
         ...environment,
         NATIVE_IDENTITY_DEPLOYMENT: "preview",
         NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://vektor.phibkro.org"]),
@@ -761,14 +807,14 @@ describe("unified backend router", () => {
       secureCookies: true,
     });
     expect(() =>
-      makeBackendConfig({
+      decodeBackendConfig({
         ...environment,
         NATIVE_IDENTITY_DEPLOYMENT: "production",
         NATIVE_IDENTITY_TRUSTED_ORIGINS: undefined,
       }),
     ).toThrow();
     expect(() =>
-      makeBackendConfig({
+      decodeBackendConfig({
         ...environment,
         NATIVE_IDENTITY_DEPLOYMENT: "preview",
         NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://p999.vektor.phibkro.org"]),
@@ -782,20 +828,23 @@ describe("unified backend router", () => {
     ["BETTER_AUTH_TRUSTED_ORIGINS", "http://127.0.0.1:5174"],
     ["BETTER_AUTH_TRUSTED_ORIGINS", ""],
   ] as const)("rejects unsupported %s even when its value is %j", (name, value) => {
-    expect(() => makeBackendConfig({ ...environment, [name]: value })).toThrow("unsupported");
+    expect(() => decodeBackendConfig({ ...environment, [name]: value })).toThrow("unsupported");
   });
 
   it("forwards an evidence-only clock to protected authority resolution", async () => {
     const authorizationInstants: string[] = [];
     const pinnedInstant = "2037-01-15T12:00:00.000Z";
-    const observedOrganization: OrganizationShape = {
+
+    const observedOrganization: Partial<OrganizationOperations> = {
       ...organization,
       resolvePersonAuthority: (personId, authorizationInstant) => {
         authorizationInstants.push(authorizationInstant);
+
         return organization.resolvePersonAuthority(personId, authorizationInstant);
       },
     };
-    const pinnedBackend = makeBackendHttp(
+
+    const pinnedBackend = backendHttpHandler(
       config,
       makeBackendServices(successfulIdentity, observedOrganization),
       unavailableAuthHandler,
@@ -843,7 +892,7 @@ describe("unified backend router", () => {
   ] as const)(
     "maps %s at the session HTTP boundary",
     async (_name, failure, status, code, title, detail) => {
-      const failingBackend = makeBackendHttp(
+      const failingBackend = backendHttpHandler(
         config,
         makeBackendServices({
           ...successfulIdentity,
@@ -866,10 +915,11 @@ describe("unified backend router", () => {
   );
 
   it("mounts the auth engine handler over the /api/auth/* surface", async () => {
-    const probingBackend = makeBackendHttp(config, successfulServices, {
+    const probingBackend = backendHttpHandler(config, successfulServices, {
       handle: async (request) => new Response(`auth-saw:${new URL(request.url).pathname}`),
       recordTrustedOriginRejection: async () => undefined,
     });
+
     for (const path of ["/api/auth/get-session", "/api/auth/sign-in/email", "/api/auth/"]) {
       const response = await probingBackend.fetch(
         new Request(`http://backend.test${path}`, {
@@ -877,13 +927,14 @@ describe("unified backend router", () => {
           headers: { origin: "http://127.0.0.1:5174" },
         }),
       );
+
       expect(await response.text()).toBe(`auth-saw:${path}`);
     }
   });
 
   it("requires TLS for non-loopback application effect providers", () => {
     expect(() =>
-      makeBackendConfig({
+      decodeBackendConfig({
         ...environment,
         PUBLIC_APPLICATION_EFFECT_MODE: "http",
         PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://provider.example.invalid/effects",
@@ -892,7 +943,7 @@ describe("unified backend router", () => {
     ).toThrow("must use HTTPS unless it targets loopback");
 
     expect(
-      makeBackendConfig({
+      decodeBackendConfig({
         ...environment,
         PUBLIC_APPLICATION_EFFECT_MODE: "http",
         PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://127.0.0.1:8898/effects",
@@ -903,11 +954,11 @@ describe("unified backend router", () => {
 
   it("requires an explicit application effect mode", () => {
     const { PUBLIC_APPLICATION_EFFECT_MODE: _, ...implicitEnvironment } = environment;
-    expect(() => makeBackendConfig(implicitEnvironment)).toThrow(
+    expect(() => decodeBackendConfig(implicitEnvironment)).toThrow(
       "PUBLIC_APPLICATION_EFFECT_MODE must be disabled or http",
     );
     expect(() =>
-      makeBackendConfig({
+      decodeBackendConfig({
         ...environment,
         PUBLIC_APPLICATION_EFFECT_ENDPOINT: "https://provider.example.invalid/effects",
         PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
@@ -918,7 +969,8 @@ describe("unified backend router", () => {
 
 it("classifies only exact password recovery method/path origin rejections", async () => {
   const observed: Array<string | undefined> = [];
-  const backend = makeBackendHttp(config, successfulServices, {
+
+  const backend = backendHttpHandler(config, successfulServices, {
     handle: async () => {
       throw new Error("Rejected origin must not reach engine");
     },
@@ -926,6 +978,7 @@ it("classifies only exact password recovery method/path origin rejections", asyn
       observed.push(flow);
     },
   });
+
   const cases = [
     ["POST", "/api/auth/request-password-reset", "PasswordRecovery"],
     ["POST", "/api/auth/reset-password", "PasswordRecovery"],
@@ -935,6 +988,7 @@ it("classifies only exact password recovery method/path origin rejections", asyn
     ["GET", "/api/auth/reset-password/opaque/extra", undefined],
     ["POST", "/api/auth/sign-in/email", undefined],
   ] as const;
+
   for (const [method, path, flow] of cases) {
     expect(
       (

@@ -1,9 +1,7 @@
+import { Predicate } from "effect";
 import { Match } from "effect";
 import { data } from "react-router";
-import {
-  toRecruitmentBridgeFailure,
-  type RecruitmentBridgeFailure,
-} from "../foldkit/recruitment/bridge";
+import { toRecruitmentBridgeFailure, RecruitmentBridgeFailure } from "../foldkit/recruitment/bridge";
 import { readRecruitmentBridgeOperation } from "../foldkit/recruitment/request.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
@@ -29,91 +27,110 @@ const statusFor = (failure: RecruitmentBridgeFailure): number =>
 
 export async function action({ request }: Route.ActionArgs) {
   let cookie: string;
+
   try {
     cookie = await requireAuth(request);
   } catch {
-    const failure: RecruitmentBridgeFailure = {
-      _tag: "Unauthorized",
-      message: "Authentication is required",
-    };
+    const failure: RecruitmentBridgeFailure = RecruitmentBridgeFailure.cases.Unauthorized.make({message: "Authentication is required"});
+
     return data(failure, { status: 401, headers: responseHeaders });
   }
+
   try {
     const decodedRequest = await readRecruitmentBridgeOperation(request);
-    if (decodedRequest._tag === "Failure") {
+
+    if (Predicate.isTagged(decodedRequest, "Failure")) {
       return data(decodedRequest.failure, {
         status: decodedRequest.status,
         headers: responseHeaders,
       });
     }
+
     const operation = decodedRequest.operation;
     const recruitment = createAuthenticatedClient(cookie, request).recruitment;
 
     switch (operation.operation) {
       case "readAssignmentBoard": {
         const result = await recruitment.readAssignmentBoard({ query: operation.query });
+
         return data(result.body, { headers: responseHeaders });
       }
+
       case "createApplicationInterview": {
         const result = await recruitment.createApplicationInterview({
           params: operation.params,
           headers: operation.headers,
           payload: operation.payload,
         });
+
         return data(result.body, { headers: responseHeaders });
       }
+
       case "readSchedulingBoard": {
         const result = await recruitment.readSchedulingBoard();
+
         return data(result.body, { headers: responseHeaders });
       }
+
       case "scheduleInterview": {
         const result = await recruitment.scheduleInterview({
           params: operation.params,
           headers: operation.headers,
           payload: operation.payload,
         });
+
         return data(result.body, { headers: responseHeaders });
       }
+
       case "readInterviewConduct": {
         const result = await recruitment.readInterviewConduct({
           params: operation.params,
           headers: operation.headers,
         });
+
         if (result.body === undefined) {
           throw new Error("Interview conduct response did not include a body");
         }
+
         return data(
           { detail: result.body, etag: result.headers.etag },
           { headers: responseHeaders },
         );
       }
+
       case "finalizeInterview": {
         const result = await recruitment.finalizeInterview({
           params: operation.params,
           headers: operation.headers,
           payload: operation.payload,
         });
+
         return data(result.body, { headers: responseHeaders });
       }
+
       case "correctInterviewAssessment": {
         const result = await recruitment.correctInterviewAssessment({
           params: operation.params,
           headers: operation.headers,
           payload: operation.payload,
         });
+
         return data(result.body, { headers: responseHeaders });
       }
+
       case "cancelInterview": {
         const result = await recruitment.cancelInterview({
           params: operation.params,
           headers: operation.headers,
           payload: operation.payload,
         });
+
         return data(result.body, { headers: responseHeaders });
       }
     }
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);
+
     return data(failure, { status: statusFor(failure), headers: responseHeaders });
   }
 }

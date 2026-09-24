@@ -6,22 +6,34 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const homepageRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const serverRoot = join(repositoryRoot, "apps/server");
+
 const homepageOrigin = "http://127.0.0.1:8787";
+
 const symfonyOrigin = "http://127.0.0.1:8794";
+
 const proxyOrigin = "http://127.0.0.1:8793";
+
 const databasePath = join(tmpdir(), `contact-e2e-${process.pid}.sqlite`);
+
 const evidencePath =
   process.env.PUBLIC_CONTACT_E2E_EVIDENCE_PATH ??
   join(tmpdir(), "public-contact-message-0043.json");
+
 const databaseUrl = `sqlite:///${databasePath}`;
+
 const commandTimeout = 300_000;
+
 const remoteExecutionAuthorized =
   process.env.CI === "true" && process.env.PUBLIC_CONTACT_E2E_REMOTE_AUTHORIZED === "1";
 
 const children = [];
+
 const contactRequests = [];
+
 let proxy;
 
 const command = (
@@ -35,11 +47,14 @@ const command = (
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
     let output = "";
+
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`${label} timed out\n${output}`));
     }, commandTimeout);
+
     child.stdout.on("data", (chunk) => {
       output += chunk.toString();
     });
@@ -52,6 +67,7 @@ const command = (
     });
     child.once("exit", (code) => {
       clearTimeout(timer);
+
       if (code === 0) resolve(output);
       else reject(new Error(`${label} exited with ${code}\n${output}`));
     });
@@ -63,6 +79,7 @@ const start = (application, args, { cwd, env, label }) => {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
+
   const record = { child, label, output: "" };
   child.stdout.on("data", (chunk) => {
     record.output += chunk.toString();
@@ -71,23 +88,29 @@ const start = (application, args, { cwd, env, label }) => {
     record.output += chunk.toString();
   });
   children.push(record);
+
   return record;
 };
 
 const waitForHttp = async (url, label) => {
   const deadline = Date.now() + 60_000;
+
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url);
+
       if (response.ok) return response;
     } catch {
       // The process has not opened its port yet.
     }
+
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
+
   const logs = children
     .map((record) => `${record.label}:\n${record.output.slice(-4000)}`)
     .join("\n");
+
   throw new Error(`${label} did not become ready\n${logs}`);
 };
 
@@ -98,8 +121,10 @@ const stopChildren = async () => {
         new Promise((resolve) => {
           if (child.exitCode !== null) {
             resolve();
+
             return;
           }
+
           const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
           child.once("exit", () => {
             clearTimeout(timer);
@@ -126,13 +151,16 @@ const startRecordingProxy = async () => {
       const headers = { ...request.headers };
       delete headers.host;
       delete headers["content-length"];
+
       const upstream = await fetch(`${symfonyOrigin}${request.url}`, {
         method: request.method,
         headers,
         body: request.method === "GET" || request.method === "HEAD" ? undefined : body,
         redirect: "manual",
       });
+
       const responseBody = Buffer.from(await upstream.arrayBuffer());
+
       if (
         request.method === "POST" &&
         new URL(request.url, proxyOrigin).pathname === "/api/contact_messages"
@@ -144,6 +172,7 @@ const startRecordingProxy = async () => {
           status: upstream.status,
         });
       }
+
       response.writeHead(upstream.status, Object.fromEntries(upstream.headers));
       response.end(responseBody);
     } catch (error) {
@@ -177,6 +206,7 @@ const main = async () => {
     APP_DEBUG: "0",
     DATABASE_URL: databaseUrl,
   };
+
   await rm(databasePath, { force: true });
   await command("php", ["bin/console", "doctrine:schema:create", "--no-interaction"], {
     cwd: serverRoot,
@@ -248,15 +278,19 @@ const main = async () => {
 
   const departmentsResponse = await fetch(`${symfonyOrigin}/api/departments`);
   const departmentsBody = await departmentsResponse.json();
+
   const selectedDepartment = departmentsBody["hydra:member"].find(
     (department) => department.active,
   );
+
   if (contactRequests.length !== 1) {
     throw new Error(`Expected one contact API request, received ${contactRequests.length}`);
   }
+
   if (contactRequests[0].departmentId !== selectedDepartment.id) {
     throw new Error("The contact request used a different department identifier");
   }
+
   if (contactRequests[0].status !== 201) {
     throw new Error(`The contact API returned ${contactRequests[0].status}`);
   }

@@ -1,3 +1,4 @@
+import { Predicate, Schema, flow, Data } from "effect";
 import { SchoolId } from "@vektorprogrammet/http-api"
 import {
   IdempotencyKey,
@@ -6,19 +7,30 @@ import {
   type SubmitSchoolSurveyResponseRequest,
   type SurveyId,
 } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
+
 import { createServerClient } from "./api.server";
 import { nativeProblemFrom } from "./native-problem";
 
 export type SchoolSurveyBridgeFailure = "NotFound" | "Validation" | "Conflict" | "Unavailable";
 
-const bridgeFailureFrom = (error: unknown): SchoolSurveyBridgeFailure => {
-  const problem = nativeProblemFrom(error);
+const bridgeFailureFrom = flow(nativeProblemFrom, (problem): SchoolSurveyBridgeFailure => {
+
   if (problem?.status === 404) return "NotFound";
+
   if (problem?.code === "validation.failed") return "Validation";
+
   if (problem?.status === 409) return "Conflict";
+
   return "Unavailable";
-};
+});
+
+type SchoolSurveyRead = Data.TaggedEnum<{ Loaded: {readonly form: SchoolSurveyFormResource}; Failed: {readonly failure: SchoolSurveyBridgeFailure} }>;
+
+const SchoolSurveyRead = Data.taggedEnum<SchoolSurveyRead>();
+
+type SchoolSurveySubmission = Data.TaggedEnum<{Submitted: {readonly completionText: string}; Failed: {readonly failure: SchoolSurveyBridgeFailure}}>;
+
+const SchoolSurveySubmission = Data.taggedEnum<SchoolSurveySubmission>();
 
 export const loadSchoolSurvey = async (
   surveyId: SurveyId,
@@ -28,10 +40,12 @@ export const loadSchoolSurvey = async (
 > => {
   try {
     const result = await createServerClient().surveys.readSchoolSurvey({ params: { surveyId } });
-    if (result.body === undefined) return { _tag: "Failed", failure: "Unavailable" };
-    return { _tag: "Loaded", form: result.body };
+
+    if (result.body === undefined) return SchoolSurveyRead.Failed({failure: "Unavailable"});
+
+    return SchoolSurveyRead.Loaded({form: result.body});
   } catch (error) {
-    return { _tag: "Failed", failure: bridgeFailureFrom(error) };
+    return SchoolSurveyRead.Failed({failure: bridgeFailureFrom(error)});
   }
 };
 
@@ -49,10 +63,12 @@ export const submitSchoolSurveyResponse = async (input: {
       headers: { "idempotency-key": input.commandId },
       payload: input.payload,
     });
-    if (result.body === undefined) return { _tag: "Failed", failure: "Unavailable" };
-    return { _tag: "Submitted", completionText: result.body.completionText };
+
+    if (result.body === undefined) return SchoolSurveySubmission.Failed({failure: "Unavailable"});
+
+    return SchoolSurveySubmission.Submitted({completionText: result.body.completionText});
   } catch (error) {
-    return { _tag: "Failed", failure: bridgeFailureFrom(error) };
+    return SchoolSurveySubmission.Failed({failure: bridgeFailureFrom(error)});
   }
 };
 
@@ -70,15 +86,18 @@ export interface ParsedSchoolSurveySubmission {
 }
 
 export const schoolSurveyDraftFromForm = (form: FormData): SchoolSurveyDraft => {
-  const answers = Object.create(null) as Record<string, Array<string>>;
+  const answers: Record<string, Array<string>> = Object.create(null);
+
   for (const [field, value] of form.entries()) {
     if (!field.startsWith("question:")) continue;
     const questionId = field.slice("question:".length);
+
     if (questionId === "") continue;
     const values = answers[questionId] ?? [];
-    values.push(typeof value === "string" ? value : "");
+    values.push(Predicate.isString(value) ? value : "");
     answers[questionId] = values;
   }
+
   return {
     schoolId: String(form.get("schoolId") ?? ""),
     commandId: String(form.get("commandId") ?? ""),
@@ -93,56 +112,74 @@ export const parseSchoolSurveySubmission = (
 ): ParsedSchoolSurveySubmission => {
   const draft = schoolSurveyDraftFromForm(form);
   const { schoolId, commandId, answers } = draft;
-  const fieldErrors = Object.create(null) as Record<string, string>;
+  const fieldErrors: Record<string, string> = Object.create(null);
   const parsedSchoolId = Schema.decodeUnknownOption(SchoolId)(Number(schoolId));
-  if (parsedSchoolId._tag === "None") {
+
+  if (Predicate.isTagged(parsedSchoolId, "None")) {
     fieldErrors.schoolId = "Velg en skole.";
   }
+
   const parsedCommandId = Schema.decodeUnknownOption(IdempotencyKey)(commandId);
-  if (parsedCommandId._tag === "None") {
+
+  if (Predicate.isTagged(parsedCommandId, "None")) {
     fieldErrors.commandId = "Skjemaet må lastes på nytt før det kan sendes.";
   }
+
   const payloadAnswers: Array<SubmitSchoolSurveyResponseRequest["answers"][number]> = [];
+
   for (const question of survey.questions) {
     const values = answers[String(question.questionId)] ?? [];
+
     if (question.kind === "Text") {
       const value = values[0] ?? "";
+
       if (question.required && value.trim() === "") {
         fieldErrors[String(question.questionId)] = "Dette spørsmålet må besvares.";
       }
+
       payloadAnswers.push({ kind: "Text", questionId: question.questionId, value });
       continue;
     }
+
     if (question.kind === "Check") {
       if (question.required && values.length === 0) {
         fieldErrors[String(question.questionId)] = "Velg minst ett alternativ.";
       }
+
       if (values.some((value) => !question.alternatives.includes(value))) {
         fieldErrors[String(question.questionId)] = "Velg et gyldig alternativ.";
       }
+
       if (values.length > 0) {
         payloadAnswers.push({ kind: "Check", questionId: question.questionId, values });
       }
+
       continue;
     }
+
     const value = values[0] ?? "";
+
     if (question.required && value.trim() === "") {
       fieldErrors[String(question.questionId)] = "Dette spørsmålet må besvares.";
     }
+
     if (value !== "" && !question.alternatives.includes(value.trim())) {
       fieldErrors[String(question.questionId)] = "Velg et gyldig alternativ.";
     }
+
     if (value !== "") {
       payloadAnswers.push({ kind: question.kind, questionId: question.questionId, value });
     }
   }
+
   if (
     Object.keys(fieldErrors).length > 0 ||
-    parsedSchoolId._tag === "None" ||
-    parsedCommandId._tag === "None"
+    Predicate.isTagged(parsedSchoolId, "None") ||
+    Predicate.isTagged(parsedCommandId, "None")
   ) {
     return { draft, fieldErrors };
   }
+
   return {
     draft,
     fieldErrors,

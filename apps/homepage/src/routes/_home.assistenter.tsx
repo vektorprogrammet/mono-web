@@ -26,9 +26,11 @@ export async function loader(): Promise<PublicApplicationLoaderData> {
     const result = await client.admissions.listApplicationOptions({
       headers: {},
     });
+
     if (result.body === undefined) {
       throw new Error("The conditional application options response has no body.");
     }
+
     return {
       ok: true,
       catalog: result.body,
@@ -43,6 +45,7 @@ export async function loader(): Promise<PublicApplicationLoaderData> {
 
 export async function action({ request }: Route.ActionArgs): Promise<PublicApplicationActionData> {
   let formData: FormData;
+
   try {
     formData = await request.formData();
   } catch {
@@ -50,6 +53,7 @@ export async function action({ request }: Route.ActionArgs): Promise<PublicAppli
   }
 
   const parsed = parsePublicApplicationForm(formData);
+
   if (!parsed.ok) {
     return {
       success: false,
@@ -61,6 +65,7 @@ export async function action({ request }: Route.ActionArgs): Promise<PublicAppli
   }
 
   const client = createHomepageApiClient();
+
   try {
     const result = await client.admissions.submitApplication({
       headers: { "idempotency-key": parsed.value.commandId },
@@ -88,6 +93,7 @@ export default function Assistenter() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+
   const openDepartmentNames = loaderData.ok
     ? loaderData.catalog.departments.map((department) => department.name)
     : [];

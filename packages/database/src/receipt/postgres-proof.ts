@@ -1,16 +1,17 @@
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import assert from "node:assert/strict";
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
+  ReceiptId,
+  ReceiptCommandRequestSchema,
   importLegacyReceipts,
   type ReceiptImportProvenance,
 } from "@vektorprogrammet/domain/receipt";
 import { executeReceiptCommand, storeReceiptImportResult } from "./postgres.js";
 import { listApproverReceipts, listAssistantReceipts, receiptStatusTotals } from "./projections.js";
 import {
-  ReceiptId,
   ReceiptVisualId,
   type LegacyReceiptRow,
   type ReceiptFile,
@@ -69,6 +70,7 @@ const file: ReceiptFile = {
   byteLength: 256,
   sha256: "c".repeat(64),
 };
+
 const secondFile: ReceiptFile = {
   fileRef: "proof-file-2",
   objectKey: "temporary/proof-file-2",
@@ -76,6 +78,7 @@ const secondFile: ReceiptFile = {
   byteLength: 256,
   sha256: "f".repeat(64),
 };
+
 const rollbackFile: ReceiptFile = {
   fileRef: "proof-file-rollback",
   objectKey: "temporary/proof-file-rollback",
@@ -85,7 +88,9 @@ const rollbackFile: ReceiptFile = {
 };
 
 const ownerPersonId = PersonId.make("proof-person");
+
 const approverPersonId = PersonId.make("proof-approver");
+
 const wrongScopeApproverPersonId = PersonId.make("proof-wrong-scope-approver");
 
 interface ProofCommandContext {
@@ -120,7 +125,7 @@ const submit = (commandId: string, description: string, receiptFile = file) => (
   file: receiptFile,
 });
 
-const count = (sql: DatabaseShape, table: string) =>
+const count = (sql: DatabaseOperations, table: string) =>
   sql
     .unsafe<CountRow>(`SELECT count(*)::text AS count FROM ${table}`)
     .pipe(Effect.map((rows) => Number(rows[0]?.count ?? "0")));
@@ -188,16 +193,19 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     `);
 
     const firstContext = context("proof-receipt-1", "PROOF-0001", "2026-08-20T12:00:00.000Z");
+
     const submitted = yield* executeReceiptCommand(
       submit("proof-command-submit-1", "Travel"),
       principal(ownerPersonId, firstContext.now),
       allocation(firstContext),
     );
+
     const replay = yield* executeReceiptCommand(
       submit("proof-command-submit-1", "Travel"),
       principal(ownerPersonId, firstContext.now),
       allocation(firstContext),
     );
+
     const conflictingReplay = yield* Effect.exit(
       executeReceiptCommand(
         submit("proof-command-submit-1", "Changed travel"),
@@ -205,34 +213,34 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
         allocation(firstContext),
       ),
     );
+
     const wrongScope = yield* Effect.exit(
       executeReceiptCommand(
-        {
-          _tag: "ApproveReceipt",
+        ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
           commandId: "proof-command-wrong-scope",
-          receiptId: "proof-receipt-1",
+          receiptId: ReceiptId.make("proof-receipt-1"),
           expectedRevision: 0,
-        },
+        }),
         principal(wrongScopeApproverPersonId, "2026-08-20T12:01:00.000Z"),
       ),
     );
+
     const approved = yield* executeReceiptCommand(
-      {
-        _tag: "ApproveReceipt",
+      ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
         commandId: "proof-command-approve",
-        receiptId: "proof-receipt-1",
+        receiptId: ReceiptId.make("proof-receipt-1"),
         expectedRevision: 0,
-      },
+      }),
       principal(approverPersonId, "2026-08-20T12:02:00.000Z"),
     );
+
     const terminalTransition = yield* Effect.exit(
       executeReceiptCommand(
-        {
-          _tag: "RejectReceipt",
+        ReceiptCommandRequestSchema.cases.RejectReceipt.make({
           commandId: "proof-command-terminal",
-          receiptId: "proof-receipt-1",
+          receiptId: ReceiptId.make("proof-receipt-1"),
           expectedRevision: 1,
-        },
+        }),
         principal(approverPersonId, "2026-08-20T12:03:00.000Z"),
       ),
     );
@@ -243,26 +251,26 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       principal(ownerPersonId, secondContext.now),
       allocation(secondContext),
     );
+
     const revised = yield* executeReceiptCommand(
-      {
-        _tag: "RevisePendingReceipt",
+      ReceiptCommandRequestSchema.cases.RevisePendingReceipt.make({
         commandId: "proof-command-revise",
-        receiptId: "proof-receipt-2",
+        receiptId: ReceiptId.make("proof-receipt-2"),
         expectedRevision: 0,
         description: "Supplies and postage",
         amountOre: 13_000,
         receiptDate: "2026-08-19",
         file: secondFile,
-      },
+      }),
       principal(ownerPersonId, "2026-08-20T13:01:00.000Z"),
     );
+
     const withdrawn = yield* executeReceiptCommand(
-      {
-        _tag: "WithdrawPendingReceipt",
+      ReceiptCommandRequestSchema.cases.WithdrawPendingReceipt.make({
         commandId: "proof-command-withdraw",
-        receiptId: "proof-receipt-2",
+        receiptId: ReceiptId.make("proof-receipt-2"),
         expectedRevision: 1,
-      },
+      }),
       principal(ownerPersonId, "2026-08-20T13:02:00.000Z"),
     );
 
@@ -280,6 +288,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       FOR EACH ROW EXECUTE FUNCTION reject_receipt_proof_audit();
   `);
     const rollbackContext = context("proof-receipt-3", "PROOF-0003", "2026-08-20T14:00:00.000Z");
+
     const failedTransaction = yield* Effect.exit(
       executeReceiptCommand(
         submit("proof-command-rollback", "Rollback after durable writes", rollbackFile),
@@ -287,6 +296,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
         allocation(rollbackContext),
       ),
     );
+
     yield* sql.unsafe(`
     DROP TRIGGER receipt_proof_audit_failure ON economy_receipt_audit;
     DROP FUNCTION reject_receipt_proof_audit();
@@ -304,6 +314,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       sourceDigest: sha256Hex(canonicalJsonBytes(row)),
       destinationIdentity,
     });
+
     const legacy: LegacyReceiptRow = {
       sourcePrimaryKey: "legacy-1",
       ownerPersonId: PersonId.make("proof-person"),
@@ -318,12 +329,14 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       paymentAccountCiphertext: "ciphertext:v1:legacy-proof",
       file,
     };
+
     const invalidLegacy = {
       ...legacy,
       sourcePrimaryKey: "legacy-2",
       visualId: "LEGACY-PROOF-2",
       amountDecimal: "1.234",
     };
+
     const [imported, quarantined] = importLegacyReceipts([
       {
         row: legacy,
@@ -336,6 +349,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
         provenance: provenance(invalidLegacy, "proof-import-2"),
       },
     ]);
+
     yield* storeReceiptImportResult(imported!);
     yield* storeReceiptImportResult(quarantined!);
 
@@ -344,6 +358,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       "PROOF-INVALID",
       "2026-08-20T15:00:00.000Z",
     );
+
     const invalidAmount = yield* Effect.exit(
       executeReceiptCommand(
         { ...submit("proof-command-invalid-amount", "Invalid amount"), amountOre: 0 },
@@ -351,6 +366,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
         allocation(invalidContext),
       ),
     );
+
     const assistantProjection = yield* listAssistantReceipts(ownerPersonId);
     const approverProjection = yield* listApproverReceipts();
     const totals = yield* receiptStatusTotals;
@@ -377,15 +393,15 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
         approve: approved.observation.status === "Approved",
         revise: revised.observation.revision === 1,
         withdraw: withdrawn.observation.status === "Withdrawn",
-        import: imported?._tag === "AcceptedReceiptImport",
+        import: Predicate.isTagged(imported, "AcceptedReceiptImport"),
       },
       rejected: {
-        wrongScope: wrongScope._tag === "Failure",
-        conflictingReplay: conflictingReplay._tag === "Failure",
-        terminalTransition: terminalTransition._tag === "Failure",
-        quarantine: quarantined?._tag === "QuarantinedReceiptImport",
-        transactionFailure: failedTransaction._tag === "Failure" && rolledBack === 0,
-        invalidAmount: invalidAmount._tag === "Failure",
+        wrongScope: Predicate.isTagged(wrongScope, "Failure"),
+        conflictingReplay: Predicate.isTagged(conflictingReplay, "Failure"),
+        terminalTransition: Predicate.isTagged(terminalTransition, "Failure"),
+        quarantine: Predicate.isTagged(quarantined, "QuarantinedReceiptImport"),
+        transactionFailure: Predicate.isTagged(failedTransaction, "Failure") && rolledBack === 0,
+        invalidAmount: Predicate.isTagged(invalidAmount, "Failure"),
       },
       replay: {
         exactObservation:
@@ -401,6 +417,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
         statusTotals: totals,
       },
     };
+
     assert.deepEqual(evidence.accepted, {
       submit: true,
       approve: true,
@@ -432,5 +449,6 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       "proof-receipt-2",
       "proof-receipt-1",
     ]);
+
     return evidence;
   });

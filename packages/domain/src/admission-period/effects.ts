@@ -18,18 +18,19 @@ const AdmissionPeriodEffectBase = {
 export const AdmissionPeriodOutboxRequestSchema = Schema.TaggedUnion({
   PublishAdmissionPeriodChanged: AdmissionPeriodEffectBase,
 });
+
 export type AdmissionPeriodOutboxRequest = typeof AdmissionPeriodOutboxRequestSchema.Type;
 
-export const makeAdmissionPeriodOutboxRequest = (
+export const admissionPeriodOutboxRequest = (
   commandId: typeof AdmissionPeriodCommandId.Type,
   period: typeof AdmissionPeriodSchema.Type,
-): AdmissionPeriodOutboxRequest => ({
-  _tag: "PublishAdmissionPeriodChanged",
-  effectId: AdmissionPeriodEffectId.make(
-    `admission-period:${admissionPeriodCommandDigest({ commandId, periodId: period.id, revision: period.revision })}`,
-  ),
-  commandId,
-  admissionPeriodId: period.id,
-  revision: period.revision,
-  period,
-});
+): AdmissionPeriodOutboxRequest =>
+  AdmissionPeriodOutboxRequestSchema.cases.PublishAdmissionPeriodChanged.make({
+    effectId: AdmissionPeriodEffectId.make(
+      `admission-period:${admissionPeriodCommandDigest({ commandId, periodId: period.id, revision: period.revision })}`,
+    ),
+    commandId,
+    admissionPeriodId: period.id,
+    revision: period.revision,
+    period,
+  });

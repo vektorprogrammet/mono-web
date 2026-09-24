@@ -29,29 +29,36 @@ type Props = {
 
 function toUtcDateTimeInputValue(instant: string): string {
   const date = new Date(instant);
+
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 16);
 }
 
 export function SettlementReceiptRow({ receipt, failure, actionErrorId }: Props) {
   const relevantFailure =
     failure?.receiptId === receipt.receiptId && failure.etag === receipt.etag ? failure : undefined;
+
   const [commandId, setCommandId] = useState(relevantFailure?.commandId ?? "");
+
   const [externalAuthority, setExternalAuthority] = useState(
     relevantFailure?.externalAuthority ?? "",
   );
+
   const [externalReference, setExternalReference] = useState(
     relevantFailure?.externalReference ?? "",
   );
+
   const [settledAt, setSettledAt] = useState(toUtcDateTimeInputValue(relevantFailure?.settledAt ?? ""));
   const fieldId = useId();
   const titleId = `${fieldId}-settlement-title`;
   const descriptionId = `${fieldId}-settlement-description`;
   const confirmationId = `${fieldId}-settlement-confirmation`;
   const navigation = useNavigation();
+
   const busy =
     navigation.state !== "idle" &&
     navigation.formData?.get("receiptId") === receipt.receiptId &&
     navigation.formData?.get("_intent") === "settle";
+
   const referenceForConfirmation = externalReference.trim();
   const authorityForConfirmation = externalAuthority.trim();
   const settledAtForConfirmation = settledAt.trim();

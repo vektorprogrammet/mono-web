@@ -1,23 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Fiber } from "effect";
 import {
+  PublicApplicationOutboxRequestSchema,
   ApplicantIdSchema,
   PublicApplicationCommandIdSchema,
   PublicApplicationEffectIdSchema,
   PublicApplicationIdSchema,
 } from "@vektorprogrammet/domain/application";
-import { makeHttpPublicApplicationEffectInterpreter } from "./effects.js";
+import { publicApplicationHttpEffects } from "./effects.js";
 import { forkTestEffect, runTestPromise } from "../../test/runtime.js";
 
-const request = {
-  _tag: "SendApplicantActivationOrConfirmation",
-  effectId: PublicApplicationEffectIdSchema.make("effect-0041"),
-  commandId: PublicApplicationCommandIdSchema.make("command-0041"),
-  applicationId: PublicApplicationIdSchema.make("application-0041"),
-  applicantId: ApplicantIdSchema.make("applicant-0041"),
-  email: "applicant@example.invalid",
-  activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
-} as const;
+const request =
+  PublicApplicationOutboxRequestSchema.members[0].cases.SendApplicantActivationOrConfirmation.make({
+    effectId: PublicApplicationEffectIdSchema.make("effect-0041"),
+    commandId: PublicApplicationCommandIdSchema.make("command-0041"),
+    applicationId: PublicApplicationIdSchema.make("application-0041"),
+    applicantId: ApplicantIdSchema.make("applicant-0041"),
+    email: "applicant@example.invalid",
+    activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+  });
 
 const config = {
   endpoint: new URL("https://provider.example.invalid/effects"),
@@ -30,8 +31,10 @@ const config = {
 describe("public application effect gateway", () => {
   it("uses effectId as the provider idempotency key", async () => {
     const calls: Array<{ readonly input: string; readonly init?: RequestInit }> = [];
-    const interpreter = makeHttpPublicApplicationEffectInterpreter(config, async (input, init) => {
+
+    const interpreter = publicApplicationHttpEffects(config, async (input, init) => {
       calls.push({ input: String(input), init });
+
       return new Response(null, { status: 204 });
     });
 
@@ -52,21 +55,23 @@ describe("public application effect gateway", () => {
   });
 
   it("maps provider rejection to the typed retry error", async () => {
-    const interpreter = makeHttpPublicApplicationEffectInterpreter(
+    const interpreter = publicApplicationHttpEffects(
       config,
       async () => new Response(null, { status: 503 }),
     );
 
     const failure = await runTestPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
-    expect(failure).toMatchObject({
-      _tag: "PublicApplicationEffectDeliveryError",
-      effectId: request.effectId,
-    });
+    {
+      const observed = failure;
+      expect(observed).toHaveProperty("_tag", "PublicApplicationEffectDeliveryError");
+      expect(observed).toMatchObject({ effectId: request.effectId });
+    }
   });
 
   it("bounds provider delivery and aborts the timed-out request", async () => {
     let aborted = false;
-    const interpreter = makeHttpPublicApplicationEffectInterpreter(
+
+    const interpreter = publicApplicationHttpEffects(
       { ...config, deliveryTimeoutMilliseconds: 1 },
       async (_input, init) =>
         await new Promise<Response>((_resolve, reject) => {
@@ -83,19 +88,23 @@ describe("public application effect gateway", () => {
 
     const failure = await runTestPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
 
-    expect(failure).toMatchObject({
-      _tag: "PublicApplicationEffectDeliveryError",
-      effectId: request.effectId,
-    });
+    {
+      const observed = failure;
+      expect(observed).toHaveProperty("_tag", "PublicApplicationEffectDeliveryError");
+      expect(observed).toMatchObject({ effectId: request.effectId });
+    }
+
     expect(aborted).toBe(true);
   });
 
   it("aborts an in-flight provider request when delivery is interrupted", async () => {
     const started = Promise.withResolvers<void>();
     let providerSignal: AbortSignal | undefined;
-    const interpreter = makeHttpPublicApplicationEffectInterpreter(config, async (_input, init) => {
+
+    const interpreter = publicApplicationHttpEffects(config, async (_input, init) => {
       providerSignal = init?.signal ?? undefined;
       started.resolve();
+
       return await new Promise<Response>((_resolve, reject) => {
         providerSignal?.addEventListener(
           "abort",

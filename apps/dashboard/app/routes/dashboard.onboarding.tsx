@@ -7,15 +7,20 @@ import { Button } from "../components/ui/button";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.onboarding";
+
 const privateData = <T,>(value: T, status = 200) =>
   data(value, { status, headers: { "cache-control": "private, no-store" } });
+
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
+
   const departments = (await client.placements.listScopes()).body.departments.filter(
     (d) => d.canManage,
   );
+
   const departmentId = new URL(request.url).searchParams.get("departmentId") ?? "";
+
   const board = departmentId
     ? (
         await client.onboarding.readBoard({
@@ -23,11 +28,14 @@ export async function loader({ request }: Route.LoaderArgs) {
         })
       ).body
     : null;
+
   return privateData({ departments, departmentId, board });
 }
+
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const form = await request.formData();
+
   try {
     await createAuthenticatedClient(cookie, request).onboarding.command({
       query: Schema.decodeUnknownSync(OnboardingScope)({ departmentId: form.get("departmentId") }),
@@ -40,6 +48,7 @@ export async function action({ request }: Route.ActionArgs) {
         action: form.get("action"),
       }),
     });
+
     return privateData({
       ok: true,
       commandId: String(form.get("commandId")),
@@ -52,6 +61,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 }
+
 function InvitationForm({
   item,
   departmentId,
@@ -65,10 +75,12 @@ function InvitationForm({
   const [commandId, setCommandId] = useState(() => crypto.randomUUID());
   const [signature, setSignature] = useState("");
   const busy = fetcher.state !== "idle";
+
   if (fetcher.data?.ok && "commandId" in fetcher.data && fetcher.data.commandId === commandId) {
     setCommandId(crypto.randomUUID());
     setSignature("");
   }
+
   return (
     <fetcher.Form
       method="post"
@@ -76,18 +88,23 @@ function InvitationForm({
       onSubmit={(event) => {
         if (busy || event.currentTarget.dataset.pending === "true") {
           event.preventDefault();
+
           return;
         }
+
         event.currentTarget.dataset.pending = "true";
-        const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        const submitter = event.nativeEvent instanceof SubmitEvent ? event.nativeEvent.submitter : null;
+
         const next = JSON.stringify([
           item.applicationId,
           etag,
           submitter instanceof HTMLButtonElement ? submitter.value : "",
         ]);
+
         if (next !== signature) {
           const key = crypto.randomUUID();
           const field = event.currentTarget.elements.namedItem("commandId");
+
           if (field instanceof HTMLInputElement) field.value = key;
           setCommandId(key);
           setSignature(next);
@@ -116,8 +133,10 @@ function InvitationForm({
     </fetcher.Form>
   );
 }
+
 export default function Onboarding() {
   const { departments, departmentId, board } = useLoaderData<typeof loader>();
+
   return (
     <section aria-labelledby="onboarding-title" className="space-y-6 p-4">
       <h1 id="onboarding-title" className="text-2xl font-semibold">

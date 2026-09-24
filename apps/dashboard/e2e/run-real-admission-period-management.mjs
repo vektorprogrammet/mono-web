@@ -1,3 +1,4 @@
+import { Data, Predicate } from "effect";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
@@ -6,25 +7,51 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const DepartmentLeader = Data.tagged("DepartmentLeader");
+
+const GlobalAdmin = Data.tagged("GlobalAdmin");
+
+const Member = Data.tagged("Member");
+
+const None = Data.tagged("None");
+
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const composeFile = join(repositoryRoot, "docker-compose.yml");
+
 const dashboardOrigin = "http://127.0.0.1:5174";
+
 const backendOrigin = "http://127.0.0.1:8791";
+
 const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+
 const composeProject = `mono-web-admission-0038-${process.pid}`;
+
 const commandTimeoutMs = 300_000;
+
 const shutdownTimeoutMs = 5_000;
+
 const postgresPort = 55432;
+
 const nixPostgresPackage = "nixpkgs#postgresql_17";
+
 const fixedClock = "2031-09-15T12:00:00.000Z";
+
 const departmentId = "department-trondheim";
+
 const foreignDepartmentId = "department-bergen";
+
 const semesterId = "semester-autumn-2031";
+
 const fieldOfStudyId = "field-mathematics";
+
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+
 const postgresTopology = dockerAvailable ? "docker" : "local";
 
 const sleep = (milliseconds) =>
@@ -39,10 +66,13 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
+
+      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
+
         return;
       }
+
       rejectPort(new Error(`Could not inspect loopback port ${port}`));
     });
   });
@@ -51,27 +81,33 @@ function assertPortAvailable(port) {
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
+
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: captureOutput ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
     });
+
     const stdout = [];
+
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.resume();
     }
 
     let settled = false;
+
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       const hardKill = setTimeout(() => child.kill("SIGKILL"), shutdownTimeoutMs);
       hardKill.unref();
+
       if (!settled) {
         settled = true;
         rejectCommand(new Error(`${options.label} timed out`));
       }
     }, commandTimeoutMs);
+
     timeout.unref();
 
     child.once("error", () => {
@@ -84,12 +120,15 @@ function runCommand(command, args, options) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+
       if (code === 0) {
         resolveCommand(
           captureOutput ? { stdout: Buffer.concat(stdout).toString("utf8") } : undefined,
         );
+
         return;
       }
+
       rejectCommand(
         new Error(
           `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}`,
@@ -106,7 +145,9 @@ function startProcess(command, args, options) {
     stdio: ["ignore", "inherit", "inherit"],
     detached: true,
   });
+
   child.once("error", () => undefined);
+
   return child;
 }
 
@@ -118,12 +159,14 @@ async function stopProcess(child) {
   if (child === undefined || child.exitCode !== null || child.pid === undefined) return;
 
   const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
+
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not stop local process group");
     }
+
     return;
   }
 
@@ -131,35 +174,43 @@ async function stopProcess(child) {
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (stopped) return;
 
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not terminate local process group");
     }
   }
+
   await exited;
 }
 
 async function waitForHttp(url, child, label) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`${label} exited before readiness`);
+
     try {
       const response = await fetch(url, { redirect: "manual" });
+
       if (response.status >= 200 && response.status < 500) return;
     } catch {
       // Readiness is retried until the bounded deadline.
     }
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 }
 
 async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     try {
       const args =
@@ -180,19 +231,23 @@ async function waitForPostgres(environment) {
               "receipt_proof",
             ]
           : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+
       const options = {
         cwd: repositoryRoot,
         env: environment,
         label: "Disposable admission PostgreSQL readiness check",
         captureOutput: true,
       };
+
       if (postgresTopology === "docker") await runCommand("docker", args, options);
       else await runNixPostgres("pg_isready", args, options);
+
       return;
     } catch {
       await sleep(250);
     }
   }
+
   throw new Error("Disposable admission PostgreSQL did not become ready");
 }
 
@@ -257,11 +312,13 @@ async function stopLocalPostgres(dataRoot, environment) {
 async function pathExists(path) {
   try {
     await access(path);
+
     return true;
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return false;
     }
+
     throw error;
   }
 }
@@ -304,12 +361,14 @@ async function runPsql(sql, environment, label) {
           "-c",
           sql,
         ];
+
   const options = {
     cwd: repositoryRoot,
     env: environment,
     label,
     captureOutput: true,
   };
+
   return postgresTopology === "docker"
     ? runCommand("docker", args, options)
     : runNixPostgres("psql", args, options);
@@ -396,19 +455,23 @@ async function readPostgresEvidence(environment) {
     environment,
     "Admission persistence evidence query",
   );
+
   return JSON.parse(result.stdout.trim());
 }
 
 function assertDurableEvidence(postgres, lifecycle) {
   const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
   const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
+
   const acceptedCommandIds = [
     lifecycle.period.createIdempotencyKey,
     lifecycle.period.concurrentWinnerIdempotencyKey,
     lifecycle.period.closeIdempotencyKey,
   ];
+
   const auditCommandIds = audits.map((audit) => audit.commandId);
   const outboxCommandIds = outbox.map((effect) => effect.commandId);
+
   const expectedActions = [
     "AdmissionPeriodCreated",
     "AdmissionPeriodRevised",
@@ -466,44 +529,23 @@ async function main() {
   const globalAdminToken = randomBytes(32).toString("base64url");
   const inactiveToken = randomBytes(32).toString("base64url");
   const roleDeniedToken = randomBytes(32).toString("base64url");
+
   const admissionTokens = JSON.stringify({
-    [leaderToken]: {
-      _tag: "DepartmentLeader",
-      personId: "leader-trondheim",
-      departmentId,
-      active: true,
-    },
-    [foreignLeaderToken]: {
-      _tag: "DepartmentLeader",
-      personId: "leader-bergen",
-      departmentId: foreignDepartmentId,
-      active: true,
-    },
-    [globalAdminToken]: {
-      _tag: "GlobalAdmin",
-      personId: "global-administrator",
-      active: true,
-    },
-    [inactiveToken]: {
-      _tag: "DepartmentLeader",
-      personId: "inactive-leader",
-      departmentId,
-      active: false,
-    },
-    [roleDeniedToken]: {
-      _tag: "Member",
-      personId: "member-trondheim",
-      departmentId,
-      active: true,
-    },
+    [leaderToken]: DepartmentLeader({personId: "leader-trondheim", departmentId, active: true}),
+    [foreignLeaderToken]: DepartmentLeader({personId: "leader-bergen", departmentId: foreignDepartmentId, active: true}),
+    [globalAdminToken]: GlobalAdmin({personId: "global-administrator", active: true}),
+    [inactiveToken]: DepartmentLeader({personId: "inactive-leader", departmentId, active: false}),
+    [roleDeniedToken]: Member({personId: "member-trondheim", departmentId, active: true}),
   });
+
   const receiptPrincipal = (personId, actorDepartmentId, active) => ({
     personId,
     departmentId: actorDepartmentId,
     active,
     paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-    approvalScope: { _tag: "None" },
+    approvalScope: None({}),
   });
+
   const receiptTokens = JSON.stringify({
     [leaderToken]: receiptPrincipal("leader-trondheim", departmentId, true),
     [foreignLeaderToken]: receiptPrincipal("leader-bergen", foreignDepartmentId, true),
@@ -511,6 +553,7 @@ async function main() {
     [inactiveToken]: receiptPrincipal("inactive-leader", departmentId, false),
     [roleDeniedToken]: receiptPrincipal("member-trondheim", departmentId, true),
   });
+
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
@@ -529,11 +572,13 @@ async function main() {
     RECEIPT_MAX_FILE_BYTES: "10485760",
     RECEIPT_E2E_TEST_MODE: "1",
   };
+
   const dashboardEnvironment = {
     ...baseEnvironment,
     API_URL: backendOrigin,
     VITE_API_URL: backendOrigin,
   };
+
   const playwrightEnvironment = {
     ...dashboardEnvironment,
     REAL_ADMISSION_PERIOD_E2E: "1",
@@ -611,14 +656,17 @@ async function main() {
       process.exit(signal === "SIGINT" ? 130 : 143);
     });
   };
+
   const handleInterrupt = () => handleSignal("SIGINT");
   const handleTermination = () => handleSignal("SIGTERM");
   process.once("SIGINT", handleInterrupt);
   process.once("SIGTERM", handleTermination);
 
   let primaryError;
+
   try {
     postgresStarted = true;
+
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
@@ -713,6 +761,7 @@ async function main() {
   }
 
   let cleanupError;
+
   try {
     await cleanup();
   } catch (error) {
@@ -725,12 +774,15 @@ async function main() {
   if (primaryError !== undefined && cleanupError !== undefined) {
     throw new AggregateError([primaryError, cleanupError], "Admission journey and cleanup failed");
   }
+
   if (primaryError !== undefined) throw primaryError;
+
   if (cleanupError !== undefined) throw cleanupError;
 
   if (await pathExists(temporaryRoot)) {
     throw new Error("Admission cleanup left the temporary root behind");
   }
+
   await Promise.all([
     assertPortAvailable(5174),
     assertPortAvailable(8791),

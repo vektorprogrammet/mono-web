@@ -1,6 +1,7 @@
+import { Predicate, Schema, Match } from "effect";
 import { DepartmentId, SemesterId } from "@vektorprogrammet/http-api"
 import { type SubstituteBoard, type SubstituteResource } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
+
 import { useState } from "react";
 import { Form, data, useFetcher, useLoaderData, useLocation, useNavigation } from "react-router";
 import { Button } from "../components/ui/button";
@@ -22,10 +23,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const query = new URL(request.url).searchParams;
   const departmentId = query.get("departmentId") ?? "";
   const semesterId = query.get("semesterId") ?? "";
+
   try {
     const scopes = (await client.substitutes.listScopes()).body;
     let board: typeof SubstituteBoard.Type | null = null;
     let error: string | null = null;
+
     if (departmentId || semesterId) {
       if (
         !scopes.departments.some((item) => item.departmentId === departmentId) ||
@@ -43,6 +46,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         ).body;
       }
     }
+
     return data(
       { scopes, board, error, departmentId, semesterId },
       { headers: { "Cache-Control": "no-store" } },
@@ -60,6 +64,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     );
   }
 }
+
 const privateActionData = <T,>(value: T, status = 200) =>
   data(value, { status, headers: { "Cache-Control": "no-store" } });
 
@@ -67,6 +72,7 @@ export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
   let command: ReturnType<typeof parseSubstituteForm>;
+
   try {
     command = parseSubstituteForm(await request.formData());
   } catch {
@@ -80,6 +86,7 @@ export async function action({ request }: Route.ActionArgs) {
       422,
     );
   }
+
   try {
     if (command.intent === "deactivate")
       await client.substitutes.deactivate({
@@ -89,17 +96,18 @@ export async function action({ request }: Route.ActionArgs) {
       });
     else if (command.intent === "activate") await client.substitutes.activate(command);
     else await client.substitutes.edit(command);
+
     return privateActionData({
       _tag: "Completed" as const,
       success: true as const,
       applicationId: command.params.applicationId,
       commandId: command.headers["idempotency-key"],
       message:
-        command.intent === "deactivate"
-          ? "Vikaren er fjernet fra oversikten. Søknaden og opplysningene er bevart."
-          : command.intent === "activate"
-            ? "Vikaren er lagt til."
-            : "Opplysningene er lagret.",
+        Match.value(command).pipe(
+Match.when({ intent: "deactivate" }, () => ("Vikaren er fjernet fra oversikten. Søknaden og opplysningene er bevart.")),
+Match.when({ intent: "activate" }, () => ("Vikaren er lagt til.")),
+Match.orElse(() => ("Opplysningene er lagret."))
+),
       conflict: false,
     });
   } catch (cause) {
@@ -115,6 +123,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 }
+
 // Callback ref runs only when a new command result is mounted, after its DOM exists.
 // Keep feedback in normal flow and bring it into the post-action viewport.
 function revealCommandFeedback(element: HTMLElement | null): void {
@@ -126,43 +135,54 @@ function revealCommandFeedback(element: HTMLElement | null): void {
 
 const selectClass =
   "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring";
+
 type Entry = typeof SubstituteResource.Type;
+
 function EntryForm({ entry, onCommand }: { entry: Entry; onCommand: () => void }) {
   const fetcher = useFetcher<typeof action>({ key: "substitute-command" });
   const refresh = useFetcher<typeof loader>();
   const location = useLocation();
   const busy = fetcher.state !== "idle" || refresh.state !== "idle";
+
   const rejected =
     fetcher.data &&
-    fetcher.data._tag === "Rejected" &&
+    Predicate.isTagged(fetcher.data, "Rejected") &&
     fetcher.data.applicationId === entry.applicationId
       ? fetcher.data
       : undefined;
+
   const retainedDraft = rejected?.draft;
   const [baseline, setBaseline] = useState(rejected?.etag ?? entry.etag);
   const [commandId, setCommandId] = useState("");
   const [commandDraft, setCommandDraft] = useState("");
   const [lastResult, setLastResult] = useState(fetcher.data);
+
   // A completed successful command starts a new conditional command. A rejected draft
   // keeps its selected version until the coordinator explicitly requests a refresh.
   if (fetcher.data !== lastResult && fetcher.state === "idle") {
     setLastResult(fetcher.data);
+
     if (fetcher.data?.success && fetcher.data.applicationId === entry.applicationId) {
       setBaseline(entry.etag);
       setCommandId("");
     }
   }
+
   const id = entry.applicationId;
+
   const feedback =
     fetcher.data && "applicationId" in fetcher.data && fetcher.data.applicationId === id
       ? fetcher.data
       : undefined;
+
   const refreshed = refresh.data?.board;
+
   const current =
     refreshed &&
-    [...refreshed.entries, ...(refreshed._tag === "Manage" ? refreshed.candidates : [])].find(
+    [...refreshed.entries, ...(Predicate.isTagged(refreshed, "Manage") ? refreshed.candidates : [])].find(
       (item) => item.applicationId === id,
     );
+
   return (
     <fetcher.Form
       method="post"
@@ -171,16 +191,20 @@ function EntryForm({ entry, onCommand }: { entry: Entry; onCommand: () => void }
       onSubmit={(event) => {
         if (busy || event.currentTarget.dataset.pending === "true") {
           event.preventDefault();
+
           return;
         }
+
         event.currentTarget.dataset.pending = "true";
         onCommand();
         const field = event.currentTarget.elements.namedItem("commandId");
-        const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        const submitter = event.nativeEvent instanceof SubmitEvent ? event.nativeEvent.submitter : null;
         const draft = new FormData(event.currentTarget);
         draft.delete("commandId");
+
         if (submitter instanceof HTMLButtonElement) draft.set("intent", submitter.value);
         const signature = JSON.stringify([...draft]);
+
         if (field instanceof HTMLInputElement && (!field.value || signature !== commandDraft)) {
           const key = crypto.randomUUID();
           field.value = key;
@@ -265,7 +289,7 @@ function EntryForm({ entry, onCommand }: { entry: Entry; onCommand: () => void }
           )}
         </div>
       </fieldset>
-      {feedback && feedback._tag === "Rejected" && fetcher.state === "idle" && (
+      {feedback && Predicate.isTagged(feedback, "Rejected") && fetcher.state === "idle" && (
         <div
           key={feedback.commandId}
           ref={revealCommandFeedback}
@@ -322,6 +346,7 @@ function EntryForm({ entry, onCommand }: { entry: Entry; onCommand: () => void }
     </fetcher.Form>
   );
 }
+
 function EntryCard({
   entry,
   manage,
@@ -363,15 +388,18 @@ function EntryCard({
     </article>
   );
 }
+
 export default function Vikarer() {
   const { scopes, board, error, departmentId, semesterId } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const [selected, setSelected] = useState("");
   const command = useFetcher<typeof action>({ key: "substitute-command" });
+
   const candidate =
     board?._tag === "Manage"
       ? board.candidates.find((entry) => entry.applicationId === selected)
       : undefined;
+
   return (
     <section
       className="mx-auto w-full max-w-6xl space-y-6 px-4 pb-10 sm:px-6"
@@ -444,7 +472,7 @@ export default function Vikarer() {
       )}
       {board && (
         <div key={`${board.departmentId}-${board.semesterId}`} className="space-y-6">
-          {board._tag === "ReadOnly" && (
+          {Predicate.isTagged(board, "ReadOnly") && (
             <p>Du har lesetilgang. En avdelingsleder kan endre vikaroversikten.</p>
           )}
           {board.admissionPeriodId === null ? (
@@ -457,11 +485,11 @@ export default function Vikarer() {
                 <EntryCard
                   key={entry.applicationId}
                   entry={entry}
-                  manage={board._tag === "Manage"}
+                  manage={Predicate.isTagged(board, "Manage")}
                   onCommand={() => setSelected(entry.applicationId)}
                 />
               ))}
-              {board._tag === "Manage" && (
+              {Predicate.isTagged(board, "Manage") && (
                 <section className="space-y-4" aria-labelledby="add-substitute">
                   <h2 id="add-substitute" className="font-semibold text-xl">
                     Legg til vikar

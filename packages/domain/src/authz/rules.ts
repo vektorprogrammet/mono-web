@@ -1,3 +1,4 @@
+import { Result, Array, Match, Data, Predicate } from "effect";
 import type { PersonId } from "../organization/schema.js";
 import {
   ReceiptApprovalGrantId,
@@ -7,6 +8,7 @@ import {
 } from "../receipt/authority.js";
 import { compareRfc3339Instants } from "../time.js";
 import {
+  Scope,
   evaluateRequirement,
   RECEIPT_APPROVER_REQUIREMENT,
   RECEIPT_PENDING_REQUIREMENT,
@@ -52,44 +54,56 @@ export const authzRuleSubjectApplies = (
   tagAssignments: ReadonlyArray<AuthzTagAssignment>,
 ): boolean => {
   const subject = rule.subject;
-  switch (subject._tag) {
-    case "Person":
-      return principal._tag === "Person" && subject.personId === principal.personId;
-    case "ServicePrincipal":
+
+  return Match.value(subject).pipe(
+    Match.withReturnType<boolean>(),
+    Match.tag("Person", (subject) => {
+      return Predicate.isTagged(principal, "Person") && subject.personId === principal.personId;
+    }),
+    Match.tag("ServicePrincipal", (subject) => {
       return (
-        principal._tag === "ServicePrincipal" &&
+        Predicate.isTagged(principal, "ServicePrincipal") &&
         subject.servicePrincipalId === principal.servicePrincipalId
       );
-    case "Tag":
+    }),
+    Match.tag("Tag", (subject) => {
       return (
-        principal._tag === "Person" &&
+        Predicate.isTagged(principal, "Person") &&
         tagAssignments.some(
           (assignment) =>
             assignment.tagId === subject.tagId &&
             isAuthzTagAssignmentActive(assignment, principal.personId, authorizationInstant),
         )
       );
-  }
+    }),
+    Match.exhaustive,
+  );
 };
 
 export const authzRuleScopeApplies = (
   rule: AuthzRule,
   context: CanonicalResourceContext,
 ): boolean => {
-  switch (rule.scope._tag) {
-    case "Global":
+  return Match.value(rule.scope).pipe(
+    Match.withReturnType<boolean>(),
+    Match.tag("Global", () => {
       return true;
-    case "Domain":
-      return context.domainId === rule.scope.domainId;
-    case "Department":
-      return context.departmentId === rule.scope.departmentId;
-    case "Resource":
+    }),
+    Match.tag("Domain", (matchedValue) => {
+      return context.domainId === matchedValue.domainId;
+    }),
+    Match.tag("Department", (matchedValue) => {
+      return context.departmentId === matchedValue.departmentId;
+    }),
+    Match.tag("Resource", (matchedValue) => {
       return (
         context.resource !== null &&
-        context.resource.kind === rule.scope.resource.kind &&
-        context.resource.id === rule.scope.resource.id
+        context.resource.kind === matchedValue.resource.kind &&
+        context.resource.id === matchedValue.resource.id
       );
-  }
+    }),
+    Match.exhaustive,
+  );
 };
 
 export const isAuthzRuleApplicable = (rule: AuthzRule, facts: AuthzApplicabilityFacts): boolean =>
@@ -124,6 +138,7 @@ type PaymentContribution = {
   readonly ruleId: AuthzRuleId;
   readonly fact: ReceiptPaymentAuthority;
 };
+
 export type RuleRequirementContribution = {
   readonly requirement: TypedRequirement;
   readonly sourceRuleId: AuthzRuleId;
@@ -151,7 +166,9 @@ export type CapabilityRequirementResult =
       readonly sourceRuleIds: ReadonlyArray<AuthzRuleId>;
     };
 
-const stableParameters = (parameters: Readonly<Record<string, unknown>>): string =>
+export const CapabilityRequirementResult = Data.taggedEnum<CapabilityRequirementResult>();
+
+const stableParameters = (parameters: TypedRequirement["parameters"]): string =>
   JSON.stringify(
     Object.fromEntries(
       Object.entries(parameters).sort(([left], [right]) => compareText(left, right)),
@@ -165,37 +182,49 @@ export const evaluateCapabilityRequirements = (
   context: CanonicalResourceContext,
 ): CapabilityRequirementResult => {
   const declaredOrder = CAPABILITY_IDS[capabilityId].requirementSlots;
+
   const orderedIds = [...new Set(contributions.map(({ requirement }) => requirement.id))].sort(
     (left, right) => {
-      const leftIndex = declaredOrder.indexOf(left as never);
-      const rightIndex = declaredOrder.indexOf(right as never);
+      const leftIndex = declaredOrder.findIndex((id) => id === left);
+      const rightIndex = declaredOrder.findIndex((id) => id === right);
+
       return leftIndex - rightIndex || compareText(left, right);
     },
   );
+
   const requirements: EvaluatedRuleRequirement[] = [];
+
   for (const requirementId of orderedIds) {
     const matching = contributions.filter(({ requirement }) => requirement.id === requirementId);
+
     const parameterValues = [
       ...new Set(matching.map(({ requirement }) => stableParameters(requirement.parameters))),
     ];
+
     const sourceRuleIds = [...new Set(matching.map(({ sourceRuleId }) => sourceRuleId))].sort(
       compareText,
     );
+
     if (parameterValues.length !== 1) {
-      return { _tag: "Ambiguous", requirementId, sourceRuleIds };
+      return CapabilityRequirementResult.Ambiguous({ requirementId, sourceRuleIds });
     }
+
     const requirement = matching[0]!.requirement;
+
     const evaluated = {
       requirement,
       result: evaluateRequirement(requirement, principal, context),
       sourceRuleIds,
     };
+
     requirements.push(evaluated);
-    if (evaluated.result._tag === "Failed") {
-      return { _tag: "Failed", requirements, failed: evaluated };
+
+    if (Predicate.isTagged(evaluated.result, "Failed")) {
+      return CapabilityRequirementResult.Failed({ requirements, failed: evaluated });
     }
   }
-  return { _tag: "Satisfied", requirements };
+
+  return CapabilityRequirementResult.Satisfied({ requirements });
 };
 
 export type ComposedCapabilityEvidence = {
@@ -220,17 +249,22 @@ export const composeCapabilityEvidence = (
 ): ComposedCapabilityEvidence => {
   const applicableRules = [
     ...new Map(
-      applicableAuthzRules(rules, requestFacts)
-        .filter((rule) => rule.capabilityId === capabilityId)
-        .map((rule) => [rule.ruleId, rule]),
+      Array.filterMap(applicableAuthzRules(rules, requestFacts), (rule) =>
+        rule.capabilityId === capabilityId
+          ? Result.succeed([rule.ruleId, rule] as const)
+          : Result.failVoid,
+      ),
     ).values(),
   ].sort((left, right) => compareText(left.ruleId, right.ruleId));
+
   const approvalContributions: Array<ApprovalContribution> = [];
   const paymentContributions: Array<PaymentContribution> = [];
   const requirementContributions: Array<RuleRequirementContribution> = [];
 
   for (const rule of applicableRules) {
-    if (rule.subject._tag === "ServicePrincipal" && rule.effectKind !== "requirement") continue;
+    if (Predicate.isTagged(rule.subject, "ServicePrincipal") && rule.effectKind !== "requirement")
+      continue;
+
     if (rule.effectKind === "requirement") {
       if (
         rule.capabilityId !== "approveReceipt" ||
@@ -238,6 +272,7 @@ export const composeCapabilityEvidence = (
       ) {
         continue;
       }
+
       requirementContributions.push({
         requirement: {
           id:
@@ -250,7 +285,10 @@ export const composeCapabilityEvidence = (
       });
       continue;
     }
-    if (rule.effectKind !== "delegate" || requestFacts.principal._tag !== "Person") continue;
+
+    if (rule.effectKind !== "delegate" || !Predicate.isTagged(requestFacts.principal, "Person"))
+      continue;
+
     if (
       rule.capabilityId === "approveReceipt" &&
       CAPABILITY_IDS.approveReceipt.receptiveEvidenceSlots.includes(rule.params.slot)
@@ -262,7 +300,7 @@ export const composeCapabilityEvidence = (
           fact: {
             approvalGrantId: ReceiptApprovalGrantId.make(ruleFactId(rule.ruleId)),
             personId: requestFacts.principal.personId,
-            scope: { _tag: "Department", departmentId: requestFacts.context.departmentId },
+            scope: Scope.Department({ departmentId: requestFacts.context.departmentId }),
             startAt: rule.startAt,
             endAt: rule.endAt,
             revision: rule.revision,
@@ -274,15 +312,17 @@ export const composeCapabilityEvidence = (
           fact: {
             approvalGrantId: ReceiptApprovalGrantId.make(ruleFactId(rule.ruleId)),
             personId: requestFacts.principal.personId,
-            scope: { _tag: "Global" },
+            scope: Scope.Global(),
             startAt: rule.startAt,
             endAt: rule.endAt,
             revision: rule.revision,
           },
         });
       }
+
       continue;
     }
+
     if (
       rule.capabilityId === "submitReceipt" &&
       rule.params.slot === "EconomyPaymentAuthority" &&
@@ -305,38 +345,46 @@ export const composeCapabilityEvidence = (
   }
 
   const hasGeneratedEvidence = approvalContributions.length > 0 || paymentContributions.length > 0;
-  const evidence: RuleReceptiveEvidence = hasGeneratedEvidence
-    ? {
-        ...(directEvidence.approvalGrants === undefined && approvalContributions.length === 0
-          ? {}
-          : {
-              approvalGrants: [
-                ...(directEvidence.approvalGrants ?? []),
-                ...approvalContributions.map(({ fact }) => fact),
-              ],
-            }),
-        ...(directEvidence.paymentAuthorities === undefined && paymentContributions.length === 0
-          ? {}
-          : {
-              paymentAuthorities: [
-                ...(directEvidence.paymentAuthorities ?? []),
-                ...paymentContributions.map(({ fact }) => fact),
-              ],
-            }),
-      }
-    : directEvidence;
+
+  let evidence: RuleReceptiveEvidence = directEvidence;
+
+  if (hasGeneratedEvidence) {
+    evidence = {};
+
+    if (directEvidence.approvalGrants !== undefined || approvalContributions.length > 0) {
+      evidence = {
+        ...evidence,
+        approvalGrants: [
+          ...(directEvidence.approvalGrants ?? []),
+          ...approvalContributions.map(({ fact }) => fact),
+        ],
+      };
+    }
+
+    if (directEvidence.paymentAuthorities !== undefined || paymentContributions.length > 0) {
+      evidence = {
+        ...evidence,
+        paymentAuthorities: [
+          ...(directEvidence.paymentAuthorities ?? []),
+          ...paymentContributions.map(({ fact }) => fact),
+        ],
+      };
+    }
+  }
+
   const requirements = evaluateCapabilityRequirements(
     capabilityId,
     requirementContributions,
     requestFacts.principal,
     requestFacts.context,
   );
-  const decision =
-    requirements._tag === "Ambiguous"
-      ? deny<RuleReceptiveEvidence>("Ambiguous")
-      : requirements._tag === "Failed"
-        ? deny<RuleReceptiveEvidence>("RequirementFailed")
-        : allow(evidence);
+
+  const decision = Predicate.isTagged(requirements, "Ambiguous")
+    ? deny<RuleReceptiveEvidence>("Ambiguous")
+    : Predicate.isTagged(requirements, "Failed")
+      ? deny<RuleReceptiveEvidence>("RequirementFailed")
+      : allow(evidence);
+
   const contributingRuleIds = [
     ...new Set(
       [

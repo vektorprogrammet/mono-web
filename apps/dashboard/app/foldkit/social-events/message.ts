@@ -1,6 +1,6 @@
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
-import { m } from "foldkit/message";
+import { taggedStruct } from "foldkit/schema";
 import {
   CreateSocialEventRequest,
   SocialEventAudience,
@@ -9,48 +9,62 @@ import {
 } from "./bridge";
 import { SocialEventsFailure, SocialEventsRequestId } from "./model";
 
-export const LoadedScope = m("LoadedScope", {
+export const LoadedScope = taggedStruct("LoadedScope", {
   requestId: SocialEventsRequestId,
   scope: SocialEventScopeResource,
 });
-export const FailedScope = m("FailedScope", {
+
+export const FailedScope = taggedStruct("FailedScope", {
   requestId: SocialEventsRequestId,
   failure: SocialEventsFailure,
 });
-export const RetriedScope = m("RetriedScope");
 
-export const SelectedDepartment = m("SelectedDepartment", {
+export const RetriedScope = taggedStruct("RetriedScope", {});
+
+export const SelectedDepartment = taggedStruct("SelectedDepartment", {
   departmentId: S.NullOr(CreateSocialEventRequest.fields.departmentId),
 });
-export const SelectedSemester = m("SelectedSemester", {
+
+export const SelectedSemester = taggedStruct("SelectedSemester", {
   semesterId: S.NullOr(CreateSocialEventRequest.fields.semesterId),
 });
-export const SelectedAudience = m("SelectedAudience", { audience: SocialEventAudience });
-export const ChangedTitle = m("ChangedTitle", { value: S.String });
-export const ChangedDescription = m("ChangedDescription", { value: S.String });
-export const ChangedLink = m("ChangedLink", { value: S.String });
-export const ChangedStartAt = m("ChangedStartAt", { value: S.String });
-export const ChangedEndAt = m("ChangedEndAt", { value: S.String });
 
-export const LoadedList = m("LoadedList", {
+export const SelectedAudience = taggedStruct("SelectedAudience", { audience: SocialEventAudience });
+
+export const ChangedTitle = taggedStruct("ChangedTitle", { value: S.String });
+
+export const ChangedDescription = taggedStruct("ChangedDescription", { value: S.String });
+
+export const ChangedLink = taggedStruct("ChangedLink", { value: S.String });
+
+export const ChangedStartAt = taggedStruct("ChangedStartAt", { value: S.String });
+
+export const ChangedEndAt = taggedStruct("ChangedEndAt", { value: S.String });
+
+export const LoadedList = taggedStruct("LoadedList", {
   requestId: SocialEventsRequestId,
   list: SocialEventListResource,
 });
-export const FailedList = m("FailedList", {
-  requestId: SocialEventsRequestId,
-  failure: SocialEventsFailure,
-});
-export const RetriedList = m("RetriedList");
 
-export const SubmittedCreate = m("SubmittedCreate", { commandId: IdempotencyKey });
-export const SucceededCreate = m("SucceededCreate", {
-  requestId: SocialEventsRequestId,
-});
-export const FailedCreate = m("FailedCreate", {
+export const FailedList = taggedStruct("FailedList", {
   requestId: SocialEventsRequestId,
   failure: SocialEventsFailure,
 });
-export const DismissedFailure = m("DismissedFailure");
+
+export const RetriedList = taggedStruct("RetriedList", {});
+
+export const SubmittedCreate = taggedStruct("SubmittedCreate", { commandId: IdempotencyKey });
+
+export const SucceededCreate = taggedStruct("SucceededCreate", {
+  requestId: SocialEventsRequestId,
+});
+
+export const FailedCreate = taggedStruct("FailedCreate", {
+  requestId: SocialEventsRequestId,
+  failure: SocialEventsFailure,
+});
+
+export const DismissedFailure = taggedStruct("DismissedFailure", {});
 
 export const Message = S.Union([
   LoadedScope,
@@ -72,4 +86,5 @@ export const Message = S.Union([
   FailedCreate,
   DismissedFailure,
 ]);
+
 export type Message = S.Schema.Type<typeof Message>;

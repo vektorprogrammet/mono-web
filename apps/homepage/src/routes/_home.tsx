@@ -35,15 +35,19 @@ type HomeLoaderArgs = {
 
 export function loader({ request, context }: HomeLoaderArgs): HomepageRequest {
   const resolved = context.get(homepageRequestContext);
+
   if (resolved !== undefined) return resolved;
   const host = request.headers.get("host");
+
   if (!host) throw new Response("Missing Host", { status: 421 });
+
   return resolveHomepageRequest(host);
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Layout() {
   const requestInfo = useLoaderData<typeof loader>();
+
   return (
     <div className="flex min-h-screen flex-col items-stretch transition-colors">
       <AppHeader />
@@ -92,6 +96,7 @@ function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
   const location = useLocation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef(new Map<string, HTMLAnchorElement>());
+
   const [indicator, setIndicator] = useState<{
     x: number;
     width: number;
@@ -99,22 +104,27 @@ function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
 
   useLayoutEffect(() => {
     const container = containerRef.current;
+
     if (!container) return;
 
     const pathname = location.pathname;
+
     const activeKey = routes
       .find((route) => {
         const routePath = route.path.toString();
+
         return pathname === routePath || pathname.startsWith(`${routePath}/`);
       })
       ?.path.toString();
 
     if (!activeKey) {
       setIndicator(null);
+
       return;
     }
 
     const activeEl = tabRefs.current.get(activeKey);
+
     if (!activeEl) return;
 
     const containerRect = container.getBoundingClientRect();
@@ -136,6 +146,7 @@ function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
       )}
       {routes.map((route) => {
         const routeKey = route.path.toString();
+
         return (
           <NavLink
             to={route.path}

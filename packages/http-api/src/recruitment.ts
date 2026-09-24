@@ -34,6 +34,7 @@ import {
   type RecruitmentInterviewConductObservation,
   type RecruitmentSchedulingInterview,
 } from "@vektorprogrammet/domain/recruitment";
+
 const InvitationResponseObservationExample: any = {
   scheduledAt: "2026-09-10T14:00:00.000Z",
   room: "Realfagbygget, R90",
@@ -204,6 +205,7 @@ import {
   ScheduleInterviewRequest,
   ScheduleInterviewResponse,
 } from "./v2-schemas.js";
+
 export {
   CancelInterviewObservationSchema,
   containsRecruitmentInvitationCapabilitySequence,
@@ -225,6 +227,7 @@ export {
   RecruitmentInterviewQuestionSnapshot,
   RecruitmentSchedulingInterviewSchema,
 };
+
 export type {
   RecruitmentAssignmentBoard,
   RecruitmentAssignmentBoardQuery,
@@ -232,41 +235,30 @@ export type {
   RecruitmentSchedulingInterview,
 };
 
-const serviceFreePayload = <S extends Schema.Top>(
-  schema: S,
-): Schema.Codec<S["Type"], S["Encoded"]> =>
-  // These request codecs use only synchronous, service-free transformations.
-  schema as unknown as Schema.Codec<S["Type"], S["Encoded"]>;
-
 /**
  * Exact empty JSON object required when accepting an invitation.
  *
  * @since 0.1.0
  * @category Schemas
  */
-export const ConfirmInvitationPayload = serviceFreePayload(
-  EmptyJsonRequest.annotate({
-    identifier: "ConfirmInvitationRequest",
-    description: "An exact empty JSON object.",
-    examples: [{}],
-  }),
-);
+export const ConfirmInvitationPayload = EmptyJsonRequest.annotate({
+  identifier: "ConfirmInvitationRequest",
+  description: "An exact empty JSON object.",
+  examples: [{}],
+});
 
-export const InvitationRejectInput = serviceFreePayload(
-  RecruitmentInvitationRejectInputSchema.annotate({
-    identifier: "InvitationRejectInput",
-    description: "Optional short rejection message.",
-    examples: [{ message: "Cannot attend that day." }, {}],
-  }),
-);
+export const InvitationRejectInput = RecruitmentInvitationRejectInputSchema.annotate({
+  identifier: "InvitationRejectInput",
+  description: "Optional short rejection message.",
+  examples: [{ message: "Cannot attend that day." }, {}],
+});
 
-export const InvitationRequestNewTimeInput = serviceFreePayload(
+export const InvitationRequestNewTimeInput =
   RecruitmentInvitationRequestNewTimeInputSchema.annotate({
     identifier: "InvitationRequestNewTimeInput",
     description: "Short message proposing another time.",
     examples: [{ message: "Could we do Thursday instead?" }],
-  }),
-);
+  });
 
 export const InvitationResponseObservation =
   RecruitmentInvitationResponseObservationSchema.annotate({
@@ -328,8 +320,9 @@ export const ReadInvitationResponseEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const ConfirmInvitationEndpoint = HttpApiEndpoint.post(
   "confirmInvitation",
-  "/api/recruitment/invitation-response::confirm",
+  "/api/recruitment/invitation-response:confirm",
   {
+    params: {},
     headers: IdempotencyIfMatchHeaders,
     payload: ConfirmInvitationPayload,
     success: noContentMutationResponse({ etag: true }),
@@ -345,8 +338,9 @@ export const ConfirmInvitationEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const RejectInvitationEndpoint = HttpApiEndpoint.post(
   "rejectInvitation",
-  "/api/recruitment/invitation-response::reject",
+  "/api/recruitment/invitation-response:reject",
   {
+    params: {},
     headers: IdempotencyIfMatchHeaders,
     payload: InvitationRejectInput,
     success: noContentMutationResponse({ etag: true }),
@@ -362,8 +356,9 @@ export const RejectInvitationEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const RequestNewInvitationTimeEndpoint = HttpApiEndpoint.post(
   "requestNewInvitationTime",
-  "/api/recruitment/invitation-response::request-new-time",
+  "/api/recruitment/invitation-response:request-new-time",
   {
+    params: {},
     headers: IdempotencyIfMatchHeaders,
     payload: InvitationRequestNewTimeInput,
     success: noContentMutationResponse({ etag: true }),
@@ -496,7 +491,7 @@ export const AssignApplicantEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ScheduleInterviewEndpoint = HttpApiEndpoint.post(
   "scheduleInterview",
-  "/api/recruitment/interviews/:interviewId([^:]+)::schedule",
+  "/api/recruitment/interviews/:interviewId:schedule",
   {
     params: { interviewId: RecruitmentInterviewId },
     headers: IdempotencyIfMatchHeaders,
@@ -557,7 +552,7 @@ export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
   "finalizeInterview",
-  "/api/recruitment/interviews/:interviewId([^:]+)::finalize",
+  "/api/recruitment/interviews/:interviewId:finalize",
   {
     params: { interviewId: RecruitmentInterviewId },
     headers: IdempotencyIfMatchHeaders,
@@ -585,7 +580,7 @@ export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const CorrectInterviewAssessmentEndpoint = HttpApiEndpoint.post(
   "correctInterviewAssessment",
-  "/api/recruitment/interviews/:interviewId([^:]+)::correct",
+  "/api/recruitment/interviews/:interviewId:correct",
   {
     params: { interviewId: RecruitmentInterviewId },
     headers: IdempotencyIfMatchHeaders,
@@ -619,7 +614,7 @@ export const CorrectInterviewAssessmentEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const CancelInterviewEndpoint = HttpApiEndpoint.post(
   "cancelInterview",
-  "/api/recruitment/interviews/:interviewId([^:]+)::cancel",
+  "/api/recruitment/interviews/:interviewId:cancel",
   {
     params: { interviewId: RecruitmentInterviewId },
     headers: IdempotencyIfMatchHeaders,

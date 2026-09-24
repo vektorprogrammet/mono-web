@@ -3,12 +3,15 @@
  *
  * @since 0.2.0
  */
-import { Schema } from "effect";
+import { Struct, Schema } from "effect";
 import { HttpApiSchema } from "effect/unstable/httpapi";
+
 export { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
 
 const idempotencyKeyPattern = /^[A-Za-z0-9_-]{22,128}$/u;
+
 const strongETagPattern = /^"vkr2\.[A-Za-z0-9_-]{43}"$/u;
+
 const sha256HexPattern = /^[a-f0-9]{64}$/u;
 
 /** A case-sensitive, unpadded base64url idempotency key. */
@@ -20,6 +23,7 @@ export const IdempotencyKey = Schema.String.pipe(
   ),
   Schema.brand("IdempotencyKey"),
 );
+
 export type IdempotencyKey = typeof IdempotencyKey.Type;
 
 /** A strong opaque v0.2 entity tag in canonical quoted wire form. */
@@ -31,6 +35,7 @@ export const StrongETag = Schema.String.pipe(
   ),
   Schema.brand("StrongETag"),
 );
+
 export type StrongETag = typeof StrongETag.Type;
 
 /** A lowercase SHA-256 digest. */
@@ -42,12 +47,14 @@ export const Sha256Hex = Schema.String.pipe(
   ),
   Schema.brand("Sha256Hex"),
 );
+
 export type Sha256Hex = typeof Sha256Hex.Type;
 
 /** Headers accepted by every external native mutation. */
 export const IdempotencyHeaders = Schema.Struct({
   "idempotency-key": IdempotencyKey,
 }).annotate({ identifier: "IdempotencyHeaders" });
+
 export type IdempotencyHeaders = typeof IdempotencyHeaders.Type;
 
 /** Headers accepted by an existing-resource native mutation. */
@@ -55,6 +62,7 @@ export const IdempotencyIfMatchHeaders = Schema.Struct({
   "idempotency-key": IdempotencyKey,
   "if-match": StrongETag,
 }).annotate({ identifier: "IdempotencyIfMatchHeaders" });
+
 export type IdempotencyIfMatchHeaders = typeof IdempotencyIfMatchHeaders.Type;
 
 const EntityTagConditionHeader = Schema.String.pipe(
@@ -70,12 +78,17 @@ export const ConditionalReadHeaders = Schema.Struct({
   "if-match": Schema.optional(EntityTagConditionHeader),
   "if-none-match": Schema.optional(EntityTagConditionHeader),
 }).annotate({ identifier: "ConditionalReadHeaders" });
+
 export type ConditionalReadHeaders = typeof ConditionalReadHeaders.Type;
 
 const OriginVary = Schema.Literal("Origin");
+
 const NoStore = Schema.Literal("no-store");
+
 const PrivateNoStore = Schema.Literal("private, no-store");
+
 const PublicCache = Schema.Literal("public, max-age=60, s-maxage=300, must-revalidate");
+
 const DynamicAdmissionCache = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
@@ -84,12 +97,14 @@ const DynamicAdmissionCache = Schema.String.pipe(
           /^public, max-age=([0-9]|[12][0-9]|30), s-maxage=([0-9]|[12][0-9]|30), must-revalidate$/u.exec(
             value,
           );
+
         return match !== null && match[1] === match[2];
       },
       { message: "the frozen dynamic admission cache policy" },
     ),
   ),
 );
+
 const OriginRelativeLocation = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => /^\/api\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/u.test(value), {
@@ -97,11 +112,13 @@ const OriginRelativeLocation = Schema.String.pipe(
     }),
   ),
 );
+
 const RetryAfterSeconds = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
       (value) => {
         const seconds = Number(value);
+
         return Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= 3_600;
       },
       { message: "a retry delay from 1 through 3600 seconds" },
@@ -122,6 +139,7 @@ const conditionalReadResponses = <S extends Schema.Top, CacheControl extends Sch
     ...externalHeaders(cacheControl),
     etag: StrongETag,
   };
+
   return [
     HttpApiSchema.WithHeaders(success, headers),
     HttpApiSchema.WithHeaders(HttpApiSchema.NoContent.pipe(HttpApiSchema.status(304)), headers),
@@ -169,11 +187,12 @@ export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
 
 /** Successful no-content mutation response, optionally with a new entity tag. */
 export const noContentMutationResponse = (options?: { readonly etag?: boolean }) => {
-  const response = HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, {
-    ...externalHeaders(NoStore),
-    ...(options?.etag === true ? { etag: StrongETag } : {}),
-  });
-  return response as unknown as Schema.Codec<typeof response.Type, typeof response.Encoded>;
+  const headers = externalHeaders(NoStore);
+
+  if (options?.etag === true)
+    return HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, { ...headers, etag: StrongETag });
+
+  return HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, headers);
 };
 
 const ValidationPointer = Schema.String.pipe(
@@ -195,6 +214,7 @@ export const NativeValidationMessage = {
   "field-not-deletable": "The field cannot be deleted.",
   "no-change": "The request does not change the resource.",
 } as const;
+
 export type NativeValidationCode = keyof typeof NativeValidationMessage;
 
 const validationError = <Code extends NativeValidationCode>(code: Code) =>
@@ -214,16 +234,13 @@ export const NativeValidationError = Schema.Union([
   validationError("field-not-deletable"),
   validationError("no-change"),
 ]);
+
 export type NativeValidationError = typeof NativeValidationError.Type;
 
 export const makeNativeValidationError = <Code extends NativeValidationCode>(
   pointer: string,
   code: Code,
-): {
-  readonly pointer: string;
-  readonly code: Code;
-  readonly message: (typeof NativeValidationMessage)[Code];
-} => ({
+) => ({
   pointer,
   code,
   message: NativeValidationMessage[code],
@@ -921,6 +938,7 @@ export const NativeProblemRegistry = {
 } as const satisfies Record<string, FrozenProblemDefinition>;
 
 export type NativeProblemCode = keyof typeof NativeProblemRegistry;
+
 export type ValidationProblemCode =
   | "validation.failed"
   | "validation.no-change"
@@ -928,6 +946,7 @@ export type ValidationProblemCode =
 
 const nativeProblemCoreSchema = <Code extends NativeProblemCode>(code: Code) => {
   const definition = NativeProblemRegistry[code];
+
   return Schema.Struct({
     type: Schema.Literal(definition.type),
     title: Schema.Literal(definition.title),
@@ -938,12 +957,13 @@ const nativeProblemCoreSchema = <Code extends NativeProblemCode>(code: Code) => 
   }).pipe(HttpApiSchema.status(definition.status));
 };
 
-const problemCodes = Object.keys(NativeProblemRegistry) as ReadonlyArray<NativeProblemCode>;
+const problemCodes = Struct.keys(NativeProblemRegistry);
 
 /** The closed RFC 9457 core representation used by native API failures. */
 export const NativeProblem = Schema.Union(
-  problemCodes.map((code) => nativeProblemCoreSchema(code)) as never,
+  problemCodes.map((code) => nativeProblemCoreSchema(code)),
 ).annotate({ identifier: "NativeProblem" });
+
 export type NativeProblem = typeof NativeProblem.Type;
 
 const validationBody = Schema.Struct({
@@ -960,6 +980,7 @@ const validationBody = Schema.Struct({
 /** Creates one correlated validation problem variant. */
 export const validationProblemSchema = <Code extends ValidationProblemCode>(code: Code) => {
   const definition = NativeProblemRegistry[code];
+
   return Schema.Struct({
     type: Schema.Literal(definition.type),
     title: Schema.Literal(definition.title),
@@ -977,6 +998,7 @@ export const ValidationProblem = Schema.Union([
   validationProblemSchema("validation.no-change"),
   validationProblemSchema("validation.field-not-deletable"),
 ]).annotate({ identifier: "ValidationProblem" });
+
 export type ValidationProblem = typeof ValidationProblem.Type;
 
 export type ProblemDescriptor = readonly [code: NativeProblemCode, status: number];
@@ -987,9 +1009,11 @@ export const nativeProblemSchema = <Code extends NativeProblemCode>(
   expectedStatus?: number,
 ) => {
   const definition = NativeProblemRegistry[code];
+
   if (expectedStatus !== undefined && definition.status !== expectedStatus) {
     throw new Error(`${code} is frozen at HTTP ${definition.status}, not ${expectedStatus}`);
   }
+
   return nativeProblemCoreSchema(code);
 };
 
@@ -1003,25 +1027,31 @@ export const problemUnion = (identifier: string, descriptors: ReadonlyArray<Prob
   const unique = [
     ...new Map(descriptors.map((descriptor) => [descriptor[0], descriptor])).values(),
   ];
+
   if (unique.length === 0) throw new Error(`${identifier} must contain at least one problem`);
+
   const schemas = unique.map(([code, status]) => {
     const definition = NativeProblemRegistry[code];
+
     if (definition.status !== status) {
       throw new Error(
         `${identifier} declares ${code} at ${status}; registry requires ${definition.status}`,
       );
     }
+
     return isValidationProblemCode(code)
       ? validationProblemSchema(code)
       : nativeProblemCoreSchema(code);
   });
-  const union = Schema.Union(schemas as never).annotate({
+
+  const union = Schema.Union(schemas).annotate({
     identifier,
     title: identifier,
     description: `Closed RFC 9457 error union for ${identifier}.`,
   });
+
   // The variants above are rebuilt only from this module's service-free codecs.
-  return union as unknown as Schema.Codec<unknown, unknown>;
+  return union;
 };
 
 /**
@@ -1029,57 +1059,54 @@ export const problemUnion = (identifier: string, descriptors: ReadonlyArray<Prob
  * schemas. Effect resolves an HTTP status only from the outer schema, so a
  * plain union of annotated variants would collapse to the default 500.
  */
-export const endpointProblemResponses = <S extends Schema.Top>(
-  problem: S,
+export const endpointProblemResponses = (
+  problem: ReturnType<typeof problemUnion>,
   options?: { readonly cors?: boolean },
-): ReadonlyArray<Schema.Codec<unknown, unknown>> => {
-  const ast = problem.ast;
-  const members = ast._tag === "Union" ? ast.types : [ast];
-  const grouped = new Map<number, Array<(typeof members)[number]>>();
-  for (const member of members) {
-    const annotations = member.annotations;
-    const annotatedStatus =
-      annotations !== undefined && "httpApiStatus" in annotations
-        ? annotations.httpApiStatus
-        : undefined;
-    const status = typeof annotatedStatus === "number" ? annotatedStatus : 500;
+) => {
+  type ProblemVariant = (typeof problem.members)[number];
+
+  const grouped = new Map<number, ProblemVariant[]>();
+
+  for (const member of problem.members) {
+    const status = member.fields.status.literal;
     const bucket = grouped.get(status);
+
     if (bucket === undefined) grouped.set(status, [member]);
     else bucket.push(member);
   }
-  const hasProblemCode = (variant: (typeof members)[number], code: NativeProblemCode): boolean =>
-    variant._tag === "Objects" &&
-    variant.propertySignatures.some(
-      (property) =>
-        property.name === "code" &&
-        property.type._tag === "Literal" &&
-        property.type.literal === code,
-    );
-  const responses = [...grouped.entries()].map(([status, variants]) => {
-    const headers = {
-      "cache-control": NoStore,
-      ...(options?.cors === false ? {} : { vary: OriginVary }),
-      ...(status === 401 ? { "www-authenticate": Schema.String } : {}),
-      ...(variants.some((variant) => hasProblemCode(variant, "idempotency.in-flight"))
-        ? { "retry-after": Schema.optional(Schema.Literal("1")) }
-        : {}),
-      ...(status === 429 ? { "retry-after": RetryAfterSeconds } : {}),
-      ...(status === 503 ? { "retry-after": Schema.Literal("5") } : {}),
-    };
-    const firstVariant = variants[0];
-    if (firstVariant === undefined) throw new Error(`${status} problem group is empty`);
-    const body = Schema.Union([
-      Schema.make(firstVariant),
-      ...variants.slice(1).map((variant) => Schema.make(variant)),
-    ]).pipe(
+
+  const inFlightRetryAfter = Schema.optional(Schema.Literal("1"));
+  const unavailableRetryAfter = Schema.Literal("5");
+
+  type ProblemHeader =
+    | typeof NoStore
+    | typeof OriginVary
+    | typeof Schema.String
+    | typeof inFlightRetryAfter
+    | typeof RetryAfterSeconds
+    | typeof unavailableRetryAfter;
+
+  return [...grouped].map(([status, variants]) => {
+    const headers: Array<readonly [string, ProblemHeader]> = [["cache-control", NoStore]];
+
+    if (options?.cors !== false) headers.push(["vary", OriginVary]);
+
+    if (status === 401) headers.push(["www-authenticate", Schema.String]);
+
+    if (variants.some((variant) => variant.fields.code.literal === "idempotency.in-flight"))
+      headers.push(["retry-after", inFlightRetryAfter]);
+
+    if (status === 429) headers.push(["retry-after", RetryAfterSeconds]);
+
+    if (status === 503) headers.push(["retry-after", unavailableRetryAfter]);
+
+    const body = Schema.Union(variants).pipe(
       HttpApiSchema.status(status),
       HttpApiSchema.asJson({ contentType: "application/problem+json" }),
     );
-    return HttpApiSchema.WithHeaders(body, headers);
+
+    return HttpApiSchema.WithHeaders(body, Object.fromEntries(headers));
   });
-  // Every member is rebuilt from this module's closed, service-free Problem codecs.
-  // Schema.make cannot recover that requirement type from a reflected AST.
-  return responses as unknown as ReadonlyArray<Schema.Codec<unknown, unknown>>;
 };
 
 /** Builds one safe fixed public problem value. */
@@ -1089,14 +1116,12 @@ export const makeNativeProblem = <Code extends NativeProblemCode>(
   instance?: string,
 ) => {
   const definition = NativeProblemRegistry[code];
+
   if (expectedStatus !== undefined && definition.status !== expectedStatus) {
     throw new Error(`${code} is frozen at HTTP ${definition.status}, not ${expectedStatus}`);
   }
-  return {
-    ...definition,
-    code,
-    ...(instance === undefined ? {} : { instance }),
-  };
+
+  return instance === undefined ? { ...definition, code } : { ...definition, code, instance };
 };
 
 /** Path-level error for a method outside a resource's frozen method set. */

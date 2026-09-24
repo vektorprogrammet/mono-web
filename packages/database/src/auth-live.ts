@@ -1,3 +1,8 @@
+import { NativeAuthEngine, NativeAuthEngineLive } from "./auth-engine.js";
+import { PasswordRecovery } from "./password-recovery.js";
+import { OAuthHandlers, OAuthLive } from "./oauth-live.js";
+import { ServicePrincipalGrantAuthorityLive } from "./service-principal-grants-live.js";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { getSessionCookie } from "better-auth/cookies";
 import { Context, Effect, Layer, Schema } from "effect";
@@ -21,24 +26,20 @@ import {
   type IdentitySession,
   type IdentitySessionId,
   type IdentitySessionMutationSuccess,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import { DatabasePgPool } from "./pg-pool.js";
-import { makePasswordRecovery } from "./password-recovery.js";
-import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
+
+import { type AuthEngineConfig } from "./auth-engine.js";
 import {
   exactRedirectAccepted,
-  makeOAuthClientOperatorService,
-  makeOAuthCredentialAuthorityService,
-  makeOAuthInternalIntrospectionHandler,
-  makeOAuthReleaseBarrier,
   OAuthClientOperator,
   OAuthCredentialAuthority,
 } from "./oauth-live.js";
-import { makeServicePrincipalGrantAuthorityService } from "./service-principal-grants-live.js";
 
 /** The one Better Auth instance behind this module's services. */
-export type AuthEngineInstance = ReturnType<typeof makeAuthEngine>;
+export type AuthEngineInstance = NativeAuthEngine["Service"];
+
 export interface AuthEngineService {
   readonly engine: AuthEngineInstance;
   /** Standard Better Auth handler with bounded identity security auditing. */
@@ -57,6 +58,7 @@ export interface AuthEngineService {
     credentialFlow?: "PasswordRecovery",
   ) => Promise<void>;
 }
+
 export class AuthEngine extends Context.Service<AuthEngine, AuthEngineService>()(
   "@vektorprogrammet/database/AuthEngine",
 ) {}
@@ -133,8 +135,11 @@ interface Queryable {
 
 const cookieHeaders = (cookieHeader: string | undefined, origin?: string): Headers => {
   const headers = new Headers();
+
   if (cookieHeader !== undefined && cookieHeader.length > 0) headers.set("cookie", cookieHeader);
+
   if (origin !== undefined) headers.set("origin", origin);
+
   return headers;
 };
 
@@ -146,6 +151,7 @@ const sanitizedSourceIp = (value: string | null): string | null =>
 const sanitizedUserAgent = (value: string | null): string | null => {
   if (value === null) return null;
   const sanitized = value.replace(/\p{Cc}/gu, "").slice(0, 256);
+
   return sanitized.length === 0 ? null : sanitized;
 };
 
@@ -189,6 +195,7 @@ const appendAudit = async (
   const event = Schema.decodeUnknownSync(IdentitySecurityEvent)(unsafeEvent, {
     onExcessProperty: "error",
   });
+
   await database.query(
     `INSERT INTO auth.identity_security_audit (
        event_id,
@@ -220,10 +227,12 @@ const inTransaction = async <A>(
   use: (client: PoolClient) => Promise<A>,
 ): Promise<A> => {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
     const result = await use(client);
     await client.query("COMMIT");
+
     return result;
   } catch (cause) {
     await client.query("ROLLBACK").catch(() => undefined);
@@ -249,17 +258,21 @@ const verifiedBetterAuthSessionToken = (
     cookieName: "session_token",
     cookiePrefix: "better-auth",
   });
+
   if (signedCookie === null) return null;
   const separator = signedCookie.lastIndexOf(".");
+
   if (separator <= 0 || separator === signedCookie.length - 1) return null;
   const token = signedCookie.slice(0, separator);
   const suppliedSignature = Buffer.from(signedCookie.slice(separator + 1), "base64");
   const expectedSignature = createHmac("sha256", config.secret).update(token).digest();
+
   return suppliedSignature.length === expectedSignature.length &&
     timingSafeEqual(suppliedSignature, expectedSignature)
     ? token
     : null;
 };
+
 const appendSnapshotAudit = (event: IdentitySecurityEvent) =>
   Database.use((sql) =>
     sql`
@@ -282,7 +295,7 @@ const appendSnapshotAudit = (event: IdentitySecurityEvent) =>
         ${event.requestCorrelation},
         ${event.sourceIp},
         ${event.userAgent},
-        ${sql.json(event.details)}
+        ${sql.json(canonicalJsonValue(event.details))}
       )
     `.pipe(Effect.asVoid),
   );
@@ -316,17 +329,22 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
   resolveSession: (cookieHeader, authorizationInstant) =>
     Effect.gen(function* () {
       const token = verifiedBetterAuthSessionToken(cookieHeader, config);
+
       if (token === null) return yield* new IdentitySessionNotFound();
       const sql = yield* Database;
+
       const rows = yield* sql<SnapshotSessionRow>`
-        SELECT "id" AS "sessionId", "userId" AS "personId", "expiresAt" AS "expiresAt"
-        FROM auth."session"
-        WHERE "token" = ${token}
-          AND "expiresAt" > ${authorizationInstant}::timestamptz
+        SELECT s."id" AS "sessionId", s."userId" AS "personId", s."expiresAt" AS "expiresAt"
+        FROM auth.usable_human_sessions s
+        WHERE s."token" = ${token}
+          AND s."expiresAt" > ${authorizationInstant}::timestamptz
         LIMIT 1
       `;
+
       const row = rows[0];
+
       if (row === undefined) return yield* new IdentitySessionNotFound();
+
       return yield* decodeIdentityActor(row).pipe(
         Effect.mapError((cause) => engineFailure("decodeSnapshotSession", cause)),
       );
@@ -338,11 +356,13 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
   revokeCurrentSession: (actor, request) =>
     Effect.gen(function* () {
       const sql = yield* Database;
+
       const deleted = yield* sql<DeletedSessionRow>`
         DELETE FROM auth."session"
         WHERE "id" = ${actor.sessionId} AND "userId" = ${actor.personId}
         RETURNING "id" AS "sessionId"
       `;
+
       if (deleted.length !== 1) return yield* new IdentitySessionNotFound();
       yield* snapshotMutationAudit(actor, request, {
         eventKind: "sign-out",
@@ -350,6 +370,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
         outcomeCode: "current-session-ended",
         affectedSessionCount: 1,
       });
+
       return { setCookies: [] };
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
@@ -359,11 +380,13 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
   revokeSession: (actor, sessionId, request) =>
     Effect.gen(function* () {
       const sql = yield* Database;
+
       const deleted = yield* sql<DeletedSessionRow>`
         DELETE FROM auth."session"
         WHERE "id" = ${sessionId} AND "userId" = ${actor.personId}
         RETURNING "id" AS "sessionId"
       `;
+
       if (deleted.length !== 1) return yield* new IdentityOwnedSessionNotFound({ sessionId });
       yield* snapshotMutationAudit(actor, request, {
         eventKind: "session-revoked-one",
@@ -371,6 +394,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
         outcomeCode: "owned-session-revoked",
         affectedSessionCount: 1,
       });
+
       return { setCookies: [] };
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
@@ -380,11 +404,13 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
   revokeOtherSessions: (actor, request) =>
     Effect.gen(function* () {
       const sql = yield* Database;
+
       const deleted = yield* sql<DeletedSessionRow>`
         DELETE FROM auth."session"
         WHERE "userId" = ${actor.personId} AND "id" <> ${actor.sessionId}
         RETURNING "id" AS "sessionId"
       `;
+
       if (deleted.length > 0) {
         yield* snapshotMutationAudit(actor, request, {
           eventKind: "session-revoked-others",
@@ -393,6 +419,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
           affectedSessionCount: deleted.length,
         });
       }
+
       return { setCookies: [] };
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
@@ -402,11 +429,13 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
   revokeAllSessions: (actor, request) =>
     Effect.gen(function* () {
       const sql = yield* Database;
+
       const deleted = yield* sql<DeletedSessionRow>`
         DELETE FROM auth."session"
         WHERE "userId" = ${actor.personId}
         RETURNING "id" AS "sessionId"
       `;
+
       if (deleted.length === 0) return yield* new IdentitySessionNotFound();
       yield* snapshotMutationAudit(actor, request, {
         eventKind: "session-revoked-all",
@@ -414,6 +443,7 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
         outcomeCode: "all-sessions-revoked",
         affectedSessionCount: deleted.length,
       });
+
       return { setCookies: [] };
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
@@ -421,19 +451,29 @@ export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentityS
       ),
     ),
 });
-const identityShape = (
+
+const identityOperations = (
   engine: AuthEngineInstance,
   pool: Pool,
   config: AuthEngineConfig,
-): IdentityShape => {
+): IdentityOperations => {
   const resolveSession = async (cookieHeader: string | undefined): Promise<IdentityActor> => {
     let session: Awaited<ReturnType<typeof engine.api.getSession>>;
+
     try {
       session = await engine.api.getSession({ headers: cookieHeaders(cookieHeader) });
     } catch (cause) {
       throw engineFailure("resolveSession", cause);
     }
+
     if (session?.user == null) throw new IdentitySessionNotFound();
+
+    const usable = await pool.query(`SELECT 1 FROM auth.usable_human_sessions WHERE id=$1`, [
+      session.session.id,
+    ]);
+
+    if (usable.rowCount !== 1) throw new IdentitySessionNotFound();
+
     try {
       return await decodeIdentityActor({
         personId: session.user.id,
@@ -453,6 +493,7 @@ const identityShape = (
         headers: cookieHeaders(cookieHeader, config.oauth.dashboardOrigin),
         asResponse: true,
       });
+
       return response.headers.getSetCookie();
     } catch (cause) {
       throw engineFailure("clearSessionCookie", cause);
@@ -473,27 +514,34 @@ const identityShape = (
         body: { email, password },
         asResponse: true,
       });
+
       if (!result.ok) {
         if (result.status === 401) throw new IdentityInvalidCredentials();
+
         if (result.status === 429) throw new IdentityRateLimited();
         throw new IdentityEngineError({
           operation: "signIn",
           message: `authentication provider returned status ${result.status}`,
         });
       }
+
       const [setCookie] = result.headers.getSetCookie();
+
       if (setCookie === undefined) {
         throw new IdentityEngineError({
           operation: "signIn",
           message: "sign-in response carried no session cookie",
         });
       }
+
       const actor = await resolveSession(setCookie.split(";")[0]);
+
       return { setCookie, actor };
     },
     resolveSession,
     readCurrentSession: async (cookieHeader) => {
       const actor = await resolveSession(cookieHeader);
+
       try {
         const result = await pool.query<SessionRow>(
           `SELECT
@@ -507,8 +555,11 @@ const identityShape = (
            WHERE "id" = $1 AND "userId" = $2 AND "expiresAt" > CURRENT_TIMESTAMP`,
           [actor.sessionId, actor.personId],
         );
+
         const row = result.rows[0];
+
         if (row === undefined) throw new IdentitySessionNotFound();
+
         return await sessionProjection(row, actor.sessionId);
       } catch (cause) {
         if (cause instanceof IdentitySessionNotFound) throw cause;
@@ -517,6 +568,7 @@ const identityShape = (
     },
     listSessions: async (cookieHeader) => {
       const actor = await resolveSession(cookieHeader);
+
       try {
         const result = await pool.query<SessionRow>(
           `SELECT
@@ -531,6 +583,7 @@ const identityShape = (
            ORDER BY "createdAt" DESC, "id"`,
           [actor.personId],
         );
+
         return await Promise.all(result.rows.map((row) => sessionProjection(row, actor.sessionId)));
       } catch (cause) {
         throw engineFailure("listSessions", cause);
@@ -538,6 +591,7 @@ const identityShape = (
     },
     revokeCurrentSession: async (cookieHeader, request) => {
       const actor = await resolveSession(cookieHeader);
+
       try {
         await inTransaction(pool, async (client) => {
           const deleted = await client.query<DeletedSessionRow>(
@@ -546,6 +600,7 @@ const identityShape = (
              RETURNING "id" AS "sessionId"`,
             [actor.sessionId, actor.personId],
           );
+
           if (deleted.rowCount !== 1) throw new IdentitySessionNotFound();
           await appendAudit(
             client,
@@ -562,6 +617,7 @@ const identityShape = (
             }),
           );
         });
+
         return { setCookies: await clearSessionCookies(cookieHeader) };
       } catch (cause) {
         if (cause instanceof IdentitySessionNotFound) throw cause;
@@ -570,6 +626,7 @@ const identityShape = (
     },
     revokeSession: async (cookieHeader, sessionId, request) => {
       const actor = await resolveSession(cookieHeader);
+
       try {
         await inTransaction(pool, async (client) => {
           const deleted = await client.query<DeletedSessionRow>(
@@ -578,6 +635,7 @@ const identityShape = (
              RETURNING "id" AS "sessionId"`,
             [sessionId, actor.personId],
           );
+
           if (deleted.rowCount !== 1) throw new IdentityOwnedSessionNotFound({ sessionId });
           await appendAudit(
             client,
@@ -594,6 +652,7 @@ const identityShape = (
             }),
           );
         });
+
         return {
           setCookies: sessionId === actor.sessionId ? await clearSessionCookies(cookieHeader) : [],
         };
@@ -604,6 +663,7 @@ const identityShape = (
     },
     revokeOtherSessions: async (cookieHeader, request) => {
       const actor = await resolveSession(cookieHeader);
+
       try {
         await inTransaction(pool, async (client) => {
           const deleted = await client.query<DeletedSessionRow>(
@@ -612,6 +672,7 @@ const identityShape = (
              RETURNING "id" AS "sessionId"`,
             [actor.personId, actor.sessionId],
           );
+
           if ((deleted.rowCount ?? 0) === 0) return;
           await appendAudit(
             client,
@@ -628,6 +689,7 @@ const identityShape = (
             }),
           );
         });
+
         return { setCookies: [] };
       } catch (cause) {
         throw engineFailure("revokeOtherSessions", cause);
@@ -635,6 +697,7 @@ const identityShape = (
     },
     revokeAllSessions: async (cookieHeader, request) => {
       const actor = await resolveSession(cookieHeader);
+
       try {
         await inTransaction(pool, async (client) => {
           const deleted = await client.query<DeletedSessionRow>(
@@ -643,6 +706,7 @@ const identityShape = (
              RETURNING "id" AS "sessionId"`,
             [actor.personId],
           );
+
           if ((deleted.rowCount ?? 0) === 0) throw new IdentitySessionNotFound();
           await appendAudit(
             client,
@@ -659,6 +723,7 @@ const identityShape = (
             }),
           );
         });
+
         return { setCookies: await clearSessionCookies(cookieHeader) };
       } catch (cause) {
         if (cause instanceof IdentitySessionNotFound) throw cause;
@@ -674,21 +739,25 @@ const identityShape = (
 export const auditedAuthHandler =
   (
     engine: Pick<AuthEngineInstance, "handler">,
-    identity: Pick<IdentityShape, "resolveSession" | "recordSecurityEvent">,
+    identity: Pick<IdentityOperations, "resolveSession" | "recordSecurityEvent">,
   ): AuthEngineService["handler"] =>
   async (request, context) => {
     const pathname = new URL(request.url).pathname;
+
     const signOutActor =
       request.method === "POST" && pathname === "/api/auth/sign-out"
         ? await identity
             .resolveSession(request.headers.get("cookie") ?? undefined)
             .catch(() => null)
         : null;
+
     const response = await engine.handler(request);
+
     try {
       if (request.method === "POST" && pathname === "/api/auth/sign-in/email") {
         if (response.ok) {
           const [setCookie] = response.headers.getSetCookie();
+
           if (setCookie === undefined) throw new Error("successful sign-in returned no cookie");
           const actor = await identity.resolveSession(setCookie.split(";")[0]);
           await identity.recordSecurityEvent(
@@ -748,6 +817,7 @@ export const auditedAuthHandler =
           }),
         );
       }
+
       return response;
     } catch {
       return new Response(JSON.stringify({ error: { tag: "IdentityEngineError" } }), {
@@ -775,25 +845,32 @@ export const AuthLive = (
   | ServicePrincipalGrantAuthority,
   never,
   DatabasePgPool
-> =>
-  Layer.effectContext(
+> => {
+  const nativeEngine = NativeAuthEngineLive(config);
+
+  const services = Layer.mergeAll(
+    nativeEngine,
+    OAuthLive(config.oauth).pipe(Layer.provide(nativeEngine)),
+    ServicePrincipalGrantAuthorityLive,
+  );
+
+  return Layer.effectContext(
     Effect.gen(function* () {
       const pool = yield* DatabasePgPool;
-      const recovery = makePasswordRecovery(pool, config);
-      const engine = makeAuthEngine(config, pool, recovery);
-      const identity = Identity.of(identityShape(engine, pool, config));
+      const recovery = yield* PasswordRecovery;
+      const engine = yield* NativeAuthEngine;
+      const identity = Identity.of(identityOperations(engine, pool, config));
       const identitySnapshot = IdentitySnapshot.of(makeIdentitySnapshotService(config));
-      const oauthCredentialAuthority = OAuthCredentialAuthority.of(
-        makeOAuthCredentialAuthorityService(pool, config.oauth),
-      );
-      const oauthClientOperator = OAuthClientOperator.of(
-        makeOAuthClientOperatorService(pool, engine),
-      );
-      const servicePrincipalGrantAuthority = ServicePrincipalGrantAuthority.of(
-        makeServicePrincipalGrantAuthorityService(pool),
-      );
-      const oauthHandler = makeOAuthReleaseBarrier(engine, pool, config.oauth);
-      const oauthIntrospectionHandler = makeOAuthInternalIntrospectionHandler(engine, pool);
+
+      const oauthCredentialAuthority = yield* OAuthCredentialAuthority;
+
+      const oauthClientOperator = yield* OAuthClientOperator;
+
+      const servicePrincipalGrantAuthority = yield* ServicePrincipalGrantAuthority;
+
+      const { release: oauthHandler, introspection: oauthIntrospectionHandler } =
+        yield* OAuthHandlers;
+
       const authEngine = AuthEngine.of({
         engine,
         handler: (request, context) =>
@@ -824,6 +901,7 @@ export const AuthLive = (
             }),
           ),
       });
+
       return Context.make(AuthEngine, authEngine).pipe(
         Context.merge(Context.make(Identity, identity)),
         Context.merge(Context.make(IdentitySnapshot, identitySnapshot)),
@@ -832,4 +910,5 @@ export const AuthLive = (
         Context.merge(Context.make(ServicePrincipalGrantAuthority, servicePrincipalGrantAuthority)),
       );
     }),
-  );
+  ).pipe(Layer.provide(services));
+};

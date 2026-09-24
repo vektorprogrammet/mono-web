@@ -27,6 +27,7 @@ export const RecruitmentLive = Layer.effect(
     const admissions = yield* Admissions;
     const organization = yield* Organization;
     const profile = yield* Profile;
+
     return Recruitment.of({
       readAssignmentBoard: (query, context) =>
         readAssignmentBoard(query, context).pipe(

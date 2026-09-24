@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { flow, Match, Array, Predicate, Effect, Schema } from "effect";
 import { canonicalJson, sha256Hex } from "../tutor/evidence.js";
 import { normalizeRfc3339Instant } from "../time.js";
 import {
@@ -17,8 +17,11 @@ import {
 import { OrganizationImportError } from "./errors.js";
 
 const BooleanFlag = Schema.Union([Schema.Boolean, Schema.Literals([0, 1])]);
+
 const OptionalBooleanFlag = Schema.optional(BooleanFlag);
+
 const OptionalNullableInteger = Schema.optional(Schema.NullOr(Schema.Int));
+
 const OptionalNullableString = Schema.optional(Schema.NullOr(Schema.String));
 
 export const LegacyDepartmentRowSchema = Schema.Struct({
@@ -34,6 +37,7 @@ export const LegacyDepartmentRowSchema = Schema.Struct({
   logoPath: Schema.optional(Schema.NullOr(Schema.String)),
   active: Schema.optional(Schema.Boolean),
 });
+
 export type LegacyDepartmentRow = typeof LegacyDepartmentRowSchema.Type;
 
 export const LegacyTeamRowSchema = Schema.Struct({
@@ -47,6 +51,7 @@ export const LegacyTeamRowSchema = Schema.Struct({
   deadline: Schema.optional(Schema.NullOr(Schema.String)),
   active: Schema.optional(Schema.Boolean),
 });
+
 export type LegacyTeamRow = typeof LegacyTeamRowSchema.Type;
 
 export const LegacyMembershipRowSchema = Schema.Struct({
@@ -64,6 +69,7 @@ export const LegacyMembershipRowSchema = Schema.Struct({
   isSuspended: OptionalBooleanFlag,
   isActive: OptionalBooleanFlag,
 });
+
 export type LegacyMembershipRow = typeof LegacyMembershipRowSchema.Type;
 
 export interface LegacyOrganizationSnapshot {
@@ -71,9 +77,9 @@ export interface LegacyOrganizationSnapshot {
   readonly sourceRevision: string;
   readonly snapshotId: string;
   readonly transformationRevision: string;
-  readonly departments: ReadonlyArray<unknown>;
-  readonly teams: ReadonlyArray<unknown>;
-  readonly memberships: ReadonlyArray<unknown>;
+  readonly departments: ReadonlyArray<Schema.Json>;
+  readonly teams: ReadonlyArray<Schema.Json>;
+  readonly memberships: ReadonlyArray<Schema.Json>;
 }
 
 export const ORGANIZATION_IMPORT_REASONS = [
@@ -92,6 +98,7 @@ export const ORGANIZATION_IMPORT_REASONS = [
   "LIVE_TEAM_WITH_HISTORICAL_NAME",
   "INVALID_TEAM_DEADLINE",
 ] as const;
+
 export type OrganizationImportReason = (typeof ORGANIZATION_IMPORT_REASONS)[number];
 
 export interface OrganizationQuarantine {
@@ -100,7 +107,7 @@ export interface OrganizationQuarantine {
   readonly sourceOccurrence: number;
   readonly targetSemanticIdentity: string;
   readonly reason: OrganizationImportReason;
-  readonly raw: unknown;
+  readonly raw: Schema.Json;
 }
 
 export interface LegacyMembershipSourceMetadata {
@@ -114,7 +121,7 @@ export interface OrganizationImportLedgerEntry {
   readonly sourceKind: OrganizationQuarantine["sourceKind"];
   readonly snapshotId: string;
   readonly sourceOccurrence: number;
-  readonly sourceRaw: unknown;
+  readonly sourceRaw: Schema.Json;
   readonly sourcePrimaryKey: string;
   readonly transformationRevision: string;
   readonly targetSemanticIdentity: string;
@@ -138,7 +145,7 @@ type DecodeOutcome<A> =
 
 const decode = <A>(
   schema: Schema.ConstraintDecoder<A, never>,
-  input: unknown,
+  input: Schema.Json,
 ): DecodeOutcome<A> => {
   try {
     return {
@@ -155,48 +162,59 @@ const nonEmpty = (value: string | null | undefined): value is string =>
 
 const bool = (value: boolean | 0 | 1 | undefined, fallback: boolean): boolean =>
   value === undefined ? fallback : value === true || value === 1;
-const canonicalInstant = normalizeRfc3339Instant;
-const safeCanonicalRaw = (raw: unknown): string => {
-  try {
-    return `json:${canonicalJson(raw)}`;
-  } catch {
-    if (raw === undefined) return "unsupported:undefined";
-    if (typeof raw === "bigint") return `unsupported:bigint:${raw.toString()}`;
-    if (typeof raw === "symbol") return `unsupported:symbol:${raw.description ?? ""}`;
-    if (typeof raw === "function") return `unsupported:function:${raw.name}`;
-    return `unsupported:${Object.prototype.toString.call(raw)}`;
-  }
-};
-const rawEvidence = (raw: unknown): unknown => {
-  try {
-    return JSON.parse(canonicalJson(raw)) as unknown;
-  } catch {
-    return { unsupported: safeCanonicalRaw(raw) };
-  }
-};
 
-const unknownSourcePrimaryKey = (raw: unknown, occurrences: Map<string, number>): string => {
+const canonicalInstant = normalizeRfc3339Instant;
+
+const safeCanonicalRaw = Match.type<unknown>().pipe(
+  Match.when(Predicate.isUndefined, () => "unsupported:undefined"),
+  Match.when(Predicate.isBigInt, (raw) => `unsupported:bigint:${raw.toString()}`),
+  Match.when(Predicate.isSymbol, (raw) => `unsupported:symbol:${raw.description ?? ""}`),
+  Match.when(Predicate.isFunction, (raw) => `unsupported:function:${raw.name}`),
+  Match.orElse((raw) => {
+    try {
+      return `json:${canonicalJson(raw)}`;
+    } catch {
+      return `unsupported:${Object.prototype.toString.call(raw)}`;
+    }
+  }),
+);
+
+const rawEvidence = flow(
+  safeCanonicalRaw,
+  (encoded): Schema.Json =>
+    encoded.startsWith("json:") ? JSON.parse(encoded.slice(5)) : { unsupported: encoded },
+);
+
+const unknownSourcePrimaryKey = (raw: Schema.Json, occurrences: Map<string, number>): string => {
   const digest = sha256Hex(new TextEncoder().encode(safeCanonicalRaw(raw)));
   const occurrence = occurrences.get(digest) ?? 0;
   occurrences.set(digest, occurrence + 1);
+
   return `unknown:${digest}:${occurrence}`;
 };
-const orderedRaw = (rows: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
+
+const orderedRaw = (rows: ReadonlyArray<Schema.Json>): ReadonlyArray<Schema.Json> =>
   [...rows].sort((left, right) => safeCanonicalRaw(left).localeCompare(safeCanonicalRaw(right)));
 
 const sourceId = (value: number): string => String(value);
 
-const legacyMembershipSourceMetadata = (raw: unknown): LegacyMembershipSourceMetadata | null => {
-  if (typeof raw !== "object" || raw === null) return null;
-  const row = raw as Record<string, unknown>;
+const legacyMembershipSourceMetadata = (
+  raw: Schema.Json,
+): LegacyMembershipSourceMetadata | null => {
+  if (!Predicate.isObjectOrArray(raw)) return null;
+
   return {
     startSemesterId:
-      typeof row.startSemesterId === "number" && Number.isInteger(row.startSemesterId)
-        ? row.startSemesterId
+      Predicate.hasProperty(raw, "startSemesterId") &&
+      Predicate.isNumber(raw.startSemesterId) &&
+      Number.isInteger(raw.startSemesterId)
+        ? raw.startSemesterId
         : null,
     endSemesterId:
-      typeof row.endSemesterId === "number" && Number.isInteger(row.endSemesterId)
-        ? row.endSemesterId
+      Predicate.hasProperty(raw, "endSemesterId") &&
+      Predicate.isNumber(raw.endSemesterId) &&
+      Number.isInteger(raw.endSemesterId)
+        ? raw.endSemesterId
         : null,
   };
 };
@@ -211,12 +229,13 @@ const quarantine = (
   sourcePrimaryKey: string,
   targetSemanticIdentity: string,
   reason: OrganizationImportReason,
-  raw: unknown,
+  raw: Schema.Json,
   sourceOccurrence = 0,
 ): void => {
   if (!Number.isSafeInteger(sourceOccurrence) || sourceOccurrence < 0) {
     throw new Error("source occurrence must be a non-negative safe integer");
   }
+
   output.quarantined.push({
     sourceKind,
     sourcePrimaryKey,
@@ -249,13 +268,14 @@ const accepted = (
   sourcePrimaryKey: string,
   targetSemanticIdentity: string,
   destinationIdentity: string,
-  sourceRaw: unknown,
+  sourceRaw: Schema.Json,
   sourceMetadata: LegacyMembershipSourceMetadata | null = null,
   sourceOccurrence = 0,
 ): void => {
   if (!Number.isSafeInteger(sourceOccurrence) || sourceOccurrence < 0) {
     throw new Error("source occurrence must be a non-negative safe integer");
   }
+
   output.ledger.push({
     sourceRepository: snapshot.sourceRepository,
     sourceRevision: snapshot.sourceRevision,
@@ -282,6 +302,7 @@ const departmentFromLegacy = (row: LegacyDepartmentRow): Department | undefined 
   ) {
     return undefined;
   }
+
   const candidate = {
     departmentId: DepartmentId.make(sourceId(row.id)),
     name: row.name,
@@ -296,20 +317,21 @@ const departmentFromLegacy = (row: LegacyDepartmentRow): Department | undefined 
     active: row.active ?? true,
     revision: 0,
   };
+
   const decoded = decode(Department, candidate);
+
   return decoded.ok ? decoded.value : undefined;
 };
 
-const teamFromLegacy = (
-  row: LegacyTeamRow,
-  departments: ReadonlySet<number>,
-): { readonly team?: Team; readonly reason?: OrganizationImportReason } => {
+const teamFromLegacy = (row: LegacyTeamRow, departments: ReadonlySet<number>) => {
   if (row.departmentId === null || !departments.has(row.departmentId) || !nonEmpty(row.name)) {
-    return { reason: "MISSING_TEAM_FIELD" };
+    return { reason: "MISSING_TEAM_FIELD" as const };
   }
+
   if (row.deadline !== undefined && row.deadline !== null && !isRfc3339(row.deadline)) {
-    return { reason: "INVALID_TEAM_DEADLINE" };
+    return { reason: "INVALID_TEAM_DEADLINE" as const };
   }
+
   const candidate = {
     teamId: TeamId.make(sourceId(row.id)),
     departmentId: DepartmentId.make(sourceId(row.departmentId)),
@@ -323,33 +345,39 @@ const teamFromLegacy = (
     active: row.active ?? true,
     revision: 0,
   };
+
   const decoded = decode(Team, candidate);
-  return decoded.ok ? { team: decoded.value } : { reason: "MISSING_TEAM_FIELD" };
+
+  return decoded.ok ? { team: decoded.value } : { reason: "MISSING_TEAM_FIELD" as const };
 };
 
-const membershipFromLegacy = (
-  row: LegacyMembershipRow,
-  teams: ReadonlySet<number>,
-): { readonly membership?: Membership; readonly reason?: OrganizationImportReason } => {
+const membershipFromLegacy = (row: LegacyMembershipRow, teams: ReadonlySet<number>) => {
   if (row.startAt === undefined || row.startAt.length === 0) {
-    return { reason: "MISSING_TEMPORAL_INTERVAL" };
+    return { reason: "MISSING_TEMPORAL_INTERVAL" as const };
   }
+
   if (
     !isRfc3339(row.startAt) ||
     (row.endAt !== null && row.endAt !== undefined && !isRfc3339(row.endAt))
   ) {
-    return { reason: "INVALID_TEMPORAL_INTERVAL" };
+    return { reason: "INVALID_TEMPORAL_INTERVAL" as const };
   }
+
   const legacyTeamId = row.teamId;
   const teamId = legacyTeamId === null ? null : TeamId.make(sourceId(legacyTeamId));
-  if (legacyTeamId !== null && !teams.has(legacyTeamId)) return { reason: "TEAM_UNRESOLVED" };
+
+  if (legacyTeamId !== null && !teams.has(legacyTeamId))
+    return { reason: "TEAM_UNRESOLVED" as const };
   const deletedTeamName = row.deletedTeamName ?? null;
+
   if (teamId === null && !nonEmpty(deletedTeamName)) {
-    return { reason: "NULL_TEAM_WITHOUT_HISTORICAL_NAME" };
+    return { reason: "NULL_TEAM_WITHOUT_HISTORICAL_NAME" as const };
   }
+
   if (teamId !== null && deletedTeamName !== null) {
-    return { reason: "LIVE_TEAM_WITH_HISTORICAL_NAME" };
+    return { reason: "LIVE_TEAM_WITH_HISTORICAL_NAME" as const };
   }
+
   const candidate = {
     membershipId: MembershipId.make(sourceId(row.id)),
     personId: PersonId.make(sourceId(row.userId)),
@@ -365,36 +393,47 @@ const membershipFromLegacy = (
     isSuspended: bool(row.isSuspended, false),
     revision: 0,
   };
+
   const decoded = decode(MembershipInvariantSchema, candidate);
-  return decoded.ok ? { membership: decoded.value } : { reason: "INVALID_TEMPORAL_INTERVAL" };
+
+  return decoded.ok
+    ? { membership: decoded.value }
+    : { reason: "INVALID_TEMPORAL_INTERVAL" as const };
 };
+
 export const importLegacyOrganization = (
   snapshot: LegacyOrganizationSnapshot,
 ): OrganizationImportResult => {
-  const output: {
-    readonly departments: Department[];
-    readonly teams: Team[];
-    readonly memberships: Membership[];
-    readonly quarantined: OrganizationQuarantine[];
-    readonly ledger: OrganizationImportLedgerEntry[];
-  } = { departments: [], teams: [], memberships: [], quarantined: [], ledger: [] };
+  const output = {
+    departments: Array.empty<Department>(),
+    teams: Array.empty<Team>(),
+    memberships: Array.empty<Membership>(),
+    quarantined: Array.empty<OrganizationQuarantine>(),
+    ledger: Array.empty<OrganizationImportLedgerEntry>(),
+  };
 
   const orderedDepartments = orderedRaw(snapshot.departments);
   const departmentIdCounts = new Map<number, number>();
+
   for (const raw of orderedDepartments) {
     const decoded = decode(LegacyDepartmentRowSchema, raw);
+
     if (decoded.ok) {
       departmentIdCounts.set(decoded.value.id, (departmentIdCounts.get(decoded.value.id) ?? 0) + 1);
     }
   }
+
   const unknownDepartmentOccurrences = new Map<string, number>();
   const departmentIdOccurrences = new Map<number, number>();
   const acceptedDepartmentIds = new Set<number>();
+
   for (const raw of orderedDepartments) {
     const decoded = decode(LegacyDepartmentRowSchema, raw);
+
     const sourcePrimaryKey = decoded.ok
       ? sourceId(decoded.value.id)
       : unknownSourcePrimaryKey(raw, unknownDepartmentOccurrences);
+
     if (!decoded.ok) {
       quarantine(
         output,
@@ -407,9 +446,11 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     const target = `department:${sourcePrimaryKey}`;
     const sourceOccurrence = departmentIdOccurrences.get(decoded.value.id) ?? 0;
     departmentIdOccurrences.set(decoded.value.id, sourceOccurrence + 1);
+
     if ((departmentIdCounts.get(decoded.value.id) ?? 0) > 1) {
       quarantine(
         output,
@@ -423,7 +464,9 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     const department = departmentFromLegacy(decoded.value);
+
     if (department === undefined) {
       quarantine(
         output,
@@ -436,6 +479,7 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     acceptedDepartmentIds.add(decoded.value.id);
     output.departments.push(department);
     accepted(
@@ -451,20 +495,26 @@ export const importLegacyOrganization = (
 
   const orderedTeams = orderedRaw(snapshot.teams);
   const teamIdCounts = new Map<number, number>();
+
   for (const raw of orderedTeams) {
     const decoded = decode(LegacyTeamRowSchema, raw);
+
     if (decoded.ok) {
       teamIdCounts.set(decoded.value.id, (teamIdCounts.get(decoded.value.id) ?? 0) + 1);
     }
   }
+
   const unknownTeamOccurrences = new Map<string, number>();
   const teamIdOccurrences = new Map<number, number>();
   const acceptedTeamIds = new Set<number>();
+
   for (const raw of orderedTeams) {
     const decoded = decode(LegacyTeamRowSchema, raw);
+
     const sourcePrimaryKey = decoded.ok
       ? sourceId(decoded.value.id)
       : unknownSourcePrimaryKey(raw, unknownTeamOccurrences);
+
     if (!decoded.ok) {
       quarantine(
         output,
@@ -477,9 +527,11 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     const target = `team:${sourcePrimaryKey}`;
     const sourceOccurrence = teamIdOccurrences.get(decoded.value.id) ?? 0;
     teamIdOccurrences.set(decoded.value.id, sourceOccurrence + 1);
+
     if ((teamIdCounts.get(decoded.value.id) ?? 0) > 1) {
       quarantine(
         output,
@@ -493,6 +545,7 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     if (
       decoded.value.departmentId !== null &&
       !acceptedDepartmentIds.has(decoded.value.departmentId)
@@ -500,7 +553,9 @@ export const importLegacyOrganization = (
       quarantine(output, snapshot, "team", sourcePrimaryKey, target, "DEPARTMENT_UNRESOLVED", raw);
       continue;
     }
+
     const teamDecision = teamFromLegacy(decoded.value, acceptedDepartmentIds);
+
     if (teamDecision.team === undefined) {
       quarantine(
         output,
@@ -513,16 +568,21 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     const team = teamDecision.team;
     acceptedTeamIds.add(decoded.value.id);
     output.teams.push(team);
     accepted(output, snapshot, "team", sourcePrimaryKey, target, team.teamId, raw);
   }
 
-  const membershipRows: Array<{ readonly row: LegacyMembershipRow; readonly raw: unknown }> = [];
+  const membershipRows: Array<{ readonly row: LegacyMembershipRow; readonly raw: Schema.Json }> =
+    [];
+
   const unknownMembershipOccurrences = new Map<string, number>();
+
   for (const raw of orderedRaw(snapshot.memberships)) {
     const decoded = decode(LegacyMembershipRowSchema, raw);
+
     if (!decoded.ok) {
       const sourcePrimaryKey = unknownSourcePrimaryKey(raw, unknownMembershipOccurrences);
       quarantine(
@@ -536,8 +596,10 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     membershipRows.push({ row: decoded.value, raw });
   }
+
   membershipRows.sort(
     (left, right) =>
       left.row.id - right.row.id ||
@@ -545,17 +607,22 @@ export const importLegacyOrganization = (
   );
   const membershipSourceIdCounts = new Map<number, number>();
   const membershipSemanticIdentityCounts = new Map<string, number>();
+
   const semanticIdentityOf = (row: LegacyMembershipRow): string => {
     const position =
       row.positionId === null || row.positionId === undefined ? "null" : sourceId(row.positionId);
+
     const team =
       row.teamId === null ? `historical:${row.deletedTeamName ?? "null"}` : sourceId(row.teamId);
+
     const startAt =
       row.startAt === undefined || !isRfc3339(row.startAt)
         ? "missing"
         : canonicalInstant(row.startAt);
+
     return `${sourceId(row.userId)}|${team}|${startAt}|${position}`;
   };
+
   for (const { row } of membershipRows) {
     membershipSourceIdCounts.set(row.id, (membershipSourceIdCounts.get(row.id) ?? 0) + 1);
     const semanticIdentity = semanticIdentityOf(row);
@@ -564,12 +631,15 @@ export const importLegacyOrganization = (
       (membershipSemanticIdentityCounts.get(semanticIdentity) ?? 0) + 1,
     );
   }
+
   const membershipSourceIdOccurrences = new Map<number, number>();
+
   for (const { row, raw } of membershipRows) {
     const sourcePrimaryKey = sourceId(row.id);
     const sourceOccurrence = membershipSourceIdOccurrences.get(row.id) ?? 0;
     membershipSourceIdOccurrences.set(row.id, sourceOccurrence + 1);
     const semanticIdentity = semanticIdentityOf(row);
+
     if (
       (membershipSourceIdCounts.get(row.id) ?? 0) > 1 ||
       (membershipSemanticIdentityCounts.get(semanticIdentity) ?? 0) > 1
@@ -586,7 +656,9 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     const decision = membershipFromLegacy(row, acceptedTeamIds);
+
     if (decision.membership === undefined) {
       quarantine(
         output,
@@ -599,6 +671,7 @@ export const importLegacyOrganization = (
       );
       continue;
     }
+
     output.memberships.push(decision.membership);
     accepted(
       output,

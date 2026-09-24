@@ -1,3 +1,4 @@
+import { backendTestConfig } from "../../test/config.js";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Identity } from "@vektorprogrammet/domain/identity";
 import { Effect, Layer } from "effect";
@@ -22,23 +23,46 @@ const expectProblem = async (response: Response, status: number, code: string): 
 };
 
 const unreachable = vi.fn(() => Effect.die("request schema failure reached endpoint dispatch"));
+
 const securityServices = Layer.mergeAll(
-  Layer.succeed(
-    Identity,
-    Identity.of({
-      resolveSession: () =>
-        Promise.reject(new Error("request schema failure reached authentication")),
-    } as never),
-  ),
-  Layer.succeed(
-    OAuthCredentialAuthority,
-    OAuthCredentialAuthority.of({
-      resolve: () => Promise.reject(new Error("request schema failure reached authentication")),
-    } as never),
-  ),
+  Layer.mock(Identity, {
+    signIn: async () => {
+      throw new Error("Unexpected sign-in");
+    },
+    readCurrentSession: async () => {
+      throw new Error("Unexpected session read");
+    },
+    listSessions: async () => {
+      throw new Error("Unexpected session list");
+    },
+    revokeCurrentSession: async () => {
+      throw new Error("Unexpected session mutation");
+    },
+    revokeSession: async () => {
+      throw new Error("Unexpected session mutation");
+    },
+    revokeOtherSessions: async () => {
+      throw new Error("Unexpected session mutation");
+    },
+    revokeAllSessions: async () => {
+      throw new Error("Unexpected session mutation");
+    },
+    recordSecurityEvent: async () => {
+      throw new Error("Unexpected identity audit");
+    },
+    signOut: async () => {
+      throw new Error("Unexpected sign-out");
+    },
+    resolveSession: () =>
+      Promise.reject(new Error("request schema failure reached authentication")),
+  }),
+  Layer.mock(OAuthCredentialAuthority, {
+    resolve: () => Promise.reject(new Error("request schema failure reached authentication")),
+  }),
 );
 
 const validIdempotencyKey = "A".repeat(22);
+
 const validETag = '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"';
 
 describe("native request schema error transport", () => {
@@ -58,10 +82,11 @@ describe("native request schema error transport", () => {
     ],
   ] as const)("maps %s before dispatch", async (_name, transportHeaders, status, code) => {
     unreachable.mockClear();
+
     const response = await makeProfileTestHttp(
       {
-        config: {} as never,
-        resolveActor: unreachable as never,
+        config: backendTestConfig,
+        resolveActor: unreachable,
       },
       securityServices,
     ).fetch(
@@ -83,11 +108,12 @@ describe("native request schema error transport", () => {
 
   it("maps query decoding to request.malformed before dispatch", async () => {
     unreachable.mockClear();
+
     const response = await makeOrganizationTestHttp(
       {
-        config: {} as never,
-        resolveActor: unreachable as never,
-        resolveAuthority: unreachable as never,
+        config: backendTestConfig.organization,
+        resolveActor: unreachable,
+        resolveAuthority: unreachable,
       },
       securityServices,
     ).fetch(
@@ -95,20 +121,20 @@ describe("native request schema error transport", () => {
         headers: { cookie: "better-auth.session_token=transport-test-session" },
       }),
     );
+
     await expectProblem(response, 400, "request.malformed");
     expect(unreachable).not.toHaveBeenCalled();
   });
 
   it("maps path-parameter decoding to request.malformed before dispatch", async () => {
     unreachable.mockClear();
-    const response = await makeContentManagementTestHttp(
-      unreachable as never,
-      securityServices,
-    ).fetch(
+
+    const response = await makeContentManagementTestHttp(unreachable, securityServices).fetch(
       new Request("http://backend.test/api/content/articles/not-a-number", {
         headers: { cookie: "better-auth.session_token=transport-test-session" },
       }),
     );
+
     await expectProblem(response, 400, "request.malformed");
     expect(unreachable).not.toHaveBeenCalled();
   });

@@ -1,7 +1,5 @@
-import {
-  nativeProblemFrom as decodeNativeProblem,
-  type NativeProblemSummary as DecodedNativeProblem,
-} from "./native-problem";
+import { Predicate, Data, flow } from "effect";
+import { nativeProblemFrom as decodeNativeProblem, type NativeProblemSummary as DecodedNativeProblem, nativeFailureFrom } from "./native-problem";
 import {
   ReceiptApprovalQueueItem,
   ReceiptListItem,
@@ -10,11 +8,15 @@ import {
 } from "@vektorprogrammet/http-api";
 
 type OwnedReceiptProjection = typeof ReceiptListItem.Type;
+
 type ApprovalReceiptProjection = typeof ReceiptApprovalQueueItem.Type;
+
 type SettlementQueueProjection = typeof ReceiptSettlementQueueItem.Type;
+
 type ReceiptSettlementEvidenceProjection = Exclude<OwnedReceiptProjection["settlement"], null>;
 
 export type ReceiptStatus = OwnedReceiptProjection["status"];
+
 export type OwnedReceiptStatus = ReceiptStatus;
 
 export type OwnedReceiptView = {
@@ -106,11 +108,11 @@ export type ReceiptUiErrorTag =
   | "ReceiptNetworkError"
   | "UnknownReceiptError";
 
-export type ReceiptUiError = {
-  readonly _tag: ReceiptUiErrorTag;
-  readonly message: string;
-  readonly field?: ReceiptUiErrorField;
-};
+export type ReceiptUiError = Data.TaggedEnum<{
+  [Tag in ReceiptUiErrorTag]: { readonly message: string; readonly field?: ReceiptUiErrorField };
+}>;
+
+export const ReceiptUiError = Data.taggedEnum<ReceiptUiError>();
 
 export type ReceiptOwnerMutationIntent = "revise" | "withdraw";
 
@@ -205,8 +207,9 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
 };
 
 const validationField = (problem: DecodedNativeProblem): ReceiptUiErrorField | undefined => {
-  if (problem.validation === undefined) return undefined;
+  if (!("validation" in problem)) return undefined;
   const pointer = problem.validation.errors[0]?.pointer;
+
   switch (pointer) {
     case "/description":
       return "description";
@@ -230,12 +233,14 @@ const validationField = (problem: DecodedNativeProblem): ReceiptUiErrorField | u
 export function formatNokAmount(amountOre: number): string {
   if (!Number.isSafeInteger(amountOre) || amountOre <= 0) return "—";
   const digits = String(amountOre).padStart(3, "0");
+
   return `${digits.slice(0, -2)},${digits.slice(-2)} NOK`;
 }
 
 export function formatNokInput(amountOre: number): string {
   if (!Number.isSafeInteger(amountOre) || amountOre <= 0) return "";
   const digits = String(amountOre).padStart(3, "0");
+
   return `${digits.slice(0, -2)},${digits.slice(-2)}`;
 }
 
@@ -316,31 +321,27 @@ export function mapReceiptStatus(status: ReceiptStatus): string {
   return statusLabels[status];
 }
 
-export function isUnauthorizedError(error: unknown): boolean {
-  const code = decodeNativeProblem(error)?.code;
-  return code === "credential.missing" || code === "credential.invalid";
-}
+export const isUnauthorizedError = flow(decodeNativeProblem, (problem) => {
+  const code = problem?.code;
 
-const receiptError = (_tag: ReceiptUiErrorTag, field?: ReceiptUiErrorField): ReceiptUiError => ({
-  _tag,
-  message: receiptErrorMessages[_tag],
-  field,
+  return code === "credential.missing" || code === "credential.invalid";
 });
 
-const mapReceiptError = (
-  error: unknown,
-  authorityTag: "ReceiptOwnerDenied" | "ReceiptScopeDenied",
-): ReceiptUiError => {
-  const problem = decodeNativeProblem(error);
+const receiptError = (_tag: ReceiptUiErrorTag, field?: ReceiptUiErrorField): ReceiptUiError => ReceiptUiError[_tag]({message: receiptErrorMessages[_tag], field});
+
+const receiptErrorFor = (authorityTag: "ReceiptOwnerDenied" | "ReceiptScopeDenied") => flow(nativeFailureFrom, (error): ReceiptUiError => {
+ const problem = error instanceof Error || error instanceof Response ? undefined : error;
+
   if (problem === undefined) {
     if (
-      typeof error === "object" &&
+      Predicate.isObjectOrArray(error) &&
       error !== null &&
       "_tag" in error &&
-      error._tag === "SchemaError"
+      Predicate.isTagged(error, "SchemaError")
     ) {
       return receiptError("ReceiptDecodeError");
     }
+
     return error instanceof Error
       ? receiptError("ReceiptNetworkError")
       : receiptError("UnknownReceiptError");
@@ -382,8 +383,6 @@ const mapReceiptError = (
     case "validation.no-change":
     case "validation.field-not-deletable":
       return receiptError("ReceiptDecodeError", validationField(problem));
-    case "body.invalid-json":
-    case "body.missing":
     case "idempotency-key.invalid":
     case "media-type.unsupported":
     case "precondition.invalid":
@@ -395,16 +394,8 @@ const mapReceiptError = (
     default:
       return receiptError("UnknownReceiptError");
   }
-};
+});
 
-export function mapOwnedReceiptError(error: unknown): ReceiptUiError {
-  return mapReceiptError(error, "ReceiptOwnerDenied");
-}
+export const mapOwnedReceiptError = receiptErrorFor("ReceiptOwnerDenied");
 
-export function mapApprovalReceiptError(error: unknown): ReceiptUiError {
-  return mapReceiptError(error, "ReceiptScopeDenied");
-}
-
-export function mapSettlementReceiptError(error: unknown): ReceiptUiError {
-  return mapReceiptError(error, "ReceiptScopeDenied");
-}
+export const mapApprovalReceiptError = receiptErrorFor("ReceiptScopeDenied");

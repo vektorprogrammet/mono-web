@@ -20,6 +20,7 @@ export const makeRecordingNotificationGateway = (
   const completionRequests: RecruitmentInterviewCompletionOutboxRequest[] = [];
   const requests: RecruitmentInvitationOutboxRequest[] = [];
   const responseRequests: RecruitmentInvitationResponseOutboxRequest[] = [];
+
   return {
     completionRequests,
     requests,
@@ -30,6 +31,7 @@ export const makeRecordingNotificationGateway = (
         deliverInterviewCompletionReceipt: (request) =>
           Effect.sync(() => {
             completionRequests.push(request);
+
             return RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
               deliveredAt,
@@ -39,6 +41,7 @@ export const makeRecordingNotificationGateway = (
         deliverInterviewInvitation: (request) =>
           Effect.sync(() => {
             requests.push(request);
+
             return RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
               deliveredAt,
@@ -48,6 +51,7 @@ export const makeRecordingNotificationGateway = (
         deliverInterviewInvitationResponse: (request) =>
           Effect.sync(() => {
             responseRequests.push(request);
+
             return RecruitmentNotificationEvidenceSchema.make({
               effectId: request.effectId,
               deliveredAt,

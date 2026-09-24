@@ -37,14 +37,17 @@ export const OwnAffiliationResource = Schema.Struct({
   ...Affiliation.fields,
   etag: StrongETag,
 }).annotate({ identifier: "OwnAffiliationResource" });
+
 export const PlacementBoardResource = Schema.Struct({
   ...PlacementBoard.fields,
   etag: StrongETag,
 }).annotate({ identifier: "PlacementBoardResource" });
+
 export const OwnCoverageResource = Schema.Struct({
   ...OwnCoverageView.fields,
   etag: StrongETag,
 }).annotate({ identifier: "OwnCoverageResource" });
+
 export const CoverageBoardResource = Schema.Struct({
   ...CoverageBoard.fields,
   etag: StrongETag,
@@ -118,6 +121,7 @@ export const ListPlacementScopesEndpoint = HttpApiEndpoint.get(
       "Public department labels and canonical semesters; private candidate names require coordinator authority.",
     ),
   );
+
 export const ReadOwnAffiliationEndpoint = HttpApiEndpoint.get(
   "readOwnAffiliation",
   "/api/placements/affiliation",
@@ -132,6 +136,7 @@ export const ReadOwnAffiliationEndpoint = HttpApiEndpoint.get(
   .annotateMerge(
     operationAnnotations("Read own affiliation", "Authenticated Person only; no person selector."),
   );
+
 export const CommandOwnAffiliationEndpoint = HttpApiEndpoint.post(
   "commandOwnAffiliation",
   "/api/placements/affiliation",
@@ -151,6 +156,7 @@ export const CommandOwnAffiliationEndpoint = HttpApiEndpoint.post(
       "Self nomination gives scoped coordinators permission to discover this person.",
     ),
   );
+
 export const ReadPlacementBoardEndpoint = HttpApiEndpoint.get("readBoard", "/api/placements", {
   query: PlacementScope.fields,
   success: privateReadResponse(PlacementBoardResource),
@@ -164,6 +170,7 @@ export const ReadPlacementBoardEndpoint = HttpApiEndpoint.get("readBoard", "/api
       "Only active department leaders or global administrators.",
     ),
   );
+
 export const CommandPlacementBoardEndpoint = HttpApiEndpoint.post(
   "commandBoard",
   "/api/placements",
@@ -201,6 +208,7 @@ export const ReadOwnCoverageEndpoint = HttpApiEndpoint.get(
       "A person sees only commitments where they are scheduled or have acknowledged substitute coverage.",
     ),
   );
+
 export const CommandOwnCoverageEndpoint = HttpApiEndpoint.post(
   "commandOwnCoverage",
   "/api/placements/coverage/own",
@@ -220,6 +228,7 @@ export const CommandOwnCoverageEndpoint = HttpApiEndpoint.post(
       "The current person must own a scheduled assignment in an open commitment or be the addressed substitute.",
     ),
   );
+
 export const ReadCoverageBoardEndpoint = HttpApiEndpoint.get(
   "readCoverageBoard",
   "/api/placements/coverage",
@@ -237,6 +246,7 @@ export const ReadCoverageBoardEndpoint = HttpApiEndpoint.get(
       "Only a scoped coordinator can read candidates, offers, actual attendance, per-absence closures, and commitment outcomes.",
     ),
   );
+
 export const CommandCoverageBoardEndpoint = HttpApiEndpoint.post(
   "commandCoverageBoard",
   "/api/placements/coverage",

@@ -4,23 +4,31 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const databaseRequire = createRequire(
   new URL("../../../packages/database/package.json", import.meta.url),
 );
+
 const { Pool } = databaseRequire("pg");
+
 const postgresUrl = process.env.CONTENT_E2E_PG_URL;
+
 const dashboardOrigin = process.env.CONTENT_E2E_DASHBOARD_ORIGIN ?? "http://127.0.0.1:45261";
+
 if (postgresUrl === undefined) throw new Error("CONTENT_E2E_PG_URL is required");
 
 const parsedUrl = new URL(postgresUrl);
+
 assert.ok(
   parsedUrl.protocol === "postgres:" || parsedUrl.protocol === "postgresql:",
   "Content seed requires PostgreSQL",
 );
+
 assert.ok(
   ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsedUrl.hostname),
   "Content seed is restricted to loopback PostgreSQL",
 );
+
 assert.match(
   decodeURIComponent(parsedUrl.pathname.slice(1)),
   /^content_e2e_0062$/u,
@@ -78,9 +86,13 @@ export const contentJourneyDepartments = {
 };
 
 const persons = Object.values(contentJourneyPersons);
+
 const personIds = persons.map((person) => person.personId);
+
 const departmentIds = Object.values(contentJourneyDepartments);
+
 const teamIds = ["content-e2e-0062-team-alpha", "content-e2e-0062-team-beta"];
+
 const membershipIds = [
   "content-e2e-0062-membership-leader-alpha",
   "content-e2e-0062-membership-author-alpha",
@@ -99,6 +111,7 @@ const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
   },
   encoding: "utf8",
 });
+
 assert.equal(
   identitySeed.status,
   0,
@@ -111,7 +124,9 @@ const pool = new Pool({
   max: 1,
   application_name: "native-content-publication-seed-0062",
 });
+
 const client = await pool.connect();
+
 try {
   await client.query("BEGIN");
   // Dependency order cleanup: content rows, then organization state.
@@ -208,9 +223,11 @@ try {
       ('To versjoner', 'to-versjoner', '<p>Versjon én tekst</p>', FALSE,
        '${contentJourneyPersons.authorDepartmentA.personId}', 1)`,
   );
+
   const articleRows = await client.query(
     `SELECT article_id::int AS id, slug FROM content_articles ORDER BY article_id`,
   );
+
   const bySlug = new Map(articleRows.rows.map((row) => [row.slug, row.id]));
   await client.query(
     `INSERT INTO content_article_versions (
@@ -266,6 +283,7 @@ try {
       (SELECT count(*)::int FROM content_articles WHERE sticky) AS sticky_articles`,
     [personIds, departmentIds, membershipIds],
   );
+
   assert.deepEqual(evidence.rows[0], {
     persons: 6,
     departments: 2,

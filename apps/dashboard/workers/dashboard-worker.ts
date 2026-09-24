@@ -21,6 +21,7 @@ const withPreviewHeaders = (response: Response, host: string, stage: string): Re
   headers.set("X-Mono-Web-Stage", stage);
   headers.set("X-Mono-Web-Host", host);
   headers.set("X-Robots-Tag", "noindex");
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -34,6 +35,7 @@ export const handleDashboardWorkerRequest = async (
   applicationHandler: DashboardApplicationHandler,
 ): Promise<Response> => {
   let stage: DashboardPreviewStage;
+
   try {
     stage = validateDashboardPreviewStage(
       env.PREVIEW_STAGE,
@@ -48,15 +50,19 @@ export const handleDashboardWorkerRequest = async (
   }
 
   const host = request.headers.get("host")?.toLowerCase() ?? "";
+
   if (!isDashboardPreviewHost(stage, host, env.PREVIEW_HOST, env.PREVIEW_HOST_SUFFIX)) {
     return new Response("Unsupported dashboard host", {
       status: 421,
       headers: { "Cache-Control": "no-store" },
     });
   }
+
   const applicationRequest = dashboardApplicationRequest(request);
+
   if (applicationRequest !== request) {
     const url = new URL(applicationRequest.url);
+
     const redirect = new Response(null, {
       status: 307,
       headers: {
@@ -64,9 +70,12 @@ export const handleDashboardWorkerRequest = async (
         Location: `${url.pathname}${url.search}`,
       },
     });
+
     return withPreviewHeaders(redirect, host, stage);
   }
+
   const assetResponse = await dashboardAssetResponse(applicationRequest, env.ASSETS);
+
   if (assetResponse !== undefined) {
     return withPreviewHeaders(assetResponse, host, stage);
   }

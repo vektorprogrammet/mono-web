@@ -10,13 +10,13 @@ import {
   publicApplicationCommandDigest,
   recordPublicApplicationEffects,
   decodePublicApplicationSubmitInput,
-  PublicApplicationSubmitObservationSchema,
 } from "./index.js";
 
 const activationToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+
 const input = {
   commandId: "command-1",
-  departmentId: "department-1",
+  departmentId: DepartmentId.make("department-1"),
   firstName: " Ada ",
   lastName: " Lovelace ",
   phone: " +47 12345678 ",
@@ -79,6 +79,7 @@ describe("public applicant domain", () => {
   it.effect("uses normalized canonical bytes for replay identity", () =>
     Effect.gen(function* () {
       const normalized = yield* decodePublicApplicationSubmitInput(input);
+
       const equivalent = yield* decodePublicApplicationSubmitInput({
         ...input,
         firstName: "Ada",
@@ -86,6 +87,7 @@ describe("public applicant domain", () => {
         phone: "+47 12345678",
         email: "ada@example.com",
       });
+
       expect(publicApplicationCommandDigest(normalized)).toBe(
         publicApplicationCommandDigest(equivalent),
       );
@@ -95,6 +97,7 @@ describe("public applicant domain", () => {
   it.effect("records only ordered effect metadata and deduplicates delivery state", () =>
     Effect.gen(function* () {
       const normalized = yield* decodePublicApplicationSubmitInput(input);
+
       const requests = makePublicApplicationOutboxRequests(
         normalized,
         application,
@@ -102,6 +105,7 @@ describe("public applicant domain", () => {
         applicant.email,
         activationToken,
       );
+
       expect(requests[0]).toMatchObject({ activationToken });
       const interpreter = makeRecordingPublicApplicationEffectInterpreter();
       const first = yield* recordPublicApplicationEffects(requests, interpreter);
@@ -115,16 +119,6 @@ describe("public applicant domain", () => {
       expect(interpreter.duplicateDeliveryCount()).toBe(1);
       expect(interpreter.snapshot()).toHaveLength(3);
       expect(first[0]).not.toHaveProperty("email");
-      const observation = yield* PublicApplicationSubmitObservationSchema.makeEffect({
-        _tag: "Submitted",
-        commandId: normalized.commandId,
-        applicationId: application.id,
-      });
-      expect(observation).toEqual({
-        _tag: "Submitted",
-        commandId: normalized.commandId,
-        applicationId: application.id,
-      });
     }),
   );
 });

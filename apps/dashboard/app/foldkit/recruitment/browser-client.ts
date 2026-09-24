@@ -22,19 +22,29 @@ import {
   type RecruitmentBridgeOperation,
   type RecruitmentInterviewConductResource,
 } from "./bridge";
+
 type RecruitmentInterviewResource = S.Schema.Type<typeof RecruitmentInterviewResourceSchema>;
+
 type ScheduleInterviewResponse = S.Schema.Type<typeof ScheduleInterviewResponseSchema>;
+
 type FinalizeInterviewResponse = S.Schema.Type<typeof FinalizeInterviewResponseSchema>;
+
 type CancelInterviewResponse = S.Schema.Type<typeof CancelInterviewResponseSchema>;
+
 type CorrectInterviewAssessmentResponse = S.Schema.Type<typeof CorrectInterviewAssessmentResponseSchema>;
 
 export type CreateApplicationInterviewInput = S.Schema.Type<
   typeof CreateApplicationInterviewInputSchema
 >;
+
 export type ScheduleInterviewInput = S.Schema.Type<typeof ScheduleInterviewInputSchema>;
+
 export type ReadInterviewConductInput = S.Schema.Type<typeof ReadInterviewConductInputSchema>;
+
 export type FinalizeInterviewInput = S.Schema.Type<typeof FinalizeInterviewInputSchema>;
+
 export type CancelInterviewInput = S.Schema.Type<typeof CancelInterviewInputSchema>;
+
 export type CorrectInterviewAssessmentInput = S.Schema.Type<typeof CorrectInterviewAssessmentInputSchema>;
 
 interface RecruitmentOperations {
@@ -77,7 +87,7 @@ export interface RecruitmentClient {
 
 const bridgeRequest = <A>(
   operation: RecruitmentBridgeOperation,
-  decode: (value: unknown) => A,
+  schema: S.Decoder<A>,
 ): Effect.Effect<A, RecruitmentBridgeFailure> =>
   Effect.tryPromise({
     try: async () => {
@@ -85,15 +95,18 @@ const bridgeRequest = <A>(
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json", accept: "application/json" },
-        body: S.encodeSync(RecruitmentBridgeOperationJson)(operation) as string,
+        body: S.encodeSync(RecruitmentBridgeOperationJson)(operation),
       });
+
       const payload: unknown = await response.json();
+
       if (!response.ok) {
         throw S.decodeUnknownSync(RecruitmentBridgeFailure)(payload, {
           onExcessProperty: "error",
         });
       }
-      return decode(payload);
+
+      return S.decodeUnknownSync(schema)(payload, {onExcessProperty: "error"});
     },
     catch: toRecruitmentBridgeFailure,
   });
@@ -101,52 +114,30 @@ const bridgeRequest = <A>(
 export const createBrowserRecruitmentClient = (): RecruitmentClient => ({
   recruitment: {
     readAssignmentBoard: ({ query }) =>
-      bridgeRequest({ operation: "readAssignmentBoard", query }, (value) =>
-        S.decodeUnknownSync(RecruitmentAssignmentBoardSchema)(value, {
-          onExcessProperty: "error",
-        }),
+      bridgeRequest({ operation: "readAssignmentBoard", query }, RecruitmentAssignmentBoardSchema,
       ),
     createApplicationInterview: ({ params, headers, payload }) =>
       bridgeRequest(
         { operation: "createApplicationInterview", params, headers, payload },
-        (value) =>
-          S.decodeUnknownSync(RecruitmentInterviewResourceSchema)(value, {
-            onExcessProperty: "error",
-          }),
+        RecruitmentInterviewResourceSchema,
       ),
     readSchedulingBoard: () =>
-      bridgeRequest({ operation: "readSchedulingBoard" }, (value) =>
-        S.decodeUnknownSync(SchedulingBoard)(value, {
-          onExcessProperty: "error",
-        }),
+      bridgeRequest({ operation: "readSchedulingBoard" }, SchedulingBoard,
       ),
     scheduleInterview: ({ params, headers, payload }) =>
-      bridgeRequest({ operation: "scheduleInterview", params, headers, payload }, (value) =>
-        S.decodeUnknownSync(ScheduleInterviewResponseSchema)(value, {
-          onExcessProperty: "error",
-        }),
+      bridgeRequest({ operation: "scheduleInterview", params, headers, payload }, ScheduleInterviewResponseSchema,
       ),
     readInterviewConduct: ({ params, headers }) =>
-      bridgeRequest({ operation: "readInterviewConduct", params, headers }, (value) =>
-        S.decodeUnknownSync(RecruitmentInterviewConductResourceSchema)(value, {
-          onExcessProperty: "error",
-        }),
+      bridgeRequest({ operation: "readInterviewConduct", params, headers }, RecruitmentInterviewConductResourceSchema,
       ),
     finalizeInterview: ({ params, headers, payload }) =>
-      bridgeRequest({ operation: "finalizeInterview", params, headers, payload }, (value) =>
-        S.decodeUnknownSync(FinalizeInterviewResponseSchema)(value, {
-          onExcessProperty: "error",
-        }),
+      bridgeRequest({ operation: "finalizeInterview", params, headers, payload }, FinalizeInterviewResponseSchema,
       ),
     correctInterviewAssessment: ({ params, headers, payload }) =>
-      bridgeRequest({ operation: "correctInterviewAssessment", params, headers, payload }, (value) =>
-        S.decodeUnknownSync(CorrectInterviewAssessmentResponseSchema)(value, { onExcessProperty: "error" }),
+      bridgeRequest({ operation: "correctInterviewAssessment", params, headers, payload }, CorrectInterviewAssessmentResponseSchema,
       ),
     cancelInterview: ({ params, headers, payload }) =>
-      bridgeRequest({ operation: "cancelInterview", params, headers, payload }, (value) =>
-        S.decodeUnknownSync(CancelInterviewResponseSchema)(value, {
-          onExcessProperty: "error",
-        }),
+      bridgeRequest({ operation: "cancelInterview", params, headers, payload }, CancelInterviewResponseSchema,
       ),
   },
 });

@@ -1,4 +1,4 @@
-import { Cause, Context, Effect, Result } from "effect";
+import { Schema, Match, Predicate, Cause, Context, Effect, Result } from "effect";
 import { DomainProcess, writeStandardError, writeStandardOutput } from "../runtime-services.js";
 import { canonicalJson } from "./evidence.js";
 
@@ -15,30 +15,25 @@ export interface D1ProofResult {
   readonly evidenceCanonicalJson: string;
 }
 
-export interface TutorD1ProofShape {
-  readonly run: Effect.Effect<D1ProofResult, unknown>;
+export interface TutorD1ProofOperations {
+  readonly run: Effect.Effect<D1ProofResult, Cause.UnknownError>;
 }
 
-export class TutorD1Proof extends Context.Service<TutorD1Proof, TutorD1ProofShape>()(
+export class TutorD1Proof extends Context.Service<TutorD1Proof, TutorD1ProofOperations>()(
   "@vektorprogrammet/domain/TutorD1Proof",
 ) {}
 
-const errorTag = (error: unknown): string =>
-  typeof error === "object" && error !== null && "_tag" in error && typeof error._tag === "string"
-    ? error._tag
-    : error instanceof Error
-      ? error.name
-      : "UnknownError";
+const errorTag = Match.type<unknown>().pipe(
+  Match.when(Schema.is(Schema.Struct({ _tag: Schema.String })), (error) => error._tag),
+  Match.when(Predicate.isError, (error) => error.name),
+  Match.orElse(() => "UnknownError"),
+);
 
-const errorReason = (error: unknown): string =>
-  typeof error === "object" &&
-  error !== null &&
-  "reasonCode" in error &&
-  typeof error.reasonCode === "string"
-    ? error.reasonCode
-    : error instanceof Error
-      ? error.name
-      : "UNKNOWN";
+const errorReason = Match.type<unknown>().pipe(
+  Match.when(Schema.is(Schema.Struct({ reasonCode: Schema.String })), (error) => error.reasonCode),
+  Match.when(Predicate.isError, (error) => error.name),
+  Match.orElse(() => "UNKNOWN"),
+);
 
 export const main = (
   args: ReadonlyArray<string>,
@@ -65,7 +60,8 @@ export const main = (
       ),
       Effect.catchCause((cause) => {
         const failure = Cause.findError(cause);
-        const error = Result.isSuccess(failure) ? failure.success : undefined;
+        const error = Result.isSuccess(failure) ? failure.success.cause : undefined;
+
         return writeStandardError(
           `${canonicalJson({ specId: SPEC_ID, passed: false, error: `${errorTag(error)}:${errorReason(error)}` })}\n`,
         ).pipe(Effect.as(1));

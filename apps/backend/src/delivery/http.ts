@@ -1,17 +1,25 @@
-import { Duration, Effect } from "effect";
+import { Data, Schema, Duration, Effect } from "effect";
 
 export interface HttpDeliveryConfig {
   readonly endpoint: URL;
   readonly token: string;
   readonly deliveryTimeoutMilliseconds: number;
 }
+
 export type DeliveryFetch = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
+
+export class HttpDeliveryFailure extends Data.TaggedError("HttpDeliveryFailure")<{
+  readonly reason: "Rejected" | "Unavailable";
+  readonly status?: number;
+  readonly cause?: unknown;
+}> {}
+
 /** Shared acknowledged JSON transport; deliberately no retry on ambiguous acceptance. */
 export const deliverJson = (
-  body: unknown,
+  body: Schema.Json,
   config: HttpDeliveryConfig,
   fetchEffect: DeliveryFetch,
   headers: Readonly<Record<string, string>> = {},
@@ -29,8 +37,13 @@ export const deliverJson = (
         redirect: "error",
         signal,
       });
-      if (!response.ok) throw new Error("Delivery rejected");
+
+      if (!response.ok)
+        throw new HttpDeliveryFailure({ reason: "Rejected", status: response.status });
       await response.body?.cancel();
     },
-    catch: () => new Error("Delivery unavailable"),
+    catch: (cause) =>
+      cause instanceof HttpDeliveryFailure
+        ? cause
+        : new HttpDeliveryFailure({ reason: "Unavailable", cause }),
   }).pipe(Effect.timeout(Duration.millis(config.deliveryTimeoutMilliseconds)));

@@ -1,21 +1,19 @@
 import { defineConfig } from "oxlint";
 import { expandDomains, type ExpandInput, type RuleName } from "@phibkro/oxlint-effect-plugin";
 
-const advisorySeverity = Object.fromEntries(
-  [
-    "no-ambient-console",
-    "no-ambient-authority",
-    "no-cross-runtime",
-    "no-premature-execution",
-    "no-native-promise-control-flow",
-    "no-raw-json-parse",
-    "no-untyped-throw",
-  ].map((rule) => [rule, "warn"]),
-) as Record<RuleName, "warn">;
+const advisorySeverity = {
+  "no-ambient-console": "warn",
+  "no-ambient-authority": "warn",
+  "no-cross-runtime": "warn",
+  "no-premature-execution": "warn",
+  "no-native-promise-control-flow": "warn",
+  "no-raw-json-parse": "warn",
+  "no-untyped-throw": "warn",
+} satisfies Partial<Record<RuleName, "warn">>;
 
 const group = <T extends Omit<ExpandInput["groups"][number], "severityOverrides">>(
   input: T,
-): T & { readonly severityOverrides: Record<RuleName, "warn"> } => ({
+): T & { readonly severityOverrides: typeof advisorySeverity } => ({
   ...input,
   severityOverrides: advisorySeverity,
 });
@@ -35,6 +33,18 @@ const effectConfig = {
       platform: "node",
       strictness: "recommended",
     }),
+    {
+      files: [
+        "packages/domain/src/organization/lifecycle.ts",
+        "packages/domain/src/identity/access.ts",
+        "packages/database/src/organization/lifecycle-postgres.ts",
+        "packages/database/src/identity-access.ts",
+      ],
+      role: "effect-library",
+      platform: "portable",
+      strictness: "recommended",
+      severityOverrides: { "no-ambient-authority": "error" },
+    },
     group({
       files: ["tools/parity/src/**/*.ts"],
       role: "application",
@@ -95,6 +105,36 @@ const expandedEffectConfig = expandDomains(effectConfig);
 
 export default defineConfig({
   ...expandedEffectConfig,
+  jsPlugins: [
+    ...expandedEffectConfig.jsPlugins,
+    { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
+    { name: "anti-slop-effect", specifier: "./tools/oxlint/anti-slop/effect/index.ts" },
+  ],
+  rules: {
+    "anti-slop-effect/no-manual-effect-error-tag": "error",
+    "anti-slop-effect/no-manual-tag-comparison": "error",
+    "anti-slop-effect/no-manual-tagged-construction": "error",
+    "anti-slop-effect/no-service-constructor-imports": "error",
+    "anti-slop-effect/prefer-effect-match": "error",
+    "anti-slop/no-array-filter-map": "error",
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-conditional-empty-object-spread": "error",
+    "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-object-parameters": "error",
+    "anti-slop/no-reduce-accumulator-copy": "error",
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-reflect-get": "error",
+    "anti-slop/no-runtime-typeof": "error",
+    "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/no-unknown-parameters": "error",
+    "anti-slop/no-unknown-returns": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    "anti-slop/no-unsafe-dictionary-type": "error",
+    "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/require-readable-spacing": "error",
+    "anti-slop/require-safety-comment-for-type-assertion": "error",
+  },
   overrides: [
     ...expandedEffectConfig.overrides,
     {
@@ -141,6 +181,7 @@ export default defineConfig({
   ],
   ignorePatterns: [
     "apps/server/**",
+    "tools/oxlint/anti-slop/**",
     "**/build/**",
     "**/dist/**",
     "**/node_modules/**",

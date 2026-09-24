@@ -27,23 +27,28 @@ const StableApplicationIdSchema = Schema.String.pipe(
 export const PublicApplicationIdSchema = StableApplicationIdSchema.pipe(
   Schema.brand("PublicApplicationId"),
 );
+
 export type PublicApplicationId = typeof PublicApplicationIdSchema.Type;
 
 export const ApplicantIdSchema = StableApplicationIdSchema.pipe(Schema.brand("ApplicantId"));
+
 export type ApplicantId = typeof ApplicantIdSchema.Type;
 
 export const PublicApplicationCommandIdSchema = StableApplicationIdSchema.pipe(
   Schema.brand("PublicApplicationCommandId"),
 );
+
 export type PublicApplicationCommandId = typeof PublicApplicationCommandIdSchema.Type;
 
 export const PublicApplicationEffectIdSchema = StableApplicationIdSchema.pipe(
   Schema.brand("PublicApplicationEffectId"),
 );
+
 export type PublicApplicationEffectId = typeof PublicApplicationEffectIdSchema.Type;
 
 export const isPublicApplicationName = (value: string): boolean => {
   const normalized = value.trim();
+
   return (
     normalized.length > 0 &&
     Array.from(normalized).length <= 100 &&
@@ -53,6 +58,7 @@ export const isPublicApplicationName = (value: string): boolean => {
 
 export const isPublicApplicationPhone = (value: string): boolean => {
   const normalized = value.trim();
+
   return (
     normalized.length > 0 &&
     Array.from(normalized).length <= 32 &&
@@ -62,6 +68,7 @@ export const isPublicApplicationPhone = (value: string): boolean => {
 
 export const isPublicApplicationEmail = (value: string): boolean => {
   const normalized = value.trim();
+
   return (
     normalized.length > 0 &&
     Array.from(normalized).length <= 254 &&
@@ -83,6 +90,7 @@ export const PublicApplicationEmailSchema = Schema.String.pipe(
 );
 
 export const PublicApplicationGenderSchema = Schema.Literals([0, 1]);
+
 export type PublicApplicationGender = typeof PublicApplicationGenderSchema.Type;
 
 export const PublicApplicationYearOfStudySchema = Schema.Int.pipe(
@@ -98,7 +106,9 @@ const Sha256Schema = Schema.String.pipe(
 );
 
 export const isPublicApplicationInstant = isRfc3339Instant;
+
 export const PublicApplicationInstantSchema = Rfc3339InstantSchema;
+
 export type PublicApplicationInstant = typeof PublicApplicationInstantSchema.Type;
 
 export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantRecord")({
@@ -165,7 +175,9 @@ export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantReco
 
 /** Model-derived non-email applicant boundary used by effect payload construction. */
 export const ApplicantSchema = ApplicantRecord.json;
+
 export type Applicant = typeof ApplicantSchema.Type;
+
 export const ApplicantRecordSchema = ApplicantRecord;
 
 export class PublicApplication extends Model.Class<PublicApplication>("PublicApplication")({
@@ -231,9 +243,11 @@ export const ApplicantContactProjectionSchema = Schema.Struct({
   email: ApplicantRecord.fields.email,
   phone: ApplicantRecord.fields.phone,
 });
+
 export type ApplicantContactProjection = typeof ApplicantContactProjectionSchema.Type;
 
 const ApplicantCreateFields = ApplicantRecord.jsonCreate.fields;
+
 const ApplicantInsertFields = ApplicantRecord.insert.fields;
 
 /** Exact public request body. No `_tag`, applicant, period, or status fields are accepted. */
@@ -250,9 +264,11 @@ const SubmitPublicApplicationFields = {
 };
 
 export const PublicApplicationSubmitInputSchema = Schema.Struct(SubmitPublicApplicationFields);
+
 export type PublicApplicationSubmitInput = typeof PublicApplicationSubmitInputSchema.Type;
 
 export const SubmitPublicApplicationInputSchema = PublicApplicationSubmitInputSchema;
+
 export type SubmitPublicApplicationInput = PublicApplicationSubmitInput;
 
 export const PublicApplicationActivationTokenSchema = Schema.String.pipe(
@@ -262,11 +278,13 @@ export const PublicApplicationActivationTokenSchema = Schema.String.pipe(
     }),
   ),
 );
+
 export type PublicApplicationActivationToken = typeof PublicApplicationActivationTokenSchema.Type;
 
 export const SubmitPublicApplicationCommandSchema = Schema.TaggedUnion({
   SubmitPublicApplication: SubmitPublicApplicationFields,
 });
+
 export type SubmitPublicApplicationCommand = typeof SubmitPublicApplicationCommandSchema.Type;
 
 export const PublicApplicationSubmitObservationSchema = Schema.TaggedUnion({
@@ -275,16 +293,18 @@ export const PublicApplicationSubmitObservationSchema = Schema.TaggedUnion({
     applicationId: PublicApplicationIdSchema,
   },
 });
+
 export type PublicApplicationSubmitObservation =
   typeof PublicApplicationSubmitObservationSchema.Type;
 
 export const PublicApplicationObservationSchema = PublicApplicationSubmitObservationSchema;
+
 export type PublicApplicationObservation = PublicApplicationSubmitObservation;
 
-export const PublicApplicationConfirmationSchema = Schema.Struct({
-  _tag: Schema.Literals(["ApplicationConfirmed"]),
+export const PublicApplicationConfirmationSchema = Schema.TaggedStruct("ApplicationConfirmed", {
   applicationId: PublicApplicationIdSchema,
 });
+
 export type PublicApplicationConfirmation = typeof PublicApplicationConfirmationSchema.Type;
 
 export const ApplicantInterviewScheduleSchema = Schema.Struct({
@@ -293,6 +313,7 @@ export const ApplicantInterviewScheduleSchema = Schema.Struct({
   campus: Schema.NullOr(Schema.NonEmptyString),
   mapLink: Schema.NullOr(Schema.String),
 });
+
 export type ApplicantInterviewSchedule = typeof ApplicantInterviewScheduleSchema.Type;
 
 export const ApplicantProgressStateSchema = Schema.TaggedUnion({
@@ -311,6 +332,7 @@ export const ApplicantProgressStateSchema = Schema.TaggedUnion({
   AffiliationActive: {},
   AssignedToSchool: {},
 });
+
 export type ApplicantProgressState = typeof ApplicantProgressStateSchema.Type;
 
 export const ApplicantProgressItemSchema = Schema.Struct({
@@ -322,6 +344,7 @@ export const ApplicantProgressItemSchema = Schema.Struct({
   submittedAt: Rfc3339InstantSchema,
   progress: ApplicantProgressStateSchema,
 });
+
 export type ApplicantProgressItem = typeof ApplicantProgressItemSchema.Type;
 
 export const ApplicantProgressResponseSchema = Schema.Struct({
@@ -329,16 +352,21 @@ export const ApplicantProgressResponseSchema = Schema.Struct({
   observedAt: Rfc3339InstantSchema,
   applications: Schema.Array(ApplicantProgressItemSchema),
 });
+
 export type ApplicantProgressResponse = typeof ApplicantProgressResponseSchema.Type;
-export const decodeApplicantProgressResponse = (input: unknown): ApplicantProgressResponse =>
-  Schema.decodeUnknownSync(ApplicantProgressResponseSchema)(input, {
+
+export const decodeApplicantProgressResponse = Schema.decodeUnknownSync(
+  ApplicantProgressResponseSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);
 
 export const PublicApplicationFieldOfStudySchema = Schema.Struct({
   fieldOfStudyId: AdmissionFieldOfStudy.json.fields.fieldOfStudyId,
   name: AdmissionFieldOfStudy.json.fields.name,
 });
+
 export type PublicApplicationFieldOfStudy = typeof PublicApplicationFieldOfStudySchema.Type;
 
 export const PublicApplicationCatalogDepartmentSchema = Schema.Struct({
@@ -347,13 +375,16 @@ export const PublicApplicationCatalogDepartmentSchema = Schema.Struct({
   closesAt: AdmissionPeriod.json.fields.endAt,
   fieldsOfStudy: Schema.Array(PublicApplicationFieldOfStudySchema),
 });
+
 export type PublicApplicationCatalogDepartment =
   typeof PublicApplicationCatalogDepartmentSchema.Type;
 
 export const PublicApplicationCatalogSchema = Schema.Struct({
   departments: Schema.Array(PublicApplicationCatalogDepartmentSchema),
 });
+
 export type PublicApplicationCatalog = typeof PublicApplicationCatalogSchema.Type;
+
 export interface PublicApplicationCatalogHttpSource {
   readonly catalog: PublicApplicationCatalog;
   readonly validatorSource: {
@@ -375,13 +406,16 @@ export interface PublicApplicationSubmitContext {
   /** Server-generated token for a new or inactive applicant. */
   readonly activationToken: string;
 }
+
 export interface PublicApplicationSubmitResult {
   readonly observation: PublicApplicationSubmitObservation;
   readonly replayed: boolean;
   readonly outboxCount: number;
 }
 
-export const decodePublicApplicationConfirmation = (input: unknown) =>
-  Schema.decodeUnknownEffect(PublicApplicationConfirmationSchema)(input, {
+export const decodePublicApplicationConfirmation = Schema.decodeUnknownEffect(
+  PublicApplicationConfirmationSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);

@@ -53,6 +53,7 @@ import {
   PublicApplicationConfirmationSchema,
   SubmitApplicationRequest,
 } from "./v2-schemas.js";
+
 export {
   AdmissionPeriodId,
   ApplicantProgressItemSchema,
@@ -61,6 +62,7 @@ export {
   PublicApplicationIdSchema,
   ReturningAssistantRegistrationInputSchema,
 };
+
 export type { ApplicantProgressItem, ApplicantProgressResponse, ApplicantProgressState };
 
 /** @since 0.1.0 @category Endpoints */

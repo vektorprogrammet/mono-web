@@ -1,13 +1,13 @@
+import { observePostgresStatements } from "./observe-postgres.js";
 import {
   LegacyDepartmentRowSchema,
   LegacyMembershipRowSchema,
   LegacyTeamRowSchema,
-  type LegacyOrganizationSnapshot,
   type OrganizationImportResult,
 } from "@vektorprogrammet/domain/organization";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Data, Effect, Schema } from "effect";
-import type { DatabaseShape } from "../service.js";
+import { flow, Predicate, Data, Effect, Schema } from "effect";
+import type { DatabaseOperations } from "../service.js";
 
 export const SPEC_0067 = {
   contractRevision: "0067.0",
@@ -68,8 +68,10 @@ export const SPEC_0067_PREREQUISITES = {
 } as const;
 
 const deepFreeze = <A>(value: A): A => {
-  if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value;
+  if (!Predicate.isObjectOrArray(value) || Object.isFrozen(value)) return value;
+
   for (const child of Object.values(value)) deepFreeze(child);
+
   return Object.freeze(value);
 };
 
@@ -187,60 +189,51 @@ export const frozenOrganizationSnapshotInput = deepFreeze({
   snapshotId: SPEC_0067.snapshotId,
 });
 
-export const decodeFrozenOrganizationSnapshot = (
-  input: unknown,
-): Effect.Effect<LegacyOrganizationSnapshot, FrozenOrganizationFixtureDecodeError> =>
-  Schema.decodeUnknownEffect(FrozenOrganizationSnapshotSchema)(input, {
+export const decodeFrozenOrganizationSnapshot = flow(
+  Schema.decodeUnknownEffect(FrozenOrganizationSnapshotSchema, {
     onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError(
-      (cause) => new FrozenOrganizationFixtureDecodeError({ message: String(cause) }),
-    ),
-    Effect.flatMap((decoded) => {
-      const {
-        snapshotId,
-        sourceRepository,
-        sourceRevision,
-        transformationRevision,
-        departments,
-        teams,
-        memberships,
-      } = decoded;
-      const core = {
-        sourceRepository,
-        sourceRevision,
-        transformationRevision,
-        departments,
-        teams,
-        memberships,
-      };
-      const snapshotHash = sha256Hex(canonicalJsonBytes(core));
-      const valid =
-        snapshotHash === SPEC_0067.snapshotHash &&
-        snapshotId === SPEC_0067.snapshotId &&
-        sourceRepository === SPEC_0067.sourceRepository &&
-        sourceRevision === SPEC_0067.sourceRevision &&
-        transformationRevision === SPEC_0067.transformationRevision;
-      return valid
-        ? Effect.succeed(deepFreeze(decoded) as LegacyOrganizationSnapshot)
-        : Effect.fail(
-            new FrozenOrganizationFixtureDecodeError({
-              message: "spec 0067 frozen snapshot reference or canonical hash mismatch",
-            }),
-          );
-    }),
-  );
+  }),
+  Effect.mapError((cause) => new FrozenOrganizationFixtureDecodeError({ message: String(cause) })),
+  Effect.flatMap((decoded) => {
+    const {
+      snapshotId,
+      sourceRepository,
+      sourceRevision,
+      transformationRevision,
+      departments,
+      teams,
+      memberships,
+    } = decoded;
 
-export interface OrganizationImportOutcomeEvidence {
-  readonly order: number;
-  readonly kind: "department" | "team" | "membership";
-  readonly sourcePrimaryKey: string;
-  readonly sourceOccurrence: number;
-  readonly result: "Accepted" | "Quarantined";
-  readonly reason: string | null;
-  readonly destinationIdentity: string | null;
-  readonly targetSemanticIdentity: string;
-}
+    const core = {
+      sourceRepository,
+      sourceRevision,
+      transformationRevision,
+      departments,
+      teams,
+      memberships,
+    };
+
+    const snapshotHash = sha256Hex(canonicalJsonBytes(core));
+
+    const valid =
+      snapshotHash === SPEC_0067.snapshotHash &&
+      snapshotId === SPEC_0067.snapshotId &&
+      sourceRepository === SPEC_0067.sourceRepository &&
+      sourceRevision === SPEC_0067.sourceRevision &&
+      transformationRevision === SPEC_0067.transformationRevision;
+
+    return valid
+      ? Effect.succeed(deepFreeze(decoded))
+      : Effect.fail(
+          new FrozenOrganizationFixtureDecodeError({
+            message: "spec 0067 frozen snapshot reference or canonical hash mismatch",
+          }),
+        );
+  }),
+);
+
+export type OrganizationImportOutcomeEvidence = typeof OutcomeMatrixEntrySchema.Type;
 
 export const expectedOrganizationImportOutcomeMatrix: ReadonlyArray<OrganizationImportOutcomeEvidence> =
   deepFreeze([
@@ -329,33 +322,37 @@ export const expectedOrganizationImportOutcomeMatrix: ReadonlyArray<Organization
 export const organizationImportOutcomeMatrix = (
   result: OrganizationImportResult,
 ): ReadonlyArray<OrganizationImportOutcomeEvidence> =>
-  result.ledger.map((entry, index) => ({
-    order: index + 1,
-    kind: entry.sourceKind,
-    sourcePrimaryKey: entry.sourcePrimaryKey,
-    sourceOccurrence: entry.sourceOccurrence,
-    result: entry.result,
-    reason: entry.reason,
-    destinationIdentity: entry.destinationIdentity,
-    targetSemanticIdentity: entry.targetSemanticIdentity,
-  }));
+  Schema.decodeUnknownSync(Schema.Array(OutcomeMatrixEntrySchema))(
+    result.ledger.map((entry, index) => ({
+      order: index + 1,
+      kind: entry.sourceKind,
+      sourcePrimaryKey: entry.sourcePrimaryKey,
+      sourceOccurrence: entry.sourceOccurrence,
+      result: entry.result,
+      reason: entry.reason,
+      destinationIdentity: entry.destinationIdentity,
+      targetSemanticIdentity: entry.targetSemanticIdentity,
+    })),
+  );
 
 export const organizationImportProvenanceEvidence = (result: OrganizationImportResult) =>
-  result.ledger.map((entry) => ({
-    sourceRepository: entry.sourceRepository,
-    sourceRevision: entry.sourceRevision,
-    snapshotId: entry.snapshotId,
-    transformationRevision: entry.transformationRevision,
-    sourceKind: entry.sourceKind,
-    sourcePrimaryKey: entry.sourcePrimaryKey,
-    sourceOccurrence: entry.sourceOccurrence,
-    targetSemanticIdentity: entry.targetSemanticIdentity,
-    destinationIdentity: entry.destinationIdentity,
-    result: entry.result,
-    reason: entry.reason,
-    sourceRawSha256: sha256Hex(canonicalJsonBytes(entry.sourceRaw)),
-    sourceMetadata: entry.sourceMetadata,
-  }));
+  Schema.decodeUnknownSync(Schema.Array(ProvenanceEntrySchema))(
+    result.ledger.map((entry) => ({
+      sourceRepository: entry.sourceRepository,
+      sourceRevision: entry.sourceRevision,
+      snapshotId: entry.snapshotId,
+      transformationRevision: entry.transformationRevision,
+      sourceKind: entry.sourceKind,
+      sourcePrimaryKey: entry.sourcePrimaryKey,
+      sourceOccurrence: entry.sourceOccurrence,
+      targetSemanticIdentity: entry.targetSemanticIdentity,
+      destinationIdentity: entry.destinationIdentity,
+      result: entry.result,
+      reason: entry.reason,
+      sourceRawSha256: sha256Hex(canonicalJsonBytes(entry.sourceRaw)),
+      sourceMetadata: entry.sourceMetadata,
+    })),
+  );
 
 export type OrganizationImportSqlPhase =
   | "DepartmentInsert"
@@ -389,7 +386,7 @@ export interface OrganizationImportSqlObserverState {
   personAuthorizationLockAttempts: number;
 }
 
-export const makeOrganizationImportSqlObserverState = (): OrganizationImportSqlObserverState => ({
+export const initOrganizationImportSqlObserverState = (): OrganizationImportSqlObserverState => ({
   captureImportTrace: false,
   importTrace: [],
   delegatedSqlErrors: [],
@@ -413,10 +410,12 @@ const dmlStatement = (text: string): boolean => {
     /^(?:(?:\s+)|(?:--[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/u,
     "",
   );
+
   const withoutReadLocks = withoutLeadingComments.replace(
     /\bFOR\s+(?:NO\s+KEY\s+)?UPDATE\b/giu,
     "FOR_LOCK",
   );
+
   return /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\b/iu.test(withoutReadLocks);
 };
 
@@ -426,80 +425,111 @@ const classifyImportWrite = (
   if (/\bINSERT\s+INTO\s+(?:public\.)?organization_departments\b/iu.test(text)) {
     return "DepartmentInsert";
   }
+
   if (/\bINSERT\s+INTO\s+(?:public\.)?organization_teams\b/iu.test(text)) {
     return "TeamInsert";
   }
+
   if (/\bINSERT\s+INTO\s+(?:public\.)?organization_memberships\b/iu.test(text)) {
     return "MembershipInsert";
   }
+
   if (/\bINSERT\s+INTO\s+(?:public\.)?organization_membership_quarantine\b/iu.test(text)) {
     return "QuarantineInsert";
   }
+
   if (/\bINSERT\s+INTO\s+(?:public\.)?organization_import_ledger\b/iu.test(text)) {
     return "LedgerInsert";
   }
+
   return undefined;
 };
 
 const nestedString = (
-  input: unknown,
+  cause: unknown,
   field: "code" | "message",
   seen = new Set<unknown>(),
 ): string | undefined => {
-  if (typeof input !== "object" || input === null || seen.has(input)) return undefined;
-  seen.add(input);
-  const record = input as Record<string, unknown>;
-  const direct = record[field];
-  if (typeof direct === "string") {
-    if (field === "code" || direct.includes(SPEC_0067.failureMessage)) return direct;
-  }
-  for (const link of ["reason", "cause"] as const) {
-    const nested = nestedString(record[link], field, seen);
-    if (nested !== undefined) return nested;
-  }
-  for (const value of Object.values(record)) {
+  if (!Predicate.isObjectOrArray(cause) || seen.has(cause)) return undefined;
+  seen.add(cause);
+
+  const direct =
+    field === "code"
+      ? "code" in cause
+        ? cause.code
+        : undefined
+      : "message" in cause
+        ? cause.message
+        : undefined;
+
+  if (field === "code" && Predicate.isString(direct)) return direct;
+
+  for (const value of [
+    "reason" in cause ? cause.reason : undefined,
+    "cause" in cause ? cause.cause : undefined,
+  ]) {
     const nested = nestedString(value, field, seen);
+
     if (nested !== undefined) return nested;
   }
-  return typeof direct === "string" ? direct : undefined;
+
+  for (const value of Object.values(cause)) {
+    const nested = nestedString(value, field, seen);
+
+    if (nested !== undefined) return nested;
+  }
+
+  return Predicate.isString(direct) ? direct : undefined;
 };
 
-const observeStatement = <A>(
-  statement: Effect.Effect<ReadonlyArray<A>, unknown>,
+const observeStatement = <A, E, R>(
+  statement: Effect.Effect<A, E, R>,
   text: string,
   state: OrganizationImportSqlObserverState,
-  values: ReadonlyArray<unknown> = [],
-): Effect.Effect<ReadonlyArray<A>, unknown> => {
+  values: ReadonlyArray<string> = [],
+): Effect.Effect<A, E, R> => {
   const normalizedText = normalizeSqlIdentifiers(text);
   const phase = classifyImportWrite(normalizedText);
   const dml = dmlStatement(normalizedText);
+
   const personAuthorizationLock =
     text.includes("vektorprogrammet:person-authorization:v1:") ||
     values.some(
       (value) =>
-        typeof value === "string" && value.startsWith("vektorprogrammet:person-authorization:v1:"),
+        Predicate.isString(value) && value.startsWith("vektorprogrammet:person-authorization:v1:"),
     );
+
   const outboxAccess = /\b[A-Za-z0-9_]*_outbox\b/iu.test(normalizedText);
+
   const outboxClaim =
     outboxAccess &&
     (/\b(?:FOR\s+UPDATE|SKIP\s+LOCKED)\b/iu.test(normalizedText) ||
       (dml && /\b(?:claim_id|claimed_at)\b/iu.test(normalizedText)));
+
   if (!dml && phase === undefined && !personAuthorizationLock && !outboxClaim) return statement;
+
   const before = Effect.sync(() => {
     if (dml && /\b(?:public\.)?authz_(?:tags|tag_assignments|rules)\b/iu.test(normalizedText)) {
       state.ruleDmlAttempts += 1;
     }
+
     if (dml && /\bauth\.(?:user|session|account|verification)\b/iu.test(normalizedText)) {
       state.authDmlAttempts += 1;
     }
+
     if (dml && /\b(?:public\.)?economy_(?:receipts|receipt_|payment_)/iu.test(normalizedText)) {
       state.receiptDmlAttempts += 1;
     }
+
     if (dml && outboxAccess) state.outboxDmlAttempts += 1;
+
     if (outboxClaim) state.outboxClaimAttempts += 1;
+
     if (personAuthorizationLock) state.personAuthorizationLockAttempts += 1;
+
     if (state.captureImportTrace && phase !== undefined) state.importTrace.push({ phase });
   });
+
   const delegated = before.pipe(
     Effect.andThen(statement),
     Effect.tapError((cause) =>
@@ -512,6 +542,7 @@ const observeStatement = <A>(
       }),
     ),
   );
+
   return phase === "LedgerInsert"
     ? delegated.pipe(
         Effect.tapError((cause) =>
@@ -530,31 +561,19 @@ const observeStatement = <A>(
 
 /** Evidence-only proxy: results, failures, and transaction ownership stay with DatabaseLive. */
 export const observeOrganizationImportSql = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   state: OrganizationImportSqlObserverState,
-): DatabaseShape =>
-  new Proxy(sql, {
-    apply(target, thisArgument, argumentsList) {
-      const statement = Reflect.apply(target, thisArgument, argumentsList) as Effect.Effect<
-        ReadonlyArray<unknown>,
-        unknown
-      >;
-      const strings = argumentsList[0] as TemplateStringsArray;
-      return observeStatement(statement, strings.join("?"), state, argumentsList.slice(1));
-    },
-    get(target, property) {
-      if (property === "unsafe") {
-        return (text: string, params: ReadonlyArray<unknown> = []) =>
-          observeStatement(target.unsafe(text, params), text, state, params);
-      }
-      const value = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  }) as DatabaseShape;
+): DatabaseOperations =>
+  observePostgresStatements(sql, (statement, text, values) => {
+    return observeStatement(statement, text, state, values);
+  });
+
 const NotObservedSectionSchema = Schema.Struct({
   status: Schema.Literal("NotObservedDueToFailure"),
 });
+
 const StringArraySchema = Schema.Array(Schema.String);
+
 const ImportCountsSchema = Schema.Struct({
   departments: Schema.Number,
   teams: Schema.Number,
@@ -562,17 +581,20 @@ const ImportCountsSchema = Schema.Struct({
   quarantine: Schema.Number,
   ledger: Schema.Number,
 });
+
 const StableTableProjectionSchema = Schema.Struct({
   qualifiedName: Schema.String,
   rowCount: Schema.Number,
   byteLength: Schema.Number,
   sha256: Schema.String,
 });
+
 const StableByteSetSchema = Schema.Struct({
   byteLength: Schema.Number,
   sha256: Schema.String,
   tables: Schema.Array(StableTableProjectionSchema),
 });
+
 const StableByteSetsSchema = Schema.Struct({
   canonical: StableByteSetSchema,
   provenance: StableByteSetSchema,
@@ -582,15 +604,18 @@ const StableByteSetsSchema = Schema.Struct({
   receipt: StableByteSetSchema,
   outbox: StableByteSetSchema,
 });
+
 const StableStateEvidenceSchema = Schema.Struct({
   counts: ImportCountsSchema,
   byteSets: StableByteSetsSchema,
 });
+
 const StableComparisonItemSchema = Schema.Struct({
   byteLengthEqual: Schema.Boolean,
   sha256Equal: Schema.Boolean,
   directBytesEqual: Schema.Boolean,
 });
+
 const StableComparisonSchema = Schema.Struct({
   canonical: StableComparisonItemSchema,
   provenance: StableComparisonItemSchema,
@@ -600,6 +625,7 @@ const StableComparisonSchema = Schema.Struct({
   receipt: StableComparisonItemSchema,
   outbox: StableComparisonItemSchema,
 });
+
 const OutcomeReasonSchema = Schema.Union([
   Schema.Null,
   Schema.Literal("MISSING_DEPARTMENT_FIELD"),
@@ -607,6 +633,7 @@ const OutcomeReasonSchema = Schema.Union([
   Schema.Literal("DUPLICATE_MEMBERSHIP"),
   Schema.Literal("TEAM_UNRESOLVED"),
 ]);
+
 const OutcomeMatrixEntrySchema = Schema.Struct({
   order: Schema.Number,
   kind: Schema.Union([
@@ -621,6 +648,7 @@ const OutcomeMatrixEntrySchema = Schema.Struct({
   destinationIdentity: Schema.NullOr(Schema.String),
   targetSemanticIdentity: Schema.String,
 });
+
 const SourceMetadataSchema = Schema.Union([
   Schema.Null,
   Schema.Struct({
@@ -628,6 +656,7 @@ const SourceMetadataSchema = Schema.Union([
     endSemesterId: Schema.NullOr(Schema.Number),
   }),
 ]);
+
 const ProvenanceEntrySchema = Schema.Struct({
   sourceRepository: Schema.String,
   sourceRevision: Schema.String,
@@ -647,6 +676,7 @@ const ProvenanceEntrySchema = Schema.Struct({
   sourceRawSha256: Schema.String,
   sourceMetadata: SourceMetadataSchema,
 });
+
 const ImportResultEvidenceSchema = Schema.Struct({
   byteLength: Schema.Number,
   sha256: Schema.String,
@@ -654,10 +684,12 @@ const ImportResultEvidenceSchema = Schema.Struct({
   outcomeMatrix: Schema.Array(OutcomeMatrixEntrySchema),
   provenance: Schema.Array(ProvenanceEntrySchema),
 });
+
 const TriggerCatalogSchema = Schema.Struct({
   triggerCount: Schema.Number,
   functionCount: Schema.Number,
 });
+
 const ProcessObservationSchema = Schema.Struct({
   label: Schema.String,
   outcome: Schema.Union([
@@ -670,6 +702,7 @@ const ProcessObservationSchema = Schema.Struct({
   exitCode: Schema.NullOr(Schema.Number),
   signal: Schema.NullOr(Schema.String),
 });
+
 const GeneratedOutputRestorationSchema = Schema.Struct({
   path: Schema.String,
   preexisting: Schema.Boolean,
@@ -677,12 +710,14 @@ const GeneratedOutputRestorationSchema = Schema.Struct({
   afterSha256: Schema.NullOr(Schema.String),
   restored: Schema.Boolean,
 });
+
 const BackendRequestSchema = Schema.Struct({
   method: Schema.String,
   path: Schema.String,
   status: Schema.Number,
   sessionCookieAuth: Schema.Boolean,
 });
+
 const ProxyRequestSchema = Schema.Struct({
   method: Schema.String,
   path: Schema.String,
@@ -694,6 +729,7 @@ const ProxyRequestSchema = Schema.Struct({
     Schema.Literal("UnexpectedOrigin"),
   ]),
 });
+
 const NativeBrowserPathObservationSchema = Schema.Struct({
   path: Schema.String,
   status: Schema.Number,
@@ -704,6 +740,7 @@ const NativeBrowserPathObservationSchema = Schema.Struct({
     Schema.Literal("DashboardSsr"),
   ]),
 });
+
 const NativeBrowserPathObservationsSchema = Schema.Array(NativeBrowserPathObservationSchema).pipe(
   Schema.check(
     Schema.makeFilter(
@@ -711,6 +748,7 @@ const NativeBrowserPathObservationsSchema = Schema.Array(NativeBrowserPathObserv
         observations.length === NATIVE_BROWSER_JOURNEY_REQUIREMENTS.length &&
         NATIVE_BROWSER_JOURNEY_REQUIREMENTS.every((requirement, index) => {
           const observation = observations[index];
+
           return (
             observation !== undefined &&
             observation.path === requirement.path &&
@@ -724,16 +762,19 @@ const NativeBrowserPathObservationsSchema = Schema.Array(NativeBrowserPathObserv
     ),
   ),
 );
+
 const BrowserRequestSchema = Schema.Struct({
   method: Schema.String,
   origin: Schema.Literal("api-proxy-loopback"),
   path: Schema.String,
   resourceType: Schema.String,
 });
+
 const UnexpectedApiRequestSchema = Schema.Struct({
   method: Schema.String,
   path: Schema.String,
 });
+
 const ExistingPageSessionCapabilityObservationSchema = Schema.Struct({
   path: Schema.String,
   status: Schema.Number,
@@ -751,6 +792,7 @@ const BrowserPageSchema = Schema.Union([
     contactSha256: StringArraySchema,
   }),
 ]);
+
 const OrganizationImportDashboardRuntimeSchema = Schema.Struct({
   build: Schema.Literal("ReactRouterProductionBuild"),
   server: Schema.Literal("BunDashboardServer"),
@@ -758,6 +800,7 @@ const OrganizationImportDashboardRuntimeSchema = Schema.Struct({
 });
 
 const BrowserDiagnosticTextSchema = Schema.String.pipe(Schema.check(Schema.isMaxLength(2_000)));
+
 const BrowserDiagnosticStringArraySchema = Schema.Array(BrowserDiagnosticTextSchema).pipe(
   Schema.check(
     Schema.makeFilter((values) => values.length <= 128, {
@@ -765,14 +808,17 @@ const BrowserDiagnosticStringArraySchema = Schema.Array(BrowserDiagnosticTextSch
     }),
   ),
 );
+
 const BrowserDiagnosticOriginSchema = Schema.Union([
   Schema.Literal("dashboard-loopback"),
   Schema.Literal("api-proxy-loopback"),
 ]);
+
 const BrowserConsoleMessageSchema = Schema.Struct({
   type: BrowserDiagnosticTextSchema,
   text: BrowserDiagnosticTextSchema,
 });
+
 const BrowserConsoleMessagesSchema = Schema.Array(BrowserConsoleMessageSchema).pipe(
   Schema.check(
     Schema.makeFilter((messages) => messages.length <= 128, {
@@ -780,12 +826,14 @@ const BrowserConsoleMessagesSchema = Schema.Array(BrowserConsoleMessageSchema).p
     }),
   ),
 );
+
 const BrowserDiagnosticRequestSchema = Schema.Struct({
   method: BrowserDiagnosticTextSchema,
   origin: BrowserDiagnosticOriginSchema,
   path: BrowserDiagnosticTextSchema,
   resourceType: BrowserDiagnosticTextSchema,
 });
+
 const BrowserDiagnosticRequestsSchema = Schema.Array(BrowserDiagnosticRequestSchema).pipe(
   Schema.check(
     Schema.makeFilter((requests) => requests.length <= 128, {
@@ -793,11 +841,13 @@ const BrowserDiagnosticRequestsSchema = Schema.Array(BrowserDiagnosticRequestSch
     }),
   ),
 );
+
 const BrowserFailedResponseSchema = Schema.Struct({
   origin: BrowserDiagnosticOriginSchema,
   path: BrowserDiagnosticTextSchema,
   status: Schema.Number,
 });
+
 const BrowserFailedResponsesSchema = Schema.Array(BrowserFailedResponseSchema).pipe(
   Schema.check(
     Schema.makeFilter((responses) => responses.length <= 128, {
@@ -805,6 +855,7 @@ const BrowserFailedResponsesSchema = Schema.Array(BrowserFailedResponseSchema).p
     }),
   ),
 );
+
 const EmptyBrowserFailedResponsesSchema = BrowserFailedResponsesSchema.pipe(
   Schema.check(
     Schema.makeFilter((responses) => responses.length === 0, {
@@ -839,10 +890,12 @@ const BrowserUnexpectedApiRequestsSchema = Schema.Array(
     }),
   ),
 );
+
 const BrowserDiagnosticElementStateSchema = Schema.Struct({
   connected: Schema.Boolean,
   childCount: Schema.Number,
 });
+
 const BrowserFinalPageStateSchema = Schema.Struct({
   path: BrowserDiagnosticTextSchema,
   customElementDefined: Schema.Boolean,
@@ -851,6 +904,7 @@ const BrowserFinalPageStateSchema = Schema.Struct({
   headings: BrowserDiagnosticStringArraySchema,
   alerts: BrowserDiagnosticStringArraySchema,
 });
+
 export const OrganizationImportBrowserFailedEvidenceSchema = Schema.Struct({
   status: Schema.Literal("Failed"),
   failure: BrowserDiagnosticTextSchema,
@@ -862,18 +916,24 @@ export const OrganizationImportBrowserFailedEvidenceSchema = Schema.Struct({
   failedResponses: BrowserFailedResponsesSchema,
   finalPageState: BrowserFinalPageStateSchema,
 });
+
 export type OrganizationImportBrowserFailedEvidence =
   typeof OrganizationImportBrowserFailedEvidenceSchema.Type;
 
-export const decodeOrganizationImportBrowserObservedEvidence = (input: unknown) =>
-  Schema.decodeUnknownEffect(OrganizationImportBrowserObservedEvidenceSchema)(input, {
+export const decodeOrganizationImportBrowserObservedEvidence = Schema.decodeUnknownEffect(
+  OrganizationImportBrowserObservedEvidenceSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);
 
-export const decodeOrganizationImportBrowserFailedEvidence = (input: unknown) =>
-  Schema.decodeUnknownEffect(OrganizationImportBrowserFailedEvidenceSchema)(input, {
+export const decodeOrganizationImportBrowserFailedEvidence = Schema.decodeUnknownEffect(
+  OrganizationImportBrowserFailedEvidenceSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);
+
 const DirectoryUserSchema = Schema.Struct({
   personId: Schema.String,
   firstName: Schema.String,
@@ -884,6 +944,7 @@ const DirectoryUserSchema = Schema.Struct({
   departments: StringArraySchema,
   isActive: Schema.Boolean,
 });
+
 const StrictNativeProjectionSchema = Schema.Struct({
   departments: Schema.Array(
     Schema.Struct({
@@ -938,6 +999,7 @@ const StrictNativeProjectionSchema = Schema.Struct({
     nextCursor: Schema.NullOr(Schema.String),
   }),
 });
+
 const PersonAuthorityProjectionSchema = Schema.Struct({
   personId: Schema.String,
   evaluatedAt: Schema.String,
@@ -952,7 +1014,8 @@ const PersonAuthorityProjectionSchema = Schema.Struct({
     }),
   ),
 });
-const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
+
+export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
   contract: Schema.Struct({
     revision: Schema.String,
     frozenCodeBaseHead: Schema.String,
@@ -1237,10 +1300,12 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
   evidenceSha256: Schema.String,
 });
 
-export const decodeOrganizationImportRehearsalArtifact = (input: unknown) =>
-  Schema.decodeUnknownEffect(OrganizationImportRehearsalArtifactSchema)(input, {
+export const decodeOrganizationImportRehearsalArtifact = Schema.decodeUnknownEffect(
+  OrganizationImportRehearsalArtifactSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);
 
 export class OrganizationImportRehearsalEvidenceDigestMismatch extends Data.TaggedError(
   "OrganizationImportRehearsalEvidenceDigestMismatch",
@@ -1249,18 +1314,19 @@ export class OrganizationImportRehearsalEvidenceDigestMismatch extends Data.Tagg
   readonly computedSha256: string;
 }> {}
 
-export const verifyOrganizationImportRehearsalArtifact = (input: unknown) =>
-  decodeOrganizationImportRehearsalArtifact(input).pipe(
-    Effect.flatMap((artifact) => {
-      const { evidenceSha256, ...artifactCore } = artifact;
-      const computedSha256 = sha256Hex(canonicalJsonBytes(artifactCore));
-      return computedSha256 === evidenceSha256
-        ? Effect.succeed(artifact)
-        : Effect.fail(
-            new OrganizationImportRehearsalEvidenceDigestMismatch({
-              storedSha256: evidenceSha256,
-              computedSha256,
-            }),
-          );
-    }),
-  );
+export const verifyOrganizationImportRehearsalArtifact = flow(
+  decodeOrganizationImportRehearsalArtifact,
+  Effect.flatMap((artifact) => {
+    const { evidenceSha256, ...artifactCore } = artifact;
+    const computedSha256 = sha256Hex(canonicalJsonBytes(artifactCore));
+
+    return computedSha256 === evidenceSha256
+      ? Effect.succeed(artifact)
+      : Effect.fail(
+          new OrganizationImportRehearsalEvidenceDigestMismatch({
+            storedSha256: evidenceSha256,
+            computedSha256,
+          }),
+        );
+  }),
+);

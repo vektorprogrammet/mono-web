@@ -9,6 +9,7 @@ export interface RecordingMailLayer {
 /** Deterministic mail implementation for tests and local boundary checks. */
 export const makeRecordingMailLayer = (): RecordingMailLayer => {
   const deliveries: Array<MailDeliveryRequest> = [];
+
   return {
     layer: Layer.succeed(
       Mail,
@@ -16,6 +17,7 @@ export const makeRecordingMailLayer = (): RecordingMailLayer => {
         deliver: (request) =>
           Effect.sync(() => {
             deliveries.push(request);
+
             return { providerReference: `recording:${request.deliveryId}` };
           }),
       }),

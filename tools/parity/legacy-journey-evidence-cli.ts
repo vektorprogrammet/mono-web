@@ -11,22 +11,27 @@ import { JourneyProcessExecutor, type JourneyProcessHandle } from "./src/journey
 import { assertPathComponentsNoFollow, NodeRuntimeLayer } from "./node-runtime.js";
 import { ParityExecutionEnvironment, ParityFileSystem, ParityTerminal } from "./src/services.js";
 
-const JsonUnknownFromText = Schema.fromJsonString(Schema.Unknown);
-const decodeJsonText = Schema.decodeUnknownSync(JsonUnknownFromText, {
+const JsonFromText = Schema.fromJsonString(Schema.Json);
+
+const decodeJsonText = Schema.decodeUnknownSync(JsonFromText, {
   onExcessProperty: "error",
 });
 
-const responseBody = async (response: Response): Promise<unknown> => {
+const responseBody = async (response: Response): Promise<Schema.Json> => {
   const text = await response.text();
+
   if (text.length === 0) return null;
   const contentType = response.headers.get("content-type") ?? "";
+
   return contentType.includes("json") ? decodeJsonText(text) : { text_sha256_input: text };
 };
 
 const requestBody = (request: JourneyHttpRequest): BodyInit | undefined => {
   if (request.body === undefined) return undefined;
+
   if (request.body.kind === "json") return canonicalJson(request.body.value);
   const form = new FormData();
+
   for (const [name, value] of Object.entries(request.body.fields)) form.set(name, value);
   form.set(
     request.body.file.fieldName,
@@ -34,6 +39,7 @@ const requestBody = (request: JourneyHttpRequest): BodyInit | undefined => {
       type: request.body.file.contentType,
     }),
   );
+
   return form;
 };
 
@@ -45,7 +51,9 @@ const NodeJourneyHttpLayer = Layer.succeed(JourneyHttpClient, {
       method: request.method,
       redirect: "manual",
     });
+
     const setCookie = response.headers.getSetCookie();
+
     return {
       body: await responseBody(response),
       headers: setCookie.length === 0 ? {} : { "set-cookie": setCookie.join("\n") },
@@ -62,9 +70,11 @@ interface RunningSubprocess {
 }
 
 const subprocesses = new Map<string, RunningSubprocess>();
+
 const delay = (milliseconds: number): Promise<void> => {
   const { promise, resolve: complete } = Promise.withResolvers<void>();
   setTimeout(complete, milliseconds);
+
   return promise;
 };
 
@@ -78,59 +88,74 @@ const NodeJourneyProcessLayer = Layer.succeed(JourneyProcessExecutor, {
       stdin: "ignore",
       stdout: "inherit",
     });
+
     const handle = { id: String(child.pid) };
     subprocesses.set(handle.id, child);
     await delay(10);
+
     if (child.exitCode !== null) {
       subprocesses.delete(handle.id);
       throw new Error(`process ${executable} exited during startup with ${child.exitCode}`);
     }
+
     return handle;
   },
   stop: async (handle) => {
     const child = subprocesses.get(handle.id);
+
     if (child === undefined) return;
     subprocesses.delete(handle.id);
+
     if (child.exitCode !== null) return;
     child.kill("SIGTERM");
     const graceful = Promise.race([child.exited.then(() => true), delay(5_000).then(() => false)]);
+
     if (!(await graceful) && child.exitCode === null) {
       child.kill("SIGKILL");
       await child.exited;
     }
   },
 });
+
 const assertOutsideFunctionalParityProjection = (path: string): void => {
   const marker = `${sep}evidence${sep}functional-parity`;
+
   if (path.endsWith(marker) || path.includes(`${marker}${sep}`))
     throw new Error("LEGACY_JOURNEY_EVIDENCE_OUTPUT_OVERLAPS_FUNCTIONAL_PARITY_PROJECTION");
   assertPathComponentsNoFollow(path);
 };
 
-const parseArguments = (
-  arguments_: readonly string[],
-): {
+type LegacyJourneyArguments = {
   readonly output: string;
   readonly phpExecutable: string;
-} => {
+};
+
+const parseArguments = (arguments_: readonly string[]): LegacyJourneyArguments => {
   const values = new Map<string, string>();
+
   for (let index = 0; index < arguments_.length; index += 2) {
     const name = arguments_[index];
     const value = arguments_[index + 1];
+
     if (name === undefined || value === undefined || !name.startsWith("--")) {
       throw new Error("LEGACY_JOURNEY_EVIDENCE_ARGUMENTS_INVALID");
     }
+
     values.set(name, value);
   }
+
   const output = values.get("--output");
   const phpExecutable = values.get("--php");
+
   if (values.size !== 2 || output === undefined || phpExecutable === undefined) {
     throw new Error(
       "LEGACY_JOURNEY_EVIDENCE_ARGUMENTS_INVALID:requires --output <dir> --php <path>",
     );
   }
+
   const resolvedOutput = resolve(output);
   assertOutsideFunctionalParityProjection(resolvedOutput);
+
   return { output: resolvedOutput, phpExecutable: resolve(phpExecutable) };
 };
 
@@ -139,12 +164,14 @@ const program = Effect.gen(function* () {
   const fileSystem = yield* ParityFileSystem;
   const terminal = yield* ParityTerminal;
   const options = parseArguments(execution.arguments.slice(2));
+
   const manifest = yield* runClaimSpecificLegacyJourneyEvidence({
     artifactDirectory: resolve(options.output, "artifacts"),
     legacyRepositoryRoot: "/srv/share/projects/vektorprogrammet/mono-web",
     phpExecutable: options.phpExecutable,
     runnerSourcePath: resolve(execution.runnerDirectory, "legacy-journey-evidence.ts"),
   });
+
   const manifestBytes = canonicalJson(manifest);
   fileSystem.writeFileNoFollow(resolve(options.output, "legacy-run-manifest.json"), manifestBytes);
   terminal.writeStandardOutput(`${manifestBytes}\n`);

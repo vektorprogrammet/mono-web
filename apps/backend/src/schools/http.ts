@@ -1,3 +1,4 @@
+import { Scope } from "@vektorprogrammet/domain/authz";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
@@ -10,7 +11,7 @@ import {
 } from "@vektorprogrammet/domain/schools";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
 import { ListSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
-import { Effect, Option, Schema } from "effect";
+import { Predicate, Effect, Option, Schema } from "effect";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
 
@@ -35,7 +36,7 @@ class SchoolsHttpQueryDecodeError extends Error {
   readonly status = 422;
 }
 
-const privateJsonResponse = (body: unknown): Response =>
+const privateJsonResponse = (body: Schema.Json): Response =>
   new Response(JSON.stringify(body), {
     status: 200,
     headers: {
@@ -49,10 +50,12 @@ export const schoolsErrorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(cause.code, cause.status);
   }
+
   const tag =
-    typeof cause === "object" && cause !== null && "_tag" in cause
+    (cause === null || Predicate.isObjectOrArray(cause)) && cause !== null && "_tag" in cause
       ? String(cause._tag)
       : "SchoolsPersistenceError";
+
   switch (tag) {
     case "UnauthenticatedActor":
       return nativeProblemResponse("credential.invalid", 401, {
@@ -73,12 +76,14 @@ const decodeQuery = (
   request: Request,
 ): Effect.Effect<SchoolDirectoryQuery, SchoolsHttpQueryDecodeError> => {
   const parameters = [...new URL(request.url).searchParams];
+
   const encoded =
     parameters.length === 0
       ? {}
       : parameters.length === 1 && parameters[0]![0] === "department"
         ? { departmentId: parameters[0]![1] }
         : undefined;
+
   if (encoded === undefined) return Effect.fail(new SchoolsHttpQueryDecodeError());
 
   return Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(encoded, {
@@ -105,14 +110,16 @@ export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
           }),
         ],
       },
-      grantScopes: [{ _tag: "Global" }],
+      grantScopes: [Scope.Global()],
       now: actor.authorizationInstant,
     });
+
     const directory = yield* readSchoolsDirectory(
       actor.personId,
       actor.authorizationInstant,
       query,
     );
+
     const response = yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
       onExcessProperty: "error",
     }).pipe(
@@ -124,5 +131,6 @@ export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
           }),
       ),
     );
+
     return privateJsonResponse(response);
   });

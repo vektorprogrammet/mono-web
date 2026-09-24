@@ -77,6 +77,7 @@ export class RecruitmentAssignmentCommandConflict extends Schema.TaggedError<Rec
   "RecruitmentAssignmentCommandConflict",
   { commandId: RecruitmentAssignmentCommandId },
 ) {}
+
 export class RecruitmentInterviewNotFound extends Schema.TaggedError<RecruitmentInterviewNotFound>()(
   "RecruitmentInterviewNotFound",
   { interviewId: RecruitmentInterviewId },
@@ -120,6 +121,7 @@ export class RecruitmentInvalidContext extends Schema.TaggedError<RecruitmentInv
   "RecruitmentInvalidContext",
   { message: Schema.String },
 ) {}
+
 export class InterviewQuestionsUnavailable extends Schema.TaggedError<InterviewQuestionsUnavailable>()(
   "InterviewQuestionsUnavailable",
   {
@@ -132,6 +134,7 @@ export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentP
   "RecruitmentPersistenceError",
   { operation: Schema.String, message: Schema.String, cause: Schema.optional(Schema.Unknown) },
 ) {}
+
 export class RecruitmentLifecycleCommandConflict extends Schema.TaggedError<RecruitmentLifecycleCommandConflict>()(
   "RecruitmentLifecycleCommandConflict",
   {

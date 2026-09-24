@@ -5,18 +5,25 @@ import { test as base, expect, type Page } from "@playwright/test";
 import { HOMEPAGE_PLAYWRIGHT_INPUTS } from "../../playwright.config";
 import { DEV_CONTENT_SOURCE } from "../../src/lib/dev-content";
 import { countServiceWorkerRegistrations } from "../../browser/service-worker-state";
+import {Schema} from "effect";
+
 
 export const LOCAL_HOST = HOMEPAGE_PLAYWRIGHT_INPUTS.host;
+
 export const LOOPBACK_ORIGIN = HOMEPAGE_PLAYWRIGHT_INPUTS.origin;
+
 export const BASE_URL = LOOPBACK_ORIGIN;
+
 export const VIEWPORT = HOMEPAGE_PLAYWRIGHT_INPUTS.viewport;
+
 export const EVIDENCE_DIR =
   process.env.HOMEPAGE_EVIDENCE_DIR ?? join(tmpdir(), "monoweb-homepage-dev-0011", "evidence");
+
 export const SCREENSHOT_DIR = process.env.HOMEPAGE_SCREENSHOT_DIR ?? EVIDENCE_DIR;
 
-const ALLOWED_ORIGINS: Record<string, true> = {
+const ALLOWED_ORIGINS = {
   [LOOPBACK_ORIGIN]: true,
-};
+} as const;
 
 const EVIDENCE_HEADERS = [
   "allow",
@@ -28,14 +35,18 @@ const EVIDENCE_HEADERS = [
   "x-robots-tag",
 ] as const;
 
-type EvidenceHeaders = Record<string, string>;
+type EvidenceHeaders = Partial<Record<(typeof EVIDENCE_HEADERS)[number], string>>;
 
-export type HomepageBuildLiterals = {
-  readonly commit: string;
-  readonly dataSource: typeof DEV_CONTENT_SOURCE;
-  readonly contentDigest: `sha256:${string}`;
-  readonly routeDigest: `sha256:${string}`;
-};
+const BuildDigest = Schema.TemplateLiteral(["sha256:", Schema.String]).check(Schema.isPattern(/^sha256:[0-9a-f]{64}$/));
+
+export const HomepageBuildLiterals = Schema.Struct({
+  commit: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)),
+  dataSource: Schema.Literal(DEV_CONTENT_SOURCE),
+  contentDigest: BuildDigest,
+  routeDigest: BuildDigest,
+});
+
+export type HomepageBuildLiterals = typeof HomepageBuildLiterals.Type;
 
 type EvidenceCheck = {
   checked: boolean;
@@ -71,6 +82,7 @@ export type HomepageDiagnostics = {
   readonly serviceWorkers: ServiceWorkerCheck;
   buildLiterals: HomepageBuildLiterals | null;
 };
+
 export const test = base.extend<{ diagnostics: HomepageDiagnostics }>({
   diagnostics: async ({ page }, use) => {
     const diagnostics: HomepageDiagnostics = {
@@ -86,7 +98,9 @@ export const test = base.extend<{ diagnostics: HomepageDiagnostics }>({
       serviceWorkers: { checked: false, absent: false },
       buildLiterals: null,
     };
+
     await installNetworkGuard(page, diagnostics);
+
     try {
       await use(diagnostics);
     } finally {
@@ -96,20 +110,28 @@ export const test = base.extend<{ diagnostics: HomepageDiagnostics }>({
 });
 
 export { expect };
+
 function redactedPath(rawUrl: string): string {
   const url = new URL(rawUrl, LOOPBACK_ORIGIN);
+
   if (url.origin === LOOPBACK_ORIGIN) return url.pathname || "/";
+
   if (url.protocol === "data:") return "data:";
+
   if (url.protocol === "blob:") return "blob:";
+
   return "external-origin";
 }
 
 function allowlistedHeaders(headers: Record<string, string>): EvidenceHeaders {
   const selected: EvidenceHeaders = {};
+
   for (const name of EVIDENCE_HEADERS) {
     const match = Object.entries(headers).find(([headerName]) => headerName.toLowerCase() === name);
+
     if (match !== undefined) selected[name] = match[1];
   }
+
   return selected;
 }
 
@@ -130,40 +152,15 @@ function responseEntry(
     headers: allowlistedHeaders(headers),
   };
 }
-const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
-const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
-export function recordBuildLiterals(
-  diagnostics: HomepageDiagnostics,
-  value: unknown,
-): HomepageBuildLiterals {
-  if (value === null || typeof value !== "object") {
-    throw new Error("Health response has no build provenance");
-  }
-  const candidate = value as Record<string, unknown>;
-  const commit = candidate.commit;
-  const dataSource = candidate.dataSource;
-  const contentDigest = candidate.contentDigest;
-  const routeDigest = candidate.routeDigest;
-  if (
-    typeof commit !== "string" ||
-    !COMMIT_PATTERN.test(commit) ||
-    dataSource !== DEV_CONTENT_SOURCE ||
-    typeof contentDigest !== "string" ||
-    !DIGEST_PATTERN.test(contentDigest) ||
-    typeof routeDigest !== "string" ||
-    !DIGEST_PATTERN.test(routeDigest)
-  ) {
-    throw new Error("Health response has invalid build provenance");
-  }
-  const buildLiterals: HomepageBuildLiterals = {
-    commit,
-    dataSource: DEV_CONTENT_SOURCE,
-    contentDigest: contentDigest as `sha256:${string}`,
-    routeDigest: routeDigest as `sha256:${string}`,
-  };
-  diagnostics.buildLiterals = buildLiterals;
-  return buildLiterals;
+
+
+
+
+export function recordBuildLiterals(diagnostics: HomepageDiagnostics, buildLiterals: HomepageBuildLiterals): HomepageBuildLiterals {
+ diagnostics.buildLiterals = buildLiterals;
+
+ return buildLiterals;
 }
 
 export function recordClientNavigation(diagnostics: HomepageDiagnostics, passed: boolean): void {
@@ -183,6 +180,7 @@ export async function installNetworkGuard(
   });
   page.on("response", (response) => {
     const request = response.request();
+
     const entry = responseEntry(
       request.method(),
       request.resourceType(),
@@ -191,9 +189,11 @@ export async function installNetworkGuard(
       request.redirectedFrom() !== null,
       response.headers(),
     );
+
     diagnostics.responses.push(entry);
+
     if (
-      ALLOWED_ORIGINS[new URL(response.url()).origin] === true &&
+      Object.hasOwn(ALLOWED_ORIGINS, new URL(response.url()).origin) &&
       (response.status() < 200 || response.status() >= 400)
     ) {
       diagnostics.failedResponses.push(`${response.status()} ${entry.path}`);
@@ -202,17 +202,22 @@ export async function installNetworkGuard(
 
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
+
     const allowed =
-      url.protocol === "data:" || url.protocol === "blob:" || ALLOWED_ORIGINS[url.origin] === true;
+      url.protocol === "data:" || url.protocol === "blob:" || Object.hasOwn(ALLOWED_ORIGINS, url.origin);
+
     if (!allowed) {
       diagnostics.forbiddenRequests.push(redactedPath(route.request().url()));
       await route.abort("blockedbyclient");
+
       return;
     }
+
     if (url.origin === LOOPBACK_ORIGIN) {
       const response = await route.fetch({
         headers: { ...route.request().headers(), host: LOCAL_HOST },
       });
+
       await route.fulfill({ response });
     } else {
       await route.continue();
@@ -238,6 +243,7 @@ export async function assertHealthyPage(
 ): Promise<void> {
   await page.waitForLoadState("networkidle");
   diagnostics.hydration.checked = true;
+
   try {
     await page.waitForFunction("window.__MONO_WEB_HYDRATED__ === true");
     diagnostics.hydration.passed = true;
@@ -245,6 +251,7 @@ export async function assertHealthyPage(
     diagnostics.hydration.passed = false;
     throw error;
   }
+
   const allEntries = [...diagnostics.responses, ...diagnostics.probes];
   const currentPath = new URL(page.url()).pathname;
   expect(diagnostics.responses.length).toBeGreaterThan(0);
@@ -286,6 +293,7 @@ function sortEntries(entries: readonly LedgerEntry[]): LedgerEntry[] {
       String(left.redirect),
       JSON.stringify(left.headers),
     ].join("\u0000");
+
     const rightKey = [
       right.path,
       right.method,
@@ -294,6 +302,7 @@ function sortEntries(entries: readonly LedgerEntry[]): LedgerEntry[] {
       String(right.redirect),
       JSON.stringify(right.headers),
     ].join("\u0000");
+
     return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
   });
 }
@@ -323,6 +332,7 @@ function exportSanitizedEvidence(diagnostics: HomepageDiagnostics): void {
     )}\n`,
     "utf8",
   );
+
   if (build === null) return;
   writeFileSync(
     join(EVIDENCE_DIR, "provenance.json"),

@@ -1,6 +1,9 @@
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import {
+  MergePatchInterpretation,
+  MergePatchFieldState,
+  PreconditionDecision,
   HttpSemanticFailure,
   admissionCacheControl,
   deriveHttpIdentity,
@@ -25,24 +28,32 @@ import {
   semanticMutationRequest,
   semanticRequestDigest,
 } from "./http-semantics.js";
-import { decideNativePreflight, makeNativePreflightMethodResolver } from "./native-preflight.js";
+import {
+  NativePreflightDecision,
+  decideNativePreflight,
+  nativePreflightMethodResolver,
+} from "./native-preflight.js";
 import {
   allowsNativePreflightHeaders,
-  makeNativeSessionBoundaryPolicy,
+  decodeNativeSessionBoundaryPolicy,
   trustedPreflightResponse,
   withTrustedOriginCors,
 } from "./session-security.js";
 
 const key = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY";
+
 const tagA = StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"');
+
 const tagB = StrongETag.make('"vkr2.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"');
 
 describe("native HTTP semantics", () => {
   it("freezes key grammar, identity derivation, and target normalization", () => {
     const decoded = parseIdempotencyKey([key]);
+
     const target = normalizeTarget("/api/receipts/{receiptId}", {
       receiptId: "receipt /?*",
     });
+
     expect(target).toBe(`/api/receipts/${encodePathIdentity("receipt /?*")}`);
     expect(target).toBe("/api/receipts/receipt%20%2F%3F%2A");
 
@@ -52,12 +63,14 @@ describe("native HTTP semantics", () => {
       normalizedTarget: target,
       idempotencyKey: decoded,
     });
+
     const second = deriveHttpIdentity({
       credentialSubject: "Person:person-1",
       qualifiedOperationId: "receipts.reviseReceipt",
       normalizedTarget: target,
       idempotencyKey: decoded,
     });
+
     expect(first).toEqual(second);
     expect(first.identitySha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(first.commandId).toMatch(/^httpv2_[A-Za-z0-9_-]{43}$/u);
@@ -75,7 +88,7 @@ describe("native HTTP semantics", () => {
     expect(() => encodePathIdentity("\ud800")).toThrow(HttpSemanticFailure);
     expect(() =>
       deriveHttpIdentity({
-        credentialSubject: "Person:" as never,
+        credentialSubject: "Person:",
         qualifiedOperationId: "receipts.reviseReceipt",
         normalizedTarget: target,
         idempotencyKey: decoded,
@@ -91,44 +104,48 @@ describe("native HTTP semantics", () => {
     });
   });
   it("classifies merge-patch absence, values, deletion, and empty objects", () => {
-    expect(interpretProfileMergePatchSource({ firstName: "Ada" })).toEqual({
-      _tag: "Accepted",
-      fields: [
-        ["firstName", { _tag: "Value", value: "Ada" }],
-        ["lastName", { _tag: "Absent" }],
-        ["email", { _tag: "Absent" }],
-        ["phone", { _tag: "Absent" }],
-      ],
-    });
-    expect(interpretProfileMergePatchSource({})).toEqual({
-      _tag: "Rejected",
-      code: "validation.no-change",
-      errors: [
-        { pointer: "", code: "no-change", message: "The request does not change the resource." },
-      ],
-    });
-    expect(interpretProfileMergePatchSource({ email: null })).toEqual({
-      _tag: "Rejected",
-      code: "validation.field-not-deletable",
-      errors: [
-        {
-          pointer: "/email",
-          code: "field-not-deletable",
-          message: "The field cannot be deleted.",
-        },
-      ],
-    });
-    expect(interpretProfileMergePatchSource({ "bad/field": true })).toEqual({
-      _tag: "Rejected",
-      code: "validation.failed",
-      errors: [
-        {
-          pointer: "/bad~1field",
-          code: "unknown",
-          message: "The property is not supported.",
-        },
-      ],
-    });
+    expect(interpretProfileMergePatchSource({ firstName: "Ada" })).toEqual(
+      MergePatchInterpretation.Accepted({
+        fields: [
+          ["firstName", MergePatchFieldState.Value({ value: "Ada" })],
+          ["lastName", MergePatchFieldState.Absent()],
+          ["email", MergePatchFieldState.Absent()],
+          ["phone", MergePatchFieldState.Absent()],
+        ],
+      }),
+    );
+    expect(interpretProfileMergePatchSource({})).toEqual(
+      MergePatchInterpretation.Rejected({
+        code: "validation.no-change",
+        errors: [
+          { pointer: "", code: "no-change", message: "The request does not change the resource." },
+        ],
+      }),
+    );
+    expect(interpretProfileMergePatchSource({ email: null })).toEqual(
+      MergePatchInterpretation.Rejected({
+        code: "validation.field-not-deletable",
+        errors: [
+          {
+            pointer: "/email",
+            code: "field-not-deletable",
+            message: "The field cannot be deleted.",
+          },
+        ],
+      }),
+    );
+    expect(interpretProfileMergePatchSource({ "bad/field": true })).toEqual(
+      MergePatchInterpretation.Rejected({
+        code: "validation.failed",
+        errors: [
+          {
+            pointer: "/bad~1field",
+            code: "unknown",
+            message: "The property is not supported.",
+          },
+        ],
+      }),
+    );
   });
 
   it("uses read-list semantics while keeping mutation If-Match exact", () => {
@@ -151,31 +168,34 @@ describe("native HTTP semantics", () => {
         ifMatch: parseReadIfMatch([`W/${tagA}, ${tagB}`]),
         ifNoneMatch: "*",
       }),
-    ).toEqual({ _tag: "Failed", code: "precondition.failed", status: 412 });
+    ).toEqual(PreconditionDecision.Failed({ code: "precondition.failed", status: 412 }));
     expect(
       evaluateReadPreconditions({
         currentETag: tagA,
         ifMatch: parseReadIfMatch([`W/${tagB}, ${tagA}`]),
         ifNoneMatch: "*",
       }),
-    ).toEqual({ _tag: "NotModified" });
-    expect(evaluateMutationPrecondition(tagA, tagA)).toEqual({ _tag: "Proceed" });
+    ).toEqual(PreconditionDecision.NotModified());
+    expect(evaluateMutationPrecondition(tagA, tagA)).toEqual(PreconditionDecision.Proceed());
   });
 
   it("digests decoded semantics and file bytes rather than multipart syntax", () => {
     const file = semanticFile(new TextEncoder().encode("same file"), "application/pdf");
+
     const first = semanticRequestDigest({
       body: { amountOre: 1250, file },
       ifMatch: parseReadIfMatch([tagA]),
       ifNoneMatch: null,
       query: {},
     });
+
     const second = semanticRequestDigest({
       query: {},
       ifNoneMatch: null,
       ifMatch: parseReadIfMatch([tagA]),
       body: { file, amountOre: 1250 },
     });
+
     expect(first).toBe(second);
     expect(first).toMatch(/^[a-f0-9]{64}$/u);
     expect(() => semanticRequestDigest({ body: { value: "\ud800" } })).toThrow(HttpSemanticFailure);
@@ -202,6 +222,7 @@ describe("native HTTP semantics", () => {
       room: "Realfagbygget R90",
       scheduledAt: "2031-09-10T14:00:00.000Z",
     };
+
     const canonical = semanticMutationRequest(body, tagA);
 
     expect(canonical).toEqual({ body, ifMatch: tagA });
@@ -228,11 +249,13 @@ describe("native HTTP semantics", () => {
       resourceIdentity: "receipt-1",
       version: 2,
     });
+
     const next = deriveStrongETag({
       representationKind: "ReceiptResource",
       resourceIdentity: "receipt-1",
       version: 3,
     });
+
     expect(first).toMatch(/^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
     expect(next).not.toBe(first);
   });
@@ -244,11 +267,13 @@ describe("native HTTP semantics", () => {
       contactRevision: 11,
       representationRevision: 3,
     };
+
     const original = deriveProfileStrongETag(source);
     const changedRoleProjection = { ...source, role: "ROLE_TEAM_LEADER" };
     const samePersistedSourcesAfterRoleProjection = deriveProfileStrongETag(changedRoleProjection);
     const changedName = deriveProfileStrongETag({ ...source, nameRevision: 8 });
     const changedContact = deriveProfileStrongETag({ ...source, contactRevision: 12 });
+
     const changedRoleRepresentation = deriveProfileStrongETag({
       ...source,
       representationRevision: 4,
@@ -288,12 +313,14 @@ describe("native HTTP semantics", () => {
         "x-private": "must-not-persist",
       },
     });
+
     const created = jsonMutationResponse({
       status: 201,
       body: { receiptId: "receipt-1" },
       etag: tagA,
       location: "/api/receipts/receipt-1",
     });
+
     expect(created.status).toBe(201);
     expect(created.headers.get("location")).toBe("/api/receipts/receipt-1");
     expect(created.headers.get("etag")).toBe(tagA);
@@ -321,11 +348,12 @@ describe("native HTTP semantics", () => {
     expect(replay.headers.has("x-private")).toBe(false);
   });
   it("derives parameterized preflight methods only from supplied route metadata", () => {
-    const resolve = makeNativePreflightMethodResolver([
+    const resolve = nativePreflightMethodResolver([
       { method: "GET", path: "/fixture/items/:itemId" },
       { method: "PATCH", path: "/fixture/items/:itemId" },
       { method: "DELETE", path: "/fixture/items" },
     ]);
+
     expect(resolve("/fixture/items/item-1")).toEqual(["GET", "PATCH"]);
     expect(resolve("/fixture/items")).toEqual(["DELETE"]);
     expect(resolve("/fixture/items/item-1/extra")).toEqual([]);
@@ -336,7 +364,7 @@ describe("native HTTP semantics", () => {
         headersAllowed: true,
         methodsForPath: resolve,
       }),
-    ).toEqual({ _tag: "MethodNotAllowed", methods: ["GET", "PATCH"] });
+    ).toEqual(NativePreflightDecision.MethodNotAllowed({ methods: ["GET", "PATCH"] }));
     expect(
       decideNativePreflight({
         pathname: "/fixture/items/item-1",
@@ -344,7 +372,7 @@ describe("native HTTP semantics", () => {
         headersAllowed: false,
         methodsForPath: resolve,
       }),
-    ).toEqual({ _tag: "HeaderMalformed" });
+    ).toEqual(NativePreflightDecision.HeaderMalformed());
     expect(
       decideNativePreflight({
         pathname: "/fixture/items/item-1",
@@ -352,11 +380,11 @@ describe("native HTTP semantics", () => {
         headersAllowed: true,
         methodsForPath: resolve,
       }),
-    ).toEqual({ _tag: "Ready", methods: ["GET", "PATCH"] });
+    ).toEqual(NativePreflightDecision.Ready({ methods: ["GET", "PATCH"] }));
   });
   it("accepts one explicit fixed-port loopback origin for local composition", () => {
     expect(
-      makeNativeSessionBoundaryPolicy({
+      decodeNativeSessionBoundaryPolicy({
         NATIVE_IDENTITY_DEPLOYMENT: "local",
         NATIVE_IDENTITY_TRUSTED_ORIGINS: '["http://127.0.0.1:45261"]',
       }),
@@ -366,7 +394,7 @@ describe("native HTTP semantics", () => {
       secureCookies: false,
     });
     expect(() =>
-      makeNativeSessionBoundaryPolicy({
+      decodeNativeSessionBoundaryPolicy({
         NATIVE_IDENTITY_DEPLOYMENT: "local",
         NATIVE_IDENTITY_TRUSTED_ORIGINS: '["http://localhost:45261"]',
       }),
@@ -374,13 +402,14 @@ describe("native HTTP semantics", () => {
   });
 
   it("enforces frozen origins and credentialed CORS response fields", () => {
-    const policy = makeNativeSessionBoundaryPolicy({
+    const policy = decodeNativeSessionBoundaryPolicy({
       NATIVE_IDENTITY_DEPLOYMENT: "preview",
       NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://p20.vektor.phibkro.org"]',
     });
+
     expect(policy.secureCookies).toBe(true);
     expect(() =>
-      makeNativeSessionBoundaryPolicy({
+      decodeNativeSessionBoundaryPolicy({
         NATIVE_IDENTITY_DEPLOYMENT: "preview",
         NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://p999.vektor.phibkro.org"]',
       }),
@@ -393,7 +422,7 @@ describe("native HTTP semantics", () => {
       ["BETTER_AUTH_TRUSTED_ORIGINS", ""],
     ] as const) {
       expect(() =>
-        makeNativeSessionBoundaryPolicy({
+        decodeNativeSessionBoundaryPolicy({
           NATIVE_IDENTITY_DEPLOYMENT: "preview",
           NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://vektor.phibkro.org"]',
           [name]: value,
@@ -407,16 +436,19 @@ describe("native HTTP semantics", () => {
         "access-control-request-headers": "Content-Type, If-Match",
       },
     });
+
     expect(allowsNativePreflightHeaders(request)).toBe(true);
     const preflight = trustedPreflightResponse(policy.trustedOrigins[0]!, ["PATCH", "GET"]);
     expect(preflight.headers.get("access-control-allow-methods")).toBe("GET, HEAD, PATCH, OPTIONS");
     expect(preflight.headers.get("vary")).toBe(
       "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
     );
+
     const actual = withTrustedOriginCors(
       new Response(null, { status: 204 }),
       policy.trustedOrigins[0]!,
     );
+
     expect(actual.headers.get("access-control-allow-origin")).toBe(
       "https://p20.vektor.phibkro.org",
     );

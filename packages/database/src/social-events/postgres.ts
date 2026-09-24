@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { flow, Effect, Schema } from "effect";
 import { Database } from "../service.js";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
@@ -60,33 +60,50 @@ interface SocialEventRow {
 
 const decodeError = (operation: string, cause: unknown): SocialEventDecodeError =>
   new SocialEventDecodeError({ operation, message: String(cause) });
+
 const persistenceError = (operation: string, cause: unknown): SocialEventPersistenceError =>
   new SocialEventPersistenceError({ operation, message: String(cause) });
 
-const decodeSnapshotInstant = (value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(SocialEventObservedAt)(value, { onExcessProperty: "error" }).pipe(
+const decodeSnapshotInstant = (operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(SocialEventObservedAt, { onExcessProperty: "error" }),
     Effect.mapError((cause) => decodeError(operation, cause)),
   );
-const decodeScope = (value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(SocialEventScope)(value, { onExcessProperty: "error" }).pipe(
+
+const decodeScope = (operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(SocialEventScope, { onExcessProperty: "error" }),
     Effect.mapError((cause) => decodeError(operation, cause)),
   );
-const decodeResource = (value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(SocialEventResource)(value, { onExcessProperty: "error" }).pipe(
+
+const decodeResource = (operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(SocialEventResource, { onExcessProperty: "error" }),
     Effect.mapError((cause) => decodeError(operation, cause)),
   );
-const decodeScopeResource = (value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(SocialEventScopeResource)(value, {
+
+const decodeScopeResource = (operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(SocialEventScopeResource, {
+      onExcessProperty: "error",
+    }),
+    Effect.mapError((cause) => decodeError(operation, cause)),
+  );
+
+const decodeListResource = (operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(SocialEventListResource, {
+      onExcessProperty: "error",
+    }),
+    Effect.mapError((cause) => decodeError(operation, cause)),
+  );
+
+const decodeCreateCommand = flow(
+  Schema.decodeUnknownEffect(CreateSocialEventCommand, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError(operation, cause)));
-const decodeListResource = (value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(SocialEventListResource)(value, {
-    onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError(operation, cause)));
-const decodeCreateCommand = (value: unknown) =>
-  Schema.decodeUnknownEffect(CreateSocialEventCommand)(value, {
-    onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => decodeError("decode social-event create command", cause)));
+  }),
+  Effect.mapError((cause) => decodeError("decode social-event create command", cause)),
+);
 
 /**
  * Reads the instant at which PostgreSQL establishes this transaction's first
@@ -106,13 +123,16 @@ export const readSocialEventSnapshotInstantPostgres = (): Effect.Effect<
           'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
         ) AS "observedAt"
       `;
+
       const row = rows[0];
+
       if (row === undefined) {
         return yield* Effect.fail(
           persistenceError("read social-event snapshot instant", "no row returned"),
         );
       }
-      return yield* decodeSnapshotInstant(row.observedAt, "decode social-event snapshot instant");
+
+      return yield* decodeSnapshotInstant("decode social-event snapshot instant")(row.observedAt);
     }).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("read social-event snapshot instant", cause)),
@@ -132,6 +152,7 @@ export const readSocialEventScopePostgres = (
 ): Effect.Effect<SocialEventScopeResourceValue, SocialEventFailure, Database> =>
   Effect.gen(function* () {
     const observedAt = yield* observedAtForRead(input.observedAt);
+
     if (input.authority.evaluatedAt !== observedAt) {
       return yield* Effect.fail(
         decodeError(
@@ -140,21 +161,26 @@ export const readSocialEventScopePostgres = (
         ),
       );
     }
+
     const sql = yield* Database;
+
     const departments = yield* sql<DepartmentRow>`
       SELECT department_id AS "departmentId", name
       FROM public.organization_departments
       ORDER BY name ASC, department_id ASC
     `;
+
     const activeDepartmentIds = new Set(
       input.authority.memberships
         .filter((membership) => membership.active)
         .map((membership) => String(membership.departmentId)),
     );
+
     const visibleDepartments =
       input.authority.globalAdministrator === "Active"
         ? departments
         : departments.filter((department) => activeDepartmentIds.has(department.departmentId));
+
     const semesters = yield* sql<SemesterRow>`
       SELECT
         semester_id AS "semesterId",
@@ -163,10 +189,12 @@ export const readSocialEventScopePostgres = (
       FROM public.admission_period_semesters
       ORDER BY start_at DESC, semester_id ASC
     `;
-    return yield* decodeScopeResource(
-      { observedAt, departments: visibleDepartments, semesters },
-      "decode social-event scope",
-    );
+
+    return yield* decodeScopeResource("decode social-event scope")({
+      observedAt,
+      departments: visibleDepartments,
+      semesters,
+    });
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read social-event scope", cause)),
@@ -178,8 +206,9 @@ export const validateSocialEventScopePostgres = (
   input: SocialEventScopeValue,
 ): Effect.Effect<SocialEventScopeValue, SocialEventFailure, Database> =>
   Effect.gen(function* () {
-    const scope = yield* decodeScope(input, "decode social-event scope");
+    const scope = yield* decodeScope("decode social-event scope")(input);
     const sql = yield* Database;
+
     const departmentRows = yield* sql<ScopeExistsRow>`
       SELECT EXISTS (
         SELECT 1
@@ -187,6 +216,7 @@ export const validateSocialEventScopePostgres = (
         WHERE department_id = ${scope.departmentId}
       ) AS "exists"
     `;
+
     const semesterRows = yield* sql<ScopeExistsRow>`
       SELECT EXISTS (
         SELECT 1
@@ -194,6 +224,7 @@ export const validateSocialEventScopePostgres = (
         WHERE semester_id = ${scope.semesterId}
       ) AS "exists"
     `;
+
     if (departmentRows[0]?.exists !== true || semesterRows[0]?.exists !== true) {
       return yield* Effect.fail(
         new SocialEventScopeInvalid({
@@ -202,6 +233,7 @@ export const validateSocialEventScopePostgres = (
         }),
       );
     }
+
     return scope;
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -215,11 +247,14 @@ export const readSocialEventListPostgres = (
 ): Effect.Effect<SocialEventListResourceValue, SocialEventFailure, Database> =>
   Effect.gen(function* () {
     const observedAt = yield* observedAtForRead(input.observedAt);
+
     const scope = yield* validateSocialEventScopePostgres({
       departmentId: input.departmentId,
       semesterId: input.semesterId,
     });
+
     const sql = yield* Database;
+
     const rows = yield* sql<SocialEventRow>`
       SELECT
         event_id AS "eventId",
@@ -237,10 +272,12 @@ export const readSocialEventListPostgres = (
         AND semester_id = ${scope.semesterId}
       ORDER BY start_at ASC, event_id ASC
     `;
+
     const events = yield* Effect.forEach(rows, (row) =>
-      decodeResource(row, "decode social-event list row"),
+      decodeResource("decode social-event list row")(row),
     );
-    return yield* decodeListResource({ observedAt, ...scope, events }, "decode social-event list");
+
+    return yield* decodeListResource("decode social-event list")({ observedAt, ...scope, events });
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read social-event list", cause)),
@@ -257,11 +294,14 @@ export const createSocialEventPostgres = (
 ): Effect.Effect<SocialEventResourceValue, SocialEventFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* decodeCreateCommand(input);
+
     const scope = yield* validateSocialEventScopePostgres({
       departmentId: command.request.departmentId,
       semesterId: command.request.semesterId,
     });
+
     const sql = yield* Database;
+
     const rows = yield* sql<SocialEventRow>`
       INSERT INTO public.social_events (
         event_id,
@@ -300,13 +340,17 @@ export const createSocialEventPostgres = (
         to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
         to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt"
     `;
+
     const row = rows[0];
+
     if (row === undefined) {
       return yield* Effect.fail(
         persistenceError("insert social-event", "insert did not return an event"),
       );
     }
-    const resource = yield* decodeResource(row, "decode created social-event");
+
+    const resource = yield* decodeResource("decode created social-event")(row);
+
     const receiptCommand = {
       _tag: "CreateSocialEvent" as const,
       commandId: command.commandId,
@@ -315,6 +359,7 @@ export const createSocialEventPostgres = (
       occurredAt: command.occurredAt,
       ...command.request,
     };
+
     const commandSha256 = sha256Hex(canonicalJsonBytes(receiptCommand));
     yield* sql`
       INSERT INTO public.social_event_command_receipts (
@@ -350,6 +395,7 @@ export const createSocialEventPostgres = (
         ${command.occurredAt}
       )
     `;
+
     return resource;
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>

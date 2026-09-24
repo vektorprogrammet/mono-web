@@ -1,7 +1,10 @@
+import { Predicate } from "effect";
+import { RecruitmentBridgeFailure } from "./bridge";
 import { describe, expect, it } from "vitest";
-import { readRecruitmentBridgeOperation } from "./request.server";
+import { readRecruitmentBridgeOperation, RecruitmentBridgeRequestResult } from "./request.server";
 
 const url = "https://dashboard.example/recruitment";
+
 const validBody = JSON.stringify({
   operation: "readAssignmentBoard",
   query: { status: "new" },
@@ -23,13 +26,10 @@ const request = (
 
 describe("Recruitment bridge request boundary", () => {
   it("accepts one strict same-origin JSON operation", async () => {
-    await expect(readRecruitmentBridgeOperation(request())).resolves.toEqual({
-      _tag: "Success",
-      operation: {
+    await expect(readRecruitmentBridgeOperation(request())).resolves.toEqual(RecruitmentBridgeRequestResult.Success({operation: {
         operation: "readAssignmentBoard",
         query: { status: "new" },
-      },
-    });
+      }}));
   });
 
   it.each([
@@ -37,22 +37,20 @@ describe("Recruitment bridge request boundary", () => {
     ["same-site cross-origin", { origin: "https://attacker.dashboard.example" }],
   ])("rejects a %s origin before dispatch", async (_label, headers) => {
     const result = await readRecruitmentBridgeOperation(request(validBody, headers));
-    expect(result).toMatchObject({
-      _tag: "Failure",
-      status: 403,
-      failure: { _tag: "Forbidden" },
-    });
+
+    if (!Predicate.isTagged(result, "Failure")) throw new Error("Expected request rejection");
+    expect(result.status).toBe(403);
+    expect(RecruitmentBridgeFailure.guards.Forbidden(result.failure)).toBe(true);
   });
 
   it("rejects a CORS-safelisted text body", async () => {
     const result = await readRecruitmentBridgeOperation(
       request(validBody, { "content-type": "text/plain" }),
     );
-    expect(result).toMatchObject({
-      _tag: "Failure",
-      status: 415,
-      failure: { _tag: "Validation" },
-    });
+
+    if (!Predicate.isTagged(result, "Failure")) throw new Error("Expected request rejection");
+    expect(result.status).toBe(415);
+    expect(RecruitmentBridgeFailure.guards.Validation(result.failure)).toBe(true);
   });
 
   it.each([
@@ -60,11 +58,10 @@ describe("Recruitment bridge request boundary", () => {
     ["streamed", "x".repeat(4097), {}],
   ])("rejects a %s oversized body", async (_label, body, headers) => {
     const result = await readRecruitmentBridgeOperation(request(body, headers));
-    expect(result).toMatchObject({
-      _tag: "Failure",
-      status: 413,
-      failure: { _tag: "Validation" },
-    });
+
+    if (!Predicate.isTagged(result, "Failure")) throw new Error("Expected request rejection");
+    expect(result.status).toBe(413);
+    expect(RecruitmentBridgeFailure.guards.Validation(result.failure)).toBe(true);
   });
 
   it.each([
@@ -76,10 +73,9 @@ describe("Recruitment bridge request boundary", () => {
     ],
   ])("rejects %s without dispatch", async (_label, body) => {
     const result = await readRecruitmentBridgeOperation(request(body));
-    expect(result).toMatchObject({
-      _tag: "Failure",
-      status: 422,
-      failure: { _tag: "Validation" },
-    });
+
+    if (!Predicate.isTagged(result, "Failure")) throw new Error("Expected request rejection");
+    expect(result.status).toBe(422);
+    expect(RecruitmentBridgeFailure.guards.Validation(result.failure)).toBe(true);
   });
 });

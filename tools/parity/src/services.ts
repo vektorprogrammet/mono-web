@@ -40,7 +40,7 @@ export interface ParityRemoveOptions {
   readonly recursive?: boolean;
 }
 
-export interface ParityFileSystemShape {
+export interface ParityFileSystemOperations {
   readonly chmodDirectoryNoFollow: (path: string, mode: number) => void;
   readonly chmod: (path: string, mode: number) => void;
   readonly copyDirectoryTreeNoFollow: (source: string, target: string) => void;
@@ -92,9 +92,10 @@ export interface ParityFileSystemShape {
   readonly writeBytesPromise: (path: string, contents: Uint8Array) => Promise<void>;
 }
 
-export class ParityFileSystem extends Context.Service<ParityFileSystem, ParityFileSystemShape>()(
-  "@monoweb/parity-inventory/ParityFileSystem",
-) {}
+export class ParityFileSystem extends Context.Service<
+  ParityFileSystem,
+  ParityFileSystemOperations
+>()("@monoweb/parity-inventory/ParityFileSystem") {}
 
 export type ParityStdio = "ignore" | "pipe";
 
@@ -115,7 +116,7 @@ export interface ParitySpawnResult {
   readonly stdout: string;
 }
 
-export interface ParityCommandExecutorShape {
+export interface ParityCommandExecutorOperations {
   readonly executeBytes: (
     executable: string,
     arguments_: readonly string[],
@@ -135,10 +136,10 @@ export interface ParityCommandExecutorShape {
 
 export class ParityCommandExecutor extends Context.Service<
   ParityCommandExecutor,
-  ParityCommandExecutorShape
+  ParityCommandExecutorOperations
 >()("@monoweb/parity-inventory/ParityCommandExecutor") {}
 
-export interface ParityExecutionEnvironmentShape {
+export interface ParityExecutionConfiguration {
   readonly arguments: readonly string[];
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly executablePath: string;
@@ -149,15 +150,15 @@ export interface ParityExecutionEnvironmentShape {
 
 export class ParityExecutionEnvironment extends Context.Service<
   ParityExecutionEnvironment,
-  ParityExecutionEnvironmentShape
+  ParityExecutionConfiguration
 >()("@monoweb/parity-inventory/ParityExecutionEnvironment") {}
 
-export interface ParityTerminalShape {
+export interface ParityTerminalOperations {
   readonly writeStandardError: (text: string) => void;
   readonly writeStandardOutput: (text: string) => void;
 }
 
-export class ParityTerminal extends Context.Service<ParityTerminal, ParityTerminalShape>()(
+export class ParityTerminal extends Context.Service<ParityTerminal, ParityTerminalOperations>()(
   "@monoweb/parity-inventory/ParityTerminal",
 ) {}
 

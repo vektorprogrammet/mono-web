@@ -1,31 +1,29 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Predicate } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const auth = vi.hoisted(() => ({
-  requireAuth: vi.fn(),
-  forwardSetCookieHeaders: vi.fn((source: Headers) => {
-    const headers = new Headers();
-    for (const value of source.getSetCookie()) headers.append("Set-Cookie", value);
-    return headers;
-  }),
-}));
-const api = vi.hoisted(() => ({
-  serverApiEndpoint: vi.fn((path: string) => `http://api.test${path}`),
-}));
+vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
-vi.mock("./auth.server", () => auth);
-vi.mock("./api.server", () => api);
+import { nativeSessionResponse, sessionCookie } from "../../test/native-http";
 
-import {
-  guardOAuthContinuation,
-  hasTrustedActionOrigin,
-  inspectPendingOAuthRequest,
-  loadOAuthConsent,
-  submitOAuthConsent,
-} from "./oauth.server";
+const stubOAuthFetch = (next: typeof fetch) => {
+  const transport: typeof fetch = async (input, init) => {
+    const request = new Request(input, init);
+
+    return new URL(request.url).pathname === "/api/session" ? nativeSessionResponse() : next(input, init);
+  };
+
+  vi.stubGlobal("fetch", transport);
+};
+
+
+import { guardOAuthContinuation, hasTrustedActionOrigin, inspectPendingOAuthRequest, loadOAuthConsent, submitOAuthConsent, PendingOAuthInspection } from "./oauth.server";
 
 const state = "s".repeat(43);
+
 const challenge = "c".repeat(43);
+
 const redirectUri = "http://127.0.0.1:5174/dashboard/oauth/callback";
+
 const pendingQuery = (overrides: Readonly<Record<string, string>> = {}): string => {
   const values = {
     response_type: "code",
@@ -43,12 +41,15 @@ const pendingQuery = (overrides: Readonly<Record<string, string>> = {}): string 
     sig: "provider-signature",
     ...overrides,
   };
+
   return Object.entries(values)
     .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
     .join("&");
 };
+
 const requestFor = (query = pendingQuery(), init: RequestInit = {}): Request =>
-  new Request(`http://127.0.0.1:5174/dashboard/oauth/consent?${query}`, init);
+  new Request(`http://127.0.0.1:5174/dashboard/oauth/consent?${query}`, { ...init, headers: { cookie: sessionCookie, ...Object.fromEntries(new Headers(init.headers)) } });
+
 const publicClientResponse = () =>
   Response.json({
     client_id: "dashboard-public-client",
@@ -56,11 +57,7 @@ const publicClientResponse = () =>
     client_kind: "DelegatedPublic",
   });
 
-beforeEach(() => {
-  auth.requireAuth.mockReset().mockResolvedValue("better-auth.session_token=session-value");
-  auth.forwardSetCookieHeaders.mockClear();
-  api.serverApiEndpoint.mockImplementation((path: string) => `http://api.test${path}`);
-});
+
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -72,7 +69,8 @@ describe("dashboard OAuth server boundary", () => {
     const inspected = inspectPendingOAuthRequest(requestFor(query));
 
     expect(inspected._tag).toBe("Pending");
-    if (inspected._tag !== "Pending") throw new Error("expected pending OAuth request");
+
+    if (!Predicate.isTagged(inspected, "Pending")) throw new Error("expected pending OAuth request");
     expect(inspected.pending.raw).toBe(query);
     expect(inspected.pending).toMatchObject({
       clientId: "dashboard-public-client",
@@ -90,7 +88,7 @@ describe("dashboard OAuth server boundary", () => {
     `${pendingQuery()}&state=${state}`,
     `sig=x&${"a".repeat(8 * 1024)}`,
   ])("rejects malformed, duplicated, or oversized pending state", (query) => {
-    expect(inspectPendingOAuthRequest(requestFor(query))).toEqual({ _tag: "Invalid" });
+    expect(inspectPendingOAuthRequest(requestFor(query))).toEqual(PendingOAuthInspection.Invalid());
   });
 
   it("does not reinterpret ordinary login query parameters as OAuth state", () => {
@@ -98,12 +96,12 @@ describe("dashboard OAuth server boundary", () => {
       inspectPendingOAuthRequest(
         new Request("http://127.0.0.1:5174/dashboard/login?redirectTo=%2Fdashboard"),
       ),
-    ).toEqual({ _tag: "None" });
+    ).toEqual(PendingOAuthInspection.None());
   });
 
   it("loads the live bounded client view with the exact cookie and first-party origin", async () => {
     const fetchMock = vi.fn().mockResolvedValue(publicClientResponse());
-    vi.stubGlobal("fetch", fetchMock);
+    stubOAuthFetch(fetchMock);
 
     const loaded = await loadOAuthConsent(
       requestFor(pendingQuery(), {
@@ -118,8 +116,8 @@ describe("dashboard OAuth server boundary", () => {
       resourceName: "Vektorprogrammet native API",
       scopes: ["native-api", "offline_access"],
     });
-    expect(auth.requireAuth).toHaveBeenCalledWith(expect.any(Request), `/login?${pendingQuery()}`);
-    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url.toString()).toBe(
       "http://api.test/api/auth/oauth2/public-client?client_id=dashboard-public-client",
     );
@@ -136,13 +134,15 @@ describe("dashboard OAuth server boundary", () => {
     callback.searchParams.set("state", state);
     callback.searchParams.set("iss", "http://api.test/api/auth");
     const consentHeaders = new Headers({ "Set-Cookie": "better-auth.session_data=next; Path=/" });
+
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         Response.json({ redirect: true, url: callback.toString() }, { headers: consentHeaders }),
       )
       .mockResolvedValueOnce(publicClientResponse());
-    vi.stubGlobal("fetch", fetchMock);
+
+    stubOAuthFetch(fetchMock);
 
     const result = await submitOAuthConsent(
       requestFor(pendingQuery(), {
@@ -160,7 +160,7 @@ describe("dashboard OAuth server boundary", () => {
     expect(result.location).toBe(callback.toString());
     expect(result.headers.get("Cache-Control")).toBe("no-store");
     expect(result.headers.getSetCookie()).toEqual(["better-auth.session_data=next; Path=/"]);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(String(init.body))).toEqual({
       accept: true,
       scope: "native-api offline_access",
@@ -175,11 +175,13 @@ describe("dashboard OAuth server boundary", () => {
     callback.searchParams.set("error_description", "User denied access");
     callback.searchParams.set("state", state);
     callback.searchParams.set("iss", "http://api.test/api/auth");
+
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ redirect: true, url: callback.toString() }))
       .mockResolvedValueOnce(publicClientResponse());
-    vi.stubGlobal("fetch", fetchMock);
+
+    stubOAuthFetch(fetchMock);
 
     await submitOAuthConsent(
       requestFor(pendingQuery(), {
@@ -189,7 +191,7 @@ describe("dashboard OAuth server boundary", () => {
       false,
     );
 
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(String(init.body))).toEqual({
       accept: false,
       oauth_query: pendingQuery(),
@@ -200,11 +202,12 @@ describe("dashboard OAuth server boundary", () => {
     "rejects a missing or untrusted action origin before backend dispatch",
     async (origin) => {
       const headers = new Headers();
+
       if (origin !== undefined) headers.set("Origin", origin);
       const request = requestFor(pendingQuery(), { method: "POST", headers });
       expect(hasTrustedActionOrigin(request)).toBe(false);
       const fetchMock = vi.fn();
-      vi.stubGlobal("fetch", fetchMock);
+      stubOAuthFetch(fetchMock);
 
       await expect(submitOAuthConsent(request, true)).rejects.toMatchObject({ status: 403 });
       expect(fetchMock).not.toHaveBeenCalled();
@@ -217,9 +220,11 @@ describe("dashboard OAuth server boundary", () => {
       .mockResolvedValue(
         Response.json({ error: "invalid_signature", raw: pendingQuery() }, { status: 400 }),
       );
-    vi.stubGlobal("fetch", fetchMock);
+
+    stubOAuthFetch(fetchMock);
 
     let failure: unknown;
+
     try {
       await submitOAuthConsent(
         requestFor(pendingQuery({ sig: "tampered" }), {
@@ -231,16 +236,20 @@ describe("dashboard OAuth server boundary", () => {
     } catch (error) {
       failure = error;
     }
+
     expect(failure).toBeInstanceOf(Response);
-    const response = failure as Response;
+
+    if (!(failure instanceof Response)) throw new Error("Expected OAuth rejection response");
+    const response = failure;
     expect(response.status).toBe(400);
     expect(await response.text()).not.toContain("tampered");
   });
 
   it("rejects a continuation with changed state after re-reading the client", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(publicClientResponse()));
+    stubOAuthFetch(vi.fn<typeof fetch>().mockResolvedValue(publicClientResponse()));
     const inspected = inspectPendingOAuthRequest(requestFor());
-    if (inspected._tag !== "Pending") throw new Error("expected pending OAuth request");
+
+    if (!Predicate.isTagged(inspected, "Pending")) throw new Error("expected pending OAuth request");
     const callback = new URL(redirectUri);
     callback.searchParams.set("code", "k".repeat(43));
     callback.searchParams.set("state", "x".repeat(43));

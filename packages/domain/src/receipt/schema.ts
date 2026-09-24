@@ -10,6 +10,7 @@ import { DepartmentId, PersonId } from "../organization/schema.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
+
 const TrimmedNonEmpty = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.length > 0 && value.trim() === value, {
@@ -17,6 +18,7 @@ const TrimmedNonEmpty = Schema.String.pipe(
     }),
   ),
 );
+
 const Sha256Hex = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value: string) => /^[a-f0-9]{64}$/.test(value), {
@@ -27,10 +29,12 @@ const Sha256Hex = Schema.String.pipe(
 
 export const isIsoDate = (value: string): boolean => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
   if (match === null) return false;
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
+
   return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) === value;
 };
 
@@ -39,10 +43,13 @@ export const isIsoInstant = isRfc3339Instant;
 const IsoDate = Schema.String.pipe(
   Schema.check(Schema.makeFilter(isIsoDate, { message: "a valid YYYY-MM-DD date" })),
 );
+
 const IsoInstant = Rfc3339InstantSchema;
+
 const PositiveOre = Schema.Int.pipe(
   Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
 );
+
 const PositiveOreFromText = Schema.NumberFromString.pipe(
   Schema.check(
     Schema.makeFilter(Number.isSafeInteger, { message: "an integer" }),
@@ -50,26 +57,33 @@ const PositiveOreFromText = Schema.NumberFromString.pipe(
     Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER),
   ),
 );
+
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+
 export const ReceiptId = NonEmpty.pipe(Schema.brand("ReceiptId"));
+
 export type ReceiptId = typeof ReceiptId.Type;
 
 export const ReceiptVisualId = NonEmpty.pipe(Schema.brand("ReceiptVisualId"));
+
 export type ReceiptVisualId = typeof ReceiptVisualId.Type;
 
 export const ReceiptSettlementId = NonEmpty.pipe(Schema.brand("ReceiptSettlementId"));
+
 export type ReceiptSettlementId = typeof ReceiptSettlementId.Type;
 
 export const ReceiptCommandPrincipalSchema = Schema.Struct({
   personId: PersonId,
   authorizationInstant: IsoInstant,
 });
+
 export type ReceiptCommandPrincipal = typeof ReceiptCommandPrincipalSchema.Type;
 
 export const ReceiptSubmissionAllocationSchema = Schema.Struct({
   receiptId: ReceiptId,
   visualId: ReceiptVisualId,
 });
+
 export type ReceiptSubmissionAllocation = typeof ReceiptSubmissionAllocationSchema.Type;
 
 export const ReceiptDecisionContextSchema = Schema.Struct({
@@ -84,6 +98,7 @@ export const ReceiptStatusSchema = Schema.Literals([
   "Rejected",
   "Withdrawn",
 ]);
+
 export type ReceiptStatus = typeof ReceiptStatusSchema.Type;
 
 export const ApprovalScopeSchema = Schema.TaggedUnion({
@@ -91,6 +106,7 @@ export const ApprovalScopeSchema = Schema.TaggedUnion({
   Department: { departmentId: DepartmentId },
   Global: {},
 });
+
 export type ApprovalScope = typeof ApprovalScopeSchema.Type;
 
 export const ReceiptActorSchema = Schema.Struct({
@@ -99,6 +115,7 @@ export const ReceiptActorSchema = Schema.Struct({
   active: Schema.Boolean,
   approvalScope: ApprovalScopeSchema,
 });
+
 export type ReceiptActor = typeof ReceiptActorSchema.Type;
 
 export const ReceiptSettlementActorSchema = Schema.Struct({
@@ -109,6 +126,7 @@ export const ReceiptSettlementActorSchema = Schema.Struct({
     Global: {},
   }),
 });
+
 export type ReceiptSettlementActor = typeof ReceiptSettlementActorSchema.Type;
 
 const ReceiptFileIdentityFields = {
@@ -117,19 +135,23 @@ const ReceiptFileIdentityFields = {
   contentType: Schema.Literals(["image/jpeg", "image/png", "application/pdf"]),
   sha256: Sha256Hex,
 } as const;
+
 const distinctReceiptFileIdentity = Schema.makeFilter(
   (file: { readonly fileRef: string; readonly objectKey: string }) =>
     file.fileRef !== file.objectKey,
   { message: "different staging and committed object identities" },
 );
+
 export const ReceiptFileSchema = Schema.Struct({
   ...ReceiptFileIdentityFields,
   byteLength: PositiveOre,
 }).pipe(Schema.check(distinctReceiptFileIdentity));
+
 const ReceiptFileSelectSchema = Schema.Struct({
   ...ReceiptFileIdentityFields,
   byteLength: PositiveOreFromText,
 }).pipe(Schema.check(distinctReceiptFileIdentity));
+
 export type ReceiptFile = typeof ReceiptFileSchema.Type;
 
 const ReceiptPayloadFields = {
@@ -150,7 +172,7 @@ export type ReceiptFileSelection = typeof ReceiptFileSelectionSchema.Type;
 export const ReceiptCommandRequestSchema = Schema.TaggedUnion({
   SubmitReceipt: {
     commandId: NonEmpty,
-    departmentId: Schema.optional(DepartmentId),
+    departmentId: Schema.optionalKey(DepartmentId),
     ...ReceiptPayloadFields,
     file: ReceiptFileSchema,
   },
@@ -182,6 +204,7 @@ export const ReceiptCommandRequestSchema = Schema.TaggedUnion({
     expectedRevision: Revision,
   },
 });
+
 export type ReceiptCommandRequest = typeof ReceiptCommandRequestSchema.Type;
 
 export const ReceiptSettlementCommandRequestSchema = Schema.TaggedUnion({
@@ -194,6 +217,7 @@ export const ReceiptSettlementCommandRequestSchema = Schema.TaggedUnion({
     settledAt: IsoInstant,
   },
 });
+
 export type ReceiptSettlementCommandRequest = typeof ReceiptSettlementCommandRequestSchema.Type;
 
 export class Receipt extends Model.Class<Receipt>("Receipt")({
@@ -284,6 +308,7 @@ export const ReceiptSettlementEvidenceSchema = Schema.Struct({
   ...ReceiptSettlementEvidenceFields,
   amountOre: PositiveOre,
 });
+
 export type ReceiptSettlementEvidence = typeof ReceiptSettlementEvidenceSchema.Type;
 
 /** PostgreSQL selection form which decodes bigint text into the public number. */
@@ -300,6 +325,7 @@ export const ReceiptObservationSchema = Schema.Struct({
   revision: Revision,
   replayed: Schema.Boolean,
 });
+
 export type ReceiptObservation = typeof ReceiptObservationSchema.Type;
 
 export const ReceiptSettlementObservationSchema = Schema.Struct({
@@ -309,6 +335,7 @@ export const ReceiptSettlementObservationSchema = Schema.Struct({
   revision: Revision,
   replayed: Schema.Boolean,
 });
+
 export type ReceiptSettlementObservation = typeof ReceiptSettlementObservationSchema.Type;
 
 export const LegacyReceiptFileSchema = Schema.Struct({
@@ -333,4 +360,5 @@ export const LegacyReceiptRowSchema = Schema.Struct({
   paymentAccountCiphertext: Schema.NullOr(NonEmpty),
   file: Schema.NullOr(LegacyReceiptFileSchema),
 });
+
 export type LegacyReceiptRow = typeof LegacyReceiptRowSchema.Type;

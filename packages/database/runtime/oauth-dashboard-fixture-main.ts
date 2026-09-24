@@ -1,26 +1,42 @@
+import { ManagedRuntime, Layer } from "effect";
+import { AuthLive, AuthEngine } from "../src/auth-live.js";
+import { AuthPoolLive } from "../src/auth-engine.js";
+import { DatabasePgPool } from "../src/pg-pool.js";
+import { OAuthClientOperator } from "../src/oauth-live.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createLocalAccountIssuer } from "better-auth";
 import { Pool } from "pg";
-import { makeAuthEngine, makeAuthPool, type AuthEngineConfig } from "../src/auth-engine.js";
-import { makeOAuthClientOperatorService } from "../src/oauth-live.js";
+import { type AuthEngineConfig } from "../src/auth-engine.js";
+
 import { databaseMigrationDefinitions } from "../src/migrations.js";
 
 const databaseUrl = process.env.OAUTH_DASHBOARD_PG_URL ?? "";
+
 const dashboardOrigin = process.env.OAUTH_DASHBOARD_ORIGIN ?? "";
+
 const backendOrigin = process.env.OAUTH_CANONICAL_ORIGIN ?? "";
+
 const password = process.env.OAUTH_E2E_PASSWORD ?? "";
+
 const parsedDatabaseUrl = new URL(databaseUrl);
+
 assert.ok(["127.0.0.1", "localhost", "::1"].includes(parsedDatabaseUrl.hostname));
+
 assert.match(parsedDatabaseUrl.pathname, /proof|test/u);
+
 assert.equal(new URL(dashboardOrigin).hostname, "127.0.0.1");
+
 assert.equal(new URL(backendOrigin).hostname, "127.0.0.1");
+
 assert.ok(password.length >= 12);
 
 const migrationPool = new Pool({ connectionString: databaseUrl, max: 1 });
+
 for (const migration of databaseMigrationDefinitions) {
   await migrationPool.query(await readFile(migration.url, "utf8"));
 }
+
 await migrationPool.query(
   `CREATE TABLE IF NOT EXISTS auth.vektorprogrammet_schema_migrations (
      migration_id integer PRIMARY KEY,
@@ -28,6 +44,7 @@ await migrationPool.query(
      name text NOT NULL
    )`,
 );
+
 for (const migration of databaseMigrationDefinitions) {
   await migrationPool.query(
     `INSERT INTO auth.vektorprogrammet_schema_migrations (migration_id, name)
@@ -35,6 +52,7 @@ for (const migration of databaseMigrationDefinitions) {
     [Number.parseInt(migration.id, 10), migration.name],
   );
 }
+
 await migrationPool.end();
 
 const config: AuthEngineConfig = {
@@ -48,14 +66,24 @@ const config: AuthEngineConfig = {
   trustedOrigins: [dashboardOrigin],
   secureCookies: false,
 };
-const pool = makeAuthPool(config);
-const engine = makeAuthEngine(config, pool);
+
+const authRuntime = ManagedRuntime.make(
+  AuthLive(config).pipe(Layer.provideMerge(AuthPoolLive(config))),
+);
+
+const pool = await authRuntime.runPromise(DatabasePgPool);
+
+const engine = (await authRuntime.runPromise(AuthEngine)).engine;
+
 const context = await engine.$context;
+
 await pool.query(
   `INSERT INTO public.person_profiles (person_id, first_name, last_name)
    VALUES ('oauth-dashboard-person', 'OAuth', 'Dashboard')`,
 );
+
 const passwordHash = await context.password.hash(password);
+
 await context.internalAdapter.createUser(
   {
     id: "oauth-dashboard-person",
@@ -65,6 +93,7 @@ await context.internalAdapter.createUser(
   },
   { method: "email-password" },
 );
+
 await context.internalAdapter.linkAccount({
   accountId: "oauth-dashboard-person",
   providerId: "credential",
@@ -72,14 +101,18 @@ await context.internalAdapter.linkAccount({
   userId: "oauth-dashboard-person",
   password: passwordHash,
 });
-const operator = makeOAuthClientOperatorService(pool, engine);
+
+const operator = await authRuntime.runPromise(OAuthClientOperator);
+
 const execution = {
   dryRun: false,
   target: parsedDatabaseUrl.pathname.slice(1),
   authority: "operator",
   requestCorrelation: "oauth-dashboard-browser-fixture",
 } as const;
+
 await operator.bootstrapSigningKey(execution);
+
 await operator.provision(
   {
     clientId: "oauth-dashboard-public",
@@ -90,6 +123,7 @@ await operator.provision(
   },
   execution,
 );
+
 process.stdout.write(
   JSON.stringify({
     database: "disposable",
@@ -98,4 +132,5 @@ process.stdout.write(
     signingKey: "active",
   }) + "\n",
 );
-await pool.end();
+
+await authRuntime.dispose();

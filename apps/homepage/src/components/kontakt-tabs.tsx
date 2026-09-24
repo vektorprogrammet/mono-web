@@ -22,9 +22,11 @@ export function ContactTabs({
   const actionData = useActionData<ContactActionData>();
   // Each action result is a new identity. Only acceptance replaces the uncontrolled draft.
   const [draft, setDraft] = useState({ result: actionData, generation: 0 });
+
   if (draft.result !== actionData) {
     setDraft({ result: actionData, generation: draft.generation + (actionData?.ok ? 1 : 0) });
   }
+
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
 
@@ -33,6 +35,7 @@ export function ContactTabs({
       <nav aria-label="Velg avdeling" className="flex min-w-48 flex-wrap gap-2 lg:flex-col">
         {departments.map((item) => {
           const selected = item.departmentId === department.departmentId;
+
           return (
             <Button asChild variant={selected ? "default" : "outline"} key={item.departmentId}>
               <Link

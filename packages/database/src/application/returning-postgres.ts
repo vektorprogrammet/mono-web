@@ -1,7 +1,8 @@
-import { Effect, Schema } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
+import { flow, Predicate, Effect, Schema } from "effect";
+import { Database, type DatabaseOperations } from "../service.js";
 import { sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
+  ReturningAssistantObservationSchema,
   canonicalJson,
   publicApplicationCommandDigest,
 } from "@vektorprogrammet/domain/application";
@@ -18,7 +19,6 @@ import {
   type ReturningAssistantRegistrationInput,
   ReturningAssistantRegistrationInputSchema,
   type ReturningAssistantObservation,
-  ReturningAssistantObservationSchema,
   ReturningRegistrationIdSchema,
   type ReturningAssistantError,
   ReturningAssistantIdentityAmbiguous,
@@ -40,8 +40,10 @@ import {
 import { DepartmentId, PersonId, SemesterId, TeamId } from "@vektorprogrammet/domain/organization";
 
 type RegistrationContext = { readonly personId: PersonId; readonly now: string | (() => string) };
+
 const nowFor = (context: RegistrationContext): string =>
-  typeof context.now === "function" ? context.now() : context.now;
+  Predicate.isFunction(context.now) ? context.now() : context.now;
+
 type LinkedIdentity = {
   readonly applicant: typeof ApplicantRecord.Type;
   readonly departmentId: string;
@@ -50,6 +52,7 @@ type LinkedIdentity = {
   readonly periods: ReadonlyArray<ReturningPeriodRow>;
   readonly teams: ReadonlyArray<{ readonly teamId: string; readonly name: string }>;
 };
+
 type ReturningPeriodRow = {
   readonly id: string;
   readonly departmentId: string;
@@ -60,7 +63,9 @@ type ReturningPeriodRow = {
   readonly lastCommandId: string;
   readonly semesterName: string;
 };
+
 type ReceiptRow = { readonly command_sha256: string; readonly observation_json: unknown };
+
 type ApplicationRow = {
   readonly id: string;
   readonly applicantId: string;
@@ -71,6 +76,7 @@ type ApplicationRow = {
   readonly submittedAt: string;
   readonly revision: number;
 };
+
 type CurrentPreferencesRow = {
   readonly registrationId: string;
   readonly revision: number;
@@ -87,30 +93,36 @@ type CurrentPreferencesRow = {
   readonly teamInterest: boolean;
   readonly teamIds: unknown;
 };
+
 const fail = (operation: string, cause?: unknown) =>
-  new ReturningAssistantPersistenceError({
-    operation,
-    ...(cause === undefined ? {} : { cause }),
-  });
-const decodeInput = (input: unknown) =>
-  Schema.decodeUnknownEffect(ReturningAssistantRegistrationInputSchema)(input, {
+  cause === undefined
+    ? new ReturningAssistantPersistenceError({ operation })
+    : new ReturningAssistantPersistenceError({ operation, cause });
+
+const decodeInput = flow(
+  Schema.decodeUnknownEffect(ReturningAssistantRegistrationInputSchema, {
     onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError(
-      () => new ReturningAssistantDecodeError({ message: "invalid returning registration" }),
-    ),
-  );
-const decodeObservation = (value: unknown) =>
-  Schema.decodeUnknownEffect(ReturningAssistantObservationSchema)(value, {
+  }),
+  Effect.mapError(
+    () => new ReturningAssistantDecodeError({ message: "invalid returning registration" }),
+  ),
+);
+
+const decodeObservation = flow(
+  Schema.decodeUnknownEffect(ReturningAssistantObservationSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError(() => fail("decode returning receipt")));
-const rowApplicant = (row: Record<string, unknown>) =>
-  Schema.decodeUnknownEffect(ApplicantRecord)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError(() => fail("decode linked applicant")),
-  );
-const readApplicant = (sql: DatabaseShape, personId: string) =>
+  }),
+  Effect.mapError(() => fail("decode returning receipt")),
+);
+
+const rowApplicant = flow(
+  Schema.decodeUnknownEffect(ApplicantRecord, { onExcessProperty: "error" }),
+  Effect.mapError(() => fail("decode linked applicant")),
+);
+
+const readApplicant = (sql: DatabaseOperations, personId: string) =>
   Effect.gen(function* () {
-    const rows = yield* sql<Record<string, unknown>>`
+    const rows = yield* sql`
       SELECT a.applicant_id AS id, a.normalized_email AS "normalizedEmail", a.email,
         a.first_name AS "firstName", a.last_name AS "lastName", a.phone, a.gender,
         a.field_of_study_id AS "fieldOfStudyId", a.year_of_study AS "yearOfStudy",
@@ -120,13 +132,17 @@ const readApplicant = (sql: DatabaseShape, personId: string) =>
       WHERE l.person_id=${personId}
       ORDER BY l.applicant_id
       FOR UPDATE OF l, a`;
+
     if (rows.length === 0) return yield* new ReturningAssistantIdentityMissing();
+
     if (rows.length !== 1) return yield* new ReturningAssistantIdentityAmbiguous();
+
     return yield* rowApplicant(rows[0]!);
   }).pipe(
     Effect.catchTag("SqlError", (cause) => Effect.fail(fail("read linked applicant", cause))),
   );
-const readPlacement = (sql: DatabaseShape, personId: string) =>
+
+const readPlacement = (sql: DatabaseOperations, personId: string) =>
   Effect.gen(function* () {
     const rows = yield* sql<{ placementId: string }>`
       SELECT placement_id AS "placementId"
@@ -134,25 +150,31 @@ const readPlacement = (sql: DatabaseShape, personId: string) =>
       WHERE person_id=${personId}
       ORDER BY placement_id
       FOR SHARE`;
+
     if (rows.length === 0) return yield* new ReturningAssistantHistoryMissing();
+
     return rows[0]!.placementId;
   }).pipe(
     Effect.catchTag("SqlError", (cause) => Effect.fail(fail("read assistant placements", cause))),
   );
-const readStudy = (sql: DatabaseShape, applicant: typeof ApplicantRecord.Type) =>
+
+const readStudy = (sql: DatabaseOperations, applicant: typeof ApplicantRecord.Type) =>
   Effect.gen(function* () {
     const rows = yield* sql<{ fieldOfStudyId: string; departmentId: string; active: boolean }>`
       SELECT f.field_of_study_id AS "fieldOfStudyId", f.department_id AS "departmentId", f.active
       FROM public.admission_period_fields_of_study f
       WHERE f.field_of_study_id=${applicant.fieldOfStudyId}
       FOR SHARE`;
+
     if (rows.length !== 1 || !rows[0]!.active)
       return yield* new ReturningAssistantStudyMappingInvalid();
+
     return rows[0]!;
   }).pipe(
     Effect.catchTag("SqlError", (cause) => Effect.fail(fail("read current study mapping", cause))),
   );
-const readPeriods = (sql: DatabaseShape, departmentId: string, now: string) =>
+
+const readPeriods = (sql: DatabaseOperations, departmentId: string, now: string) =>
   sql<ReturningPeriodRow>`
     SELECT p.admission_period_id AS id, p.department_id AS "departmentId", p.semester_id AS "semesterId",
       to_char(p.start_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
@@ -166,16 +188,19 @@ const readPeriods = (sql: DatabaseShape, departmentId: string, now: string) =>
       AND p.start_at <= ${now}::timestamptz AND ${now}::timestamptz < p.end_at
     ORDER BY p.start_at DESC, p.admission_period_id
     FOR SHARE`;
-const readTeams = (sql: DatabaseShape, departmentId: string) =>
+
+const readTeams = (sql: DatabaseOperations, departmentId: string) =>
   sql<{ teamId: string; name: string }>`
     SELECT team_id AS "teamId", name FROM public.organization_teams
     WHERE department_id=${departmentId} ORDER BY team_id FOR SHARE`;
-const lockPersonCustody = (sql: DatabaseShape, personId: string) =>
+
+const lockPersonCustody = (sql: DatabaseOperations, personId: string) =>
   sql`SELECT pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended(${"vektorprogrammet:person-authorization:v1:" + personId}, 0)
   )`.pipe(Effect.asVoid);
+
 const authorize = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   context: { readonly personId: PersonId; readonly now: string },
 ) =>
   Effect.gen(function* () {
@@ -184,6 +209,7 @@ const authorize = (
     const study = yield* readStudy(sql, applicant);
     const periods = yield* readPeriods(sql, study.departmentId, context.now);
     const teams = yield* readTeams(sql, study.departmentId);
+
     return {
       applicant,
       placementId,
@@ -197,21 +223,26 @@ const authorize = (
       Effect.fail(fail("authorize returning assistant", cause)),
     ),
   );
+
 const validateRegistrationEligibility = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
   context: RegistrationContext,
 ) =>
   Effect.gen(function* () {
     yield* lockPersonCustody(sql, context.personId);
+
     const identity = yield* authorize(sql, {
       personId: context.personId,
       now: nowFor(context),
     });
+
     if (identity.periods.every((period) => period.id !== input.admissionPeriodId)) {
       return yield* new ReturningAssistantPeriodUnavailable();
     }
+
     const validTeamIds = new Set(identity.teams.map((team) => team.teamId));
+
     if (input.teamIds.some((teamId) => !validTeamIds.has(teamId))) {
       return yield* new ReturningAssistantTeamScopeDenied();
     }
@@ -220,6 +251,7 @@ const validateRegistrationEligibility = (
       Effect.fail(fail("validate returning eligibility", cause)),
     ),
   );
+
 const projection = (row: ReturningPeriodRow) =>
   Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)(
     {
@@ -234,23 +266,28 @@ const projection = (row: ReturningPeriodRow) =>
     },
     { onExcessProperty: "error" },
   ).pipe(Effect.mapError(() => fail("decode returning period")));
+
 const decodeCurrentPreferences = (row: CurrentPreferencesRow | undefined) =>
   row === undefined
     ? Effect.succeed(null)
     : Schema.decodeUnknownEffect(ReturningAssistantPreferencesSnapshotSchema)(row, {
         onExcessProperty: "error",
       }).pipe(Effect.mapError(() => fail("decode returning preferences")));
+
 export const readReturningAssistantOptions = (context: RegistrationContext) =>
   Database.use((sql) =>
     Effect.gen(function* () {
       yield* lockPersonCustody(sql, context.personId);
+
       const identity = yield* authorize(sql, {
         personId: context.personId,
         now: nowFor(context),
       });
+
       const periods = yield* Effect.forEach(identity.periods, (period) =>
         Effect.gen(function* () {
           const value = yield* projection(period);
+
           const current = yield* sql<CurrentPreferencesRow>`
             SELECT r.registration_id AS "registrationId",
               r.revision,
@@ -272,7 +309,9 @@ export const readReturningAssistantOptions = (context: RegistrationContext) =>
               AND a.admission_period_id=${period.id}
             ORDER BY r.revision DESC
             LIMIT 1`;
+
           const currentPreferences = yield* decodeCurrentPreferences(current[0]);
+
           return {
             period: value,
             semesterName: period.semesterName,
@@ -281,6 +320,7 @@ export const readReturningAssistantOptions = (context: RegistrationContext) =>
           };
         }),
       );
+
       return {
         personId: context.personId,
         applicantId: identity.applicant.id,
@@ -298,13 +338,16 @@ export const readReturningAssistantOptions = (context: RegistrationContext) =>
       Effect.fail(fail("read returning assistant options", cause)),
     ),
   );
+
 export const preflightReturningAssistantRegistration = (
   input: Pick<ReturningAssistantRegistrationInput, "admissionPeriodId" | "teamIds">,
   context: RegistrationContext,
 ) => Database.use((sql) => validateRegistrationEligibility(sql, input, context));
-const findReceipt = (sql: DatabaseShape, commandId: string) =>
+
+const findReceipt = (sql: DatabaseOperations, commandId: string) =>
   sql<ReceiptRow>`SELECT command_sha256, observation_json FROM public.admission_returning_command_receipts WHERE command_id=${commandId} FOR UPDATE`;
-const findApplication = (sql: DatabaseShape, applicantId: string, periodId: string) =>
+
+const findApplication = (sql: DatabaseOperations, applicantId: string, periodId: string) =>
   sql<ApplicationRow>`
     SELECT application_id AS id, applicant_id AS "applicantId", admission_period_id AS "admissionPeriodId",
       department_id AS "departmentId", field_of_study_id AS "fieldOfStudyId", year_of_study AS "yearOfStudy",
@@ -312,14 +355,17 @@ const findApplication = (sql: DatabaseShape, applicantId: string, periodId: stri
     FROM public.admission_applications
     WHERE applicant_id=${applicantId} AND admission_period_id=${periodId}
     FOR UPDATE`;
+
 const registrationDigest = (input: ReturningAssistantRegistrationInput) =>
   sha256Hex(new TextEncoder().encode(canonicalJson(input)));
+
 const registrationId = (digest: string, revision: number) =>
   ReturningRegistrationIdSchema.make(
     `returning-registration-${sha256Hex(new TextEncoder().encode(`${digest}:${revision}`))}`,
   );
+
 const writeReturningOutbox = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   input: ReturningAssistantRegistrationInput,
   application: ApplicationRow,
   applicant: typeof ApplicantRecord.Type,
@@ -335,6 +381,7 @@ const writeReturningOutbox = (
     registrationId,
     personId,
   });
+
   return Effect.forEach(
     requests,
     (request, ordinal) =>
@@ -345,10 +392,11 @@ const writeReturningOutbox = (
     { discard: true },
   ).pipe(Effect.as(requests.length));
 };
+
 const registerInTransaction = (
   input: ReturningAssistantRegistrationInput,
   context: RegistrationContext,
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
 ): Effect.Effect<
   { observation: ReturningAssistantObservation; replayed: boolean; outboxCount: number },
   ReturningAssistantError
@@ -359,22 +407,29 @@ const registerInTransaction = (
     const now = nowFor(context);
     const identity = yield* authorize(sql, { personId: context.personId, now });
     const period = identity.periods.find((candidate) => candidate.id === input.admissionPeriodId);
+
     if (period === undefined) return yield* new ReturningAssistantPeriodUnavailable();
     const validTeamIds = new Set(identity.teams.map((team) => team.teamId));
+
     if (input.teamIds.some((teamId) => !validTeamIds.has(teamId)))
       return yield* new ReturningAssistantTeamScopeDenied();
     const digest = registrationDigest(input);
     const stored = yield* findReceipt(sql, input.commandId);
+
     if (stored[0] !== undefined) {
       if (stored[0].command_sha256 !== digest)
         return yield* new ReturningAssistantCommandConflict();
       const observation = yield* decodeObservation(stored[0].observation_json);
+
       return { observation, replayed: true, outboxCount: 0 };
     }
+
     const applications = yield* findApplication(sql, identity.applicant.id, period.id);
+
     if (applications.length > 1) return yield* new ReturningAssistantIdentityAmbiguous();
     const existing = applications[0];
     let application: ApplicationRow;
+
     if (existing === undefined) {
       const appDigest = publicApplicationCommandDigest({
         commandId: PublicApplicationCommandIdSchema.make(input.commandId),
@@ -387,6 +442,7 @@ const registerInTransaction = (
         fieldOfStudyId: identity.applicant.fieldOfStudyId,
         yearOfStudy: input.yearOfStudy,
       });
+
       const id = PublicApplicationIdSchema.make(`application-${appDigest.slice(0, 32)}`);
       yield* sql`INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision,activation_digest)
         VALUES(${id},${identity.applicant.id},${period.id},${identity.departmentId},${identity.fieldOfStudyId},${input.yearOfStudy},${now},0,NULL)`;
@@ -413,10 +469,13 @@ const registerInTransaction = (
         revision: existing.revision + 1,
       };
     }
+
     const revisions = yield* sql<{
       revision: number;
     }>`SELECT COALESCE(MAX(revision),0)::int AS revision FROM public.admission_returning_registrations WHERE application_id=${application.id}`;
+
     const currentRevision = revisions[0]?.revision ?? 0;
+
     if (input.expectedRevision !== currentRevision)
       return yield* new ReturningAssistantRevisionConflict({
         expectedRevision: input.expectedRevision,
@@ -429,15 +488,17 @@ const registerInTransaction = (
       year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at)
       VALUES(${rid},${application.id},${identity.applicant.id},${context.personId},${identity.placementId},${identity.departmentId},${period.semesterId},${period.id},${nextRevision},${input.commandId},
       ${input.yearOfStudy},${input.mondayUnavailable},${input.tuesdayUnavailable},${input.wednesdayUnavailable},${input.thursdayUnavailable},${input.fridayUnavailable},${input.positionWeeks},${input.preferredGroup},${input.language},${input.preferredSchool},${input.teamInterest},${sql.json(canonicalJson(input.teamIds))},${now})`;
-    const observation: ReturningAssistantObservation = {
-      _tag: "ReturningAssistantRegistered",
+
+    const observation: ReturningAssistantObservation = ReturningAssistantObservationSchema.make({
       commandId: input.commandId,
       applicationId: PublicApplicationIdSchema.make(application.id),
       registrationId: rid,
       revision: nextRevision,
-    };
+    });
+
     yield* sql`INSERT INTO public.admission_returning_command_receipts(command_id,command_sha256,command_json,observation_json,registration_id,person_id,applicant_id,committed_at)
       VALUES(${input.commandId},${digest},${sql.json(input)},${sql.json(observation)},${rid},${context.personId},${identity.applicant.id},${now})`;
+
     const outboxCount = yield* writeReturningOutbox(
       sql,
       input,
@@ -446,16 +507,23 @@ const registerInTransaction = (
       rid,
       context.personId,
     );
+
     return { observation, replayed: false, outboxCount };
   }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(fail("returning registration transaction", cause)),
     ),
   );
-export const registerReturningAssistant = (input: unknown, context: RegistrationContext) =>
+
+export const registerReturningAssistant = (
+  input: ReturningAssistantRegistrationInput,
+  context: RegistrationContext,
+) =>
   Effect.gen(function* () {
     const command = yield* decodeInput(input);
+
     if (!context.personId) return yield* new ReturningAssistantIdentityMissing();
+
     return yield* Database.use((sql) =>
       sql.withTransaction(registerInTransaction(command, context, sql)),
     );

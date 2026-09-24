@@ -1,5 +1,5 @@
-import { Effect, Schema } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
+import { flow, Predicate, Effect, Schema } from "effect";
+import { Database, type DatabaseOperations } from "../service.js";
 import type {
   OrganizationAuthorityInstant,
   OrganizationPersonAuthority,
@@ -10,6 +10,8 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { normalizeRfc3339Instant, Rfc3339InstantSchema } from "@vektorprogrammet/domain/time";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
+  PublishObservationSchema,
+  UnpublishObservationSchema,
   canPublishContent,
   canReviseDraft,
   resolveContentActor,
@@ -37,10 +39,8 @@ import {
   ContentWorkspaceSchema,
   CreateArticleDraftInputSchema,
   PublishArticleInputSchema,
-  PublishObservationSchema,
   ReviseArticleDraftInputSchema,
   UnpublishArticleInputSchema,
-  UnpublishObservationSchema,
   type ArticleDraftJson,
   type ContentArticleDetail,
   type ContentWorkspace,
@@ -77,7 +77,7 @@ const DraftRowSchema = Schema.Struct({
 });
 
 const departmentIdsForArticles = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   articleIds: ReadonlyArray<number>,
 ): Effect.Effect<ReadonlyMap<number, ReadonlyArray<DepartmentId>>, ContentPersistenceError> =>
   articleIds.length === 0
@@ -91,28 +91,36 @@ const departmentIdsForArticles = (
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(persistenceError("read content departments", cause)),
         ),
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(
+            Schema.Array(Schema.Struct({ articleId: Schema.String, departmentId: DepartmentId })),
+          ),
+        ),
+        Effect.mapError((cause) => persistenceError("decode content departments", cause)),
         Effect.map((rows) => {
           const map = new Map<number, Array<DepartmentId>>();
+
           for (const row of rows) {
             const key = Number(row.articleId);
             const list = map.get(key) ?? [];
-            list.push(row.departmentId as DepartmentId);
+            list.push(row.departmentId);
             map.set(key, list);
           }
+
           for (const [key, list] of map) {
             map.set(
               key,
               [...list].sort((left, right) => left.localeCompare(right)),
             );
           }
+
           return map;
         }),
       );
 
-const decodeDraftRows = (selected: unknown): ReadonlyArray<DraftRow> =>
-  Schema.decodeUnknownSync(Schema.Array(DraftRowSchema))(selected, {
-    onExcessProperty: "error",
-  });
+const decodeDraftRows = Schema.decodeUnknownSync(Schema.Array(DraftRowSchema), {
+  onExcessProperty: "error",
+});
 
 /**
  * Reads the caller-visible workspace in one repeatable-read, write-free
@@ -129,6 +137,7 @@ export const readWorkspacePostgres = (input: {
       input.query,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode content workspace query", cause)));
+
     const database = yield* Database;
     const organization = yield* Organization;
     const profile = yield* Profile;
@@ -139,38 +148,46 @@ export const readWorkspacePostgres = (input: {
           yield* database`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(
             Effect.asVoid,
           );
+
           const authority: OrganizationPersonAuthority = yield* organization
             .resolvePersonAuthorityForRead(input.personId, input.authorizationInstant)
             .pipe(Effect.mapError((cause) => persistenceError("resolve content authority", cause)));
+
           if (authority.evaluatedAt !== input.authorizationInstant) {
             return yield* decodeError(
               "resolve content authority",
               "Organization authority used a different authorization instant",
             );
           }
+
           const decision = resolveContentActor(authority);
-          if (decision._tag === "Deny") {
+
+          if (Predicate.isTagged(decision, "Deny")) {
             return yield* decision.reason === "AuthorityInactive"
               ? new ContentAuthorityInactive({})
               : new ContentNotInScope({});
           }
+
           const filterDepartmentId = decodedQuery.departmentId;
+
           if (filterDepartmentId !== undefined) {
             yield* organization.readDepartment(filterDepartmentId).pipe(
               Effect.asVoid,
               Effect.mapError((cause) =>
-                cause._tag === "DepartmentNotFound"
+                Predicate.isTagged(cause, "DepartmentNotFound")
                   ? new ContentDepartmentNotFound({ departmentId: filterDepartmentId })
                   : persistenceError("read content department filter", cause),
               ),
             );
+
             if (
-              decision.value._tag !== "ContentAdministrator" &&
+              !Predicate.isTagged(decision.value, "ContentAdministrator") &&
               !decision.value.departmentIds.includes(filterDepartmentId)
             ) {
               return yield* new ContentNotInScope({});
             }
           }
+
           const rows = yield* database<DraftRow>`
             SELECT
               CAST(article.article_id AS integer) AS "articleId",
@@ -190,40 +207,49 @@ export const readWorkspacePostgres = (input: {
               Effect.fail(persistenceError("read content drafts", cause)),
             ),
           );
+
           const drafts = yield* Effect.try({
             try: () => decodeDraftRows(rows),
             catch: (cause) => decodeError("decode content draft rows", cause),
           });
+
           const departmentIdsByArticle = yield* departmentIdsForArticles(
             database,
             drafts.map((draft) => draft.articleId),
           );
+
           // Visibility law: editors see own drafts plus all published
           // articles; leaders and administrators see everything in scope.
           const visibleDrafts = drafts.filter((draft) => {
-            if (decision.value._tag === "ContentAdministrator") return true;
+            if (Predicate.isTagged(decision.value, "ContentAdministrator")) return true;
+
             if (draft.currentVersionNumber !== null) return true;
+
             return canReviseDraft(decision.value, {
               createdByPersonId: draft.createdByPersonId,
               currentVersionNumber: draft.currentVersionNumber,
               departmentIds: departmentIdsByArticle.get(draft.articleId) ?? [],
             });
           });
+
           const scoped =
             filterDepartmentId === undefined
               ? visibleDrafts
               : visibleDrafts.filter((draft) =>
                   (departmentIdsByArticle.get(draft.articleId) ?? []).includes(filterDepartmentId),
                 );
+
           // Author display names resolve from one Profile read inside the
           // same snapshot; a missing profile row is a typed integrity
           // failure, never an opaque identifier.
           const authorPersonIds = [
             ...new Set(scoped.map((draft) => draft.createdByPersonId)),
           ].sort();
-          const profiles = yield* profile.readProfiles(authorPersonIds as never).pipe(
+
+          const profiles = yield* profile.readProfiles(authorPersonIds).pipe(
             Effect.mapError((cause) =>
-              cause._tag === "ProfileContactNotFound" || cause._tag === "ProfileNotFound"
+              Predicate.isTagged(cause, "ProfileContactNotFound") ||
+              Predicate.isTagged(cause, "ProfileNotFound")
                 ? new ContentIntegrityError({
                     operation: "read content workspace authors",
                     message: `missing profile for a workspace author: ${String(cause)}`,
@@ -231,9 +257,11 @@ export const readWorkspacePostgres = (input: {
                 : persistenceError("read content workspace authors", cause),
             ),
           );
+
           const namesByPerson = new Map<string, string>(
             profiles.map((entry) => [entry.personId, `${entry.firstName} ${entry.lastName}`]),
           );
+
           for (const draft of scoped) {
             if (!namesByPerson.has(draft.createdByPersonId)) {
               return yield* new ContentIntegrityError({
@@ -242,8 +270,10 @@ export const readWorkspacePostgres = (input: {
               });
             }
           }
+
           const entries = scoped.map((draft) => {
             const departmentIds = departmentIdsByArticle.get(draft.articleId) ?? [];
+
             return {
               articleId: draft.articleId,
               title: draft.title,
@@ -262,7 +292,9 @@ export const readWorkspacePostgres = (input: {
               authorDisplayName: namesByPerson.get(draft.createdByPersonId)!,
             };
           });
+
           const workspace = { entries };
+
           return yield* Schema.decodeUnknownEffect(ContentWorkspaceSchema)(workspace, {
             onExcessProperty: "error",
           }).pipe(Effect.mapError((cause) => decodeError("decode content workspace", cause)));
@@ -274,6 +306,7 @@ export const readWorkspacePostgres = (input: {
         ),
       );
   });
+
 /**
  * Reads one editable working copy without widening the exact workspace summary.
  * Caller owns the transaction; this reader never changes its isolation or mode.
@@ -292,6 +325,7 @@ export const readArticleDetailInTransactionPostgres = (input: {
     const articleId = yield* Schema.decodeUnknownEffect(ArticleId)(input.articleId, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode content article id", cause)));
+
     const database = yield* Database;
     const organization = yield* Organization;
     const profile = yield* Profile;
@@ -301,18 +335,22 @@ export const readArticleDetailInTransactionPostgres = (input: {
       .pipe(
         Effect.mapError((cause) => persistenceError("resolve content detail authority", cause)),
       );
+
     if (authority.evaluatedAt !== input.authorizationInstant) {
       return yield* decodeError(
         "resolve content detail authority",
         "Organization authority used a different authorization instant",
       );
     }
+
     const decision = resolveContentActor(authority);
-    if (decision._tag === "Deny") {
+
+    if (Predicate.isTagged(decision, "Deny")) {
       return yield* decision.reason === "AuthorityInactive"
         ? new ContentAuthorityInactive({})
         : new ContentNotInScope({});
     }
+
     const rows = yield* database<DraftRow>`
       SELECT
         CAST(article.article_id AS integer) AS "articleId",
@@ -332,26 +370,33 @@ export const readArticleDetailInTransactionPostgres = (input: {
         Effect.fail(persistenceError("read content article detail", cause)),
       ),
     );
+
     const draft = yield* Effect.try({
       try: () => decodeDraftRows(rows)[0],
       catch: (cause) => decodeError("decode content article detail row", cause),
     });
+
     if (draft === undefined) return yield* new ContentArticleNotFound({});
+
     const departmentIds =
       (yield* departmentIdsForArticles(database, [draft.articleId])).get(draft.articleId) ?? [];
+
     const canRevise = canReviseDraft(decision.value, {
       createdByPersonId: draft.createdByPersonId,
       currentVersionNumber: draft.currentVersionNumber,
       departmentIds,
     });
+
     if (!canRevise) {
-      return yield* decision.value._tag === "ContentEditor"
+      return yield* Predicate.isTagged(decision.value, "ContentEditor")
         ? new ContentDraftNotOwned({ articleId: draft.articleId })
         : new ContentNotInScope({});
     }
+
     const profiles = yield* profile.readProfiles([draft.createdByPersonId]).pipe(
       Effect.mapError((cause) =>
-        cause._tag === "ProfileContactNotFound" || cause._tag === "ProfileNotFound"
+        Predicate.isTagged(cause, "ProfileContactNotFound") ||
+        Predicate.isTagged(cause, "ProfileNotFound")
           ? new ContentIntegrityError({
               operation: "read content article detail author",
               message: `missing profile for article author: ${String(cause)}`,
@@ -359,13 +404,16 @@ export const readArticleDetailInTransactionPostgres = (input: {
           : persistenceError("read content article detail author", cause),
       ),
     );
+
     const author = profiles[0];
+
     if (author === undefined) {
       return yield* new ContentIntegrityError({
         operation: "read content article detail author",
         message: "no profile resolved for article author",
       });
     }
+
     return yield* Schema.decodeUnknownEffect(ContentArticleDetailSchema)(
       {
         articleId: draft.articleId,
@@ -393,10 +441,12 @@ export const readArticleDetailPostgres = (
 ): ReturnType<typeof readArticleDetailInTransactionPostgres> =>
   Effect.gen(function* () {
     const database = yield* Database;
+
     return yield* database
       .withTransaction(
         Effect.gen(function* () {
           yield* database`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`;
+
           return yield* readArticleDetailInTransactionPostgres(input);
         }),
       )
@@ -417,7 +467,7 @@ interface CommandReceiptRow {
 }
 
 const findCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: string,
 ): Effect.Effect<CommandReceiptRow | undefined, ContentPersistenceError> =>
   sql<CommandReceiptRow>`
@@ -436,7 +486,7 @@ const findCommandReceipt = (
   );
 
 const lockCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: string,
 ): Effect.Effect<void, ContentPersistenceError> =>
   sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-command-${commandId}`}, 0))`.pipe(
@@ -452,31 +502,25 @@ const commandReceiptConflicts = (
   payloadSha256: string,
 ): boolean => stored.kind !== kind || stored.payloadSha256 !== payloadSha256;
 
-const decodeStoredDraft = (
-  stored: unknown,
-): Effect.Effect<ArticleDraftJson, ContentPersistenceError> =>
-  Schema.decodeUnknownEffect(ArticleDraft.json)(stored, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) => persistenceError("decode stored article draft", cause)),
-  );
+const decodeStoredDraft = flow(
+  Schema.decodeUnknownEffect(ArticleDraft.json, { onExcessProperty: "error" }),
+  Effect.mapError((cause) => persistenceError("decode stored article draft", cause)),
+);
 
-const decodeStoredPublish = (
-  stored: unknown,
-): Effect.Effect<PublishObservation, ContentPersistenceError> =>
-  Schema.decodeUnknownEffect(PublishObservationSchema)(stored, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) => persistenceError("decode stored publish observation", cause)),
-  );
+const decodeStoredPublish = flow(
+  Schema.decodeUnknownEffect(PublishObservationSchema, { onExcessProperty: "error" }),
+  Effect.mapError((cause) => persistenceError("decode stored publish observation", cause)),
+);
 
-const decodeStoredUnpublish = (
-  stored: unknown,
-): Effect.Effect<UnpublishObservation, ContentPersistenceError> =>
-  Schema.decodeUnknownEffect(UnpublishObservationSchema)(stored, {
+const decodeStoredUnpublish = flow(
+  Schema.decodeUnknownEffect(UnpublishObservationSchema, {
     onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError((cause) => persistenceError("decode stored unpublish observation", cause)),
-  );
+  }),
+  Effect.mapError((cause) => persistenceError("decode stored unpublish observation", cause)),
+);
 
 const insertReceiptAndAudit = (input: {
-  readonly sql: DatabaseShape;
+  readonly sql: DatabaseOperations;
   readonly commandId: string;
   readonly articleId: number;
   readonly kind: ContentCommandKind;
@@ -487,6 +531,7 @@ const insertReceiptAndAudit = (input: {
   readonly versionNumber: number | null;
 }): Effect.Effect<void, ContentPersistenceError> => {
   const { sql } = input;
+
   return Effect.gen(function* () {
     yield* sql`
       INSERT INTO public.content_publication_command_receipts (
@@ -551,17 +596,20 @@ const authorityDecisionOrDenial = (
       ),
     );
   }
+
   const decision = resolveContentActor(authority);
-  if (decision._tag === "Deny") {
+
+  if (Predicate.isTagged(decision, "Deny")) {
     return decision.reason === "AuthorityInactive"
       ? Effect.fail(new ContentAuthorityInactive({}))
       : Effect.fail(new ContentNotInScope({}));
   }
+
   return Effect.succeed(decision.value);
 };
 
 const readDraftForUpdate = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   articleId: ArticleId,
 ): Effect.Effect<DraftRow | undefined, ContentPersistenceError> =>
   sql<DraftRow>`
@@ -587,7 +635,7 @@ const readDraftForUpdate = (
   );
 
 const replaceArticleDepartments = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   articleId: number,
   departmentIds: ReadonlyArray<DepartmentId>,
 ): Effect.Effect<void, ContentPersistenceError | ContentDepartmentNotFound> => {
@@ -599,6 +647,7 @@ const replaceArticleDepartments = (
       Effect.fail(persistenceError("mark content revision managed", cause)),
     ),
   );
+
   const clear =
     sql`DELETE FROM public.content_article_departments WHERE article_id = ${articleId}`.pipe(
       Effect.asVoid,
@@ -606,28 +655,27 @@ const replaceArticleDepartments = (
         Effect.fail(persistenceError("clear content departments", cause)),
       ),
     );
+
   const insertOne = (departmentId: DepartmentId) =>
     sql`
       INSERT INTO public.content_article_departments (article_id, department_id)
       VALUES (${articleId}, ${departmentId})
     `.pipe(
       Effect.asVoid,
-      Effect.catchIf(
-        (cause: unknown): cause is ContentDepartmentNotFound =>
-          String(cause).includes("foreign key"),
-        () => new ContentDepartmentNotFound({ departmentId }),
-      ),
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("insert content department link", cause)),
+      Effect.mapError((cause) =>
+        String(cause).includes("foreign key")
+          ? new ContentDepartmentNotFound({ departmentId })
+          : persistenceError("insert content department link", cause),
       ),
     );
+
   return Effect.flatMap(markRevisionManaged, () =>
     Effect.flatMap(clear, () =>
       departmentIds.length === 0
         ? Effect.void
         : Effect.forEach(departmentIds, insertOne, { discard: true }),
     ),
-  ) as Effect.Effect<void, ContentPersistenceError | ContentDepartmentNotFound>;
+  );
 };
 
 /**
@@ -645,6 +693,7 @@ export const createDraftPostgres = (input: {
       input.command,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode create-draft command", cause)));
+
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;
     const organization = yield* Organization;
@@ -654,12 +703,15 @@ export const createDraftPostgres = (input: {
         Effect.gen(function* () {
           yield* lockCommandReceipt(database, command.commandId);
           const stored = yield* findCommandReceipt(database, command.commandId);
+
           if (stored !== undefined) {
             if (commandReceiptConflicts(stored, "CreateDraft", payloadDigest)) {
               return yield* new ContentCommandConflict({ commandId: command.commandId });
             }
+
             return yield* decodeStoredDraft(stored.resultJson);
           }
+
           const sanitizedBody = yield* sanitizeArticleBodyHtml(
             "sanitize create-draft body",
             command.bodyHtml,
@@ -670,9 +722,11 @@ export const createDraftPostgres = (input: {
             personId: input.personId,
             authorizationInstant: input.authorizationInstant,
           });
+
           const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
+
           if (
-            actor._tag !== "ContentAdministrator" &&
+            !Predicate.isTagged(actor, "ContentAdministrator") &&
             (command.departmentIds.length === 0 ||
               !command.departmentIds.every((departmentId) =>
                 actor.departmentIds.includes(departmentId),
@@ -680,14 +734,19 @@ export const createDraftPostgres = (input: {
           ) {
             return yield* new ContentNotInScope({});
           }
+
           const sticky = command.sticky ?? false;
-          if (sticky && actor._tag === "ContentEditor") {
+
+          if (sticky && Predicate.isTagged(actor, "ContentEditor")) {
             return yield* new ContentNotInScope({});
           }
+
           const baseSlug = slugifyTitle(command.title);
+
           if (!/^[a-z0-9-]+$/.test(baseSlug) || baseSlug.length === 0) {
             return yield* new ContentSlugConflict({});
           }
+
           const taken = new Set<string>(
             (yield* database<{ readonly slug: string }>`
                 SELECT slug FROM public.content_articles WHERE slug LIKE ${`${baseSlug}%`}
@@ -699,7 +758,9 @@ export const createDraftPostgres = (input: {
               ),
             )).map((row) => row.slug),
           );
+
           const slug = dedupeSlug(baseSlug, taken);
+
           const inserted = yield* database<ArticleDraftJson>`
             INSERT INTO public.content_articles (
               title, slug, body_html, sticky, created_by_person_id,
@@ -721,25 +782,36 @@ export const createDraftPostgres = (input: {
           `.pipe(
             Effect.mapError((cause): ContentPersistenceError | ContentSlugConflict => {
               const driverCause =
-                typeof cause === "object" && cause !== null && "cause" in cause
+                (cause === null || Predicate.isObjectOrArray(cause)) &&
+                cause !== null &&
+                "cause" in cause
                   ? cause.cause
                   : cause;
+
               const sqlReason =
-                typeof cause === "object" && cause !== null && "reason" in cause
+                (cause === null || Predicate.isObjectOrArray(cause)) &&
+                cause !== null &&
+                "reason" in cause
                   ? cause.reason
                   : undefined;
+
               const code =
-                typeof driverCause === "object" && driverCause !== null && "code" in driverCause
+                (driverCause === null || Predicate.isObjectOrArray(driverCause)) &&
+                driverCause !== null &&
+                "code" in driverCause
                   ? driverCause.code
                   : undefined;
+
               const constraint =
-                typeof sqlReason === "object" &&
+                (sqlReason === null || Predicate.isObjectOrArray(sqlReason)) &&
                 sqlReason !== null &&
                 "constraint" in sqlReason &&
-                typeof sqlReason.constraint === "string"
+                Predicate.isString(sqlReason.constraint)
                   ? sqlReason.constraint
                   : undefined;
+
               const description = `${String(cause)} ${String(driverCause)}`;
+
               return code === "23505" ||
                 constraint === "content_articles_slug_unique" ||
                 description.includes("content_articles_slug_unique") ||
@@ -748,9 +820,11 @@ export const createDraftPostgres = (input: {
                 : persistenceError("insert content draft", cause);
             }),
           );
+
           const observation = yield* Schema.decodeUnknownEffect(ArticleDraft.json)(inserted[0], {
             onExcessProperty: "error",
           }).pipe(Effect.mapError((cause) => decodeError("decode created article draft", cause)));
+
           yield* replaceArticleDepartments(database, observation.articleId, command.departmentIds);
           yield* insertReceiptAndAudit({
             sql: database,
@@ -763,6 +837,7 @@ export const createDraftPostgres = (input: {
             action: "CreateDraft",
             versionNumber: null,
           });
+
           return observation;
         }),
       )
@@ -782,6 +857,7 @@ export const publishPostgres = (input: {
     const command = yield* Schema.decodeUnknownEffect(PublishArticleInputSchema)(input.command, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode publish command", cause)));
+
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;
     const organization = yield* Organization;
@@ -799,29 +875,37 @@ export const publishPostgres = (input: {
           yield* lockCommandReceipt(database, command.commandId);
           // Law 9: identical replay returns the stored observation.
           const stored = yield* findCommandReceipt(database, command.commandId);
+
           if (stored !== undefined) {
             if (commandReceiptConflicts(stored, "Publish", payloadDigest)) {
               return yield* new ContentCommandConflict({ commandId: command.commandId });
             }
+
             return yield* decodeStoredPublish(stored.resultJson);
           }
+
           const authority = yield* resolveAuthorityInTransaction({
             organization,
             personId: input.personId,
             authorizationInstant: input.authorizationInstant,
           });
+
           const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           const draft = yield* readDraftForUpdate(database, command.articleId);
+
           if (draft === undefined) {
             return yield* new ContentArticleNotFound({});
           }
+
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
           const draftDepartments = departmentIds.get(draft.articleId) ?? [];
+
           if (!canPublishContent(actor, draftDepartments)) {
-            return yield* actor._tag === "ContentEditor"
+            return yield* Predicate.isTagged(actor, "ContentEditor")
               ? new ContentNotPublisher({ articleId: draft.articleId })
               : new ContentNotInScope({});
           }
+
           const nextVersionRows = yield* database<{ readonly nextVersionNumber: number }>`
             SELECT CAST(COALESCE(MAX(version_number), 0) + 1 AS integer) AS "nextVersionNumber"
             FROM public.content_article_versions
@@ -831,9 +915,11 @@ export const publishPostgres = (input: {
               Effect.fail(persistenceError("issue next article version number", cause)),
             ),
           );
+
           const nextVersionNumber = ArticleVersionNumber.make(
             Number(nextVersionRows[0]?.nextVersionNumber),
           );
+
           const sanitizedBody = yield* sanitizeArticleBodyHtml(
             "sanitize publish body",
             draft.bodyHtml,
@@ -857,9 +943,11 @@ export const publishPostgres = (input: {
               Effect.fail(persistenceError("insert published version", cause)),
             ),
           );
+
           const publishedAt = Rfc3339InstantSchema.make(
             normalizeRfc3339Instant(insertedVersion[0]!.publishedAt),
           );
+
           yield* database`
             UPDATE public.content_articles
             SET current_version_number = ${nextVersionNumber}, revision = revision + 1
@@ -870,13 +958,14 @@ export const publishPostgres = (input: {
               Effect.fail(persistenceError("advance current version pointer", cause)),
             ),
           );
-          const observation: PublishObservation = {
-            _tag: "Published",
+
+          const observation: PublishObservation = PublishObservationSchema.make({
             commandId: command.commandId,
             articleId: draft.articleId,
             versionNumber: nextVersionNumber,
             publishedAt,
-          };
+          });
+
           yield* insertReceiptAndAudit({
             sql: database,
             commandId: command.commandId,
@@ -888,6 +977,7 @@ export const publishPostgres = (input: {
             action: "Publish",
             versionNumber: nextVersionNumber,
           });
+
           return observation;
         }),
       )
@@ -907,6 +997,7 @@ export const unpublishPostgres = (input: {
     const command = yield* Schema.decodeUnknownEffect(UnpublishArticleInputSchema)(input.command, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => decodeError("decode unpublish command", cause)));
+
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;
     const organization = yield* Organization;
@@ -922,31 +1013,40 @@ export const unpublishPostgres = (input: {
           );
           yield* lockCommandReceipt(database, command.commandId);
           const stored = yield* findCommandReceipt(database, command.commandId);
+
           if (stored !== undefined) {
             if (commandReceiptConflicts(stored, "Unpublish", payloadDigest)) {
               return yield* new ContentCommandConflict({ commandId: command.commandId });
             }
+
             return yield* decodeStoredUnpublish(stored.resultJson);
           }
+
           const authority = yield* resolveAuthorityInTransaction({
             organization,
             personId: input.personId,
             authorizationInstant: input.authorizationInstant,
           });
+
           const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           const draft = yield* readDraftForUpdate(database, command.articleId);
+
           if (draft === undefined) {
             return yield* new ContentArticleNotFound({});
           }
+
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
+
           if (!canPublishContent(actor, departmentIds.get(draft.articleId) ?? [])) {
-            return yield* actor._tag === "ContentEditor"
+            return yield* Predicate.isTagged(actor, "ContentEditor")
               ? new ContentNotPublisher({ articleId: draft.articleId })
               : new ContentNotInScope({});
           }
+
           if (draft.currentVersionNumber === null) {
             return yield* new ContentCommandConflict({ commandId: command.commandId });
           }
+
           yield* database`
             UPDATE public.content_articles
             SET current_version_number = NULL, revision = revision + 1
@@ -957,11 +1057,12 @@ export const unpublishPostgres = (input: {
               Effect.fail(persistenceError("clear current version pointer", cause)),
             ),
           );
-          const observation: UnpublishObservation = {
-            _tag: "Unpublished",
+
+          const observation: UnpublishObservation = UnpublishObservationSchema.make({
             commandId: command.commandId,
             articleId: draft.articleId,
-          };
+          });
+
           yield* insertReceiptAndAudit({
             sql: database,
             commandId: command.commandId,
@@ -973,6 +1074,7 @@ export const unpublishPostgres = (input: {
             action: "Unpublish",
             versionNumber: null,
           });
+
           return observation;
         }),
       )
@@ -993,6 +1095,7 @@ export const reviseDraftPostgres = (input: {
       input.command,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode revise command", cause)));
+
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;
     const organization = yield* Organization;
@@ -1008,28 +1111,36 @@ export const reviseDraftPostgres = (input: {
           );
           yield* lockCommandReceipt(database, command.commandId);
           const stored = yield* findCommandReceipt(database, command.commandId);
+
           if (stored !== undefined) {
             if (commandReceiptConflicts(stored, "ReviseDraft", payloadDigest)) {
               return yield* new ContentCommandConflict({ commandId: command.commandId });
             }
+
             return yield* decodeStoredDraft(stored.resultJson);
           }
+
           const sanitizedBody = yield* sanitizeArticleBodyHtml(
             "sanitize revise body",
             command.bodyHtml,
           );
+
           const authority = yield* resolveAuthorityInTransaction({
             organization,
             personId: input.personId,
             authorizationInstant: input.authorizationInstant,
           });
+
           const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           const draft = yield* readDraftForUpdate(database, command.articleId);
+
           if (draft === undefined) {
             return yield* new ContentArticleNotFound({});
           }
+
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
           const current = departmentIds.get(draft.articleId) ?? [];
+
           if (
             !canReviseDraft(actor, {
               createdByPersonId: draft.createdByPersonId,
@@ -1037,12 +1148,13 @@ export const reviseDraftPostgres = (input: {
               departmentIds: current,
             })
           ) {
-            return yield* actor._tag === "ContentEditor"
+            return yield* Predicate.isTagged(actor, "ContentEditor")
               ? new ContentDraftNotOwned({ articleId: draft.articleId })
               : new ContentNotPublisher({ articleId: draft.articleId });
           }
+
           if (
-            actor._tag !== "ContentAdministrator" &&
+            !Predicate.isTagged(actor, "ContentAdministrator") &&
             (command.departmentIds.length === 0 ||
               !command.departmentIds.every((departmentId) =>
                 actor.departmentIds.includes(departmentId),
@@ -1050,13 +1162,17 @@ export const reviseDraftPostgres = (input: {
           ) {
             return yield* new ContentNotInScope({});
           }
+
           if (draft.revision !== command.expectedRevision) {
             return yield* new ContentCommandConflict({ commandId: command.commandId });
           }
+
           const sticky = command.sticky ?? draft.sticky;
+
           if (sticky !== draft.sticky && !canPublishContent(actor, current)) {
             return yield* new ContentNotPublisher({ articleId: draft.articleId });
           }
+
           const revised = yield* database<ArticleDraftJson>`
             UPDATE public.content_articles
             SET title = ${command.title}, body_html = ${sanitizedBody}, sticky = ${sticky},
@@ -1077,9 +1193,11 @@ export const reviseDraftPostgres = (input: {
               Effect.fail(persistenceError("revise content draft", cause)),
             ),
           );
+
           const observation = yield* Schema.decodeUnknownEffect(ArticleDraft.json)(revised[0], {
             onExcessProperty: "error",
           }).pipe(Effect.mapError((cause) => decodeError("decode revised article draft", cause)));
+
           yield* replaceArticleDepartments(database, draft.articleId, command.departmentIds);
           yield* insertReceiptAndAudit({
             sql: database,
@@ -1092,6 +1210,7 @@ export const reviseDraftPostgres = (input: {
             action: "ReviseDraft",
             versionNumber: null,
           });
+
           return observation;
         }),
       )
@@ -1136,8 +1255,11 @@ export const readContentArticleHttpSourcePostgres = (
           Effect.fail(persistenceError("read content HTTP article source", cause)),
         ),
       );
+
       const row = rows[0];
+
       if (row === undefined) return yield* new ContentArticleNotFound({});
+
       return yield* Schema.decodeUnknownEffect(ContentArticleHttpSourceSchema)(row, {
         onExcessProperty: "error",
       }).pipe(Effect.mapError((cause) => decodeError("decode content HTTP article source", cause)));
@@ -1174,6 +1296,7 @@ export const readContentAuthorityHttpSourcesPostgres = (
         WHERE person_id = ${personId}
         ORDER BY grant_id
       `;
+
       const memberships = yield* database`
         SELECT
           'Membership' AS kind,
@@ -1187,6 +1310,7 @@ export const readContentAuthorityHttpSourcesPostgres = (
         WHERE membership.person_id = ${personId}
         ORDER BY membership.membership_id
       `;
+
       return yield* Schema.decodeUnknownEffect(Schema.Array(ContentAuthorityHttpSourceSchema))([
         ...grants,
         ...memberships,
@@ -1219,6 +1343,7 @@ export const readPublishedNewsCollectionHttpSourcesPostgres = (
 > =>
   Database.use((database) => {
     const selectedDepartment = departmentId ?? null;
+
     return database`
       SELECT
         article.article_id::integer AS "articleId",
@@ -1315,8 +1440,11 @@ export const readPublishedNewsArticleHttpSourcePostgres = (
           Effect.fail(persistenceError("read public news HTTP article source", cause)),
         ),
       );
+
       const row = rows[0];
+
       if (row === undefined) return yield* new ContentArticleNotFound({});
+
       return yield* Schema.decodeUnknownEffect(PublishedNewsArticleHttpSourceSchema)(row, {
         onExcessProperty: "error",
       }).pipe(

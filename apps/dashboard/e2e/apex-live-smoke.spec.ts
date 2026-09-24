@@ -13,6 +13,7 @@ const ADMIN = {
 };
 
 test.skip(process.env.APEX_LIVE_E2E !== "1", "live apex smoke only");
+
 test.skip(ADMIN.password === "", "APEX_ADMIN_PASSWORD required");
 
 test.setTimeout(120_000);
@@ -43,9 +44,11 @@ test("authenticated skoler mounts Foldkit; anonymous homepage is clean", async (
   await expect(adminPage.getByRole("heading", { name: "Skoler", exact: true })).toBeVisible({
     timeout: 20_000,
   });
+
   const sessionCookie = (await adminContext.cookies()).find((c) =>
     c.name.endsWith("better-auth.session_token"),
   );
+
   expect(sessionCookie).toBeDefined();
   await adminContext.close();
 

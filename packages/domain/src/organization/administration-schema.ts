@@ -16,48 +16,51 @@ const NonEmpty = Schema.String.pipe(
 );
 
 export const OrganizationCommandId = NonEmpty.pipe(Schema.brand("OrganizationCommandId"));
+
 export type OrganizationCommandId = typeof OrganizationCommandId.Type;
 
 export const OrganizationEntityKindSchema = Schema.Literals(["Department", "Team", "FieldOfStudy"]);
+
 export type OrganizationEntityKind = typeof OrganizationEntityKindSchema.Type;
 
-export const OrganizationAdministratorSchema = Schema.Struct({
-  _tag: Schema.Literals(["OrganizationAdministrator"]),
+export const OrganizationAdministratorSchema = Schema.TaggedStruct("OrganizationAdministrator", {
   personId: PersonId,
 });
+
 export type OrganizationAdministrator = typeof OrganizationAdministratorSchema.Type;
 
-export const OrganizationMemberSchema = Schema.Struct({
-  _tag: Schema.Literals(["OrganizationMember"]),
+export const OrganizationMemberSchema = Schema.TaggedStruct("OrganizationMember", {
   personId: PersonId,
 });
+
 export type OrganizationMember = typeof OrganizationMemberSchema.Type;
 
 export const OrganizationActorSchema = Schema.Union([
   OrganizationAdministratorSchema,
   OrganizationMemberSchema,
 ]);
+
 export type OrganizationActor = typeof OrganizationActorSchema.Type;
 
-export const CreateDepartmentCommandSchema = Schema.Struct({
-  _tag: Schema.Literals(["CreateDepartment"]),
+export const CreateDepartmentCommandSchema = Schema.TaggedStruct("CreateDepartment", {
   commandId: OrganizationCommandId,
   ...Department.jsonCreate.fields,
 });
+
 export type CreateDepartmentCommand = typeof CreateDepartmentCommandSchema.Type;
 
-export const CreateTeamCommandSchema = Schema.Struct({
-  _tag: Schema.Literals(["CreateTeam"]),
+export const CreateTeamCommandSchema = Schema.TaggedStruct("CreateTeam", {
   commandId: OrganizationCommandId,
   ...Team.jsonCreate.fields,
 });
+
 export type CreateTeamCommand = typeof CreateTeamCommandSchema.Type;
 
-export const CreateFieldOfStudyCommandSchema = Schema.Struct({
-  _tag: Schema.Literals(["CreateFieldOfStudy"]),
+export const CreateFieldOfStudyCommandSchema = Schema.TaggedStruct("CreateFieldOfStudy", {
   commandId: OrganizationCommandId,
   ...FieldOfStudy.jsonCreate.fields,
 });
+
 export type CreateFieldOfStudyCommand = typeof CreateFieldOfStudyCommandSchema.Type;
 
 export const OrganizationCreateCommandSchema = Schema.Union([
@@ -65,27 +68,28 @@ export const OrganizationCreateCommandSchema = Schema.Union([
   CreateTeamCommandSchema,
   CreateFieldOfStudyCommandSchema,
 ]);
+
 export type OrganizationCreateCommand = typeof OrganizationCreateCommandSchema.Type;
 
-export const DepartmentCreatedObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["DepartmentCreated"]),
+export const DepartmentCreatedObservationSchema = Schema.TaggedStruct("DepartmentCreated", {
   commandId: OrganizationCommandId,
   department: DepartmentJsonSchema,
 });
+
 export type DepartmentCreatedObservation = typeof DepartmentCreatedObservationSchema.Type;
 
-export const TeamCreatedObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["TeamCreated"]),
+export const TeamCreatedObservationSchema = Schema.TaggedStruct("TeamCreated", {
   commandId: OrganizationCommandId,
   team: TeamJsonSchema,
 });
+
 export type TeamCreatedObservation = typeof TeamCreatedObservationSchema.Type;
 
-export const FieldOfStudyCreatedObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["FieldOfStudyCreated"]),
+export const FieldOfStudyCreatedObservationSchema = Schema.TaggedStruct("FieldOfStudyCreated", {
   commandId: OrganizationCommandId,
   fieldOfStudy: FieldOfStudyJsonSchema,
 });
+
 export type FieldOfStudyCreatedObservation = typeof FieldOfStudyCreatedObservationSchema.Type;
 
 export const OrganizationCreatedObservationSchema = Schema.Union([
@@ -93,27 +97,28 @@ export const OrganizationCreatedObservationSchema = Schema.Union([
   TeamCreatedObservationSchema,
   FieldOfStudyCreatedObservationSchema,
 ]);
+
 export type OrganizationCreatedObservation = typeof OrganizationCreatedObservationSchema.Type;
 
-export const DepartmentReplayedObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["Replayed"]),
+export const DepartmentReplayedObservationSchema = Schema.TaggedStruct("Replayed", {
   commandId: OrganizationCommandId,
   original: DepartmentCreatedObservationSchema,
 });
+
 export type DepartmentReplayedObservation = typeof DepartmentReplayedObservationSchema.Type;
 
-export const TeamReplayedObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["Replayed"]),
+export const TeamReplayedObservationSchema = Schema.TaggedStruct("Replayed", {
   commandId: OrganizationCommandId,
   original: TeamCreatedObservationSchema,
 });
+
 export type TeamReplayedObservation = typeof TeamReplayedObservationSchema.Type;
 
-export const FieldOfStudyReplayedObservationSchema = Schema.Struct({
-  _tag: Schema.Literals(["Replayed"]),
+export const FieldOfStudyReplayedObservationSchema = Schema.TaggedStruct("Replayed", {
   commandId: OrganizationCommandId,
   original: FieldOfStudyCreatedObservationSchema,
 });
+
 export type FieldOfStudyReplayedObservation = typeof FieldOfStudyReplayedObservationSchema.Type;
 
 export const OrganizationReplayedObservationSchema = Schema.Union([
@@ -121,12 +126,14 @@ export const OrganizationReplayedObservationSchema = Schema.Union([
   TeamReplayedObservationSchema,
   FieldOfStudyReplayedObservationSchema,
 ]);
+
 export type OrganizationReplayedObservation = typeof OrganizationReplayedObservationSchema.Type;
 
 export const OrganizationCreateObservationSchema = Schema.Union([
   OrganizationCreatedObservationSchema,
   OrganizationReplayedObservationSchema,
 ]);
+
 export type OrganizationCreateObservation = typeof OrganizationCreateObservationSchema.Type;
 
 export const CreateDepartmentResultSchema = Schema.Union([
@@ -139,6 +146,7 @@ export const CreateDepartmentResultSchema = Schema.Union([
     observation: DepartmentReplayedObservationSchema,
   }),
 ]);
+
 export type CreateDepartmentResult = typeof CreateDepartmentResultSchema.Type;
 
 export const CreateTeamResultSchema = Schema.Union([
@@ -151,6 +159,7 @@ export const CreateTeamResultSchema = Schema.Union([
     observation: TeamReplayedObservationSchema,
   }),
 ]);
+
 export type CreateTeamResult = typeof CreateTeamResultSchema.Type;
 
 export const CreateFieldOfStudyResultSchema = Schema.Union([
@@ -163,6 +172,7 @@ export const CreateFieldOfStudyResultSchema = Schema.Union([
     observation: FieldOfStudyReplayedObservationSchema,
   }),
 ]);
+
 export type CreateFieldOfStudyResult = typeof CreateFieldOfStudyResultSchema.Type;
 
 export const OrganizationCreateResultSchema = Schema.Union([
@@ -170,4 +180,5 @@ export const OrganizationCreateResultSchema = Schema.Union([
   CreateTeamResultSchema,
   CreateFieldOfStudyResultSchema,
 ]);
+
 export type OrganizationCreateResult = typeof OrganizationCreateResultSchema.Type;

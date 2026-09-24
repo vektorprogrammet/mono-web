@@ -2,7 +2,9 @@ import { unlink, rename } from "node:fs/promises";
 import { Console, Effect } from "effect";
 
 const check = Bun.argv.includes("--check");
+
 const outputPath = "CHANGELOG.md";
+
 const temporaryPath = `${outputPath}.tmp-${process.pid}`;
 
 const processResult = Bun.spawn(
@@ -19,6 +21,7 @@ const processResult = Bun.spawn(
 );
 
 const exitCode = await processResult.exited;
+
 if (exitCode !== 0) {
   await unlink(temporaryPath).catch(() => undefined);
   process.exit(exitCode);
@@ -28,6 +31,7 @@ if (check) {
   const expected = await Bun.file(outputPath)
     .arrayBuffer()
     .catch(() => null);
+
   const actual = await Bun.file(temporaryPath).arrayBuffer();
   await unlink(temporaryPath);
 

@@ -54,6 +54,7 @@ const matchedIds = (
 ): Array<string | undefined> => {
   const mount = dashboardMount(environment);
   const routes = mountDashboardRoutes(dashboardRouteConfig, mount).map(toRouteObject);
+
   return matchRoutes(routes, pathname, mount)?.map((match) => match.route.id) ?? [];
 };
 
@@ -82,6 +83,7 @@ describe("dashboard router topology", () => {
       DASHBOARD_MOUNT: "/",
       PREVIEW_HOST: "vektor.phibkro.org",
     };
+
     const config = makeReactRouterConfig(apexEnvironment);
 
     expect(config.basename).toBe("/");

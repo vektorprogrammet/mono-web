@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importLegacyOrganizationEffect } from "@vektorprogrammet/domain/organization";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import type { DatabaseShape } from "../service.js";
-import { Effect, Layer } from "effect";
+import { Database } from "../service.js";
+import { DatabaseTest } from "../layers.js";
+import { Schema, Predicate, Effect, Layer } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
 import organizationImportPlaywrightConfig, {
   organizationImportPlaywrightOutputDir,
@@ -36,7 +37,7 @@ import {
   expectedOrganizationImportOutcomeMatrix,
   frozenOrganizationSnapshotCore,
   frozenOrganizationSnapshotInput,
-  makeOrganizationImportSqlObserverState,
+  initOrganizationImportSqlObserverState,
   observeOrganizationImportSql,
   organizationImportOutcomeMatrix,
   organizationImportProvenanceEvidence,
@@ -44,14 +45,16 @@ import {
 } from "./organization-import-rehearsal.js";
 
 const testRuntime = makeControlledTestRuntime(Layer.empty);
+
 afterAll(() => testRuntime.dispose());
 
 const decodeFixture = () =>
   testRuntime.runPromise(decodeFrozenOrganizationSnapshot(frozenOrganizationSnapshotInput));
 
-const expectDeepFrozen = (value: unknown): void => {
-  if (typeof value !== "object" || value === null) return;
+const expectDeepFrozen = <A>(value: A): void => {
+  if (!Predicate.isObjectOrArray(value)) return;
   expect(Object.isFrozen(value)).toBe(true);
+
   for (const child of Object.values(value)) expectDeepFrozen(child);
 };
 
@@ -61,6 +64,7 @@ describe("spec 0067 generated-output ownership", () => {
     const preexisting = join(root, "preexisting");
     const runnerCreated = join(root, "runner-created");
     const backup = join(root, "backup");
+
     try {
       await mkdir(preexisting);
       await writeFile(join(preexisting, "value.txt"), "before", "utf8");
@@ -74,6 +78,7 @@ describe("spec 0067 generated-output ownership", () => {
       await writeFile(join(runnerCreated, "generated.txt"), "generated", "utf8");
 
       const restorations = [];
+
       for (const snapshot of snapshots) {
         restorations.push(await restoreGeneratedOutput(snapshot));
       }
@@ -90,10 +95,12 @@ describe("spec 0067 generated-output ownership", () => {
     const root = await mkdtemp(join(tmpdir(), "spec-0067-generated-output-failure-"));
     const preexisting = join(root, "preexisting");
     const backup = join(root, "backup");
+
     try {
       await mkdir(preexisting);
       await writeFile(join(preexisting, "value.txt"), "before", "utf8");
       const [snapshot] = await captureGeneratedOutputs([preexisting], backup);
+
       if (snapshot === undefined) throw new Error("capture did not return its requested path");
       await writeFile(join(backup, "0", "value.txt"), "corrupted backup", "utf8");
       await expect(restoreGeneratedOutput(snapshot)).rejects.toThrow(
@@ -104,6 +111,7 @@ describe("spec 0067 generated-output ownership", () => {
     }
   });
 });
+
 describe("spec 0067 runtime capability contracts", () => {
   it("pins Playwright to the production dashboard and runner-owned output", () => {
     expect(ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS).toEqual([
@@ -132,11 +140,13 @@ describe("spec 0067 runtime capability contracts", () => {
       server: "BunDashboardServer",
       viteDependencyOptimizer: "NotUsed",
     });
+
     const runnerOwnedOutputDir = join(
       tmpdir(),
       "vektorprogrammet-spec-0067-runner",
       "playwright-results",
     );
+
     expect(
       organizationImportPlaywrightOutputDir({
         ORGANIZATION_IMPORT_REHEARSAL_PLAYWRIGHT_OUTPUT_DIR: runnerOwnedOutputDir,
@@ -289,55 +299,40 @@ describe("spec 0067 runtime capability contracts", () => {
         { path: "/dashboard/team", status: 200, location: null },
         { path: "/dashboard/brukere", status: 200, location: null },
       ]),
-    ).toEqual({ _tag: "Practical" });
-    expect(
-      classifyExistingPageSessionCapability([
+    ).toHaveProperty("_tag", "Practical");
+    {
+      const result = classifyExistingPageSessionCapability([
         { path: "/dashboard/team", status: 302, location: "/login?expired=true" },
-      ]),
-    ).toEqual({
-      _tag: "BrowserNotPractical",
-      capability: "ExistingPageBoundedSession",
-      reason:
-        "existing page/session gate cannot consume the bounded cookie: /dashboard/team " +
-        "redirected to /login?expired=true; proceeding would require credentials, an auth write, " +
-        "a product change, or a legacy service",
-    });
-    expect(
-      classifyExistingPageSessionCapability([
+      ]);
+
+      expect(result).toHaveProperty("_tag", "BrowserNotPractical");
+      expect(result).toHaveProperty("capability", "ExistingPageBoundedSession");
+    }
+
+    {
+      const result = classifyExistingPageSessionCapability([
         { path: "/dashboard/brukere", status: 401, location: null },
-      ]),
-    ).toEqual({
-      _tag: "BrowserNotPractical",
-      capability: "ExistingPageBoundedSession",
-      reason:
-        "existing page/session gate rejected the bounded cookie: /dashboard/brukere returned 401; " +
-        "proceeding would require credentials, an auth write, a product change, or a legacy service",
-    });
+      ]);
+
+      expect(result).toHaveProperty("_tag", "BrowserNotPractical");
+      expect(result).toHaveProperty("capability", "ExistingPageBoundedSession");
+    }
+
     expect(
       classifyExistingPageSessionCapability([
         { path: "/dashboard/team", status: 500, location: null },
       ]),
-    ).toEqual({
-      _tag: "EnvironmentFailure",
-      reason: "existing page/session capability preflight received unexpected 500 /dashboard/team",
-    });
+    ).toHaveProperty("_tag", "EnvironmentFailure");
     expect(
       classifyExistingPageSessionCapability([
         { path: "/dashboard/team", status: 302, location: "/maintenance" },
       ]),
-    ).toEqual({
-      _tag: "EnvironmentFailure",
-      reason:
-        "existing page/session capability preflight received unexpected 302 /dashboard/team -> /maintenance",
-    });
+    ).toHaveProperty("_tag", "EnvironmentFailure");
     expect(
       classifyExistingPageSessionCapability([
         { path: "/dashboard/team", status: 204, location: null },
       ]),
-    ).toEqual({
-      _tag: "EnvironmentFailure",
-      reason: "existing page/session capability preflight received unexpected 204 /dashboard/team",
-    });
+    ).toHaveProperty("_tag", "EnvironmentFailure");
   });
 });
 
@@ -358,6 +353,7 @@ describe("spec 0067 frozen Organization import fixture", () => {
       ...frozenOrganizationSnapshotInput,
       unauthorizedSource: true,
     };
+
     const changed = {
       ...frozenOrganizationSnapshotInput,
       departments: frozenOrganizationSnapshotInput.departments.map((row) =>
@@ -365,12 +361,15 @@ describe("spec 0067 frozen Organization import fixture", () => {
       ),
     };
 
-    await expect(
-      testRuntime.runPromise(Effect.flip(decodeFrozenOrganizationSnapshot(excess))),
-    ).resolves.toMatchObject({ _tag: "FrozenOrganizationFixtureDecodeError" });
-    await expect(
-      testRuntime.runPromise(Effect.flip(decodeFrozenOrganizationSnapshot(changed))),
-    ).resolves.toMatchObject({ _tag: "FrozenOrganizationFixtureDecodeError" });
+    {
+      const actual = testRuntime.runPromise(Effect.flip(decodeFrozenOrganizationSnapshot(excess)));
+      await expect(actual).resolves.toHaveProperty("_tag", "FrozenOrganizationFixtureDecodeError");
+    }
+
+    {
+      const actual = testRuntime.runPromise(Effect.flip(decodeFrozenOrganizationSnapshot(changed)));
+      await expect(actual).resolves.toHaveProperty("_tag", "FrozenOrganizationFixtureDecodeError");
+    }
   });
 
   it("uses the existing classifier to retain exact order, collision occurrences, and metadata", async () => {
@@ -411,49 +410,66 @@ describe("spec 0067 frozen Organization import fixture", () => {
 });
 
 describe("spec 0067 SQL observation seam", () => {
-  it("records runtime write attempts and delegates the injected failure unchanged", async () => {
-    const injected = {
-      _tag: "SqlError",
-      cause: { code: "P0001", message: SPEC_0067.failureMessage },
-    } as const;
-    let transactions = 0;
-    const base = Object.assign(
-      ((strings: TemplateStringsArray) =>
-        strings.join("?").includes("organization_import_ledger")
-          ? Effect.fail(injected)
-          : Effect.succeed([])) as unknown as DatabaseShape,
-      {
-        unsafe: () => Effect.succeed([]),
-        withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => {
-          transactions += 1;
-          return effect;
-        },
-      },
-    );
-    const state = makeOrganizationImportSqlObserverState();
-    state.captureImportTrace = true;
-    const observed = observeOrganizationImportSql(base, state);
+  const databaseRuntime = makeControlledTestRuntime(DatabaseTest());
 
-    const failure = await testRuntime.runPromise(
+  afterAll(() => databaseRuntime.dispose());
+
+  it("records runtime writes and SQL failure while rolling the transaction back", async () => {
+    const state = initOrganizationImportSqlObserverState();
+    state.captureImportTrace = true;
+
+    const evidence = await databaseRuntime.runPromise(
       Effect.gen(function* () {
-        return yield* observed.withTransaction(
-          Effect.gen(function* () {
-            yield* observed`INSERT INTO organization_departments (department_id) VALUES ('6701')`;
-            yield* observed`INSERT INTO organization_teams (team_id) VALUES ('6711')`;
-            yield* observed`INSERT INTO organization_memberships (membership_id) VALUES ('6721')`;
-            for (let occurrence = 0; occurrence < 5; occurrence += 1) {
-              yield* observed`INSERT INTO organization_membership_quarantine (source_occurrence) VALUES (${occurrence})`;
-            }
-            return yield* Effect.flip(
-              observed`INSERT INTO organization_import_ledger (source_primary_key) VALUES ('6701')`,
-            );
-          }),
+        const sql = yield* Database;
+
+        for (const statement of [
+          "CREATE TEMP TABLE organization_departments (department_id text)",
+          "CREATE TEMP TABLE organization_teams (team_id text)",
+          "CREATE TEMP TABLE organization_memberships (membership_id text)",
+          "CREATE TEMP TABLE organization_membership_quarantine (source_occurrence integer)",
+          "CREATE TEMP TABLE organization_import_ledger (source_primary_key text)",
+          `CREATE FUNCTION pg_temp.reject_observed_ledger() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = '${SPEC_0067.failureMessage}'; END $$`,
+          `CREATE TRIGGER reject_observed_ledger BEFORE INSERT ON organization_import_ledger
+            FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.reject_observed_ledger()`,
+        ])
+          yield* sql.unsafe(statement);
+        const observed = observeOrganizationImportSql(sql, state);
+
+        const outcome = yield* Effect.result(
+          observed.withTransaction(
+            Effect.gen(function* () {
+              yield* observed`INSERT INTO organization_departments (department_id) VALUES ('6701')`;
+              yield* observed`INSERT INTO organization_teams (team_id) VALUES ('6711')`;
+              yield* observed`INSERT INTO organization_memberships (membership_id) VALUES ('6721')`;
+
+              for (let occurrence = 0; occurrence < 5; occurrence += 1) {
+                yield* observed`INSERT INTO organization_membership_quarantine (source_occurrence) VALUES (${occurrence})`;
+              }
+
+              yield* observed`INSERT INTO organization_import_ledger (source_primary_key) VALUES ('6701')`;
+            }),
+          ),
         );
+
+        const counts = yield* sql<{
+          departments: number;
+          teams: number;
+          memberships: number;
+          quarantine: number;
+        }>`
+        SELECT (SELECT count(*)::int FROM organization_departments) AS departments,
+          (SELECT count(*)::int FROM organization_teams) AS teams,
+          (SELECT count(*)::int FROM organization_memberships) AS memberships,
+          (SELECT count(*)::int FROM organization_membership_quarantine) AS quarantine`;
+
+        return { outcome, counts };
       }),
     );
 
-    expect(failure).toBe(injected);
-    expect(transactions).toBe(1);
+    expect(evidence.outcome).toHaveProperty("_tag", "Failure");
+    expect(evidence.outcome).toHaveProperty("failure._tag", "SqlError");
+    expect(evidence.counts).toEqual([{ departments: 0, teams: 0, memberships: 0, quarantine: 0 }]);
     expect(state.importTrace).toEqual([
       { phase: "DepartmentInsert" },
       { phase: "TeamInsert" },
@@ -468,48 +484,43 @@ describe("spec 0067 SQL observation seam", () => {
     ]);
   });
 
-  it("returns unobserved SQL fragments unchanged so nested PostgreSQL syntax stays composable", () => {
-    const fragment = Effect.succeed([]);
-    const base = Object.assign((() => fragment) as unknown as DatabaseShape, {
-      unsafe: () => fragment,
-    });
-    const observed = observeOrganizationImportSql(base, makeOrganizationImportSqlObserverState());
+  it("keeps nested PostgreSQL fragments composable", async () => {
+    const rows = await databaseRuntime.runPromise(
+      Database.use((sql) => {
+        const observed = observeOrganizationImportSql(
+          sql,
+          initOrganizationImportSqlObserverState(),
+        );
 
-    expect(observed`FOR SHARE`).toBe(fragment);
+        return observed<{
+          value: number;
+        }>`SELECT value FROM (VALUES (1), (2)) AS selected(value) ${observed`WHERE value = ${2}`}`;
+      }),
+    );
+
+    expect(rows).toEqual([{ value: 2 }]);
   });
 
-  it("counts forbidden DML before delegation without rewriting successful results", async () => {
-    const rows = [{ delegated: true }] as const;
-    const base = Object.assign((() => Effect.succeed(rows)) as unknown as DatabaseShape, {
-      unsafe: () => Effect.succeed(rows),
-    });
-    const state = makeOrganizationImportSqlObserverState();
-    const observed = observeOrganizationImportSql(base, state);
-
-    const result = await testRuntime.runPromise(
-      observed`/* leading audit comment */ INSERT INTO "public"."authz_rules" (rule_id) VALUES ('rule')`,
-    );
-    await testRuntime.runPromise(
-      observed`WITH selected AS (SELECT 1) UPDATE "auth"."session" SET "updatedAt" = now()`,
-    );
-    await testRuntime.runPromise(observed`-- comment
-      DELETE FROM "public"."economy_receipts"`);
-    await testRuntime.runPromise(
-      observed`/* comment */ INSERT INTO "public"."admission_period_outbox" (effect_id) VALUES ('e')`,
-    );
-    await testRuntime.runPromise(observed`WITH claimable AS (SELECT effect_id FROM "public"."admission_period_outbox")
-      UPDATE "public"."admission_period_outbox" SET claimed_at = now()`);
-    await testRuntime.runPromise(
-      observed`SELECT pg_advisory_xact_lock(${`vektorprogrammet:person-authorization:v1:person-1`})`,
-    );
-    await testRuntime.runPromise(
-      observed`SELECT effect_id FROM "public"."admission_period_outbox" FOR UPDATE SKIP LOCKED`,
-    );
-    await testRuntime.runPromise(
-      observed`SELECT effect_id, claim_id, claimed_at FROM "public"."admission_period_outbox" ORDER BY effect_id`,
+  it("counts forbidden DML and locking attempts sent to PostgreSQL", async () => {
+    const state = initOrganizationImportSqlObserverState();
+    await databaseRuntime.runPromise(
+      Database.use((sql) =>
+        Effect.gen(function* () {
+          const observed = observeOrganizationImportSql(sql, state);
+          yield* observed`/* leading audit comment */ INSERT INTO "public"."authz_rules" (rule_id) SELECT 'rule' WHERE false`;
+          yield* observed`WITH selected AS (SELECT 1) UPDATE "auth"."session" SET "updatedAt" = now() WHERE false`;
+          yield* observed`-- comment
+        DELETE FROM "public"."economy_receipts" WHERE false`;
+          yield* observed`/* comment */ INSERT INTO "public"."admission_period_outbox" (effect_id) SELECT 'e' WHERE false`;
+          yield* observed`WITH claimable AS (SELECT effect_id FROM "public"."admission_period_outbox")
+        UPDATE "public"."admission_period_outbox" SET claimed_at = now() WHERE false`;
+          yield* observed`SELECT pg_advisory_xact_lock(hashtextextended(${"vektorprogrammet:person-authorization:v1:person-1"}, 0))`;
+          yield* observed`SELECT effect_id FROM "public"."admission_period_outbox" FOR UPDATE SKIP LOCKED`;
+          yield* observed`SELECT effect_id, claim_id, claimed_at FROM "public"."admission_period_outbox" ORDER BY effect_id`;
+        }),
+      ),
     );
 
-    expect(result).toBe(rows);
     expect(state).toMatchObject({
       ruleDmlAttempts: 1,
       authDmlAttempts: 1,
@@ -520,8 +531,10 @@ describe("spec 0067 SQL observation seam", () => {
     });
   });
 });
+
 describe("spec 0067 artifact boundary", () => {
   const unavailable = { status: "NotObservedDueToFailure" } as const;
+
   const artifactCore = {
     contract: {
       revision: "0067.0",
@@ -585,15 +598,18 @@ describe("spec 0067 artifact boundary", () => {
       failedChecks: [{ stage: "preflight", message: "injected failure" }],
     },
   } as const;
+
   const artifact = {
     ...artifactCore,
     evidenceSha256: sha256Hex(canonicalJsonBytes(artifactCore)),
   } as const;
+
   const dashboardRuntime = {
     build: "ReactRouterProductionBuild",
     server: "BunDashboardServer",
     viteDependencyOptimizer: "NotUsed",
   } as const;
+
   const failedBrowserEvidence = {
     status: "Failed",
     failure: "Expected the imported team heading to be visible",
@@ -682,6 +698,7 @@ describe("spec 0067 artifact boundary", () => {
         ),
       ),
     ).resolves.toBeDefined();
+
     const failedBrowserCore = {
       ...artifactCore,
       browser: {
@@ -690,10 +707,12 @@ describe("spec 0067 artifact boundary", () => {
         evidence: failedBrowserEvidence,
       },
     } as const;
+
     const failedBrowserArtifact = {
       ...failedBrowserCore,
       evidenceSha256: sha256Hex(canonicalJsonBytes(failedBrowserCore)),
     };
+
     await expect(
       testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(failedBrowserArtifact)),
     ).resolves.toEqual(failedBrowserArtifact);
@@ -728,6 +747,7 @@ describe("spec 0067 artifact boundary", () => {
         ),
       ),
     ).resolves.toBeDefined();
+
     const rawContactCore = {
       ...artifactCore,
       browser: {
@@ -739,6 +759,7 @@ describe("spec 0067 artifact boundary", () => {
         },
       },
     } as const;
+
     await expect(
       testRuntime.runPromise(
         Effect.flip(
@@ -755,18 +776,21 @@ describe("spec 0067 artifact boundary", () => {
     await expect(
       testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(artifact)),
     ).resolves.toEqual(artifact);
-    await expect(
-      testRuntime.runPromise(
+    {
+      const actual = testRuntime.runPromise(
         Effect.flip(
           verifyOrganizationImportRehearsalArtifact({
             ...artifact,
             evidenceSha256: "0".repeat(64),
           }),
         ),
-      ),
-    ).resolves.toMatchObject({
-      _tag: "OrganizationImportRehearsalEvidenceDigestMismatch",
-    });
+      );
+
+      await expect(actual).resolves.toHaveProperty(
+        "_tag",
+        "OrganizationImportRehearsalEvidenceDigestMismatch",
+      );
+    }
   });
 
   it("accepts exact bounded existing-page session practicality evidence", async () => {
@@ -790,10 +814,12 @@ describe("spec 0067 artifact boundary", () => {
         ],
       },
     } as const;
+
     const browserNotPracticalArtifact = {
       ...browserNotPracticalCore,
       evidenceSha256: sha256Hex(canonicalJsonBytes(browserNotPracticalCore)),
     };
+
     await expect(
       testRuntime.runPromise(
         verifyOrganizationImportRehearsalArtifact(browserNotPracticalArtifact),
@@ -807,6 +833,7 @@ describe("spec 0067 artifact boundary", () => {
       status: 200,
       sessionCookieAuth: true,
     }));
+
     const backendProxyRequests = nativePathObservations.map(
       ({ path, status, sessionCookieAuth, requestSource }) => ({
         method: "GET",
@@ -816,6 +843,7 @@ describe("spec 0067 artifact boundary", () => {
         requestSource,
       }),
     );
+
     const observedBrowserCore = {
       ...artifactCore,
       browser: {
@@ -852,14 +880,17 @@ describe("spec 0067 artifact boundary", () => {
         backendProxyRequests,
       },
     } as const;
+
     const observedBrowserArtifact = {
       ...observedBrowserCore,
       evidenceSha256: sha256Hex(canonicalJsonBytes(observedBrowserCore)),
     };
+
     await expect(
       testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(observedBrowserArtifact)),
     ).resolves.toEqual(observedBrowserArtifact);
-    const expectRejectedBrowserArtifact = async (browser: unknown): Promise<void> => {
+
+    const expectRejectedBrowserArtifact = async (browser: Schema.Json): Promise<void> => {
       const rejectedCore = { ...artifactCore, browser };
       await expect(
         testRuntime.runPromise(
@@ -932,10 +963,12 @@ describe("spec 0067 artifact boundary", () => {
         ),
       },
     } as const;
+
     const incompleteBrowserArtifact = {
       ...incompleteBrowserCore,
       evidenceSha256: sha256Hex(canonicalJsonBytes(incompleteBrowserCore)),
     };
+
     await expect(
       testRuntime.runPromise(
         Effect.flip(verifyOrganizationImportRehearsalArtifact(incompleteBrowserArtifact)),
@@ -958,10 +991,12 @@ describe("spec 0067 artifact boundary", () => {
         ),
       },
     } as const;
+
     const misclassifiedBrowserArtifact = {
       ...misclassifiedBrowserCore,
       evidenceSha256: sha256Hex(canonicalJsonBytes(misclassifiedBrowserCore)),
     };
+
     await expect(
       testRuntime.runPromise(
         Effect.flip(verifyOrganizationImportRehearsalArtifact(misclassifiedBrowserArtifact)),
@@ -972,6 +1007,7 @@ describe("spec 0067 artifact boundary", () => {
   it("persists a sanitized failed artifact even when database cleanup fails", async () => {
     const root = await mkdtemp(join(tmpdir(), "spec-0067-failed-evidence-"));
     const evidencePath = join(root, "failed.json");
+
     const failedCleanupCore = {
       ...artifactCore,
       cleanup: {
@@ -985,12 +1021,14 @@ describe("spec 0067 artifact boundary", () => {
         errors: ["injected database cleanup failure"],
       },
     } as const;
+
     try {
       const { evidenceSha256 } = await writeSanitizedOrganizationImportRehearsalArtifact({
         artifactCore: failedCleanupCore,
         evidencePath,
         sensitiveValues: ["not-present-secret"],
       });
+
       const persisted: unknown = JSON.parse(await readFile(evidencePath, "utf8"));
       await expect(
         testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(persisted)),
@@ -1009,9 +1047,11 @@ describe("spec 0067 artifact boundary", () => {
   it("refuses known raw contacts inside schema-valid failure diagnostics", async () => {
     const root = await mkdtemp(join(tmpdir(), "spec-0067-contact-leak-"));
     const rawContacts = ["imported-member.0067@example.invalid", "+4700006731"] as const;
+
     try {
       for (const [index, rawContact] of rawContacts.entries()) {
         const evidencePath = join(root, `failed-${index}.json`);
+
         const leakedContactCore = {
           ...artifactCore,
           browser: {
@@ -1023,6 +1063,7 @@ describe("spec 0067 artifact boundary", () => {
             },
           },
         } as const;
+
         await expect(
           writeSanitizedOrganizationImportRehearsalArtifact({
             artifactCore: leakedContactCore,

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
@@ -12,28 +13,51 @@ import {
 } from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const composeFile = join(repositoryRoot, "docker-compose.yml");
+
 const dashboardPort = 5185;
+
 const backendPort = 8797;
+
 const postgresPort = 55432;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
+
 const composeProject = `mono-web-native-organization-0052-${process.pid}`;
+
 const commandTimeoutMs = 300_000;
+
 const shutdownTimeoutMs = 5_000;
+
 const nixPostgresPackage = "nixpkgs#postgresql_17";
+
 const adminPersonId = "person-organization-administrator-0052";
+
 const memberPersonId = "person-organization-member-0052";
+
 const fixtureDepartmentId = "department-organization-member-0052";
+
 const fixtureTeamId = "team-organization-member-0052";
+
 const adminEmail = "administrator.organization.0052@example.invalid";
+
 const memberEmail = "member.organization.0052@example.invalid";
+
 const personaPassword = "native-organization-0052-password-0123456789";
+
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
 const identitySeedPersons = [
   {
     personId: adminPersonId,
@@ -50,10 +74,18 @@ const identitySeedPersons = [
     password: personaPassword,
   },
 ];
+
+if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1") identitySeedPersons.push(
+  {personId:"person-lifecycle-leader",firstName:"Lina",lastName:"Leder",email:"leader.lifecycle@example.invalid",password:personaPassword},
+  {personId:"person-lifecycle-outsider",firstName:"Ola",lastName:"Annenavdeling",email:"outsider.lifecycle@example.invalid",password:personaPassword},
+  {personId:"person-lifecycle-admin-two",firstName:"Alex",lastName:"Administrator",email:"admin.two.lifecycle@example.invalid",password:personaPassword},
+);
+
 const authorityFixturesByPersonId = new Map([
   [adminPersonId, "active-global-administrator-grant"],
   [memberPersonId, "active-unsuspended-ordinary-member-membership"],
 ]);
+
 const seedSql = `
 BEGIN;
 INSERT INTO organization_departments (
@@ -85,13 +117,16 @@ INSERT INTO organization_global_administrator_grants (
 );
 COMMIT;
 `;
+
 const journeyRefId = "intent://journey:parity:org_admin:v1";
+
 const journeyStepIds = [
   "org-admin-api-operation",
   "org-admin-command-write",
   "org-admin-legacy-route",
   "org-admin-mono-route",
 ];
+
 const commandIds = {
   department: "organization-department-create-0052",
   team: "organization-team-create-0052",
@@ -99,10 +134,14 @@ const commandIds = {
   unknownDepartment: "organization-team-unknown-department-0052",
   memberDenied: "organization-member-denied-0052",
 };
+
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+
 const postgresTopology = dockerAvailable ? "docker" : "local";
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const specPath = join(dashboardRoot, "e2e/native-organization-administration.spec.ts");
 
 const sleep = (milliseconds) =>
@@ -117,10 +156,13 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
+
+      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
+
         return;
       }
+
       rejectPort(new Error(`Could not inspect loopback port ${port}`));
     });
   });
@@ -128,24 +170,28 @@ function assertPortAvailable(port) {
 
 async function waitForPortRelease(port) {
   let lastError;
+
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       await assertPortAvailable(port);
+
       return;
     } catch (error) {
       lastError = error;
       await sleep(100);
     }
   }
+
   throw lastError;
 }
 
 function signalProcessGroup(child, signal) {
   if (child?.pid === undefined) return;
+
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw error;
     }
   }
@@ -154,28 +200,35 @@ function signalProcessGroup(child, signal) {
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
+
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: captureOutput ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
       detached: true,
     });
+
     const stdout = [];
     const stderr = [];
+
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.on("data", (chunk) => stderr.push(chunk));
     }
+
     let settled = false;
+
     const timeout = setTimeout(() => {
       signalProcessGroup(child, "SIGTERM");
       const hardKill = setTimeout(() => signalProcessGroup(child, "SIGKILL"), shutdownTimeoutMs);
       hardKill.unref();
+
       if (!settled) {
         settled = true;
         rejectCommand(new Error(`${options.label} timed out`));
       }
     }, commandTimeoutMs);
+
     timeout.unref();
     child.once("error", () => {
       if (settled) return;
@@ -187,16 +240,21 @@ function runCommand(command, args, options) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+
       const output = {
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
+
       if (code === 0) {
         resolveCommand(captureOutput ? output : undefined);
+
         return;
       }
+
       const detail =
         captureOutput && output.stderr.trim().length > 0 ? `: ${output.stderr.trim()}` : "";
+
       rejectCommand(
         new Error(
           `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}${detail}`,
@@ -213,7 +271,9 @@ function startProcess(command, args, options) {
     stdio: ["ignore", "inherit", "inherit"],
     detached: true,
   });
+
   child.once("error", () => undefined);
+
   return child;
 }
 
@@ -225,10 +285,12 @@ async function stopProcess(child) {
   if (child === undefined || child.exitCode !== null || child.pid === undefined) return;
   const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
   signalProcessGroup(child, "SIGTERM");
+
   const stopped = await Promise.race([
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (stopped) return;
   signalProcessGroup(child, "SIGKILL");
   await exited;
@@ -236,21 +298,27 @@ async function stopProcess(child) {
 
 async function waitForHttp(url, child, label) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`${label} exited before readiness`);
+
     try {
       const response = await fetch(url, { redirect: "manual" });
+
       if (response.status >= 200 && response.status < 500) return;
     } catch {
       // Readiness is retried until the bounded deadline.
     }
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 }
 
 async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     try {
       const args =
@@ -271,19 +339,23 @@ async function waitForPostgres(environment) {
               "receipt_proof",
             ]
           : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+
       const options = {
         cwd: repositoryRoot,
         env: environment,
         label: "Disposable Organization PostgreSQL readiness check",
         captureOutput: true,
       };
+
       if (postgresTopology === "docker") await runCommand("docker", args, options);
       else await runNixPostgres("pg_isready", args, options);
+
       return;
     } catch {
       await sleep(250);
     }
   }
+
   throw new Error("Disposable Organization PostgreSQL did not become ready");
 }
 
@@ -348,11 +420,13 @@ async function stopLocalPostgres(dataRoot, environment) {
 async function pathExists(path) {
   try {
     await access(path);
+
     return true;
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return false;
     }
+
     throw error;
   }
 }
@@ -395,12 +469,14 @@ async function runPsql(sql, environment, label) {
           "-c",
           sql,
         ];
+
   const options = {
     cwd: repositoryRoot,
     env: environment,
     label,
     captureOutput: true,
   };
+
   return postgresTopology === "docker"
     ? runCommand("docker", args, options)
     : runNixPostgres("psql", args, options);
@@ -408,39 +484,48 @@ async function runPsql(sql, environment, label) {
 
 const parseJsonBody = (bytes) => {
   if (bytes.byteLength === 0) return undefined;
+
   try {
     return JSON.parse(bytes.toString("utf8"));
   } catch {
     return undefined;
   }
 };
+
 const sessionCookieNames = new Set([
   "better-auth.session_token",
   "__Secure-better-auth.session_token",
 ]);
+
 const sessionCookieKey = (cookieHeader) => {
-  if (typeof cookieHeader !== "string") return undefined;
+  if (!Predicate.isString(cookieHeader)) return undefined;
+
   const sessionPairs = cookieHeader
     .split(";")
     .map((pair) => pair.trim())
     .filter((pair) => {
       const separator = pair.indexOf("=");
+
       return separator > 0 && sessionCookieNames.has(pair.slice(0, separator).trim());
     })
     .sort();
+
   return sessionPairs.length === 0 ? undefined : sessionPairs.join("; ");
 };
 
 async function startRecordingProxy(targetOrigin) {
   const records = [];
   const sessionPersonsByCookie = new Map();
+
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", targetOrigin);
     const chunks = [];
+
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
     const cookieKey = sessionCookieKey(request.headers.cookie);
+
     const record = {
       method,
       path: url.pathname,
@@ -448,12 +533,12 @@ async function startRecordingProxy(targetOrigin) {
       sessionCookieAuth: cookieKey !== undefined,
       authorizationHeaderPresent: request.headers.authorization !== undefined,
       idempotencyKey:
-        typeof request.headers["idempotency-key"] === "string"
+        Predicate.isString(request.headers["idempotency-key"])
           ? request.headers["idempotency-key"]
           : null,
-      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
       requestContentType:
-        typeof request.headers["content-type"] === "string"
+        Predicate.isString(request.headers["content-type"])
           ? request.headers["content-type"]
           : null,
       sessionPersonId:
@@ -466,9 +551,12 @@ async function startRecordingProxy(targetOrigin) {
       responseLocation: null,
       status: 0,
     };
+
     records.push(record);
+
     try {
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (
           value === undefined ||
@@ -476,18 +564,21 @@ async function startRecordingProxy(targetOrigin) {
         ) {
           continue;
         }
+
         if (Array.isArray(value)) {
           for (const item of value) headers.append(name, item);
         } else {
           headers.set(name, value);
         }
       }
+
       const upstream = await fetch(new URL(request.url ?? "/", targetOrigin), {
         method,
         headers,
         body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
+
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       const responseJson = parseJsonBody(responseBytes);
       record.status = upstream.status;
@@ -495,32 +586,39 @@ async function startRecordingProxy(targetOrigin) {
       record.responseContentType = upstream.headers.get("content-type");
       record.responseEtag = upstream.headers.get("etag");
       record.responseLocation = upstream.headers.get("location");
+
       if (
         cookieKey !== undefined &&
         upstream.status === 200 &&
         url.pathname === "/api/profile" &&
         responseJson !== null &&
-        typeof responseJson === "object" &&
+        Predicate.isObjectOrArray(responseJson) &&
         "personId" in responseJson &&
-        typeof responseJson.personId === "string"
+        Predicate.isString(responseJson.personId)
       ) {
         sessionPersonsByCookie.set(cookieKey, responseJson.personId);
         record.sessionPersonId = responseJson.personId;
       }
+
       if (record.sessionPersonId !== null) {
         record.canonicalAuthorityFixture =
           authorityFixturesByPersonId.get(record.sessionPersonId) ?? null;
       }
+
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers.entries()) {
         if (
           ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
         ) {
           continue;
         }
+
         response.setHeader(name, value);
       }
+
       const setCookie = upstream.headers.getSetCookie();
+
       if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
@@ -531,6 +629,7 @@ async function startRecordingProxy(targetOrigin) {
       response.end('{"error":"native Organization evidence proxy failed"}');
     }
   });
+
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", () => {
@@ -539,11 +638,14 @@ async function startRecordingProxy(targetOrigin) {
     });
   });
   const address = server.address();
-  if (address === null || typeof address === "string") {
+
+  if (address === null || Predicate.isString(address)) {
     server.close();
     throw new Error("Native Organization evidence proxy did not bind a loopback port");
   }
+
   let closed = false;
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     records,
@@ -554,7 +656,7 @@ async function startRecordingProxy(targetOrigin) {
       await new Promise((resolveClose, rejectClose) => {
         server.close((error) =>
           error === undefined ||
-          (typeof error === "object" &&
+          (Predicate.isObjectOrArray(error) &&
             error !== null &&
             "code" in error &&
             error.code === "ERR_SERVER_NOT_RUNNING")
@@ -578,6 +680,7 @@ async function readDatabaseEvidence(environment) {
   const acceptedIds = [commandIds.department, commandIds.team, commandIds.fieldOfStudy]
     .map((commandId) => `'${commandId}'`)
     .join(",");
+
   const result = await runPsql(
     `SELECT json_build_object(
       'entities', json_build_object(
@@ -644,9 +747,12 @@ async function readDatabaseEvidence(environment) {
     environment,
     "Native Organization PostgreSQL evidence query",
   );
+
   const source = result.stdout.trim();
+
   if (source.length === 0)
     throw new Error("Organization PostgreSQL evidence query returned no JSON");
+
   try {
     return JSON.parse(source);
   } catch {
@@ -664,28 +770,31 @@ const assertEqual = (actual, expected, label) => {
 
 const hasExactKeys = (value, expectedKeys) =>
   value !== null &&
-  typeof value === "object" &&
+  Predicate.isObjectOrArray(value) &&
   !Array.isArray(value) &&
   JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort());
 
 const assertStrongEtag = (etag, label) => {
-  if (typeof etag !== "string" || !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(etag)) {
+  if (!Predicate.isString(etag) || !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(etag)) {
     throw new Error(`${label} did not return a canonical strong ETag`);
   }
 };
 
 const assertProblemResponse = (record, expected) => {
   const expectedKeys = ["code", "detail", "status", "title", "type"];
+
   const actualKeys =
     record.responseJson !== null &&
-    typeof record.responseJson === "object" &&
+    Predicate.isObjectOrArray(record.responseJson) &&
     !Array.isArray(record.responseJson)
       ? Object.keys(record.responseJson).sort()
       : [];
+
   const allowedKeys = [
     [...expectedKeys].sort(),
     [...expectedKeys, "instance"].sort(),
   ];
+
   if (
     record.status !== expected.status ||
     !allowedKeys.some((keys) => JSON.stringify(keys) === JSON.stringify(actualKeys)) ||
@@ -695,7 +804,7 @@ const assertProblemResponse = (record, expected) => {
     record.responseJson?.title !== expected.title ||
     ("instance" in (record.responseJson ?? {}) &&
       record.responseJson.instance !== null &&
-      typeof record.responseJson.instance !== "string") ||
+      !Predicate.isString(record.responseJson.instance)) ||
     record.responseJson?.detail !== expected.detail ||
     !record.responseContentType?.startsWith("application/problem+json")
   ) {
@@ -746,6 +855,7 @@ function assertDatabaseEvidence(evidence) {
     [adminPersonId],
     "Native Organization audit actors",
   );
+
   const requiredReceiptFields = [
     "command_id",
     "command_sha256",
@@ -757,12 +867,15 @@ function assertDatabaseEvidence(evidence) {
     "actor_person_id",
     "committed_at",
   ];
+
   for (const receipt of evidence.receipts) {
     const missing = requiredReceiptFields.filter((field) => !(field in receipt));
+
     if (missing.length > 0) {
       throw new Error(`Organization receipt omitted canonical fields: ${missing.join(", ")}`);
     }
   }
+
   const requiredAuditFields = [
     "command_id",
     "entity_kind",
@@ -771,8 +884,10 @@ function assertDatabaseEvidence(evidence) {
     "action",
     "occurred_at",
   ];
+
   for (const audit of evidence.audits) {
     const missing = requiredAuditFields.filter((field) => !(field in audit));
+
     if (missing.length > 0) {
       throw new Error(`Organization audit omitted canonical fields: ${missing.join(", ")}`);
     }
@@ -785,28 +900,34 @@ const receiptRequested = () =>
     "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
     "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
     "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+  ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
 
 async function emitReceipt(playwrightOutput) {
   if (!receiptRequested()) return;
+
   const sourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
+
   const sourcePaths = [runnerPath, specPath];
+
   if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
     throw new Error("Native Organization runtime evidence expects one or two source references");
   }
+
   const runnerSourceInputBytes = await Promise.all(
     sourceRefIds.map(async (sourceRefId, index) => ({
       sourceRefId,
       bytes: await readFile(sourcePaths[index]),
     })),
   );
+
   const fixtureInputBytes = Buffer.from(
     JSON.stringify({ adminPersonId, memberPersonId, commandIds }),
     "utf8",
   );
+
   await emitRuntimeEvidenceReceipt({
     journeyRefId,
     stepIds: journeyStepIds,
@@ -840,6 +961,7 @@ async function main() {
   delete baseEnvironment.ORGANIZATION_AUTH_TOKENS;
   delete baseEnvironment.ADMISSION_AUTH_TOKENS;
   delete baseEnvironment.RECEIPT_AUTH_TOKENS;
+
   const apiEnvironment = {
     ...baseEnvironment,
     BACKEND_HOST: "127.0.0.1",
@@ -848,6 +970,9 @@ async function main() {
     BETTER_AUTH_SECRET: betterAuthSecret,
     NATIVE_IDENTITY_DEPLOYMENT: "local",
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+    OAUTH_CANONICAL_ORIGIN: backendOrigin,
+    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
+    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
@@ -861,15 +986,18 @@ async function main() {
   let proxy;
   let evidence;
   let cleaned = false;
+
   const cleanup = async () => {
     if (cleaned) return;
     cleaned = true;
     const cleanupErrors = [];
+
     try {
       await stopProcess(dashboardProcess);
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (proxy !== undefined) {
       try {
         await proxy.close();
@@ -877,11 +1005,13 @@ async function main() {
         cleanupErrors.push(error);
       }
     }
+
     try {
       await stopProcess(apiProcess);
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (postgresStarted) {
       try {
         if (postgresTopology === "docker") {
@@ -910,11 +1040,13 @@ async function main() {
         cleanupErrors.push(error);
       }
     }
+
     try {
       await rm(temporaryRoot, { recursive: true, force: true });
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (cleanupErrors.length > 0) {
       throw new AggregateError(cleanupErrors, "Native Organization topology cleanup failed");
     }
@@ -923,14 +1055,17 @@ async function main() {
   const handleSignal = (signal) => {
     void cleanup().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
   };
+
   const handleInterrupt = () => handleSignal("SIGINT");
   const handleTermination = () => handleSignal("SIGTERM");
   process.once("SIGINT", handleInterrupt);
   process.once("SIGTERM", handleTermination);
 
   let primaryError;
+
   try {
     postgresStarted = true;
+
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
@@ -946,7 +1081,7 @@ async function main() {
       await startLocalPostgres(postgresDataRoot, baseEnvironment);
     }
 
-    const configuredBackendCommand = process.env.BACKEND_COMMAND;
+    const configuredBackendCommand = process.env.BACKEND_COMMAND ?? (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1" ? "cd apps/backend && bun --watch src/main.ts" : undefined);
     apiProcess = configuredBackendCommand
       ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
           cwd: repositoryRoot,
@@ -967,12 +1102,26 @@ async function main() {
       label: "Disposable Organization Identity seed",
     });
     await runPsql(seedSql, baseEnvironment, "Native Organization authority fixture seed");
+
+    if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1") await runPsql(`
+      INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES
+      ('person-lifecycle-leader','leader.lifecycle@example.invalid','+47 900 00 054',0),
+      ('person-lifecycle-outsider','outsider.lifecycle@example.invalid','+47 900 00 055',0),
+      ('person-lifecycle-admin-two','admin.two.lifecycle@example.invalid','+47 900 00 056',0);
+      INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES('department-lifecycle-other','Annen avdeling','Annen','other@example.invalid','Oslo',true,0);
+      INSERT INTO organization_teams(team_id,department_id,name,active,revision) VALUES('team-lifecycle-other','department-lifecycle-other','Annet team',true,0);
+      INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader,position_name) VALUES
+      ('appointment-lifecycle-leader','person-lifecycle-leader','${fixtureTeamId}','2020-01-01T00:00:00Z',true,'Leder'),
+      ('appointment-lifecycle-other','person-lifecycle-leader','team-lifecycle-other','2020-01-01T00:00:00Z',true,'Leder'),
+      ('appointment-lifecycle-outsider','person-lifecycle-outsider','team-lifecycle-other','2020-01-01T00:00:00Z',true,'Leder');
+      INSERT INTO organization_global_administrator_grants(grant_id,person_id,start_at) VALUES('grant-lifecycle-admin-two','person-lifecycle-admin-two','2020-01-01T00:00:00Z');
+    `,baseEnvironment,"Native lifecycle authority seed");
     proxy = await startRecordingProxy(backendOrigin);
 
     const journeyEnvironment = {
       ...baseEnvironment,
       API_URL: proxy.origin,
-      VITE_API_URL: proxy.origin,
+      VITE_API_URL: dashboardOrigin,
       DASHBOARD_ORIGIN: dashboardOrigin,
       BETTER_AUTH_SECRET: betterAuthSecret,
       NATIVE_IDENTITY_DEPLOYMENT: "local",
@@ -988,6 +1137,7 @@ async function main() {
       ORGANIZATION_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
       BACKEND_PG_URL: postgresUrl,
     };
+
     await runCommand("bun", ["run", "build"], {
       cwd: sdkRoot,
       env: journeyEnvironment,
@@ -1007,6 +1157,11 @@ async function main() {
     );
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
 
+    if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1") {
+      console.log(JSON.stringify({kind:"organization-lifecycle-ready",dashboardOrigin,backendOrigin,postgresUrl,adminEmail,memberEmail,password:personaPassword,temporaryRoot}));
+      await new Promise(() => {});
+    }
+
     const playwrightArgs = [
       "./node_modules/@playwright/test/cli.js",
       "test",
@@ -1015,7 +1170,9 @@ async function main() {
       "--workers=1",
       "--retries=0",
     ];
+
     if (receiptRequested()) playwrightArgs.push("--reporter=json");
+
     const playwright = await runCommand(
       process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
       playwrightArgs,
@@ -1061,6 +1218,7 @@ async function main() {
       },
       "Native Organization rendered-login sessions",
     );
+
     const resolvedSessionPersonIds = [
       ...new Set(
         proxy.records
@@ -1074,6 +1232,7 @@ async function main() {
           .map(({ sessionPersonId }) => sessionPersonId),
       ),
     ].sort();
+
     assertEqual(
       resolvedSessionPersonIds,
       [adminPersonId, memberPersonId].sort(),
@@ -1120,6 +1279,7 @@ async function main() {
         ["active", "departmentId", "fieldOfStudyId", "name", "revision", "shortName"],
       ],
     ]);
+
     const organizationRequestKeys = new Map([
       [
         "/api/departments",
@@ -1140,13 +1300,17 @@ async function main() {
       ],
       ["/api/field-of-studies", ["departmentId", "name", "shortName"]],
     ]);
+
     const organizationRequests = proxy.records.filter(({ path }) =>
       organizationResponseKeys.has(path),
     );
+
     const profileRequests = proxy.records.filter(({ path }) => path === "/api/profile");
+
     if (profileRequests.length < 2) {
       throw new Error("Native Organization journey did not resolve both canonical profiles");
     }
+
     for (const record of profileRequests) {
       if (
         record.method !== "GET" ||
@@ -1169,8 +1333,10 @@ async function main() {
       ) {
         throw new Error("Native Organization profile resolution did not use the generated v0.2 shape");
       }
+
       assertStrongEtag(record.responseEtag, "Native Organization profile resolution");
     }
+
     const retiredOrganizationRequests = proxy.records.filter(
       ({ path }) =>
         path === "/api/me" ||
@@ -1180,19 +1346,24 @@ async function main() {
         path.startsWith("/api/admin/field-of-studies") ||
         path.startsWith("/api/admin/field_of_studies"),
     );
+
     assertEqual(
       retiredOrganizationRequests.map(({ method, path }) => `${method} ${path}`),
       [],
       "Retired Organization transport requests",
     );
+
     for (const record of organizationRequests) {
       if (record.query !== "" || record.authorizationHeaderPresent) {
         throw new Error("Native Organization transport did not use canonical routing");
       }
+
       const responseKeys = organizationResponseKeys.get(record.path);
+
       if (responseKeys === undefined) {
         throw new Error(`Missing response contract for ${record.path}`);
       }
+
       if (record.method === "GET") {
         if (
           record.status !== 200 ||
@@ -1204,34 +1375,40 @@ async function main() {
         ) {
           throw new Error(`GET ${record.path} did not use the generated v0.2 read contract`);
         }
+
         assertStrongEtag(record.responseEtag, `GET ${record.path}`);
         continue;
       }
+
       const requestKeys = organizationRequestKeys.get(record.path);
+
       if (
         record.method !== "POST" ||
         !record.sessionCookieAuth ||
         requestKeys === undefined ||
         !hasExactKeys(record.request, requestKeys) ||
         record.requestContentType?.split(";", 1)[0] !== "application/json" ||
-        typeof record.idempotencyKey !== "string" ||
+        !Predicate.isString(record.idempotencyKey) ||
         record.idempotencyKey.length === 0 ||
         record.ifMatch !== null
       ) {
         throw new Error(`POST ${record.path} did not use the generated v0.2 mutation contract`);
       }
+
       if (record.status === 201) {
         if (
           !hasExactKeys(record.responseJson, responseKeys) ||
           !record.responseContentType?.startsWith("application/json") ||
-          typeof record.responseLocation !== "string" ||
+          !Predicate.isString(record.responseLocation) ||
           record.responseLocation.length === 0
         ) {
           throw new Error(`POST ${record.path} did not return the generated create response`);
         }
+
         assertStrongEtag(record.responseEtag, `POST ${record.path}`);
       }
     }
+
     const statusFacts = organizationRequests
       .filter(({ method }) => method === "POST")
       .map(
@@ -1253,6 +1430,7 @@ async function main() {
           idempotencyKey,
         }),
       );
+
     const expectedStatusFacts = [
       [
         "/api/departments",
@@ -1318,6 +1496,7 @@ async function main() {
         commandIds.department,
       ],
     ];
+
     assertEqual(
       statusFacts.map(
         ({
@@ -1341,19 +1520,24 @@ async function main() {
       expectedStatusFacts,
       "Native Organization transport facts",
     );
+
     const unknownReference = organizationRequests.find(
       ({ idempotencyKey }) => idempotencyKey === commandIds.unknownDepartment,
     );
+
     const memberDenied = organizationRequests.find(
       ({ idempotencyKey }) => idempotencyKey === commandIds.memberDenied,
     );
+
     const changedReplay = organizationRequests.find(
       ({ idempotencyKey, status }) =>
         idempotencyKey === commandIds.department && status === 409,
     );
+
     if (unknownReference === undefined || memberDenied === undefined || changedReplay === undefined) {
       throw new Error("Native Organization counterexample transport evidence was incomplete");
     }
+
     assertProblemResponse(unknownReference, {
       status: 422,
       code: "organization.invalid-reference",
@@ -1372,15 +1556,18 @@ async function main() {
       title: "Idempotency conflict",
       detail: "This idempotency key identifies a different semantic request.",
     });
+
     const departmentReplays = organizationRequests.filter(
       ({ path, status, idempotencyKey }) =>
         path === "/api/departments" &&
         status === 201 &&
         idempotencyKey === commandIds.department,
     );
+
     if (departmentReplays.length !== 2) {
       throw new Error("Native Organization exact replay did not preserve the create status");
     }
+
     assertEqual(
       departmentReplays[1].responseJson,
       departmentReplays[0].responseJson,
@@ -1391,6 +1578,7 @@ async function main() {
       departmentReplays[0].responseEtag,
       "Native Organization exact replay ETag",
     );
+
     if (receiptRequested()) await emitReceipt(playwright.stdout);
 
     evidence = {
@@ -1442,11 +1630,14 @@ async function main() {
   }
 
   let cleanupError;
+
   try {
     await cleanup();
+
     if (await pathExists(temporaryRoot)) {
       throw new Error("Native Organization cleanup left the temporary root behind");
     }
+
     await Promise.all([
       waitForPortRelease(dashboardPort),
       waitForPortRelease(backendPort),
@@ -1465,7 +1656,9 @@ async function main() {
       "Native Organization journey and cleanup failed",
     );
   }
+
   if (primaryError !== undefined) throw primaryError;
+
   if (cleanupError !== undefined) throw cleanupError;
 
   process.stdout.write(

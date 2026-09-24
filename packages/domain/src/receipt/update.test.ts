@@ -1,13 +1,22 @@
+import { ReceiptOutboxRequestSchema } from "./effects.js";
+import { Scope } from "../authz/access.js";
 import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   importLegacyReceipt,
   importLegacyReceipts,
   type ReceiptImportProvenance,
 } from "./import.js";
-import type { LegacyReceiptRow, ReceiptActor, ReceiptFile } from "./schema.js";
-import { decideReceipt } from "./update.js";
+import {
+  ReceiptId,
+  ReceiptCommandRequestSchema,
+  type LegacyReceiptRow,
+  type ReceiptActor,
+  type ReceiptFile,
+  ApprovalScopeSchema,
+} from "./schema.js";
+import { AuthorizedReceiptCommandSchema, decideReceipt } from "./update.js";
 
 const file: ReceiptFile = {
   fileRef: "file-1",
@@ -21,24 +30,23 @@ const owner: ReceiptActor = {
   personId: PersonId.make("person-1"),
   departmentId: DepartmentId.make("department-1"),
   active: true,
-  approvalScope: { _tag: "None" },
+  approvalScope: ApprovalScopeSchema.cases.None.make({}),
 };
 
 const approver: ReceiptActor = {
   personId: PersonId.make("approver-1"),
   departmentId: DepartmentId.make("department-1"),
   active: true,
-  approvalScope: { _tag: "Department", departmentId: DepartmentId.make("department-1") },
+  approvalScope: Scope.Department({ departmentId: DepartmentId.make("department-1") }),
 };
 
 const context = {
-  receiptId: "receipt-1",
+  receiptId: ReceiptId.make("receipt-1"),
   visualId: "REC-0001",
   now: "2026-08-20T12:00:00.000Z",
 } as const;
 
-const submit = {
-  _tag: "SubmitReceipt",
+const submit = AuthorizedReceiptCommandSchema.cases.SubmitReceipt.make({
   commandId: "command-submit",
   actor: owner,
   departmentId: DepartmentId.make("department-1"),
@@ -47,7 +55,7 @@ const submit = {
   amountOre: 12_345,
   receiptDate: "2026-08-19",
   file,
-} as const;
+});
 
 it.effect("submits, revises, and withdraws only a pending owner receipt", () =>
   Effect.gen(function* () {
@@ -62,69 +70,73 @@ it.effect("submits, revises, and withdraws only a pending owner receipt", () =>
 
     const revised = yield* decideReceipt(
       submitted.receipt,
-      {
-        _tag: "RevisePendingReceipt",
+      AuthorizedReceiptCommandSchema.cases.RevisePendingReceipt.make({
         commandId: "command-revise",
         actor: owner,
-        receiptId: "receipt-1",
+        receiptId: ReceiptId.make("receipt-1"),
         expectedRevision: 0,
         description: "Travel and tolls",
         amountOre: 13_000,
         receiptDate: "2026-08-19",
         file,
-      },
+      }),
       { ...context, now: "2026-08-20T12:01:00.000Z" },
     );
+
     expect(revised.receipt.revision).toBe(1);
     expect(revised.receipt.submittedAt).toBe(context.now);
 
     const withdrawn = yield* decideReceipt(
       revised.receipt,
-      {
-        _tag: "WithdrawPendingReceipt",
+      AuthorizedReceiptCommandSchema.cases.WithdrawPendingReceipt.make({
         commandId: "command-withdraw",
         actor: owner,
-        receiptId: "receipt-1",
+        receiptId: ReceiptId.make("receipt-1"),
         expectedRevision: 1,
-      },
+      }),
       { ...context, now: "2026-08-20T12:02:00.000Z" },
     );
+
     expect(withdrawn.receipt.status).toBe("Withdrawn");
 
     const terminal = yield* Effect.flip(
       decideReceipt(
         withdrawn.receipt,
-        {
-          _tag: "ApproveReceipt",
+        AuthorizedReceiptCommandSchema.cases.ApproveReceipt.make({
           commandId: "command-approve-terminal",
           actor: approver,
-          receiptId: "receipt-1",
+          receiptId: ReceiptId.make("receipt-1"),
           expectedRevision: 2,
-        },
+        }),
         { ...context, now: "2026-08-20T12:03:00.000Z" },
       ),
     );
+
     expect(terminal._tag).toBe("InvalidReceiptTransition");
   }),
 );
+
 it.effect("resolves KeepCurrentFile from the locked current receipt", () =>
   Effect.gen(function* () {
     const submitted = yield* decideReceipt(undefined, submit, context);
+
     const revised = yield* decideReceipt(
       submitted.receipt,
-      {
-        _tag: "RevisePendingReceipt",
+      AuthorizedReceiptCommandSchema.cases.RevisePendingReceipt.make({
         commandId: "command-keep-current-file",
         actor: owner,
-        receiptId: "receipt-1",
+        receiptId: ReceiptId.make("receipt-1"),
         expectedRevision: 0,
         description: "Travel without replacement",
         amountOre: 12_500,
         receiptDate: "2026-08-20",
-        file: { _tag: "KeepCurrentFile" },
-      },
+        file: ReceiptCommandRequestSchema.cases.RevisePendingReceipt.fields.file.members[1].cases.KeepCurrentFile.make(
+          {},
+        ),
+      }),
       { ...context, now: "2026-08-20T12:01:00.000Z" },
     );
+
     expect(revised.receipt.file).toEqual(file);
     expect(revised.outbox.map((item) => item._tag)).toEqual(["WriteReceiptAudit"]);
   }),
@@ -133,37 +145,39 @@ it.effect("resolves KeepCurrentFile from the locked current receipt", () =>
 it.effect("authorizes approval by explicit department scope", () =>
   Effect.gen(function* () {
     const submitted = yield* decideReceipt(undefined, submit, context);
+
     const wrongDepartment: ReceiptActor = {
       ...approver,
       departmentId: DepartmentId.make("department-2"),
-      approvalScope: { _tag: "Department", departmentId: DepartmentId.make("department-2") },
+      approvalScope: Scope.Department({ departmentId: DepartmentId.make("department-2") }),
     };
+
     const denied = yield* Effect.flip(
       decideReceipt(
         submitted.receipt,
-        {
-          _tag: "ApproveReceipt",
+        AuthorizedReceiptCommandSchema.cases.ApproveReceipt.make({
           commandId: "command-denied",
           actor: wrongDepartment,
-          receiptId: "receipt-1",
+          receiptId: ReceiptId.make("receipt-1"),
           expectedRevision: 0,
-        },
+        }),
         context,
       ),
     );
+
     expect(denied._tag).toBe("ReceiptScopeDenied");
 
     const approved = yield* decideReceipt(
       submitted.receipt,
-      {
-        _tag: "ApproveReceipt",
+      AuthorizedReceiptCommandSchema.cases.ApproveReceipt.make({
         commandId: "command-approve",
         actor: approver,
-        receiptId: "receipt-1",
+        receiptId: ReceiptId.make("receipt-1"),
         expectedRevision: 0,
-      },
+      }),
       context,
     );
+
     expect(approved.receipt.status).toBe("Approved");
     expect(approved.receipt.approvedAt).toBe(context.now);
   }),
@@ -174,11 +188,13 @@ it.effect("strict decoding rejects non-positive and excess input", () =>
     const invalidAmount = yield* Effect.flip(
       decideReceipt(undefined, { ...submit, amountOre: 0 }, context),
     );
+
     expect(invalidAmount._tag).toBe("ReceiptDecodeError");
 
     const excess = yield* Effect.flip(
       decideReceipt(undefined, { ...submit, plaintextAccount: "1234" }, context),
     );
+
     expect(excess._tag).toBe("ReceiptDecodeError");
   }),
 );
@@ -211,7 +227,8 @@ const legacyRow: LegacyReceiptRow = {
 it("imports exact øre and quarantines ambiguous legacy facts", () => {
   const accepted = importLegacyReceipt(legacyRow, "receipt-imported-1", provenance);
   expect(accepted._tag).toBe("AcceptedReceiptImport");
-  if (accepted._tag === "AcceptedReceiptImport") {
+
+  if (Predicate.isTagged(accepted, "AcceptedReceiptImport")) {
     expect(accepted.receipt.amountOre).toBe(12_345);
     expect(accepted.provenance.sourceWatermark).toBe("binlog:100");
   }
@@ -221,11 +238,16 @@ it("imports exact øre and quarantines ambiguous legacy facts", () => {
     "receipt-imported-2",
     { ...provenance, destinationIdentity: "receipt-imported-2" },
   );
-  expect(quarantined).toMatchObject({
-    _tag: "QuarantinedReceiptImport",
-    reasons: ["InvalidAmount", "MissingFile"],
-    reconciliation: "NotApplicable",
-  });
+
+  {
+    const observedTaggedValue = quarantined;
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "QuarantinedReceiptImport");
+    expect(observedTaggedValue).toMatchObject({
+      reasons: ["InvalidAmount", "MissingFile"],
+      reconciliation: "NotApplicable",
+    });
+  }
+
   const unsupportedFile = importLegacyReceipt(
     {
       ...legacyRow,
@@ -234,52 +256,52 @@ it("imports exact øre and quarantines ambiguous legacy facts", () => {
     "receipt-imported-unsupported",
     { ...provenance, destinationIdentity: "receipt-imported-unsupported" },
   );
-  expect(unsupportedFile).toMatchObject({
-    _tag: "QuarantinedReceiptImport",
-    reasons: ["UnsupportedFile"],
-  });
+
+  {
+    const observedTaggedValue = unsupportedFile;
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "QuarantinedReceiptImport");
+    expect(observedTaggedValue).toMatchObject({
+      reasons: ["UnsupportedFile"],
+    });
+  }
 });
 
 it.effect("binds file lifecycle effects to the exact old and new objects", () =>
   Effect.gen(function* () {
     const submitted = yield* decideReceipt(undefined, submit, context);
+
     const replacement: ReceiptFile = {
       ...file,
       objectKey: "tmp/replacement",
       sha256: "d".repeat(64),
     };
+
     const revised = yield* decideReceipt(
       submitted.receipt,
-      {
-        _tag: "RevisePendingReceipt",
+      AuthorizedReceiptCommandSchema.cases.RevisePendingReceipt.make({
         commandId: "command-replace",
         actor: owner,
-        receiptId: "receipt-1",
+        receiptId: ReceiptId.make("receipt-1"),
         expectedRevision: 0,
         description: "Travel",
         amountOre: 12_345,
         receiptDate: "2026-08-19",
         file: replacement,
-      },
+      }),
       context,
     );
-    expect(revised.outbox).toEqual([
-      expect.objectContaining({
-        _tag: "PromoteReceiptFile",
-        file: expect.objectContaining({
-          objectKey: "tmp/replacement",
-          sha256: "d".repeat(64),
-        }),
-      }),
-      expect.objectContaining({ _tag: "WriteReceiptAudit" }),
-      expect.objectContaining({
-        _tag: "DeleteReceiptFile",
-        file: expect.objectContaining({
-          objectKey: "tmp/file-1",
-          sha256: "a".repeat(64),
-        }),
-      }),
+
+    expect(revised.outbox.map((item) => item._tag)).toEqual([
+      "PromoteReceiptFile",
+      "WriteReceiptAudit",
+      "DeleteReceiptFile",
     ]);
+    expect(revised.outbox.find(ReceiptOutboxRequestSchema.guards.PromoteReceiptFile)?.file).toEqual(
+      replacement,
+    );
+    expect(revised.outbox.find(ReceiptOutboxRequestSchema.guards.DeleteReceiptFile)?.file).toEqual(
+      file,
+    );
   }),
 );
 
@@ -288,48 +310,64 @@ it.effect("rejects impossible calendar dates and offset-free timestamps", () =>
     const invalidDate = yield* Effect.flip(
       decideReceipt(undefined, { ...submit, receiptDate: "2026-02-31" }, context),
     );
+
     expect(invalidDate._tag).toBe("ReceiptDecodeError");
+
     const invalidContext = yield* Effect.flip(
       decideReceipt(undefined, submit, {
         ...context,
         now: "2026-02-31T12:00:00.000Z",
       }),
     );
+
     expect(invalidContext._tag).toBe("ReceiptDecodeError");
+
     const imported = importLegacyReceipt(
       { ...legacyRow, submittedAt: "2026-08-20 10:00:00" },
       "receipt-imported-3",
       { ...provenance, destinationIdentity: "receipt-imported-3" },
     );
-    expect(imported).toMatchObject({
-      _tag: "QuarantinedReceiptImport",
-      reasons: ["InvalidSubmittedAt"],
-    });
+
+    {
+      const observedTaggedValue = imported;
+      expect(observedTaggedValue).toHaveProperty(["_tag"], "QuarantinedReceiptImport");
+      expect(observedTaggedValue).toMatchObject({
+        reasons: ["InvalidSubmittedAt"],
+      });
+    }
   }),
 );
 
 it("quarantines duplicate visual and source identities across an import snapshot", () => {
   const results = importLegacyReceipts([
-    { row: legacyRow, receiptId: "import-1", provenance },
+    { row: legacyRow, receiptId: ReceiptId.make("import-1"), provenance },
     {
       row: { ...legacyRow, sourcePrimaryKey: "43" },
-      receiptId: "import-2",
+      receiptId: ReceiptId.make("import-2"),
       provenance: { ...provenance, destinationIdentity: "import-2" },
     },
     {
       row: { ...legacyRow, visualId: "LEGACY-44" },
-      receiptId: "import-3",
+      receiptId: ReceiptId.make("import-3"),
       provenance: { ...provenance, destinationIdentity: "import-3" },
     },
   ]);
-  expect(results[1]).toMatchObject({
-    _tag: "QuarantinedReceiptImport",
-    reasons: ["DuplicateVisualId"],
-  });
-  expect(results[2]).toMatchObject({
-    _tag: "QuarantinedReceiptImport",
-    reasons: ["SourceIdentityCollision"],
-  });
+
+  {
+    const observedTaggedValue = results[1];
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "QuarantinedReceiptImport");
+    expect(observedTaggedValue).toMatchObject({
+      reasons: ["DuplicateVisualId"],
+    });
+  }
+
+  {
+    const observedTaggedValue = results[2];
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "QuarantinedReceiptImport");
+    expect(observedTaggedValue).toMatchObject({
+      reasons: ["SourceIdentityCollision"],
+    });
+  }
 });
 
 it.effect(
@@ -337,87 +375,103 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const submitted = yield* decideReceipt(undefined, submit, context);
+
       const rejected = yield* decideReceipt(
         submitted.receipt,
-        {
-          _tag: "RejectReceipt",
+        AuthorizedReceiptCommandSchema.cases.RejectReceipt.make({
           commandId: "reject-for-correction",
           actor: approver,
           receiptId: context.receiptId,
           expectedRevision: 0,
-        },
+        }),
         context,
       );
-      const reopen = {
-        _tag: "ReopenRejectedReceipt",
+
+      const reopen = AuthorizedReceiptCommandSchema.cases.ReopenRejectedReceipt.make({
         commandId: "reopen-for-correction",
         actor: approver,
         receiptId: context.receiptId,
         expectedRevision: 1,
-      } as const;
+      });
+
       const reopened = yield* decideReceipt(rejected.receipt, reopen, context);
       expect(reopened.receipt).toEqual({ ...rejected.receipt, status: "Pending", revision: 2 });
       expect(reopened.outbox).toEqual([]);
       expect(reopened.auditAction).toBe("RejectedReceiptReopened");
+
       for (const actor of [
         owner,
         { ...approver, active: false },
         {
           ...approver,
-          approvalScope: { _tag: "Department", departmentId: DepartmentId.make("elsewhere") },
+          approvalScope: Scope.Department({ departmentId: DepartmentId.make("elsewhere") }),
         },
       ]) {
         const denied = yield* Effect.exit(
           decideReceipt(rejected.receipt, { ...reopen, actor }, context),
         );
+
         expect(denied._tag).toBe("Failure");
       }
+
       for (const status of ["Pending", "Approved", "Withdrawn"] as const) {
         const denied = yield* Effect.flip(
           decideReceipt({ ...rejected.receipt, status }, reopen, context),
         );
+
         expect(denied._tag).toBe("InvalidReceiptTransition");
       }
+
       const stale = yield* Effect.flip(
         decideReceipt(rejected.receipt, { ...reopen, expectedRevision: 0 }, context),
       );
+
       expect(stale._tag).toBe("StaleReceiptRevision");
+
       const excess = yield* Effect.flip(
         decideReceipt(rejected.receipt, { ...reopen, status: "Pending" }, context),
       );
+
       expect(excess._tag).toBe("ReceiptDecodeError");
-      const revise = {
-        _tag: "RevisePendingReceipt",
+
+      const revise = AuthorizedReceiptCommandSchema.cases.RevisePendingReceipt.make({
+        expectedRevision: 1,
         commandId: "correction",
         actor: owner,
         receiptId: context.receiptId,
         description: "Corrected travel",
         amountOre: 12000,
         receiptDate: "2026-08-19",
-        file: { _tag: "KeepCurrentFile" },
-      };
+        file: ReceiptCommandRequestSchema.cases.RevisePendingReceipt.fields.file.members[1].cases.KeepCurrentFile.make(
+          {},
+        ),
+      });
+
       expect(
         (yield* Effect.flip(
           decideReceipt(rejected.receipt, { ...revise, expectedRevision: 1 }, context),
         ))._tag,
       ).toBe("InvalidReceiptTransition");
+
       const corrected = yield* decideReceipt(
         reopened.receipt,
         { ...revise, expectedRevision: 2 },
         context,
       );
+
       expect(corrected.receipt.receiptId).toBe(context.receiptId);
+
       const resolved = yield* decideReceipt(
         corrected.receipt,
-        {
-          _tag: "ApproveReceipt",
+        AuthorizedReceiptCommandSchema.cases.ApproveReceipt.make({
           commandId: "corrected-approve",
           actor: approver,
           receiptId: context.receiptId,
           expectedRevision: 3,
-        },
+        }),
         context,
       );
+
       expect(resolved.receipt.status).toBe("Approved");
       expect(resolved.receipt.revision).toBe(4);
     }),

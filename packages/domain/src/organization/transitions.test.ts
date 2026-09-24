@@ -1,111 +1,150 @@
+import { PersonId } from "./schema.js";
 import { expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
-import { MembershipInvariantSchema, Membership } from "./schema.js";
+import { Result, Schema } from "effect";
 import {
-  MembershipRevisionCommandSchema,
-  membershipIsActiveAt,
-  reviseMembership,
-  suspendMembership,
-  reinstateMembership,
-} from "./transitions.js";
+  OrganizationLifecycleCommand,
+  Appointment,
+  appointmentStateAt,
+  transitionAppointment,
+} from "./lifecycle.js";
 
-const membership = (isSuspended = false): Membership =>
-  Schema.decodeUnknownSync(MembershipInvariantSchema)({
-    membershipId: "membership-transition-1",
-    personId: "person-1",
-    teamId: "team-1",
-    deletedTeamName: null,
-    startAt: "2026-08-20T10:00:00.000Z",
-    endAt: "2026-09-20T10:00:00.000Z",
-    positionId: null,
-    isTeamLeader: false,
-    isSuspended,
-    revision: 0,
-  });
-
-it("keeps temporal and suspension dimensions independent", () => {
-  const current = membership();
-  expect(membershipIsActiveAt(current, "2026-08-20T10:00:00.000Z")).toBe(true);
-  expect(membershipIsActiveAt(current, "2026-09-20T10:00:00.000Z")).toBe(false);
-  expect(membershipIsActiveAt({ ...current, isSuspended: true }, "2026-08-21T10:00:00.000Z")).toBe(
-    false,
-  );
-  expect(membershipIsActiveAt({ ...current, isSuspended: true }, "2026-09-21T10:00:00.000Z")).toBe(
-    false,
-  );
+const current = Schema.decodeUnknownSync(Appointment)({
+  appointmentId: "appointment-1",
+  personId: PersonId.make("person-1"),
+  target: { kind: "Team", id: "team-1" },
+  position: "Leder",
+  leadership: true,
+  startAt: "2026-08-01T00:00:00Z",
+  endAt: null,
+  suspended: false,
+  revision: 3,
+  state: "Current",
 });
 
-it.effect("revises only permitted dimensions and rejects stale or invalid transitions", () => {
-  const current = membership();
-  return Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(MembershipRevisionCommandSchema)({
-      _tag: "ReviseMembership",
-      membershipId: "membership-transition-1",
-      expectedRevision: 0,
-      endAt: "2026-10-01T10:00:00.000Z",
-      positionId: "position-1",
-      isTeamLeader: true,
-      isSuspended: false,
-    });
-    if (command._tag !== "ReviseMembership") {
-      return yield* Effect.fail(new Error("expected ReviseMembership"));
-    }
-    const next = yield* reviseMembership(current, command);
-    expect(next.revision).toBe(1);
-    expect(next.startAt).toBe(current.startAt);
-    expect(next.teamId).toBe(current.teamId);
-    expect(next.endAt).toBe("2026-10-01T10:00:00.000Z");
+const now = "2026-09-24T11:00:00Z";
 
-    const stale = yield* Effect.flip(
-      reviseMembership(current, { ...command, expectedRevision: 4 }),
-    );
-    expect(stale._tag).toBe("MembershipStaleRevision");
+const common = {
+  commandId: "command-1",
+  reason: "Handover",
+  appointmentId: current.appointmentId,
+  expectedRevision: 3,
+};
 
-    const invalid = yield* Effect.flip(
-      reviseMembership(current, { ...command, endAt: "2026-08-01T10:00:00.000Z" }),
-    );
-    expect(invalid._tag).toBe("MembershipInvalidInterval");
+it("projects half-open effective intervals by instant rather than timezone spelling", () => {
+  expect(appointmentStateAt({ ...current, endAt: "2026-09-24T12:00:00+02:00" }, now)).toBe("Ended");
+  expect(appointmentStateAt({ ...current, endAt: now }, now)).toBe("Ended");
+  expect(appointmentStateAt({ ...current, startAt: "2026-09-24T14:00:00+02:00" }, now)).toBe(
+    "Future",
+  );
+  expect(appointmentStateAt({ ...current, suspended: true, endAt: now }, now)).toBe("Ended");
 
-    const suspendCommand = yield* Schema.decodeUnknownEffect(MembershipRevisionCommandSchema)({
-      _tag: "SuspendMembership",
-      membershipId: "membership-transition-1",
-      expectedRevision: 0,
-    });
-    if (suspendCommand._tag !== "SuspendMembership") {
-      return yield* Effect.fail(new Error("expected SuspendMembership"));
-    }
-    const suspended = yield* suspendMembership(current, suspendCommand);
-    expect(suspended.isSuspended).toBe(true);
-    expect(suspended.startAt).toBe(current.startAt);
-    expect(suspended.endAt).toBe(current.endAt);
+  const ended = transitionAppointment(
+    { ...current, suspended: true },
+    OrganizationLifecycleCommand.cases.EndAppointment.make({ ...common, endAt: now }),
+    current.appointmentId,
+    now,
+  );
 
-    const reinstateCommand = yield* Schema.decodeUnknownEffect(MembershipRevisionCommandSchema)({
-      _tag: "ReinstateMembership",
-      membershipId: "membership-transition-1",
-      expectedRevision: 1,
-    });
-    if (reinstateCommand._tag !== "ReinstateMembership") {
-      return yield* Effect.fail(new Error("expected ReinstateMembership"));
-    }
-    const reinstated = yield* reinstateMembership(suspended, reinstateCommand);
-    expect(reinstated.isSuspended).toBe(false);
+  expect(Result.getOrThrow(ended)).toEqual({
+    ...current,
+    suspended: true,
+    endAt: now,
+    state: "Ended",
+    revision: 4,
   });
 });
 
-it.effect("does not accept immutable membership fields through a revision boundary", () =>
-  Effect.flip(
-    Schema.decodeUnknownEffect(MembershipRevisionCommandSchema)(
-      {
-        _tag: "ReviseMembership",
-        membershipId: "membership-transition-1",
-        expectedRevision: 0,
-        endAt: "2026-10-01T10:00:00.000Z",
-        positionId: null,
-        isTeamLeader: false,
-        isSuspended: false,
-        teamId: "other-team",
-      },
-      { onExcessProperty: "error" },
-    ),
-  ).pipe(Effect.tap((failure) => Effect.sync(() => expect(String(failure)).toContain("teamId")))),
-);
+it("rejects stale and invalid revisions without changing the appointment", () => {
+  {
+    const observedTaggedValue = transitionAppointment(
+      current,
+      OrganizationLifecycleCommand.cases.EndAppointment.make({
+        ...common,
+        expectedRevision: 2,
+        endAt: now,
+      }),
+      current.appointmentId,
+      now,
+    );
+
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "Failure");
+    expect(observedTaggedValue).toMatchObject({ failure: { code: "Stale" } });
+  }
+
+  {
+    const observedTaggedValue = transitionAppointment(
+      current,
+      OrganizationLifecycleCommand.cases.EndAppointment.make({ ...common, endAt: current.startAt }),
+      current.appointmentId,
+      now,
+    );
+
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "Failure");
+    expect(observedTaggedValue).toMatchObject({ failure: { code: "Invalid" } });
+  }
+
+  expect(current.endAt).toBeNull();
+});
+
+it("preserves identity, interval, and title through suspension and reinstatement", () => {
+  const suspended = transitionAppointment(
+    current,
+    OrganizationLifecycleCommand.cases.SuspendAppointment.make({ ...common }),
+    current.appointmentId,
+    now,
+  );
+
+  const restored = transitionAppointment(
+    Result.getOrThrow(suspended),
+    OrganizationLifecycleCommand.cases.ReinstateAppointment.make({
+      ...common,
+      expectedRevision: 4,
+    }),
+    current.appointmentId,
+    now,
+  );
+
+  expect(Result.getOrThrow(restored)).toEqual({ ...current, revision: 5 });
+});
+
+it("can clear an operational title and denies national local-leader authority", () => {
+  const revised = transitionAppointment(
+    current,
+    OrganizationLifecycleCommand.cases.ReviseAppointment.make({
+      ...common,
+      position: null,
+      leadership: false,
+      startAt: current.startAt,
+      endAt: null,
+    }),
+    current.appointmentId,
+    now,
+  );
+
+  expect(Result.getOrThrow(revised)).toEqual({
+    ...current,
+    position: null,
+    leadership: false,
+    revision: 4,
+  });
+  {
+    const observedTaggedValue = transitionAppointment(
+      undefined,
+      OrganizationLifecycleCommand.cases.Appoint.make({
+        commandId: "national",
+        reason: "Appointment",
+        personId: current.personId,
+        target: { kind: "NationalBoard", id: "board" },
+        position: "Chair",
+        leadership: true,
+        startAt: current.startAt,
+        endAt: null,
+      }),
+      "national",
+      now,
+    );
+
+    expect(observedTaggedValue).toHaveProperty(["_tag"], "Failure");
+    expect(observedTaggedValue).toMatchObject({ failure: { code: "Invalid" } });
+  }
+});

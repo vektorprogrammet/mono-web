@@ -1,11 +1,5 @@
-import { Effect } from "effect";
-import {
-  DomainFileSystem,
-  joinPath,
-  makeTempDirectory,
-  removeTree,
-  writeTextFile,
-} from "./runtime-services.js";
+import { Schema, Result, Array, Effect } from "effect";
+import { DomainFileSystem, joinPath, removeTree, writeTextFile } from "./runtime-services.js";
 import {
   authorityFromEntries,
   buildDataset,
@@ -44,6 +38,7 @@ export const FIXTURE_IDS = [
 ] as const;
 
 export type FixtureId = (typeof FIXTURE_IDS)[number];
+
 export type FixtureStatus = LawStatus | "ERROR";
 
 export interface FixtureObservation {
@@ -72,11 +67,11 @@ interface FixtureDefinition {
 }
 
 const input = (
-  departments: ReadonlyArray<unknown>,
-  teams: ReadonlyArray<unknown>,
-  teamMemberships: ReadonlyArray<unknown>,
-  executiveBoards: ReadonlyArray<unknown>,
-  globalMemberships: ReadonlyArray<unknown>,
+  departments: ReadonlyArray<Schema.Json>,
+  teams: ReadonlyArray<Schema.Json>,
+  teamMemberships: ReadonlyArray<Schema.Json>,
+  executiveBoards: ReadonlyArray<Schema.Json>,
+  globalMemberships: ReadonlyArray<Schema.Json>,
 ): RawDatasetInput => ({ departments, teams, teamMemberships, executiveBoards, globalMemberships });
 
 const localAuthority = (
@@ -288,10 +283,12 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
     expectedStatus: "FAIL",
     expectedReasonCodes: ["DECODE_FAILURE", "TEAM_UNRESOLVED"],
     predicate: (result) => {
-      const teamFailureCodes = result.input.decodeFailures
-        .filter((failure) => failure.file === "team.json")
-        .map((failure) => failure.code);
+      const teamFailureCodes = Array.filterMap(result.input.decodeFailures, (failure) =>
+        failure.file === "team.json" ? Result.succeed(failure.code) : Result.failVoid,
+      );
+
       const distinctCodes = new Set(teamFailureCodes);
+
       return (
         result.relationCompleteness === "PARTIAL" &&
         result.drift &&
@@ -308,19 +305,23 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
     expectedReasonCodes: [],
     runError: () =>
       Effect.acquireUseRelease(
-        makeTempDirectory("domain-f-input-missing-"),
+        DomainFileSystem.use((fileSystem) =>
+          fileSystem.makeTempDirectory("domain-f-input-missing-"),
+        ),
         (directory) =>
           Effect.gen(function* () {
-            const files: Readonly<Record<string, string>> = {
+            const files = {
               "department.json": "[]",
               "team.json": "[]",
               "team_membership.json": "[]",
               "executive_board_membership.json": "[]",
-            };
+            } satisfies Readonly<Record<string, string>>;
+
             for (const [file, contents] of Object.entries(files)) {
               const path = yield* joinPath(directory, file);
               yield* writeTextFile(path, contents);
             }
+
             return yield* loadDataset(directory).pipe(
               Effect.map((): undefined => undefined),
               Effect.catch((error) => Effect.succeed(error)),
@@ -343,17 +344,20 @@ const failedObservation = (
   const observedReasonCodes = result === undefined ? [] : observedCodes(result);
   const observedReasonSet = new Set(observedReasonCodes);
   const expectedReasonSet = new Set(fixture.expectedReasonCodes);
+
   const exactReasonCodes =
     observedReasonSet.size === observedReasonCodes.length &&
     expectedReasonSet.size === fixture.expectedReasonCodes.length &&
     observedReasonSet.size === expectedReasonSet.size &&
     [...observedReasonSet].every((code) => expectedReasonSet.has(code));
+
   const passed =
     observedStatus === fixture.expectedStatus &&
     exactReasonCodes &&
     (result === undefined
       ? error?.code === "MISSING_INPUT" && error.file === "executive_board.json"
       : (fixture.predicate?.(result) ?? true));
+
   return {
     fixture: fixture.id,
     expectedStatus: fixture.expectedStatus,
@@ -387,24 +391,27 @@ const failedObservation = (
 const assertBoundaryFixtures = (): Effect.Effect<void, unknown, DomainFileSystem> =>
   Effect.gen(function* () {
     const unexpectedField = decodeDepartment({ id: 1, email: "not persisted" });
+
     if (unexpectedField.ok || unexpectedField.failure.code !== "UNEXPECTED_FIELD") {
-      return yield* Effect.fail(
+      return yield* Effect.die(
         new Error("boundary fixture did not classify an excess field structurally"),
       );
     }
 
     const nullableNonInteger = decodeTeam({ id: 100, departmentId: 1.5 });
+
     if (nullableNonInteger.ok || nullableNonInteger.failure.code !== "INVALID_NULLABLE_INTEGER") {
-      return yield* Effect.fail(
+      return yield* Effect.die(
         new Error("boundary fixture did not classify a nullable non-integer structurally"),
       );
     }
 
     yield* Effect.acquireUseRelease(
-      makeTempDirectory("domain-schema-boundary-"),
+      DomainFileSystem.use((fileSystem) => fileSystem.makeTempDirectory("domain-schema-boundary-")),
       (directory) =>
         Effect.gen(function* () {
           const authorityPath = yield* joinPath(directory, "person-authority.json");
+
           const expectAuthorityFailure = (
             contents: string,
             expectedCode: string,
@@ -415,11 +422,11 @@ const assertBoundaryFixtures = (): Effect.Effect<void, unknown, DomainFileSystem
                 onFailure: (error) =>
                   error instanceof DatasetInputError && error.code === expectedCode
                     ? Effect.void
-                    : Effect.fail(new Error(`boundary fixture expected ${expectedCode}`)),
-                onSuccess: () =>
-                  Effect.fail(new Error(`boundary fixture expected ${expectedCode}`)),
+                    : Effect.die(new Error(`boundary fixture expected ${expectedCode}`)),
+                onSuccess: () => Effect.die(new Error(`boundary fixture expected ${expectedCode}`)),
               }),
             );
+
           yield* expectAuthorityFailure("[", "INVALID_JSON");
           yield* expectAuthorityFailure(
             '[{"userId":1,"departmentIds":["not valid JSON"]}]',
@@ -438,9 +445,11 @@ export const runSyntheticFixtures = (): Effect.Effect<
   Effect.gen(function* () {
     yield* assertBoundaryFixtures();
     const observations: FixtureObservation[] = [];
+
     for (const fixture of fixtureDefinitions) {
       try {
         const runError = fixture.runError;
+
         if (runError !== undefined) {
           const error: DatasetInputError | undefined = yield* runError().pipe(
             Effect.catch((cause) =>
@@ -451,27 +460,34 @@ export const runSyntheticFixtures = (): Effect.Effect<
               ),
             ),
           );
+
           observations.push(failedObservation(fixture, undefined, error));
           continue;
         }
+
         if (fixture.input === undefined) {
           observations.push(failedObservation(fixture, undefined, undefined));
           continue;
         }
+
         const dataset: Dataset = buildDataset(fixture.input);
+
         const result = runSDep2Team(dataset, {
           snapshotId: fixture.id,
           personAuthority: fixture.personAuthority,
         });
+
         observations.push(failedObservation(fixture, result, undefined));
       } catch (error: unknown) {
         const safeError =
           error instanceof DatasetInputError
             ? error
             : new DatasetInputError("INVALID_ARGUMENT", "fixture");
+
         observations.push(failedObservation(fixture, undefined, safeError));
       }
     }
+
     return observations;
   });
 

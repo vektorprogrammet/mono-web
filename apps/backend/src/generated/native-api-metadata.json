@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 93,
+    "externalOperations": 95,
     "internalOperations": 1,
-    "operations": 94
+    "operations": 96
   },
   "operations": [
     {
@@ -1074,6 +1074,46 @@
     {
       "access": {
         "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "organization.appointment-management",
+        "capabilities": {
+          "one": "organization.manage-appointments"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "POST",
+      "operationId": "organization.executeLifecycle",
+      "path": "/api/organization/appointments/commands",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "422",
+        "503"
+      ],
+      "summary": "Manage appointments and account access",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
           "None"
         ],
         "canonicalScopeResolver": "organization.public-departments",
@@ -1248,6 +1288,46 @@
         "503"
       ],
       "summary": "List teams",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "organization.appointment-management",
+        "capabilities": {
+          "one": "organization.manage-appointments"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.readAppointmentManagement",
+      "path": "/api/organization/appointments",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "422",
+        "503"
+      ],
+      "summary": "Read appointment management",
       "visibility": "external"
     },
     {

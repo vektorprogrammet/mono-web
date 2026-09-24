@@ -1,10 +1,13 @@
 import {
   type AuthEngineConfig,
-  makeAuthEngine,
-  makeAuthPool,
+  AuthPoolLive,
+  NativeAuthEngine,
+  NativeAuthEngineLive,
 } from "../../packages/database/src/auth-engine.ts";
 import { decodeOAuthBackendConfig } from "../../apps/backend/src/config.ts";
-import { makeNativeSessionBoundaryPolicy } from "../../apps/backend/src/session-security.ts";
+import { decodeNativeSessionBoundaryPolicy } from "../../apps/backend/src/session-security.ts";
+import { Effect, Layer } from "effect";
+import { DatabasePgPool } from "../../packages/database/src/pg-pool.js";
 import { readPreviewCredentials } from "./preview-credentials.ts";
 
 export interface PreviewCredentialRotationConfig {
@@ -18,11 +21,14 @@ export const readPreviewCredentialRotationConfig = (
   const credentialFile = env.PREVIEW_CREDENTIAL_FILE;
   const postgresUrl = env.BACKEND_PG_URL;
   const secret = env.BETTER_AUTH_SECRET;
+
   if (!credentialFile || !postgresUrl || !secret) {
     throw new Error("preview credential rotation environment is incomplete");
   }
-  const sessionBoundary = makeNativeSessionBoundaryPolicy(env);
+
+  const sessionBoundary = decodeNativeSessionBoundaryPolicy(env);
   const { oauth } = decodeOAuthBackendConfig(env, sessionBoundary.trustedOrigins);
+
   return {
     credentialFile,
     auth: {
@@ -40,43 +46,55 @@ export const rotatePreviewCredentials = async (
 ): Promise<void> => {
   const config = readPreviewCredentialRotationConfig(env);
   const credentials = readPreviewCredentials(config.credentialFile);
-  const pool = makeAuthPool(config.auth);
-  const engine = makeAuthEngine(config.auth, pool);
-  try {
-    const context = await engine.$context;
-    const replacements = await Promise.all(
-      credentials.map(async (credential) => ({
-        personId: credential.personId,
-        passwordHash: await context.password.hash(credential.password),
-      })),
-    );
-    const connection = await pool.connect();
-    try {
-      await connection.query("BEGIN");
-      for (const replacement of replacements) {
-        const updated = await connection.query(
-          `UPDATE auth.account
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const pool = yield* DatabasePgPool;
+      const engine = yield* NativeAuthEngine;
+      yield* Effect.promise(async () => {
+        const context = await engine.$context;
+
+        const replacements = await Promise.all(
+          credentials.map(async (credential) => ({
+            personId: credential.personId,
+            passwordHash: await context.password.hash(credential.password),
+          })),
+        );
+
+        const connection = await pool.connect();
+
+        try {
+          await connection.query("BEGIN");
+
+          for (const replacement of replacements) {
+            const updated = await connection.query(
+              `UPDATE auth.account
            SET password = $1, "updatedAt" = CURRENT_TIMESTAMP
            WHERE "providerId" = 'credential' AND "userId" = $2`,
-          [replacement.passwordHash, replacement.personId],
-        );
-        if (updated.rowCount !== 1) {
-          throw new Error(`credential account was not found for ${replacement.personId}`);
+              [replacement.passwordHash, replacement.personId],
+            );
+
+            if (updated.rowCount !== 1) {
+              throw new Error(`credential account was not found for ${replacement.personId}`);
+            }
+          }
+
+          await connection.query('DELETE FROM auth.session WHERE "userId" = ANY($1::text[])', [
+            replacements.map(({ personId }) => personId),
+          ]);
+          await connection.query("COMMIT");
+        } catch (error) {
+          await connection.query("ROLLBACK");
+          throw error;
+        } finally {
+          connection.release();
         }
-      }
-      await connection.query('DELETE FROM auth.session WHERE "userId" = ANY($1::text[])', [
-        replacements.map(({ personId }) => personId),
-      ]);
-      await connection.query("COMMIT");
-    } catch (error) {
-      await connection.query("ROLLBACK");
-      throw error;
-    } finally {
-      connection.release();
-    }
-  } finally {
-    await pool.end();
-  }
+      });
+    }).pipe(
+      Effect.provide(
+        NativeAuthEngineLive(config.auth).pipe(Layer.provideMerge(AuthPoolLive(config.auth))),
+      ),
+    ),
+  );
 };
 
 if (import.meta.main) {

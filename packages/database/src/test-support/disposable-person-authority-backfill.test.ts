@@ -1,6 +1,14 @@
+import { AdmissionPeriodActorSchema } from "@vektorprogrammet/domain/admission-period";
+import {
+  PersonId,
+  DepartmentId,
+  OrganizationAdministratorSchema,
+  OrganizationMemberSchema,
+} from "@vektorprogrammet/domain/organization";
+import { ApprovalScopeSchema } from "@vektorprogrammet/domain/receipt";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { Database } from "../service.js";
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import { DatabaseTest } from "../layers.js";
 import {
   backfillDisposablePersonAuthoritiesFromPreConfigEvidence,
@@ -9,6 +17,7 @@ import {
 import { makeControlledTestRuntime } from "../../test/runtime.js";
 
 const EVALUATED_AT = "2031-09-15T12:00:00.000Z";
+
 const AUTHORITY_START_AT = "2030-01-01T00:00:00.000Z";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
@@ -36,7 +45,7 @@ const preConfigEvidence = (
   admission: ReadonlyArray<readonly [string, unknown]>,
   organization: ReadonlyArray<readonly [string, unknown]>,
   receipt: ReadonlyArray<readonly [string, unknown]>,
-): unknown => ({
+) => ({
   evaluatedAt: EVALUATED_AT,
   authorityStartAt: AUTHORITY_START_AT,
   admission: Object.fromEntries(admission),
@@ -106,6 +115,7 @@ const seedCanonicalOrganizationFixture = Effect.gen(function* () {
 
 const readAuthoritySnapshot = Effect.gen(function* () {
   const sql = yield* Database;
+
   const administrators = yield* sql<AuthoritySnapshotRow>`
     SELECT
       grant_id AS "id",
@@ -116,6 +126,7 @@ const readAuthoritySnapshot = Effect.gen(function* () {
     FROM public.organization_global_administrator_grants
     ORDER BY grant_id
   `;
+
   const payments = yield* sql<AuthoritySnapshotRow>`
     SELECT
       payment_authority_id AS "id",
@@ -126,6 +137,7 @@ const readAuthoritySnapshot = Effect.gen(function* () {
     FROM public.economy_payment_authorities
     ORDER BY payment_authority_id
   `;
+
   const approvals = yield* sql<AuthoritySnapshotRow>`
     SELECT
       approval_grant_id AS "id",
@@ -136,11 +148,13 @@ const readAuthoritySnapshot = Effect.gen(function* () {
     FROM public.economy_receipt_approval_grants
     ORDER BY approval_grant_id
   `;
+
   return { administrators, payments, approvals };
 });
 
 const readMembershipSnapshot = Effect.gen(function* () {
   const sql = yield* Database;
+
   return yield* sql<MembershipSnapshotRow>`
     SELECT
       membership_id AS "membershipId",
@@ -154,6 +168,7 @@ const readMembershipSnapshot = Effect.gen(function* () {
 
 const countInsertedAuthorities = Effect.gen(function* () {
   const sql = yield* Database;
+
   const [administrators, payments, approvals] = yield* Effect.all([
     sql<CountRow>`
       SELECT count(*)::text AS "count"
@@ -168,6 +183,7 @@ const countInsertedAuthorities = Effect.gen(function* () {
       FROM public.economy_receipt_approval_grants
     `,
   ]);
+
   return {
     administrators: Number(administrators[0]?.count ?? "0"),
     payments: Number(payments[0]?.count ?? "0"),
@@ -189,39 +205,39 @@ describe("disposable person-authority token evidence backfill", () => {
     const admissionEntries = [
       [
         "admission-token-leader-0055",
-        {
-          _tag: "DepartmentLeader",
-          personId: "authority-leader",
-          departmentId: "authority-department-a",
+        AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+          personId: PersonId.make("authority-leader"),
+          departmentId: DepartmentId.make("authority-department-a"),
           active: true,
-        },
+        }),
       ],
       [
         "admission-token-global-approver-0055",
         {
-          actor: {
-            _tag: "Member",
-            personId: "authority-global-approver",
-            departmentId: "authority-department-b",
+          actor: AdmissionPeriodActorSchema.cases.Member.make({
+            personId: PersonId.make("authority-global-approver"),
+            departmentId: DepartmentId.make("authority-department-b"),
             active: true,
-          },
+          }),
         },
       ],
     ] as const;
+
     const organizationEntries = [
       [
         "organization-token-admin-0055",
-        { _tag: "OrganizationAdministrator", personId: "authority-admin" },
+        OrganizationAdministratorSchema.make({ personId: PersonId.make("authority-admin") }),
       ],
       [
         "organization-token-leader-0055",
-        { _tag: "OrganizationMember", personId: "authority-leader" },
+        OrganizationMemberSchema.make({ personId: PersonId.make("authority-leader") }),
       ],
       [
         "organization-token-global-approver-0055",
-        { _tag: "OrganizationMember", personId: "authority-global-approver" },
+        OrganizationMemberSchema.make({ personId: PersonId.make("authority-global-approver") }),
       ],
     ] as const;
+
     const receiptEntries = [
       [
         "receipt-token-leader-0055",
@@ -229,10 +245,9 @@ describe("disposable person-authority token evidence backfill", () => {
           personId: "authority-leader",
           departmentId: "authority-department-a",
           active: true,
-          approvalScope: {
-            _tag: "Department",
-            departmentId: "authority-department-a",
-          },
+          approvalScope: ApprovalScopeSchema.cases.Department.make({
+            departmentId: DepartmentId.make("authority-department-a"),
+          }),
           paymentAccountCiphertext: "ciphertext-authority-leader",
         },
       ],
@@ -242,7 +257,7 @@ describe("disposable person-authority token evidence backfill", () => {
           personId: "authority-global-approver",
           departmentId: "authority-department-b",
           active: true,
-          approvalScope: { _tag: "Global" },
+          approvalScope: ApprovalScopeSchema.cases.Global.make({}),
           paymentAccountCiphertext: "ciphertext-authority-global-approver",
         },
       ],
@@ -253,6 +268,7 @@ describe("disposable person-authority token evidence backfill", () => {
         preConfigEvidence(admissionEntries, organizationEntries, receiptEntries),
       ),
     );
+
     const firstSnapshot = await runtime.runPromise(readAuthoritySnapshot);
 
     expect(first.globalAdministratorGrantIds).toHaveLength(1);
@@ -262,6 +278,7 @@ describe("disposable person-authority token evidence backfill", () => {
     expect(firstSnapshot.payments).toHaveLength(2);
     expect(firstSnapshot.approvals).toHaveLength(2);
     const storedAuthorityJson = JSON.stringify(firstSnapshot);
+
     for (const [token] of [...admissionEntries, ...organizationEntries, ...receiptEntries]) {
       expect(storedAuthorityJson).not.toContain(token);
       expect(JSON.stringify(first)).not.toContain(token);
@@ -275,6 +292,7 @@ describe("disposable person-authority token evidence backfill", () => {
         yield* sql`DELETE FROM public.organization_global_administrator_grants`;
       }),
     );
+
     const second = await runtime.runPromise(
       backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
         preConfigEvidence(
@@ -284,6 +302,7 @@ describe("disposable person-authority token evidence backfill", () => {
         ),
       ),
     );
+
     const secondSnapshot = await runtime.runPromise(readAuthoritySnapshot);
 
     expect(second).toEqual(first);
@@ -298,21 +317,19 @@ describe("disposable person-authority token evidence backfill", () => {
             [
               [
                 "conflict-token-leader-0055",
-                {
-                  _tag: "DepartmentLeader",
-                  personId: "authority-leader",
-                  departmentId: "authority-department-a",
+                AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+                  personId: PersonId.make("authority-leader"),
+                  departmentId: DepartmentId.make("authority-department-a"),
                   active: true,
-                },
+                }),
               ],
               [
                 "conflict-token-member-0055",
-                {
-                  _tag: "Member",
-                  personId: "authority-leader",
-                  departmentId: "authority-department-a",
+                AdmissionPeriodActorSchema.cases.Member.make({
+                  personId: PersonId.make("authority-leader"),
+                  departmentId: DepartmentId.make("authority-department-a"),
                   active: true,
-                },
+                }),
               ],
             ],
             [],
@@ -332,43 +349,43 @@ describe("disposable person-authority token evidence backfill", () => {
 
   it("verifies member and leader evidence without copying Organization role rows", async () => {
     const before = await runtime.runPromise(readMembershipSnapshot);
+
     const result = await runtime.runPromise(
       backfillDisposablePersonAuthoritiesFromPreConfigEvidence(
         preConfigEvidence(
           [
             [
               "member-proof-leader-token-0055",
-              {
-                _tag: "DepartmentLeader",
-                personId: "authority-leader",
-                departmentId: "authority-department-a",
+              AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+                personId: PersonId.make("authority-leader"),
+                departmentId: DepartmentId.make("authority-department-a"),
                 active: true,
-              },
+              }),
             ],
             [
               "member-proof-member-token-0055",
-              {
-                _tag: "Member",
-                personId: "authority-member",
-                departmentId: "authority-department-a",
+              AdmissionPeriodActorSchema.cases.Member.make({
+                personId: PersonId.make("authority-member"),
+                departmentId: DepartmentId.make("authority-department-a"),
                 active: true,
-              },
+              }),
             ],
           ],
           [
             [
               "member-proof-organization-leader-token-0055",
-              { _tag: "OrganizationMember", personId: "authority-leader" },
+              OrganizationMemberSchema.make({ personId: PersonId.make("authority-leader") }),
             ],
             [
               "member-proof-organization-member-token-0055",
-              { _tag: "OrganizationMember", personId: "authority-member" },
+              OrganizationMemberSchema.make({ personId: PersonId.make("authority-member") }),
             ],
           ],
           [],
         ),
       ),
     );
+
     const after = await runtime.runPromise(readMembershipSnapshot);
 
     const expectedResult = {
@@ -378,6 +395,7 @@ describe("disposable person-authority token evidence backfill", () => {
       receiptPaymentAuthorityIds: [],
       receiptApprovalGrantIds: [],
     } satisfies DisposablePersonAuthorityBackfillResult;
+
     expect(result).toEqual(expectedResult);
     expect(after).toEqual(before);
     expect(await runtime.runPromise(countInsertedAuthorities)).toEqual({
@@ -395,12 +413,11 @@ describe("disposable person-authority token evidence backfill", () => {
             [
               [
                 "missing-membership-token-0055",
-                {
-                  _tag: "Member",
-                  personId: "authority-missing-membership",
-                  departmentId: "authority-department-a",
+                AdmissionPeriodActorSchema.cases.Member.make({
+                  personId: PersonId.make("authority-missing-membership"),
+                  departmentId: DepartmentId.make("authority-department-a"),
                   active: true,
-                },
+                }),
               ],
             ],
             [],
@@ -411,10 +428,12 @@ describe("disposable person-authority token evidence backfill", () => {
     );
 
     expect(failure._tag).toBe("DisposableAuthorityEvidenceMissingReference");
-    if (failure._tag === "DisposableAuthorityEvidenceMissingReference") {
+
+    if (Predicate.isTagged(failure, "DisposableAuthorityEvidenceMissingReference")) {
       expect(failure.referenceKind).toBe("Membership");
       expect(failure.referenceId).toBe("authority-department-a");
     }
+
     expect(await runtime.runPromise(countInsertedAuthorities)).toEqual({
       administrators: 0,
       payments: 0,
@@ -444,7 +463,9 @@ describe("disposable person-authority token evidence backfill", () => {
             [
               [
                 "ambiguous-admin-token-0055",
-                { _tag: "OrganizationAdministrator", personId: "authority-admin" },
+                OrganizationAdministratorSchema.make({
+                  personId: PersonId.make("authority-admin"),
+                }),
               ],
             ],
             [],
@@ -470,10 +491,11 @@ describe("disposable person-authority token evidence backfill", () => {
               [
                 "excess-field-token-0055",
                 {
-                  _tag: "Member",
-                  personId: "authority-member",
-                  departmentId: "authority-department-a",
-                  active: true,
+                  ...AdmissionPeriodActorSchema.cases.Member.make({
+                    personId: PersonId.make("authority-member"),
+                    departmentId: DepartmentId.make("authority-department-a"),
+                    active: true,
+                  }),
                   bearerTokenCopy: "must-not-be-accepted",
                 },
               ],
@@ -484,6 +506,7 @@ describe("disposable person-authority token evidence backfill", () => {
         ),
       ),
     );
+
     expect(excessFailure._tag).toBe("DisposableAuthorityEvidenceDecodeError");
 
     const nondeterministicFailure = await runtime.runPromise(
@@ -497,6 +520,7 @@ describe("disposable person-authority token evidence backfill", () => {
         }),
       ),
     );
+
     expect(nondeterministicFailure._tag).toBe("DisposableAuthorityEvidenceNondeterministicInput");
   });
 
@@ -507,12 +531,11 @@ describe("disposable person-authority token evidence backfill", () => {
           evaluatedAt: EVALUATED_AT,
           authorityStartAt: EVALUATED_AT,
           admission: {
-            "inactive-interval-token-0055": {
-              _tag: "Member",
-              personId: "authority-member",
-              departmentId: "authority-department-a",
+            "inactive-interval-token-0055": AdmissionPeriodActorSchema.cases.Member.make({
+              personId: PersonId.make("authority-member"),
+              departmentId: DepartmentId.make("authority-department-a"),
               active: false,
-            },
+            }),
           },
           organization: {},
           receipt: {},

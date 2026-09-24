@@ -11,14 +11,15 @@ cutover.
 
 The durable documentation set is:
 
-| File                                                                             | Authority                                                                   |
-| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| [README.md](README.md)                                                           | Repository map and local commands                                           |
-| [STATE.md](STATE.md)                                                             | Current migration state, gaps, and next work                                |
-| [docs/system.md](docs/system.md)                                                 | Intended product, domain, ownership, authority, and journeys                |
-| [docs/architecture.md](docs/architecture.md)                                     | Intended runtime, dependency, persistence, delivery, and cutover boundaries |
-| [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, ownership, and migration gaps           |
-| [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the durable system documents           |
+| File                                                                             | Authority                                                              |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [README.md](README.md)                                                           | Repository map and local commands                                      |
+| [AGENTS.md](AGENTS.md)                                                           | Project development, verification, resource, and cleanup practices     |
+| [STATE.md](STATE.md)                                                             | Current migration state, evidence limits, and next work                |
+| [docs/system.md](docs/system.md)                                                 | Intended product, domain, ownership, authority, and journeys           |
+| [docs/architecture.md](docs/architecture.md)                                     | Runtime, dependencies, persistence, delivery, and interface boundaries |
+| [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, and replacement contracts          |
+| [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the system documents              |
 
 Create one file in `docs/specs/` only while a non-trivial journey is active.
 Remove the completed specification after its durable intent is present in the
@@ -48,44 +49,56 @@ target architecture.
 
 ## Toolchain
 
-- Bun 1.3
-- TypeScript 7
-- Effect v4
-- PostgreSQL
-- React Router
-- Foldkit
-- Oxfmt and Oxlint
+The [root manifest](package.json) and lockfile own tool versions and the dependency catalog.
+The application uses Bun, TypeScript, Effect, PostgreSQL, React Router, Foldkit, Oxfmt, and Oxlint.
+The PostgreSQL adapter pin preserves the pool shared by Database and Better Auth.
+See [development practices](AGENTS.md#building-reference) before changing it.
+
+The root manifest declares a type-only Effect patch. It preserves union-command
+requests and callable Fetch inputs across runtimes. SDK type checks cover both
+contracts, including Bun types. Remove the patch when upstream declarations pass
+those checks without it.
+
+Backend tests start private PostgreSQL clusters and create an isolated database
+for each fixture. Put `initdb`, `pg_ctl`, and `psql` on `PATH`. Install the
+PostgreSQL contrib extensions, including `btree_gist`. No shared database is used.
 
 Run commands from this repository root:
 
 ```bash
-bun install
-bun run build
-bun run check-types
-bun run test
+bun install --frozen-lockfile
+bun run build --concurrency=1
+bun run check-types --concurrency=1
+bun run test --concurrency=1
 bun run lint
 bun run format:check
 ```
 
-Use focused package commands during development:
+Run one heavy validation job at a time. Turbo concurrency does not bound each package runner.
+For focused tests, use the bounded commands in [AGENTS.md](AGENTS.md#commands).
+The domain aggregate includes fixture programs and D1 proofs. The dashboard aggregate includes a bundle gate.
+Do not pass Vitest flags through the domain aggregate script.
+
+An affected package graph can run separately:
 
 ```bash
-turbo -F @monoweb/domain test
-turbo -F @monoweb/database test
-turbo -F @monoweb/http-api test
-turbo -F @monoweb/sdk test
-turbo -F @monoweb/backend test
-turbo -F @monoweb/dashboard test
+bun run turbo -F @vektorprogrammet/backend check-types --concurrency=1
+bun run --cwd packages/http-api generate:check
 ```
 
-Start the local applications:
+Homepage builds require a clean committed source artifact. Do not weaken that provenance guard for a dirty operator tree.
+Use a separate source-matched committed snapshot for acceptance, as described in [AGENTS.md](AGENTS.md#verification-and-resources).
+
+For native development, configure the backend dependencies before starting these commands in separate terminals:
 
 ```bash
+bun run --cwd apps/backend dev
 bun run dev
-bun run dev:server
 ```
 
-Package manifests are the source of truth for exact scripts.
+The first command starts the native backend. The second starts only the homepage and dashboard.
+The retained Symfony application uses `bun run dev:server`. It is not the native backend.
+Package manifests define exact scripts. These commands do not authorize production or provider access.
 
 ## Change rule
 

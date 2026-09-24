@@ -6,10 +6,12 @@ import {
   readReturningAssistantOptions,
   registerReturningAssistant,
 } from "./returning-postgres.js";
+
 export const ReturningAssistantsLive = Layer.effect(
   ReturningAssistants,
   Effect.gen(function* () {
     const database = yield* Database;
+
     return ReturningAssistants.of({
       readOptions: (input) =>
         readReturningAssistantOptions(input).pipe(Effect.provideService(Database, database)),

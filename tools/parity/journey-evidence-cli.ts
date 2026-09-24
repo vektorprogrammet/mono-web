@@ -12,22 +12,27 @@ import {
 import { ParityExecutionEnvironment, ParityFileSystem, ParityTerminal } from "./src/services.js";
 import { assertPathComponentsNoFollow, NodeRuntimeLayer } from "./node-runtime.js";
 
-const JsonUnknownFromText = Schema.fromJsonString(Schema.Unknown);
-const decodeJsonText = Schema.decodeUnknownSync(JsonUnknownFromText, {
+const JsonFromText = Schema.fromJsonString(Schema.Json);
+
+const decodeJsonText = Schema.decodeUnknownSync(JsonFromText, {
   onExcessProperty: "error",
 });
 
-const responseBody = async (response: Response): Promise<unknown> => {
+const responseBody = async (response: Response): Promise<Schema.Json> => {
   const text = await response.text();
+
   if (text.length === 0) return null;
   const contentType = response.headers.get("content-type") ?? "";
+
   return contentType.includes("json") ? decodeJsonText(text) : { text_sha256_input: text };
 };
 
 const requestBody = (request: JourneyHttpRequest): BodyInit | undefined => {
   if (request.body === undefined) return undefined;
+
   if (request.body.kind === "json") return canonicalJson(request.body.value);
   const form = new FormData();
+
   for (const [name, value] of Object.entries(request.body.fields)) form.set(name, value);
   form.set(
     request.body.file.fieldName,
@@ -35,6 +40,7 @@ const requestBody = (request: JourneyHttpRequest): BodyInit | undefined => {
       type: request.body.file.contentType,
     }),
   );
+
   return form;
 };
 
@@ -46,7 +52,9 @@ const NodeJourneyHttpLayer = Layer.succeed(JourneyHttpClient, {
       method: request.method,
       redirect: "manual",
     });
+
     const setCookie = response.headers.getSetCookie();
+
     return {
       body: await responseBody(response),
       headers: setCookie.length === 0 ? {} : { "set-cookie": setCookie.join("\n") },
@@ -63,9 +71,11 @@ interface RunningSubprocess {
 }
 
 const subprocesses = new Map<string, RunningSubprocess>();
+
 const delay = (milliseconds: number): Promise<void> => {
   const { promise, resolve: complete } = Promise.withResolvers<void>();
   setTimeout(complete, milliseconds);
+
   return promise;
 };
 
@@ -79,22 +89,28 @@ const NodeJourneyProcessLayer = Layer.succeed(JourneyProcessExecutor, {
       stdin: "ignore",
       stdout: "inherit",
     });
+
     const handle = { id: String(child.pid) };
     subprocesses.set(handle.id, child);
     await delay(10);
+
     if (child.exitCode !== null) {
       subprocesses.delete(handle.id);
       throw new Error(`process ${executable} exited during startup with ${child.exitCode}`);
     }
+
     return handle;
   },
   stop: async (handle) => {
     const child = subprocesses.get(handle.id);
+
     if (child === undefined) return;
     subprocesses.delete(handle.id);
+
     if (child.exitCode !== null) return;
     child.kill("SIGTERM");
     const graceful = Promise.race([child.exited.then(() => true), delay(5_000).then(() => false)]);
+
     if (!(await graceful) && child.exitCode === null) {
       child.kill("SIGKILL");
       await child.exited;
@@ -104,6 +120,7 @@ const NodeJourneyProcessLayer = Layer.succeed(JourneyProcessExecutor, {
 
 const assertOutsideFunctionalParityProjection = (path: string): void => {
   const marker = `${sep}evidence${sep}functional-parity`;
+
   if (path.endsWith(marker) || path.includes(`${marker}${sep}`))
     throw new Error("JOURNEY_EVIDENCE_OUTPUT_OVERLAPS_FUNCTIONAL_PARITY_PROJECTION");
   assertPathComponentsNoFollow(path);
@@ -111,14 +128,18 @@ const assertOutsideFunctionalParityProjection = (path: string): void => {
 
 const parseOutput = (arguments_: readonly string[]): string => {
   const index = arguments_.indexOf("--output");
+
   if (index === -1 || arguments_[index + 1] === undefined) {
     throw new Error("journey-evidence-cli requires --output <artifacts/parity/capability>");
   }
+
   if (arguments_.length !== 4 || arguments_[2] !== "--output") {
     throw new Error("JOURNEY_EVIDENCE_ARGUMENTS_INVALID");
   }
+
   const output = resolve(arguments_[index + 1]);
   assertOutsideFunctionalParityProjection(output);
+
   return output;
 };
 
@@ -128,11 +149,13 @@ const program = Effect.gen(function* () {
   const terminal = yield* ParityTerminal;
   const output = parseOutput(execution.arguments);
   const repositoryRoot = resolve(execution.runnerDirectory, "../../..");
+
   const manifest = yield* runClaimSpecificJourneyEvidence({
     artifactDirectory: resolve(output, "artifacts"),
     repositoryRoot,
     runnerSourcePath: resolve(execution.runnerDirectory, "journey-evidence.ts"),
   });
+
   const manifestBytes = canonicalJson(manifest);
   fileSystem.writeFileNoFollow(resolve(output, "native-run-manifest.json"), manifestBytes);
   terminal.writeStandardOutput(`${manifestBytes}\n`);

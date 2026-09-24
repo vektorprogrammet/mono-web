@@ -44,6 +44,8 @@ infra/alchemy/.alchemy/
 
 # PHP
 vendor
+!/tools/oxlint/anti-slop/vendor/
+!/tools/oxlint/anti-slop/vendor/**
 
 # Testing
 coverage

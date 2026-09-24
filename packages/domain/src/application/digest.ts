@@ -1,5 +1,7 @@
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+
 export { canonicalJson } from "../tutor/evidence.js";
+
 import {
   ApplicantIdSchema,
   PublicApplicationCommandIdSchema,

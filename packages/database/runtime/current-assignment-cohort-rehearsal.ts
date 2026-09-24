@@ -6,11 +6,12 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Effect, Redacted } from "effect";
+import { Schema, flow, Match, Predicate, Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { databaseHealth } from "@vektorprogrammet/database";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonValue, canonicalJson } from "@vektorprogrammet/domain/evidence";
 import {
+  CurrentAssignmentSnapshot,
   CurrentAssignmentFailure,
   currentAssignmentPlacementId,
   importCurrentAssignmentCohort,
@@ -20,6 +21,7 @@ import { DatabaseLive } from "../src/layers.js";
 import { importPersonCohort } from "../src/person-cohort.js";
 
 const root = resolve(import.meta.dirname, "../../..");
+
 const command = (name: string, args: ReadonlyArray<string>) =>
   execFileSync(name, args, {
     cwd: root,
@@ -27,30 +29,39 @@ const command = (name: string, args: ReadonlyArray<string>) =>
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 60_000,
   });
+
 const sourceRevision = command("git", ["rev-parse", "HEAD"]).trim();
+
 assert.equal(command("git", ["status", "--porcelain=v1"]).trim(), "", "worktree must be clean");
+
 const pause = (milliseconds: number) =>
   new Promise<void>((resolvePause) => setTimeout(resolvePause, milliseconds));
+
 const freePort = async (): Promise<number> => {
   const server = createServer();
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
-  assert.ok(address && typeof address === "object");
+  assert.ok(address && !Predicate.isString(address));
   const port = address.port;
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+
   return port;
 };
+
 const waitForPostgres = async (pool: Pool): Promise<void> => {
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
       await pool.query("SELECT 1");
+
       return;
     } catch {
       await pause(100);
     }
   }
+
   throw new Error("owned PostgreSQL readiness timeout");
 };
+
 const stop = async (child: ChildProcess): Promise<void> => {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolveStop, reject) => {
@@ -62,13 +73,20 @@ const stop = async (child: ChildProcess): Promise<void> => {
     child.kill("SIGTERM");
   });
 };
-const digest = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
+
+const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
+  createHash("sha256").update(canonicalJson(value)).digest("hex"),
+);
+
 const snapshotWithDigest = <
-  Snapshot extends Record<string, unknown> & { readonly snapshotDigest?: string },
+  Snapshot extends Omit<typeof CurrentAssignmentSnapshot.Encoded, "snapshotDigest"> & {
+    readonly snapshotDigest?: string;
+  },
 >(
   snapshot: Snapshot,
 ) => {
   const { snapshotDigest: _snapshotDigest, ...unsignedSnapshot } = snapshot;
+
   return { ...unsignedSnapshot, snapshotDigest: digest(unsignedSnapshot) };
 };
 
@@ -80,12 +98,18 @@ for (const key of [
   assert.equal(process.env[key], undefined, `${key} ambient configuration prohibited`);
 
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-current-assignment-0109-"));
+
 const pgdata = join(artifacts, "postgres");
+
 const inputFile = join(artifacts, "current-assignment.json");
+
 const backup = join(artifacts, "current-assignment.dump");
+
 const children: ChildProcess[] = [];
+
 let pool: Pool | undefined;
-let evidence: Record<string, unknown> | undefined;
+
+let evidence: Record<string, Schema.Json> | undefined;
 
 try {
   const port = await freePort();
@@ -99,11 +123,13 @@ try {
     "--no-locale",
     "--encoding=UTF8",
   ]);
+
   const postgres = spawn(
     "postgres",
     ["-D", pgdata, "-p", String(port), "-h", "127.0.0.1", "-k", artifacts],
     { stdio: "ignore" },
   );
+
   children.push(postgres);
   const adminUrl = `postgres://postgres@127.0.0.1:${port}/postgres`;
   pool = new Pool({ connectionString: adminUrl });
@@ -138,11 +164,13 @@ try {
     INSERT INTO public.person_contact_profiles (person_id, email, phone)
     VALUES ('person-missing-evidence', 'missing-evidence@example.invalid', '+47 900 20 001')
   `);
+
   const schools = (
     await pool.query<{ school_id: string; name: string }>(
       `SELECT school_id::text, name FROM public.schools_directory_schools ORDER BY school_id`,
     )
   ).rows;
+
   const schoolA = Number(schools[0]!.school_id);
   const schoolB = Number(schools[1]!.school_id);
 
@@ -160,12 +188,13 @@ try {
     "colon-left",
     "colon-right",
   ];
+
   const personReport = await importPersonCohort(pool, {
     sourceRepository: "synthetic-legacy",
     sourceRevision: "synthetic-person-source-0109",
     snapshotId: "person-cohort-0109",
     transformationRevision: "0109-v1",
-    synthetic: true,
+    sourceKind: "Synthetic",
     occurrences: reconciledSources.map((sourceUserId) => ({
       occurrenceId: `person-${sourceUserId}`,
       row: {
@@ -180,12 +209,11 @@ try {
     mappings: reconciledSources.map((sourceUserId) => ({
       _tag: "CreatePerson" as const,
       sourceUserId,
-      personId:
-        sourceUserId === "colon-left"
-          ? `person:${schoolB}`
-          : sourceUserId === "colon-right"
-            ? "person"
-            : `person-${sourceUserId}`,
+      personId: Match.value(sourceUserId).pipe(
+        Match.when("colon-left", () => `person:${schoolB}`),
+        Match.when("colon-right", () => "person" as const),
+        Match.orElse(() => `person-${sourceUserId}`),
+      ),
       emailOwnership: {
         email: `${sourceUserId}@example.invalid`,
         attestedBy: "synthetic-operator",
@@ -193,6 +221,7 @@ try {
       },
     })),
   });
+
   assert.equal(personReport.accepted, reconciledSources.length);
   await pool.query(`
     INSERT INTO public.organization_volunteer_affiliations
@@ -214,6 +243,7 @@ try {
     block: "1" | "2" | "Both";
     active: boolean;
   };
+
   type Mapping = {
     sourceAssignmentId: string;
     sourceUserId: string;
@@ -225,6 +255,7 @@ try {
     semesterId: string;
     schoolId: number;
   };
+
   const sourceRow = (
     sourceAssignmentId: string,
     sourceUserId: string,
@@ -244,8 +275,10 @@ try {
       active: true,
       ...overrides,
     };
+
     return { ...row, sourceRowDigest: digest(row) };
   };
+
   const mapping = (
     row: SourceRow,
     personId: string,
@@ -262,8 +295,10 @@ try {
     schoolId: schoolA,
     ...overrides,
   });
+
   const occurrences: Array<{ occurrenceId: string; row: unknown }> = [];
   const mappings: Mapping[] = [];
+
   const add = (
     sourceAssignmentId: string,
     sourceUserId: string,
@@ -274,6 +309,7 @@ try {
     const row = sourceRow(sourceAssignmentId, sourceUserId, rowOverrides);
     occurrences.push({ occurrenceId: `occ-${sourceAssignmentId}`, row });
     mappings.push(mapping(row, personId, mappingOverrides));
+
     return row;
   };
 
@@ -305,9 +341,11 @@ try {
     { block: "Both" },
     { departmentId: "department-b" },
   );
+
   const duplicateSource = add("duplicate-source", "duplicate-source", "person-duplicate-source", {
     block: "Both",
   });
+
   occurrences.push({ occurrenceId: "occ-duplicate-source-second", row: { ...duplicateSource } });
   add("duplicate-target-a", "duplicate-target", "person-duplicate-target", { block: "Both" });
   add("duplicate-target-b", "duplicate-target", "person-duplicate-target", { block: "Both" });
@@ -328,14 +366,19 @@ try {
     occurrences,
     mappings,
   });
-  const importSnapshot = <
-    Snapshot extends Record<string, unknown> & { readonly snapshotDigest?: string },
-  >(
-    input: Snapshot,
+
+  const importSnapshot = (
+    input: Omit<typeof CurrentAssignmentSnapshot.Encoded, "snapshotDigest"> & {
+      readonly snapshotDigest?: string;
+    },
   ) => importCurrentAssignmentCohort(pool!, snapshotWithDigest(input));
+
   await writeFile(inputFile, JSON.stringify(snapshot), { mode: 0o600 });
   await chmod(inputFile, 0o600);
-  const excludedAuthorityFacts = async (databasePool: Pool): Promise<Record<string, unknown>> => {
+
+  const excludedAuthorityFacts = async (
+    databasePool: Pool,
+  ): Promise<Record<string, Schema.Json>> => {
     const tables = (
       await databasePool.query<{ table_name: string }>(
         `SELECT format('%I.%I', schemaname, tablename) AS table_name
@@ -355,19 +398,24 @@ try {
           ORDER BY schemaname, tablename`,
       )
     ).rows;
-    const allFacts: Record<string, unknown> = {};
+
+    const allFacts: Record<string, Schema.Json> = {};
+
     for (const { table_name: tableName } of tables) {
       const rows = await databasePool.query<{ rows: unknown }>(
         `SELECT COALESCE(jsonb_agg(to_jsonb(value) ORDER BY to_jsonb(value)::text), '[]'::jsonb) AS rows
            FROM ${tableName} value`,
       );
-      allFacts[tableName] = rows.rows[0]!.rows;
+
+      allFacts[tableName] = Schema.decodeUnknownSync(Schema.Json)(rows.rows[0]!.rows);
     }
+
     return allFacts;
   };
+
   const facts = async (databasePool: Pool) => {
     const canonical = (
-      await databasePool.query<{ facts: Record<string, unknown> }>(
+      await databasePool.query<{ facts: Record<string, Schema.Json> }>(
         `SELECT jsonb_build_object(
           'canonicalAffiliations', (SELECT jsonb_agg(a ORDER BY person_id, department_id) FROM public.organization_volunteer_affiliations a),
           'canonicalPlacements', (SELECT jsonb_agg(p ORDER BY placement_id) FROM public.assistant_placements p),
@@ -378,11 +426,14 @@ try {
         ) AS facts`,
       )
     ).rows[0]!.facts;
+
     return { ...canonical, excluded: await excludedAuthorityFacts(databasePool) };
   };
+
   const excludedBefore = digest((await facts(pool)).excluded);
-  const runCli = (): unknown =>
-    JSON.parse(
+
+  const runCli = (): Schema.Json =>
+    Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
       execFileSync(
         process.execPath,
         ["run", "packages/database/runtime/current-assignment-cohort-main.ts"],
@@ -509,9 +560,11 @@ try {
     [collisionSemester, colonCollisionSemester],
   );
   const collisionLeft = sourceRow("assignment-colon-left", "colon-left");
+
   const collisionRight = sourceRow("assignment-colon-right", "colon-right", {
     sourceSchoolId: "legacy-school-b",
   });
+
   const colonCollision = await importSnapshot({
     ...snapshot,
     sourceRevision: "synthetic-current-source-0109-colon",
@@ -528,6 +581,7 @@ try {
       }),
     ],
   });
+
   assert.deepEqual(colonCollision.occurrences, [
     { occurrenceId: "occ-assignment-colon-left", disposition: "Accepted", reason: "Imported" },
     { occurrenceId: "occ-assignment-colon-right", disposition: "Accepted", reason: "Imported" },
@@ -567,12 +621,14 @@ try {
   );
 
   const overlapRow = sourceRow("assignment-overlap", "valid", { block: "Both" });
+
   const overlap = await importSnapshot({
     ...snapshot,
     snapshotId: "current-assignment-0109-overlap",
     occurrences: [{ occurrenceId: "occ-assignment-overlap", row: overlapRow }],
     mappings: [mapping(overlapRow, "person-valid")],
   });
+
   assert.deepEqual(overlap.occurrences, [
     {
       occurrenceId: "occ-assignment-overlap",
@@ -587,15 +643,18 @@ try {
      VALUES ($1, 'person-valid', 'department-a', 'semester-2026-autumn', $2, 'Monday', 1, 'Both', true, 1)`,
     [`placement-${"d".repeat(64)}`, schoolB],
   );
+
   const reverseOverlapRow = sourceRow("assignment-reverse-overlap", "valid", {
     sourceSchoolId: "legacy-school-b",
   });
+
   const reverseOverlap = await importSnapshot({
     ...snapshot,
     snapshotId: "current-assignment-0109-reverse-overlap",
     occurrences: [{ occurrenceId: "occ-assignment-reverse-overlap", row: reverseOverlapRow }],
     mappings: [mapping(reverseOverlapRow, "person-valid", { schoolId: schoolB })],
   });
+
   assert.deepEqual(reverseOverlap.occurrences, [
     {
       occurrenceId: "occ-assignment-reverse-overlap",
@@ -604,6 +663,7 @@ try {
     },
   ]);
   const concurrentRow = sourceRow("assignment-concurrent", "concurrent", { block: "Both" });
+
   const concurrentSnapshot = {
     ...snapshot,
     sourceRevision: "synthetic-current-source-0109-concurrent",
@@ -611,10 +671,12 @@ try {
     occurrences: [{ occurrenceId: "occ-assignment-concurrent", row: concurrentRow }],
     mappings: [mapping(concurrentRow, "person-concurrent", { schoolId: schoolB })],
   };
+
   const concurrent = await Promise.all([
     importSnapshot(concurrentSnapshot),
     importSnapshot(concurrentSnapshot),
   ]);
+
   assert.deepEqual(concurrent[0], concurrent[1]);
   assert.equal(concurrent[0].accepted, 1);
   assert.deepEqual(
@@ -666,34 +728,42 @@ try {
     pool.query(`UPDATE public.current_assignment_imports SET affiliation_evidence_ref = 'changed'`),
     /append-only/,
   );
+
   const appendOnlyStatements = [
     "UPDATE public.current_assignment_snapshots SET source_revision = source_revision",
     "UPDATE public.current_assignment_occurrences SET reason = reason",
     "UPDATE public.current_assignment_imports SET affiliation_evidence_ref = affiliation_evidence_ref",
     "UPDATE public.current_assignment_affiliation_imports SET source_assignment_id = source_assignment_id",
   ] as const;
+
   const appendOnlyTables = [
     "current_assignment_snapshots",
     "current_assignment_occurrences",
     "current_assignment_imports",
     "current_assignment_affiliation_imports",
   ] as const;
+
   const assertAppendOnlyProvenance = async (databasePool: Pool): Promise<void> => {
     for (const statement of appendOnlyStatements)
       await assert.rejects(databasePool.query(statement), /append-only/);
+
     for (const table of appendOnlyTables)
       await assert.rejects(databasePool.query(`DELETE FROM public.${table}`), /append-only/);
+
     for (const table of appendOnlyTables)
       await assert.rejects(databasePool.query(`TRUNCATE public.${table} CASCADE`), /append-only/);
   };
+
   await assertAppendOnlyProvenance(pool);
 
   const restoredFactsExpected = await facts(pool);
   command("pg_dump", ["--dbname", databaseUrl, "--format=custom", "--file", backup]);
   assert.ok((await stat(backup)).size > 0);
+
   const backupChecksum = createHash("sha256")
     .update(await readFile(backup))
     .digest("hex");
+
   const admin = new Pool({ connectionString: adminUrl });
   await admin.query("CREATE DATABASE current_assignment_restored");
   await admin.end();
@@ -714,7 +784,7 @@ try {
   evidence = {
     contract: "0109",
     sourceRevision,
-    report,
+    report: canonicalJsonValue(report),
     oneAffiliationForTwoPlacements: true,
     deterministicPlacementIdentity: true,
     colonDelimitedTargetsIndependent: true,
@@ -733,9 +803,11 @@ try {
   };
 } finally {
   if (pool) await pool.end().catch(() => undefined);
+
   for (const child of children.reverse()) await stop(child).catch(() => undefined);
   await rm(artifacts, { recursive: true, force: true });
 }
 
 assert.ok(evidence, "rehearsal must complete before evidence is emitted");
+
 process.stdout.write(JSON.stringify(evidence, null, 2) + "\n");

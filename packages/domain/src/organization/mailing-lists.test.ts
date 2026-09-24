@@ -3,6 +3,7 @@ import { DepartmentId, PersonId } from "./schema.js";
 import { projectOrganizationMailingLists, type MailingListsProjectInput } from "./mailing-lists.js";
 
 const departmentA = DepartmentId.make("department-a");
+
 const departmentB = DepartmentId.make("department-b");
 
 const person = (id: string) => PersonId.make(id);
@@ -29,6 +30,7 @@ it("projects assistants-only lists from the assistant-history seam", () => {
       ]),
     }),
   );
+
   expect(lists).toEqual([
     { name: `assistants-${departmentA}`, emails: ["one@example.invalid", "two@example.invalid"] },
   ]);
@@ -42,6 +44,7 @@ it("projects team lists from active memberships", () => {
       contacts: new Map([contactFor("t-1", "team@example.invalid")]),
     }),
   );
+
   expect(lists).toEqual([{ name: `team-${departmentA}`, emails: ["team@example.invalid"] }]);
 });
 
@@ -58,6 +61,7 @@ it("merges all with assistants-first dedup by person", () => {
       ]),
     }),
   );
+
   // Members order by personId; shared appears once despite two sources.
   expect(lists).toEqual([
     {
@@ -79,6 +83,7 @@ it("silently drops persons without a resolvable contact profile", () => {
       contacts: new Map([contactFor("with", "kept@example.invalid")]),
     }),
   );
+
   expect(lists).toEqual([{ name: `assistants-${departmentA}`, emails: ["kept@example.invalid"] }]);
 });
 
@@ -96,6 +101,7 @@ it("orders lists by name across departments and narrows by requested department"
       ]),
     }),
   );
+
   expect(lists.map((list) => list.name)).toEqual([
     `assistants-${departmentA}`,
     `assistants-${departmentB}`,
@@ -115,6 +121,7 @@ it("orders lists by name across departments and narrows by requested department"
       ]),
     }),
   );
+
   expect(narrowed.map((list) => list.name)).toEqual([`assistants-${departmentB}`]);
 });
 
@@ -129,6 +136,7 @@ it("is deterministic: identical inputs yield byte-identical output (law 2)", () 
       contactFor("m", "m@example.invalid"),
     ]),
   });
+
   expect(JSON.stringify(projectOrganizationMailingLists(input))).toBe(
     JSON.stringify(projectOrganizationMailingLists(input)),
   );

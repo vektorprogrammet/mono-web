@@ -1,20 +1,19 @@
-import { Admissions, type AdmissionsShape } from "@vektorprogrammet/domain/admissions";
+import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import { Database, type DatabaseShape } from "../service.js";
-import { Profile, type ProfileShape } from "@vektorprogrammet/domain/profile";
+import { Database, type DatabaseOperations } from "../service.js";
+import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { canonicalJson, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Effect, Schema } from "effect";
+import { Match, flow, Predicate, Effect, Schema } from "effect";
 import {
+  RecruitmentInvitationResponseStateSchema,
+  RecruitmentInvitationResponseMessageSchema,
   RecruitmentDecodeError,
   RecruitmentInvitationAlreadyResponded,
   RecruitmentInvitationNotFound,
   RecruitmentPersistenceError,
 } from "@vektorprogrammet/domain/recruitment";
-import {
-  RecruitmentInvitationResponseOutboxRequestSchema,
-  type RecruitmentInvitationResponseOutboxRequest,
-} from "@vektorprogrammet/domain/recruitment";
+import { RecruitmentInvitationResponseOutboxRequestSchema } from "@vektorprogrammet/domain/recruitment";
 import type { RecruitmentFailure } from "@vektorprogrammet/domain/recruitment";
 import {
   RecruitmentInstantSchema,
@@ -35,21 +34,7 @@ import {
   type RecruitmentInvitationResponseResult,
 } from "@vektorprogrammet/domain/recruitment";
 
-interface InvitationResponseRow {
-  readonly invitationId: string;
-  readonly interviewId: string;
-  readonly applicationId: string;
-  readonly interviewerPersonId: string;
-  readonly interviewRevision: number;
-  readonly scheduleRevision: number;
-  readonly scheduledAt: string;
-  readonly room: string;
-  readonly campus: string | null;
-  readonly responseState: string;
-  readonly responseMessage: string | null;
-  readonly respondedAt: string | null;
-  readonly responseRevision: number;
-}
+type InvitationResponseRow = typeof InvitationResponseRowSchema.Type;
 
 const InvitationResponseRowSchema = Schema.Struct({
   invitationId: RecruitmentInvitationId,
@@ -61,7 +46,7 @@ const InvitationResponseRowSchema = Schema.Struct({
   scheduledAt: RecruitmentInstantSchema,
   room: Schema.String,
   campus: Schema.NullOr(Schema.String),
-  responseState: Schema.String,
+  responseState: RecruitmentInvitationResponseStateSchema,
   responseMessage: Schema.NullOr(Schema.String),
   respondedAt: Schema.NullOr(RecruitmentInstantSchema),
   responseRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -79,8 +64,9 @@ const persistenceError = (operation: string, cause?: unknown): RecruitmentPersis
     message: cause instanceof Error ? cause.message : "recruitment response persistence failed",
   });
 
-const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown, operation: string) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(
       (cause) =>
         new RecruitmentDecodeError({
@@ -89,15 +75,15 @@ const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown, o
     ),
   );
 
-const decodeCapability = (
-  value: unknown,
-): Effect.Effect<RecruitmentInvitationCapability, RecruitmentInvitationNotFound> =>
-  Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(value, {
+const decodeCapability = flow(
+  Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError(() => new RecruitmentInvitationNotFound({})));
+  }),
+  Effect.mapError(() => new RecruitmentInvitationNotFound({})),
+);
 
 const readInvitationRow = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   capabilitySha256: string,
 ): Effect.Effect<InvitationResponseRow | undefined, RecruitmentFailure> =>
   sql<InvitationResponseRow>`
@@ -135,7 +121,7 @@ const readInvitationRow = (
     Effect.flatMap((rows) =>
       rows[0] === undefined
         ? Effect.succeed(undefined)
-        : decode(InvitationResponseRowSchema, rows[0], "invitation response row"),
+        : decode(InvitationResponseRowSchema, "invitation response row")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read invitation response", cause)),
@@ -143,7 +129,7 @@ const readInvitationRow = (
   );
 
 const lockInvitationRow = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   capabilitySha256: string,
 ): Effect.Effect<InvitationResponseRow | undefined, RecruitmentFailure> =>
   sql<InvitationResponseRow>`
@@ -182,7 +168,7 @@ const lockInvitationRow = (
     Effect.flatMap((rows) =>
       rows[0] === undefined
         ? Effect.succeed(undefined)
-        : decode(InvitationResponseRowSchema, rows[0], "locked invitation response row"),
+        : decode(InvitationResponseRowSchema, "locked invitation response row")(rows[0]),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("lock invitation response", cause)),
@@ -194,20 +180,27 @@ const observationFromRow = (
 ): Effect.Effect<RecruitmentInvitationResponseObservation, RecruitmentDecodeError> =>
   decode(
     RecruitmentInvitationResponseObservationSchema,
-    {
-      scheduledAt: row.scheduledAt,
-      room: row.room,
-      campus: row.campus,
-      responseState: row.responseState,
-      responseMessage: row.responseMessage,
-    },
     "invitation response observation",
+  )({
+    scheduledAt: row.scheduledAt,
+    room: row.room,
+    campus: row.campus,
+    responseState: row.responseState,
+    responseMessage: row.responseMessage,
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new RecruitmentDecodeError({
+          message:
+            cause instanceof Error ? cause.message : `invalid ${"invitation response observation"}`,
+        }),
+    ),
   );
 
 const responseContacts = (
   row: InvitationResponseRow,
-  admissions: AdmissionsShape,
-  profile: ProfileShape,
+  admissions: AdmissionsOperations,
+  profile: ProfileOperations,
 ): Effect.Effect<
   {
     readonly applicantDisplayName: string;
@@ -218,25 +211,31 @@ const responseContacts = (
 > =>
   Effect.gen(function* () {
     const applicationId = PublicApplicationIdSchema.make(row.applicationId);
+
     const applicantRead = yield* admissions
       .readApplicantContacts([applicationId])
       .pipe(
         Effect.mapError((failure) =>
-          failure._tag === "PublicApplicationNotFound"
+          Predicate.isTagged(failure, "PublicApplicationNotFound")
             ? persistenceError("resolve invitation response applicant", failure)
             : persistenceError("read invitation response applicant", failure),
         ),
       );
+
     const applicant = applicantRead[0];
+
     if (applicant === undefined || applicant.applicationId !== applicationId) {
       return yield* persistenceError("resolve invitation response applicant");
     }
+
     const interviewerPersonId = PersonId.make(row.interviewerPersonId);
     const interviewerRead = yield* profile.readContacts([interviewerPersonId]);
     const interviewer = interviewerRead[0];
+
     if (interviewer === undefined || interviewer.personId !== interviewerPersonId) {
       return yield* persistenceError("resolve invitation response interviewer");
     }
+
     return {
       applicantDisplayName: `${applicant.firstName} ${applicant.lastName}`,
       interviewerEmail: interviewer.email,
@@ -245,9 +244,9 @@ const responseContacts = (
   });
 
 const recordInvitationResponse = (
-  sql: DatabaseShape,
-  admissions: AdmissionsShape,
-  profile: ProfileShape,
+  sql: DatabaseOperations,
+  admissions: AdmissionsOperations,
+  profile: ProfileOperations,
   capabilitySha256: string,
   responseState: RecordedResponseState,
   responseMessage: RecruitmentInvitationResponseMessage | null,
@@ -255,15 +254,19 @@ const recordInvitationResponse = (
 ): Effect.Effect<RecruitmentInvitationResponseResult, RecruitmentFailure> =>
   Effect.gen(function* () {
     const row = yield* lockInvitationRow(sql, capabilitySha256);
+
     if (row === undefined) return yield* new RecruitmentInvitationNotFound({});
+
     if (row.responseState !== "Pending" || row.responseRevision !== 0) {
       return yield* new RecruitmentInvitationAlreadyResponded({});
     }
 
     const notificationRequired = responseState !== "Accepted";
+
     if (responseState === "RequestedNewTime" && responseMessage === null) {
       return yield* persistenceError("validate invitation new-time response message");
     }
+
     const contacts = notificationRequired
       ? yield* responseContacts(row, admissions, profile)
       : undefined;
@@ -284,7 +287,9 @@ const recordInvitationResponse = (
         Effect.fail(persistenceError("record invitation response", cause)),
       ),
     );
+
     const responseRevision = updated[0]?.responseRevision;
+
     if (responseRevision !== 1) {
       return yield* new RecruitmentInvitationAlreadyResponded({});
     }
@@ -318,24 +323,45 @@ const recordInvitationResponse = (
       const effectId = RecruitmentNotificationEffectId.make(
         `recruitment-invitation-response:${row.invitationId}:${responseRevision}`,
       );
-      const request: RecruitmentInvitationResponseOutboxRequest = yield* decode(
-        RecruitmentInvitationResponseOutboxRequestSchema,
-        {
-          _tag: "SendInterviewInvitationResponse",
-          effectId,
-          invitationId: row.invitationId,
-          interviewId: row.interviewId,
-          scheduleRevision: row.scheduleRevision,
-          responseRevision,
-          applicantDisplayName: contacts.applicantDisplayName,
-          interviewerEmail: contacts.interviewerEmail,
-          interviewerPhone: contacts.interviewerPhone,
-          scheduledAt: row.scheduledAt,
-          responseState,
-          responseMessage,
-        },
-        "invitation response notification request",
+
+      const requestEffect: ReturnType<
+        typeof RecruitmentInvitationResponseOutboxRequestSchema.makeEffect
+      > =
+        responseState === "Rejected"
+          ? RecruitmentInvitationResponseOutboxRequestSchema.members[0].makeEffect({
+              effectId,
+              invitationId: row.invitationId,
+              interviewId: row.interviewId,
+              scheduleRevision: row.scheduleRevision,
+              responseRevision,
+              applicantDisplayName: contacts.applicantDisplayName,
+              interviewerEmail: contacts.interviewerEmail,
+              interviewerPhone: contacts.interviewerPhone,
+              scheduledAt: row.scheduledAt,
+              responseState,
+              responseMessage,
+            })
+          : RecruitmentInvitationResponseOutboxRequestSchema.members[1].makeEffect({
+              effectId,
+              invitationId: row.invitationId,
+              interviewId: row.interviewId,
+              scheduleRevision: row.scheduleRevision,
+              responseRevision,
+              applicantDisplayName: contacts.applicantDisplayName,
+              interviewerEmail: contacts.interviewerEmail,
+              interviewerPhone: contacts.interviewerPhone,
+              scheduledAt: row.scheduledAt,
+              responseState: "RequestedNewTime",
+              responseMessage: yield* decode(
+                RecruitmentInvitationResponseMessageSchema,
+                "invitation response message",
+              )(responseMessage),
+            });
+
+      const request = yield* requestEffect.pipe(
+        Effect.mapError((cause) => new RecruitmentDecodeError({ message: String(cause) })),
       );
+
       yield* sql`
         INSERT INTO recruitment_invitation_response_outbox (
           effect_id,
@@ -368,19 +394,57 @@ const recordInvitationResponse = (
       );
     }
 
-    return yield* decode(
-      RecruitmentInvitationResponseResultSchema,
-      {
-        _tag: "InvitationResponseRecorded",
-        interviewRevision: row.interviewRevision,
-        scheduleRevision: row.scheduleRevision,
-        responseRevision,
-        responseState,
-        responseMessage,
-        respondedAt,
-        notificationState: notificationRequired ? "Pending" : "NotRequired",
-      },
-      "invitation response result",
+    const fields = {
+      interviewRevision: row.interviewRevision,
+      scheduleRevision: row.scheduleRevision,
+      responseRevision,
+      respondedAt,
+    };
+
+    const responseEffect = Match.value(responseState).pipe(
+      Match.when("Accepted", (responseState) =>
+        decode(
+          Schema.Null,
+          "accepted invitation response message",
+        )(responseMessage).pipe(
+          Effect.flatMap((responseMessage) =>
+            RecruitmentInvitationResponseResultSchema.members[0].makeEffect({
+              ...fields,
+              responseState,
+              responseMessage,
+              notificationState: "NotRequired",
+            }),
+          ),
+        ),
+      ),
+      Match.when("Rejected", (responseState) =>
+        RecruitmentInvitationResponseResultSchema.members[1].makeEffect({
+          ...fields,
+          responseState,
+          responseMessage,
+          notificationState: "Pending",
+        }),
+      ),
+      Match.when("RequestedNewTime", (responseState) =>
+        decode(
+          RecruitmentInvitationResponseMessageSchema,
+          "invitation response message",
+        )(responseMessage).pipe(
+          Effect.flatMap((responseMessage) =>
+            RecruitmentInvitationResponseResultSchema.members[2].makeEffect({
+              ...fields,
+              responseState,
+              responseMessage,
+              notificationState: "Pending",
+            }),
+          ),
+        ),
+      ),
+      Match.exhaustive,
+    );
+
+    return yield* responseEffect.pipe(
+      Effect.mapError((cause) => new RecruitmentDecodeError({ message: String(cause) })),
     );
   });
 
@@ -396,15 +460,17 @@ const transitionInvitation = (
 > =>
   Effect.gen(function* () {
     const decodedCapability = yield* decodeCapability(capability);
+
     const decodedContext = yield* decode(
       RecruitmentInvitationResponseContextSchema,
-      context,
       "invitation response context",
-    );
+    )(context);
+
     const sql = yield* Database;
     const admissions = yield* Admissions;
     const profile = yield* Profile;
     const capabilitySha256 = sha256Hex(new TextEncoder().encode(decodedCapability));
+
     return yield* sql
       .withTransaction(
         recordInvitationResponse(
@@ -432,7 +498,9 @@ export const readInvitationResponse = (
     const sql = yield* Database;
     const capabilitySha256 = sha256Hex(new TextEncoder().encode(decodedCapability));
     const row = yield* readInvitationRow(sql, capabilitySha256);
+
     if (row === undefined) return yield* new RecruitmentInvitationNotFound({});
+
     return yield* observationFromRow(row);
   });
 
@@ -457,9 +525,9 @@ export const rejectInvitation = (
   Effect.gen(function* () {
     const decodedInput = yield* decode(
       RecruitmentInvitationRejectInputSchema,
-      input,
       "invitation rejection",
-    );
+    )(input);
+
     return yield* transitionInvitation(
       capability,
       "Rejected",
@@ -480,9 +548,9 @@ export const requestNewInvitationTime = (
   Effect.gen(function* () {
     const decodedInput = yield* decode(
       RecruitmentInvitationRequestNewTimeInputSchema,
-      input,
       "invitation new-time request",
-    );
+    )(input);
+
     return yield* transitionInvitation(
       capability,
       "RequestedNewTime",

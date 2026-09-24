@@ -1,7 +1,7 @@
 import { ReturningAssistantRegistrationInputSchema } from "@vektorprogrammet/http-api"
 import { PersonId } from "@vektorprogrammet/http-api"
 import { IdempotencyHeaders } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
+import { Record, Option, Schema } from "effect";
 import { data, useFetcher, useLoaderData, useNavigation, useRouteError, useSearchParams } from "react-router";
 import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { Button } from "../components/ui/button";
@@ -18,14 +18,17 @@ export async function loader({ request }: Route.LoaderArgs) {
   const client = createAuthenticatedClient(cookie, request);
   const search = new URL(request.url).searchParams;
   const periodIds = search.getAll("admissionPeriodId");
+
   if ([...search.keys()].some((key) => key !== "admissionPeriodId") || periodIds.length > 1)
     return privateData(
       { options: null, error: "Ugyldig opptaksperiodevalg." },
       400,
     );
   const requestedPeriodId = periodIds[0];
+
   try {
     const result = await client.admissions.readReturningAssistantOptions();
+
     if (
       requestedPeriodId !== undefined &&
       !result.body.periods.some(({ period }) => period.id === requestedPeriodId)
@@ -34,10 +37,12 @@ export async function loader({ request }: Route.LoaderArgs) {
         { options: null, error: "Opptaksperioden er ikke tilgjengelig." },
         400,
       );
-    return privateData({ options: result.body, error: null as string | null });
+
+    return privateData({ options: result.body, error: null });
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
-    const messages: Record<string, string> = {
+
+    const messages = {
       "returning.identity-missing": "Fant ikke en koblet søkersidentitet for kontoen.",
       "returning.history-missing": "Fant ingen tidligere assistentplassering for kontoen.",
       "returning.identity-ambiguous": "Kontoen har flere søkere. Kontakt koordinator.",
@@ -45,9 +50,10 @@ export async function loader({ request }: Route.LoaderArgs) {
       "returning.period-unavailable": "Det finnes ingen åpen opptaksperiode for avdelingen din.",
       "authority.denied": "Du har ikke tilgang til denne funksjonen.",
     };
+
     return privateData({
       options: null,
-      error: messages[problem?.code ?? ""] ?? "Alternativene kunne ikke lastes. Prøv igjen.",
+      error: Option.getOrUndefined(Record.get<string, string>(messages, problem?.code ?? "")) ?? "Alternativene kunne ikke lastes. Prøv igjen.",
     });
   }
 }
@@ -59,6 +65,7 @@ export async function action({ request }: Route.ActionArgs) {
   const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
   const commandId = String(form.get("commandId") || crypto.randomUUID());
+
   try {
     const payload = Schema.decodeUnknownSync(ReturningAssistantRegistrationInputSchema)({
       commandId,
@@ -77,10 +84,12 @@ export async function action({ request }: Route.ActionArgs) {
       teamInterest: boolField(form, "teamInterest"),
       teamIds: form.getAll("teamIds"),
     });
+
     const result = await client.admissions.registerReturningAssistant({
       headers: Schema.decodeUnknownSync(IdempotencyHeaders)({ "idempotency-key": commandId }),
       payload,
     });
+
     return privateData({
       success: true as const,
       message: "Registreringen er lagret.",
@@ -90,7 +99,8 @@ export async function action({ request }: Route.ActionArgs) {
     });
   } catch (cause) {
     const problem = nativeProblemFrom(cause);
-    const messages: Record<string, string> = {
+
+    const messages = {
       "returning.team-scope-denied": "Velg bare team i din nåværende avdeling.",
       "returning.revision-conflict": "Alternativene er endret. Last siden på nytt før du prøver igjen.",
       "returning.period-unavailable": "Opptaksperioden er ikke lenger åpen.",
@@ -98,9 +108,10 @@ export async function action({ request }: Route.ActionArgs) {
       "returning.history-missing": "Fant ingen tidligere assistentplassering for kontoen.",
       "idempotency.digest-conflict": "Denne kommandoen er allerede brukt med andre verdier.",
     };
+
     return privateData({
       success: false as const,
-      message: messages[problem?.code ?? ""] ?? "Registreringen kunne ikke lagres. Kontroller feltene.",
+      message: Option.getOrUndefined(Record.get<string, string>(messages, problem?.code ?? "")) ?? "Registreringen kunne ikke lagres. Kontroller feltene.",
       commandId,
       code: problem?.code ?? null,
     }, problem?.status ?? 422);
@@ -108,37 +119,50 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 const languages = ["Norsk", "Engelsk", "Norsk og engelsk"] as const;
+
 const groups = ["all", "block-1", "block-2"] as const;
 
 const returningRegistrationRoute = "/dashboard/tidligere-assistenter";
+
 const returningDraftStoragePrefix = "vektorprogrammet:returning-assistant-draft:";
+
 const ReturningDraftSchema = Schema.Struct({
   personId: PersonId,
   route: Schema.Literal(returningRegistrationRoute),
   payload: ReturningAssistantRegistrationInputSchema,
   signature: Schema.String,
 });
+
 type ReturningPayload = typeof ReturningAssistantRegistrationInputSchema.Type;
+
 type SavedReturningDraft = typeof ReturningDraftSchema.Type;
+
 const ReturningDraftJsonSchema = Schema.fromJsonString(ReturningDraftSchema);
 
 const returningDraftStorageKey = (personId: string, admissionPeriodId: string) =>
   `${returningDraftStoragePrefix}${personId}:${returningRegistrationRoute}:${admissionPeriodId}`;
+
 const readReturningDrafts = (personId: string | undefined): SavedReturningDraft[] => {
   if (typeof window === "undefined" || personId === undefined) return [];
   const candidates: SavedReturningDraft[] = [];
   const storageKeyPrefix = `${returningDraftStoragePrefix}${personId}:${returningRegistrationRoute}:`;
+
   try {
     const storage = window.sessionStorage;
+
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
+
       if (key === null || !key.startsWith(storageKeyPrefix)) continue;
+
       try {
         const value = Schema.decodeUnknownSync(ReturningDraftJsonSchema)(
           storage.getItem(key) ?? "",
           { onExcessProperty: "error" },
         );
+
         const admissionPeriodId = key.slice(storageKeyPrefix.length);
+
         if (
           value.personId === personId &&
           value.route === returningRegistrationRoute &&
@@ -152,6 +176,7 @@ const readReturningDrafts = (personId: string | undefined): SavedReturningDraft[
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
   }
+
   return candidates;
 };
 
@@ -175,7 +200,9 @@ const payloadFormValues = (payload: ReturningPayload): Map<string, readonly stri
   ]);
 
 const subscribeHydration = () => () => {};
+
 const clientSnapshot = () => true;
+
 const serverSnapshot = () => false;
 
 export default function TidligereAssistenter() {
@@ -190,29 +217,37 @@ export default function TidligereAssistenter() {
   const savedPayload = savedDraft?.payload;
   const [searchParams, setSearchParams] = useSearchParams();
   const queryPeriodId = searchParams.get("admissionPeriodId");
+
   const [selectionOverride, setSelectionOverride] = useState<{
     readonly value: string;
     readonly to: string | null;
   }>();
+
   const explicitSelection =
     selectionOverride?.to === queryPeriodId ? selectionOverride.value : undefined;
+
   const selectedPeriodId =
     explicitSelection ??
     savedPayload?.admissionPeriodId ??
     queryPeriodId ??
     (savedDrafts.length === 0 ? options?.periods[0]?.period.id ?? "" : "");
+
   const selectedPeriod = options?.periods.find(({ period }) => period.id === selectedPeriodId);
   const current = selectedPeriod?.currentPreferences ?? null;
   const currentRevision = selectedPeriod?.currentRevision ?? 0;
   const selectedId = selectedPeriod?.period.id ?? selectedPeriodId;
   const restoringDraft = savedPayload?.admissionPeriodId === selectedPeriodId;
   const savedValues = restoringDraft && savedPayload !== undefined ? payloadFormValues(savedPayload) : null;
+
   const restoredValue = (name: string, fallback: string) =>
     savedValues?.get(name)?.[0] ?? fallback;
+
   const restoredChecked = (name: string, fallback: boolean) =>
     savedValues?.get(name)?.includes("true") ?? fallback;
+
   const restoredIncludes = (name: string, value: string, fallback: boolean) =>
     savedValues?.get(name)?.includes(value) ?? fallback;
+
   const [periodFormOverrides, setPeriodFormOverrides] = useState<
     Record<
       string,
@@ -224,6 +259,7 @@ export default function TidligereAssistenter() {
       }
     >
   >({});
+
   const setPeriodFormOverride = (
     periodId: string,
     patch: {
@@ -237,18 +273,25 @@ export default function TidligereAssistenter() {
       ...previous,
       [periodId]: { ...previous[periodId], ...patch },
     }));
+
   const periodFormOverride = periodFormOverrides[selectedId] ?? {};
+
   const draftRevision =
     periodFormOverride.draftRevision ??
     (restoringDraft ? savedPayload?.expectedRevision ?? currentRevision : currentRevision);
+
   const commandId =
     periodFormOverride.commandId ?? (restoringDraft ? savedPayload?.commandId ?? "" : "");
+
   const commandDraft =
     periodFormOverride.commandDraft ?? (restoringDraft ? savedDraft?.signature ?? "" : "");
+
   const persistenceError = periodFormOverride.persistenceError ?? null;
   const [acceptedCommandId, setAcceptedCommandId] = useState("");
+
   if (fetcher.data?.success === true && fetcher.data.commandId !== acceptedCommandId) {
     const acknowledgedPeriodId = fetcher.data.admissionPeriodId;
+
     if (typeof window !== "undefined" && options !== null) {
       try {
         window.sessionStorage.removeItem(
@@ -261,6 +304,7 @@ export default function TidligereAssistenter() {
         });
       }
     }
+
     setAcceptedCommandId(fetcher.data.commandId);
     setPeriodFormOverride(acknowledgedPeriodId, {
       draftRevision: fetcher.data.revision,
@@ -268,11 +312,14 @@ export default function TidligereAssistenter() {
       commandDraft: "",
     });
   }
+
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     if (formBusy || event.currentTarget.dataset.pending === "true") {
       event.preventDefault();
+
       return;
     }
+
     event.currentTarget.dataset.pending = "true";
     setPeriodFormOverride(selectedId, { persistenceError: null });
     const draft = new FormData(event.currentTarget);
@@ -280,14 +327,17 @@ export default function TidligereAssistenter() {
     const entries = [...draft].map(([name, value]) => ({ name, value: String(value) }));
     const signature = JSON.stringify(entries);
     const field = event.currentTarget.elements.namedItem("commandId");
+
     if (field instanceof HTMLInputElement && (!field.value || signature !== commandDraft)) {
       const key = crypto.randomUUID();
       field.value = key;
       setPeriodFormOverride(selectedId, { commandId: key, commandDraft: signature });
     }
+
     if (typeof window !== "undefined" && options !== null) {
       const payloadForm = new FormData(event.currentTarget);
       let payload: ReturningPayload;
+
       try {
         payload = Schema.decodeUnknownSync(ReturningAssistantRegistrationInputSchema)({
           commandId: String(payloadForm.get("commandId") || ""),
@@ -312,8 +362,10 @@ export default function TidligereAssistenter() {
         setPeriodFormOverride(selectedId, {
           persistenceError: "Registreringen kunne ikke klargjøres. Kontroller feltene og prøv igjen.",
         });
+
         return;
       }
+
       try {
         window.sessionStorage.setItem(
           returningDraftStorageKey(options.personId, payload.admissionPeriodId),
@@ -334,6 +386,7 @@ export default function TidligereAssistenter() {
       }
     }
   };
+
   const discardDraft = () => {
     if (typeof window !== "undefined")
       for (const draft of savedDrafts)
@@ -342,6 +395,7 @@ export default function TidligereAssistenter() {
         );
     window.location.reload();
   };
+
   if (error || options === null) {
     return (
       <main className="space-y-4">
@@ -350,6 +404,7 @@ export default function TidligereAssistenter() {
       </main>
     );
   }
+
   if (savedDrafts.length > 1) {
     return (
       <main className="space-y-4">
@@ -363,6 +418,7 @@ export default function TidligereAssistenter() {
       </main>
     );
   }
+
   if (savedDraft !== null && selectedPeriod === undefined) {
     return (
       <main className="space-y-4">
@@ -376,6 +432,7 @@ export default function TidligereAssistenter() {
       </main>
     );
   }
+
   return (
     <main className="max-w-3xl space-y-6">
       <header className="space-y-2">
@@ -434,19 +491,19 @@ export default function TidligereAssistenter() {
           <legend className="text-lg font-semibold">Tilgjengelighet</legend>
           <p>Velg dagene du ikke er tilgjengelig.</p>
           <div className="grid gap-2 sm:grid-cols-2">
-            {[
+            {([
               ["mondayUnavailable", "Mandag"],
               ["tuesdayUnavailable", "Tirsdag"],
               ["wednesdayUnavailable", "Onsdag"],
               ["thursdayUnavailable", "Torsdag"],
               ["fridayUnavailable", "Fredag"],
-            ].map(([name, label]) => (
+            ] as const).map(([name, label]) => (
               <label key={name} className="flex gap-2">
                 <input
                   type="checkbox"
                   name={name}
                   value="true"
-                  defaultChecked={restoredChecked(name, Boolean(current?.[name as keyof typeof current]))}
+                  defaultChecked={restoredChecked(name, Boolean(current?.[name]))}
                 />
                 {label}
               </label>
@@ -508,6 +565,7 @@ export default function TidligereAssistenter() {
 
 export function ErrorBoundary() {
   useRouteError();
+
   return (
     <main className="space-y-4">
       <h1>Tidligere assistenter</h1>

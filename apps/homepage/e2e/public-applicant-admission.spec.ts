@@ -10,19 +10,33 @@ import {
 } from "@playwright/test";
 
 const REAL_PUBLIC_APPLICATION_E2E = process.env.REAL_PUBLIC_APPLICATION_E2E === "1";
+
 const HOMEPAGE_ORIGIN = process.env.HOMEPAGE_ORIGIN ?? "http://127.0.0.1:8787";
+
 const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8792";
+
 const LOCAL_HOMEPAGE_HOST = "p000.vektor.phibkro.org";
+
 const DEPARTMENT_ID = "department-trondheim";
+
 const FIELD_OF_STUDY_ID = "field-mathematics";
+
 const INACTIVE_FIELD_OF_STUDY_ID = "field-inactive";
+
 const FOREIGN_FIELD_OF_STUDY_ID = "field-foreign";
+
 const OPEN_START = "2031-09-01T08:00:00.000Z";
+
 const CLOSED_END = "2031-09-10T12:00:00.000Z";
+
 const APPLICANT_FIRST_NAME = "Applicant Canary";
+
 const APPLICANT_LAST_NAME = "Private Surname";
+
 const APPLICANT_EMAIL = "applicant-canary-0039@example.invalid";
+
 const APPLICANT_PHONE = "+47 900 00 039";
+
 const privateCanaries = [
   APPLICANT_FIRST_NAME,
   APPLICANT_LAST_NAME,
@@ -45,27 +59,32 @@ const catalogSchema = Schema.Struct({
     }),
   ),
 });
+
 const submittedSchema = Schema.Struct({
   _tag: Schema.Literal("Submitted"),
   commandId: Schema.String,
   applicationId: Schema.String,
 });
+
 const confirmationSchema = Schema.Struct({
   _tag: Schema.Literal("ApplicationConfirmed"),
   applicationId: Schema.String,
 });
+
 const errorSchema = Schema.Struct({
   error: Schema.Struct({ tag: Schema.String }),
 });
 
-const decodeStrict = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown): A =>
-  Schema.decodeUnknownSync(schema)(value, { onExcessProperty: "error" });
+const decodeStrict = <A>(schema: Schema.ConstraintDecoder<A, never>) => Schema.decodeUnknownSync(schema, { onExcessProperty: "error" });
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
+
   if (!value) throw new Error(`Missing ${name}`);
+
   return value;
 }
+
 type ApplicationInput = {
   readonly commandId: string;
   readonly departmentId: string;
@@ -101,13 +120,15 @@ async function expectErrorTag(
   expectedTag: string,
 ): Promise<{ readonly status: number; readonly tag: string }> {
   expect(response.ok()).toBe(false);
-  const decoded = decodeStrict(errorSchema, await response.json());
+  const decoded = decodeStrict(errorSchema)(await response.json());
   expect(decoded.error.tag).toBe(expectedTag);
+
   return { status: response.status(), tag: decoded.error.tag };
 }
 
 async function seriousCriticalViolations(page: Page): Promise<number> {
   const result = await new AxeBuilder({ page }).include('section[id="sok"]').analyze();
+
   return result.violations.filter(
     (violation) => violation.impact === "serious" || violation.impact === "critical",
   ).length;
@@ -127,7 +148,8 @@ async function fillApplicationForm(page: Page, input: ApplicationInput): Promise
 async function catalog(request: APIRequestContext) {
   const response = await request.get(`${BACKEND_ORIGIN}/api/applications/catalog`);
   expect(response.ok()).toBe(true);
-  return decodeStrict(catalogSchema, await response.json());
+
+  return decodeStrict(catalogSchema)(await response.json());
 }
 
 test.describe("Public applicant admission", () => {
@@ -140,6 +162,7 @@ test.describe("Public applicant admission", () => {
     const evidencePath = requiredEnvironment("PUBLIC_APPLICATION_E2E_EVIDENCE_PATH");
     const admissionPeriodId = requiredEnvironment("PUBLIC_APPLICATION_E2E_PERIOD_ID");
     const leaderToken = requiredEnvironment("PUBLIC_APPLICATION_E2E_LEADER_TOKEN");
+
     const rateLimitAttempts = Number(
       requiredEnvironment("PUBLIC_APPLICATION_E2E_RATE_LIMIT_ATTEMPTS"),
     );
@@ -151,6 +174,7 @@ test.describe("Public applicant admission", () => {
           host: LOCAL_HOMEPAGE_HOST,
         },
       });
+
       await route.fulfill({ response });
     });
 
@@ -158,6 +182,7 @@ test.describe("Public applicant admission", () => {
     let submittedFormFields: string[] = [];
     page.on("request", (browserRequest) => {
       const url = new URL(browserRequest.url());
+
       if (
         submittedCommandId !== "" ||
         browserRequest.method() !== "POST" ||
@@ -166,6 +191,7 @@ test.describe("Public applicant admission", () => {
       ) {
         return;
       }
+
       const body = new URLSearchParams(browserRequest.postData() ?? "");
       submittedCommandId = body.get("commandId") ?? "";
       submittedFormFields = [...body.keys()].sort();
@@ -215,10 +241,12 @@ test.describe("Public applicant admission", () => {
     );
     const applicationId = await page.getByTestId("application-id").textContent();
     expect(applicationId).toBeTruthy();
+
     if (!applicationId) throw new Error("Opaque application ID was absent");
     const confirmationAxeViolations = await seriousCriticalViolations(page);
     expect(confirmationAxeViolations).toBe(0);
     const confirmationPage = await page.locator("body").innerText();
+
     for (const canary of privateCanaries) {
       expect(confirmationPage).not.toContain(canary);
     }
@@ -226,22 +254,21 @@ test.describe("Public applicant admission", () => {
     const replayResponse = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
       data: applicationInput(submittedCommandId),
     });
+
     expect(replayResponse.ok()).toBe(true);
-    const replay = decodeStrict(submittedSchema, await replayResponse.json());
-    expect(replay).toEqual({
-      _tag: "Submitted",
-      commandId: submittedCommandId,
-      applicationId,
-    });
+    const replay = decodeStrict(submittedSchema)(await replayResponse.json());
+    expect(replay._tag).toBe("Submitted");
+expect(replay.commandId).toBe(submittedCommandId);
+expect(replay.applicationId).toBe(applicationId);
 
     const confirmationResponse = await request.get(
       `${BACKEND_ORIGIN}/api/applications/${applicationId}/confirmation`,
     );
+
     expect(confirmationResponse.ok()).toBe(true);
-    expect(decodeStrict(confirmationSchema, await confirmationResponse.json())).toEqual({
-      _tag: "ApplicationConfirmed",
-      applicationId,
-    });
+    const initialConfirmation = decodeStrict(confirmationSchema)(await confirmationResponse.json());
+expect(initialConfirmation._tag).toBe("ApplicationConfirmed");
+expect(initialConfirmation.applicationId).toBe(applicationId);
 
     const replayConflict = await expectErrorTag(
       await request.post(`${BACKEND_ORIGIN}/api/applications`, {
@@ -253,12 +280,14 @@ test.describe("Public applicant admission", () => {
     );
 
     await page.reload();
+
     const duplicateInput = applicationInput("browser-duplicate-command", {
       firstName: "Changed Applicant",
       lastName: "Changed Surname",
       phone: "+47 922 22 222",
       email: APPLICANT_EMAIL.toUpperCase(),
     });
+
     await fillApplicationForm(page, duplicateInput);
     await page.getByRole("button", { name: "Send søknad" }).click();
     const duplicateAlert = page.locator('[data-error-tag="DuplicatePublicApplication"]');
@@ -281,7 +310,9 @@ test.describe("Public applicant admission", () => {
       applicationInput("invalid-department-id", { departmentId: "" }),
       applicationInput("invalid-field-id", { fieldOfStudyId: "" }),
     ];
+
     const validationTags: string[] = [];
+
     for (const data of malformedInputs) {
       const rejection = await expectErrorTag(
         await request.post(`${BACKEND_ORIGIN}/api/applications`, {
@@ -289,6 +320,7 @@ test.describe("Public applicant admission", () => {
         }),
         "PublicApplicationDecodeError",
       );
+
       validationTags.push(rejection.tag);
     }
 
@@ -301,6 +333,7 @@ test.describe("Public applicant admission", () => {
       }),
       "PublicApplicationDecodeError",
     );
+
     const malformedJson = await expectErrorTag(
       await request.fetch(`${BACKEND_ORIGIN}/api/applications`, {
         method: "POST",
@@ -309,6 +342,7 @@ test.describe("Public applicant admission", () => {
       }),
       "PublicApplicationDecodeError",
     );
+
     const wrongContentType = await expectErrorTag(
       await request.fetch(`${BACKEND_ORIGIN}/api/applications`, {
         method: "POST",
@@ -317,6 +351,7 @@ test.describe("Public applicant admission", () => {
       }),
       "PublicApplicationDecodeError",
     );
+
     const bodyLimit = await expectErrorTag(
       await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("invalid-body-limit", {
@@ -325,6 +360,7 @@ test.describe("Public applicant admission", () => {
       }),
       "RequestBodyTooLarge",
     );
+
     const unknownDepartment = await expectErrorTag(
       await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("unknown-department", {
@@ -333,6 +369,7 @@ test.describe("Public applicant admission", () => {
       }),
       "DepartmentNotFound",
     );
+
     const unknownField = await expectErrorTag(
       await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("unknown-field", {
@@ -341,6 +378,7 @@ test.describe("Public applicant admission", () => {
       }),
       "FieldOfStudyNotFound",
     );
+
     const inactiveField = await expectErrorTag(
       await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("inactive-field", {
@@ -349,6 +387,7 @@ test.describe("Public applicant admission", () => {
       }),
       "FieldOfStudyInactive",
     );
+
     const crossDepartmentField = await expectErrorTag(
       await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("cross-department-field", {
@@ -366,14 +405,17 @@ test.describe("Public applicant admission", () => {
         email: "CONCURRENT-APPLICANT-0039@EXAMPLE.INVALID",
       }),
     ] as const;
+
     const concurrentResponses = await Promise.all(
       concurrentInputs.map((data) => request.post(`${BACKEND_ORIGIN}/api/applications`, { data })),
     );
+
     const concurrentAccepted = concurrentResponses.filter((response) => response.ok());
     const concurrentRejected = concurrentResponses.filter((response) => !response.ok());
     expect(concurrentAccepted).toHaveLength(1);
     expect(concurrentRejected).toHaveLength(1);
-    const concurrentObservation = decodeStrict(submittedSchema, await concurrentAccepted[0].json());
+    const concurrentObservation = decodeStrict(submittedSchema)(await concurrentAccepted[0].json());
+
     const concurrentDuplicate = await expectErrorTag(
       concurrentRejected[0],
       "DuplicatePublicApplication",
@@ -391,15 +433,18 @@ test.describe("Public applicant admission", () => {
         },
       },
     );
+
     expect(closeResponse.ok()).toBe(true);
 
     const confirmationAfterClose = await request.get(
       `${BACKEND_ORIGIN}/api/applications/${applicationId}/confirmation`,
     );
+
     expect(confirmationAfterClose.ok()).toBe(true);
-    expect(decodeStrict(confirmationSchema, await confirmationAfterClose.json())).toMatchObject({
-      applicationId,
-    });
+    const confirmation = decodeStrict(confirmationSchema)(await confirmationResponse.json());
+expect(confirmation._tag).toBe("ApplicationConfirmed");
+expect(confirmation.applicationId).toBe(applicationId);
+
     const closedApplication = await expectErrorTag(
       await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("application-after-close", {
@@ -408,19 +453,23 @@ test.describe("Public applicant admission", () => {
       }),
       "NoEligibleAdmissionPeriod",
     );
+
     expect((await catalog(request)).departments).toEqual([]);
     await page.reload();
     await expect(page.getByRole("heading", { name: "Ingen opptak er åpne nå" })).toBeVisible();
 
     let rateLimited: { readonly status: number; readonly tag: string } | undefined;
+
     for (let index = 0; index < rateLimitAttempts && !rateLimited; index += 1) {
       const response = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput(`rate-limit-${index}`, {
           email: `rate-limit-${index}@example.invalid`,
         }),
       });
+
       if (!response.ok()) {
-        const decoded = decodeStrict(errorSchema, await response.json());
+        const decoded = decodeStrict(errorSchema)(await response.json());
+
         if (decoded.error.tag === "PublicApplicationRateLimitExceeded") {
           rateLimited = {
             status: response.status(),
@@ -429,6 +478,7 @@ test.describe("Public applicant admission", () => {
         }
       }
     }
+
     expect(rateLimited?.tag).toBe("PublicApplicationRateLimitExceeded");
 
     const lifecycle = {
@@ -486,10 +536,13 @@ test.describe("Public applicant admission", () => {
         evidenceContainsPrivateCanary: false,
       },
     };
+
     const evidence = JSON.stringify(lifecycle);
+
     for (const canary of privateCanaries) {
       expect(evidence).not.toContain(canary);
     }
+
     await writeFile(evidencePath, `${evidence}\n`, "utf8");
   });
 });

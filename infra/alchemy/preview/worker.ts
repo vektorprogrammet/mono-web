@@ -1,5 +1,7 @@
 import { Container, getContainer } from "@cloudflare/containers";
+
 export { ContainerProxy } from "@cloudflare/containers";
+
 import { PREVIEW_IDENTITY } from "./identity.ts";
 import { previewSurface } from "./surface.ts";
 
@@ -30,15 +32,20 @@ export interface PreviewWorkerEnv {
 export default {
   async fetch(request: Request, env: PreviewWorkerEnv): Promise<Response> {
     const host = request.headers.get("host")?.toLowerCase() ?? "";
+
     if (host !== PREVIEW_IDENTITY.hostname) {
       return new Response("Forbidden preview destination", {
         status: 421,
         headers: { "cache-control": "no-store" },
       });
     }
+
     const surface = previewSurface(new URL(request.url).pathname);
+
     if (surface === "homepage") return env.Homepage.fetch(request);
+
     if (surface === "dashboard") return env.Dashboard.fetch(request);
+
     return getContainer(env.ContainerRuntime, "vektor-p20-container").fetch(request);
   },
 };

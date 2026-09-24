@@ -1,3 +1,5 @@
+import { DepartmentId, SemesterId } from "@vektorprogrammet/http-api";
+import { Predicate } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { schoolSurveyPath } from "../../lib/school-survey-path";
 import { schoolSurveyResultsCsvUrl } from "./browser-client";
@@ -26,7 +28,7 @@ import {
   SubmittedCreate,
   type Message,
 } from "./message";
-import type { Model, QuestionDraft } from "./model";
+import { type Model, type QuestionDraft, CatalogState, ListState, ResultsState } from "./model";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("nb-NO", {
   dateStyle: "medium",
@@ -42,15 +44,18 @@ const dateFormatter = new Intl.DateTimeFormat("nb-NO", {
 const formatInstant = (value: string | null): string => {
   if (value === null) return "Ikke registrert";
   const instant = new Date(value);
+
   return Number.isFinite(instant.getTime()) ? dateTimeFormatter.format(instant) : value;
 };
 
 const semesterLabel = (semester: { readonly startAt: string; readonly endAt: string }): string => {
   const start = new Date(semester.startAt);
   const end = new Date(semester.endAt);
+
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
     return `${semester.startAt} – ${semester.endAt}`;
   }
+
   return `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
 };
 
@@ -66,7 +71,7 @@ const banner = (model: Model, h: HtmlBuilder<Message>): Html => {
     return h.section(
       [h.Class("school-surveys__banner school-surveys__banner--error"), h.Role("alert")],
       [
-        h.h2([], [model.banner._tag === "Denied" ? "Ingen tilgang" : "Kunne ikke fullføre"]),
+        h.h2([], [Predicate.isTagged(model.banner, "Denied") ? "Ingen tilgang" : "Kunne ikke fullføre"]),
         h.p([], [model.banner.message]),
         h.button(
           [h.Type("button"), h.Class("school-surveys__dismiss"), h.OnClick(DismissedBanner())],
@@ -75,7 +80,9 @@ const banner = (model: Model, h: HtmlBuilder<Message>): Html => {
       ],
     );
   }
+
   if (model.successMessage === null) return h.empty;
+
   return h.section(
     [h.Class("school-surveys__banner school-surveys__banner--success"), h.Role("status")],
     [
@@ -96,6 +103,7 @@ const questionEditor = (
 ): Html => {
   const prefix = `school-survey-question-${question.draftId}`;
   const supportsAlternatives = question.kind !== "Text";
+
   return h.fieldset(
     [h.Class("school-surveys__question"), h.AriaBusy(disabled)],
     [
@@ -237,9 +245,10 @@ const questionEditor = (
 };
 
 const createForm = (model: Model, h: HtmlBuilder<Message>): Html => {
-  if (model.catalog._tag !== "Success") return h.empty;
+  if (!CatalogState.guards.Success(model.catalog)) return h.empty;
   const catalog = model.catalog.data;
   const disabled = model.pendingCommand !== null;
+
   return h.form(
     [
       h.Class("school-surveys__form"),
@@ -264,7 +273,7 @@ const createForm = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.Disabled(disabled),
               h.OnChange((value) =>
                 SelectedDepartment({
-                  departmentId: value === "" ? null : (value as never),
+                  departmentId: value === "" ? null : (DepartmentId.make(value)),
                 }),
               ),
             ],
@@ -287,7 +296,7 @@ const createForm = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.Value(model.draft.semesterId ?? ""),
               h.Disabled(disabled),
               h.OnChange((value) =>
-                SelectedSemester({ semesterId: value === "" ? null : (value as never) }),
+                SelectedSemester({ semesterId: value === "" ? null : (SemesterId.make(value)) }),
               ),
             ],
             [
@@ -424,19 +433,21 @@ const createForm = (model: Model, h: HtmlBuilder<Message>): Html => {
 };
 
 const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
-  if (model.list._tag === "Idle") {
+  if (ListState.guards.Idle(model.list)) {
     return h.section(
       [h.Class("school-surveys__empty"), h.Role("status")],
       [h.h2([], ["Velg avdeling og semester"]), h.p([], ["Velg et scope for å se undersøkelser."])],
     );
   }
-  if (model.list._tag === "Loading") {
+
+  if (ListState.guards.Loading(model.list)) {
     return h.section(
       [h.Class("school-surveys__loading"), h.Role("status"), h.AriaLive("polite")],
       ["Henter undersøkelser …"],
     );
   }
-  if (model.list._tag === "Failure") {
+
+  if (ListState.guards.Failure(model.list)) {
     return h.section(
       [h.Class("school-surveys__error"), h.Role("alert")],
       [
@@ -449,7 +460,9 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
       ],
     );
   }
+
   const surveys = model.list.data.surveys;
+
   if (surveys.length === 0) {
     return h.section(
       [h.Class("school-surveys__empty"), h.Role("status")],
@@ -459,6 +472,7 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
       ],
     );
   }
+
   return h.section(
     [h.Class("school-surveys__results"), h.AriaLabelledBy("school-surveys-list-title")],
     [
@@ -536,8 +550,10 @@ const listView = (model: Model, h: HtmlBuilder<Message>): Html => {
 
 const definitionView = (model: Model, h: HtmlBuilder<Message>): Html => {
   const survey = model.detail;
+
   if (survey === null) return h.empty;
   const disabled = model.pendingCommand !== null;
+
   return h.section(
     [h.Class("school-surveys__detail"), h.AriaLabelledBy("school-surveys-detail-title")],
     [
@@ -651,14 +667,16 @@ const definitionView = (model: Model, h: HtmlBuilder<Message>): Html => {
 };
 
 const resultsView = (model: Model, h: HtmlBuilder<Message>): Html => {
-  if (model.results._tag === "Idle") return h.empty;
-  if (model.results._tag === "Loading") {
+  if (ResultsState.guards.Idle(model.results)) return h.empty;
+
+  if (ResultsState.guards.Loading(model.results)) {
     return h.section(
       [h.Class("school-surveys__loading"), h.Role("status"), h.AriaLive("polite")],
       ["Henter resultater …"],
     );
   }
-  if (model.results._tag === "Failure") {
+
+  if (ResultsState.guards.Failure(model.results)) {
     return h.section(
       [h.Class("school-surveys__error"), h.Role("alert")],
       [
@@ -671,8 +689,10 @@ const resultsView = (model: Model, h: HtmlBuilder<Message>): Html => {
       ],
     );
   }
+
   const { results } = model;
   const questions = results.data.survey.questions;
+
   if (results.data.responses.length === 0) {
     return h.section(
       [h.Class("school-surveys__empty"), h.Role("status")],
@@ -682,6 +702,7 @@ const resultsView = (model: Model, h: HtmlBuilder<Message>): Html => {
       ],
     );
   }
+
   return h.section(
     [
       h.Class("school-surveys__results school-surveys__response-results"),
@@ -745,6 +766,7 @@ const resultsView = (model: Model, h: HtmlBuilder<Message>): Html => {
                         const answer = response.answers.find(
                           (candidate) => candidate.questionId === question.questionId,
                         );
+
                         const value =
                           answer === undefined
                             ? "Ikke besvart"
@@ -753,6 +775,7 @@ const resultsView = (model: Model, h: HtmlBuilder<Message>): Html => {
                                 ? "Ikke besvart"
                                 : answer.values.join(" · ")
                               : (answer.value ?? "Ikke besvart");
+
                         return h.td([], [value]);
                       }),
                     ],
@@ -768,20 +791,21 @@ const resultsView = (model: Model, h: HtmlBuilder<Message>): Html => {
 };
 
 const catalogState = (model: Model, h: HtmlBuilder<Message>): Html => {
-  if (model.catalog._tag === "Loading" || model.catalog._tag === "Idle") {
+  if (CatalogState.guards.Loading(model.catalog) || CatalogState.guards.Idle(model.catalog)) {
     return h.section(
       [h.Class("school-surveys__loading"), h.Role("status"), h.AriaLive("polite")],
       ["Henter tilgjengelige avdelinger og semestre …"],
     );
   }
-  if (model.catalog._tag === "Failure") {
+
+  if (CatalogState.guards.Failure(model.catalog)) {
     return h.section(
       [h.Class("school-surveys__error"), h.Role("alert")],
       [
         h.h2(
           [],
           [
-            model.catalog.error._tag === "Denied"
+            Predicate.isTagged(model.catalog.error, "Denied")
               ? "Ingen tilgang"
               : "Kunne ikke starte undersøkelsesadministrasjonen",
           ],
@@ -794,6 +818,7 @@ const catalogState = (model: Model, h: HtmlBuilder<Message>): Html => {
       ],
     );
   }
+
   return h.div(
     [h.Class("school-surveys__workspace")],
     [

@@ -15,20 +15,24 @@ const here = dirname(fileURLToPath(import.meta.url));
 // `pg` is a dependency of the database package; resolve from there so this
 // dashboard-side support script adds no new package dependency.
 const require = createRequire(join(here, "../../..", "packages/database/package.json"));
+
 const { Pool } = require("pg");
 
 const postgresUrl =
   process.env.JOURNEY_SEED_PG_URL ?? "postgres://postgres@127.0.0.1:45158/postgres";
 
 const parsedUrl = new URL(postgresUrl);
+
 if (!["postgres:", "postgresql:"].includes(parsedUrl.protocol)) {
   throw new Error("JOURNEY_SEED_PG_URL must use PostgreSQL");
 }
+
 if (!["127.0.0.1", "localhost", "::1"].includes(parsedUrl.hostname)) {
   throw new Error("journey seed is restricted to loopback PostgreSQL");
 }
 
 const fixtureEmail = (localPart) => [localPart, ["example", "invalid"].join(".")].join("@");
+
 const fixturePhone = (suffix) => ["+47", "900", "59", suffix].join(" ");
 
 export const journeyPersons = {
@@ -78,16 +82,19 @@ const seedStatementNames = Object.freeze([
 
 const parseSeedStatements = (source) => {
   const markers = [...source.matchAll(/^-- name: ([a-z][a-z0-9_]*)\r?$/gm)];
+
   if (markers.length !== seedStatementNames.length || markers[0]?.index !== 0) {
     throw new Error("seed SQL authority must contain exactly the named statements");
   }
 
   const statements = new Map();
+
   for (const [index, marker] of markers.entries()) {
     const name = marker[1];
     const start = marker.index + marker[0].length;
     const end = markers[index + 1]?.index ?? source.length;
     const statement = source.slice(start, end).trim();
+
     if (
       statement.length === 0 ||
       !statement.endsWith(";") ||
@@ -96,6 +103,7 @@ const parseSeedStatements = (source) => {
     ) {
       throw new Error(`invalid named seed SQL statement: ${name}`);
     }
+
     statements.set(name, statement);
   }
 
@@ -105,14 +113,17 @@ const parseSeedStatements = (source) => {
   ) {
     throw new Error("seed SQL authority statement names do not match the required seed operations");
   }
+
   return statements;
 };
 
 const executeSeedRows = (client, statements, name, rows) => {
   const statement = statements.get(name);
+
   if (statement === undefined) {
     throw new Error(`missing named seed SQL statement: ${name}`);
   }
+
   return client.query(statement, [JSON.stringify(rows)]);
 };
 
@@ -124,13 +135,16 @@ async function main() {
   const seedStatements = parseSeedStatements(
     await readFile(join(here, "native-team-interest-mailing-list-seed.sql"), "utf8"),
   );
+
   const observer = new Pool({
     connectionString: postgresUrl,
     options: "-c search_path=public",
     max: 1,
     application_name: "native-team-interest-mailing-list-seed",
   });
+
   const client = await observer.connect();
+
   try {
     await client.query("BEGIN");
     await executeSeedRows(client, seedStatements, "seed_departments", [
@@ -409,6 +423,7 @@ async function main() {
         journeyPersons.member.personId,
       ],
     );
+
     const counts = checks.rows[0];
     assert(
       Number(counts.registrations_total) === registrationCounts.total,

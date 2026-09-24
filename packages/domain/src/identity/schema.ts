@@ -19,9 +19,11 @@ export const SessionToken = Schema.String.pipe(
     ),
   ),
 );
+
 export type SessionToken = typeof SessionToken.Type;
 
 export const IdentitySessionId = boundedString(128, "a bounded opaque session identifier");
+
 export type IdentitySessionId = typeof IdentitySessionId.Type;
 
 const RequestCorrelation = Schema.String.pipe(
@@ -106,6 +108,7 @@ export const IdentitySecurityEventKind = Schema.Literals([
   "recovery-identity-provisioned-administratively",
   "session-provisioned-administratively",
 ]);
+
 export type IdentitySecurityEventKind = typeof IdentitySecurityEventKind.Type;
 
 export const IdentitySecurityOutcomeCode = Schema.Literals([
@@ -139,6 +142,7 @@ export const IdentitySecurityOutcomeCode = Schema.Literals([
   "recovery-pending",
   "session-provisioned",
 ]);
+
 export type IdentitySecurityOutcomeCode = typeof IdentitySecurityOutcomeCode.Type;
 
 const AffectedSessionCount = Schema.Int.pipe(

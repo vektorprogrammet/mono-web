@@ -5,27 +5,12 @@ import { Effect, Layer } from "effect";
 import { DomainFileSystem, DomainProcess } from "../src/runtime-services.js";
 
 export const DomainFileSystemLive = Layer.succeed(DomainFileSystem, {
-  readTextFile: (path) =>
-    Effect.tryPromise({
-      try: () => readFile(path, "utf8"),
-      catch: (cause) => cause,
-    }),
+  readTextFile: (path) => Effect.tryPromise(() => readFile(path, "utf8")),
   joinPath: (directory, file) => join(directory, file),
   writeTextFile: (path, contents) =>
-    Effect.tryPromise({
-      try: () => writeFile(path, contents),
-      catch: (cause) => cause,
-    }).pipe(Effect.asVoid),
-  makeTempDirectory: (prefix) =>
-    Effect.tryPromise({
-      try: () => mkdtemp(join(tmpdir(), prefix)),
-      catch: (cause) => cause,
-    }),
-  removeTree: (path) =>
-    Effect.tryPromise({
-      try: () => rm(path, { recursive: true, force: true }),
-      catch: (cause) => cause,
-    }),
+    Effect.tryPromise(() => writeFile(path, contents)).pipe(Effect.asVoid),
+  makeTempDirectory: (prefix) => Effect.tryPromise(() => mkdtemp(join(tmpdir(), prefix))),
+  removeTree: (path) => Effect.tryPromise(() => rm(path, { recursive: true, force: true })),
 });
 
 export const DomainProcessLive = Layer.succeed(DomainProcess, {

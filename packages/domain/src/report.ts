@@ -1,3 +1,4 @@
+import { Record, Result, Array } from "effect";
 import type { Dataset, DatasetInputSummary } from "./data.js";
 import {
   REASON_CODES,
@@ -24,15 +25,19 @@ export interface MachineReport extends Omit<SDep2TeamResult, "input"> {
 const sourceLabel = (sample: TechnicalSample): string => `${sample.source}:${sample.id}`;
 
 type ReasonCountsView = Pick<SDep2TeamResult, "reasonCounts">;
+
 type ReasonSamplesView = Pick<SDep2TeamResult, "reasonSamples">;
 
 const countRows = (result: ReasonCountsView): string =>
-  REASON_CODES.filter((code) => result.reasonCounts[code] > 0)
-    .map((code) => `${code}=${result.reasonCounts[code]}`)
-    .join(", ") || "none";
+  Array.filterMap(REASON_CODES, (code) =>
+    result.reasonCounts[code] > 0
+      ? Result.succeed(`${code}=${result.reasonCounts[code]}`)
+      : Result.failVoid,
+  ).join(", ") || "none";
 
 const samplesFor = (result: ReasonSamplesView, code: ReasonCode): string => {
   const samples = result.reasonSamples[code];
+
   return samples.length === 0 ? "none" : samples.map(sourceLabel).join(", ");
 };
 
@@ -40,15 +45,18 @@ const summarizeDecodeFailures = (
   input: DatasetInputSummary,
 ): ReadonlyArray<DecodeFailureSummary> => {
   const counts = new Map<string, DecodeFailureSummary>();
+
   for (const failure of input.decodeFailures) {
     const key = `${failure.file}\u0000${failure.code}`;
     const current = counts.get(key);
+
     if (current === undefined) {
       counts.set(key, { file: failure.file, code: failure.code, count: 1 });
     } else {
       counts.set(key, { ...current, count: current.count + 1 });
     }
   }
+
   return [...counts.values()].sort(
     (left, right) => left.file.localeCompare(right.file) || left.code.localeCompare(right.code),
   );
@@ -56,13 +64,8 @@ const summarizeDecodeFailures = (
 
 const boundedReasonSamples = (
   result: ReasonSamplesView,
-): Readonly<Record<ReasonCode, ReadonlyArray<TechnicalSample>>> => {
-  const samples = {} as Record<ReasonCode, ReadonlyArray<TechnicalSample>>;
-  for (const code of REASON_CODES) {
-    samples[code] = result.reasonSamples[code].slice(0, 3);
-  }
-  return samples;
-};
+): Readonly<Record<ReasonCode, ReadonlyArray<TechnicalSample>>> =>
+  Record.map(result.reasonSamples, (samples) => samples.slice(0, 3));
 
 export const createMachineReport = (result: SDep2TeamResult): MachineReport => ({
   ...result,
@@ -129,8 +132,10 @@ export const renderMarkdown = (report: MachineReport): string => {
     "",
     "## Reason sample IDs",
     "",
-    ...REASON_CODES.filter((code) => report.reasonCounts[code] > 0).map(
-      (code) => `- ${code}: ${samplesFor(report, code)}`,
+    ...Array.filterMap(REASON_CODES, (code) =>
+      report.reasonCounts[code] > 0
+        ? Result.succeed(`- ${code}: ${samplesFor(report, code)}`)
+        : Result.failVoid,
     ),
     "",
     "## Input boundary",
@@ -148,6 +153,7 @@ export const renderMarkdown = (report: MachineReport): string => {
     "The report contains aggregate counts, provenance, and bounded source-qualified technical row IDs only; no person-affiliation mapping is serialized.",
     "",
   ];
+
   return lines.join("\n");
 };
 

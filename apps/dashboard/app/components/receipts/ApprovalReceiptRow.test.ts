@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { ApprovalReceiptView } from "../../lib/receipt-view";
@@ -11,7 +12,7 @@ const terminalReceipt = {
   departmentId: "department-a",
   description: "Terminal receipt file remains readable",
   ownerPersonId: "person-owner",
-  etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' as ApprovalReceiptView["etag"],
+  etag: StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
   receiptDate: "2026-09-20",
   receiptId: "receipt/id with a space",
   revision: 1,

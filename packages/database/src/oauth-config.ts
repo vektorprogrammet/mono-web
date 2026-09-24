@@ -9,10 +9,15 @@ import { jwt } from "better-auth/plugins";
 import { Schema } from "effect";
 
 export const OAUTH_NATIVE_API_RESOURCE = "urn:vektorprogrammet:native-api" as const;
+
 export const OAUTH_SCOPES = ["native-api", "offline_access"] as const satisfies readonly Scope[];
+
 export const OAUTH_ISSUER_PATH = "/api/auth" as const;
+
 export const OAUTH_DASHBOARD_LOGIN_PATH = "/dashboard/login" as const;
+
 export const OAUTH_DASHBOARD_CONSENT_PATH = "/dashboard/oauth/consent" as const;
+
 export const OAUTH_REFRESH_TOKEN_PREFIX = "vkr_rt_" as const;
 
 export const OAuthClientKindSchema = Schema.Literals([
@@ -21,6 +26,7 @@ export const OAuthClientKindSchema = Schema.Literals([
   "Service",
   "ResourceServer",
 ]);
+
 export type OAuthClientKind = typeof OAuthClientKindSchema.Type;
 
 export const NativeAccessTokenHeaderSchema = Schema.Struct({
@@ -41,6 +47,7 @@ export const NativeAccessTokenClaimsSchema = Schema.Struct({
   scope: Schema.Literals(["native-api", "native-api offline_access"]),
   sid: Schema.optional(Schema.String),
 });
+
 export type NativeAccessTokenClaims = typeof NativeAccessTokenClaimsSchema.Type;
 
 export const OAuthClientManifestSchema = Schema.Struct({
@@ -52,6 +59,7 @@ export const OAuthClientManifestSchema = Schema.Struct({
   servicePrincipalId: Schema.optional(Schema.String),
   servicePrincipalName: Schema.optional(Schema.String),
 });
+
 export type OAuthClientManifest = typeof OAuthClientManifestSchema.Type;
 
 export interface OAuthProviderRuntimeConfig {
@@ -118,7 +126,8 @@ export const makeOAuthOptions = (config: OAuthProviderRuntimeConfig): OAuthOptio
     userinfo: false,
   },
 });
-export const makeOAuthPlugins = (config: OAuthProviderRuntimeConfig) =>
+
+export const oauthPlugins = (config: OAuthProviderRuntimeConfig) =>
   [
     jwt({
       jwks: {

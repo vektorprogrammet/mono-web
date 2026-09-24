@@ -7,7 +7,7 @@ import type {
   RecruitmentNotificationEvidence,
 } from "../recruitment/effects.js";
 
-export interface NotificationGatewayShape {
+export interface NotificationGatewayOperations {
   readonly deliverInterviewCompletionReceipt: (
     request: RecruitmentInterviewCompletionOutboxRequest,
   ) => Effect.Effect<RecruitmentNotificationEvidence, RecruitmentNotificationDeliveryError>;
@@ -21,5 +21,5 @@ export interface NotificationGatewayShape {
 
 export class NotificationGateway extends Context.Service<
   NotificationGateway,
-  NotificationGatewayShape
+  NotificationGatewayOperations
 >()("@vektorprogrammet/domain/NotificationGateway") {}

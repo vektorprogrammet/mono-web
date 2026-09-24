@@ -10,6 +10,7 @@ export async function loader({
 }) {
   const slug = params.slug ?? "";
   const versionParam = new URL(request.url).searchParams.get("versjon") ?? undefined;
+
   // Fresh server-side read per render; a draft/withdrawn/unknown slug is a
   // plain 404 indistinguishable from any other missing page.
   return await loadNewsArticle(slug, versionParam ?? undefined);
@@ -18,6 +19,7 @@ export async function loader({
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Nyhet() {
   const { article, otherNews } = useLoaderData<typeof loader>();
+
   return (
     <main className="mx-auto grid max-w-5xl gap-10 px-6 py-16 md:grid-cols-[minmax(0,1fr)_16rem]">
       <div className="flex min-w-0 flex-col gap-6">

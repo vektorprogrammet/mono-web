@@ -1,8 +1,11 @@
-import { Context, Data, Effect, Schema } from "effect";
+import { Result, Array, Predicate, Context, Data, Effect, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { ReceiptId, ReceiptStatusSchema, ReceiptVisualId } from "../receipt/schema.js";
 import { compareRfc3339Instants } from "../time.js";
 import {
+  CredentialMechanismSchema,
+  Scope,
+  PrincipalSchema,
   APPROVE_RECEIPT_CAPABILITY,
   AuthorityRef,
   AuthorizationInstant,
@@ -10,11 +13,11 @@ import {
   CredentialEvidenceRef,
   evaluateAccess,
   RECEIPT_APPROVAL_QUEUE_ACCESS,
-  type AccessEvaluation,
+  AccessEvaluation,
   type CanonicalResourceContext,
   type Grant,
   GrantId,
-  makeGrant,
+  decodeGrant,
   RECEIPT_DOMAIN_ID,
   RECEIPT_RESOURCE_KIND,
   type ReceiptAccessFacts,
@@ -31,12 +34,15 @@ const TrimmedNonEmpty = Schema.String.pipe(
     }),
   ),
 );
+
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 export const NATIVE_API_PROTECTED_RESOURCE = "urn:vektorprogrammet:native-api" as const;
+
 export const RECEIPT_APPROVAL_QUEUE_OPERATION = "receipts.listReceiptsForApproval" as const;
 
 export const OAuthClientId = TrimmedNonEmpty.pipe(Schema.brand("OAuthClientId"));
+
 export type OAuthClientId = typeof OAuthClientId.Type;
 
 export const ServicePrincipalReceiptGrantSchema = Schema.Struct({
@@ -62,16 +68,16 @@ export const ServicePrincipalReceiptGrantSchema = Schema.Struct({
     ),
   ),
 );
+
 export type ServicePrincipalReceiptGrant = typeof ServicePrincipalReceiptGrantSchema.Type;
-export type AcceptedOAuthServiceCredential = {
-  readonly _tag: "Accepted";
-  readonly mechanism: { readonly _tag: "OAuthServiceBearer" };
-  readonly principal: {
-    readonly _tag: "ServicePrincipal";
-    readonly servicePrincipalId: ServicePrincipalId;
-  };
-  readonly evidenceRef: CredentialEvidenceRef;
-};
+
+export const AcceptedOAuthServiceCredential = Schema.TaggedStruct("Accepted", {
+  mechanism: CredentialMechanismSchema.cases.OAuthServiceBearer,
+  principal: PrincipalSchema.cases.ServicePrincipal,
+  evidenceRef: CredentialEvidenceRef,
+});
+
+export type AcceptedOAuthServiceCredential = typeof AcceptedOAuthServiceCredential.Type;
 
 export const ServicePrincipalReceiptCandidateSchema = Schema.Struct({
   receiptId: ReceiptId,
@@ -86,6 +92,7 @@ export const ServicePrincipalReceiptCandidateSchema = Schema.Struct({
   approvedAt: Schema.NullOr(Schema.String),
   revision: Revision,
 });
+
 export type ServicePrincipalReceiptCandidate = typeof ServicePrincipalReceiptCandidateSchema.Type;
 
 export type ServicePrincipalReceiptGrantCandidate = {
@@ -100,6 +107,7 @@ export type ServicePrincipalReceiptGrantAuthority = {
   readonly candidates: ReadonlyArray<ServicePrincipalReceiptGrantCandidate>;
   readonly rules: ReadonlyArray<AuthzRule>;
 };
+
 const BoundedAuditText = TrimmedNonEmpty.pipe(Schema.check(Schema.isMaxLength(160)));
 
 export const ServicePrincipalGrantAuditContextSchema = Schema.Struct({
@@ -108,12 +116,14 @@ export const ServicePrincipalGrantAuditContextSchema = Schema.Struct({
   operatorActor: BoundedAuditText,
   requestCorrelation: BoundedAuditText,
 });
+
 export type ServicePrincipalGrantAuditContext = typeof ServicePrincipalGrantAuditContextSchema.Type;
 
 export const CreateServicePrincipalGrantInputSchema = Schema.Struct({
   grant: ServicePrincipalReceiptGrantSchema,
   audit: ServicePrincipalGrantAuditContextSchema,
 });
+
 export type CreateServicePrincipalGrantInput = typeof CreateServicePrincipalGrantInputSchema.Type;
 
 export const EndServicePrincipalGrantInputSchema = Schema.Struct({
@@ -122,6 +132,7 @@ export const EndServicePrincipalGrantInputSchema = Schema.Struct({
   expectedRevision: Revision,
   audit: ServicePrincipalGrantAuditContextSchema,
 });
+
 export type EndServicePrincipalGrantInput = typeof EndServicePrincipalGrantInputSchema.Type;
 
 export const RevokeServicePrincipalGrantInputSchema = Schema.Struct({
@@ -130,6 +141,7 @@ export const RevokeServicePrincipalGrantInputSchema = Schema.Struct({
   expectedRevision: Revision,
   audit: ServicePrincipalGrantAuditContextSchema,
 });
+
 export type RevokeServicePrincipalGrantInput = typeof RevokeServicePrincipalGrantInputSchema.Type;
 
 export class ServicePrincipalGrantAuthorityError extends Data.TaggedError(
@@ -143,7 +155,7 @@ export class ServicePrincipalGrantAuthorityError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-export interface ServicePrincipalGrantAuthorityShape {
+export interface ServicePrincipalGrantAuthorityOperations {
   readonly readReceiptApprovalCandidates: (
     credential: AcceptedOAuthServiceCredential,
     authorizationInstant: AuthorizationInstant,
@@ -161,13 +173,15 @@ export interface ServicePrincipalGrantAuthorityShape {
 
 export class ServicePrincipalGrantAuthority extends Context.Service<
   ServicePrincipalGrantAuthority,
-  ServicePrincipalGrantAuthorityShape
+  ServicePrincipalGrantAuthorityOperations
 >()("@vektorprogrammet/domain/ServicePrincipalGrantAuthority") {}
 
-export const makeServicePrincipalReceiptGrant = (input: unknown): ServicePrincipalReceiptGrant =>
-  Schema.decodeUnknownSync(ServicePrincipalReceiptGrantSchema)(input, {
+export const makeServicePrincipalReceiptGrant = Schema.decodeUnknownSync(
+  ServicePrincipalReceiptGrantSchema,
+  {
     onExcessProperty: "error",
-  });
+  },
+);
 
 export const composeServicePrincipalReceiptRuleRequirements = (
   authority: ServicePrincipalReceiptGrantAuthority,
@@ -175,14 +189,14 @@ export const composeServicePrincipalReceiptRuleRequirements = (
   authorizationInstant: AuthorizationInstant,
 ) =>
   composeCapabilityEvidence("approveReceipt", {}, authority.rules, {
-    principal: {
-      _tag: "ServicePrincipal",
+    principal: PrincipalSchema.cases.ServicePrincipal.make({
       servicePrincipalId: authority.servicePrincipalId,
-    },
+    }),
     authorizationInstant,
     context,
     tagAssignments: [],
   });
+
 export const evaluateServicePrincipalReceiptApprovalAccess = (
   credential: AcceptedOAuthServiceCredential,
   authority: ServicePrincipalReceiptGrantAuthority,
@@ -192,17 +206,15 @@ export const evaluateServicePrincipalReceiptApprovalAccess = (
     credential.principal.servicePrincipalId !== authority.servicePrincipalId ||
     authority.protectedResource !== NATIVE_API_PROTECTED_RESOURCE
   ) {
-    return {
-      _tag: "Deny",
-      stage: "PrincipalKind",
-      reason: "PrincipalKindNotAccepted",
-    };
+    return AccessEvaluation.Deny({ stage: "PrincipalKind", reason: "PrincipalKindNotAccepted" });
   }
 
   const candidateByReceipt = new Map<string, ServicePrincipalReceiptGrantCandidate>();
   const activeGrants: Array<ServicePrincipalReceiptGrant> = [];
+
   for (const candidate of authority.candidates) {
     const grant = candidate.grant;
+
     if (
       grant.servicePrincipalId !== authority.servicePrincipalId ||
       grant.clientId !== authority.clientId ||
@@ -215,18 +227,16 @@ export const evaluateServicePrincipalReceiptApprovalAccess = (
     ) {
       continue;
     }
+
     activeGrants.push(grant);
+
     if (!candidateByReceipt.has(candidate.receipt.receiptId)) {
       candidateByReceipt.set(candidate.receipt.receiptId, candidate);
     }
   }
 
   if (activeGrants.length === 0) {
-    return {
-      _tag: "Deny",
-      stage: "Capability",
-      reason: "CapabilityMissing",
-    };
+    return AccessEvaluation.Deny({ stage: "Capability", reason: "CapabilityMissing" });
   }
 
   const contexts = [...candidateByReceipt.values()]
@@ -250,10 +260,11 @@ export const evaluateServicePrincipalReceiptApprovalAccess = (
           `service-principal:${authority.servicePrincipalId}`,
           `client:${authority.clientId}`,
           `receipt:${receipt.receiptId}:${receipt.revision}`,
-          ...activeGrants
-            .filter((grant) => grant.receiptId === receipt.receiptId)
-            .map((grant) => `grant:${grant.grantId}:${grant.revision}`)
-            .sort(compareText),
+          ...Array.filterMap(activeGrants, (grant) =>
+            grant.receiptId === receipt.receiptId
+              ? Result.succeed(`grant:${grant.grantId}:${grant.revision}`)
+              : Result.failVoid,
+          ).sort(compareText),
           ...authority.rules
             .map((rule) => `rule:${rule.ruleId}:${rule.revision}`)
             .sort(compareText),
@@ -273,7 +284,8 @@ export const evaluateServicePrincipalReceiptApprovalAccess = (
       .map(servicePrincipalReceiptGrantToAccessGrant),
     authorizationInstant,
   });
-  if (baseEvaluation._tag !== "Allow") return baseEvaluation;
+
+  if (!Predicate.isTagged(baseEvaluation, "Allow")) return baseEvaluation;
 
   const allowedContexts = baseEvaluation.resolution.contexts.filter((context) => {
     const composition = composeServicePrincipalReceiptRuleRequirements(
@@ -281,15 +293,14 @@ export const evaluateServicePrincipalReceiptApprovalAccess = (
       context,
       authorizationInstant,
     );
-    return composition.decision._tag === "Allow";
+
+    return Predicate.isTagged(composition.decision, "Allow");
   });
+
   if (allowedContexts.length === 0) {
-    return {
-      _tag: "Deny",
-      stage: "Requirement",
-      reason: "RequirementFailed",
-    };
+    return AccessEvaluation.Deny({ stage: "Requirement", reason: "RequirementFailed" });
   }
+
   return {
     ...baseEvaluation,
     resolution: {
@@ -310,20 +321,18 @@ export const servicePrincipalReceiptGrantActiveAt = (
 export const servicePrincipalReceiptGrantToAccessGrant = (
   grant: ServicePrincipalReceiptGrant,
 ): Grant =>
-  makeGrant({
+  decodeGrant({
     grantId: grant.grantId,
-    subject: {
-      _tag: "ServicePrincipal",
+    subject: PrincipalSchema.cases.ServicePrincipal.make({
       servicePrincipalId: grant.servicePrincipalId,
-    },
+    }),
     capability: { type: APPROVE_RECEIPT_CAPABILITY },
-    scope: {
-      _tag: "Resource",
+    scope: Scope.Resource({
       resource: {
         kind: RECEIPT_RESOURCE_KIND,
         id: ResourceId.make(grant.receiptId),
       },
-    },
+    }),
     startAt: grant.startAt,
     endAt: grant.endAt,
     requirements: [],
@@ -341,13 +350,12 @@ export const activeServicePrincipalReceiptGrants = (
 ): ReadonlyArray<ServicePrincipalReceiptGrant> =>
   [
     ...new Map(
-      grants
-        .filter(
-          (grant) =>
-            grant.servicePrincipalId === servicePrincipalId &&
-            servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant),
-        )
-        .map((grant) => [grant.grantId, grant]),
+      Array.filterMap(grants, (grant) =>
+        grant.servicePrincipalId === servicePrincipalId &&
+        servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant)
+          ? Result.succeed([grant.grantId, grant] as const)
+          : Result.failVoid,
+      ),
     ).values(),
   ].sort((left, right) => compareText(left.grantId, right.grantId));
 
@@ -357,15 +365,15 @@ export const servicePrincipalApproverIdsForContext = (
   authorizationInstant: AuthorizationInstant,
 ): ReadonlyArray<ServicePrincipalId> => {
   if (context.resource === null || context.resource.kind !== RECEIPT_RESOURCE_KIND) return [];
+
   return [
     ...new Set(
-      grants
-        .filter(
-          (grant) =>
-            servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant) &&
-            ResourceId.make(grant.receiptId) === context.resource?.id,
-        )
-        .map((grant) => grant.servicePrincipalId),
+      Array.filterMap(grants, (grant) =>
+        servicePrincipalReceiptGrantActiveAt(grant, authorizationInstant) &&
+        ResourceId.make(grant.receiptId) === context.resource?.id
+          ? Result.succeed(grant.servicePrincipalId)
+          : Result.failVoid,
+      ),
     ),
   ].sort(compareText);
 };

@@ -1,5 +1,5 @@
 import { dirname, isAbsolute, join } from "node:path";
-import { Effect } from "effect";
+import { Match, Predicate, Effect, Schema, Array as Arr } from "effect";
 import { parseDocument } from "yaml";
 import {
   canonicalJson,
@@ -29,13 +29,13 @@ import {
   type OutOfBandSourceCapture,
   type ScanFile,
 } from "./source-manifest.js";
-import { inspectJsonMembers } from "./json-safety.js";
+import { inspectJsonMembers, isJsonObject } from "./json-safety.js";
 import { skipPhpTrivia } from "./php-trivia.js";
 import {
   ParityCommandExecutor,
-  type ParityCommandExecutorShape,
+  type ParityCommandExecutorOperations,
   ParityFileSystem,
-  type ParityFileSystemShape,
+  type ParityFileSystemOperations,
 } from "./services.js";
 import type {
   ApiOperationDetails,
@@ -60,6 +60,7 @@ export interface ApiCollection {
   readonly reconciliation: OpenApiReconciliation;
   readonly failures: readonly ApiCollectionFailure[];
   readonly rows: readonly InventoryRow[];
+  readonly routeRows: readonly InventoryRow[];
   readonly h3RouteRows: readonly InventoryRow[];
   readonly h3RouteEdges: readonly DerivationEdge[];
   readonly h3RouteObservations: readonly InventoryObservation[];
@@ -110,6 +111,7 @@ interface RuntimeOperation {
   readonly processorRef: string | null;
   readonly schemaRef: string | null;
 }
+
 export interface ApiRuntimeFixtureInput {
   readonly path: string;
   readonly bytes: Uint8Array;
@@ -119,7 +121,7 @@ interface RuntimeCollection {
   readonly operations: readonly RuntimeOperation[];
   readonly observation: RuntimeObservation;
   readonly openApiObservation: RuntimeObservation | null;
-  readonly openApiPayload: unknown | null;
+  readonly openApiPayload: Schema.Json;
   readonly sourceRefIds: readonly string[];
   readonly failures: readonly ApiCollectionFailure[];
 }
@@ -140,43 +142,56 @@ const HTTP_METHODS = new Set([
   "CONNECT",
   "TRACE",
 ]);
-const OPERATION_METHODS: Readonly<Record<string, string>> = {
-  Get: "GET",
-  GetCollection: "GET",
-  Head: "HEAD",
-  HeadCollection: "HEAD",
-  Post: "POST",
-  Put: "PUT",
-  Patch: "PATCH",
-  Delete: "DELETE",
-  Options: "OPTIONS",
-};
+
+const OPERATION_METHODS = new Map<string, string>([
+  ["Get", "GET"],
+  ["GetCollection", "GET"],
+  ["Head", "HEAD"],
+  ["HeadCollection", "HEAD"],
+  ["Post", "POST"],
+  ["Put", "PUT"],
+  ["Patch", "PATCH"],
+  ["Delete", "DELETE"],
+  ["Options", "OPTIONS"],
+]);
+
 export const API_RUNTIME_FIXTURE_PATH = "apps/server/var/parity/api-operations.json";
+
 const RUNTIME_FIXTURE_PATHS = [
   API_RUNTIME_FIXTURE_PATH,
   "apps/server/var/parity/runtime-api-operations.json",
   "runtime/api-operations.json",
   "runtime/api.json",
 ] as const;
+
 const OPENAPI_PATH = "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json";
+
 const CONSOLE_PATH = "apps/server/bin/console";
+
 const H3_GENERATOR_PATH = "apps/server/tools/security-h3/0015/generate.ts";
+
 const H3_SOURCE_MANIFEST_PATH = "tools/parity/data/security-h3/0015/source-manifest.json";
+
 const H3_COLLECTOR_PATH = "tools/parity/data/security-h3/0015/route-collector.json";
+
 const H3_ROUTE_PATH = "tools/parity/data/security-h3/0015/current-route-inventory.json";
+
 const H3_RESOURCE_PATH = "tools/parity/data/security-h3/0015/current-resource-inventory.json";
+
 const API_PLATFORM_PREFIX = "/api";
-const GENERATED_API_PLATFORM_OPERATION_SUFFIXES: Readonly<Record<string, string>> = {
-  get: "GET",
-  get_collection: "GET_COLLECTION",
-  head: "GET",
-  head_collection: "GET_COLLECTION",
-  post: "POST",
-  put: "PUT",
-  patch: "PATCH",
-  delete: "DELETE",
-  options: "OPTIONS",
-};
+
+const GENERATED_API_PLATFORM_OPERATION_SUFFIXES = new Map<string, string>([
+  ["get", "GET"],
+  ["get_collection", "GET_COLLECTION"],
+  ["head", "GET"],
+  ["head_collection", "GET_COLLECTION"],
+  ["post", "POST"],
+  ["put", "PUT"],
+  ["patch", "PATCH"],
+  ["delete", "DELETE"],
+  ["options", "OPTIONS"],
+]);
+
 const GENERATED_API_PLATFORM_OPERATION_PATTERN =
   /^_api_(.*)_(get_collection|head_collection|get|head|post|put|patch|delete|options)$/i;
 
@@ -186,14 +201,18 @@ const generatedApiPlatformRouteParts = (
 ): { readonly path: string; readonly operation: string } | null => {
   if (value === null) return null;
   const normalized = normalizeScalar(value);
+
   if (normalized === null) return null;
   const match = GENERATED_API_PLATFORM_OPERATION_PATTERN.exec(normalized);
+
   if (match === null) return null;
   const rawPath = match[1];
   const rawOperation = match[2]?.toLowerCase();
+
   if (rawPath === undefined || rawOperation === undefined) return null;
   const path = canonicalApiPlatformPath(rawPath, prefix);
-  const operation = GENERATED_API_PLATFORM_OPERATION_SUFFIXES[rawOperation];
+  const operation = GENERATED_API_PLATFORM_OPERATION_SUFFIXES.get(rawOperation);
+
   return path === null || operation === undefined ? null : { path, operation };
 };
 
@@ -206,8 +225,10 @@ export const canonicalApiPlatformRouteName = (
 ): string | null => {
   if (value === null) return null;
   const normalized = normalizeScalar(value);
+
   if (normalized === null) return null;
   const generated = generatedApiPlatformRouteParts(normalized, prefix);
+
   return generated === null
     ? normalized
     : canonicalJson(["api_platform_route", generated.path, generated.operation]);
@@ -219,11 +240,15 @@ export const canonicalApiPlatformPath = (
 ): string | null => {
   const normalized = normalizePath(value);
   const normalizedPrefix = normalizePath(prefix);
+
   if (normalized === null || normalized.length === 0) return null;
   const canonical = normalized.replaceAll(".{_format}", "{._format}");
+
   if (normalizedPrefix === null || normalizedPrefix.length === 0 || normalizedPrefix === "/")
     return canonical;
+
   if (canonical === normalizedPrefix) return "/";
+
   return canonical.startsWith(`${normalizedPrefix}/`)
     ? canonical.slice(normalizedPrefix.length) || "/"
     : canonical;
@@ -233,63 +258,84 @@ const apiPlatformPrefixFromSource = (context: ManifestContext): string | null =>
   const file = context.scans.mono.files.find(
     (candidate) => candidate.path === "apps/server/config/routes.yaml",
   );
+
   if (file?.availability !== "available") return null;
   const text = readSourceText(context, "mono", file.path);
+
   if (text === null) return null;
+
   try {
     const document = parseDocument(text, { prettyErrors: false });
+
     if (document.errors.some((error) => error.code !== "DUPLICATE_KEY")) return null;
-    const root = document.toJSON();
-    if (root === null || typeof root !== "object" || Array.isArray(root)) return null;
-    const apiPlatform = (root as Record<string, unknown>).api_platform;
-    if (apiPlatform === null || typeof apiPlatform !== "object" || Array.isArray(apiPlatform))
-      return null;
-    const rawPrefix = (apiPlatform as Record<string, unknown>).prefix;
+    const root = Schema.decodeUnknownSync(Schema.Json)(document.toJSON());
+
+    if (!isJsonObject(root)) return null;
+    const apiPlatform = root.api_platform;
+
+    if (!isJsonObject(apiPlatform)) return null;
+    const rawPrefix = apiPlatform.prefix;
+
     if (rawPrefix === undefined) return API_PLATFORM_PREFIX;
-    const prefix = typeof rawPrefix === "string" ? sanitizeScalar(rawPrefix, "route_path") : null;
+    const prefix = Predicate.isString(rawPrefix) ? sanitizeScalar(rawPrefix, "route_path") : null;
+
     return prefix === null ? null : canonicalApiPlatformPath(prefix, "/");
   } catch {
     return null;
   }
 };
+
 type CollectorExecutableKind = "php" | "bwrap";
+
 export interface ValidatedCollectorExecutable {
   readonly kind: CollectorExecutableKind;
   readonly path: string;
   readonly digest: string;
   readonly provenance: CollectorExecutableProvenance;
 }
+
 export interface ValidatedCollectorExecutables {
   readonly php: ValidatedCollectorExecutable;
   readonly bwrap: ValidatedCollectorExecutable;
 }
+
 export interface CollectorSandboxInvocation {
   readonly executable: string;
   readonly arguments: readonly string[];
 }
+
 const PHP_NIX_PATTERN = /^\/nix\/store\/[a-z0-9]{32}-(?:php|php-with-extensions)-[^/]+\/bin\/php$/;
+
 const BWRAP_NIX_PATTERN = /^\/nix\/store\/[a-z0-9]{32}-bubblewrap-[^/]+\/bin\/bwrap$/;
+
 export const collectorExecutableProvenance = (
   kind: CollectorExecutableKind,
   path: string,
 ): CollectorExecutableProvenance | null => {
   if (path === `/usr/bin/${kind}`) return "usr-bin";
+
   if (kind === "php" && PHP_NIX_PATTERN.test(path)) return "nix-store";
+
   if (kind === "bwrap" && BWRAP_NIX_PATTERN.test(path)) return "nix-store";
+
   return null;
 };
+
 export const validateCollectorExecutablePathWithServices = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   kind: CollectorExecutableKind,
   requestedPath: string,
 ): ValidatedCollectorExecutable | null => {
   if (!isAbsolute(requestedPath) || requestedPath.includes("\u0000")) return null;
   const provenance = collectorExecutableProvenance(kind, requestedPath);
+
   if (provenance === null) return null;
+
   try {
     const link = fileSystem.lstat(requestedPath);
     const canonicalPath = fileSystem.realpath(requestedPath);
     const stat = fileSystem.stat(requestedPath);
+
     if (
       link.isSymbolicLink() ||
       canonicalPath !== requestedPath ||
@@ -298,7 +344,9 @@ export const validateCollectorExecutablePathWithServices = (
       (stat.mode & 0o022) !== 0
     )
       return null;
+
     if (collectorExecutableProvenance(kind, canonicalPath) !== provenance) return null;
+
     return {
       kind,
       path: canonicalPath,
@@ -309,6 +357,7 @@ export const validateCollectorExecutablePathWithServices = (
     return null;
   }
 };
+
 export const validateCollectorExecutablePath = (
   kind: CollectorExecutableKind,
   requestedPath: string,
@@ -316,55 +365,76 @@ export const validateCollectorExecutablePath = (
   ParityFileSystem.use((fileSystem) =>
     Effect.sync(() => validateCollectorExecutablePathWithServices(fileSystem, kind, requestedPath)),
   );
+
 const closedCollectorExecutables = (
   value: CollectorExecutables | undefined,
 ): value is CollectorExecutables => {
-  if (value === undefined || value === null || typeof value !== "object") return false;
+  if (
+    value === undefined ||
+    value === null ||
+    (!Predicate.isObjectOrArray(value) && value !== null)
+  )
+    return false;
   const keys = Object.keys(value).sort();
+
   return (
     keys.length === 2 &&
     keys[0] === "bwrapExecutable" &&
     keys[1] === "phpExecutable" &&
-    typeof value.phpExecutable === "string" &&
-    typeof value.bwrapExecutable === "string"
+    Predicate.isString(value.phpExecutable) &&
+    Predicate.isString(value.bwrapExecutable)
   );
 };
+
 export const discoverPathExecutableWithServices = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   environment: Readonly<Record<string, string | undefined>>,
   kind: CollectorExecutableKind,
 ): string | null => {
   const searchPath = environment.PATH;
-  if (typeof searchPath !== "string" || searchPath.length === 0) return null;
+
+  if (!Predicate.isString(searchPath) || searchPath.length === 0) return null;
+
   for (const directory of searchPath.split(":")) {
     if (directory.length === 0) continue;
+
     if (directory !== "/usr/bin" && !directory.startsWith("/nix/store/")) continue;
     const candidate = `${directory}/${kind}`;
+
     if (collectorExecutableProvenance(kind, candidate) === null) continue;
+
     try {
       const link = fileSystem.lstat(candidate);
+
       if (link.isSymbolicLink() || !link.isFile()) continue;
+
       if ((link.mode & 0o111) === 0 || (link.mode & 0o022) !== 0) continue;
+
       if (fileSystem.realpath(candidate) !== candidate) continue;
     } catch {
       continue;
     }
+
     return candidate;
   }
+
   return null;
 };
+
 export const discoverCollectorExecutables = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   environment: Readonly<Record<string, string | undefined>>,
 ): CollectorExecutables | undefined => {
   const php = discoverPathExecutableWithServices(fileSystem, environment, "php");
   const bwrap = discoverPathExecutableWithServices(fileSystem, environment, "bwrap");
+
   return php === null || bwrap === null
     ? undefined
     : { phpExecutable: php, bwrapExecutable: bwrap };
 };
+
 export const resolveCollectorExecutablesWithServices = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   configured?: CollectorExecutables,
   environment: Readonly<Record<string, string | undefined>> = {},
 ): ValidatedCollectorExecutables | null => {
@@ -373,30 +443,37 @@ export const resolveCollectorExecutablesWithServices = (
     (fileSystem.exists(PHP_EXECUTABLE) && fileSystem.exists(BWRAP_EXECUTABLE)
       ? { phpExecutable: PHP_EXECUTABLE, bwrapExecutable: BWRAP_EXECUTABLE }
       : discoverCollectorExecutables(fileSystem, environment));
+
   if (!closedCollectorExecutables(selected)) return null;
+
   const php = validateCollectorExecutablePathWithServices(
     fileSystem,
     "php",
     selected.phpExecutable,
   );
+
   const bwrap = validateCollectorExecutablePathWithServices(
     fileSystem,
     "bwrap",
     selected.bwrapExecutable,
   );
+
   return php === null || bwrap === null ? null : { php, bwrap };
 };
+
 export const resolveCollectorExecutables = (
   configured?: CollectorExecutables,
 ): Effect.Effect<ValidatedCollectorExecutables | null, never, ParityFileSystem> =>
   ParityFileSystem.use((fileSystem) =>
     Effect.sync(() => resolveCollectorExecutablesWithServices(fileSystem, configured)),
   );
+
 const collectorNeedsNixStore = (executables: CollectorExecutables): boolean =>
   collectorExecutableProvenance("php", executables.phpExecutable) === "nix-store" ||
   collectorExecutableProvenance("bwrap", executables.bwrapExecutable) === "nix-store";
+
 export const buildCollectorSandboxArgumentsWithServices = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   executables: CollectorExecutables,
   args: readonly string[],
   workspacePath = "/workspace",
@@ -404,9 +481,11 @@ export const buildCollectorSandboxArgumentsWithServices = (
   const libraryBinds = ["/lib", "/lib64", "/usr/lib"]
     .filter((path) => fileSystem.exists(path))
     .flatMap((path) => ["--ro-bind", path, path]);
+
   const nixStoreBind = collectorNeedsNixStore(executables)
     ? ["--dir", "/nix", "--ro-bind", "/nix/store", "/nix/store"]
     : [];
+
   return {
     executable: executables.bwrapExecutable,
     arguments: [
@@ -465,6 +544,7 @@ export const buildCollectorSandboxArgumentsWithServices = (
     ],
   };
 };
+
 export const buildCollectorSandboxArguments = (
   executables: CollectorExecutables,
   args: readonly string[],
@@ -475,16 +555,20 @@ export const buildCollectorSandboxArguments = (
       buildCollectorSandboxArgumentsWithServices(fileSystem, executables, args, workspacePath),
     ),
   );
+
 const PHP_EXECUTABLE = "/usr/bin/php";
+
 const BWRAP_EXECUTABLE = "/usr/bin/bwrap";
 
 const lineAt = (source: string, offset: number): number =>
   source.slice(0, Math.max(0, offset)).split("\n").length;
+
 type SafeScalar = { readonly value: string | null; readonly unsafe: boolean };
 
-const decodeScalar = (value: unknown, fieldName: string): SafeScalar => {
-  if (typeof value !== "string") return { value: null, unsafe: false };
+const decodeScalar = (value: Schema.Json | undefined, fieldName: string): SafeScalar => {
+  if (!Predicate.isString(value)) return { value: null, unsafe: false };
   const normalized = value.trim().normalize("NFC");
+
   return unsafeScalarReason(normalized, fieldName) === null
     ? { value: normalized, unsafe: false }
     : { value: null, unsafe: true };
@@ -515,26 +599,33 @@ const balancedEnd = (source: string, start: number, open: string, close: string)
   let depth = 0;
   let quote: string | null = null;
   let escaped = false;
+
   for (let index = start; index < source.length; index += 1) {
     const character = source[index];
+
     if (quote !== null) {
       if (escaped) escaped = false;
       else if (character === "\\") escaped = true;
       else if (character === quote) quote = null;
       continue;
     }
+
     if (character === "'" || character === '"') {
       quote = character;
       continue;
     }
+
     if (character === open) depth += 1;
     else if (character === close) {
       depth -= 1;
+
       if (depth === 0) return index;
     }
   }
+
   return null;
 };
+
 const apiResourceSourceRef = (
   context: ManifestContext,
   path: string,
@@ -557,32 +648,42 @@ const readQuotedToken = (
   start: number,
 ): { readonly raw: string; readonly end: number; readonly unsafe: boolean } | null => {
   const quote = payload[start];
+
   if (quote !== "'" && quote !== '"') return null;
   let escaped = false;
+
   for (let index = start + 1; index < payload.length; index += 1) {
     const character = payload[index];
+
     if (escaped) {
       escaped = false;
       continue;
     }
+
     if (character === "\\") {
       escaped = true;
       continue;
     }
+
     if (character === quote)
       return { raw: payload.slice(start + 1, index), end: index + 1, unsafe: false };
   }
+
   return { raw: payload.slice(start + 1), end: payload.length, unsafe: true };
 };
 
 const quotedValueSafe = (payload: string, key: string): SafeScalar => {
   const expression = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*`, "ig");
+
   for (const match of payload.matchAll(expression)) {
     const start = (match.index ?? 0) + match[0].length;
     const token = readQuotedToken(payload, start);
+
     if (token === null) continue;
+
     return token.unsafe ? { value: null, unsafe: true } : decodeScalar(token.raw, key);
   }
+
   return { value: null, unsafe: false };
 };
 
@@ -593,30 +694,38 @@ const payloadUnsafe = (payload: string): boolean => {
   let quote: string | null = null;
   let quoteStart = -1;
   let escaped = false;
+
   for (let index = 0; index < payload.length; index += 1) {
     const character = payload[index];
+
     if (quote === null) {
       if (character === "'" || character === '"') {
         quote = character;
         quoteStart = index;
       }
+
       continue;
     }
+
     if (escaped) {
       escaped = false;
       continue;
     }
+
     if (character === "\\") {
       escaped = true;
       continue;
     }
+
     if (character === quote) {
       const safe = decodeScalar(payload.slice(quoteStart + 1, index), "field");
+
       if (safe.unsafe) return true;
       quote = null;
       quoteStart = -1;
     }
   }
+
   return quote !== null;
 };
 
@@ -629,7 +738,9 @@ const classValue = (
   const expression = new RegExp(`\\b${key}\\s*:\\s*([A-Za-z_][A-Za-z0-9_\\\\]*)::class`, "i").exec(
     payload,
   );
+
   if (expression === null) return null;
+
   return resolveClassRef(expression[1] ?? "", namespace, uses);
 };
 
@@ -639,9 +750,11 @@ const resolveClassRef = (
   uses: ReadonlyMap<string, string>,
 ): string | null => {
   const value = raw.replace(/^\\+/, "").trim();
+
   if (value.length === 0) return null;
   const first = value.split("\\")[0] ?? value;
   const imported = uses.get(first);
+
   const resolved =
     imported === undefined
       ? value.includes("\\")
@@ -652,20 +765,25 @@ const resolveClassRef = (
       : value === first
         ? imported
         : `${imported}\\${value.slice(first.length + 1)}`;
+
   return sanitizeScalar(resolved, "resource");
 };
 
 const useMap = (source: string): Map<string, string> => {
   const result = new Map<string, string>();
   const pattern = /\buse\s+([^;]+);/gi;
+
   for (const match of source.matchAll(pattern)) {
     const declaration = (match[1] ?? "").trim().replace(/^function\s+|^const\s+|^class\s+/i, "");
     const [targetPart, aliasPart] = declaration.split(/\s+as\s+/i);
     const target = targetPart?.trim().replace(/^\\+/, "");
+
     if (target === undefined || target.length === 0) continue;
     const alias = aliasPart?.trim() || target.split("\\").at(-1);
+
     if (alias !== undefined && alias.length > 0) result.set(alias, target);
   }
+
   return result;
 };
 
@@ -680,18 +798,23 @@ const classLocations = (
   paths: readonly string[],
 ): Map<string, ClassLocation> => {
   const locations = new Map<string, ClassLocation>();
+
   for (const path of paths) {
     const text = readSourceText(context, "mono", path);
+
     if (text === null) continue;
     const namespace = namespaceOf(text);
     const pattern = /\bclass\s+([A-Za-z_][A-Za-z0-9_]*)/g;
+
     for (const match of text.matchAll(pattern)) {
       const shortName = match[1];
+
       if (shortName === undefined) continue;
       const classRef = namespace.length > 0 ? `${namespace}\\${shortName}` : shortName;
       locations.set(classRef, { path, line: lineAt(text, match.index ?? 0), classRef });
     }
   }
+
   return locations;
 };
 
@@ -711,6 +834,7 @@ const apiSourcePaths = (context: ManifestContext): string[] =>
     )
     .map((file) => file.path)
     .sort(compareByteOrder);
+
 const parseOperationEntries = (
   source: string,
   payload: string,
@@ -727,30 +851,36 @@ const parseOperationEntries = (
     readonly offset: number;
     readonly end: number;
   }> = [];
+
   const pattern = /\bnew\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+
   for (const match of payload.matchAll(pattern)) {
     const name = match[1] ?? null;
     const openOffset = payloadOffset + (match.index ?? 0) + (match[0]?.lastIndexOf("(") ?? 0);
     const end = balancedEnd(source, openOffset, "(", ")");
+
     if (end === null) continue;
     entries.push({ name, payload: source.slice(openOffset + 1, end), offset: openOffset, end });
   }
+
   return entries;
 };
 
-const parseDeclarations = (
-  context: ManifestContext,
-): {
+type ParsedApiDeclarations = {
   readonly declarations: readonly ApiDeclaration[];
   readonly failures: readonly ApiCollectionFailure[];
-} => {
+};
+
+const parseDeclarations = (context: ManifestContext): ParsedApiDeclarations => {
   const paths = apiSourcePaths(context);
   const classIndex = classLocations(context, paths);
   const declarations: ApiDeclaration[] = [];
   const failures: ApiCollectionFailure[] = [];
   let ordinal = 0;
+
   for (const path of paths) {
     const decoded = readSourceTextDetailed(context, "mono", path);
+
     if (decoded.status !== "available") {
       const sourceRefId = sourceFailureRef(
         context,
@@ -758,6 +888,7 @@ const parseDeclarations = (
         decoded.reason,
         "mono_api_resource_authority",
       );
+
       failures.push({
         status: "source_unavailable",
         reasonCode: decoded.reason,
@@ -766,13 +897,16 @@ const parseDeclarations = (
       });
       continue;
     }
+
     const source = decoded.text;
     const namespace = namespaceOf(source);
     const uses = useMap(source);
     const attributes = /#\[\s*ApiResource\b/gi;
+
     for (const attribute of source.matchAll(attributes)) {
       const attributeOffset = attribute.index ?? 0;
       const openOffset = source.indexOf("(", attributeOffset);
+
       if (openOffset < 0) {
         const sourceRefId = apiResourceSourceRef(
           context,
@@ -780,6 +914,7 @@ const parseDeclarations = (
           lineAt(source, attributeOffset),
           lineAt(source, attributeOffset),
         );
+
         failures.push({
           status: "unresolved",
           reasonCode: "SOURCE_PARSE_ERROR",
@@ -788,7 +923,9 @@ const parseDeclarations = (
         });
         continue;
       }
+
       const payloadEnd = balancedEnd(source, openOffset, "(", ")");
+
       if (payloadEnd === null) {
         const sourceRefId = apiResourceSourceRef(
           context,
@@ -796,6 +933,7 @@ const parseDeclarations = (
           lineAt(source, attributeOffset),
           lineAt(source, attributeOffset),
         );
+
         failures.push({
           status: "unresolved",
           reasonCode: "SOURCE_PARSE_ERROR",
@@ -804,7 +942,9 @@ const parseDeclarations = (
         });
         continue;
       }
+
       const closingAttribute = /^\s*\]/.exec(source.slice(payloadEnd + 1));
+
       if (closingAttribute === null) {
         const sourceRefId = apiResourceSourceRef(
           context,
@@ -812,6 +952,7 @@ const parseDeclarations = (
           lineAt(source, attributeOffset),
           lineAt(source, attributeOffset),
         );
+
         failures.push({
           status: "unresolved",
           reasonCode: "SOURCE_PARSE_ERROR",
@@ -820,7 +961,9 @@ const parseDeclarations = (
         });
         continue;
       }
+
       const trivia = skipPhpTrivia(source, payloadEnd + 1 + closingAttribute[0].length);
+
       if (trivia.malformed) {
         const sourceRefId = apiResourceSourceRef(
           context,
@@ -828,6 +971,7 @@ const parseDeclarations = (
           lineAt(source, attributeOffset),
           lineAt(source, attributeOffset),
         );
+
         failures.push({
           status: "unresolved",
           reasonCode: "SOURCE_PARSE_ERROR",
@@ -836,10 +980,12 @@ const parseDeclarations = (
         });
         continue;
       }
+
       const classMatch =
         /^(?:(?:final|abstract|readonly)\s+)*class\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(
           source.slice(trivia.cursor),
         );
+
       if (classMatch === null || classMatch.index === undefined) {
         const sourceRefId = apiResourceSourceRef(
           context,
@@ -847,6 +993,7 @@ const parseDeclarations = (
           lineAt(source, attributeOffset),
           lineAt(source, attributeOffset),
         );
+
         failures.push({
           status: "unresolved",
           reasonCode: "SOURCE_PARSE_ERROR",
@@ -855,11 +1002,15 @@ const parseDeclarations = (
         });
         continue;
       }
+
       const className = classMatch[1] ?? null;
       const classSafe = decodeScalar(className, "resource");
+
       const resourceClassRef =
         classSafe.value === null ? null : resolveClassRef(classSafe.value, namespace, new Map());
+
       const payload = source.slice(openOffset + 1, payloadEnd);
+
       if (classSafe.unsafe || payloadUnsafe(payload)) {
         const sourceRefId = sourceFailureRef(
           context,
@@ -867,6 +1018,7 @@ const parseDeclarations = (
           "UNSAFE_SOURCE",
           "mono_api_resource_authority",
         );
+
         failures.push({
           status: "source_unavailable",
           reasonCode: "UNSAFE_SOURCE",
@@ -875,8 +1027,10 @@ const parseDeclarations = (
         });
         continue;
       }
+
       const resourceKey = quotedValue(payload, "shortName") ?? quotedValue(payload, "resourceKey");
       const operationsStart = /\boperations\s*:\s*\[/i.exec(payload);
+
       const operationEntries =
         operationsStart === null
           ? []
@@ -886,49 +1040,69 @@ const parseDeclarations = (
                 1 +
                 (operationsStart.index ?? 0) +
                 (operationsStart[0]?.lastIndexOf("[") ?? 0);
+
               const end = balancedEnd(source, open, "[", "]");
+
               return end === null
                 ? []
                 : parseOperationEntries(source, source.slice(open + 1, end), open + 1);
             })();
+
       const entries =
         operationEntries.length > 0
           ? operationEntries
           : [{ name: null, payload: "", offset: openOffset, end: payloadEnd }];
+
       for (const entry of entries) {
         ordinal += 1;
         const operationName = entry.name === null ? null : decodeScalar(entry.name, "field").value;
-        const method = operationName === null ? null : (OPERATION_METHODS[operationName] ?? null);
+
+        const method =
+          operationName === null ? null : (OPERATION_METHODS.get(operationName) ?? null);
+
         const uriTemplate =
           quotedValue(entry.payload, "uriTemplate") ?? quotedValue(entry.payload, "uri_template");
+
         const operationId =
           quotedValue(entry.payload, "name") ?? quotedValue(entry.payload, "operationId");
+
         const providerRef = classValue(entry.payload, "provider", namespace, uses);
         const processorRef = classValue(entry.payload, "processor", namespace, uses);
+
         const schemaRef =
           classValue(entry.payload, "output", namespace, uses) ??
           classValue(entry.payload, "input", namespace, uses);
+
         const operationLineEnd = lineAt(source, entry.end);
+
         const sourceRefs = [
           apiResourceSourceRef(context, path, lineAt(source, attributeOffset), operationLineEnd),
         ];
+
         for (const [reference, role] of [
           [providerRef, "mono_api_state_authority"],
           [processorRef, "mono_api_state_authority"],
         ] as const) {
           if (reference === null) continue;
           const location = classIndex.get(reference);
+
           if (location !== undefined)
             sourceRefs.push(
               apiResourceSourceRef(context, location.path, location.line, location.line, role),
             );
         }
+
         const reasons: string[] = [];
+
         if (resourceClassRef === null) reasons.push("SOURCE_PARSE_ERROR");
+
         if (operationName === null || method === null) reasons.push("METHOD_UNRESOLVED");
+
         if (uriTemplate === null) reasons.push("URI_TEMPLATE_UNRESOLVED");
+
         if (providerRef !== null && !classIndex.has(providerRef))
           reasons.push("PROVIDER_UNRESOLVED");
+
         if (processorRef !== null && !classIndex.has(processorRef))
           reasons.push("PROCESSOR_UNRESOLVED");
         declarations.push({
@@ -949,6 +1123,7 @@ const parseDeclarations = (
       }
     }
   }
+
   return { declarations, failures };
 };
 
@@ -967,6 +1142,7 @@ const apiSignature = (
     uri_template: operation.uriTemplate,
     operation_id_or_null: operation.operationId,
   });
+
 const apiCanonicalKey = (
   declaration: Pick<
     ApiDeclaration,
@@ -981,6 +1157,7 @@ const apiCanonicalKey = (
     declaration.uriTemplate,
     declaration.operationId,
   ]);
+
 const runtimeCanonicalKey = (operation: RuntimeOperation): string =>
   canonicalJson([
     "api_operation",
@@ -1016,76 +1193,108 @@ const runtimeSourceRef = (context: ManifestContext, path: string, role: string):
   });
 
 const NO_EXECUTABLE_DIGESTS: RuntimeExecutableDigests = { php: null, bwrap: null };
+
 const NO_EXECUTABLE_PROVENANCE: RuntimeExecutableProvenance = { php: null, bwrap: null };
-const collectorBytes = (value: unknown): Uint8Array => {
+
+const collectorBytes = (value: Uint8Array | string): Uint8Array => {
   if (value instanceof Uint8Array) return value;
-  if (typeof value === "string") return new TextEncoder().encode(value);
+
+  if (Predicate.isString(value)) return new TextEncoder().encode(value);
+
   return new Uint8Array();
 };
-export const routePayloadContainsUnsafe = (value: unknown): boolean => {
-  const visit = (candidate: unknown, fieldName: string, documentRoot: boolean): boolean => {
-    if (typeof candidate === "string") return unsafeScalarReason(candidate, fieldName) !== null;
-    if (Array.isArray(candidate)) return candidate.some((entry) => visit(entry, fieldName, false));
-    if (candidate === null || typeof candidate !== "object") return false;
+
+export const routePayloadContainsUnsafe = (value: Schema.Json | undefined): boolean => {
+  const visit = (
+    candidate: Schema.Json | undefined,
+    fieldName: string,
+    documentRoot: boolean,
+  ): boolean => {
+    if (Predicate.isString(candidate)) return unsafeScalarReason(candidate, fieldName) !== null;
+
+    if (Arr.isArray<Schema.Json | undefined>(candidate))
+      return candidate.some((entry) => visit(entry, fieldName, false));
+
+    if (!isJsonObject(candidate)) return false;
+
     return Object.entries(candidate).some(
       ([key, entry]) =>
         (documentRoot && unsafeScalarReason(key, "route_name") !== null) ||
         visit(entry, key, false),
     );
   };
+
   return visit(value, "field", true);
 };
 
 type CollectorSafetyPolicy = "generic" | "openapi" | "route";
+
 type CollectorOutputMode = "success" | "failure";
+
 type CollectorOutputReason =
   | "NON_UTF8_OUTPUT"
   | "UNSAFE_SOURCE"
   | "SOURCE_PARSE_ERROR"
   | "OPENAPI_SOURCE_PARSE_ERROR";
-const sanitizeCollectorOutput = (
-  value: unknown,
-  fallbackReason: string,
-  policy: CollectorSafetyPolicy = "generic",
-  mode: CollectorOutputMode = "failure",
-): {
+
+type SanitizedCollectorOutput = {
   readonly bytes: Uint8Array;
   readonly text: string;
   readonly reason: CollectorOutputReason | null;
-} => {
+};
+
+const sanitizeCollectorOutput = (
+  value: Uint8Array | string,
+  fallbackReason: string,
+  policy: CollectorSafetyPolicy = "generic",
+  mode: CollectorOutputMode = "failure",
+): SanitizedCollectorOutput => {
   const bytes = collectorBytes(value);
   let text: string;
+
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     const fallback = new TextEncoder().encode(fallbackReason);
+
     return { bytes: fallback, text: fallbackReason, reason: "NON_UTF8_OUTPUT" };
   }
+
   if (mode === "failure") {
     if (unsafeSourceTextReason(text) !== null) {
       const fallback = new TextEncoder().encode(fallbackReason);
+
       return { bytes: fallback, text: fallbackReason, reason: "UNSAFE_SOURCE" };
     }
+
     return { bytes: new TextEncoder().encode(text), text, reason: null };
   }
+
   const trimmed = text.trimStart();
   const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+
   if (policy === "openapi" && !looksLikeJson) {
     const fallback = new TextEncoder().encode("OPENAPI_SOURCE_PARSE_ERROR");
+
     return {
       bytes: fallback,
       text: "OPENAPI_SOURCE_PARSE_ERROR",
       reason: "OPENAPI_SOURCE_PARSE_ERROR",
     };
   }
+
   if (!looksLikeJson) {
     if (unsafeSourceTextReason(text) !== null) {
       const fallback = new TextEncoder().encode(fallbackReason);
+
       return { bytes: fallback, text: fallbackReason, reason: "UNSAFE_SOURCE" };
     }
+
     return { bytes: new TextEncoder().encode(text), text, reason: null };
   }
+
   const memberScan = inspectJsonMembers(text);
+
   if (memberScan !== "valid") {
     const fallbackReasonForScan: CollectorOutputReason =
       memberScan === "duplicate"
@@ -1093,33 +1302,47 @@ const sanitizeCollectorOutput = (
         : policy === "openapi"
           ? "OPENAPI_SOURCE_PARSE_ERROR"
           : "SOURCE_PARSE_ERROR";
+
     const fallback = new TextEncoder().encode(fallbackReasonForScan);
+
     return { bytes: fallback, text: fallbackReasonForScan, reason: fallbackReasonForScan };
   }
-  const unsafe =
-    policy === "openapi"
-      ? (() => {
-          try {
-            return openApiPayloadContainsUnsafe(JSON.parse(text) as unknown);
-          } catch {
-            return true;
-          }
-        })()
-      : policy === "route"
-        ? (() => {
-            try {
-              return routePayloadContainsUnsafe(JSON.parse(text) as unknown);
-            } catch {
-              return true;
-            }
-          })()
-        : unsafeSourceTextReason(text) !== null;
+
+  const unsafe = Match.value(policy).pipe(
+    Match.when("openapi", () =>
+      (() => {
+        try {
+          return openApiPayloadContainsUnsafe(
+            Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(text),
+          );
+        } catch {
+          return true;
+        }
+      })(),
+    ),
+    Match.when("route", () =>
+      (() => {
+        try {
+          return routePayloadContainsUnsafe(
+            Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(text),
+          );
+        } catch {
+          return true;
+        }
+      })(),
+    ),
+    Match.orElse(() => unsafeSourceTextReason(text) !== null),
+  );
+
   if (unsafe) {
     const fallback = new TextEncoder().encode(fallbackReason);
+
     return { bytes: fallback, text: fallbackReason, reason: "UNSAFE_SOURCE" };
   }
+
   return { bytes: new TextEncoder().encode(text), text, reason: null };
 };
+
 export const recordRuntimeObservation = (
   context: ManifestContext,
   input: {
@@ -1145,6 +1368,7 @@ export const recordRuntimeObservation = (
   const logicalCommandId = input.logicalCommandId ?? input.command;
   const resultBytes = canonicalJson(input.result);
   const argumentDigest = sha256(canonicalJson(input.arguments));
+
   const identity = {
     collector_kind: input.collectorKind,
     logical_command_id: logicalCommandId,
@@ -1158,8 +1382,10 @@ export const recordRuntimeObservation = (
     exit_code: input.exitCode,
     result_sha256: sha256(resultBytes),
     availability: input.availability,
-    ...(input.outOfBand === true ? { out_of_band: true as const } : {}),
   };
+
+  if (input.outOfBand === true) Object.assign(identity, { out_of_band: true as const });
+
   const observation: RuntimeObservation = {
     runtime_observation_ref_id: `runtime-${sha256Hex(canonicalJson(identity))}`,
     revision_ref_id: input.revisionRefId,
@@ -1174,41 +1400,59 @@ export const recordRuntimeObservation = (
     exit_code: input.exitCode,
     result_sha256: identity.result_sha256,
     availability: input.availability,
-    ...(input.outOfBand === true ? { out_of_band: true as const } : {}),
   };
+
+  if (input.outOfBand === true) Object.assign(observation, { out_of_band: true as const });
+
   const existing = context.runtimeObservations.find(
     (entry) => entry.runtime_observation_ref_id === observation.runtime_observation_ref_id,
   );
+
   if (existing === undefined) context.runtimeObservations.push(observation);
+
   return existing ?? observation;
 };
+
 const sha256Hex = (value: string): string => sha256(value).slice("sha256:".length);
 
-const normaliseMethod = (value: unknown): string | null => {
-  if (typeof value !== "string") return null;
+const normaliseMethod = (value: Schema.Json | undefined): string | null => {
+  if (!Predicate.isString(value)) return null;
   const method = value.trim().toUpperCase();
+
   return HTTP_METHODS.has(method) ? method : null;
 };
-const runtimeOperationFromUnknown = (value: unknown): RuntimeOperation | null => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as Record<string, unknown>;
+
+const runtimeOperationFromUnknown = (value: Schema.Json | undefined): RuntimeOperation | null => {
+  if (!isJsonObject(value)) return null;
+  const candidate = value;
+
   const methodValue =
-    candidate.method ?? (Array.isArray(candidate.methods) ? candidate.methods[0] : null);
+    candidate.method ??
+    (Arr.isArray<Schema.Json | undefined>(candidate.methods) ? candidate.methods[0] : null);
+
   const method = normaliseMethod(methodValue);
   const pathValue = candidate.uri_template ?? candidate.path_template ?? candidate.path;
-  const uriTemplate =
-    typeof pathValue === "string" ? sanitizeScalar(pathValue, "route_path") : null;
+
+  const uriTemplate = Predicate.isString(pathValue)
+    ? sanitizeScalar(pathValue, "route_path")
+    : null;
+
   const operationIdValue = candidate.operation_id ?? candidate.operationId;
+
   const operationNameValue =
     candidate.operation_name ?? candidate.operationName ?? candidate.operation;
+
   const resourceClassValue =
     candidate.resource_class_ref ?? candidate.resourceClassRef ?? candidate.resource_class;
+
   const resourceKeyValue = candidate.resource_key ?? candidate.resourceKey;
   const providerValue = candidate.provider_ref ?? candidate.providerRef ?? candidate.provider;
   const processorValue = candidate.processor_ref ?? candidate.processorRef ?? candidate.processor;
   const schemaValue = candidate.schema_ref ?? candidate.schemaRef ?? candidate.schema;
-  const stringOrNull = (raw: unknown, fieldName: string): string | null =>
-    typeof raw === "string" ? sanitizeScalar(raw, fieldName) : null;
+
+  const stringOrNull = (raw: Schema.Json | undefined, fieldName: string): string | null =>
+    Predicate.isString(raw) ? sanitizeScalar(raw, fieldName) : null;
+
   if (
     method === null &&
     uriTemplate === null &&
@@ -1216,6 +1460,7 @@ const runtimeOperationFromUnknown = (value: unknown): RuntimeOperation | null =>
     operationNameValue === undefined
   )
     return null;
+
   return {
     method,
     uriTemplate,
@@ -1228,20 +1473,31 @@ const runtimeOperationFromUnknown = (value: unknown): RuntimeOperation | null =>
     schemaRef: stringOrNull(schemaValue, "field"),
   };
 };
-const runtimeOperationsFromPayload = (payload: unknown): RuntimeOperation[] | null => {
-  const values: unknown[] = Array.isArray(payload)
+
+const runtimeOperationsFromPayload = (
+  payload: Schema.Json | undefined,
+): RuntimeOperation[] | null => {
+  const values: readonly Schema.Json[] = Arr.isArray<Schema.Json | undefined>(payload)
     ? payload
-    : payload !== null && typeof payload === "object"
+    : isJsonObject(payload)
       ? (() => {
-          const object = payload as Record<string, unknown>;
-          if (Array.isArray(object.operations)) return object.operations;
-          if (Array.isArray(object.api_operations)) return object.api_operations;
+          const object = payload;
+
+          if (Arr.isArray<Schema.Json | undefined>(object.operations)) return object.operations;
+
+          if (Arr.isArray<Schema.Json | undefined>(object.api_operations))
+            return object.api_operations;
+
           return [];
         })()
       : [];
+
   const operations = values
+    .values()
     .map(runtimeOperationFromUnknown)
-    .filter((operation): operation is RuntimeOperation => operation !== null);
+    .filter((operation): operation is RuntimeOperation => operation !== null)
+    .toArray();
+
   return operations.length === values.length ? operations : null;
 };
 
@@ -1251,7 +1507,9 @@ const runtimeFixturePath = (context: ManifestContext): string | null =>
       (file) => file.path === path && file.availability === "available",
     ),
   ) ?? null;
+
 const fixtureRuntimeSourcePath = (path: string): string => `fixture://runtime/${path}`;
+
 const fixtureRuntimeSourceRef = (
   context: ManifestContext,
   input: ApiRuntimeFixtureInput,
@@ -1268,6 +1526,7 @@ const fixtureRuntimeSourceRef = (
     symbol: null,
     captureMode: "runtime" as const,
   };
+
   return addSourceReference(
     context,
     capture
@@ -1445,15 +1704,15 @@ export interface CollectorRun {
   readonly executableDigests: RuntimeExecutableDigests;
   readonly executableProvenance: RuntimeExecutableProvenance;
 }
+
 const strictUtf8 = (bytes: Uint8Array<ArrayBufferLike>): string | null => {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(
-      bytes as unknown as Uint8Array<ArrayBuffer>,
-    );
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     return null;
   }
 };
+
 const unavailableCollector = (
   reason: string,
   exitCode = 127,
@@ -1463,6 +1722,7 @@ const unavailableCollector = (
   executableProvenance: RuntimeExecutableProvenance = NO_EXECUTABLE_PROVENANCE,
 ): CollectorRun => {
   const reasonBytes = new TextEncoder().encode(reason);
+
   return {
     availability: "unavailable",
     stdout: reason,
@@ -1477,7 +1737,9 @@ const unavailableCollector = (
 };
 
 const COLLECTOR_TEST_ENV_PATH = "apps/server/.env.test";
+
 const COLLECTOR_ENV_PATH_PATTERN = /(?:^|\/)\.env(?:$|[.-])/iu;
+
 const collectorStagePath = (path: string): boolean =>
   path === COLLECTOR_TEST_ENV_PATH ||
   (!COLLECTOR_ENV_PATH_PATTERN.test(path) &&
@@ -1489,13 +1751,16 @@ const collectorStagePath = (path: string): boolean =>
       path.startsWith("apps/server/vendor/")));
 
 const scannedCollectorFileIsApproved = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   file: ScanFile,
 ): boolean => {
   if (file.path !== COLLECTOR_TEST_ENV_PATH) return true;
+
   if (file.bytes === null || sourceTextSafetyReason(file.path, file.bytes) !== null) return false;
+
   try {
     const link = fileSystem.lstat(file.absolutePath);
+
     return (
       !link.isSymbolicLink() &&
       link.isFile() &&
@@ -1505,9 +1770,11 @@ const scannedCollectorFileIsApproved = (
     return false;
   }
 };
-const isPlainVendorTree = (fileSystem: ParityFileSystemShape, vendorRoot: string): boolean => {
+
+const isPlainVendorTree = (fileSystem: ParityFileSystemOperations, vendorRoot: string): boolean => {
   try {
     const link = fileSystem.lstat(vendorRoot);
+
     return !link.isSymbolicLink() && link.isDirectory();
   } catch {
     return false;
@@ -1515,11 +1782,11 @@ const isPlainVendorTree = (fileSystem: ParityFileSystemShape, vendorRoot: string
 };
 
 const stageCollectorInputs = (
-  fileSystem: ParityFileSystemShape,
+  fileSystem: ParityFileSystemOperations,
   context: ManifestContext,
 ): string | null => {
   const files = context.scans.mono.files.filter(
-    (file) =>
+    (file): file is ScanFile & { readonly bytes: Uint8Array } =>
       collectorStagePath(file.path) &&
       !file.path.startsWith("apps/server/vendor/") &&
       effectiveIgnoreRule("mono", file.path) === null &&
@@ -1528,45 +1795,57 @@ const stageCollectorInputs = (
       !file.unsafe &&
       scannedCollectorFileIsApproved(fileSystem, file),
   );
+
   const vendorRoot = join(context.scans.mono.rootPath, "apps/server/vendor");
   let vendorReal: string | null = null;
+
   try {
     vendorReal = fileSystem.realpath(vendorRoot);
   } catch {
     return null;
   }
+
   const vendorIsNixStore = vendorReal === "/nix/store" || vendorReal.startsWith("/nix/store/");
+
   // The immutable Nix-store vendor mount is the preferred provisioning. A plain
   // git-ignored vendor directory is accepted as a fallback: the collector stages a
   // private copy, tmpfs-overlays writable paths, unshares namespaces, and hashes
   // every observation, so third-party bytes never become first-party source.
   if (!vendorIsNixStore && !isPlainVendorTree(fileSystem, vendorRoot)) return null;
-  if (!fileSystem.exists(join(vendorReal as string, "autoload.php"))) return null;
+
+  if (!fileSystem.exists(join(vendorReal, "autoload.php"))) return null;
+
   if (
     !files.some((file) => file.path === "apps/server/bin/console") ||
     !files.some((file) => file.path === COLLECTOR_TEST_ENV_PATH)
   )
     return null;
+
   const stage = fileSystem.makeTempDirectory(
     join(fileSystem.temporaryDirectory(), "parity-api-collector-"),
   );
+
   try {
     for (const file of files) {
       const target = join(stage, file.path);
       fileSystem.makeDirectory(dirname(target), { recursive: true, mode: 0o755 });
-      fileSystem.writeFile(target, file.bytes as Uint8Array, { mode: 0o644 });
+      fileSystem.writeFile(target, file.bytes, { mode: 0o644 });
     }
+
     const copyVendor = (source: string, target: string): void => {
       for (const entry of fileSystem.readDirectory(source)) {
         const sourceEntry = join(source, entry.name);
         const targetEntry = join(target, entry.name);
+
         if (entry.isSymbolicLink())
           throw new Error(`collector dependency is a symbolic link: ${sourceEntry}`);
+
         if (entry.isDirectory()) {
           fileSystem.makeDirectory(targetEntry, { recursive: true, mode: 0o755 });
           copyVendor(sourceEntry, targetEntry);
         } else if (entry.isFile()) {
           const size = fileSystem.stat(sourceEntry).size;
+
           if (!Number.isSafeInteger(size) || size > 64 * 1024 * 1024)
             throw new Error(`collector dependency exceeds bounded read limit: ${sourceEntry}`);
           fileSystem.makeDirectory(dirname(targetEntry), { recursive: true, mode: 0o755 });
@@ -1576,23 +1855,26 @@ const stageCollectorInputs = (
         }
       }
     };
+
     const vendorTarget = join(stage, "apps/server/vendor");
     fileSystem.makeDirectory(vendorTarget, { recursive: true, mode: 0o755 });
-    copyVendor(vendorReal as string, vendorTarget);
+    copyVendor(vendorReal, vendorTarget);
     fileSystem.makeDirectory(join(stage, "apps/server/var"), {
       recursive: true,
       mode: 0o755,
     });
+
     return stage;
   } catch {
     fileSystem.remove(stage, { recursive: true, force: true });
+
     return null;
   }
 };
 
 export const runTrustedPhpCollectorWithServices = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   context: ManifestContext,
   args: readonly string[],
   configured?: CollectorExecutables,
@@ -1600,21 +1882,26 @@ export const runTrustedPhpCollectorWithServices = (
   environment: Readonly<Record<string, string | undefined>> = {},
 ): CollectorRun => {
   const selected = resolveCollectorExecutablesWithServices(fileSystem, configured, environment);
+
   if (selected === null)
     return unavailableCollector(
       configured === undefined
         ? "COLLECTOR_EXECUTABLE_CONFIG_MISSING"
         : "COLLECTOR_EXECUTABLE_INVALID",
     );
+
   const executableDigests: RuntimeExecutableDigests = {
     php: selected.php.digest,
     bwrap: selected.bwrap.digest,
   };
+
   const executableProvenance: RuntimeExecutableProvenance = {
     php: selected.php.provenance,
     bwrap: selected.bwrap.provenance,
   };
+
   const stage = stageCollectorInputs(fileSystem, context);
+
   if (stage === null)
     return unavailableCollector(
       "COLLECTOR_INPUTS_UNAVAILABLE",
@@ -1624,17 +1911,20 @@ export const runTrustedPhpCollectorWithServices = (
       executableDigests,
       executableProvenance,
     );
+
   try {
     const executableConfig: CollectorExecutables = {
       phpExecutable: selected.php.path,
       bwrapExecutable: selected.bwrap.path,
     };
+
     const invocation = buildCollectorSandboxArgumentsWithServices(
       fileSystem,
       executableConfig,
       args,
       stage,
     );
+
     const output = commands.executeBytes(invocation.executable, invocation.arguments, {
       cwd: stage,
       stdio: ["ignore", "pipe", "pipe"],
@@ -1649,14 +1939,18 @@ export const runTrustedPhpCollectorWithServices = (
         COMPOSER_HOME: "/tmp",
       },
     });
+
     const stdout = sanitizeCollectorOutput(output, "NON_UTF8_OUTPUT", safetyPolicy, "success");
+
     const stderr = sanitizeCollectorOutput(
       new Uint8Array(),
       "NON_UTF8_OUTPUT",
       "generic",
       "success",
     );
+
     const outputReason = stdout.reason ?? stderr.reason;
+
     if (outputReason !== null)
       return unavailableCollector(
         outputReason,
@@ -1666,6 +1960,7 @@ export const runTrustedPhpCollectorWithServices = (
         executableDigests,
         executableProvenance,
       );
+
     return {
       availability: "available",
       stdout: stdout.text,
@@ -1677,25 +1972,27 @@ export const runTrustedPhpCollectorWithServices = (
       executableProvenance,
     };
   } catch (cause) {
-    const error = cause as {
-      readonly stdout?: unknown;
-      readonly stderr?: unknown;
-      readonly status?: number;
-    };
+    const stdoutValue = Predicate.hasProperty(cause, "stdout") ? cause.stdout : undefined;
+    const stderrValue = Predicate.hasProperty(cause, "stderr") ? cause.stderr : undefined;
+    const status = Predicate.hasProperty(cause, "status") ? cause.status : undefined;
+
     const stdout = sanitizeCollectorOutput(
-      error.stdout,
+      Predicate.isString(stdoutValue) || stdoutValue instanceof Uint8Array ? stdoutValue : "",
       "COLLECTOR_EXECUTION_FAILED",
       safetyPolicy,
       "failure",
     );
+
     const stderr = sanitizeCollectorOutput(
-      error.stderr,
+      Predicate.isString(stderrValue) || stderrValue instanceof Uint8Array ? stderrValue : "",
       "COLLECTOR_EXECUTION_FAILED",
       "generic",
       "failure",
     );
-    const exitCode = typeof error.status === "number" ? error.status : 1;
+
+    const exitCode = Predicate.isNumber(status) ? status : 1;
     const outputReason = stdout.reason ?? stderr.reason;
+
     if (outputReason !== null)
       return unavailableCollector(
         outputReason,
@@ -1705,6 +2002,7 @@ export const runTrustedPhpCollectorWithServices = (
         executableDigests,
         executableProvenance,
       );
+
     return unavailableCollector(
       "COLLECTOR_EXECUTION_FAILED",
       exitCode,
@@ -1717,6 +2015,7 @@ export const runTrustedPhpCollectorWithServices = (
     fileSystem.remove(stage, { recursive: true, force: true });
   }
 };
+
 export const runTrustedPhpCollector = (
   context: ManifestContext,
   args: readonly string[],
@@ -1726,6 +2025,7 @@ export const runTrustedPhpCollector = (
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
     const commands = yield* ParityCommandExecutor;
+
     return runTrustedPhpCollectorWithServices(
       fileSystem,
       commands,
@@ -1736,16 +2036,12 @@ export const runTrustedPhpCollector = (
     );
   });
 
-const payloadContainsUnsafe = (value: unknown, _fieldName = "field"): boolean =>
+const payloadContainsUnsafe = (value: Schema.Json, _fieldName = "field"): boolean =>
   unsafeStructuredValueReason(value) !== null;
 
-const runtimeOpenApiFromOperations = (
-  operations: readonly RuntimeOperation[],
-): Record<string, unknown> => {
-  const paths: Record<string, Record<string, unknown>> = Object.create(null) as Record<
-    string,
-    Record<string, unknown>
-  >;
+const runtimeOpenApiFromOperations = (operations: readonly RuntimeOperation[]) => {
+  const paths: Record<string, Record<string, Schema.Json>> = Object.create(null);
+
   for (const operation of operations) {
     if (
       operation.method === null ||
@@ -1753,13 +2049,14 @@ const runtimeOpenApiFromOperations = (
       !operation.uriTemplate.startsWith("/")
     )
       continue;
-    const path = paths[operation.uriTemplate] ?? (Object.create(null) as Record<string, unknown>);
+    const path = paths[operation.uriTemplate] ?? Object.create(null);
     path[operation.method.toLowerCase()] = {
       operationId: operation.operationId,
       responses: { "200": { description: "OK" } },
     };
     paths[operation.uriTemplate] = path;
   }
+
   return {
     openapi: "3.1.0",
     info: { title: "Runtime API", version: "1.0.0" },
@@ -1767,9 +2064,10 @@ const runtimeOpenApiFromOperations = (
     components: {},
   };
 };
+
 const collectRuntime = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   context: ManifestContext,
   declarations: readonly ApiDeclaration[],
   allowFixture: boolean,
@@ -1780,6 +2078,7 @@ const collectRuntime = (
   const revisionRefId = context.scans.mono.revisionRefId;
   const consoleFile = context.scans.mono.files.find((file) => file.path === CONSOLE_PATH);
   let consoleSourceRef: string | null = null;
+
   const consoleRef = (): string =>
     (consoleSourceRef ??=
       consoleFile?.availability === "available"
@@ -1791,6 +2090,7 @@ const collectRuntime = (
             "mono_api_runtime_observation",
             "runtime",
           ));
+
   const unavailable = (
     collectorKind: string,
     command: string,
@@ -1802,7 +2102,8 @@ const collectRuntime = (
     sourceRefOverride?: string,
   ): RuntimeCollection => {
     const reasonBytes = new TextEncoder().encode(reason);
-    const observation = recordRuntimeObservation(context, {
+
+    const observationInput: Parameters<typeof recordRuntimeObservation>[1] = {
       collectorKind,
       logicalCommandId: command,
       command,
@@ -1815,9 +2116,13 @@ const collectRuntime = (
       revisionRefId,
       executableDigests: run?.executableDigests,
       executableProvenance: run?.executableProvenance,
-      ...(outOfBand === true ? { outOfBand: true as const } : {}),
-    });
+    };
+
+    if (outOfBand === true) Object.assign(observationInput, { outOfBand });
+    const observation = recordRuntimeObservation(context, observationInput);
+
     const sourceRef = sourceRefOverride ?? consoleRef();
+
     const status: ApiCollectionFailure["status"] = [
       "UNSAFE_SOURCE",
       "SOURCE_PARSE_ERROR",
@@ -1826,6 +2131,7 @@ const collectRuntime = (
     ].includes(reason)
       ? "source_unavailable"
       : "runtime_unavailable";
+
     return {
       operations: [],
       observation,
@@ -1835,11 +2141,14 @@ const collectRuntime = (
       failures: [{ status, reasonCode: reason, rowIds: [], sourceRefIds: [sourceRef] }],
     };
   };
+
   if (allowFixture) {
     if (fixtureInput !== undefined) {
       const fixturePath = fixtureInput.path;
+
       const failedFixture = (reason: string): RuntimeCollection => {
         const fixtureRef = fixtureRuntimeSourceRef(context, fixtureInput, false, reason);
+
         return unavailable(
           "api_platform_metadata",
           `fixture ${fixturePath}`,
@@ -1851,21 +2160,28 @@ const collectRuntime = (
           fixtureRef,
         );
       };
+
       const decoded = strictUtf8(fixtureInput.bytes);
+
       if (decoded === null) return failedFixture("NON_UTF8_OUTPUT");
       const memberScan = inspectJsonMembers(decoded);
+
       if (memberScan !== "valid")
         return failedFixture(memberScan === "duplicate" ? "UNSAFE_SOURCE" : "SOURCE_PARSE_ERROR");
-      let parsed: unknown;
+      let parsed: Schema.Json;
+
       try {
-        parsed = JSON.parse(decoded) as unknown;
+        parsed = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(decoded);
       } catch {
         return failedFixture("SOURCE_PARSE_ERROR");
       }
+
       if (payloadContainsUnsafe(parsed)) return failedFixture("UNSAFE_SOURCE");
       const operations = runtimeOperationsFromPayload(parsed);
+
       if (operations === null) return failedFixture("SOURCE_PARSE_ERROR");
       const fixtureRef = fixtureRuntimeSourceRef(context, fixtureInput, true);
+
       const observation = recordRuntimeObservation(context, {
         collectorKind: "api_platform_metadata",
         command: `fixture ${fixturePath}`,
@@ -1878,7 +2194,9 @@ const collectRuntime = (
         revisionRefId,
         outOfBand: true,
       });
+
       const openApiPayload = runtimeOpenApiFromOperations(operations);
+
       const openApiObservation = recordRuntimeObservation(context, {
         collectorKind: "openapi_projection",
         command: `fixture ${fixturePath}`,
@@ -1891,6 +2209,7 @@ const collectRuntime = (
         revisionRefId,
         outOfBand: true,
       });
+
       return {
         operations,
         observation,
@@ -1900,7 +2219,9 @@ const collectRuntime = (
         failures: [],
       };
     }
+
     const fixturePath = runtimeFixturePath(context);
+
     if (fixturePath !== null)
       return unavailable(
         "api_platform_metadata",
@@ -1909,14 +2230,20 @@ const collectRuntime = (
         "SOURCE_UNAVAILABLE",
       );
   }
+
   if (consoleFile === undefined || consoleFile.availability !== "available")
     return unavailable("api_platform_metadata", "api-platform-metadata", [], "RUNTIME_UNAVAILABLE");
+
   const resourceClasses = sortUnique(
     declarations
+      .values()
       .map((declaration) => declaration.resourceClassRef)
-      .filter((value): value is string => value !== null),
+      .filter((value): value is string => value !== null)
+      .toArray(),
   );
+
   const metadataArgs = ["-r", API_METADATA_SCRIPT, "--", JSON.stringify(resourceClasses)];
+
   const metadataRun = runTrustedPhpCollectorWithServices(
     fileSystem,
     commands,
@@ -1926,6 +2253,7 @@ const collectRuntime = (
     "generic",
     environment,
   );
+
   if (metadataRun.availability !== "available")
     return unavailable(
       "api_platform_metadata",
@@ -1935,9 +2263,12 @@ const collectRuntime = (
       metadataRun.exitCode,
       metadataRun,
     );
-  let metadataPayload: unknown;
+  let metadataPayload: Schema.Json;
+
   try {
-    metadataPayload = JSON.parse(metadataRun.stdout) as unknown;
+    metadataPayload = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+      metadataRun.stdout,
+    );
   } catch {
     return unavailable(
       "api_platform_metadata",
@@ -1948,6 +2279,7 @@ const collectRuntime = (
       metadataRun,
     );
   }
+
   if (payloadContainsUnsafe(metadataPayload))
     return unavailable(
       "api_platform_metadata",
@@ -1958,6 +2290,7 @@ const collectRuntime = (
       metadataRun,
     );
   const operations = runtimeOperationsFromPayload(metadataPayload);
+
   if (operations === null)
     return unavailable(
       "api_platform_metadata",
@@ -1967,6 +2300,7 @@ const collectRuntime = (
       1,
       metadataRun,
     );
+
   const metadataObservation = recordRuntimeObservation(context, {
     collectorKind: "api_platform_metadata",
     logicalCommandId: "api-platform-metadata",
@@ -1980,7 +2314,9 @@ const collectRuntime = (
     revisionRefId,
     executableProvenance: metadataRun.executableProvenance,
   });
+
   const openApiArgs = ["-r", API_OPENAPI_SCRIPT];
+
   const openApiRun = runTrustedPhpCollectorWithServices(
     fileSystem,
     commands,
@@ -1990,10 +2326,13 @@ const collectRuntime = (
     "openapi",
     environment,
   );
+
   const sourceRef = consoleRef();
+
   if (openApiRun.availability !== "available") {
     const reason = openApiRun.reason ?? "RUNTIME_UNAVAILABLE";
     const reasonBytes = new TextEncoder().encode(reason);
+
     const openApiObservation = recordRuntimeObservation(context, {
       collectorKind: "openapi_projection",
       logicalCommandId: "api:openapi:export",
@@ -2008,6 +2347,7 @@ const collectRuntime = (
       executableDigests: openApiRun.executableDigests,
       executableProvenance: openApiRun.executableProvenance,
     });
+
     const status: ApiCollectionFailure["status"] = [
       "NON_UTF8_OUTPUT",
       "OPENAPI_SOURCE_PARSE_ERROR",
@@ -2015,6 +2355,7 @@ const collectRuntime = (
     ].includes(reason)
       ? "source_unavailable"
       : "runtime_unavailable";
+
     return {
       operations: [],
       observation: metadataObservation,
@@ -2024,12 +2365,17 @@ const collectRuntime = (
       failures: [{ status, reasonCode: reason, rowIds: [], sourceRefIds: [sourceRef] }],
     };
   }
-  let openApiPayload: unknown;
+
+  let openApiPayload: Schema.Json;
+
   try {
-    openApiPayload = JSON.parse(openApiRun.stdout) as unknown;
+    openApiPayload = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+      openApiRun.stdout,
+    );
   } catch {
     const reason = "OPENAPI_SOURCE_PARSE_ERROR";
     const reasonBytes = new TextEncoder().encode(reason);
+
     const openApiObservation = recordRuntimeObservation(context, {
       collectorKind: "openapi_projection",
       logicalCommandId: "api:openapi:export",
@@ -2044,6 +2390,7 @@ const collectRuntime = (
       executableDigests: openApiRun.executableDigests,
       executableProvenance: openApiRun.executableProvenance,
     });
+
     return {
       operations: [],
       observation: metadataObservation,
@@ -2055,6 +2402,7 @@ const collectRuntime = (
       ],
     };
   }
+
   if (openApiPayloadContainsUnsafe(openApiPayload))
     return unavailable(
       "openapi_projection",
@@ -2064,6 +2412,7 @@ const collectRuntime = (
       1,
       openApiRun,
     );
+
   const openApiObservation = recordRuntimeObservation(context, {
     collectorKind: "openapi_projection",
     logicalCommandId: "api:openapi:export",
@@ -2078,6 +2427,7 @@ const collectRuntime = (
     executableDigests: openApiRun.executableDigests,
     executableProvenance: openApiRun.executableProvenance,
   });
+
   return {
     operations,
     observation: metadataObservation,
@@ -2095,6 +2445,7 @@ const makeStaticRows = (
 ): InventoryRow[] =>
   declarations.map((declaration) => {
     const canonicalKey = apiCanonicalKey(declaration);
+
     const declarationIdentity = declarationId(
       "mono",
       "mono",
@@ -2102,11 +2453,14 @@ const makeStaticRows = (
       "api_operation",
       declaration.ordinal,
     );
+
     const rowIdentity = rowId("api_operation", declarationIdentity, canonicalKey);
+
     const status: InventoryRow["status"] =
       declaration.reasonCodes.length > 0 || runtime.observation.availability === "unavailable"
         ? "unresolved"
         : "unresolved";
+
     const details: ApiOperationDetails = {
       resource_class_ref: declaration.resourceClassRef,
       resource_key: declaration.resourceKey,
@@ -2119,10 +2473,12 @@ const makeStaticRows = (
       schema_ref: declaration.schemaRef,
       openapi_projection_ref: null,
     };
+
     const reasons =
       runtime.observation.availability === "unavailable"
         ? [...declaration.reasonCodes, "RUNTIME_UNAVAILABLE"]
         : declaration.reasonCodes;
+
     return {
       row_id: rowIdentity,
       declaration_id: declarationIdentity,
@@ -2157,6 +2513,7 @@ const makeRuntimeRow = (
   ordinal: number,
 ): InventoryRow => {
   const canonicalKey = runtimeCanonicalKey(operation);
+
   const declarationIdentity = declarationId(
     "mono",
     "mono",
@@ -2164,7 +2521,9 @@ const makeRuntimeRow = (
     "runtime_api_operation",
     ordinal,
   );
+
   const rowIdentity = rowId("api_operation", declarationIdentity, canonicalKey);
+
   const details: ApiOperationDetails = {
     resource_class_ref: operation.resourceClassRef,
     resource_key: operation.resourceKey,
@@ -2177,6 +2536,7 @@ const makeRuntimeRow = (
     schema_ref: operation.schemaRef,
     openapi_projection_ref: null,
   };
+
   return {
     row_id: rowIdentity,
     declaration_id: declarationIdentity,
@@ -2210,8 +2570,11 @@ const declaredUriMatchesRuntime = (
   prefix: string | null = API_PLATFORM_PREFIX,
 ): boolean => {
   if (declared === null) return true;
+
   if (runtime === null || declared === runtime) return runtime !== null;
+
   if (prefix === null) return false;
+
   return canonicalApiPlatformPath(declared, prefix) === canonicalApiPlatformPath(runtime, prefix);
 };
 
@@ -2221,10 +2584,14 @@ const declaredOperationIdMatchesRuntime = (
   prefix: string | null = API_PLATFORM_PREFIX,
 ): boolean => {
   if (declared === null) return true;
+
   if (runtime === null) return false;
+
   if (declared === runtime) return true;
+
   if (!isApiPlatformGeneratedRouteName(declared) || !isApiPlatformGeneratedRouteName(runtime))
     return false;
+
   return (
     canonicalApiPlatformRouteName(declared, prefix ?? "/") ===
     canonicalApiPlatformRouteName(runtime, prefix ?? "/")
@@ -2244,6 +2611,7 @@ const sameOperation = (
   declaredValueMatchesRuntime(left.method, right.method) &&
   declaredUriMatchesRuntime(left.uriTemplate, right.uriTemplate, apiPrefix) &&
   declaredOperationIdMatchesRuntime(left.operationId, right.operationId, apiPrefix);
+
 const sameOperationObservations = (
   left: Pick<ApiDeclaration, "resourceKey" | "providerRef" | "processorRef" | "schemaRef">,
   right: RuntimeOperation,
@@ -2275,36 +2643,45 @@ const operationMatchScore = (
   )
     return null;
   let score = 0;
+
   if (left.method !== null && left.method !== right.method) score += 4;
+
   if (
     left.uriTemplate !== null &&
     !declaredUriMatchesRuntime(left.uriTemplate, right.uriTemplate, apiPrefix)
   )
     score += 4;
+
   if (
     left.operationId !== null &&
     !declaredOperationIdMatchesRuntime(left.operationId, right.operationId, apiPrefix)
   )
     score += 4;
+
   if (
     left.resourceKey !== null &&
     !declaredValueMatchesRuntime(left.resourceKey, right.resourceKey)
   )
     score += 2;
+
   if (
     left.providerRef !== null &&
     !declaredValueMatchesRuntime(left.providerRef, right.providerRef)
   )
     score += 2;
+
   if (
     left.processorRef !== null &&
     !declaredValueMatchesRuntime(left.processorRef, right.processorRef)
   )
     score += 2;
+
   if (left.schemaRef !== null && !declaredValueMatchesRuntime(left.schemaRef, right.schemaRef))
     score += 2;
+
   return score;
 };
+
 const operationDeclarationSpecificity = (declaration: ApiDeclaration): number =>
   [
     declaration.operationName,
@@ -2327,9 +2704,12 @@ const runtimeApiRouteKey = (
   const effectivePrefix = prefix ?? "/";
   const canonicalPath = canonicalApiPlatformPath(path, effectivePrefix);
   const canonicalName = canonicalApiPlatformRouteName(routeName, effectivePrefix);
+
   if (canonicalPath === null || canonicalName === null) return null;
+
   const canonicalMethod =
     isApiPlatformGeneratedRouteName(routeName) && method === "HEAD" ? "GET" : method;
+
   return canonicalJson([canonicalName, canonicalMethod, canonicalPath]);
 };
 
@@ -2359,20 +2739,27 @@ const reconcileApiPlatformRouteRows = (
       readonly declaration: ApiDeclaration;
     } | null
   >();
+
   for (const [runtimeIndex, declaration] of matchedStaticOperations) {
     const operation = runtimeOperations[runtimeIndex];
+
     if (operation === undefined) continue;
+
     const key = runtimeApiRouteKey(
       operation.operationId,
       operation.method,
       operation.uriTemplate,
       apiPrefix,
     );
+
     if (key === null) continue;
+
     if (operationsByKey.has(key)) operationsByKey.set(key, null);
     else operationsByKey.set(key, { runtimeIndex, operation, declaration });
   }
+
   const matchedRouteRowIds = new Set<string>();
+
   const routeEvidenceByRuntimeIndex = new Map<
     number,
     {
@@ -2380,17 +2767,26 @@ const reconcileApiPlatformRouteRows = (
       readonly runtimeObservationRefIds: readonly string[];
     }
   >();
+
   const reconciledRows: InventoryRow[] = routeRows.map((row): InventoryRow => {
-    if (row.status !== "extra" || !row.observation_kinds.includes("runtime_resolution")) return row;
-    const details = row.details as MonoRouteDetails;
+    if (
+      row.inventory_kind !== "mono_route" ||
+      row.status !== "extra" ||
+      !row.observation_kinds.includes("runtime_resolution")
+    )
+      return row;
+    const details = row.details;
+
     const key = runtimeApiRouteKey(
       details.route_name,
       details.method,
       details.path_template,
       apiPrefix,
     );
+
     if (key === null) return row;
     const matched = operationsByKey.get(key);
+
     if (matched === undefined || matched === null) return row;
     matchedRouteRowIds.add(row.row_id);
     const previousEvidence = routeEvidenceByRuntimeIndex.get(matched.runtimeIndex);
@@ -2409,13 +2805,11 @@ const reconcileApiPlatformRouteRows = (
             ]),
           },
     );
+
     return {
       ...row,
       status: "covered",
-      observation_kinds: sortUnique([
-        ...row.observation_kinds,
-        "static_source",
-      ]) as InventoryRow["observation_kinds"],
+      observation_kinds: sortUnique([...row.observation_kinds, "static_source"]),
       source_ref_ids: sortUnique([...row.source_ref_ids, ...matched.declaration.sourceRefIds]),
       mismatch: mismatch("none", [], null),
       reason_codes: row.reason_codes.filter((reason) => reason !== "RUNTIME_ONLY_SOURCE"),
@@ -2428,8 +2822,10 @@ const reconcileApiPlatformRouteRows = (
       },
     };
   });
+
   return { rows: reconciledRows, matchedRouteRowIds, routeEvidenceByRuntimeIndex };
 };
+
 const addRouteEvidenceToApiRows = (
   rows: InventoryRow[],
   runtimeRows: readonly InventoryRow[],
@@ -2446,27 +2842,34 @@ const addRouteEvidenceToApiRows = (
   for (const [runtimeIndex, evidence] of routeEvidenceByRuntimeIndex) {
     const declaration = matchedStaticOperations.get(runtimeIndex);
     const runtimeRow = runtimeRows[runtimeIndex];
+
     if (declaration === undefined || runtimeRow === undefined) continue;
+
     const staticRowId = rowId(
       "api_operation",
       declarationId("mono", "mono", declaration.logicalPath, "api_operation", declaration.ordinal),
       apiCanonicalKey(declaration),
     );
+
     const staticIndex = rows.findIndex((row) => row.row_id === staticRowId);
     const runtimeRowIndex = rows.findIndex((row) => row.row_id === runtimeRow.row_id);
     const staticRow = staticIndex < 0 ? undefined : rows[staticIndex];
     const runtimeInventoryRow = runtimeRowIndex < 0 ? undefined : rows[runtimeRowIndex];
+
     if (staticRow === undefined || runtimeInventoryRow === undefined) continue;
+
     const sourceRefIds = sortUnique([
       ...staticRow.source_ref_ids,
       ...runtimeInventoryRow.source_ref_ids,
       ...evidence.sourceRefIds,
     ]);
+
     const runtimeObservationRefIds = sortUnique([
       ...staticRow.runtime_observation_ref_ids,
       ...runtimeInventoryRow.runtime_observation_ref_ids,
       ...evidence.runtimeObservationRefIds,
     ]);
+
     rows[staticIndex] = {
       ...staticRow,
       source_ref_ids: sourceRefIds,
@@ -2477,11 +2880,14 @@ const addRouteEvidenceToApiRows = (
       source_ref_ids: sourceRefIds,
       runtime_observation_ref_ids: runtimeObservationRefIds,
     };
+
     const linkIndex = links.findIndex(
       (link) => link.from_row_id === staticRowId && link.to_row_id === runtimeRow.row_id,
     );
+
     if (linkIndex >= 0) {
       const link = links[linkIndex];
+
       if (link !== undefined)
         links[linkIndex] = {
           ...link,
@@ -2497,6 +2903,7 @@ const removeRouteRowsFromEdges = (
 ): readonly DerivationEdge[] =>
   edges.flatMap((edge) => {
     const toRowIds = edge.to_row_ids.filter((rowIdValue) => !removedRowIds.has(rowIdValue));
+
     return toRowIds.length === 0
       ? []
       : [
@@ -2510,19 +2917,24 @@ const removeRouteRowsFromEdges = (
 
 const applyDuplicateGroups = (rows: InventoryRow[]): void => {
   const groups = new Map<string, InventoryRow[]>();
+
   for (const row of rows.filter((candidate) =>
     candidate.observation_kinds.includes("static_source"),
   )) {
     const key = `${row.authority_line}\u0000${row.inventory_kind}\u0000${row.canonical_key}`;
     const group = groups.get(key);
+
     if (group === undefined) groups.set(key, [row]);
     else group.push(row);
   }
+
   for (const group of groups.values()) {
     if (group.length < 2) continue;
     const first = group[0];
+
     if (first === undefined) continue;
     const duplicateGroupId = `dup-${sha256Hex(canonicalJson({ authority_scope: first.authority_line, inventory_kind: first.inventory_kind, canonical_key: first.canonical_key }))}`;
+
     for (const row of group) {
       const index = rows.findIndex((candidate) => candidate.row_id === row.row_id);
       rows[index] = {
@@ -2545,72 +2957,85 @@ const applyDuplicateGroups = (rows: InventoryRow[]): void => {
 const openApiSourceRef = (context: ManifestContext): string =>
   runtimeSourceRef(context, OPENAPI_PATH, "mono_openapi_projection");
 
-const isOpenApiRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-const hasOwn = (value: Record<string, unknown>, key: string): boolean =>
+const isOpenApiRecord = isJsonObject;
+
+const hasOwn = (value: Record<string, Schema.Json>, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(value, key);
-const OPENAPI_METHOD_KEYS: Record<string, true> = {
-  get: true,
-  head: true,
-  post: true,
-  put: true,
-  patch: true,
-  delete: true,
-  options: true,
-  trace: true,
-};
-const OPENAPI_COMPONENT_KEYS: Record<string, true> = {
-  schemas: true,
-  responses: true,
-  parameters: true,
-  examples: true,
-  requestBodies: true,
-  headers: true,
-  securitySchemes: true,
-  links: true,
-  callbacks: true,
-  pathItems: true,
-};
-const OPENAPI_PATH_ITEM_KEYS: Record<string, true> = {
-  $ref: true,
-  summary: true,
-  description: true,
-  servers: true,
-  parameters: true,
+
+const OPENAPI_METHOD_KEYS = new Map<string, boolean>([
+  ["get", true],
+  ["head", true],
+  ["post", true],
+  ["put", true],
+  ["patch", true],
+  ["delete", true],
+  ["options", true],
+  ["trace", true],
+]);
+
+const OPENAPI_COMPONENT_KEYS = new Map<string, boolean>([
+  ["schemas", true],
+  ["responses", true],
+  ["parameters", true],
+  ["examples", true],
+  ["requestBodies", true],
+  ["headers", true],
+  ["securitySchemes", true],
+  ["links", true],
+  ["callbacks", true],
+  ["pathItems", true],
+]);
+
+const OPENAPI_PATH_ITEM_KEYS = new Map<string, boolean>([
+  ["$ref", true],
+  ["summary", true],
+  ["description", true],
+  ["servers", true],
+  ["parameters", true],
   ...OPENAPI_METHOD_KEYS,
-};
+]);
 
 const OPENAPI_ROUTE_KEY_PREFIX = "__openapi_route_template_";
+
 const OPENAPI_COMPONENT_KEY_PREFIX = "__openapi_component_entry_";
 
 const openApiRouteKeyIsUnsafe = (key: string): boolean =>
   unsafeScalarReason(key, "route_path") !== null;
-const openApiPayloadIsParsedDocument = (value: unknown): value is Record<string, unknown> =>
+
+const openApiPayloadIsParsedDocument = (value: Schema.Json): value is Record<string, Schema.Json> =>
   isOpenApiRecord(value) &&
-  typeof value.openapi === "string" &&
+  Predicate.isString(value.openapi) &&
   isOpenApiRecord(value.info) &&
   isOpenApiRecord(value.paths) &&
   isOpenApiRecord(value.components);
+
 type OpenApiPathsMapContext = "none" | "root" | "wrapper";
+
 type OpenApiComponentsMapContext = "none" | "document" | "section";
-type OpenApiSafetyProjectionResult = { readonly value: unknown; readonly unsafe: boolean };
+
+type OpenApiSafetyProjectionResult = { readonly value: Schema.Json; readonly unsafe: boolean };
+
 const OPENAPI_SCHEMA_PROPERTY_PREFIX = "__openapi_schema_property_";
-const OPENAPI_SCHEMA_VALUE_KEYS: Record<string, true> = {
-  example: true,
-  examples: true,
-  default: true,
-  defaults: true,
-  value: true,
-  values: true,
-  const: true,
-  enum: true,
-};
+
+const OPENAPI_SCHEMA_VALUE_KEYS = new Map<string, boolean>([
+  ["example", true],
+  ["examples", true],
+  ["default", true],
+  ["defaults", true],
+  ["value", true],
+  ["values", true],
+  ["const", true],
+  ["enum", true],
+]);
+
 const openApiSchemaPropertyIsSensitive = (key: string): boolean =>
   unsafeScalarReason("fixture", key) !== null;
-const openApiSensitiveSchemaValueUnsafe = (key: string, value: unknown): boolean =>
+
+const openApiSensitiveSchemaValueUnsafe = (key: string, value: Schema.Json): boolean =>
   unsafeStructuredValueReason({ token: { [key]: value } }) !== null;
+
 const openApiSafetyProjection = (
-  value: unknown,
+  value: Schema.Json,
   pathsMap: OpenApiPathsMapContext = "none",
   atDocumentRoot = false,
   routeOrdinal = { value: 0 },
@@ -2618,8 +3043,9 @@ const openApiSafetyProjection = (
   schemaPropertyValueRoot = false,
   componentsMap: OpenApiComponentsMapContext = "none",
 ): OpenApiSafetyProjectionResult => {
-  if (Array.isArray(value)) {
-    const projectedEntries: unknown[] = [];
+  if (Arr.isArray<Schema.Json | undefined>(value)) {
+    const projectedEntries: Schema.Json[] = [];
+
     for (const entry of value) {
       const projected = openApiSafetyProjection(
         entry,
@@ -2629,11 +3055,14 @@ const openApiSafetyProjection = (
         sensitiveSchemaProperty,
         schemaPropertyValueRoot,
       );
+
       if (projected.unsafe) return projected;
       projectedEntries.push(projected.value);
     }
+
     return { value: projectedEntries, unsafe: false };
   }
+
   if (!isOpenApiRecord(value)) {
     if (
       schemaPropertyValueRoot &&
@@ -2642,18 +3071,23 @@ const openApiSafetyProjection = (
       openApiSensitiveSchemaValueUnsafe("value", value)
     )
       return { value, unsafe: true };
+
     return { value, unsafe: false };
   }
-  const projected: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+
+  const projected: Record<string, Schema.Json> = Object.create(null);
+
   if (componentsMap === "section") {
     for (const [, component] of Object.entries(value).sort(([left], [right]) =>
       compareByteOrder(left, right),
     )) {
       let componentKey: string;
+
       do {
         componentKey = `${OPENAPI_COMPONENT_KEY_PREFIX}${routeOrdinal.value}`;
         routeOrdinal.value += 1;
       } while (hasOwn(value, componentKey));
+
       const child = openApiSafetyProjection(
         component,
         "none",
@@ -2662,19 +3096,24 @@ const openApiSafetyProjection = (
         sensitiveSchemaProperty,
         schemaPropertyValueRoot,
       );
+
       if (child.unsafe) return child;
       projected[componentKey] = child.value;
     }
+
     return { value: projected, unsafe: false };
   }
+
   for (const [key, entry] of Object.entries(value)) {
     if (pathsMap !== "none" && key.startsWith("/")) {
       if (openApiRouteKeyIsUnsafe(key)) return { value, unsafe: true };
       let routeKey: string;
+
       do {
         routeKey = `${OPENAPI_ROUTE_KEY_PREFIX}${routeOrdinal.value}`;
         routeOrdinal.value += 1;
       } while (hasOwn(value, routeKey));
+
       const child = openApiSafetyProjection(
         entry,
         "none",
@@ -2682,23 +3121,25 @@ const openApiSafetyProjection = (
         routeOrdinal,
         sensitiveSchemaProperty,
       );
+
       if (child.unsafe) return child;
       projected[routeKey] = child.value;
       continue;
     }
+
     if (key === "properties" && isOpenApiRecord(entry)) {
-      const projectedProperties: Record<string, unknown> = Object.create(null) as Record<
-        string,
-        unknown
-      >;
+      const projectedProperties: Record<string, Schema.Json> = Object.create(null);
+
       for (const [propertyName, schema] of Object.entries(entry).sort(([left], [right]) =>
         compareByteOrder(left, right),
       )) {
         let propertyKey: string;
+
         do {
           propertyKey = `${OPENAPI_SCHEMA_PROPERTY_PREFIX}${routeOrdinal.value}`;
           routeOrdinal.value += 1;
         } while (hasOwn(entry, propertyKey));
+
         const child = openApiSafetyProjection(
           schema,
           "none",
@@ -2707,18 +3148,22 @@ const openApiSafetyProjection = (
           sensitiveSchemaProperty || openApiSchemaPropertyIsSensitive(propertyName),
           true,
         );
+
         if (child.unsafe) return child;
         projectedProperties[propertyKey] = child.value;
       }
+
       projected[key] = projectedProperties;
       continue;
     }
+
     if (
       sensitiveSchemaProperty &&
-      OPENAPI_SCHEMA_VALUE_KEYS[key] === true &&
+      OPENAPI_SCHEMA_VALUE_KEYS.get(key) === true &&
       openApiSensitiveSchemaValueUnsafe(key, entry)
     )
       return { value, unsafe: true };
+
     const childPathsMap: OpenApiPathsMapContext = !isOpenApiRecord(entry)
       ? "none"
       : atDocumentRoot && key === "paths"
@@ -2726,13 +3171,15 @@ const openApiSafetyProjection = (
         : pathsMap === "root" && key === "paths"
           ? "wrapper"
           : "none";
+
     const childComponentsMap: OpenApiComponentsMapContext = !isOpenApiRecord(entry)
       ? "none"
       : atDocumentRoot && key === "components"
         ? "document"
-        : componentsMap === "document" && OPENAPI_COMPONENT_KEYS[key] === true
+        : componentsMap === "document" && OPENAPI_COMPONENT_KEYS.get(key) === true
           ? "section"
           : "none";
+
     const child = openApiSafetyProjection(
       entry,
       childPathsMap,
@@ -2742,22 +3189,31 @@ const openApiSafetyProjection = (
       false,
       childComponentsMap,
     );
+
     if (child.unsafe) return child;
     projected[key] = child.value;
   }
+
   return { value: projected, unsafe: false };
 };
-const openApiPayloadContainsUnsafe = (value: unknown): boolean => {
+
+const openApiPayloadContainsUnsafe = (value: Schema.Json): boolean => {
   if (!openApiPayloadIsParsedDocument(value)) return payloadContainsUnsafe(value);
   const projected = openApiSafetyProjection(value, "none", true);
+
   return projected.unsafe || payloadContainsUnsafe(projected.value);
 };
 
-const openApiRefTarget = (root: Record<string, unknown>, reference: string): unknown => {
+const openApiRefTarget = (
+  root: Record<string, Schema.Json>,
+  reference: string,
+): Schema.Json | undefined => {
   if (!reference.startsWith("#/components/")) return undefined;
   const components = root.components;
+
   if (!isOpenApiRecord(components)) return undefined;
-  let current: unknown = components;
+  let current: Schema.Json | undefined = components;
+
   for (const segment of reference
     .slice("#/components/".length)
     .split("/")
@@ -2765,47 +3221,57 @@ const openApiRefTarget = (root: Record<string, unknown>, reference: string): unk
     if (!isOpenApiRecord(current) || !hasOwn(current, segment)) return undefined;
     current = current[segment];
   }
+
   return current;
 };
 
 const openApiRefsResolvable = (
-  root: Record<string, unknown>,
-  value: unknown,
+  root: Record<string, Schema.Json>,
+  value: Schema.Json | undefined,
   seen = new Set<object>(),
 ): boolean => {
-  if (Array.isArray(value)) return value.every((entry) => openApiRefsResolvable(root, entry, seen));
+  if (Arr.isArray<Schema.Json | undefined>(value))
+    return value.every((entry) => openApiRefsResolvable(root, entry, seen));
+
   if (!isOpenApiRecord(value)) return true;
+
   if (seen.has(value)) return true;
   seen.add(value);
   const reference = value.$ref;
+
   if (
     reference !== undefined &&
-    (typeof reference !== "string" || openApiRefTarget(root, reference) === undefined)
+    (!Predicate.isString(reference) || openApiRefTarget(root, reference) === undefined)
   )
     return false;
+
   return Object.values(value).every((entry) => openApiRefsResolvable(root, entry, seen));
 };
 
-const openApiResponseValid = (response: Record<string, unknown>): boolean => {
+const openApiResponseValid = (response: Record<string, Schema.Json>): boolean => {
   if (hasOwn(response, "$ref")) {
-    if (typeof response.$ref !== "string" || response.$ref.length === 0) return false;
+    if (!Predicate.isString(response.$ref) || response.$ref.length === 0) return false;
+
     return Object.entries(response).every(
       ([key, value]) =>
         key === "$ref" ||
-        ((key === "summary" || key === "description") && typeof value === "string"),
+        ((key === "summary" || key === "description") && Predicate.isString(value)),
     );
   }
-  return hasOwn(response, "description") && typeof response.description === "string";
+
+  return hasOwn(response, "description") && Predicate.isString(response.description);
 };
 
-const openApiOperationValid = (operation: Record<string, unknown>): boolean => {
-  if (hasOwn(operation, "operationId") && typeof operation.operationId !== "string") return false;
+const openApiOperationValid = (operation: Record<string, Schema.Json>): boolean => {
+  if (hasOwn(operation, "operationId") && !Predicate.isString(operation.operationId)) return false;
+
   if (
     !hasOwn(operation, "responses") ||
     !isOpenApiRecord(operation.responses) ||
     Object.keys(operation.responses).length === 0
   )
     return false;
+
   return Object.entries(operation.responses).every(
     ([status, response]) =>
       (status === "default" || /^[1-5](?:\d{2}|XX)$/.test(status)) &&
@@ -2814,29 +3280,35 @@ const openApiOperationValid = (operation: Record<string, unknown>): boolean => {
   );
 };
 
-const openApiPathItemValid = (item: Record<string, unknown>): boolean => {
+const openApiPathItemValid = (item: Record<string, Schema.Json>): boolean => {
   for (const [key, value] of Object.entries(item)) {
-    if (OPENAPI_PATH_ITEM_KEYS[key] !== true) return false;
-    if (OPENAPI_METHOD_KEYS[key] === true) {
+    if (OPENAPI_PATH_ITEM_KEYS.get(key) !== true) return false;
+
+    if (OPENAPI_METHOD_KEYS.get(key) === true) {
       if (!isOpenApiRecord(value) || !openApiOperationValid(value)) return false;
       continue;
     }
+
     if (key === "$ref" || key === "summary" || key === "description") {
-      if (typeof value !== "string" || value.length === 0) return false;
+      if (!Predicate.isString(value) || value.length === 0) return false;
       continue;
     }
+
     if (
       (key === "servers" || key === "parameters") &&
-      (!Array.isArray(value) || value.some((entry) => !isOpenApiRecord(entry)))
+      (!Arr.isArray<Schema.Json | undefined>(value) ||
+        value.some((entry) => !isOpenApiRecord(entry)))
     )
       return false;
   }
+
   return true;
 };
 
-const openApiComponentsValid = (components: Record<string, unknown>): boolean => {
+const openApiComponentsValid = (components: Record<string, Schema.Json>): boolean => {
   for (const [sectionName, section] of Object.entries(components)) {
-    if (OPENAPI_COMPONENT_KEYS[sectionName] !== true || !isOpenApiRecord(section)) return false;
+    if (OPENAPI_COMPONENT_KEYS.get(sectionName) !== true || !isOpenApiRecord(section)) return false;
+
     if (
       Object.values(section).some(
         (entry) =>
@@ -2845,36 +3317,48 @@ const openApiComponentsValid = (components: Record<string, unknown>): boolean =>
     )
       return false;
   }
+
   return true;
 };
 
 interface ValidOpenApiDocument {
-  readonly paths: Record<string, unknown>;
+  readonly paths: Record<string, Schema.Json>;
   readonly documentSha256: string;
 }
 
-const validOpenApiDocument = (value: unknown): ValidOpenApiDocument | null => {
+const validOpenApiDocument = (value: Schema.Json): ValidOpenApiDocument | null => {
   if (!isOpenApiRecord(value) || openApiPayloadContainsUnsafe(value)) return null;
   const openapi = value.openapi;
-  if (typeof openapi !== "string" || !/^3\.(?:0|1)\.\d+$/.test(openapi)) return null;
+
+  if (!Predicate.isString(openapi) || !/^3\.(?:0|1)\.\d+$/.test(openapi)) return null;
   const info = value.info;
-  if (!isOpenApiRecord(info) || typeof info.title !== "string" || typeof info.version !== "string")
+
+  if (
+    !isOpenApiRecord(info) ||
+    !Predicate.isString(info.title) ||
+    !Predicate.isString(info.version)
+  )
     return null;
   const components = value.components;
+
   if (!isOpenApiRecord(components) || !openApiComponentsValid(components)) return null;
   const paths = value.paths;
+
   if (!isOpenApiRecord(paths)) return null;
+
   if (
     Object.keys(paths).some(
       (path) =>
         !path.startsWith("/") ||
         !isOpenApiRecord(paths[path]) ||
-        !openApiPathItemValid(paths[path] as Record<string, unknown>),
+        !openApiPathItemValid(paths[path]),
     )
   )
     return null;
+
   if (!openApiRefsResolvable(value, paths) || !openApiRefsResolvable(value, components))
     return null;
+
   try {
     return { paths, documentSha256: sha256(canonicalJson(value)) };
   } catch {
@@ -2885,72 +3369,77 @@ const validOpenApiDocument = (value: unknown): ValidOpenApiDocument | null => {
 const projectedOpenApiPath = (path: string): string => {
   const normalized = normalizePath(path) ?? path;
   const canonical = normalized.replaceAll(".{_format}", "{._format}");
+
   if (canonical === "/api" || canonical.startsWith("/api/")) return canonical;
+
   if (canonical === "/") return "/api";
+
   return `/api${canonical.startsWith("/") ? canonical : `/${canonical}`}`;
 };
-const safeSchema = (value: unknown, depth = 0): unknown => {
-  if (depth > 12 || value === null || typeof value !== "object" || Array.isArray(value))
-    return null;
-  const object = value as Record<string, unknown>;
-  const result: Record<string, unknown> = {};
+
+const safeSchema = (value: Schema.Json | undefined, depth = 0): Schema.Json => {
+  if (depth > 12 || !isJsonObject(value)) return null;
+  const object = value;
+  const result: Record<string, Schema.Json> = {};
+
   for (const key of ["$ref", "type", "format", "nullable"] as const) {
     const scalar = object[key];
-    if (typeof scalar === "string" || typeof scalar === "boolean") {
+
+    if (Predicate.isString(scalar) || Predicate.isBoolean(scalar)) {
       const safe = decodeScalar(scalar, key);
+
       if (!safe.unsafe) result[key] = safe.value ?? scalar;
     }
   }
-  if (Array.isArray(object.required))
+
+  if (Arr.isArray<Schema.Json | undefined>(object.required))
     result.required = object.required
       .filter(
         (entry): entry is string =>
-          typeof entry === "string" && !payloadContainsUnsafe(entry, "field"),
+          Predicate.isString(entry) && !payloadContainsUnsafe(entry, "field"),
       )
       .sort(compareByteOrder);
+
   if (object.items !== undefined) result.items = safeSchema(object.items, depth + 1);
-  if (
-    object.properties !== null &&
-    typeof object.properties === "object" &&
-    !Array.isArray(object.properties)
-  ) {
+
+  if (isJsonObject(object.properties)) {
     result.properties = Object.fromEntries(
-      Object.entries(object.properties as Record<string, unknown>)
+      Object.entries(object.properties)
         .sort(([left], [right]) => compareByteOrder(left, right))
         .map(([key, schema]) => [key, safeSchema(schema, depth + 1)]),
     );
   }
+
   return result;
 };
 
-const responseSchemaDigest = (operation: Record<string, unknown>): string => {
+const responseSchemaDigest = (operation: Record<string, Schema.Json>): string => {
   const responses = operation.responses;
-  const responseDigest =
-    responses !== null && typeof responses === "object" && !Array.isArray(responses)
-      ? Object.fromEntries(
-          Object.entries(responses as Record<string, unknown>)
-            .sort(([left], [right]) => compareByteOrder(left, right))
-            .map(([status, response]) => {
-              if (response === null || typeof response !== "object" || Array.isArray(response))
-                return [status, null];
-              const content = (response as Record<string, unknown>).content;
-              const contentDigest =
-                content !== null && typeof content === "object" && !Array.isArray(content)
-                  ? Object.fromEntries(
-                      Object.entries(content as Record<string, unknown>)
-                        .sort(([left], [right]) => compareByteOrder(left, right))
-                        .map(([media, item]) => [
-                          media,
-                          item !== null && typeof item === "object" && !Array.isArray(item)
-                            ? safeSchema((item as Record<string, unknown>).schema)
-                            : null,
-                        ]),
-                    )
-                  : null;
-              return [status, contentDigest];
-            }),
-        )
-      : null;
+
+  const responseDigest = isJsonObject(responses)
+    ? Object.fromEntries(
+        Object.entries(responses)
+          .sort(([left], [right]) => compareByteOrder(left, right))
+          .map(([status, response]) => {
+            if (!isJsonObject(response)) return [status, null];
+            const content = response.content;
+
+            const contentDigest = isJsonObject(content)
+              ? Object.fromEntries(
+                  Object.entries(content)
+                    .sort(([left], [right]) => compareByteOrder(left, right))
+                    .map(([media, item]) => [
+                      media,
+                      isJsonObject(item) ? safeSchema(item.schema) : null,
+                    ]),
+                )
+              : null;
+
+            return [status, contentDigest];
+          }),
+      )
+    : null;
+
   return sha256(canonicalJson({ responses: responseDigest }));
 };
 
@@ -2959,30 +3448,41 @@ interface NormalizedOpenApiDocument {
   readonly documentSha256: string;
 }
 
-const normaliseOpenApiDocument = (payload: unknown): NormalizedOpenApiDocument | null => {
+const normaliseOpenApiDocument = (payload: Schema.Json): NormalizedOpenApiDocument | null => {
   const validated = validOpenApiDocument(payload);
+
   if (validated === null) return null;
   const operations: NormalizedOperation[] = [];
+
   for (const path of Object.keys(validated.paths).sort(compareByteOrder)) {
     const safePath = decodeScalar(path, "route_path");
+
     if (safePath.unsafe || safePath.value === null) return null;
     const projectedPath = projectedOpenApiPath(safePath.value);
     const item = validated.paths[path];
+
     if (!isOpenApiRecord(item)) return null;
+
     for (const [rawMethod, value] of Object.entries(item).sort(([left], [right]) =>
       compareByteOrder(left, right),
     )) {
       const method = normaliseMethod(rawMethod);
+
       if (method === null) continue;
+
       if (value === null) continue;
+
       if (!isOpenApiRecord(value)) return null;
       const operationId = decodeScalar(value.operationId, "field");
+
       if (operationId.unsafe) return null;
+
       const identity = canonicalJson({
         method,
         operation_id_or_null: operationId.value,
         path_template: projectedPath,
       });
+
       const responseDigest = responseSchemaDigest(value);
       operations.push({
         identity,
@@ -2995,6 +3495,7 @@ const normaliseOpenApiDocument = (payload: unknown): NormalizedOpenApiDocument |
       });
     }
   }
+
   return {
     operations: operations.sort(
       (left, right) =>
@@ -3005,7 +3506,7 @@ const normaliseOpenApiDocument = (payload: unknown): NormalizedOpenApiDocument |
   };
 };
 
-const normaliseOpenApi = (payload: unknown): readonly NormalizedOperation[] | null =>
+const normaliseOpenApi = (payload: Schema.Json): readonly NormalizedOperation[] | null =>
   normaliseOpenApiDocument(payload)?.operations ?? null;
 
 const operationSetDigest = (operations: readonly NormalizedOperation[]): string =>
@@ -3017,37 +3518,49 @@ const reconcileOpenApi = (
   runtime: RuntimeCollection,
 ): OpenApiReconciliation => {
   const committedResult = readSourceTextDetailed(context, "mono", OPENAPI_PATH);
+
   const committedRef =
     committedResult.status === "available"
       ? openApiSourceRef(context)
       : sourceFailureRef(context, OPENAPI_PATH, committedResult.reason, "mono_openapi_projection");
+
   let committedDocument: NormalizedOpenApiDocument | null = null;
+
   if (
     committedResult.status === "available" &&
     inspectJsonMembers(committedResult.text) === "valid"
   ) {
     try {
-      committedDocument = normaliseOpenApiDocument(JSON.parse(committedResult.text) as unknown);
+      committedDocument = normaliseOpenApiDocument(
+        Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(committedResult.text),
+      );
     } catch {
       committedDocument = null;
     }
   }
+
   const regeneratedDocument =
     runtime.openApiPayload === null ? null : normaliseOpenApiDocument(runtime.openApiPayload);
+
   const committed = committedDocument?.operations ?? null;
   const regenerated = regeneratedDocument?.operations ?? null;
+
   const committedByIdentity = new Map(
     (committed ?? []).map((operation) => [operation.identity, operation.digest]),
   );
+
   const regeneratedByIdentity = new Map(
     (regenerated ?? []).map((operation) => [operation.identity, operation.digest]),
   );
+
   const onlyCommitted = [...committedByIdentity.keys()]
     .filter((key) => !regeneratedByIdentity.has(key))
     .sort(compareByteOrder);
+
   const onlyRegenerated = [...regeneratedByIdentity.keys()]
     .filter((key) => !committedByIdentity.has(key))
     .sort(compareByteOrder);
+
   const changedOperations = [...committedByIdentity.keys()]
     .filter(
       (key) =>
@@ -3055,11 +3568,14 @@ const reconcileOpenApi = (
         committedByIdentity.get(key) !== regeneratedByIdentity.get(key),
     )
     .sort(compareByteOrder);
+
   const documentsChanged =
     committedDocument !== null &&
     regeneratedDocument !== null &&
     committedDocument.documentSha256 !== regeneratedDocument.documentSha256;
+
   const canCompare = committedDocument !== null && regeneratedDocument !== null;
+
   const status: OpenApiReconciliation["status"] = !canCompare
     ? "unresolved"
     : onlyCommitted.length === 0 &&
@@ -3068,6 +3584,7 @@ const reconcileOpenApi = (
         !documentsChanged
       ? "current"
       : "stale";
+
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-openapi-reconciliation/v1",
@@ -3084,11 +3601,13 @@ const reconcileOpenApi = (
     changed_operations: changedOperations,
   };
 };
+
 const openApiValidationFailure = (
   context: ManifestContext,
   runtime: RuntimeCollection,
 ): ApiCollectionFailure | null => {
   const committedResult = readSourceTextDetailed(context, "mono", OPENAPI_PATH);
+
   if (committedResult.status !== "available") {
     return {
       status: "source_unavailable",
@@ -3099,7 +3618,9 @@ const openApiValidationFailure = (
       ],
     };
   }
+
   const memberScan = inspectJsonMembers(committedResult.text);
+
   if (memberScan !== "valid") {
     return memberScan === "duplicate"
       ? {
@@ -3115,9 +3636,13 @@ const openApiValidationFailure = (
           sourceRefIds: [openApiSourceRef(context)],
         };
   }
-  let committedPayload: unknown;
+
+  let committedPayload: Schema.Json;
+
   try {
-    committedPayload = JSON.parse(committedResult.text) as unknown;
+    committedPayload = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+      committedResult.text,
+    );
   } catch {
     return {
       status: "source_unavailable",
@@ -3126,6 +3651,7 @@ const openApiValidationFailure = (
       sourceRefIds: [openApiSourceRef(context)],
     };
   }
+
   if (normaliseOpenApi(committedPayload) === null) {
     return {
       status: "schema_invalid",
@@ -3134,6 +3660,7 @@ const openApiValidationFailure = (
       sourceRefIds: [openApiSourceRef(context)],
     };
   }
+
   if (runtime.openApiPayload !== null && normaliseOpenApi(runtime.openApiPayload) === null) {
     return {
       status: "schema_invalid",
@@ -3142,8 +3669,10 @@ const openApiValidationFailure = (
       sourceRefIds: runtime.sourceRefIds,
     };
   }
+
   return null;
 };
+
 const openApiProjectionRef = (
   operation:
     | Pick<ApiDeclaration, "method" | "uriTemplate" | "operationId">
@@ -3154,11 +3683,13 @@ const openApiProjectionRef = (
   if (projection === null) return null;
   const operationId = "operation_id" in operation ? operation.operation_id : operation.operationId;
   const uriTemplate = "uri_template" in operation ? operation.uri_template : operation.uriTemplate;
+
   const identity = canonicalJson({
     method: operation.method,
     operation_id_or_null: operationId,
     path_template: uriTemplate === null ? null : projectedOpenApiPath(uriTemplate),
   });
+
   return projection.some((candidate) => candidate.identity === identity) ? identity : null;
 };
 
@@ -3180,18 +3711,24 @@ const h3RowSourceRefs = (
   failures: ApiCollectionFailure[],
   sourceManifestDigests: ReadonlyMap<string, string>,
 ): string[] => {
-  const result = [runtimeSourceRef(context, artifactPath, "mono_h3_derivation")];
+  const result: [string, ...string[]] = [
+    runtimeSourceRef(context, artifactPath, "mono_h3_derivation"),
+  ];
+
   for (const ref of refs) {
     const source = /^source:(.+):(\d+|\?):([a-f0-9]{64})$/i.exec(ref);
     const collector = /^collector:sha256:([a-f0-9]{64}):/i.exec(ref);
+
     if (source !== null) {
       const path = source[1];
       const line = source[2] === "?" ? null : Number(source[2]);
       const digest = source[3];
+
       const file =
         path === undefined
           ? undefined
           : context.scans.mono.files.find((candidate) => candidate.path === path);
+
       if (
         file === undefined ||
         file.availability !== "available" ||
@@ -3201,26 +3738,30 @@ const h3RowSourceRefs = (
           status: "schema_invalid",
           reasonCode: "H3_SOURCE_DIGEST_MISMATCH",
           rowIds: [],
-          sourceRefIds: [result[0] as string],
+          sourceRefIds: [result[0]],
         });
         continue;
       }
+
       if (path === undefined || sourceManifestDigests.get(path) !== `sha256:${digest}`) {
         failures.push({
           status: "schema_invalid",
           reasonCode: "H3_SOURCE_MANIFEST_DIGEST_MISMATCH",
           rowIds: [],
-          sourceRefIds: [result[0] as string],
+          sourceRefIds: [result[0]],
         });
         continue;
       }
+
       result.push(apiResourceSourceRef(context, path, line, line, "mono_h3_derivation"));
       continue;
     }
+
     if (collector !== null) {
       const file = context.scans.mono.files.find(
         (candidate) => candidate.path === H3_COLLECTOR_PATH,
       );
+
       if (
         file === undefined ||
         file.availability !== "available" ||
@@ -3230,22 +3771,26 @@ const h3RowSourceRefs = (
           status: "schema_invalid",
           reasonCode: "H3_COLLECTOR_DIGEST_MISMATCH",
           rowIds: [],
-          sourceRefIds: [result[0] as string],
+          sourceRefIds: [result[0]],
         });
         continue;
       }
+
       result.push(runtimeSourceRef(context, H3_COLLECTOR_PATH, "mono_h3_derivation"));
       continue;
     }
+
     failures.push({
       status: "schema_invalid",
       reasonCode: "H3_SOURCE_REF_INVALID",
       rowIds: [],
-      sourceRefIds: [result[0] as string],
+      sourceRefIds: [result[0]],
     });
   }
+
   return sortUnique(result);
 };
+
 const sharesH3Source = (
   context: ManifestContext,
   row: InventoryRow,
@@ -3254,23 +3799,30 @@ const sharesH3Source = (
   const verifiedPaths = new Set(
     h3SourceRefs.flatMap((sourceRefId) => {
       const source = context.sourcePathById.get(sourceRefId);
+
       return source?.rootRef === "mono" ? [source.path] : [];
     }),
   );
+
   return row.source_ref_ids.some((sourceRefId) => {
     const source = context.sourcePathById.get(sourceRefId);
+
     return source?.rootRef === "mono" && verifiedPaths.has(source.path);
   });
 };
 
-const h3Path = (value: unknown): string | null => {
-  if (typeof value !== "string") return null;
+const h3Path = (value: Schema.Json | undefined): string | null => {
+  if (!Predicate.isString(value)) return null;
   const safe = decodeScalar(value, "route_path");
+
   return safe.unsafe ? null : canonicalApiPlatformPath(safe.value);
 };
 
-const h3Methods = (value: Record<string, unknown>): readonly string[] => {
-  const values = Array.isArray(value.methods) ? value.methods : [value.method];
+const h3Methods = (value: Record<string, Schema.Json>): readonly string[] => {
+  const values = Arr.isArray<Schema.Json | undefined>(value.methods)
+    ? value.methods
+    : [value.method];
+
   return sortUnique(
     values.map(normaliseMethod).filter((method): method is string => method !== null),
   );
@@ -3282,16 +3834,18 @@ interface H3ApiIdentity {
   readonly declarationLine: number | null;
 }
 
-const h3Operation = (value: unknown): H3ApiIdentity => {
-  if (typeof value !== "string")
+const h3Operation = (value: Schema.Json | undefined): H3ApiIdentity => {
+  if (!Predicate.isString(value))
     return { resourceClassRef: null, operationName: null, declarationLine: null };
   const safe = decodeScalar(value, "field");
+
   if (safe.unsafe || safe.value === null || !safe.value.startsWith("api:"))
     return { resourceClassRef: null, operationName: null, declarationLine: null };
   const body = safe.value.slice(4);
   const separator = body.indexOf(":");
   const tail = body.lastIndexOf(":");
   const declarationLine = Number(body.slice(tail + 1));
+
   if (
     separator < 1 ||
     tail <= separator ||
@@ -3299,16 +3853,20 @@ const h3Operation = (value: unknown): H3ApiIdentity => {
     declarationLine < 1
   )
     return { resourceClassRef: null, operationName: null, declarationLine: null };
+
   return {
     resourceClassRef: body.slice(0, separator),
     operationName: body.slice(separator + 1, tail),
     declarationLine,
   };
 };
-const h3RouteName = (value: unknown): string | null => {
-  if (typeof value !== "string") return null;
+
+const h3RouteName = (value: Schema.Json | undefined): string | null => {
+  if (!Predicate.isString(value)) return null;
   const safe = decodeScalar(value, "field");
+
   if (safe.unsafe || safe.value === null || !safe.value.startsWith("route:")) return null;
+
   return safe.value.slice(6);
 };
 
@@ -3333,6 +3891,7 @@ const makeH3ApiRow = (
     schema_ref: null,
     openapi_projection_ref: null,
   };
+
   const canonicalKey = apiCanonicalKey({
     resourceClassRef: details.resource_class_ref,
     operationName: details.operation_name,
@@ -3340,6 +3899,7 @@ const makeH3ApiRow = (
     uriTemplate: details.uri_template,
     operationId: details.operation_id,
   });
+
   const declarationIdValue = declarationId(
     "cross_line",
     "mono",
@@ -3347,6 +3907,7 @@ const makeH3ApiRow = (
     "h3_api_operation",
     operation.declarationLine ?? ordinal,
   );
+
   return {
     row_id: rowId("api_operation", declarationIdValue, canonicalKey),
     declaration_id: declarationIdValue,
@@ -3394,13 +3955,16 @@ const makeH3RouteRow = (
     runtime_resolved: false,
     imported_from_ref: sourceRefs[0] ?? null,
   };
+
   const canonicalKey = canonicalJson([
     "http_route",
     details.method,
     details.path_template,
     details.route_name,
   ]);
+
   const declarationIdValue = declarationId("cross_line", "mono", path, "h3_route", ordinal);
+
   return {
     row_id: rowId("mono_route", declarationIdValue, canonicalKey),
     declaration_id: declarationIdValue,
@@ -3430,7 +3994,9 @@ const h3Edge = (
   rowIds: readonly string[],
 ): DerivationEdge | null => {
   const ids = sortUnique(rowIds);
+
   if (ids.length === 0) return null;
+
   return {
     edge_id: edgeId(edgeName, fromRefs, ids),
     edge_type: edgeType,
@@ -3455,12 +4021,14 @@ const addH3Edges = (
   const failures: ApiCollectionFailure[] = [];
   const supportRefs: string[] = [];
   const sourceManifestDigests = new Map<string, string>();
+
   for (const supportPath of [
     H3_GENERATOR_PATH,
     H3_SOURCE_MANIFEST_PATH,
     H3_COLLECTOR_PATH,
   ] as const) {
     const decoded = readSourceTextDetailed(context, "mono", supportPath);
+
     if (decoded.status !== "available") {
       const ref = sourceFailureRef(
         context,
@@ -3469,6 +4037,7 @@ const addH3Edges = (
         "mono_h3_derivation",
         "generated",
       );
+
       supportRefs.push(ref);
       failures.push({
         status: "source_unavailable",
@@ -3478,6 +4047,7 @@ const addH3Edges = (
       });
       continue;
     }
+
     const supportRef = addSourceReference(context, {
       authorityLine: "mono",
       authorityRole: "mono_h3_derivation",
@@ -3488,11 +4058,14 @@ const addH3Edges = (
       symbol: null,
       captureMode: "generated",
     });
+
     supportRefs.push(supportRef);
+
     if (supportPath === H3_GENERATOR_PATH) continue;
-    let supportPayload: unknown;
+    let supportPayload: Schema.Json;
+
     try {
-      supportPayload = JSON.parse(decoded.text) as unknown;
+      supportPayload = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(decoded.text);
     } catch {
       failures.push({
         status: "schema_invalid",
@@ -3502,8 +4075,9 @@ const addH3Edges = (
       });
       continue;
     }
+
     if (supportPath === H3_SOURCE_MANIFEST_PATH) {
-      if (!Array.isArray(supportPayload)) {
+      if (!Arr.isArray<Schema.Json | undefined>(supportPayload)) {
         failures.push({
           status: "schema_invalid",
           reasonCode: "H3_SOURCE_MANIFEST_INVALID",
@@ -3512,20 +4086,23 @@ const addH3Edges = (
         });
         continue;
       }
+
       for (const entry of supportPayload) {
-        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
-        const path = (entry as Record<string, unknown>).path;
-        const rawDigest = (entry as Record<string, unknown>).sha256;
-        if (typeof path !== "string" || typeof rawDigest !== "string") continue;
+        if (!isJsonObject(entry)) continue;
+        const path = entry.path;
+        const rawDigest = entry.sha256;
+
+        if (!Predicate.isString(path) || !Predicate.isString(rawDigest)) continue;
         const digest = rawDigest.startsWith("sha256:") ? rawDigest : `sha256:${rawDigest}`;
+
         if (!/^sha256:[0-9a-f]{64}$/i.test(digest)) continue;
         sourceManifestDigests.set(path, digest.toLowerCase());
       }
     } else if (
       supportPath === H3_COLLECTOR_PATH &&
       (supportPayload === null ||
-        typeof supportPayload !== "object" ||
-        Array.isArray(supportPayload))
+        (!Predicate.isObjectOrArray(supportPayload) && supportPayload !== null) ||
+        Arr.isArray<Schema.Json | undefined>(supportPayload))
     ) {
       failures.push({
         status: "schema_invalid",
@@ -3535,17 +4112,20 @@ const addH3Edges = (
       });
     }
   }
+
   const artifactRows: Array<{
     readonly path: string;
     readonly kind: "route" | "resource";
     readonly artifactRef: string;
-    readonly records: readonly unknown[];
+    readonly records: readonly Schema.Json[];
   }> = [];
+
   for (const [path, kind] of [
     [H3_ROUTE_PATH, "route"],
     [H3_RESOURCE_PATH, "resource"],
   ] as const) {
     const decoded = readSourceTextDetailed(context, "mono", path);
+
     const artifactRef =
       decoded.status === "available"
         ? addSourceReference(context, {
@@ -3559,7 +4139,9 @@ const addH3Edges = (
             captureMode: "generated",
           })
         : sourceFailureRef(context, path, decoded.reason, "mono_h3_derivation", "generated");
+
     sourceRefIds.push(artifactRef);
+
     if (decoded.status !== "available") {
       failures.push({
         status: "source_unavailable",
@@ -3569,9 +4151,11 @@ const addH3Edges = (
       });
       continue;
     }
-    let payload: unknown;
+
+    let payload: Schema.Json;
+
     try {
-      payload = JSON.parse(decoded.text) as unknown;
+      payload = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(decoded.text);
     } catch {
       failures.push({
         status: "schema_invalid",
@@ -3581,10 +4165,11 @@ const addH3Edges = (
       });
       continue;
     }
+
     if (
-      !Array.isArray(payload) ||
+      !Arr.isArray<Schema.Json | undefined>(payload) ||
       payload.length === 0 ||
-      payload.some((entry) => entry === null || typeof entry !== "object" || Array.isArray(entry))
+      payload.some((entry) => !isJsonObject(entry))
     ) {
       failures.push({
         status: "schema_invalid",
@@ -3594,15 +4179,20 @@ const addH3Edges = (
       });
       continue;
     }
+
     artifactRows.push({ path, kind, artifactRef, records: payload });
   }
+
   const seenH3Identities = new Set<string>();
+
   for (const artifact of artifactRows) {
     const targetIds: string[] = [];
     const artifactObservationRefs = sortUnique([artifact.artifactRef, ...supportRefs]);
+
     const artifactDigest =
       context.scans.mono.files.find((file) => file.path === artifact.path)?.digest ??
       sha256(canonicalJson(artifact.records));
+
     const observation: InventoryObservation = {
       observation_id: observationId("derived_h3", artifactObservationRefs, artifactDigest),
       observation_kind: "derived_h3",
@@ -3612,9 +4202,11 @@ const addH3Edges = (
       label: artifact.kind === "route" ? "h3_route_inventory" : "h3_resource_inventory",
       count: artifact.records.length,
     };
+
     (artifact.kind === "route" ? routeObservations : apiObservations).push(observation);
+
     for (const [index, record] of artifact.records.entries()) {
-      if (record === null || typeof record !== "object" || Array.isArray(record)) {
+      if (!isJsonObject(record)) {
         failures.push({
           status: "schema_invalid",
           reasonCode: "H3_DERIVATION_ONLY",
@@ -3623,12 +4215,14 @@ const addH3Edges = (
         });
         continue;
       }
-      const value = record as Record<string, unknown>;
+
+      const value = record;
       const rawRefs = value.source_ref_ids ?? value.sourceRefIds ?? value.classification_basis_refs;
+
       if (
-        !Array.isArray(rawRefs) ||
+        !Arr.isArray<Schema.Json | undefined>(rawRefs) ||
         rawRefs.length === 0 ||
-        rawRefs.some((entry) => typeof entry !== "string")
+        !rawRefs.every(Predicate.isString)
       ) {
         failures.push({
           status: "schema_invalid",
@@ -3638,23 +4232,28 @@ const addH3Edges = (
         });
         continue;
       }
+
       const refs = h3RowSourceRefs(
         context,
-        rawRefs as string[],
+        rawRefs,
         artifact.path,
         failures,
         sourceManifestDigests,
       );
+
       const fromRefs = sortUnique([...artifactObservationRefs, ...refs]);
       const pathTemplate = h3Path(value.path_template ?? value.uri_template);
       const observedMethods = h3Methods(value);
+
       const methods =
         artifact.kind === "route" && pathTemplate !== null && observedMethods.length === 0
           ? ["ANY"]
           : observedMethods;
+
       const rawOperationId = value.operation_id;
       const operation = h3Operation(rawOperationId);
       const routeName = h3RouteName(rawOperationId);
+
       const h3Identity =
         artifact.kind === "resource"
           ? operation.resourceClassRef === null ||
@@ -3672,14 +4271,18 @@ const addH3Edges = (
           : routeName === null || pathTemplate === null || methods.length === 0
             ? null
             : canonicalJson(["route", routeName, pathTemplate, methods]);
+
       if (h3Identity !== null) {
         if (seenH3Identities.has(h3Identity)) continue;
         seenH3Identities.add(h3Identity);
       }
+
       if (artifact.kind === "resource") {
         const exactMatches = apiRows.filter((row) => {
-          const details = row.details as ApiOperationDetails;
+          if (row.inventory_kind !== "api_operation") return false;
+          const details = row.details;
           const uriTemplate = details.uri_template === null ? null : h3Path(details.uri_template);
+
           return (
             details.resource_class_ref === operation.resourceClassRef &&
             details.operation_name === operation.operationName &&
@@ -3688,17 +4291,22 @@ const addH3Edges = (
             uriTemplate === pathTemplate
           );
         });
+
         const sourceMatches =
           exactMatches.length === 0
             ? apiRows.filter((row) => {
+                if (row.inventory_kind !== "api_operation") return false;
+
                 if (
                   !row.observation_kinds.includes("static_source") ||
                   !sharesH3Source(context, row, refs)
                 )
                   return false;
-                const details = row.details as ApiOperationDetails;
+                const details = row.details;
+
                 const uriTemplate =
                   details.uri_template === null ? null : h3Path(details.uri_template);
+
                 return (
                   details.resource_class_ref === operation.resourceClassRef &&
                   details.operation_name === operation.operationName &&
@@ -3708,17 +4316,16 @@ const addH3Edges = (
                 );
               })
             : [];
+
         const matched =
           exactMatches.length > 0 ? exactMatches : sourceMatches.length === 1 ? sourceMatches : [];
+
         if (matched.length > 0) {
           for (const row of matched) {
             const rowIndex = apiRows.findIndex((candidate) => candidate.row_id === row.row_id);
             apiRows[rowIndex] = {
               ...row,
-              observation_kinds: sortUnique([
-                ...row.observation_kinds,
-                "derived_h3",
-              ]) as InventoryRow["observation_kinds"],
+              observation_kinds: sortUnique([...row.observation_kinds, "derived_h3"]),
               source_ref_ids: sortUnique([...row.source_ref_ids, ...fromRefs]),
             };
             targetIds.push(row.row_id);
@@ -3733,6 +4340,7 @@ const addH3Edges = (
             methods,
             pathTemplate,
           );
+
           apiRows.push(derived);
           targetIds.push(derived.row_id);
           failures.push({
@@ -3744,40 +4352,43 @@ const addH3Edges = (
         }
       } else {
         const exactMatches = derivedRouteRows.filter((row) => {
-          const details = row.details as {
-            readonly method?: string | null;
-            readonly path_template?: string | null;
-            readonly route_name?: string | null;
-          };
+          if (row.inventory_kind !== "mono_route") return false;
+          const details = row.details;
+
           const method = details.method;
+
           const methodMatches =
             methods.length === 0
               ? method === null
-              : typeof method === "string" && methods.includes(method);
+              : Predicate.isString(method) && methods.includes(method);
+
           return (
             h3Path(details.path_template) === pathTemplate &&
             details.route_name === routeName &&
             methodMatches
           );
         });
+
         const sourceMatches =
           exactMatches.length === 0
             ? derivedRouteRows.filter((row) => {
+                if (row.inventory_kind !== "mono_route") return false;
+
                 if (
                   !row.observation_kinds.includes("static_source") ||
                   !sharesH3Source(context, row, refs)
                 )
                   return false;
-                const details = row.details as {
-                  readonly method?: string | null;
-                  readonly path_template?: string | null;
-                  readonly route_name?: string | null;
-                };
+
+                const details = row.details;
+
                 const method = details.method;
+
                 const methodMatches =
                   methods.length === 0
                     ? method === null
-                    : typeof method === "string" && methods.includes(method);
+                    : Predicate.isString(method) && methods.includes(method);
+
                 return (
                   h3Path(details.path_template) === pathTemplate &&
                   (details.route_name === null || details.route_name === routeName) &&
@@ -3785,10 +4396,13 @@ const addH3Edges = (
                 );
               })
             : [];
+
         const sourceMethods = sourceMatches.map((row) => {
           const details = row.details;
+
           return "path_template" in details ? details.method : null;
         });
+
         const sourceMethodsComplete =
           sourceMethods.length > 0 &&
           new Set(sourceMethods).size === sourceMethods.length &&
@@ -3796,19 +4410,19 @@ const addH3Edges = (
             ? sourceMethods.length === 1 && sourceMethods[0] === null
             : sourceMethods.length === methods.length &&
               methods.every((method) => sourceMethods.includes(method)));
+
         const matched =
           exactMatches.length > 0 ? exactMatches : sourceMethodsComplete ? sourceMatches : [];
+
         if (matched.length > 0) {
           for (const row of matched) {
             const rowIndex = derivedRouteRows.findIndex(
               (candidate) => candidate.row_id === row.row_id,
             );
+
             derivedRouteRows[rowIndex] = {
               ...row,
-              observation_kinds: sortUnique([
-                ...row.observation_kinds,
-                "derived_h3",
-              ]) as InventoryRow["observation_kinds"],
+              observation_kinds: sortUnique([...row.observation_kinds, "derived_h3"]),
               source_ref_ids: sortUnique([...row.source_ref_ids, ...fromRefs]),
             };
             targetIds.push(row.row_id);
@@ -3823,6 +4437,7 @@ const addH3Edges = (
             methods,
             pathTemplate,
           );
+
           derivedRouteRows.push(derived);
           targetIds.push(derived.row_id);
           failures.push({
@@ -3834,19 +4449,23 @@ const addH3Edges = (
         }
       }
     }
+
     const canonicalTargetIds = sortUnique(targetIds);
+
     const canonicalization = h3Edge(
       "E-H3-CANONICALIZATION",
       "derived_projection",
       supportRefs,
       canonicalTargetIds,
     );
+
     const reconciliation = h3Edge(
       "E-H3-RECONCILIATION",
       "reconciles",
       artifactObservationRefs,
       canonicalTargetIds,
     );
+
     if (artifact.kind === "route") {
       const derivation = h3Edge(
         "E-H3-ROUTE-DERIVATION",
@@ -3854,8 +4473,11 @@ const addH3Edges = (
         artifactObservationRefs,
         canonicalTargetIds,
       );
+
       if (derivation !== null) routeEdges.push(derivation);
+
       if (canonicalization !== null) routeEdges.push(canonicalization);
+
       if (reconciliation !== null) routeEdges.push(reconciliation);
     } else {
       const derivation = h3Edge(
@@ -3864,11 +4486,15 @@ const addH3Edges = (
         artifactObservationRefs,
         canonicalTargetIds,
       );
+
       if (derivation !== null) apiEdges.push(derivation);
+
       if (canonicalization !== null) apiEdges.push(canonicalization);
+
       if (reconciliation !== null) apiEdges.push(reconciliation);
     }
   }
+
   return {
     apiRows,
     routeRows: derivedRouteRows,
@@ -3898,12 +4524,12 @@ const makeEnvelope = (
   revision_ref_ids: [context.scans.mono.revisionRefId],
   observation_kinds: sortUnique([
     "static_source",
-    ...(runtimeAvailable ? ["runtime_resolution"] : []),
+    ...(runtimeAvailable ? ["runtime_resolution" as const] : []),
     ...(observations.some((observation) => observation.observation_kind === "generated_projection")
-      ? ["generated_projection"]
+      ? ["generated_projection" as const]
       : []),
-    ...(edges.length > 0 ? ["derived_h3"] : []),
-  ]) as InventoryEnvelope["observation_kinds"],
+    ...(edges.length > 0 ? ["derived_h3" as const] : []),
+  ]),
   rows: [...rows].sort(
     (left, right) =>
       compareByteOrder(left.row_id, right.row_id) ||
@@ -3917,8 +4543,8 @@ const makeEnvelope = (
 });
 
 export const collectApiOperationsWithServices = (
-  fileSystem: ParityFileSystemShape,
-  commands: ParityCommandExecutorShape,
+  fileSystem: ParityFileSystemOperations,
+  commands: ParityCommandExecutorOperations,
   context: ManifestContext,
   sourceManifestSha256: string,
   routeRows: readonly InventoryRow[] = [],
@@ -3928,6 +4554,7 @@ export const collectApiOperationsWithServices = (
   environment: Readonly<Record<string, string | undefined>> = {},
 ): ApiCollection => {
   const parsed = parseDeclarations(context);
+
   const runtime = collectRuntime(
     fileSystem,
     commands,
@@ -3938,15 +4565,19 @@ export const collectApiOperationsWithServices = (
     fixtureInput,
     environment,
   );
+
   const apiPrefix = apiPlatformPrefixFromSource(context);
   const staticRows = makeStaticRows(context, parsed.declarations, runtime);
+
   const runtimeRows = runtime.operations.map((operation, index) =>
     makeRuntimeRow(context, operation, runtime.sourceRefIds, runtime.observation, index + 1),
   );
+
   let rows: InventoryRow[] = [...staticRows, ...runtimeRows];
   const links: InventoryLink[] = [];
   const runtimeUsed = new Set<number>();
   const matchedStaticOperations = new Map<number, ApiDeclaration>();
+
   const staticMatches = staticRows
     .flatMap((staticRow) => {
       const declaration = parsed.declarations.find(
@@ -3963,6 +4594,7 @@ export const collectApiOperationsWithServices = (
             apiCanonicalKey(candidate),
           ) === staticRow.row_id,
       );
+
       return declaration === undefined ? [] : [{ staticRow, declaration }];
     })
     .sort(
@@ -3972,6 +4604,7 @@ export const collectApiOperationsWithServices = (
         left.declaration.ordinal - right.declaration.ordinal ||
         compareByteOrder(left.staticRow.row_id, right.staticRow.row_id),
     );
+
   for (const { staticRow, declaration } of staticMatches) {
     let exactRuntimeIndex = -1;
     let exactScore = Number.POSITIVE_INFINITY;
@@ -3979,10 +4612,13 @@ export const collectApiOperationsWithServices = (
     let fallbackRuntimeIndex = -1;
     let fallbackScore = Number.POSITIVE_INFINITY;
     let fallbackAmbiguous = false;
+
     for (const [index, operation] of runtime.operations.entries()) {
       if (runtimeUsed.has(index)) continue;
       const score = operationMatchScore(declaration, operation, apiPrefix);
+
       if (score === null) continue;
+
       if (score < fallbackScore) {
         fallbackRuntimeIndex = index;
         fallbackScore = score;
@@ -3990,7 +4626,9 @@ export const collectApiOperationsWithServices = (
       } else if (score === fallbackScore) {
         fallbackAmbiguous = true;
       }
+
       if (!sameOperation(declaration, operation, apiPrefix)) continue;
+
       if (score < exactScore) {
         exactRuntimeIndex = index;
         exactScore = score;
@@ -3999,6 +4637,7 @@ export const collectApiOperationsWithServices = (
         exactAmbiguous = true;
       }
     }
+
     const runtimeIndex = exactAmbiguous
       ? -1
       : exactRuntimeIndex >= 0
@@ -4006,6 +4645,7 @@ export const collectApiOperationsWithServices = (
         : fallbackAmbiguous
           ? -1
           : fallbackRuntimeIndex;
+
     if (runtimeIndex < 0) {
       const index = rows.findIndex((row) => row.row_id === staticRow.row_id);
       rows[index] = {
@@ -4027,14 +4667,18 @@ export const collectApiOperationsWithServices = (
       };
       continue;
     }
+
     runtimeUsed.add(runtimeIndex);
     matchedStaticOperations.set(runtimeIndex, declaration);
     const runtimeRow = runtimeRows[runtimeIndex];
     const runtimeOperation = runtime.operations[runtimeIndex];
+
     if (runtimeRow === undefined || runtimeOperation === undefined) continue;
+
     const changed =
       !sameOperation(declaration, runtimeOperation, apiPrefix) ||
       !sameOperationObservations(declaration, runtimeOperation);
+
     const unresolvedReasons = staticRow.reason_codes.filter(
       (reason) =>
         !(
@@ -4043,12 +4687,15 @@ export const collectApiOperationsWithServices = (
           runtimeOperation.uriTemplate !== null
         ),
     );
+
     const staticIndex = rows.findIndex((row) => row.row_id === staticRow.row_id);
     const runtimeRowIndex = rows.findIndex((row) => row.row_id === runtimeRow.row_id);
+
     const relation = relationId("reconciles", staticRow.row_id, runtimeRow.row_id, [
       ...staticRow.source_ref_ids,
       ...runtimeRow.source_ref_ids,
     ]);
+
     links.push({
       relation_id: relation,
       relation_kind: "reconciles",
@@ -4056,11 +4703,13 @@ export const collectApiOperationsWithServices = (
       to_row_id: runtimeRow.row_id,
       source_ref_ids: sortUnique([...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids]),
     });
+
     const status: InventoryRow["status"] = changed
       ? "changed"
       : unresolvedReasons.length > 0
         ? "unresolved"
         : "covered";
+
     const reason = changed ? "STATIC_RUNTIME_MISMATCH" : (unresolvedReasons[0] ?? null);
     const related = [runtimeRow.row_id];
     rows[staticIndex] = {
@@ -4085,15 +4734,19 @@ export const collectApiOperationsWithServices = (
       related_row_ids: [staticRow.row_id],
     };
   }
+
   for (const [index, runtimeRow] of runtimeRows.entries()) {
     if (runtimeUsed.has(index)) continue;
     const rowIndex = rows.findIndex((row) => row.row_id === runtimeRow.row_id);
     rows[rowIndex] = runtimeRow;
   }
+
   applyDuplicateGroups(rows);
   const reconciliation = reconcileOpenApi(context, sourceManifestSha256, runtime);
+
   const generatedProjection =
     runtime.openApiPayload === null ? null : normaliseOpenApi(runtime.openApiPayload);
+
   const observations: InventoryObservation[] = [
     {
       observation_id: observationId(
@@ -4108,6 +4761,7 @@ export const collectApiOperationsWithServices = (
       label: "local_api_runtime",
     },
   ];
+
   if (runtime.openApiObservation !== null)
     observations.push({
       observation_id: observationId(
@@ -4122,9 +4776,12 @@ export const collectApiOperationsWithServices = (
       label: "local_openapi_projection",
     });
   const projection = generatedProjection;
+
   for (const row of rows) {
-    const details = row.details as ApiOperationDetails;
+    if (row.inventory_kind !== "api_operation") throw new Error("API operation row required");
+    const details = row.details;
     const projectionRef = openApiProjectionRef(details, projection);
+
     if (projectionRef === null) continue;
     const index = rows.findIndex((candidate) => candidate.row_id === row.row_id);
     rows[index] = {
@@ -4135,12 +4792,14 @@ export const collectApiOperationsWithServices = (
         : [...row.observation_kinds, "generated_projection"],
     };
   }
+
   const routeReconciliation = reconcileApiPlatformRouteRows(
     routeRows,
     runtime.operations,
     matchedStaticOperations,
     apiPrefix,
   );
+
   addRouteEvidenceToApiRows(
     rows,
     runtimeRows,
@@ -4150,19 +4809,20 @@ export const collectApiOperationsWithServices = (
   );
   const h3 = addH3Edges(context, rows, routeReconciliation.rows);
   rows = [...h3.apiRows];
+
   const h3RouteRows = h3.routeRows.filter(
     (row) => !routeReconciliation.matchedRouteRowIds.has(row.row_id),
   );
+
   const h3RouteEdges = removeRouteRowsFromEdges(
     h3.routeEdges,
     routeReconciliation.matchedRouteRowIds,
   );
-  const mutableRouteRows = routeRows as unknown as InventoryRow[];
-  for (let index = mutableRouteRows.length - 1; index >= 0; index -= 1) {
-    const row = mutableRouteRows[index];
-    if (row !== undefined && routeReconciliation.matchedRouteRowIds.has(row.row_id))
-      mutableRouteRows.splice(index, 1);
-  }
+
+  const retainedRouteRows = routeRows.filter(
+    (row) => !routeReconciliation.matchedRouteRowIds.has(row.row_id),
+  );
+
   const inventory = makeEnvelope(
     context,
     rows,
@@ -4172,11 +4832,13 @@ export const collectApiOperationsWithServices = (
     sourceManifestSha256,
     runtime.observation.availability === "available",
   );
+
   const failures: ApiCollectionFailure[] = [
     ...parsed.failures,
     ...runtime.failures,
     ...h3.failures,
   ];
+
   for (const row of rows) {
     if (row.status === "changed")
       failures.push({
@@ -4204,7 +4866,9 @@ export const collectApiOperationsWithServices = (
         sourceRefIds: row.source_ref_ids,
       });
   }
+
   const openApiFailure = openApiValidationFailure(context, runtime);
+
   if (openApiFailure !== null) failures.push(openApiFailure);
   else if (reconciliation.status === "stale")
     failures.push({
@@ -4220,11 +4884,13 @@ export const collectApiOperationsWithServices = (
       rowIds: [],
       sourceRefIds: reconciliation.committed_source_ref_ids,
     });
+
   return {
     inventory,
     reconciliation,
     failures,
     rows,
+    routeRows: retainedRouteRows,
     h3RouteRows,
     h3RouteEdges,
     h3RouteObservations: h3.routeObservations,
@@ -4242,6 +4908,7 @@ export const collectApiOperations = (
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
     const commands = yield* ParityCommandExecutor;
+
     return collectApiOperationsWithServices(
       fileSystem,
       commands,
@@ -4268,10 +4935,13 @@ export const reportFailuresFromApi = (
 
 export const apiRowsBySignature = (inventory: InventoryEnvelope): Map<string, InventoryRow[]> => {
   const result = new Map<string, InventoryRow[]>();
+
   for (const row of inventory.rows) {
     const current = result.get(row.signature);
+
     if (current === undefined) result.set(row.signature, [row]);
     else current.push(row);
   }
+
   return result;
 };

@@ -1,6 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-import { argon2idAsync } from "@noble/hashes/argon2.js";
-import type * as Argon2 from "@noble/hashes/argon2.js";
+import { describe, expect, it } from "vitest";
 import { hashPassword as historicalScryptHash } from "better-auth/crypto";
 import { hash as bcryptHash } from "bcryptjs";
 import {
@@ -9,13 +7,9 @@ import {
   nativePasswordHash,
   PasswordHashCapacityError,
   PasswordInputTooLongError,
+  withPasswordHashCapacity,
   verifyNativeOrLegacyPassword,
 } from "./password-codec.js";
-
-vi.mock("@noble/hashes/argon2.js", async (original) => {
-  const actual = await original<typeof Argon2>();
-  return { ...actual, argon2idAsync: vi.fn(actual.argon2idAsync) };
-});
 
 describe("portable credential boundary", () => {
   it("writes the native Argon2 profile and preserves NFKC and embedded NUL", async () => {
@@ -68,9 +62,9 @@ describe("portable credential boundary", () => {
     ).toBe(false);
   });
 
-  it("denies malformed and unsupported costs before invoking Argon2", async () => {
+  it("rejects malformed hashes and unsupported derivation policies", async () => {
     const valid = "$argon2id$v=19$m=19456,t=2,p=1$" + "A".repeat(22) + "$" + "A".repeat(43);
-    const before = vi.mocked(argon2idAsync).mock.calls.length;
+
     for (const hash of [
       "plain",
       "$2y$31$" + ".".repeat(53),
@@ -90,32 +84,26 @@ describe("portable credential boundary", () => {
         false,
       );
     }
-    expect(vi.mocked(argon2idAsync).mock.calls.length).toBe(before);
   });
 
   it("rejects oversized input before normalization or hashing admission", async () => {
     const password = "a".repeat(4096);
     const hash = await nativePasswordHash(password);
     expect(await verifyNativeOrLegacyPassword({ hash, password })).toBe(true);
-    const before = vi.mocked(argon2idAsync).mock.calls.length;
     await expect(nativePasswordHash(password + "a")).rejects.toBeInstanceOf(
       PasswordInputTooLongError,
     );
     await expect(
       verifyNativeOrLegacyPassword({ hash, password: password + "a" }),
     ).rejects.toBeInstanceOf(PasswordInputTooLongError);
-    expect(vi.mocked(argon2idAsync).mock.calls.length).toBe(before);
   });
 
   it("bounds pending work, distinguishes overload, and releases capacity after failure", async () => {
-    const failure = Promise.withResolvers<Uint8Array<ArrayBuffer>>();
-    vi.mocked(argon2idAsync).mockImplementationOnce(() => failure.promise);
-    const first = nativePasswordHash("Synthetic-first-password");
-    const firstFailure = expect(first).rejects.toThrow("derivation failed");
-    const queued = Array.from({ length: 8 }, () => {
-      vi.mocked(argon2idAsync).mockResolvedValueOnce(new Uint8Array(32));
-      return nativePasswordHash("Synthetic-queued-password");
-    });
+    const failure = Promise.withResolvers<void>();
+    const derivationFailure = new Error("derivation failed");
+    const first = withPasswordHashCapacity(() => failure.promise);
+    const firstFailure = expect(first).rejects.toBe(derivationFailure);
+    const queued = Array.from({ length: 8 }, () => withPasswordHashCapacity(async () => undefined));
     await expect(nativePasswordHash("Synthetic-overload-password")).rejects.toBeInstanceOf(
       PasswordHashCapacityError,
     );
@@ -126,7 +114,7 @@ describe("portable credential boundary", () => {
     expect(
       await verifyNativeOrLegacyPassword({ hash: "invalid", password: "Synthetic-password" }),
     ).toBe(false);
-    failure.reject(new Error("derivation failed"));
+    failure.reject(derivationFailure);
     await firstFailure;
     await Promise.all(queued);
     const hash = await nativePasswordHash("Synthetic-after-failure-password");

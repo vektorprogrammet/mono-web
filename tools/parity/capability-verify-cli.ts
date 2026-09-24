@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+import { Predicate, Schema } from "effect";
+
+const decodeJsonText = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
 
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
@@ -32,6 +35,7 @@ const REQUIRED_OPTIONS = {
 } as const;
 
 const OPTIONAL_OPTIONS = { "--migration-candidate": true } as const;
+
 const GENERATOR_PATHS = [
   "tools/parity/capability-verify-cli.ts",
   "tools/parity/legacy-openapi-cli.ts",
@@ -44,9 +48,11 @@ const GENERATOR_PATHS = [
 export const parseCapabilityVerifyArgs = (rawArgs: readonly string[]): Options => {
   const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
   const values = new Map<string, string>();
+
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index];
     const value = args[index + 1];
+
     if (
       key === undefined ||
       value === undefined ||
@@ -57,57 +63,80 @@ export const parseCapabilityVerifyArgs = (rawArgs: readonly string[]): Options =
       throw new Error("CAPABILITY_ARGUMENTS_INVALID");
     values.set(key, value);
   }
+
   if (Object.keys(REQUIRED_OPTIONS).some((key) => !values.has(key)))
     throw new Error("CAPABILITY_ARGUMENTS_INVALID");
   const mode = values.get("--mode");
+
   if (mode !== "check" && mode !== "write") throw new Error("CAPABILITY_ARGUMENTS_INVALID");
+
+  const requiredPath = (key: string): string => {
+    const value = values.get(key);
+
+    if (value === undefined) throw new Error("CAPABILITY_ARGUMENTS_INVALID");
+
+    return resolve(value);
+  };
+
+  const migrationCandidate = values.get("--migration-candidate");
+
   return {
-    legacyOpenapi: resolve(values.get("--legacy-openapi") as string),
-    nativeOpenapi: resolve(values.get("--native-openapi") as string),
-    intentRegister: resolve(values.get("--intent-register") as string),
-    evidenceRegister: resolve(values.get("--evidence-register") as string),
-    output: resolve(values.get("--output") as string),
-    migrationCandidate: values.has("--migration-candidate")
-      ? resolve(values.get("--migration-candidate") as string)
-      : null,
+    legacyOpenapi: requiredPath("--legacy-openapi"),
+    nativeOpenapi: requiredPath("--native-openapi"),
+    intentRegister: requiredPath("--intent-register"),
+    evidenceRegister: requiredPath("--evidence-register"),
+    output: requiredPath("--output"),
+    migrationCandidate: migrationCandidate === undefined ? null : resolve(migrationCandidate),
     mode,
   };
 };
 
 const gitOutput = async (cwd: string, args: readonly string[]): Promise<string> => {
   const child = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
+
   if (exitCode !== 0) throw new Error(`AUTHORITY_GIT_FAILED:${stderr.trim() || args[0]}`);
+
   return stdout.trim();
 };
 
-const pinAuthority = async (path: string, parsed: unknown): Promise<AuthorityPin> => {
+const pinAuthority = async (path: string, parsed: Schema.Json): Promise<AuthorityPin> => {
   const repositoryRoot = await gitOutput(dirname(path), ["rev-parse", "--show-toplevel"]);
   const relativePath = relative(repositoryRoot, path).replaceAll("\\", "/");
+
   if (relativePath.startsWith("../") || relativePath === "")
     throw new Error("AUTHORITY_PATH_INVALID");
   const isInRepoAuthority = relativePath.startsWith("artifacts/parity/capability/");
+
   const statusArguments = isInRepoAuthority
     ? ["status", "--porcelain", "--", relativePath]
     : ["status", "--porcelain"];
+
   if ((await gitOutput(repositoryRoot, statusArguments)) !== "")
     throw new Error("AUTHORITY_REPOSITORY_DIRTY");
+
   const revision = isInRepoAuthority
     ? await gitOutput(repositoryRoot, ["log", "-1", "--format=%H", "--", relativePath])
     : await gitOutput(repositoryRoot, ["rev-parse", "HEAD"]);
+
   if (!/^[0-9a-f]{40}$/u.test(revision)) throw new Error("AUTHORITY_REVISION_INVALID");
+
   const [blobOid, liveBlobOid] = await Promise.all([
     gitOutput(repositoryRoot, ["rev-parse", `${revision}:${relativePath}`]),
     gitOutput(repositoryRoot, ["hash-object", relativePath]),
   ]);
+
   if (blobOid !== liveBlobOid) throw new Error("AUTHORITY_BLOB_DRIFT");
-  if (!isJsonObject(parsed) || typeof parsed.schema_version !== "string")
+
+  if (!isJsonObject(parsed) || !Predicate.isString(parsed.schema_version))
     throw new Error("AUTHORITY_SCHEMA_VERSION_MISSING");
   const bytes = await readFile(path, "utf8");
+
   return {
     repository_ref: isInRepoAuthority
       ? "in-repo:artifacts/parity/capability"
@@ -123,18 +152,22 @@ const pinAuthority = async (path: string, parsed: unknown): Promise<AuthorityPin
 const readJson = async (
   path: string,
   requireCanonical: boolean,
-): Promise<{ readonly bytes: string; readonly value: unknown }> => {
+): Promise<{ readonly bytes: string; readonly value: Schema.Json }> => {
   const bytes = await readFile(path, "utf8");
+
   if (inspectJsonMembers(bytes) !== "valid") throw new Error(`JSON_INVALID:${basename(path)}`);
-  const value = JSON.parse(bytes) as unknown;
+  const value = decodeJsonText(bytes);
+
   if (requireCanonical && canonicalJson(value) !== bytes)
     throw new Error(`JSON_NONCANONICAL:${basename(path)}`);
+
   return { bytes, value };
 };
 
 const writeAtomically = async (path: string, bytes: string): Promise<void> => {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.tmp-${process.pid}`;
+
   try {
     await writeFile(temporary, bytes, { encoding: "utf8", flag: "wx" });
     await rename(temporary, path);
@@ -145,28 +178,35 @@ const writeAtomically = async (path: string, bytes: string): Promise<void> => {
 
 const main = async (): Promise<void> => {
   const options = parseCapabilityVerifyArgs(process.argv.slice(2));
+
   const [legacyOpenapi, nativeOpenapi, intentAuthority, evidenceAuthority] = await Promise.all([
     readJson(options.legacyOpenapi, false),
     readJson(options.nativeOpenapi, false),
     readJson(options.intentRegister, true),
     readJson(options.evidenceRegister, true),
   ]);
+
   const reviewedIntentPath = resolve(options.output, "accepted-intent-v2.json");
   const reviewedEvidencePath = resolve(options.output, "capability-runtime-evidence-v2.json");
+
   const [reviewedIntentBytes, reviewedEvidenceBytes] = await Promise.all([
     readFile(reviewedIntentPath, "utf8").catch(() => null),
     readFile(reviewedEvidencePath, "utf8").catch(() => null),
   ]);
+
   if ((reviewedIntentBytes === null) !== (reviewedEvidenceBytes === null))
     throw new Error("CAPABILITY_PARITY_V2_REGISTER_PAIR_INCOMPLETE");
+
   const useReviewedV2 =
     reviewedIntentBytes !== null &&
     reviewedEvidenceBytes !== null &&
     isJsonObject(intentAuthority.value) &&
     intentAuthority.value.schema_version === "functional-parity-accepted-intent/v1";
+
   const [selectedIntent, selectedEvidence] = useReviewedV2
     ? await Promise.all([readJson(reviewedIntentPath, true), readJson(reviewedEvidencePath, true)])
     : [intentAuthority, evidenceAuthority];
+
   const [externalIntentPin, selectedIntentPin, selectedEvidencePin, sourceRevisionRef] =
     await Promise.all([
       pinAuthority(options.intentRegister, intentAuthority.value),
@@ -180,6 +220,7 @@ const main = async (): Promise<void> => {
       ),
       gitOutput(process.cwd(), ["log", "-1", "--format=%H", "--", ...GENERATOR_PATHS]),
     ]);
+
   const generated = generateCapabilityArtifacts({
     legacyOpenApiBytes: legacyOpenapi.bytes,
     nativeOpenApiBytes: nativeOpenapi.bytes,
@@ -189,6 +230,7 @@ const main = async (): Promise<void> => {
     evidencePin: selectedEvidencePin,
     sourceRevisionRef,
   });
+
   const migrationBytes =
     isJsonObject(intentAuthority.value) &&
     intentAuthority.value.schema_version === "functional-parity-accepted-intent/v1"
@@ -201,21 +243,28 @@ const main = async (): Promise<void> => {
         writeAtomically(resolve(options.output, name), bytes),
       ),
     );
+
     if (options.migrationCandidate !== null)
       await writeAtomically(options.migrationCandidate, migrationBytes);
     process.stdout.write("capability_parity_written\n");
+
     return;
   }
 
   const stale: string[] = [];
+
   for (const [name, expected] of Object.entries(generated.bytes)) {
     const actual = await readFile(resolve(options.output, name), "utf8").catch(() => null);
+
     if (actual !== expected) stale.push(name);
   }
+
   if (options.migrationCandidate !== null) {
     const actual = await readFile(options.migrationCandidate, "utf8").catch(() => null);
+
     if (actual !== migrationBytes) stale.push("migration-candidate");
   }
+
   if (stale.length > 0) throw new Error(`CAPABILITY_PARITY_STALE:${stale.sort().join(",")}`);
   process.stdout.write("capability_parity_current\n");
 };

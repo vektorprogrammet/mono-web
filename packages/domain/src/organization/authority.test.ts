@@ -1,3 +1,9 @@
+import {
+  OrganizationMemberSchema,
+  OrganizationAdministratorSchema,
+} from "./administration-schema.js";
+import { deny, allow } from "../authz/decision.js";
+import { AdmissionPeriodActorSchema } from "../admission-period/schema.js";
 import { expect, it } from "@effect/vitest";
 import {
   mapOrganizationAuthorityToAdmissionPeriodActor,
@@ -8,13 +14,17 @@ import {
   type OrganizationGlobalAdministratorStatus,
   type OrganizationPersonAuthority,
 } from "./authority.js";
-import { makeSpec0055OrganizationAuthorityFixtures } from "./authority-fixtures.test-support.js";
+import { spec0055OrganizationAuthorityFixtures } from "./authority-fixtures.test-support.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
 
 const evaluatedAt = "2026-08-24T12:00:00.000Z";
+
 const personId = PersonId.make("authority-person");
+
 const departmentA = DepartmentId.make("department-a");
+
 const departmentB = DepartmentId.make("department-b");
+
 const departmentC = DepartmentId.make("department-c");
 
 const membership = (
@@ -47,41 +57,39 @@ it("maps every requested department without selecting a primary department", () 
     membership("membership-b", "team-b", departmentB, true, true),
   ]);
 
-  expect(mapOrganizationAuthorityToAdmissionPeriodActor(projection, departmentA)).toEqual({
-    _tag: "Allow",
-    value: {
-      _tag: "Member",
-      personId,
-      departmentId: departmentA,
-      active: true,
-    },
-  });
-  expect(mapOrganizationAuthorityToAdmissionPeriodActor(projection, departmentB)).toEqual({
-    _tag: "Allow",
-    value: {
-      _tag: "DepartmentLeader",
-      personId,
-      departmentId: departmentB,
-      active: true,
-    },
-  });
-  expect(mapOrganizationAuthorityToRecruitmentActor(projection, departmentB)).toEqual({
-    _tag: "Allow",
-    value: {
-      _tag: "DepartmentLeader",
-      personId,
-      departmentId: departmentB,
-      active: true,
-    },
-  });
-  expect(mapOrganizationAuthorityToAdmissionPeriodActor(projection, departmentC)).toEqual({
-    _tag: "Deny",
-    reason: "NotInScope",
-  });
-  expect(mapOrganizationAuthorityToRecruitmentActor(projection, departmentC)).toEqual({
-    _tag: "Deny",
-    reason: "NotInScope",
-  });
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(projection, departmentA)).toEqual(
+    allow(
+      AdmissionPeriodActorSchema.cases.Member.make({
+        personId,
+        departmentId: departmentA,
+        active: true,
+      }),
+    ),
+  );
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(projection, departmentB)).toEqual(
+    allow(
+      AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+        personId,
+        departmentId: departmentB,
+        active: true,
+      }),
+    ),
+  );
+  expect(mapOrganizationAuthorityToRecruitmentActor(projection, departmentB)).toEqual(
+    allow(
+      AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+        personId,
+        departmentId: departmentB,
+        active: true,
+      }),
+    ),
+  );
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(projection, departmentC)).toEqual(
+    deny("NotInScope"),
+  );
+  expect(mapOrganizationAuthorityToRecruitmentActor(projection, departmentC)).toEqual(
+    deny("NotInScope"),
+  );
   expect(projection.memberships.map(({ departmentId }) => departmentId)).toEqual([
     departmentA,
     departmentB,
@@ -92,95 +100,86 @@ it("applies global-administrator and department role precedence", () => {
   const globalAdministrator = authority("Active", [
     membership("membership-admin", "team-admin", departmentA, true, true),
   ]);
-  expect(mapOrganizationAuthorityToAdmissionPeriodActor(globalAdministrator, departmentA)).toEqual({
-    _tag: "Allow",
-    value: { _tag: "GlobalAdmin", personId, active: true },
-  });
-  expect(mapOrganizationAuthorityToOrganizationActor(globalAdministrator)).toEqual({
-    _tag: "OrganizationAdministrator",
-    personId,
-  });
-  expect(mapOrganizationAuthorityToProfileRole(globalAdministrator)).toEqual({
-    _tag: "Allow",
-    value: "ROLE_ADMIN",
-  });
+
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(globalAdministrator, departmentA)).toEqual(
+    allow(AdmissionPeriodActorSchema.cases.GlobalAdmin.make({ personId, active: true })),
+  );
+  expect(mapOrganizationAuthorityToOrganizationActor(globalAdministrator)).toEqual(
+    OrganizationAdministratorSchema.make({ personId }),
+  );
+  expect(mapOrganizationAuthorityToProfileRole(globalAdministrator)).toEqual(allow("ROLE_ADMIN"));
 
   const activeMemberAndInactiveLeader = authority("Absent", [
     membership("membership-member", "team-member", departmentA, true, false),
     membership("membership-old-leader", "team-old-leader", departmentA, false, true),
   ]);
+
   expect(
     mapOrganizationAuthorityToAdmissionPeriodActor(activeMemberAndInactiveLeader, departmentA),
-  ).toEqual({
-    _tag: "Allow",
-    value: { _tag: "Member", personId, departmentId: departmentA, active: true },
-  });
-  expect(mapOrganizationAuthorityToProfileRole(activeMemberAndInactiveLeader)).toEqual({
-    _tag: "Allow",
-    value: "ROLE_TEAM_MEMBER",
-  });
+  ).toEqual(
+    allow(
+      AdmissionPeriodActorSchema.cases.Member.make({
+        personId,
+        departmentId: departmentA,
+        active: true,
+      }),
+    ),
+  );
+  expect(mapOrganizationAuthorityToProfileRole(activeMemberAndInactiveLeader)).toEqual(
+    allow("ROLE_TEAM_MEMBER"),
+  );
 });
 
 it("denies inactive chosen authority with its reason at the mapper boundary", () => {
   const inactiveAdministrator = authority("Inactive", [
     membership("membership-current-leader", "team-current", departmentA, true, true),
   ]);
+
   expect(
     mapOrganizationAuthorityToAdmissionPeriodActor(inactiveAdministrator, departmentA),
-  ).toEqual({ _tag: "Deny", reason: "AuthorityInactive" });
-  expect(mapOrganizationAuthorityToOrganizationActor(inactiveAdministrator)).toEqual({
-    _tag: "OrganizationMember",
-    personId,
-  });
-  expect(mapOrganizationAuthorityToProfileRole(inactiveAdministrator)).toEqual({
-    _tag: "Allow",
-    value: "ROLE_TEAM_LEADER",
-  });
+  ).toEqual(deny("AuthorityInactive"));
+  expect(mapOrganizationAuthorityToOrganizationActor(inactiveAdministrator)).toEqual(
+    OrganizationMemberSchema.make({ personId }),
+  );
+  expect(mapOrganizationAuthorityToProfileRole(inactiveAdministrator)).toEqual(
+    allow("ROLE_TEAM_LEADER"),
+  );
 
   const inactiveLeader = authority("Absent", [
     membership("membership-inactive-leader", "team-inactive", departmentB, false, true),
   ]);
-  expect(mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeader, departmentB)).toEqual({
-    _tag: "Deny",
-    reason: "AuthorityInactive",
-  });
-  expect(mapOrganizationAuthorityToRecruitmentActor(inactiveLeader, departmentB)).toEqual({
-    _tag: "Deny",
-    reason: "AuthorityInactive",
-  });
-  expect(mapOrganizationAuthorityToProfileRole(inactiveLeader)).toEqual({
-    _tag: "Deny",
-    reason: "AuthorityInactive",
-  });
+
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeader, departmentB)).toEqual(
+    deny("AuthorityInactive"),
+  );
+  expect(mapOrganizationAuthorityToRecruitmentActor(inactiveLeader, departmentB)).toEqual(
+    deny("AuthorityInactive"),
+  );
+  expect(mapOrganizationAuthorityToProfileRole(inactiveLeader)).toEqual(deny("AuthorityInactive"));
 
   const inactiveMember = authority("Absent", [
     membership("membership-inactive-member", "team-inactive-member", departmentA, false, false),
   ]);
-  expect(mapOrganizationAuthorityToAdmissionPeriodActor(inactiveMember, departmentA)).toEqual({
-    _tag: "Deny",
-    reason: "AuthorityInactive",
-  });
+
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(inactiveMember, departmentA)).toEqual(
+    deny("AuthorityInactive"),
+  );
 });
 
 it("distinguishes Profile absence from known inactive authority", () => {
-  expect(mapOrganizationAuthorityToProfileRole(authority("Absent", []))).toEqual({
-    _tag: "Deny",
-    reason: "NotInScope",
-  });
-  expect(mapOrganizationAuthorityToProfileRole(authority("Inactive", []))).toEqual({
-    _tag: "Deny",
-    reason: "AuthorityInactive",
-  });
+  expect(mapOrganizationAuthorityToProfileRole(authority("Absent", []))).toEqual(
+    deny("NotInScope"),
+  );
+  expect(mapOrganizationAuthorityToProfileRole(authority("Inactive", []))).toEqual(
+    deny("AuthorityInactive"),
+  );
   expect(
     mapOrganizationAuthorityToProfileRole(
       authority("Absent", [
         membership("membership-history", "team-history", departmentA, false, false),
       ]),
     ),
-  ).toEqual({
-    _tag: "Deny",
-    reason: "AuthorityInactive",
-  });
+  ).toEqual(deny("AuthorityInactive"));
 });
 
 it("uses leader before member for active Profile authority across departments", () => {
@@ -189,18 +188,14 @@ it("uses leader before member for active Profile authority across departments", 
     membership("membership-leader-b", "team-leader-b", departmentB, true, true),
   ]);
 
-  expect(mapOrganizationAuthorityToProfileRole(projection)).toEqual({
-    _tag: "Allow",
-    value: "ROLE_TEAM_LEADER",
-  });
-  expect(mapOrganizationAuthorityToOrganizationActor(projection)).toEqual({
-    _tag: "OrganizationMember",
-    personId,
-  });
+  expect(mapOrganizationAuthorityToProfileRole(projection)).toEqual(allow("ROLE_TEAM_LEADER"));
+  expect(mapOrganizationAuthorityToOrganizationActor(projection)).toEqual(
+    OrganizationMemberSchema.make({ personId }),
+  );
 });
 
 it("shares the frozen spec0055 accepted and rejected fixtures with PostgreSQL proof", () => {
-  const fixtures = makeSpec0055OrganizationAuthorityFixtures({
+  const fixtures = spec0055OrganizationAuthorityFixtures({
     evaluatedAt,
     departmentId: departmentA,
     teamId: "team-shared-fixture",
@@ -221,18 +216,14 @@ it("shares the frozen spec0055 accepted and rejected fixtures with PostgreSQL pr
   expect(mapOrganizationAuthorityToAdmissionPeriodActor(fixtures.leader, departmentA)._tag).toBe(
     "Allow",
   );
-  expect(mapOrganizationAuthorityToRecruitmentActor(fixtures.inactiveLeader, departmentA)).toEqual({
-    _tag: "Deny",
-    reason: "AuthorityInactive",
-  });
+  expect(mapOrganizationAuthorityToRecruitmentActor(fixtures.inactiveLeader, departmentA)).toEqual(
+    deny("AuthorityInactive"),
+  );
   expect(mapOrganizationAuthorityToOrganizationActor(fixtures.administrator)._tag).toBe(
     "OrganizationAdministrator",
   );
   expect(mapOrganizationAuthorityToOrganizationActor(fixtures.member)._tag).toBe(
     "OrganizationMember",
   );
-  expect(mapOrganizationAuthorityToProfileRole(fixtures.absent)).toEqual({
-    _tag: "Deny",
-    reason: "NotInScope",
-  });
+  expect(mapOrganizationAuthorityToProfileRole(fixtures.absent)).toEqual(deny("NotInScope"));
 });

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
@@ -12,38 +13,71 @@ import {
 } from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const composeFile = join(repositoryRoot, "docker-compose.yml");
+
 const dashboardPort = 5174;
+
 const backendPort = 8796;
+
 const postgresPort = 55432;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
+
 const composeProject = `mono-web-native-scheduling-0050-${process.pid}`;
+
 const commandTimeoutMs = 300_000;
+
 const shutdownTimeoutMs = 5_000;
+
 const nixPostgresPackage = "nixpkgs#postgresql_17";
+
 const fixedClock = new Date(Date.now() + 5 * 60_000).toISOString();
+
 const departmentId = "department-native-scheduling-0050";
+
 const semesterId = "semester-native-scheduling-0050";
+
 const admissionPeriodId = "admission-period-native-scheduling-0050";
+
 const fieldOfStudyId = "field-native-scheduling-0050";
+
 const actorPersonId = "person-native-scheduling-leader-0050";
+
 const interviewerPersonId = "person-native-scheduling-interviewer-0050";
+
 const recruitmentTeamId = "team-native-scheduling-0050";
+
 const applicantId = "applicant-native-scheduling-0050";
+
 const applicationId = "application-native-scheduling-0050";
+
 const interviewSchemaId = "interview-schema-native-scheduling-0050";
+
 const interviewId = "interview-native-scheduling-0050";
+
 const applicantName = "Sofie Søker";
+
 const interviewerName = "Irene Intervjuer";
+
 const leaderEmail = "lina.lagleder@example.invalid";
+
 const interviewerEmail = "irene.intervjuer@example.invalid";
+
 const personaPassword = "native-scheduling-0050-secret-0123456789";
+
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
 const schedule = {
   scheduledAt: "2031-09-20T13:30:00.000Z",
   room: "K-101",
@@ -51,18 +85,25 @@ const schedule = {
   mapLink: "https://maps.example.invalid/native-scheduling-0050",
   message: "Vi ser frem til intervjuet.",
 };
+
 const journeyRefId = "intent://journey:recruitment:interview-scheduling:v1";
+
 const journeyStepIds = [
   "interviewer-session-login",
   "leader-session-login",
   "load-assigned-interviews",
   "schedule-interview",
 ];
+
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+
 const postgresTopology = dockerAvailable ? "docker" : "local";
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const specPath = join(dashboardRoot, "e2e/native-recruitment-interview-scheduling.spec.ts");
+
 const recordingDriverPath = join(
   repositoryRoot,
   "tools/e2e/record-native-recruitment-invitation.ts",
@@ -164,34 +205,42 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
+
+      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
+
         return;
       }
+
       rejectPort(new Error(`Could not inspect loopback port ${port}`));
     });
   });
 }
+
 async function waitForPortRelease(port) {
   let lastError;
+
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       await assertPortAvailable(port);
+
       return;
     } catch (error) {
       lastError = error;
       await sleep(100);
     }
   }
+
   throw lastError;
 }
 
 function signalProcessGroup(child, signal) {
   if (child.pid === undefined) return;
+
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw error;
     }
   }
@@ -200,29 +249,35 @@ function signalProcessGroup(child, signal) {
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
+
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: captureOutput ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
       detached: true,
     });
+
     const stdout = [];
     const stderr = [];
+
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.on("data", (chunk) => stderr.push(chunk));
     }
 
     let settled = false;
+
     const timeout = setTimeout(() => {
       signalProcessGroup(child, "SIGTERM");
       const hardKill = setTimeout(() => signalProcessGroup(child, "SIGKILL"), shutdownTimeoutMs);
       hardKill.unref();
+
       if (!settled) {
         settled = true;
         rejectCommand(new Error(`${options.label} timed out`));
       }
     }, commandTimeoutMs);
+
     timeout.unref();
 
     child.once("error", () => {
@@ -235,16 +290,21 @@ function runCommand(command, args, options) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+
       const output = {
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
       };
+
       if (code === 0) {
         resolveCommand(captureOutput ? output : undefined);
+
         return;
       }
+
       const detail =
         captureOutput && output.stderr.trim().length > 0 ? `: ${output.stderr.trim()}` : "";
+
       rejectCommand(
         new Error(
           `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}${detail}`,
@@ -261,7 +321,9 @@ function startProcess(command, args, options) {
     stdio: ["ignore", "inherit", "inherit"],
     detached: true,
   });
+
   child.once("error", () => undefined);
+
   return child;
 }
 
@@ -273,10 +335,12 @@ async function stopProcess(child) {
   if (child === undefined || child.exitCode !== null || child.pid === undefined) return;
   const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
   signalProcessGroup(child, "SIGTERM");
+
   const stopped = await Promise.race([
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (stopped) return;
   signalProcessGroup(child, "SIGKILL");
   await exited;
@@ -284,21 +348,27 @@ async function stopProcess(child) {
 
 async function waitForHttp(url, child, label) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`${label} exited before readiness`);
+
     try {
       const response = await fetch(url, { redirect: "manual" });
+
       if (response.status >= 200 && response.status < 500) return;
     } catch {
       // Readiness is retried until the bounded deadline.
     }
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 }
 
 async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     try {
       const args =
@@ -319,19 +389,23 @@ async function waitForPostgres(environment) {
               "receipt_proof",
             ]
           : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+
       const options = {
         cwd: repositoryRoot,
         env: environment,
         label: "Disposable scheduling PostgreSQL readiness check",
         captureOutput: true,
       };
+
       if (postgresTopology === "docker") await runCommand("docker", args, options);
       else await runNixPostgres("pg_isready", args, options);
+
       return;
     } catch {
       await sleep(250);
     }
   }
+
   throw new Error("Disposable scheduling PostgreSQL did not become ready");
 }
 
@@ -396,11 +470,13 @@ async function stopLocalPostgres(dataRoot, environment) {
 async function pathExists(path) {
   try {
     await access(path);
+
     return true;
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return false;
     }
+
     throw error;
   }
 }
@@ -443,12 +519,14 @@ async function runPsql(sql, environment, label) {
           "-c",
           sql,
         ];
+
   const options = {
     cwd: repositoryRoot,
     env: environment,
     label,
     captureOutput: true,
   };
+
   return postgresTopology === "docker"
     ? runCommand("docker", args, options)
     : runNixPostgres("psql", args, options);
@@ -456,7 +534,9 @@ async function runPsql(sql, environment, label) {
 
 const hasObjectKey = (value, key) => {
   if (Array.isArray(value)) return value.some((item) => hasObjectKey(item, key));
-  if (value === null || typeof value !== "object") return false;
+
+  if (value === null || !Predicate.isObjectOrArray(value)) return false;
+
   return Object.entries(value).some(
     ([entryKey, entryValue]) => entryKey === key || hasObjectKey(entryValue, key),
   );
@@ -464,32 +544,39 @@ const hasObjectKey = (value, key) => {
 
 const parseJsonBody = (bytes) => {
   if (bytes.byteLength === 0) return undefined;
+
   try {
     return JSON.parse(bytes.toString("utf8"));
   } catch {
     return undefined;
   }
 };
+
 const sessionCookieNames = new Set([
   "better-auth.session_token",
   "__Secure-better-auth.session_token",
 ]);
+
 const hasSessionCookie = (cookieHeader) =>
-  typeof cookieHeader === "string" &&
+  Predicate.isString(cookieHeader) &&
   cookieHeader.split(";").some((pair) => {
     const separator = pair.indexOf("=");
+
     return separator > 0 && sessionCookieNames.has(pair.slice(0, separator).trim());
   });
 
 async function startRecordingProxy(targetOrigin) {
   const records = [];
+
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const path = new URL(request.url ?? "/", targetOrigin).pathname;
     const chunks = [];
+
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
     const requestJson = parseJsonBody(requestBytes);
+
     const record = {
       method,
       path,
@@ -498,19 +585,21 @@ async function startRecordingProxy(targetOrigin) {
       requestHasResponseCapability: hasObjectKey(requestJson, "responseCapability"),
       responseHasResponseCapability: false,
       idempotencyKey:
-        typeof request.headers["idempotency-key"] === "string"
+        Predicate.isString(request.headers["idempotency-key"])
           ? request.headers["idempotency-key"]
           : null,
-      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
       requestJson,
       responseJson: null,
       responseEtag: null,
       status: 0,
     };
+
     records.push(record);
 
     try {
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (
           value === undefined ||
@@ -518,18 +607,21 @@ async function startRecordingProxy(targetOrigin) {
         ) {
           continue;
         }
+
         if (Array.isArray(value)) {
           for (const item of value) headers.append(name, item);
         } else {
           headers.set(name, value);
         }
       }
+
       const upstream = await fetch(new URL(request.url ?? "/", targetOrigin), {
         method,
         headers,
         body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
+
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       const responseJson = parseJsonBody(responseBytes);
       record.status = upstream.status;
@@ -537,15 +629,19 @@ async function startRecordingProxy(targetOrigin) {
       record.responseEtag = upstream.headers.get("etag");
       record.responseHasResponseCapability = hasObjectKey(responseJson, "responseCapability");
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers.entries()) {
         if (
           ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
         ) {
           continue;
         }
+
         response.setHeader(name, value);
       }
+
       const setCookie = upstream.headers.getSetCookie();
+
       if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
@@ -556,6 +652,7 @@ async function startRecordingProxy(targetOrigin) {
       response.end('{"error":"native scheduling evidence proxy failed"}');
     }
   });
+
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", () => {
@@ -564,11 +661,14 @@ async function startRecordingProxy(targetOrigin) {
     });
   });
   const address = server.address();
-  if (address === null || typeof address === "string") {
+
+  if (address === null || Predicate.isString(address)) {
     server.close();
     throw new Error("Native scheduling evidence proxy did not bind a loopback port");
   }
+
   let closed = false;
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     records,
@@ -579,7 +679,7 @@ async function startRecordingProxy(targetOrigin) {
       await new Promise((resolveClose, rejectClose) => {
         server.close((error) =>
           error === undefined ||
-          (typeof error === "object" &&
+          (Predicate.isObjectOrArray(error) &&
             error !== null &&
             "code" in error &&
             error.code === "ERR_SERVER_NOT_RUNNING")
@@ -593,7 +693,9 @@ async function startRecordingProxy(targetOrigin) {
 
 const parseJsonOutput = (result, label) => {
   const source = result.stdout.trim();
+
   if (source.length === 0) throw new Error(`${label} returned no JSON evidence`);
+
   try {
     return JSON.parse(source);
   } catch {
@@ -689,6 +791,7 @@ async function readScheduleEvidence(environment) {
     environment,
     "Native scheduling PostgreSQL evidence read",
   );
+
   return parseJsonOutput(result, "Native scheduling PostgreSQL evidence read");
 }
 
@@ -714,6 +817,7 @@ function assertPendingScheduleEvidence(evidence) {
     "Stored schedule",
   );
   assertEqual(evidence.interviewRevision, 1, "Interview revision");
+
   if (
     evidence.invitation?.interviewId !== interviewId ||
     evidence.invitation?.scheduleRevision !== 1 ||
@@ -721,6 +825,7 @@ function assertPendingScheduleEvidence(evidence) {
   ) {
     throw new Error("Invitation did not remain a separate Pending response authority");
   }
+
   if (
     evidence.receipt?.interviewId !== interviewId ||
     evidence.receipt?.scheduleRevision !== 1 ||
@@ -730,6 +835,7 @@ function assertPendingScheduleEvidence(evidence) {
   ) {
     throw new Error("Schedule receipt and audit authority links are incomplete");
   }
+
   if (
     evidence.outbox?.status !== "Pending" ||
     evidence.outbox?.attempts !== 0 ||
@@ -740,6 +846,7 @@ function assertPendingScheduleEvidence(evidence) {
   ) {
     throw new Error("Invitation outbox was not one pending canonical request");
   }
+
   assertEqual(
     evidence.counts,
     {
@@ -764,7 +871,9 @@ function assertRecordingEvidence(recording, before, after) {
   ) {
     throw new Error("Recording NotificationGateway evidence is incomplete");
   }
+
   const request = recording.requests[0];
+
   if (
     request?._tag !== "SendInterviewInvitation" ||
     request?.effectId !== before.outbox.effectId ||
@@ -786,6 +895,7 @@ function assertRecordingEvidence(recording, before, after) {
   ) {
     throw new Error("Recording gateway did not observe the canonical redacted invitation request");
   }
+
   if (
     after.outbox?.status !== "Delivered" ||
     after.outbox?.attempts !== 1 ||
@@ -796,8 +906,10 @@ function assertRecordingEvidence(recording, before, after) {
   ) {
     throw new Error("Delivered outbox evidence did not scrub the sensitive payload");
   }
+
   assertEqual(after.counts, before.counts, "Post-interpretation scheduling row counts");
 }
+
 async function warmDashboardClient(environment) {
   const source = `
     import { chromium } from "@playwright/test";
@@ -822,6 +934,7 @@ async function warmDashboardClient(environment) {
       await browser.close();
     }
   `;
+
   await runCommand(
     process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
     ["--input-type=module", "--eval", source],
@@ -840,30 +953,36 @@ const receiptRequested = () =>
     "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
     "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
     "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+  ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
 
 async function emitReceipt(playwrightOutput) {
   if (!receiptRequested()) return;
+
   const sourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
+
   const sourcePaths = [runnerPath, specPath, recordingDriverPath];
+
   if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
     throw new Error(
       "Native scheduling runtime evidence expects one to three runner source references",
     );
   }
+
   const runnerSourceInputBytes = await Promise.all(
     sourceRefIds.map(async (sourceRefId, index) => ({
       sourceRefId,
       bytes: await readFile(sourcePaths[index]),
     })),
   );
+
   const fixtureInputBytes = Buffer.concat([
     Buffer.from(seedSql, "utf8"),
     await readFile(recordingDriverPath),
   ]);
+
   await emitRuntimeEvidenceReceipt({
     journeyRefId,
     stepIds: journeyStepIds,
@@ -908,10 +1027,12 @@ async function main() {
       password: personaPassword,
     },
   ];
+
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
+
   const apiEnvironment = {
     ...baseEnvironment,
     BACKEND_HOST: "127.0.0.1",
@@ -937,15 +1058,18 @@ async function main() {
   let proxy;
   let evidence;
   let cleaned = false;
+
   const cleanup = async () => {
     if (cleaned) return;
     cleaned = true;
     const cleanupErrors = [];
+
     try {
       await stopProcess(dashboardProcess);
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (proxy !== undefined) {
       try {
         await proxy.close();
@@ -953,11 +1077,13 @@ async function main() {
         cleanupErrors.push(error);
       }
     }
+
     try {
       await stopProcess(apiProcess);
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (postgresStarted) {
       try {
         if (postgresTopology === "docker") {
@@ -986,11 +1112,13 @@ async function main() {
         cleanupErrors.push(error);
       }
     }
+
     try {
       await rm(temporaryRoot, { recursive: true, force: true });
     } catch (error) {
       cleanupErrors.push(error);
     }
+
     if (cleanupErrors.length > 0) {
       throw new AggregateError(cleanupErrors, "Native scheduling topology cleanup failed");
     }
@@ -999,14 +1127,17 @@ async function main() {
   const handleSignal = (signal) => {
     void cleanup().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
   };
+
   const handleInterrupt = () => handleSignal("SIGINT");
   const handleTermination = () => handleSignal("SIGTERM");
   process.once("SIGINT", handleInterrupt);
   process.once("SIGTERM", handleTermination);
 
   let primaryError;
+
   try {
     postgresStarted = true;
+
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
@@ -1065,6 +1196,7 @@ async function main() {
       BACKEND_PG_URL: postgresUrl,
       SCHEDULING_RECORDING_EVIDENCE_PATH: recordingEvidencePath,
     };
+
     await runCommand("bun", ["run", "build"], {
       cwd: sdkRoot,
       env: journeyEnvironment,
@@ -1094,7 +1226,9 @@ async function main() {
       "--workers=1",
       "--retries=0",
     ];
+
     if (receiptRequested()) playwrightArgs.push("--reporter=json");
+
     const playwright = await runCommand(
       process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
       playwrightArgs,
@@ -1105,7 +1239,9 @@ async function main() {
         captureOutput: receiptRequested(),
       },
     );
+
     const browser = await readJsonFile(browserEvidencePath, "Native scheduling browser evidence");
+
     if (
       browser.firstContextClosed !== true ||
       browser.independentContextPersisted !== true ||
@@ -1127,13 +1263,17 @@ async function main() {
 
     const boardPath = "/api/recruitment/interviews";
     const schedulePath = `${boardPath}/${encodeURIComponent(interviewId)}:schedule`;
+
     const schedulingRequests = proxy.records.filter(
       ({ path }) => path === boardPath || path === schedulePath,
     );
+
     const leadingBoardReadCount = schedulingRequests.length - 3;
+
     if (leadingBoardReadCount !== 1 && leadingBoardReadCount !== 2) {
       throw new Error("Native scheduling transport had an unexpected request count");
     }
+
     const boardRead = {
       method: "GET",
       path: boardPath,
@@ -1143,6 +1283,7 @@ async function main() {
       idempotencyKeyPresent: false,
       ifMatchPresent: false,
     };
+
     assertEqual(
       schedulingRequests.map(
         ({
@@ -1159,8 +1300,8 @@ async function main() {
           status,
           sessionCookieAuth,
           authorizationHeaderPresent,
-          idempotencyKeyPresent: typeof idempotencyKey === "string",
-          ifMatchPresent: typeof ifMatch === "string",
+          idempotencyKeyPresent: Predicate.isString(idempotencyKey),
+          ifMatchPresent: Predicate.isString(ifMatch),
         }),
       ),
       [
@@ -1180,16 +1321,19 @@ async function main() {
       "Native scheduling transport order",
     );
     const sourceBoard = schedulingRequests[leadingBoardReadCount - 1];
+
     const sourceItem = sourceBoard?.responseJson?.interviews?.find(
       (item) => item?.interviewId === interviewId,
     );
+
     const scheduleRequest = schedulingRequests[leadingBoardReadCount];
     const scheduleResponse = scheduleRequest?.responseJson;
+
     if (
-      typeof sourceItem?.etag !== "string" ||
+      !Predicate.isString(sourceItem?.etag) ||
       !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(sourceItem.etag) ||
       scheduleRequest?.ifMatch !== sourceItem.etag ||
-      typeof scheduleRequest.idempotencyKey !== "string" ||
+      !Predicate.isString(scheduleRequest.idempotencyKey) ||
       JSON.stringify(Object.keys(scheduleRequest.requestJson ?? {}).sort()) !==
         JSON.stringify(["campus", "mapLink", "message", "room", "scheduledAt"]) ||
       scheduleResponse?.interviewId !== interviewId ||
@@ -1209,6 +1353,7 @@ async function main() {
         "Native scheduling did not forward the board item ETag through the v0.2 mutation contract",
       );
     }
+
     if (
       schedulingRequests.some(
         (request) =>
@@ -1234,12 +1379,15 @@ async function main() {
       env: journeyEnvironment,
       label: "Recording Recruitment NotificationGateway driver",
     });
+
     const recording = await readJsonFile(
       recordingEvidencePath,
       "Recording Recruitment NotificationGateway evidence",
     );
+
     const afterInterpretation = await readScheduleEvidence(baseEnvironment);
     assertRecordingEvidence(recording, beforeInterpretation, afterInterpretation);
+
     if (receiptRequested()) await emitReceipt(playwright.stdout);
 
     evidence = {
@@ -1292,6 +1440,7 @@ async function main() {
         status,
         sessionCookieAuth,
       }));
+
     primaryError = new Error(
       `${errorDetail(error)}; recorded transport: ${JSON.stringify(transport ?? [])}`,
       { cause: error },
@@ -1299,11 +1448,14 @@ async function main() {
   }
 
   let cleanupError;
+
   try {
     await cleanup();
+
     if (await pathExists(temporaryRoot)) {
       throw new Error("Native scheduling cleanup left the temporary root behind");
     }
+
     await Promise.all([
       waitForPortRelease(dashboardPort),
       waitForPortRelease(backendPort),
@@ -1322,7 +1474,9 @@ async function main() {
       "Native scheduling journey and cleanup failed",
     );
   }
+
   if (primaryError !== undefined) throw primaryError;
+
   if (cleanupError !== undefined) throw cleanupError;
 
   process.stdout.write(

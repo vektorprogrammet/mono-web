@@ -1,5 +1,7 @@
-import ts from "typescript";
-import { parseDocument } from "yaml";
+import { Match, Predicate, Schema, Array as Arr } from "effect";
+import { isJsonObject } from "./json-safety.js";
+import ts from "typescript-compiler-api";
+import { parseDocument, isMap, isScalar, isSeq, isPair, type ParsedNode, type YAMLMap } from "yaml";
 import {
   canonicalJson,
   compareByteOrder,
@@ -34,6 +36,7 @@ import type {
 } from "./types.js";
 
 export type EffectClass = CommandWriteDetails["effect_classes"][number];
+
 export type C2FailureStatus = "gaps_found" | "unresolved" | "source_unavailable";
 
 export interface C2CollectionFailure {
@@ -106,7 +109,9 @@ const pathsForFamily = (
   familyId: string,
 ): readonly string[] => {
   const family = familyFor(authority, familyId);
+
   if (family === undefined) return [];
+
   return context.scans[authority].files
     .filter((file) => !file.unsafe && effectiveIgnoreRule(authority, file.path) === null)
     .filter((file) => family.patterns.some((pattern) => matchesLiteralPattern(file.path, pattern)))
@@ -131,8 +136,8 @@ const sourceRefFor = (
   lineEnd: number | null,
   symbol: string | null,
   failureReason?: string,
-): string =>
-  addSourceReference(context, {
+): string => {
+  const input: Parameters<typeof addSourceReference>[1] = {
     authorityLine: authority,
     authorityRole: role,
     rootRef: authority,
@@ -140,12 +145,19 @@ const sourceRefFor = (
     lineStart,
     lineEnd,
     symbol,
-    ...(failureReason === undefined ? {} : { failureStatus: "unresolved" as const, failureReason }),
-  });
+  };
+
+  if (failureReason !== undefined)
+    Object.assign(input, { failureStatus: "unresolved", failureReason });
+
+  return addSourceReference(context, input);
+};
 
 const lineAt = (text: string, offset: number): number => {
   let line = 1;
+
   for (let index = 0; index < offset; index += 1) if (text[index] === "\n") line += 1;
+
   return line;
 };
 
@@ -156,12 +168,15 @@ const normalizeSafe = (
 ): string | null => {
   if (value === null) return null;
   const normalized = sanitizeScalar(value, fieldName);
+
   if (normalized === null) reasons.push("UNSAFE_SOURCE");
+
   return normalized;
 };
 
 const namespaceOf = (text: string): string | null => {
   const match = /\bnamespace\s+([^;\s]+)\s*;/i.exec(withoutComments(text));
+
   return match?.[1] ?? null;
 };
 
@@ -170,12 +185,16 @@ const classMatches = (
 ): readonly { readonly name: string; readonly offset: number }[] => {
   const result: Array<{ readonly name: string; readonly offset: number }> = [];
   const pattern = /\bclass\s+([A-Za-z_][A-Za-z0-9_]*)/g;
+
   for (const match of withoutComments(text).matchAll(pattern)) {
     const name = match[1];
+
     if (name !== undefined && match.index !== undefined) result.push({ name, offset: match.index });
   }
+
   return result;
 };
+
 interface SourceRange {
   readonly start: number;
   readonly end: number;
@@ -183,14 +202,18 @@ interface SourceRange {
 
 const braceRangeEndFor = (source: string, open: number): number | null => {
   let depth = 0;
+
   for (let index = open; index < source.length; index += 1) {
     const token = source[index];
+
     if (token === "{") depth += 1;
     else if (token === "}") {
       depth -= 1;
+
       if (depth === 0) return index;
     }
   }
+
   return null;
 };
 
@@ -210,6 +233,7 @@ const typescriptSourceFileFor = (path: string, source: string): ts.SourceFile | 
         : /\.(?:c|m)?js$/i.test(path)
           ? ts.ScriptKind.JS
           : null;
+
   return scriptKind === null
     ? null
     : ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, scriptKind);
@@ -220,8 +244,10 @@ const languageClassDeclarationsFor = (
   source: string,
 ): readonly LanguageClassDeclaration[] => {
   const sourceFile = typescriptSourceFileFor(path, source);
+
   if (sourceFile !== null) {
     const declarations: LanguageClassDeclaration[] = [];
+
     const visit = (node: ts.Node): void => {
       if ((ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.name !== undefined)
         declarations.push({
@@ -231,15 +257,20 @@ const languageClassDeclarationsFor = (
         });
       ts.forEachChild(node, visit);
     };
+
     visit(sourceFile);
+
     return declarations;
   }
 
   const structure = withoutLiterals(withoutComments(source));
+
   return classMatches(structure).flatMap((entry) => {
     const open = structure.indexOf("{", entry.offset);
+
     if (open < 0) return [];
     const close = braceRangeEndFor(structure, open);
+
     return close === null ? [] : [{ name: entry.name, start: entry.offset, end: close + 1 }];
   });
 };
@@ -247,13 +278,17 @@ const languageClassDeclarationsFor = (
 const interfaceDeclarationRangesFor = (structure: string): readonly SourceRange[] => {
   const ranges: SourceRange[] = [];
   const pattern = /\binterface\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+extends\s+[^{]+)?\s*\{/g;
+
   for (const match of structure.matchAll(pattern)) {
     if (match.index === undefined) continue;
     const open = structure.indexOf("{", match.index);
+
     if (open < 0) continue;
     const end = braceRangeEndFor(structure, open);
+
     if (end !== null) ranges.push({ start: open, end });
   }
+
   return ranges;
 };
 
@@ -270,24 +305,34 @@ const functionMatches = (
   const result: Array<{ readonly name: string; readonly offset: number }> = [];
   const body = withoutComments(text).slice(start, end);
   const pattern = /\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+
   for (const match of body.matchAll(pattern)) {
     const name = match[1];
+
     if (name !== undefined && match.index !== undefined)
       result.push({ name, offset: start + match.index });
   }
+
   return result;
 };
 
 const classOwner = (text: string, name: string, reasons: string[]): string | null => {
   const namespace = namespaceOf(text);
   const raw = namespace === null ? name : `${namespace}\\${name}`;
+
   return normalizeSafe(raw, "owner_ref", reasons);
 };
 
 const ownerShortName = (owner: string | null): string | null => {
   if (owner === null) return null;
   const pieces = owner.split("\\");
+
   return pieces.at(-1) ?? owner;
+};
+
+type CollectedSourceUnits = {
+  readonly units: readonly SourceUnit[];
+  readonly failures: readonly C2CollectionFailure[];
 };
 
 const sourceUnits = (
@@ -295,13 +340,15 @@ const sourceUnits = (
   authority: "legacy" | "mono",
   familyId: string,
   role: string,
-): { readonly units: readonly SourceUnit[]; readonly failures: readonly C2CollectionFailure[] } => {
+): CollectedSourceUnits => {
   const paths = pathsForFamily(context, authority, familyId);
   const units: SourceUnit[] = [];
   const failures: C2CollectionFailure[] = [];
+
   for (const path of paths) {
     const sourceRefId = sourceRefFor(context, authority, role, path, null, null, null);
     const text = readSourceText(context, authority, path);
+
     if (text === null) {
       failures.push({
         status: "source_unavailable",
@@ -311,8 +358,10 @@ const sourceUnits = (
       });
       continue;
     }
+
     units.push({ authority, path, text, sourceRefId, sourceRefIds: [sourceRefId] });
   }
+
   return { units, failures };
 };
 
@@ -324,6 +373,7 @@ const absentSource = (
 ): string => {
   const family = familyFor(authority, familyId);
   const path = family?.patterns[0] ?? `__absent__/${familyId}`;
+
   return sourceRefFor(context, authority, role, path, null, null, null, "ABSENT_SOURCE_FAMILY");
 };
 
@@ -338,27 +388,33 @@ const mismatch = (
   counterpart_row_ids: sortUnique(counterpartRowIds),
   reason,
 });
+
 const preserveCommentWhitespace = (value: string): string => value.replace(/[^\n]/g, " ");
 
 const withoutComments = (source: string): string => {
   let output = "";
   let quote: "'" | '"' | "`" | null = null;
   let escaped = false;
+
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index] ?? "";
     const next = source[index + 1] ?? "";
+
     if (quote !== null) {
       output += char;
+
       if (escaped) escaped = false;
       else if (char === "\\") escaped = true;
       else if (char === quote) quote = null;
       continue;
     }
+
     if (char === "'" || char === '"' || char === "`") {
       quote = char;
       output += char;
       continue;
     }
+
     if (char === "/" && next === "*") {
       const end = source.indexOf("*/", index + 2);
       const commentEnd = end < 0 ? source.length : end + 2;
@@ -366,6 +422,7 @@ const withoutComments = (source: string): string => {
       index = commentEnd - 1;
       continue;
     }
+
     if (char === "/" && next === "/") {
       const end = source.indexOf("\n", index + 2);
       const commentEnd = end < 0 ? source.length : end;
@@ -373,6 +430,7 @@ const withoutComments = (source: string): string => {
       index = commentEnd - 1;
       continue;
     }
+
     if (char === "#" && next !== "[") {
       const end = source.indexOf("\n", index + 1);
       const commentEnd = end < 0 ? source.length : end;
@@ -380,10 +438,13 @@ const withoutComments = (source: string): string => {
       index = commentEnd - 1;
       continue;
     }
+
     output += char;
   }
+
   return output;
 };
+
 const withoutLiterals = (source: string): string =>
   source.replace(
     /'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]|[^"\\])*"|`(?:\\[\s\S]|[^`\\])*`/g,
@@ -392,9 +453,12 @@ const withoutLiterals = (source: string): string =>
 
 const stringLiteralValue = (raw: string): string | null => {
   const value = raw.trim();
+
   if (value.length < 2) return null;
   const quote = value[0];
+
   if ((quote !== "'" && quote !== '"' && quote !== "`") || value.at(-1) !== quote) return null;
+
   return value
     .slice(1, -1)
     .replace(/\\(["'`\\])/g, "$1")
@@ -407,6 +471,7 @@ const literalDestination = (raw: string | undefined): string => {
   if (raw === undefined) return "";
   const source = ts.createSourceFile("destination.ts", `(${raw})`, ts.ScriptTarget.Latest, true);
   const statement = source.statements[0];
+
   if (
     statement === undefined ||
     !ts.isExpressionStatement(statement) ||
@@ -414,6 +479,7 @@ const literalDestination = (raw: string | undefined): string => {
   )
     return "";
   const expression = statement.expression.expression;
+
   return ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)
     ? expression.text
     : "";
@@ -427,21 +493,27 @@ interface LiteralCall {
 
 const literalCallsFor = (source: string, name: string): readonly LiteralCall[] => {
   const calls: LiteralCall[] = [];
+
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
+
     if (char === "'" || char === '"' || char === "`") {
       const quote = char;
       index += 1;
+
       while (index < source.length) {
         if (source[index] === "\\") index += 1;
         else if (source[index] === quote) break;
         index += 1;
       }
+
       continue;
     }
+
     if (!source.startsWith(name, index)) continue;
     const previous = source[index - 1];
     const next = source[index + name.length];
+
     if (
       (previous !== undefined && /[A-Za-z0-9_$]/.test(previous)) ||
       (next !== undefined && /[A-Za-z0-9_$]/.test(next))
@@ -449,60 +521,77 @@ const literalCallsFor = (source: string, name: string): readonly LiteralCall[] =
       continue;
     const callOffset = index;
     let open = index + name.length;
+
     while (/\s/.test(source[open] ?? "")) open += 1;
+
     if (source[open] !== "(") continue;
     const args: string[] = [];
     let argumentStart = open + 1;
     let depth = 1;
     let quote: string | null = null;
     let closed = false;
+
     for (let cursor = open + 1; cursor < source.length; cursor += 1) {
       const current = source[cursor];
+
       if (quote !== null) {
         if (current === "\\") cursor += 1;
         else if (current === quote) quote = null;
         continue;
       }
+
       if (current === "'" || current === '"' || current === "`") {
         quote = current;
         continue;
       }
+
       if (current === "(") {
         depth += 1;
         continue;
       }
+
       if (current === ")") {
         depth -= 1;
+
         if (depth === 0) {
           args.push(source.slice(argumentStart, cursor));
           closed = true;
           index = cursor;
           break;
         }
+
         continue;
       }
+
       if (current === "," && depth === 1) {
         args.push(source.slice(argumentStart, cursor));
         argumentStart = cursor + 1;
       }
     }
+
     if (closed)
       calls.push({ args: args.map(stringLiteralValue), rawArgs: args, offset: callOffset });
   }
+
   return calls;
 };
 
 const externalFileGetContentsCall = (source: string, call: EffectCall): boolean => {
   if (call.callable.toLowerCase() !== "file_get_contents") return false;
+
   const literal = literalCallsFor(source, call.callable).find(
     (candidate) => candidate.offset === call.offset,
   );
+
   const rawArgument = literal?.rawArgs[0]?.trim() ?? "";
   const literalValue = literal?.args[0]?.trim() ?? null;
+
   if (/^https?:\/\//i.test(literalValue ?? "") || /^(?:["'])\s*https?:\/\//i.test(rawArgument))
     return true;
   const variable = /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(rawArgument)?.[1];
+
   if (variable === undefined) return false;
+
   return new RegExp("\\$" + variable + "\\s*=\\s*[\"']https?:\\/\\/", "i").test(
     withoutComments(source),
   );
@@ -522,6 +611,7 @@ interface EffectCall {
   readonly repositoryClassName?: string;
   readonly locatorId?: string;
 }
+
 interface EffectScope {
   readonly owner: LanguageClass | undefined;
   readonly start: number;
@@ -534,6 +624,7 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
   const masked = withoutLiterals(stripped);
   const calls: EffectCall[] = [];
   const isCode = (offset: number): boolean => masked[offset] === stripped[offset];
+
   const add = (call: EffectCall): void => {
     if (
       !calls.some(
@@ -551,10 +642,12 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
 
   const classLocator =
     /(?:\$this|this)(?:\s*->\s*container)?\s*->\s*get\s*\(\s*(\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*)\s*::\s*class\s*\)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+
   for (const match of stripped.matchAll(classLocator)) {
     const offset = match.index ?? -1;
     const targetClassName = match[1];
     const callable = match[2];
+
     if (offset < 0 || callable === undefined || targetClassName === undefined || !isCode(offset))
       continue;
     const matched = match[0] ?? "";
@@ -568,13 +661,16 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
       targetClassName,
     });
   }
+
   const classLocatorAssignment =
     /(\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\$this|this)(?:\s*->\s*container)?\s*->\s*get\s*\(\s*(\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*)\s*::\s*class\s*\)\s*;/g;
+
   for (const assignment of stripped.matchAll(classLocatorAssignment)) {
     const variable = assignment[1];
     const targetClassName = assignment[2];
     const assignmentOffset = assignment.index ?? -1;
     const assignmentEnd = assignmentOffset + (assignment[0]?.length ?? 0);
+
     if (
       assignmentOffset < 0 ||
       variable === undefined ||
@@ -583,10 +679,12 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
     )
       continue;
     const variableCall = /(\$[A-Za-z_][A-Za-z0-9_]*)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+
     for (const callMatch of stripped.matchAll(variableCall)) {
       const offset = callMatch.index ?? -1;
       const receiver = callMatch[1];
       const callable = callMatch[2];
+
       if (
         offset < assignmentEnd ||
         receiver !== variable ||
@@ -608,11 +706,13 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
 
   const stringLocator =
     /(?:\$this|this)(?:\s*->\s*container)?\s*->\s*get\s*\(\s*(["'])([^"'\\]*(?:\\.[^"'\\]*)*)\1\s*\)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+
   for (const match of stripped.matchAll(stringLocator)) {
     const offset = match.index ?? -1;
     const quote = match[1];
     const rawId = match[2];
     const callable = match[3];
+
     if (
       offset < 0 ||
       quote === undefined ||
@@ -636,10 +736,12 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
 
   const repositoryCall =
     /(?:(?:\$this|this)\s*->\s*getDoctrine\s*\(\s*\)(?:\s*->\s*getManager\s*\(\s*\))?|\$[A-Za-z_][A-Za-z0-9_]*)\s*->\s*getRepository\s*\(\s*(\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*)\s*::\s*class\s*\)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+
   for (const match of stripped.matchAll(repositoryCall)) {
     const offset = match.index ?? -1;
     const repositoryClassName = match[1];
     const callable = match[2];
+
     if (
       offset < 0 ||
       repositoryClassName === undefined ||
@@ -661,9 +763,11 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
 
   const doctrineEffect =
     /(?:\$this|this)\s*->\s*getDoctrine\s*\(\s*\)(?:\s*->\s*getManager\s*\(\s*\))?\s*->\s*(persist|flush|remove|delete|save|update|insert|upsert|executeStatement|transaction|commit)\s*\(/gi;
+
   for (const match of stripped.matchAll(doctrineEffect)) {
     const offset = match.index ?? -1;
     const callable = match[1];
+
     if (offset < 0 || callable === undefined || !isCode(offset)) continue;
     const matched = match[0] ?? "";
     const receiver = matched.slice(0, matched.lastIndexOf("->"));
@@ -675,14 +779,17 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
       constructorCall: false,
     });
   }
+
   return calls;
 };
 
 const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
   const structure = withoutLiterals(withoutComments(source));
   const calls: EffectCall[] = [];
+
   const pattern =
     /\\?(?:\$?[A-Za-z_][A-Za-z0-9_$\\]*(?:(?:->|::|\.)\$?[A-Za-z_][A-Za-z0-9_$\\]*)*)\s*\(/g;
+
   const ignored = new Set([
     "if",
     "for",
@@ -697,13 +804,16 @@ const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
     "list",
     "elseif",
   ]);
+
   for (const match of structure.matchAll(pattern)) {
     const chain = match[0]?.replace(/\s*\($/, "").trim() ?? "";
     const offset = match.index ?? 0;
     const segments = chain.split(/->|::|\./).filter((segment) => segment.length > 0);
     const callable = segments.at(-1);
+
     if (callable === undefined || ignored.has(callable.toLowerCase())) continue;
     const prefix = structure.slice(0, offset).trimEnd();
+
     if (/(?:function|class|interface|trait|enum)\s*$/i.test(prefix)) continue;
     const constructorCall = /\bnew$/i.test(prefix);
     calls.push({
@@ -714,7 +824,9 @@ const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
       constructorCall,
     });
   }
+
   const specialCalls = specialEffectCallsFor(source);
+
   const ordinaryCalls = calls.filter(
     (call) =>
       !specialCalls.some(
@@ -724,14 +836,18 @@ const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
           call.offset <= special.offset + special.chain.length + 2,
       ),
   );
+
   return [...ordinaryCalls, ...specialCalls].sort(
     (left, right) => left.offset - right.offset || compareByteOrder(left.callable, right.callable),
   );
 };
+
 const attributeCallFor = (source: string, offset: number): boolean => {
   const prefix = source.slice(0, offset);
+
   return prefix.lastIndexOf("#[") > prefix.lastIndexOf("]");
 };
+
 interface FunctionContext {
   readonly name: string | null;
   readonly parameters: string;
@@ -745,22 +861,29 @@ const functionContextFor = (
   namedOnly = false,
 ): FunctionContext | null => {
   const structure = withoutLiterals(withoutComments(source));
+
   const candidates: {
     readonly name: string | null;
     readonly parameters: string;
     readonly bodyStart: number;
   }[] = [];
+
   const phpFunctions =
     /\bfunction\s*(?:&\s*)?(?:([A-Za-z_$][A-Za-z0-9_$]*)\s*)?\(([^)]*)\)\s*(?::[^{]+)?\s*\{/g;
+
   for (const match of structure.matchAll(phpFunctions)) {
     const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1);
+
     if (bodyStart >= 0 && match[2] !== undefined)
       candidates.push({ name: match[1] ?? null, parameters: match[2], bodyStart });
   }
+
   const arrows =
     /(?:(?:(?:const|let|var)\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:=|:)\s*)?(?:async\s*)?(?:\(([^()]*)\)|([A-Za-z_$][A-Za-z0-9_$]*))\s*(?::\s*[^={]+)?\s*=>\s*\{/g;
+
   for (const match of structure.matchAll(arrows)) {
     const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1);
+
     if (bodyStart >= 0)
       candidates.push({
         name: match[1] ?? null,
@@ -768,33 +891,43 @@ const functionContextFor = (
         bodyStart,
       });
   }
+
   const ignoredMethods = new Set(["if", "for", "while", "switch", "catch", "with", "elseif"]);
+
   const typedMethods =
     /(?:^|[;{}\n])\s*(?:(?:public|private|protected|static|readonly|abstract|override|async|get|set)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*(?::[^{=>]+)?\s*\{/gm;
+
   for (const match of structure.matchAll(typedMethods)) {
     const name = match[1];
     const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1);
+
     if (name !== undefined && !ignoredMethods.has(name) && bodyStart >= 0 && match[2] !== undefined)
       candidates.push({ name, parameters: match[2], bodyStart });
   }
+
   let selected: FunctionContext | null = null;
+
   for (const candidate of candidates) {
     if (candidate.bodyStart >= offset || (namedOnly && candidate.name === null)) continue;
     let depth = 1;
     let bodyEnd = structure.length;
+
     for (let index = candidate.bodyStart + 1; index < structure.length; index += 1) {
       if (structure[index] === "{") depth += 1;
       else if (structure[index] === "}") {
         depth -= 1;
+
         if (depth === 0) {
           bodyEnd = index;
           break;
         }
       }
     }
+
     if (offset <= bodyEnd && (selected === null || candidate.bodyStart > selected.bodyStart))
       selected = { ...candidate, bodyEnd };
   }
+
   return selected;
 };
 
@@ -807,28 +940,37 @@ interface MethodScope {
 const methodScopeFor = (source: string, offset: number, limit: number): MethodScope | null => {
   const structure = withoutLiterals(withoutComments(source));
   const open = structure.indexOf("{", offset);
+
   if (open < 0 || open >= limit) return null;
+
   const name = /\bfunction\s*(?:&\s*)?([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(
     structure.slice(offset, open),
   )?.[1];
+
   if (name === undefined) return null;
   const context = functionContextFor(source, open + 1);
+
   if (context !== null && context.bodyStart === open && context.bodyEnd < limit) {
     return { name, start: offset, end: context.bodyEnd + 1 };
   }
+
   let depth = 1;
+
   for (let index = open + 1; index < limit; index += 1) {
     if (structure[index] === "{") depth += 1;
     else if (structure[index] === "}") {
       depth -= 1;
+
       if (depth === 0) return { name, start: offset, end: index + 1 };
     }
   }
+
   return null;
 };
 
 const normalizeLocalType = (raw: string | undefined): string | null => {
   const value = raw?.trim().replace(/^\?/, "").split("|")[0]?.trim() ?? "";
+
   return value.length === 0 ||
     /^(?:mixed|object|array|callable|iterable|void|never|self|static|parent|unknown|any|null|true|false|public|private|protected|readonly|static|final|var)$/i.test(
       value,
@@ -836,6 +978,7 @@ const normalizeLocalType = (raw: string | undefined): string | null => {
     ? null
     : value;
 };
+
 const constructorPropertyTypeFor = (
   source: string,
   property: string,
@@ -843,41 +986,54 @@ const constructorPropertyTypeFor = (
 ): string | null => {
   const selectedSource =
     ownerClass === undefined ? source : source.slice(ownerClass.start, ownerClass.end);
+
   const structure = withoutLiterals(withoutComments(selectedSource));
+
   const constructorMatch = /\bfunction\s+__construct\s*\(([^)]*)\)\s*(?::[^{]+)?\s*\{/i.exec(
     structure,
   );
+
   if (constructorMatch !== null) {
     const open = (constructorMatch.index ?? 0) + constructorMatch[0].lastIndexOf("{");
     let depth = 1;
     let end = structure.length;
+
     for (let index = open + 1; index < structure.length; index += 1) {
       if (structure[index] === "{") depth += 1;
       else if (structure[index] === "}") {
         depth -= 1;
+
         if (depth === 0) {
           end = index;
           break;
         }
       }
     }
+
     const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
     const assignment = new RegExp(
       `\\$this\\s*->\\s*${escapedProperty}\\s*=\\s*new\\s+([\\\\A-Za-z_][A-Za-z0-9_\\\\]*)\\b`,
     ).exec(structure.slice(open + 1, end));
+
     const assignedType = normalizeLocalType(assignment?.[1]);
+
     if (assignedType !== null) return assignedType;
     const constructorParameters = constructorMatch[1] ?? "";
+
     for (const parameter of constructorParameters.split(",")) {
       const match =
         /^\s*(?:(?:public|private|protected|readonly|static|final)\s+)*(\??[\\A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*\??[\\A-Za-z_][A-Za-z0-9_\\]*)*)\s+\$([A-Za-z_][A-Za-z0-9_]*)/.exec(
           parameter,
         );
+
       if (match?.[2] === property) return normalizeLocalType(match[1]);
     }
   }
+
   return null;
 };
+
 const validClassIdentity = (raw: string | null | undefined): raw is string =>
   raw !== null &&
   raw !== undefined &&
@@ -890,23 +1046,28 @@ const localReceiverTypesFor = (
 ): ReadonlyMap<string, string | null> => {
   const localTypes = new Map<string, string | null>();
   const context = functionContextFor(unit.text, offset);
+
   if (context === null) return localTypes;
   const parameters = context.parameters;
+
   for (const match of parameters.matchAll(
     /(?:^|,)\s*(?:(\\?[A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*\\?[A-Za-z_][A-Za-z0-9_\\]*)*)\s+)?&?\s*\$([A-Za-z_][A-Za-z0-9_]*)\b/g,
   )) {
     if (match[2] !== undefined) localTypes.set(`$${match[2]}`, normalizeLocalType(match[1]));
   }
+
   for (const match of parameters.matchAll(
     /(?:^|,)\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*([A-Za-z_$][A-Za-z0-9_.$]*))?/g,
   )) {
     if (match[1] !== undefined && !match[1].startsWith("$"))
       localTypes.set(match[1], normalizeLocalType(match[2]));
   }
+
   const body = withoutLiterals(withoutComments(unit.text)).slice(
     context.bodyStart + 1,
     Math.min(offset, context.bodyEnd),
   );
+
   for (const match of body.matchAll(
     /(?:^|[;{}\n])\s*(?:final\s+|public\s+|private\s+|protected\s+|readonly\s+|static\s+)*(\\?[A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*\\?[A-Za-z_][A-Za-z0-9_\\]*)*)\s+&?\$([A-Za-z_][A-Za-z0-9_]*)\b/g,
   )) {
@@ -916,31 +1077,38 @@ const localReceiverTypesFor = (
     )
       localTypes.set(`$${match[2]}`, normalizeLocalType(match[1]));
   }
+
   for (const match of body.matchAll(
     /\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*new\s+([\\A-Za-z_][A-Za-z0-9_\\]*)\b/g,
   )) {
     if (match[1] !== undefined) localTypes.set(`$${match[1]}`, normalizeLocalType(match[2]));
   }
+
   for (const match of body.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*null\b/g)) {
     if (match[1] !== undefined) localTypes.set(`$${match[1]}`, null);
   }
+
   for (const match of body.matchAll(
     /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*([A-Za-z_$][A-Za-z0-9_.$]*)/g,
   )) {
     if (match[1] !== undefined) localTypes.set(match[1], normalizeLocalType(match[2]));
   }
+
   for (const match of body.matchAll(
     /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*new\s+([A-Za-z_$][A-Za-z0-9_.$]*)\b/g,
   )) {
     if (match[1] !== undefined) localTypes.set(match[1], normalizeLocalType(match[2]));
   }
+
   for (const match of body.matchAll(
     /\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*null\b/g,
   )) {
     if (match[1] !== undefined) localTypes.set(match[1], null);
   }
+
   return localTypes;
 };
+
 const effectClassForCallable = (callable: string): EffectClass | null => {
   switch (callable.toLowerCase()) {
     case "persist":
@@ -1013,69 +1181,93 @@ const effectClassForCallable = (callable: string): EffectClass | null => {
   }
 };
 
+type EffectEvidence = {
+  readonly effects: readonly EffectClass[];
+  readonly targets: readonly string[];
+};
+
 const effectEvidence = (
   unit: SourceUnit,
   authority: AuthorityGraph,
   scope?: EffectScope,
   visited: ReadonlySet<string> = new Set(),
-): { readonly effects: readonly EffectClass[]; readonly targets: readonly string[] } => {
+): EffectEvidence => {
   const effects: EffectClass[] = [];
   const targets: string[] = [];
   let unresolved = false;
   const source = scope === undefined ? unit.text : unit.text.slice(scope.start, scope.end);
+
   for (const call of effectCallExpressionsFor(source)) {
     if (call.callable === "AsCommand" && attributeCallFor(source, call.offset)) continue;
     const callPrefix = source.slice(Math.max(0, call.offset - 160), call.offset);
+
     const dynamicEntityWrite =
       /^(?:persist|flush|remove)$/i.test(call.callable) &&
       /(?:getDoctrine|getManager|getEntityManager|\$?(?:em|entityManager|manager)\b)/i.test(
         `${call.receiver ?? ""} ${callPrefix}`,
       );
+
     const markUnresolved = (): void => {
       if (dynamicEntityWrite) {
         effects.push("durable_write");
+
         return;
       }
+
       unresolved = true;
       targets.push(`unresolved:${scope?.owner?.fqn ?? unit.path}::${call.callable}`);
     };
+
     const externalFileGetContents = externalFileGetContentsCall(source, call);
+
     const callableEffect =
       effectClassForCallable(call.callable) ?? (externalFileGetContents ? "outbound" : null);
+
     if (call.constructorCall) continue;
     const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0);
+
     if (resolved === null) {
       const receiver = call.receiver ?? null;
       const receiverParts = receiver?.split(/->|::|\./).filter((part) => part.length > 0) ?? [];
+
       const normalizedReceiverParts = receiverParts.map((part) =>
         part.replace(/\s*\(\s*\)\s*$/, "").trim(),
       );
+
       const receiverRoot = receiverParts[0] ?? null;
       const localTypes = localReceiverTypesFor(unit, call.offset + (scope?.start ?? 0));
+
       const adapterTargetScope =
         scope?.owner?.name === "SlackMessenger" &&
         (scope.methodName === "send" || scope.methodName === "sendPayload");
+
       const typedLocalReceiver =
         receiverRoot !== null &&
         localTypes.has(receiverRoot) &&
         localTypes.get(receiverRoot) !== null;
+
       const declaredOwnerPropertyType =
         receiverRoot === "$this" && receiverParts[1] !== undefined
           ? scope?.owner?.properties.get(receiverParts[1])
           : undefined;
+
       const typedOwnerPropertyType =
         receiverRoot === "$this" && receiverParts[1] !== undefined
           ? (constructorPropertyTypeFor(unit.text, receiverParts[1], scope?.owner) ??
             declaredOwnerPropertyType)
           : undefined;
+
       const typedOwnerProperty =
         receiverRoot === "$this" &&
         receiverParts[1] !== undefined &&
         (validClassIdentity(typedOwnerPropertyType) || declaredOwnerPropertyType !== undefined);
+
       const explicitlyUnknownReceiver =
         receiver !== null && !typedLocalReceiver && !typedOwnerProperty;
+
       const doctrineLocator =
         call.locatorId !== undefined && /(?:doctrine|entity[_ .-]?manager)/i.test(call.locatorId);
+
       const trustedEffectAnchor =
         (/^(?:persist|flush|remove)$/i.test(call.callable) &&
           (receiver !== null || dynamicEntityWrite) &&
@@ -1093,10 +1285,12 @@ const effectEvidence = (
             /event[_]?dispatcher/i.test(callPrefix))) ||
         (/\.(?:php)$/i.test(unit.path) && /^(?:mkdir|unlink)$/i.test(call.callable)) ||
         externalFileGetContents;
+
       if (callableEffect !== null && callableEffect !== "read_only") {
         if (receiver === null && !trustedEffectAnchor) markUnresolved();
         else {
           effects.push(callableEffect);
+
           if (
             callableEffect === "outbound" &&
             adapterTargetScope &&
@@ -1105,6 +1299,7 @@ const effectEvidence = (
           ) {
             targets.push(`${typedOwnerPropertyType}::${call.callable}`);
           }
+
           if (explicitlyUnknownReceiver && !trustedEffectAnchor) markUnresolved();
         }
       } else if (
@@ -1113,35 +1308,47 @@ const effectEvidence = (
       ) {
         markUnresolved();
       }
+
       continue;
     }
+
     targets.push(resolved.symbol);
+
     if (call.constructorCall) continue;
+
     if (callableEffect !== null) {
       if (callableEffect !== "read_only") effects.push(callableEffect);
       continue;
     }
+
     if (visited.has(resolved.symbol)) continue;
     const target = effectScopeForTarget(authority, resolved.targetClass, call.callable);
+
     if (target === null) {
       markUnresolved();
       continue;
     }
+
     const nested = effectEvidence(
       target.unit,
       authority,
       target.scope,
       new Set([...visited, resolved.symbol]),
     );
+
     effects.push(...nested.effects.filter((effect) => effect !== "read_only"));
     const nestedTargets = target.scope.owner?.name === "SlackMessenger" ? [] : nested.targets;
     targets.push(...nestedTargets);
   }
+
   if (/\b(?:->|::|\.)\s*dispatch\s*\(/i.test(withoutComments(source))) effects.push("outbound");
+
   if (unresolved) effects.push("unknown");
   else if (effects.length === 0) effects.push("read_only");
-  return { effects: sortUnique(effects) as EffectClass[], targets: sortUnique(targets) };
+
+  return { effects: sortUnique(effects), targets: sortUnique(targets) };
 };
+
 const entitySourcePath = (path: string): boolean =>
   /(?:^|\/)(?:Entity|Entities)(?:\/|$)/i.test(path);
 
@@ -1157,31 +1364,42 @@ const entityMutatorHasExternalEffect = (
     )
   )
     return true;
+
   if (!evidence.effects.includes("identity_or_authority")) return false;
   const source = unit.text.slice(scope.start, scope.end);
+
   for (const call of effectCallExpressionsFor(source)) {
     if (call.constructorCall || effectClassForCallable(call.callable) !== "identity_or_authority")
       continue;
+
     if (!/^set[A-Z]/.test(call.callable)) return true;
     const resolved = resolveEffectCall(authority, unit, call, scope.owner, scope.start);
+
     if (call.receiver !== "$this" && call.receiver !== "this") return true;
+
     if (resolved === null || !entitySourcePath(resolved.targetClass.path)) return true;
   }
+
   return false;
 };
+
 const transientEntityMutationOnly = (
   unit: SourceUnit,
   authority: AuthorityGraph,
   scope: EffectScope,
 ): boolean => {
   const source = withoutComments(unit.text.slice(scope.start, scope.end));
+
   if (!/[A-Za-z_$][A-Za-z0-9_$]*\s*->\s*setTotalAnswered\s*\(/.test(source)) return false;
+
   if (
     !/\bfindAllTakenBySurvey\b/.test(source) ||
     !/\b(?:surveysWithDepartment|globalSurveys)\b/.test(source)
   )
     return false;
+
   if (!/[A-Za-z_$][A-Za-z0-9_$]*\s*->\s*set[A-Z][A-Za-z0-9_]*\s*\(/.test(source)) return false;
+
   if (
     /\b(?:persist|flush|remove|delete|save|update|insert|upsert|executeStatement|transaction|commit)\s*\(/i.test(
       source,
@@ -1189,19 +1407,26 @@ const transientEntityMutationOnly = (
   )
     return false;
   let setterCount = 0;
+
   for (const call of effectCallExpressionsFor(source)) {
     if (call.constructorCall) continue;
+
     if (/^set[A-Z]/.test(call.callable)) {
       setterCount += 1;
       const resolved = resolveEffectCall(authority, unit, call, scope.owner, scope.start);
+
       if (resolved === null) {
         if (call.callable !== "setTotalAnswered") return false;
       } else if (!entitySourcePath(resolved.targetClass.path)) return false;
       continue;
     }
+
     const directEffect = effectClassForCallable(call.callable);
+
     if (directEffect === "read_only") continue;
+
     if (directEffect !== null) return false;
+
     if (
       /^(?:get|find|findOne|findAll|is|is[A-Z][A-Za-z0-9_]*|has|has[A-Z][A-Za-z0-9_]*|check|ensure|render|count|empty|createForm|handleRequest|redirect|redirectToRoute|addFlash|getDoctrine|getRepository|getManager|getUser)$/i.test(
         call.callable,
@@ -1209,23 +1434,33 @@ const transientEntityMutationOnly = (
     )
       continue;
     const resolved = resolveEffectCall(authority, unit, call, scope.owner, scope.start);
+
     if (resolved === null) return false;
     const target = effectScopeForTarget(authority, resolved.targetClass, call.callable);
+
     if (target === null) return false;
     const nested = effectEvidence(target.unit, authority, target.scope, new Set([resolved.symbol]));
+
     if (nested.effects.some((effect) => effect !== "read_only")) return false;
   }
+
   return setterCount > 0;
 };
 
 const entryKindForPath = (path: string): CommandWriteDetails["entry_kind"] => {
   if (/\/Command\//i.test(path)) return "custom_command";
+
   if (/\/Controller\//i.test(path)) return "controller_write";
+
   if (/\/Repository\//i.test(path)) return "repository_write";
+
   if (/\/EventSubscriber\//i.test(path) || /\/Subscriber\//i.test(path) || /\/Event\//i.test(path))
     return "event_handler";
+
   if (/\/Infrastructure\/Entity\//i.test(path)) return "unknown";
+
   if (/\/Infrastructure\//i.test(path) || /\/Service\//i.test(path)) return "integration_write";
+
   return "unknown";
 };
 
@@ -1241,11 +1476,15 @@ const commandNameFor = (
     ...(includeSymfonySetName ? [/->\s*setName\s*\(\s*["']([^"']+)["']/i] : []),
     /(?:\bcommand\b\s*[:=]\s*["'])([^"']+)(?:["'])/i,
   ];
+
   const source = withoutComments(text);
+
   for (const pattern of patterns) {
     const match = pattern.exec(source);
+
     if (match?.[1] !== undefined) return normalizeSafe(match[1], "command_name", reasons);
   }
+
   return null;
 };
 
@@ -1253,25 +1492,33 @@ const contractRefFor = (text: string, reasons: string[]): string | null => {
   const match = /(?:writeContractRef|write_contract_ref)\s*[:=]\s*["']([^"']+)["']/i.exec(
     withoutComments(text),
   );
+
   return match?.[1] === undefined ? null : normalizeSafe(match[1], "field", reasons);
 };
+
 const commandDeclarationAnchorFor = (text: string, className: string | null): boolean => {
   const source = withoutComments(text);
+
   if (commandNameFor(source, []) !== null) return true;
+
   if (
     /#\[\s*(?:\\?[A-Za-z_][A-Za-z0-9_\\]*\\)?(?:AsCommand|AsMessageHandler|AsEventListener)\b/i.test(
       source,
     )
   )
     return true;
+
   if (
     /\b(?:extends|implements)\s+[^{;]*(?:Command(?:Handler|Interface)?|MessageHandler(?:Interface)?|EventSubscriber(?:Interface)?|EventListener(?:Interface)?)\b/i.test(
       source,
     )
   )
     return true;
+
   if (/\b(?:writeContractRef|write_contract_ref)\s*[:=]/i.test(source)) return true;
+
   if (/(?:^|[{\n,])\s*command\s*[:=]\s*["']/im.test(source)) return true;
+
   if (
     className !== null &&
     new RegExp(`\\bclass\\s+${className.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`, "i").test(
@@ -1280,6 +1527,7 @@ const commandDeclarationAnchorFor = (text: string, className: string | null): bo
     /Command$/i.test(className)
   )
     return true;
+
   return false;
 };
 
@@ -1292,14 +1540,6 @@ interface LoaderNode {
   readonly excludes: readonly string[];
   readonly root: boolean;
   readonly invalid: boolean;
-}
-
-interface LoaderYamlNode {
-  readonly key?: unknown;
-  readonly value?: unknown;
-  readonly type?: unknown;
-  readonly items?: readonly unknown[];
-  readonly range?: readonly number[];
 }
 
 interface LanguageClass {
@@ -1330,65 +1570,90 @@ interface AuthorityGraph {
   readonly functionsByPath: ReadonlyMap<string, ReadonlySet<string>>;
   readonly sourceTextByPath: ReadonlyMap<string, string>;
 }
+
+interface AuthorityGraphs {
+  readonly legacy: AuthorityGraph;
+  readonly mono: AuthorityGraph;
+}
+
 const serviceClassForLocator = (
   authority: AuthorityGraph,
   locatorId: string | undefined,
 ): string | undefined => {
   if (locatorId === undefined) return undefined;
   const normalized = locatorId.trim();
+
   if (normalized.length === 0) return undefined;
+
   for (const loader of authority.loaderNodes) {
     if (!authority.reachableLoaders.has(loader.path)) continue;
     const direct = loader.serviceClasses.get(normalized);
+
     if (direct !== undefined) return direct;
   }
+
   return undefined;
 };
 
 const normalizedRelativePath = (base: string, target: string): string | null => {
   const raw = target.replaceAll("\\", "/").trim();
+
   if (raw.length === 0 || raw.startsWith("@") || raw.includes(":")) return null;
+
   const parts = [
     ...base.slice(0, Math.max(0, base.lastIndexOf("/"))).split("/"),
     ...raw.split("/"),
   ];
+
   const normalized: string[] = [];
+
   for (const part of parts) {
     if (part === "" || part === ".") continue;
+
     if (part === "..") {
       if (normalized.length === 0) return null;
       normalized.pop();
     } else normalized.push(part);
   }
+
   return normalized.join("/");
 };
 
 const loaderConfigRoot = (authority: "legacy" | "mono"): string =>
   authority === "legacy" ? "app/config" : "apps/server/config";
+
 const loaderSourceRoots = (authority: "legacy" | "mono"): readonly string[] =>
   authority === "legacy" ? ["src/"] : ["apps/server/src/"];
+
 const expandLoaderPathPattern = (value: string): readonly string[] => {
   const start = value.indexOf("{");
+
   if (start < 0) return [value];
   let depth = 0;
   let end = -1;
+
   for (let index = start; index < value.length; index += 1) {
     const character = value[index];
+
     if (character === "{") depth += 1;
     else if (character === "}") {
       depth -= 1;
+
       if (depth === 0) {
         end = index;
         break;
       }
     }
   }
+
   if (end < 0) return [value];
   const alternatives: string[] = [];
   let partStart = start + 1;
   depth = 0;
+
   for (let index = start + 1; index < end; index += 1) {
     const character = value[index];
+
     if (character === "{") depth += 1;
     else if (character === "}") depth -= 1;
     else if (character === "," && depth === 0) {
@@ -1396,14 +1661,18 @@ const expandLoaderPathPattern = (value: string): readonly string[] => {
       partStart = index + 1;
     }
   }
+
   alternatives.push(value.slice(partStart, end));
+
   if (alternatives.length === 1) return [value];
   const prefix = value.slice(0, start);
   const suffix = value.slice(end + 1);
+
   return alternatives.flatMap((alternative) =>
     expandLoaderPathPattern(`${prefix}${alternative}${suffix}`),
   );
 };
+
 const loaderRootNames = (authority: "legacy" | "mono"): ReadonlySet<string> =>
   authority === "legacy"
     ? new Set([
@@ -1413,45 +1682,48 @@ const loaderRootNames = (authority: "legacy" | "mono"): ReadonlySet<string> =>
         "app/config/config.yaml",
       ])
     : new Set(["apps/server/config/services.yml", "apps/server/config/services.yaml"]);
+
 const isLoaderRootPath = (path: string, authority: "legacy" | "mono"): boolean =>
   loaderRootNames(authority).has(path) ||
   (authority === "legacy"
     ? /^app\/config\/routing\.ya?ml$/i.test(path)
     : /^apps\/server\/config\/routes(?:\.ya?ml|\/.*\.ya?ml)$/i.test(path));
+
 const isLoaderConfigPath = (path: string, authority: "legacy" | "mono"): boolean => {
   const root = loaderConfigRoot(authority);
+
   return path.startsWith(`${root}/`) && /\.(?:ya?ml|json)$/i.test(path);
 };
 
-const loaderYamlNode = (value: unknown): LoaderYamlNode | null =>
-  typeof value === "object" && value !== null ? (value as LoaderYamlNode) : null;
-const loaderYamlPairs = (value: unknown): readonly LoaderYamlNode[] => {
-  const node = loaderYamlNode(value);
-  if (node === null || node.items === undefined) return [];
-  return node.items
-    .map(loaderYamlNode)
-    .filter((pair): pair is LoaderYamlNode => pair !== null && pair.key !== undefined);
-};
-const loaderYamlKey = (value: unknown): string | null => {
-  const node = loaderYamlNode(value);
-  if (node === null || typeof node.value !== "string") return null;
+const loaderYamlPairs = (value: ParsedNode | null): YAMLMap.Parsed["items"] =>
+  isMap(value) ? value.items : [];
+
+const loaderYamlKey = (node: ParsedNode | null): string | null => {
+  if (!isScalar(node) || !Predicate.isString(node.value)) return null;
+
   if (node.type !== undefined && node.type !== "PLAIN") return null;
+
   return node.value.trim();
 };
-const loaderYamlScalar = (value: unknown): string | null => {
-  const node = loaderYamlNode(value);
-  if (node === null || typeof node.value !== "string") return null;
+
+const loaderYamlScalar = (node: ParsedNode | null): string | null => {
+  if (!isScalar(node) || !Predicate.isString(node.value)) return null;
+
   if (
-    typeof node.type === "string" &&
+    Predicate.isString(node.type) &&
     !["PLAIN", "QUOTE_SINGLE", "QUOTE_DOUBLE"].includes(node.type)
   )
     return null;
+
   return node.value.trim();
 };
 
 const fqcnPattern = /^(?:[A-Za-z_][A-Za-z0-9_]*\\)+[A-Za-z_][A-Za-z0-9_]*$/;
+
 const fqcnPrefixPattern = /^(?:[A-Za-z_][A-Za-z0-9_]*\\)+$/;
+
 const ordinaryServicePattern = /^[A-Za-z_][A-Za-z0-9_.:-]*$/;
+
 const loaderMetadataFields: ReadonlySet<string> = new Set([
   "_defaults",
   "_instanceof",
@@ -1479,60 +1751,73 @@ const loaderValuesFor = (source: string): LoaderValues => {
   const resources: string[] = [];
   const excludes: string[] = [];
   let invalid = false;
-  const collectImportList = (value: unknown): void => {
-    const node = loaderYamlNode(value);
-    if (node?.items === undefined) {
+
+  const collectImportList = (node: ParsedNode | null): void => {
+    if (!isMap(node) && !isSeq(node)) {
       invalid = true;
+
       return;
     }
+
     for (const item of node.items) {
-      const scalarItem = loaderYamlScalar(item);
+      const scalarItem = isPair(item) ? null : loaderYamlScalar(item);
+
       if (scalarItem !== null) {
         imports.push(scalarItem);
         continue;
       }
-      const itemNode = loaderYamlNode(item);
-      const nestedPairs = loaderYamlPairs(item);
-      const pair =
-        itemNode?.key !== undefined
-          ? itemNode
-          : nestedPairs.length === 1
-            ? (nestedPairs[0] ?? null)
-            : null;
+
+      const nestedPairs = isPair(item) ? [] : loaderYamlPairs(item);
+
+      const pair = isPair<ParsedNode, ParsedNode | null>(item)
+        ? item
+        : nestedPairs.length === 1
+          ? (nestedPairs[0] ?? null)
+          : null;
+
       const key = pair === null ? null : loaderYamlKey(pair.key);
       const scalar = pair === null ? null : loaderYamlScalar(pair.value);
+
       if ((key === "resource" || key === "import") && scalar !== null) imports.push(scalar);
       else invalid = true;
     }
   };
-  const collectServiceMap = (value: unknown): void => {
-    const node = loaderYamlNode(value);
-    if (node?.items === undefined) {
+
+  const collectServiceMap = (value: ParsedNode | null): void => {
+    if (!isMap(value)) {
       invalid = true;
+
       return;
     }
+
     for (const pair of loaderYamlPairs(value)) {
       const key = loaderYamlKey(pair.key);
+
       if (key === null || loaderMetadataFields.has(key)) continue;
       const keyIsClass = fqcnPattern.test(key);
       const keyIsPrefix = fqcnPrefixPattern.test(key);
+
       if (!keyIsClass && !keyIsPrefix && !ordinaryServicePattern.test(key)) continue;
-      const child = loaderYamlNode(pair.value);
+      const child = pair.value;
       const childPairs = loaderYamlPairs(pair.value);
+
       const explicitClass = childPairs.find(
         (childPair) => loaderYamlKey(childPair.key) === "class",
       );
-      const explicitClassNode =
-        explicitClass === undefined ? null : loaderYamlNode(explicitClass.value);
+
+      const explicitClassNode = explicitClass === undefined ? null : explicitClass.value;
+
       const explicitClassValue =
         explicitClass === undefined ? null : loaderYamlScalar(explicitClass.value);
+
       if (explicitClass !== undefined) {
         if (explicitClassValue !== null && fqcnPattern.test(explicitClassValue)) {
           classes.push(explicitClassValue);
           serviceClasses.set(key, explicitClassValue);
         } else if (
           keyIsClass &&
-          explicitClassNode?.value === null &&
+          isScalar(explicitClassNode) &&
+          explicitClassNode.value === null &&
           explicitClassNode.type === "PLAIN"
         ) {
           classes.push(key);
@@ -1540,27 +1825,31 @@ const loaderValuesFor = (source: string): LoaderValues => {
         } else invalid = true;
       } else if (
         keyIsClass &&
-        (child?.items !== undefined || (child?.items === undefined && child?.value === null))
+        (isMap(child) || isSeq(child) || (isScalar(child) && child.value === null))
       ) {
         classes.push(key);
         serviceClasses.set(key, key);
       } else if (keyIsClass) {
         invalid = true;
       }
+
       for (const childPair of childPairs) {
         const childKey = loaderYamlKey(childPair.key);
         const scalar = loaderYamlScalar(childPair.value);
+
         if (childKey === "resource" && keyIsPrefix) {
           if (scalar !== null) resources.push(scalar);
           else invalid = true;
         } else if (childKey === "exclude" && keyIsPrefix) {
           if (scalar !== null) excludes.push(scalar);
           else {
-            const values = loaderYamlNode(childPair.value)?.items;
+            const values = isSeq(childPair.value) ? childPair.value.items : undefined;
+
             if (values === undefined) invalid = true;
             else
               for (const item of values) {
                 const excluded = loaderYamlScalar(item);
+
                 if (excluded !== null) excludes.push(excluded);
                 else invalid = true;
               }
@@ -1569,20 +1858,28 @@ const loaderValuesFor = (source: string): LoaderValues => {
       }
     }
   };
-  const collectRouteResource = (value: unknown): void => {
+
+  const collectRouteResource = (value: ParsedNode | null): void => {
     const resourcePair = loaderYamlPairs(value).find(
       (pair) => loaderYamlKey(pair.key) === "resource",
     );
+
     const resource = resourcePair === undefined ? null : loaderYamlScalar(resourcePair.value);
+
     if (resource === null) return;
+
     if (/\.ya?ml$/i.test(resource)) imports.push(resource);
     else resources.push(resource);
   };
+
   try {
     const document = parseDocument(source, { prettyErrors: false });
+
     if (document.errors.length > 0) invalid = true;
+
     for (const pair of loaderYamlPairs(document.contents)) {
       const key = loaderYamlKey(pair.key);
+
       if (key === "imports") collectImportList(pair.value);
       else if (key === "services") collectServiceMap(pair.value);
       else collectRouteResource(pair.value);
@@ -1590,8 +1887,10 @@ const loaderValuesFor = (source: string): LoaderValues => {
   } catch {
     invalid = true;
   }
+
   return { imports, classes, serviceClasses, resources, excludes, invalid };
 };
+
 const runtimePackageEntryTargetsFor = (
   context: ManifestContext,
   authority: "legacy" | "mono",
@@ -1600,30 +1899,38 @@ const runtimePackageEntryTargetsFor = (
   sourceTextByPath: ReadonlyMap<string, string>,
 ): readonly string[] => {
   if (!/(?:^|\/)package\.json$/i.test(unit.path)) return [];
+
   try {
-    const parsed: unknown = JSON.parse(unit.text);
-    if (typeof parsed !== "object" || parsed === null) return [];
-    const record = parsed as Record<string, unknown>;
+    const record = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(unit.text);
+
+    if (!isJsonObject(record)) return [];
     const targets = new Set<string>();
     const packagePrefix = unit.path.slice(0, -"package.json".length);
     const tsconfigPath = `${packagePrefix}tsconfig.json`;
+
     const tsconfigText =
       sourceTextByPath.get(tsconfigPath) ?? readSourceText(context, authority, tsconfigPath);
+
     let buildProjection: { readonly outDir: string; readonly sourceRoot: string } | null = null;
-    if (typeof tsconfigText === "string") {
+
+    if (Predicate.isString(tsconfigText)) {
       try {
-        const tsconfig = JSON.parse(tsconfigText) as {
-          readonly compilerOptions?: { readonly outDir?: unknown };
-          readonly include?: unknown;
-        };
-        const outDir = tsconfig.compilerOptions?.outDir;
+        const tsconfig = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(tsconfigText);
+
+        if (!isJsonObject(tsconfig)) throw new Error("tsconfig must be an object");
+
+        const outDir = isJsonObject(tsconfig.compilerOptions)
+          ? tsconfig.compilerOptions.outDir
+          : undefined;
+
         const sourceRoot =
-          Array.isArray(tsconfig.include) && tsconfig.include.length === 1
+          Arr.isArray<Schema.Json | undefined>(tsconfig.include) && tsconfig.include.length === 1
             ? tsconfig.include[0]
             : null;
+
         if (
-          typeof outDir === "string" &&
-          typeof sourceRoot === "string" &&
+          Predicate.isString(outDir) &&
+          Predicate.isString(sourceRoot) &&
           /^[A-Za-z0-9_.-]+$/.test(outDir) &&
           /^[A-Za-z0-9_.-]+$/.test(sourceRoot)
         )
@@ -1632,20 +1939,25 @@ const runtimePackageEntryTargetsFor = (
         buildProjection = null;
       }
     }
+
     const runtimeCommands = new Set(["bun", "deno", "jiti", "node", "ts-node", "tsx", "vite-node"]);
+
     const sourceToken =
       /^(?:\.\/)?[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*\.(?:ts|tsx|js|mjs)$/;
+
     const wordsFor = (value: string): readonly string[] | null => {
       const words: string[] = [];
       let word = "";
       let wordStarted = false;
       let quote: "'" | '"' | null = null;
       let escaped = false;
+
       const push = (): void => {
         if (wordStarted) words.push(word);
         word = "";
         wordStarted = false;
       };
+
       for (const character of value) {
         if (escaped) {
           word += character;
@@ -1667,44 +1979,60 @@ const runtimePackageEntryTargetsFor = (
           word += character;
         }
       }
+
       if (escaped || quote !== null) return null;
       push();
+
       return words;
     };
-    const addScriptTarget = (value: unknown): void => {
-      if (typeof value !== "string") return;
+
+    const addScriptTarget = (value: Schema.Json): void => {
+      if (!Predicate.isString(value)) return;
       const words = wordsFor(value);
+
       if (words === null) return;
+
       const firstCommandIndex = words.findIndex(
         (word) => !/^[A-Za-z_][A-Za-z0-9_]*=[^\s]+$/.test(word),
       );
+
       if (firstCommandIndex < 0) return;
       const commandWords = words.slice(firstCommandIndex);
       const command = commandWords[0];
+
       if (command === undefined) return;
+
       const wranglerSource =
         command === "node" &&
         commandWords[1] === "node_modules/wrangler/bin/wrangler.js" &&
         commandWords[2] === "dev"
           ? (commandWords.slice(3).find((word) => sourceToken.test(word)) ?? null)
           : null;
+
       const source = wranglerSource ?? commandWords.at(-1);
+
       if (source === undefined || !sourceToken.test(source)) return;
+
       const validForm =
         (commandWords.length === 2 && runtimeCommands.has(command)) ||
         (commandWords.length === 3 &&
           (command === "bun" || command === "deno") &&
           commandWords[1] === "run") ||
         wranglerSource !== null;
+
       const entrySource = wranglerSource ?? source;
+
       if (!validForm || !sourceToken.test(entrySource)) return;
+
       const resolved = sourcePathForImport(
         unit.path,
         entrySource.startsWith("./") ? entrySource : `./${entrySource}`,
         languagePaths,
       );
+
       if (resolved !== null) targets.add(resolved);
     };
+
     const runtimeConditions = new Set([
       "browser",
       "bun",
@@ -1719,73 +2047,92 @@ const runtimePackageEntryTargetsFor = (
       "worker",
       "workerd",
     ]);
-    const addExportTargets = (value: unknown): void => {
-      if (typeof value === "string") {
+
+    const addExportTargets = (value: Schema.Json | undefined): void => {
+      if (Predicate.isString(value)) {
         const resolved = value.startsWith("./")
           ? sourcePathForImport(unit.path, value, languagePaths)
           : null;
+
         if (resolved !== null) {
           targets.add(resolved);
+
           return;
         }
+
         if (buildProjection === null || !value.startsWith(`./${buildProjection.outDir}/`)) return;
+
         const outputStem = value
           .slice(`./${buildProjection.outDir}/`.length)
           .replace(/(?:\.d\.ts|\.(?:mjs|cjs|js))$/, "");
+
         for (const extension of [".ts", ".tsx", ".js", ".mjs"]) {
           const projected = sourcePathForImport(
             unit.path,
             `./${buildProjection.sourceRoot}/${outputStem}${extension}`,
             languagePaths,
           );
+
           if (projected !== null) {
             targets.add(projected);
+
             return;
           }
         }
-      } else if (Array.isArray(value)) {
+      } else if (Arr.isArray<Schema.Json | undefined>(value)) {
         for (const item of value) addExportTargets(item);
-      } else if (typeof value === "object" && value !== null) {
-        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      } else if (isJsonObject(value)) {
+        for (const [key, item] of Object.entries(value)) {
           if (key === "." || key.startsWith("./") || runtimeConditions.has(key))
             addExportTargets(item);
         }
       }
     };
+
     const scripts = record.scripts;
-    if (typeof scripts === "object" && scripts !== null)
-      for (const value of Object.values(scripts as Record<string, unknown>)) addScriptTarget(value);
+
+    if (isJsonObject(scripts)) for (const value of Object.values(scripts)) addScriptTarget(value);
     addExportTargets(record.exports);
+
     return [...targets].sort(compareByteOrder);
   } catch {
     return [];
   }
 };
+
 const runtimeEntrypointTargetsFor = (
   unit: { readonly path: string; readonly text: string },
   languagePaths: ReadonlySet<string>,
 ): readonly string[] => {
   if (!/\.(?:ts|tsx|js|mjs)$/i.test(unit.path)) return [];
   const targets = new Set<string>();
+
   const mainUrl =
     /\bmain\s*(?::|=)\s*new\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.pathname/g;
+
   for (const match of unit.text.matchAll(mainUrl)) {
     const rawTarget = match[1];
+
     if (rawTarget === undefined) continue;
+
     const target = sourcePathForImport(
       unit.path,
       rawTarget.startsWith("./") ? rawTarget : `./${rawTarget}`,
       languagePaths,
     );
+
     if (target !== null) targets.add(target);
   }
+
   return [...targets].sort(compareByteOrder);
 };
 
 const runtimeImportClauseFor = (raw: string): boolean => {
   const clause = raw.replace(/\s+from\s*["'][^"']+["']\s*$/, "");
+
   if (/^\s*(?:import|export)\s+type\b/.test(clause)) return false;
   const named = /\{([^}]*)\}/.exec(clause)?.[1];
+
   return named === undefined || named.split(",").some((specifier) => !/^\s*type\b/.test(specifier));
 };
 
@@ -1818,6 +2165,7 @@ const availableLanguageUnitsFor = (
 
 const sourceClassName = (namespace: string | null, name: string): string =>
   namespace === null ? name : `${namespace}\\${name}`;
+
 const languageClassesFor = (unit: {
   readonly path: string;
   readonly text: string;
@@ -1825,38 +2173,52 @@ const languageClassesFor = (unit: {
   const classes = languageClassDeclarationsFor(unit.path, unit.text);
   const namespace = namespaceOf(unit.text);
   const result: LanguageClass[] = [];
+
   for (const entry of classes) {
     const body = withoutComments(unit.text).slice(entry.start, entry.end);
+
     const methods = new Set(
       functionMatches(unit.text, entry.start, entry.end).map((method) => method.name),
     );
+
     const properties = new Map<string, string>();
+
     const propertyPattern =
       /(?:(?:public|private|protected|readonly|static|final)\s+)*([A-Za-z_][A-Za-z0-9_\\]*)\s+\$([A-Za-z_][A-Za-z0-9_]*)/g;
+
     for (const match of body.matchAll(propertyPattern)) {
       const type = match[1];
       const name = match[2];
+
       if (type !== undefined && name !== undefined && type !== "function")
         properties.set(name, type);
     }
+
     const tsPropertyPattern =
       /(?:(?:public|private|protected|readonly|static)\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_.$]*)/g;
+
     for (const match of body.matchAll(tsPropertyPattern)) {
       const name = match[1];
       const type = match[2];
+
       if (name !== undefined && type !== undefined) properties.set(name, type);
     }
+
     const docblockPropertyPattern =
       /\/\*\*([\s\S]*?)\*\/\s*(?:(?:public|private|protected|var|readonly|static|final)\s+)*\$([A-Za-z_][A-Za-z0-9_]*)\b/g;
+
     const classSource = unit.text.slice(entry.start, entry.end);
+
     for (const match of classSource.matchAll(docblockPropertyPattern)) {
       const docblock = match[1] ?? "";
       const name = match[2];
+
       const type = normalizeLocalType(
         /@var\s+([\\A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*[\\A-Za-z_][A-Za-z0-9_\\]*)*)/i.exec(
           docblock,
         )?.[1],
       );
+
       if (
         name !== undefined &&
         type !== null &&
@@ -1867,6 +2229,7 @@ const languageClassesFor = (unit: {
       )
         properties.set(name, type);
     }
+
     const name = entry.name;
     result.push({
       path: unit.path,
@@ -1878,6 +2241,7 @@ const languageClassesFor = (unit: {
       properties,
     });
   }
+
   return result;
 };
 
@@ -1887,21 +2251,30 @@ const sourcePathForImport = (
   paths: ReadonlySet<string>,
 ): string | null => {
   const normalized = normalizedRelativePath(base, target);
+
   if (normalized === null) return null;
+
   if (paths.has(normalized)) return normalized;
+
   if (/\.(?:mjs|cjs|js)$/i.test(normalized)) {
     const sourceStem = normalized.replace(/\.(?:mjs|cjs|js)$/i, "");
+
     for (const extension of [".ts", ".tsx"])
       if (paths.has(`${sourceStem}${extension}`)) return `${sourceStem}${extension}`;
   }
+
   for (const suffix of [".php", ".ts", ".tsx", ".js", ".mjs", ".yaml", ".yml", ".json"])
     if (paths.has(`${normalized}${suffix}`)) return `${normalized}${suffix}`;
+
   for (const suffix of ["/index.php", "/index.ts", "/index.tsx", "/index.js"])
     if (paths.has(`${normalized}${suffix}`)) return `${normalized}${suffix}`;
+
   return null;
 };
+
 const phpAliasReferenceFor = (source: string, alias: string): boolean => {
   const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   const reference = new RegExp(
     [
       `\\bnew\\s+\\\\?${escaped}\\b`,
@@ -1911,10 +2284,13 @@ const phpAliasReferenceFor = (source: string, alias: string): boolean => {
       `\\)\\s*:\\s*\\\\?${escaped}\\b`,
     ].join("|"),
   );
+
   return reference.test(source);
 };
+
 const phpDocblockAliasReferenceFor = (source: string, alias: string): boolean => {
   const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   return new RegExp(`@var\\s+\\\\?${escaped}\\b`).test(source);
 };
 
@@ -1930,58 +2306,78 @@ const authorityGraphFor = (
   const aliasesByPath = new Map<string, ReadonlyMap<string, string>>();
   const functionsByPath = new Map<string, ReadonlySet<string>>();
   const phpAliasNamesByPath = new Map<string, ReadonlySet<string>>();
+
   for (const unit of languageUnits) {
     const classes = languageClassesFor(unit);
     classesByPath.set(unit.path, classes);
+
     for (const item of classes) {
       if (!classByName.has(item.fqn)) classByName.set(item.fqn, item);
     }
+
     functionsByPath.set(
       unit.path,
       new Set(functionMatches(unit.text, 0, unit.text.length).map((entry) => entry.name)),
     );
     const phpAliasNames = new Set<string>();
+
     const phpUses = withoutComments(unit.text).matchAll(
       /^\s*use\s+(?!function\b|const\b)([A-Za-z_][A-Za-z0-9_\\]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*;/gm,
     );
+
     const aliases = new Map<string, string>();
+
     for (const match of phpUses) {
       const imported = match[1];
+
       if (imported === undefined) continue;
       const alias = match[2] ?? imported.split("\\").at(-1) ?? imported;
       aliases.set(alias, imported);
       phpAliasNames.add(alias);
     }
+
     aliasesByPath.set(unit.path, aliases);
     phpAliasNamesByPath.set(unit.path, phpAliasNames);
   }
+
   for (const unit of languageUnits) {
     const aliases = new Map(aliasesByPath.get(unit.path) ?? []);
+
     const tsImports = withoutComments(unit.text).matchAll(
       /\b(?:import|export)\s+(?!type\b)[^;\n]*?\sfrom\s*["']([^"']+)["']/g,
     );
+
     for (const match of tsImports) {
       if (!runtimeImportClauseFor(match[0] ?? "")) continue;
       const importPath = match[1];
+
       if (importPath === undefined) continue;
       const importedPath = sourcePathForImport(unit.path, importPath, languagePaths);
+
       if (importedPath === null) continue;
+
       for (const item of classesByPath.get(importedPath) ?? []) aliases.set(item.name, item.fqn);
     }
+
     aliasesByPath.set(unit.path, aliases);
   }
+
   const sourceImports = new Map<string, readonly string[]>();
+
   for (const unit of languageUnits) {
     const imports = new Set<string>();
     const aliases = aliasesByPath.get(unit.path) ?? new Map<string, string>();
     const phpAliases = phpAliasNamesByPath.get(unit.path) ?? new Set<string>();
     const source = withoutComments(unit.text);
+
     const executableSource = withoutLiterals(
       source.replace(/^\s*use\s+(?!function\b|const\b)[^;]+;\s*$/gm, ""),
     );
+
     const tsImports = source.matchAll(
       /\b(?:import|export)\s+(?!type\b)[^;\n]*?\sfrom\s*["']([^"']+)["']/g,
     );
+
     for (const [alias, target] of aliases) {
       if (
         !phpAliases.has(alias) ||
@@ -1990,30 +2386,40 @@ const authorityGraphFor = (
       )
         continue;
       const imported = classByName.get(target);
+
       if (imported !== undefined && imported.path !== unit.path) imports.add(imported.path);
     }
+
     for (const match of tsImports) {
       if (!runtimeImportClauseFor(match[0] ?? "")) continue;
+
       const importedPath =
         match[1] === undefined ? null : sourcePathForImport(unit.path, match[1], languagePaths);
+
       if (importedPath !== null) imports.add(importedPath);
     }
+
     const sideEffectImports = source.matchAll(
       /\bimport\s*["']([^"']+)["']|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
     );
+
     for (const match of sideEffectImports) {
       const importedPath = sourcePathForImport(
         unit.path,
         match[1] ?? match[2] ?? "",
         languagePaths,
       );
+
       if (importedPath !== null) imports.add(importedPath);
     }
+
     sourceImports.set(unit.path, [...imports].sort(compareByteOrder));
   }
+
   const configRoot = loaderConfigRoot(authority);
   const runtimeEntrySources = new Set<string>();
   const runtimeImporterBySource = new Map<string, string>();
+
   const runtimeEntryPending: Array<{ readonly path: string; readonly importer: string }> =
     languageUnits
       .filter((unit) => /\.(?:ts|tsx|js|mjs)$/i.test(unit.path))
@@ -2023,6 +2429,7 @@ const authorityGraphFor = (
         ),
       )
       .map((unit) => ({ path: unit.path, importer: unit.path }));
+
   for (const unit of languageUnits) {
     for (const path of runtimePackageEntryTargetsFor(
       context,
@@ -2034,20 +2441,26 @@ const authorityGraphFor = (
       runtimeEntryPending.push({ path, importer: unit.path });
     }
   }
+
   while (runtimeEntryPending.length > 0) {
     const entry = runtimeEntryPending.pop();
+
     if (entry === undefined) continue;
     const currentImporter = runtimeImporterBySource.get(entry.path);
+
     if (currentImporter === undefined || compareByteOrder(entry.importer, currentImporter) < 0) {
       runtimeImporterBySource.set(entry.path, entry.importer);
     }
+
     if (runtimeEntrySources.has(entry.path)) continue;
     runtimeEntrySources.add(entry.path);
+
     for (const imported of sourceImports.get(entry.path) ?? []) {
       if (/\.(?:ts|tsx|js|mjs)$/i.test(imported) && !runtimeEntrySources.has(imported)) {
         runtimeEntryPending.push({ path: imported, importer: entry.path });
       }
     }
+
     for (const imported of runtimeEntrypointTargetsFor(
       { path: entry.path, text: sourceTextByPath.get(entry.path) ?? "" },
       languagePaths,
@@ -2056,36 +2469,47 @@ const authorityGraphFor = (
         runtimeEntryPending.push({ path: imported, importer: entry.path });
     }
   }
+
   const loaderCandidates = languageUnits.filter((unit) => isLoaderConfigPath(unit.path, authority));
   const loaderPaths = new Set(loaderCandidates.map((unit) => unit.path));
+
   const resolveLoader = (path: string): string | null => {
     if (loaderPaths.has(path)) return path;
+
     for (const suffix of [".yaml", ".yml", ".json"])
       if (loaderPaths.has(`${path}${suffix}`)) return `${path}${suffix}`;
+
     return null;
   };
+
   const loaderNodes: LoaderNode[] = loaderCandidates.map((unit) => {
     const values = loaderValuesFor(unit.text);
     let invalid = values.invalid;
     const imports: string[] = [];
+
     for (const value of values.imports) {
       if (authority === "legacy" && value.startsWith("@")) continue;
+
       if (
         authority === "legacy" &&
         /^(?:\.\/)?parameters(?:_[A-Za-z0-9_.-]+)?\.ya?ml$/i.test(value)
       )
         continue;
       const normalized = normalizedRelativePath(unit.path, value);
+
       const resolved =
         normalized === null || !normalized.startsWith(`${configRoot}/`)
           ? null
           : resolveLoader(normalized);
+
       if (resolved === null) {
         invalid = true;
         continue;
       }
+
       imports.push(resolved);
     }
+
     return {
       path: unit.path,
       imports,
@@ -2097,6 +2521,7 @@ const authorityGraphFor = (
       invalid,
     };
   });
+
   const reachableLoaders = new Set<string>();
   const languageUnitByPath = new Map(languageUnits.map((unit) => [unit.path, unit]));
   const cyclicLoaders = new Set<string>();
@@ -2114,36 +2539,47 @@ const authorityGraphFor = (
   const sourceVisited = new Set<string>();
   const loaderVisited = new Set<string>();
   const sourceVisiting: string[] = [];
+
   const markSource = (path: string, importer: string, cyclic: boolean): void => {
     if (!languageUnitByPath.has(path)) return;
     reachableSources.add(path);
+
     if (cyclic) {
       cyclicSourceProvenance.add(path);
       cyclicSources.add(path);
     } else {
       sourceProvenance.add(path);
+
       if (!importerBySource.has(path)) importerBySource.set(path, importer);
     }
+
     visitSource(path, cyclic);
   };
+
   function visitSource(path: string, cyclic: boolean): void {
     if (sourceVisiting.includes(path) || (sourceVisited.has(path) && !cyclic)) return;
     sourceVisiting.push(path);
+
     for (const imported of sourceImports.get(path) ?? []) markSource(imported, path, cyclic);
     sourceVisiting.pop();
     sourceVisited.add(path);
   }
+
   const markLoaderSources = (node: LoaderNode, path: string, cyclic: boolean): void => {
     const resolveClass = (name: string): LanguageClass | undefined =>
       classByName.get(name) ?? classByName.get(name.replace(/^\\/, ""));
+
     for (const className of node.classes) {
       const item = resolveClass(className);
+
       if (item !== undefined) markSource(item.path, path, cyclic);
     }
+
     const excluded = node.excludes
       .flatMap((value) => expandLoaderPathPattern(value.replace(/\*.*$/, "")))
       .map((value) => normalizedRelativePath(node.path, value))
       .filter((value): value is string => value !== null);
+
     for (const resource of node.resources.flatMap((value) =>
       expandLoaderPathPattern(value.replace(/\*.*$/, "")),
     )) {
@@ -2151,62 +2587,85 @@ const authorityGraphFor = (
         authority === "legacy" && resource.startsWith("@AppBundle/")
           ? `src/AppBundle/${resource.slice("@AppBundle/".length).replace(/\/$/, "")}`
           : normalizedRelativePath(node.path, resource);
+
       if (
         normalized === null ||
         !loaderSourceRoots(authority).some((root) => normalized.startsWith(root))
       )
         continue;
+
       for (const sourcePath of languagePaths) {
         if (!(sourcePath === normalized || sourcePath.startsWith(`${normalized}/`))) continue;
+
         if (excluded.some((prefix) => sourcePath === prefix || sourcePath.startsWith(`${prefix}/`)))
           continue;
         markSource(sourcePath, path, cyclic);
       }
     }
   };
+
   function visitLoader(path: string, inheritedCyclic = false): boolean {
     const cycleStart = loaderVisiting.indexOf(path);
+
     if (cycleStart >= 0) {
       for (const cyclePath of loaderVisiting.slice(cycleStart)) {
         cyclicLoaders.add(cyclePath);
         loaderCycleTaint.add(cyclePath);
         loaderFailureTaint.add(cyclePath);
       }
+
       cyclicLoaders.add(path);
       loaderCycleTaint.add(path);
       loaderFailureTaint.add(path);
+
       return false;
     }
+
     const node = loaderByPath.get(path);
+
     if (node === undefined || node.invalid) {
       loaderFailureTaint.add(path);
+
       return false;
     }
+
     const cyclic = inheritedCyclic || loaderCycleTaint.has(path);
+
     if (loaderVisited.has(path)) {
       if (cyclic || loaderFailureTaint.has(path)) {
         loaderFailureTaint.add(path);
+
         if (cyclic)
           for (const imported of node.imports) {
             const resolved = resolveLoader(imported);
+
             if (resolved !== null) visitLoader(resolved, true);
           }
+
         return false;
       }
+
       return loaderValid.has(path);
     }
+
     loaderVisiting.push(path);
     let dependenciesValid = !cyclic;
+
     for (const imported of node.imports) {
       const resolved = resolveLoader(imported);
+
       if (resolved === null || !visitLoader(resolved, cyclic)) dependenciesValid = false;
     }
+
     const effectiveCyclic = cyclic || cyclicLoaders.has(path) || loaderCycleTaint.has(path);
+
     if (effectiveCyclic) {
       loaderCycleTaint.add(path);
       loaderFailureTaint.add(path);
+
       for (const imported of node.imports) {
         const resolved = resolveLoader(imported);
+
         if (resolved !== null) visitLoader(resolved, true);
       }
     } else if (dependenciesValid) loaderValid.add(path);
@@ -2214,22 +2673,30 @@ const authorityGraphFor = (
     loaderVisiting.pop();
     loaderVisited.add(path);
     reachableLoaders.add(path);
+
     return loaderValid.has(path);
   }
+
   const commitLoader = (path: string): void => {
     if (loaderCommitted.has(path) || !loaderValid.has(path)) return;
     loaderCommitted.add(path);
     const node = loaderByPath.get(path);
+
     if (node === undefined) return;
+
     for (const imported of node.imports) {
       const resolved = resolveLoader(imported);
+
       if (resolved !== null) commitLoader(resolved);
     }
   };
+
   for (const node of loaderNodes)
     if (node.root && !node.invalid && visitLoader(node.path)) commitLoader(node.path);
+
   for (const node of loaderNodes)
     if (loaderCommitted.has(node.path)) markLoaderSources(node, node.path, false);
+
   if (authority === "legacy") {
     for (const unit of languageUnits) {
       if (
@@ -2242,9 +2709,11 @@ const authorityGraphFor = (
         markSource(unit.path, unit.path, false);
     }
   }
+
   const cyclicOnlySources = new Set(
     [...cyclicSourceProvenance].filter((path) => !sourceProvenance.has(path)),
   );
+
   return {
     authority,
     loaderNodes,
@@ -2268,8 +2737,10 @@ const authorityGraphFor = (
 const namespaceForClassFqn = (fqn: string | undefined): string | undefined => {
   if (fqn === undefined) return undefined;
   const separator = fqn.lastIndexOf("\\");
+
   return separator < 0 ? undefined : fqn.slice(0, separator);
 };
+
 const resolveClassForPath = (
   authority: AuthorityGraph,
   path: string,
@@ -2277,27 +2748,38 @@ const resolveClassForPath = (
   namespace?: string,
 ): LanguageClass | undefined => {
   const aliases = authority.aliasesByPath.get(path);
+
   const classByName = (candidate: string): LanguageClass | undefined => {
     const unqualified = candidate.replace(/^\\/, "");
     const exact = authority.classByName.get(candidate) ?? authority.classByName.get(unqualified);
+
     if (exact !== undefined) return exact;
     const implementation = unqualified.replace(/Interface$/, "");
+
     return implementation === unqualified ? undefined : authority.classByName.get(implementation);
   };
+
   const localClasses = authority.classesByPath.get(path) ?? [];
+
   const local =
     localClasses.find((item) => item.name === name || item.fqn === name) ??
     localClasses.find(
       (item) =>
         item.name === name.replace(/Interface$/, "") || item.fqn === name.replace(/Interface$/, ""),
     );
+
   if (local !== undefined) return local;
+
   if (name.startsWith("\\") || name.includes("\\")) return classByName(name);
   const alias = aliases?.get(name);
+
   if (alias !== undefined) return classByName(alias);
+
   if (namespace !== undefined) return classByName(`${namespace}\\${name}`);
+
   return classByName(name);
 };
+
 const reachableClassFor = (
   authority: AuthorityGraph,
   item: LanguageClass | undefined,
@@ -2308,6 +2790,7 @@ const reachableClassFor = (
   !authority.cyclicOnlySources.has(item.path)
     ? item
     : undefined;
+
 const importedBySources = (
   authority: AuthorityGraph,
   unit: SourceUnit,
@@ -2315,15 +2798,18 @@ const importedBySources = (
 ): string | null => {
   const resolved = owner === null ? undefined : resolveClassForPath(authority, unit.path, owner);
   const targetPath = resolved?.path ?? unit.path;
+
   if (authority.runtimeEntrySources.has(targetPath)) {
     return authority.runtimeImporterBySource.get(targetPath) ?? targetPath;
   }
+
   if (
     !authority.reachableSources.has(targetPath) ||
     authority.cyclicSources.has(targetPath) ||
     authority.cyclicOnlySources.has(targetPath)
   )
     return null;
+
   return authority.importerBySource.get(targetPath) ?? null;
 };
 
@@ -2335,47 +2821,60 @@ const resolveEffectCall = (
   offsetBase = 0,
 ): { readonly symbol: string; readonly targetClass: LanguageClass } | null => {
   const ownerNamespace = namespaceForClassFqn(ownerClass?.fqn);
+
   if (call.constructorCall) {
     const item = reachableClassFor(
       authority,
       resolveClassForPath(authority, unit.path, call.chain, ownerNamespace),
     );
+
     return item === undefined ? null : { symbol: `${item.fqn}::__construct`, targetClass: item };
   }
+
   const explicitTargetName =
     call.targetClassName ??
     call.repositoryClassName ??
     serviceClassForLocator(authority, call.locatorId);
+
   if (explicitTargetName !== undefined) {
     const explicitTarget = reachableClassFor(
       authority,
       resolveClassForPath(authority, unit.path, explicitTargetName, ownerNamespace),
     );
+
     if (explicitTarget !== undefined && explicitTarget.methods.has(call.callable)) {
       return { symbol: `${explicitTarget.fqn}::${call.callable}`, targetClass: explicitTarget };
     }
+
     if (call.repositoryClassName !== undefined) {
       const entityName =
         explicitTargetName.replace(/^\\/, "").split("\\").at(-1) ?? explicitTargetName;
+
       const repositoryName = `${entityName}Repository`;
+
       const repository = [...authority.classByName.values()].find(
         (candidate) =>
           candidate.name === repositoryName &&
           candidate.methods.has(call.callable) &&
           reachableClassFor(authority, candidate) !== undefined,
       );
+
       if (repository !== undefined)
         return { symbol: `${repository.fqn}::${call.callable}`, targetClass: repository };
     }
   }
+
   const receiver = call.receiver;
+
   if (receiver === null) return null;
   const segments = receiver.split(/->|::|\./).filter((segment) => segment.length > 0);
   const first = segments[0] ?? "";
   const localTypes = localReceiverTypesFor(unit, call.offset + offsetBase);
+
   const resolveNamed = (name: string): LanguageClass | undefined => {
     if (localTypes.has(name)) {
       const localType = localTypes.get(name);
+
       return localType === null || localType === undefined
         ? undefined
         : reachableClassFor(
@@ -2383,13 +2882,16 @@ const resolveEffectCall = (
             resolveClassForPath(authority, unit.path, localType, ownerNamespace),
           );
     }
+
     return reachableClassFor(
       authority,
       resolveClassForPath(authority, unit.path, name, ownerNamespace),
     );
   };
+
   let item: LanguageClass | undefined;
   let propertyIndex = 1;
+
   if (first === "$this" || first === "this") {
     item = reachableClassFor(authority, ownerClass);
   } else if (first.startsWith("$")) {
@@ -2397,12 +2899,16 @@ const resolveEffectCall = (
   } else {
     item = resolveNamed(first);
   }
+
   while (item !== undefined && propertyIndex < segments.length) {
     const property = segments[propertyIndex] ?? "";
+
     const propertySource =
       item.path === unit.path ? unit.text : (authority.sourceTextByPath.get(item.path) ?? "");
+
     const propertyType =
       constructorPropertyTypeFor(propertySource, property) ?? item.properties.get(property);
+
     if (!validClassIdentity(propertyType)) return null;
     item = reachableClassFor(
       authority,
@@ -2410,7 +2916,9 @@ const resolveEffectCall = (
     );
     propertyIndex += 1;
   }
+
   if (item === undefined || !item.methods.has(call.callable)) return null;
+
   return { symbol: `${item.fqn}::${call.callable}`, targetClass: item };
 };
 
@@ -2420,18 +2928,24 @@ const effectScopeForTarget = (
   methodName: string,
 ): { readonly unit: SourceUnit; readonly scope: EffectScope } | null => {
   const text = authority.sourceTextByPath.get(targetClass.path);
+
   if (text === undefined) return null;
   const classes = classMatches(text);
   const classIndex = classes.findIndex((entry) => entry.name === targetClass.name);
   const classEntry = classes[classIndex];
+
   if (classEntry === undefined) return null;
   const classEnd = classes[classIndex + 1]?.offset ?? text.length;
+
   const method = functionMatches(text, classEntry.offset, classEnd).find(
     (entry) => entry.name === methodName,
   );
+
   if (method === undefined) return null;
   const methodScope = methodScopeFor(text, method.offset, classEnd);
+
   if (methodScope === null) return null;
+
   return {
     unit: {
       authority: authority.authority,
@@ -2443,6 +2957,7 @@ const effectScopeForTarget = (
     scope: { owner: targetClass, start: methodScope.start, end: methodScope.end, methodName },
   };
 };
+
 const homeShowActionReadOnly = (
   owner: string | null,
   method: string | null,
@@ -2456,10 +2971,12 @@ const homeShowActionReadOnly = (
   )
     return false;
   const source = withoutComments(unit.text.slice(scope.start, scope.end));
+
   return !/(?:->|::|\.)\s*(?:dispatch|fetch|curl_exec|curl_init|persist|flush|remove|send|post|put|publish|writeFile|writeFileSync|mkdir|mkdirSync|unlink|unlinkSync)\s*\(/i.test(
     source,
   );
 };
+
 const commandDetails = (
   unit: SourceUnit,
   authority: AuthorityGraph,
@@ -2470,14 +2987,17 @@ const commandDetails = (
 ): CommandWriteDetails => {
   const evidence = effectEvidence(unit, authority, scope);
   const methodEffect = method === null ? null : effectClassForCallable(method);
+
   const effectClasses =
     methodEffect === null || evidence.effects.includes(methodEffect)
       ? evidence.effects
-      : (sortUnique([...evidence.effects, methodEffect]) as EffectClass[]);
+      : sortUnique([...evidence.effects, methodEffect]);
+
   const entryKind = entryKindForPath(unit.path);
   const commandName = commandNameFor(unit.text, reasons, entryKind === "custom_command");
   const symbolRaw = owner === null ? method : method === null ? owner : `${owner}::${method}`;
   const symbolRef = normalizeSafe(symbolRaw, "symbol", reasons);
+
   return {
     entry_kind: entryKind,
     owner_ref: owner,
@@ -2502,18 +3022,23 @@ const commandRow = (
 ): ParsedRow => {
   const reasons: string[] = [];
   const details = commandDetails(unit, authority, owner, method, reasons, scope);
+
   if (details.effect_classes.includes("unknown")) reasons.push("UNKNOWN_EFFECT");
   const importerPath = importedBySources(authority, unit, owner);
   const imported = importerPath !== null;
   const dead = !imported && details.entry_kind !== "unknown";
+
   if (dead) reasons.push("DEAD_UNIMPORTED_SOURCE");
+
   const status: InventoryRow["status"] =
     reasons.includes("UNSAFE_SOURCE") || reasons.includes("UNKNOWN_EFFECT")
       ? "unresolved"
       : dead
         ? "dead_unimported"
         : "covered";
+
   const declarationKind = details.entry_kind;
+
   const declaration = declarationId(
     unit.authority,
     unit.authority,
@@ -2521,6 +3046,7 @@ const commandRow = (
     declarationKind,
     ordinal,
   );
+
   const signature = canonicalJson([
     "command_write",
     details.owner_ref,
@@ -2530,8 +3056,10 @@ const commandRow = (
     details.effect_classes,
     details.target_refs,
   ]);
+
   const declarationOffset =
     scope?.start ?? Math.max(0, unit.text.indexOf(ownerShortName(owner) ?? ""));
+
   const sourceRefId = sourceRefFor(
     context,
     unit.authority,
@@ -2541,8 +3069,10 @@ const commandRow = (
     lineAt(unit.text, declarationOffset),
     details.symbol_ref,
   );
+
   const rowIdentity = rowId("command_write", declaration, signature);
   const reasonCodes = sortUnique(reasons);
+
   return {
     path: unit.path,
     sourceRefIds: [sourceRefId],
@@ -2565,11 +3095,11 @@ const commandRow = (
       accepted_intent_ref_ids: [],
       duplicate_group_id: null,
       mismatch: mismatch(
-        status === "unresolved"
-          ? "unresolved"
-          : status === "dead_unimported"
-            ? "dead_unimported"
-            : "none",
+        Match.value(status).pipe(
+          Match.when("unresolved", () => "unresolved" as const),
+          Match.when("dead_unimported", () => "dead_unimported" as const),
+          Match.orElse(() => "none" as const),
+        ),
         [],
         reasonCodes[0] ?? null,
       ),
@@ -2587,76 +3117,103 @@ const commandSourceUnits = (
   role: string,
 ): { readonly units: readonly SourceUnit[]; readonly failures: readonly C2CollectionFailure[] } => {
   const base = sourceUnits(context, authority, familyId, role);
+
   if (authority !== "mono" || familyId !== C2_FAMILY_IDS.monoCommands) return base;
   const existing = new Set(base.units.map((unit) => unit.path));
+
   const extraPaths = context.scans.mono.files
     .filter((file) => !file.unsafe && effectiveIgnoreRule("mono", file.path) === null)
     .map((file) => file.path)
     .filter((path) => supplementalAuthoritySource("mono", path) && !existing.has(path));
+
   const extraUnits: SourceUnit[] = [];
+
   for (const path of extraPaths) {
     const text = readSourceText(context, "mono", path);
+
     if (text === null) continue;
     const sourceRefId = sourceRefFor(context, "mono", role, path, null, null, null);
     extraUnits.push({ authority: "mono", path, text, sourceRefId, sourceRefIds: [sourceRefId] });
   }
+
   return extraUnits.length === 0 ? base : { ...base, units: [...base.units, ...extraUnits] };
+};
+
+type ParsedEffectRows = {
+  readonly parsed: readonly ParsedRow[];
+  readonly failures: readonly C2CollectionFailure[];
 };
 
 const parseCommandUnits = (
   context: ManifestContext,
   authority: "legacy" | "mono",
-): { readonly parsed: readonly ParsedRow[]; readonly failures: readonly C2CollectionFailure[] } => {
+  authorityGraph: AuthorityGraph,
+): ParsedEffectRows => {
   const familyId =
     authority === "legacy" ? C2_FAMILY_IDS.legacyCommands : C2_FAMILY_IDS.monoCommands;
+
   const role =
     authority === "legacy" ? "legacy_command_write_authority" : "mono_command_write_authority";
+
   const source = commandSourceUnits(context, authority, familyId, role);
-  const authorityGraph = authorityGraphFor(context, authority);
+
   const parsed: ParsedRow[] = [];
   let ordinal = 0;
+
   const hasPositiveEffect = (effects: readonly EffectClass[]): boolean =>
     effects.some((effect) => effect !== "read_only" && effect !== "unknown");
+
   for (const unit of source.units) {
     const classes = classMatches(unit.text);
+
     const ranges = classes.map((entry, index) => ({
       entry,
       end: classes[index + 1]?.offset ?? unit.text.length,
     }));
+
     if (ranges.length === 0) {
       const anchor = commandDeclarationAnchorFor(unit.text, null);
       const evidence = effectEvidence(unit, authorityGraph);
+
       if (anchor || hasPositiveEffect(evidence.effects))
         parsed.push(commandRow(context, unit, ordinal++, authorityGraph, null, null));
       continue;
     }
+
     for (const range of ranges) {
       const reasons: string[] = [];
       const owner = classOwner(unit.text, range.entry.name, reasons);
+
       const ownerClass = authorityGraph.classesByPath
         .get(unit.path)
         ?.find((item) => item.name === range.entry.name);
+
       const classScope: EffectScope = {
         owner: ownerClass,
         start: range.entry.offset,
         end: range.end,
       };
+
       const commandAnchor =
         commandDeclarationAnchorFor(
           unit.text.slice(range.entry.offset, range.end),
           range.entry.name,
         ) || commandDeclarationAnchorFor(unit.text, range.entry.name);
+
       const methods = functionMatches(unit.text, range.entry.offset, range.end)
         .map((method) => {
           const scope = methodScopeFor(unit.text, method.offset, range.end);
+
           return scope === null ? null : { ...scope, name: method.name };
         })
         .filter((method): method is MethodScope => method !== null);
+
       if (commandAnchor) {
         const selected =
           methods.find((method) =>
             /^(?:__invoke|handle|execute|run|process)$/i.test(method.name),
           ) ?? methods[0];
+
         const selectedScope: EffectScope =
           selected === undefined
             ? classScope
@@ -2666,9 +3223,12 @@ const parseCommandUnits = (
                 end: selected.end,
                 methodName: selected.name,
               };
+
         if (selected !== undefined) {
           const selectedEvidence = effectEvidence(unit, authorityGraph, selectedScope);
+
           if (transientEntityMutationOnly(unit, authorityGraph, selectedScope)) continue;
+
           if (
             entitySourcePath(unit.path) &&
             /^set[A-Z]/.test(selected.name) &&
@@ -2676,8 +3236,10 @@ const parseCommandUnits = (
           )
             continue;
         }
+
         const selectedMethod =
           selected === undefined ? null : normalizeSafe(selected.name, "symbol", reasons);
+
         parsed.push(
           commandRow(
             context,
@@ -2691,6 +3253,7 @@ const parseCommandUnits = (
         );
         continue;
       }
+
       if (methods.length > 0) {
         for (const methodScope of methods) {
           const scope: EffectScope = {
@@ -2699,19 +3262,24 @@ const parseCommandUnits = (
             end: methodScope.end,
             methodName: methodScope.name,
           };
+
           if (homeShowActionReadOnly(owner, methodScope.name, unit, scope)) continue;
           const evidence = effectEvidence(unit, authorityGraph, scope);
           const methodEffect = effectClassForCallable(methodScope.name);
+
           if (transientEntityMutationOnly(unit, authorityGraph, scope)) continue;
+
           if (
             entitySourcePath(unit.path) &&
             /^set[A-Z]/.test(methodScope.name) &&
             !entityMutatorHasExternalEffect(unit, authorityGraph, scope, evidence)
           )
             continue;
+
           const controllerDispatch =
             entryKindForPath(unit.path) === "controller_write" &&
             /\bdispatch\s*\(/i.test(withoutComments(unit.text.slice(scope.start, scope.end)));
+
           if (
             !controllerDispatch &&
             !hasPositiveEffect(evidence.effects) &&
@@ -2732,6 +3300,7 @@ const parseCommandUnits = (
         }
       } else {
         const evidence = effectEvidence(unit, authorityGraph, classScope);
+
         if (hasPositiveEffect(evidence.effects))
           parsed.push(
             commandRow(context, unit, ordinal++, authorityGraph, owner, null, classScope),
@@ -2739,11 +3308,17 @@ const parseCommandUnits = (
       }
     }
   }
+
   for (const [targetIndex, target] of [...parsed].entries()) {
     if (!target.imported || target.importerPath === null) continue;
     const importerUnit = source.units.find((candidate) => candidate.path === target.importerPath);
+
     if (importerUnit === undefined || !isLoaderConfigPath(importerUnit.path, authority)) continue;
-    const details = target.row.details as CommandWriteDetails;
+
+    if (target.row.inventory_kind !== "command_write")
+      throw new Error("command write row required");
+    const details = target.row.details;
+
     const importerRef = sourceRefFor(
       context,
       authority,
@@ -2753,6 +3328,7 @@ const parseCommandUnits = (
       Math.max(1, importerUnit.text.split("\n").length),
       details.symbol_ref,
     );
+
     const sourceRefIds = sortUnique([...target.sourceRefIds, importerRef]);
     parsed[targetIndex] = {
       ...target,
@@ -2760,26 +3336,33 @@ const parseCommandUnits = (
       row: { ...target.row, source_ref_ids: sourceRefIds },
     };
   }
+
   return { parsed, failures: [...source.failures] };
 };
 
 const applyDuplicateGroups = (rows: InventoryRow[]): void => {
   const grouped = new Map<string, InventoryRow[]>();
+
   for (const row of rows) {
     const key = `${row.authority_line}\u0000${row.inventory_kind}\u0000${row.canonical_key}`;
     const group = grouped.get(key);
+
     if (group === undefined) grouped.set(key, [row]);
     else group.push(row);
   }
+
   for (const group of grouped.values()) {
     if (group.length < 2) continue;
     const first = group[0];
+
     if (first === undefined) continue;
+
     const groupId = duplicateGroupId(
       first.authority_line,
       first.inventory_kind,
       first.canonical_key,
     );
+
     for (const row of group) {
       const index = rows.indexOf(row);
       rows[index] = {
@@ -2813,7 +3396,9 @@ const makeEnvelope = (
       compareByteOrder(left.row_id, right.row_id) ||
       compareByteOrder(left.canonical_key, right.canonical_key),
   );
+
   const rowIds = sortedRows.map((row) => row.row_id);
+
   const edges = sortedRows.flatMap((row) => {
     if (inventoryKind !== "command_write") {
       return [
@@ -2826,13 +3411,17 @@ const makeEnvelope = (
         },
       ];
     }
+
     const loaderRefs = row.source_ref_ids.filter((sourceRefId) => {
       const source = context.sourcePathById.get(sourceRefId);
+
       return source?.rootRef === authority && isLoaderConfigPath(source.path, authority);
     });
+
     const declarationRefs = row.source_ref_ids.filter(
       (sourceRefId) => !loaderRefs.includes(sourceRefId),
     );
+
     return [
       ...(declarationRefs.length === 0
         ? []
@@ -2858,6 +3447,7 @@ const makeEnvelope = (
           ]),
     ];
   });
+
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-inventory/v1",
@@ -2880,9 +3470,11 @@ const makeEnvelope = (
 const commandLinks = (parsed: readonly ParsedRow[]): readonly InventoryLink[] => {
   const byRowId = new Map(parsed.map((entry) => [entry.row.row_id, entry]));
   const links: InventoryLink[] = [];
+
   for (const target of parsed) {
     if (!target.imported || target.ownerRef === null || target.importerPath === null) continue;
     const importer = parsed.find((candidate) => candidate.path === target.importerPath);
+
     if (
       importer === undefined ||
       importer.path === target.path ||
@@ -2900,21 +3492,28 @@ const commandLinks = (parsed: readonly ParsedRow[]): readonly InventoryLink[] =>
       source_ref_ids: sortUnique([...importer.sourceRefIds, ...target.sourceRefIds]),
     });
   }
+
   return [...new Map(links.map((link) => [link.relation_id, link])).values()];
 };
 
 const semanticNamespaceRole = (receiver: string): string | null => {
   const segments = receiver.replace(/^\\/, "").split("\\");
+
   if (segments.includes("Controller")) return "controller";
+
   if (segments.includes("Entity")) return "entity";
+
   if (segments.includes("Repository")) return "repository";
+
   if (segments.includes("Command")) return "command";
+
   if (
     segments.includes("EventSubscriber") ||
     segments.includes("Subscriber") ||
     segments.includes("Event")
   )
     return "event";
+
   if (
     segments.includes("Service") ||
     segments.includes("Infrastructure") ||
@@ -2923,20 +3522,26 @@ const semanticNamespaceRole = (receiver: string): string | null => {
     segments.includes("Google")
   )
     return "service";
+
   if (segments.includes("Domain")) return "domain";
+
   return null;
 };
 
 const semanticTargetRef = (target: string): string => {
   const separator = target.lastIndexOf("::");
+
   if (separator < 0) return target;
   const receiver = target.slice(0, separator);
   const callable = target.slice(separator + 2);
+
   if (!/^\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*$/.test(receiver)) return target;
   const shortReceiver = receiver.split("\\").at(-1);
+
   if (shortReceiver === undefined) return target;
   const role = semanticNamespaceRole(receiver);
   const normalizedReceiver = shortReceiver.replace(/Interface$/, "");
+
   return role === null
     ? `${normalizedReceiver}::${callable}`
     : `${role}/${normalizedReceiver}::${callable}`;
@@ -2950,18 +3555,23 @@ type CommandMatchMode = "legacy" | "extended" | "none";
 
 const commandMatchMode = (row: InventoryRow): CommandMatchMode => {
   if (row.inventory_kind !== "command_write") return "none";
-  const entryKind = (row.details as CommandWriteDetails).entry_kind;
+  const entryKind = row.details.entry_kind;
+
   if (entryKind === "controller_write" || entryKind === "event_handler") return "legacy";
+
   if (
     entryKind === "integration_write" ||
     entryKind === "custom_command" ||
     entryKind === "repository_write"
   )
     return "extended";
+
   return "none";
 };
+
 const commandMigrationOwner = (owner: string | null): string | null => {
   const normalized = owner?.replace(/^\\/, "");
+
   switch (normalized) {
     case "AppBundle\\Controller\\ContactController":
     case "App\\Content\\Controller\\ContactController":
@@ -2997,23 +3607,26 @@ const commandMigrationOwner = (owner: string | null): string | null => {
       return null;
   }
 };
+
 const commandMigrationEffects = (
   migrationOwner: string,
   effects: readonly EffectClass[],
 ): readonly EffectClass[] =>
   migrationOwner === "AssistantController" || migrationOwner === "ExistingUserAdmissionController"
-    ? (sortUnique(effects.filter((effect) => effect !== "identity_or_authority")) as EffectClass[])
-    : (sortUnique(effects) as EffectClass[]);
+    ? sortUnique(effects.filter((effect) => effect !== "identity_or_authority"))
+    : sortUnique(effects);
 
 const commandCrossLineKey = (row: InventoryRow): string | null => {
   if (row.inventory_kind !== "command_write") return null;
-  const details = row.details as CommandWriteDetails;
+  const details = row.details;
   const mode = commandMatchMode(row);
   const owner = ownerShortName(details.owner_ref);
   const ownerRole = semanticNamespaceRole(details.owner_ref ?? "") ?? details.entry_kind;
   const method = details.symbol_ref?.split("::").at(-1) ?? null;
+
   if (owner === null || method === null || mode === "none") return null;
   const migrationOwner = commandMigrationOwner(details.owner_ref);
+
   if (migrationOwner !== null) {
     return canonicalJson([
       "command_write_migration",
@@ -3024,6 +3637,7 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
       commandMigrationEffects(migrationOwner, details.effect_classes),
     ]);
   }
+
   if (mode === "legacy") {
     return canonicalJson([
       "command_write_cross_line",
@@ -3035,19 +3649,24 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
       details.effect_classes,
     ]);
   }
+
   const semanticTargets = details.target_refs
     .map(semanticTargetRef)
     .filter((target) => !crossLineTargetIgnored(target));
+
   const slackRenameCandidate =
     owner === "SlackMessenger" && (method === "send" || method === "sendPayload");
+
   const slackEffectEvidence =
     details.effect_classes.includes("outbound") &&
     details.effect_classes.every((effect) => effect === "outbound" || effect === "read_only");
+
   const adapterTargetEvidence =
     semanticTargets.every((target) => !target.startsWith("unresolved:")) &&
     semanticTargets.some((target) =>
       /::(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(target),
     );
+
   const slackAdapterTargetRename =
     semanticTargets.some(
       (target) =>
@@ -3059,17 +3678,22 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
         (target.slice(0, target.lastIndexOf("::")).split("/").at(-1) ?? target) ===
           "SlackMessenger" && /::(?:createMessage|send|sendPayload)$/i.test(target),
     );
+
   const slackTargetNormalization =
     slackEffectEvidence &&
     adapterTargetEvidence &&
     (owner === "SlackMessenger" || slackAdapterTargetRename);
+
   const slackRenameEvidence =
     slackRenameCandidate && slackTargetNormalization && semanticTargets.length === 1;
+
   const semanticMethod = slackRenameEvidence ? "send" : method;
   const semanticEffects = slackRenameEvidence ? ["outbound"] : details.effect_classes;
+
   const targetRefs = slackTargetNormalization
     ? ["service/SlackMessenger::send"]
     : sortUnique(semanticTargets);
+
   return canonicalJson([
     "command_write_cross_line",
     owner,
@@ -3087,34 +3711,45 @@ const crossLineCandidates = (
   rows: readonly InventoryRow[],
 ): ReadonlyMap<string, readonly InventoryRow[]> => {
   const grouped = new Map<string, InventoryRow[]>();
+
   for (const row of rows) {
     const key = commandCrossLineKey(row);
+
     if (key === null) continue;
     const group = grouped.get(key);
+
     if (group === undefined) grouped.set(key, [row]);
     else group.push(row);
   }
+
   return grouped;
 };
+
 const integrationMethodFor = (
   callSiteRef: string | null,
 ): { readonly owner: string; readonly method: string } | null => {
   if (callSiteRef === null) return null;
   const separator = callSiteRef.lastIndexOf("::");
+
   if (separator < 1) return null;
   const owner = ownerShortName(callSiteRef.slice(0, separator));
   const method = callSiteRef.slice(separator + 2);
+
   if (owner === null || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(method)) return null;
+
   const normalizedMethod =
     owner === "SlackMessenger" && ["send", "sendPayload"].includes(method) ? "send" : method;
+
   return { owner, method: normalizedMethod };
 };
 
 const integrationCrossLineKey = (row: InventoryRow): string | null => {
   if (row.inventory_kind !== "external_integration") return null;
-  const details = row.details as ExternalIntegrationDetails;
+  const details = row.details;
   const method = integrationMethodFor(details.call_site_ref);
+
   if (method === null || details.provider_ref === null || details.protocol === null) return null;
+
   return canonicalJson([
     "external_integration_cross_line",
     method.owner,
@@ -3129,9 +3764,11 @@ const integrationCrossLineKey = (row: InventoryRow): string | null => {
 
 const integrationLooseCrossLineKey = (row: InventoryRow): string | null => {
   if (row.inventory_kind !== "external_integration") return null;
-  const details = row.details as ExternalIntegrationDetails;
+  const details = row.details;
   const method = integrationMethodFor(details.call_site_ref);
+
   if (method === null || details.provider_ref === null || details.protocol === null) return null;
+
   return canonicalJson([
     "external_integration_cross_line_without_endpoint",
     method.owner,
@@ -3145,11 +3782,13 @@ const integrationLooseCrossLineKey = (row: InventoryRow): string | null => {
 
 const scheduleCrossLineKey = (row: InventoryRow): string | null => {
   if (row.inventory_kind !== "schedule_background") return null;
-  const details = row.details as ScheduleBackgroundDetails;
+  const details = row.details;
   const owner = ownerShortName(details.owner_ref);
   const handler = ownerShortName(details.handler_ref);
+
   if (details.trigger_kind === "manual") {
     if (details.trigger_identity === null || owner === null || handler === null) return null;
+
     return canonicalJson([
       "schedule_background_cross_line",
       details.trigger_kind,
@@ -3158,13 +3797,17 @@ const scheduleCrossLineKey = (row: InventoryRow): string | null => {
       handler,
     ]);
   }
+
   if (details.trigger_kind !== "event") return null;
+
   if (owner !== null || handler !== null) {
     return canonicalJson(["schedule_background_cross_line", details.trigger_kind, owner, handler]);
   }
+
   const serviceRegistry =
     details.trigger_identity === "app/config/event_subscribers.yml:event" ||
     details.trigger_identity === "apps/server/config/services.yaml:event";
+
   return serviceRegistry
     ? canonicalJson([
         "schedule_background_cross_line",
@@ -3179,19 +3822,24 @@ const semanticCrossLineCandidates = (
   keyFor: (row: InventoryRow) => string | null,
 ): ReadonlyMap<string, readonly InventoryRow[]> => {
   const grouped = new Map<string, InventoryRow[]>();
+
   for (const row of rows) {
     const key = keyFor(row);
+
     if (key === null) continue;
     const group = grouped.get(key);
+
     if (group === undefined) grouped.set(key, [row]);
     else group.push(row);
   }
+
   return grouped;
 };
 
 const isReconciliationBlocked = (row: InventoryRow): boolean =>
   ["unresolved", "duplicate", "absent"].includes(row.status) ||
   (row.status === "dead_unimported" && commandMatchMode(row) !== "extended");
+
 const reconcileSemanticCounterpart = (
   row: InventoryRow,
   rightBySignature: ReadonlyMap<string, InventoryRow>,
@@ -3201,17 +3849,23 @@ const reconcileSemanticCounterpart = (
   keyFor: (candidate: InventoryRow) => string | null,
 ): InventoryRow | undefined => {
   const exact = rightBySignature.get(row.signature);
+
   if (exact !== undefined && !matchedRightIds.has(exact.row_id) && !isReconciliationBlocked(exact))
     return exact;
   const key = keyFor(row);
+
   if (key === null) return undefined;
+
   const leftCandidates = (leftByCrossLineKey.get(key) ?? []).filter(
     (candidate) => !isReconciliationBlocked(candidate),
   );
+
   if (leftCandidates.length !== 1) return undefined;
+
   const candidates = (rightByCrossLineKey.get(key) ?? []).filter(
     (candidate) => !isReconciliationBlocked(candidate) && !matchedRightIds.has(candidate.row_id),
   );
+
   return candidates.length === 1 ? candidates[0] : undefined;
 };
 
@@ -3232,21 +3886,29 @@ const reconcileIntegrationCounterpart = (
     matchedRightIds,
     integrationCrossLineKey,
   );
+
   if (strict !== undefined) return strict;
   const key = integrationLooseCrossLineKey(row);
+
   if (key === null) return undefined;
+
   const leftCandidates = (leftByLooseKey.get(key) ?? []).filter(
     (candidate) => !isReconciliationBlocked(candidate),
   );
+
   if (leftCandidates.length !== 1) return undefined;
-  const leftEndpoint = (row.details as ExternalIntegrationDetails).endpoint_ref;
+
+  if (row.inventory_kind !== "external_integration") return undefined;
+  const leftEndpoint = row.details.endpoint_ref;
+
   const candidates = (rightByLooseKey.get(key) ?? []).filter(
     (candidate) =>
+      candidate.inventory_kind === "external_integration" &&
       !isReconciliationBlocked(candidate) &&
       !matchedRightIds.has(candidate.row_id) &&
-      (leftEndpoint === null ||
-        (candidate.details as ExternalIntegrationDetails).endpoint_ref === null),
+      (leftEndpoint === null || candidate.details.endpoint_ref === null),
   );
+
   return candidates.length === 1 ? candidates[0] : undefined;
 };
 
@@ -3259,6 +3921,7 @@ const reconcileCommandCounterpart = (
 ): InventoryRow | undefined => {
   const mode = commandMatchMode(row);
   const exact = rightBySignature.get(row.signature);
+
   if (
     exact !== undefined &&
     !matchedRightIds.has(exact.row_id) &&
@@ -3266,23 +3929,25 @@ const reconcileCommandCounterpart = (
   )
     return exact;
   const key = commandCrossLineKey(row);
+
   if (key === null) return undefined;
+
   if (mode === "extended") {
     const leftCandidates = (leftByCrossLineKey.get(key) ?? []).filter(
       (candidate) => !isReconciliationBlocked(candidate),
     );
+
     if (leftCandidates.length !== 1) return undefined;
   }
+
   const candidates = (rightByCrossLineKey.get(key) ?? []).filter(
     (candidate) => !isReconciliationBlocked(candidate) && !matchedRightIds.has(candidate.row_id),
   );
+
   return candidates.length === 1 ? candidates[0] : undefined;
 };
 
-const reconcilePair = (
-  left: InventoryEnvelope,
-  right: InventoryEnvelope,
-): {
+type ReconciledInventoryPair = {
   readonly left: InventoryEnvelope;
   readonly right: InventoryEnvelope;
   readonly mismatches: readonly {
@@ -3292,7 +3957,12 @@ const reconcilePair = (
     readonly accepted_intent_ref_ids: readonly string[];
   }[];
   readonly links: readonly InventoryLink[];
-} => {
+};
+
+const reconcilePair = (
+  left: InventoryEnvelope,
+  right: InventoryEnvelope,
+): ReconciledInventoryPair => {
   const leftRows = left.rows.map((row) => row);
   const rightRows = right.rows.map((row) => row);
   const rightBySignature = new Map(rightRows.map((row) => [row.signature, row]));
@@ -3300,60 +3970,75 @@ const reconcilePair = (
   const rightByCrossLineKey = crossLineCandidates(rightRows);
   const leftByCrossLineKey = crossLineCandidates(leftRows);
   const matchedRightIds = new Set<string>();
+
   const rightByIntegrationCrossLineKey = semanticCrossLineCandidates(
     rightRows,
     integrationCrossLineKey,
   );
+
   const leftByIntegrationCrossLineKey = semanticCrossLineCandidates(
     leftRows,
     integrationCrossLineKey,
   );
+
   const rightByIntegrationLooseKey = semanticCrossLineCandidates(
     rightRows,
     integrationLooseCrossLineKey,
   );
+
   const leftByIntegrationLooseKey = semanticCrossLineCandidates(
     leftRows,
     integrationLooseCrossLineKey,
   );
+
   const rightByScheduleCrossLineKey = semanticCrossLineCandidates(rightRows, scheduleCrossLineKey);
   const leftByScheduleCrossLineKey = semanticCrossLineCandidates(leftRows, scheduleCrossLineKey);
+
   const mismatches: Array<{
     readonly kind: Exclude<Mismatch["kind"], "none">;
     readonly row_ids: readonly string[];
     readonly disposition: "none";
     readonly accepted_intent_ref_ids: readonly string[];
   }> = [];
+
   const links: InventoryLink[] = [];
+
   for (const row of leftRows) {
     if (isReconciliationBlocked(row)) continue;
-    const counterpart =
-      row.inventory_kind === "command_write"
-        ? reconcileCommandCounterpart(
-            row,
-            rightBySignature,
-            rightByCrossLineKey,
-            leftByCrossLineKey,
-            matchedRightIds,
-          )
-        : row.inventory_kind === "external_integration"
-          ? reconcileIntegrationCounterpart(
-              row,
-              rightBySignature,
-              rightByIntegrationCrossLineKey,
-              leftByIntegrationCrossLineKey,
-              rightByIntegrationLooseKey,
-              leftByIntegrationLooseKey,
-              matchedRightIds,
-            )
-          : reconcileSemanticCounterpart(
-              row,
-              rightBySignature,
-              rightByScheduleCrossLineKey,
-              leftByScheduleCrossLineKey,
-              matchedRightIds,
-              scheduleCrossLineKey,
-            );
+
+    const counterpart = Match.value(row.inventory_kind).pipe(
+      Match.when("command_write", () =>
+        reconcileCommandCounterpart(
+          row,
+          rightBySignature,
+          rightByCrossLineKey,
+          leftByCrossLineKey,
+          matchedRightIds,
+        ),
+      ),
+      Match.when("external_integration", () =>
+        reconcileIntegrationCounterpart(
+          row,
+          rightBySignature,
+          rightByIntegrationCrossLineKey,
+          leftByIntegrationCrossLineKey,
+          rightByIntegrationLooseKey,
+          leftByIntegrationLooseKey,
+          matchedRightIds,
+        ),
+      ),
+      Match.orElse(() =>
+        reconcileSemanticCounterpart(
+          row,
+          rightBySignature,
+          rightByScheduleCrossLineKey,
+          leftByScheduleCrossLineKey,
+          matchedRightIds,
+          scheduleCrossLineKey,
+        ),
+      ),
+    );
+
     if (counterpart === undefined) {
       if (row.status === "dead_unimported") continue;
       const index = leftRows.findIndex((candidate) => candidate.row_id === row.row_id);
@@ -3371,8 +4056,10 @@ const reconcilePair = (
       });
       continue;
     }
+
     matchedRightIds.add(counterpart.row_id);
     const index = leftRows.findIndex((candidate) => candidate.row_id === row.row_id);
+
     const leftMismatch =
       row.status === "dead_unimported"
         ? {
@@ -3383,14 +4070,17 @@ const reconcilePair = (
             ]),
           }
         : mismatch("none", [counterpart.row_id], null);
+
     leftRows[index] = { ...row, mismatch: leftMismatch };
     const rightIndex = rightRows.findIndex((candidate) => candidate.row_id === counterpart.row_id);
+
     if (
       rightIndex >= 0 &&
       rightRows[rightIndex] !== undefined &&
-      !isReconciliationBlocked(rightRows[rightIndex] as InventoryRow)
+      !isReconciliationBlocked(rightRows[rightIndex])
     ) {
-      const rightRow = rightRows[rightIndex] as InventoryRow;
+      const rightRow = rightRows[rightIndex];
+
       const rightMismatch =
         rightRow.status === "dead_unimported"
           ? {
@@ -3401,8 +4091,10 @@ const reconcilePair = (
               ]),
             }
           : mismatch("none", [row.row_id], null);
+
       rightRows[rightIndex] = { ...rightRow, mismatch: rightMismatch };
     }
+
     links.push({
       relation_id: relationId("matches", row.row_id, counterpart.row_id, [
         ...row.source_ref_ids,
@@ -3414,6 +4106,7 @@ const reconcilePair = (
       source_ref_ids: sortUnique([...row.source_ref_ids, ...counterpart.source_ref_ids]),
     });
   }
+
   for (const row of rightRows) {
     if (
       isReconciliationBlocked(row) ||
@@ -3436,6 +4129,7 @@ const reconcilePair = (
       accepted_intent_ref_ids: [],
     });
   }
+
   return {
     left: { ...left, rows: leftRows.sort((a, b) => compareByteOrder(a.row_id, b.row_id)) },
     right: { ...right, rows: rightRows.sort((a, b) => compareByteOrder(a.row_id, b.row_id)) },
@@ -3453,10 +4147,7 @@ const mergeC2Envelopes = (
   authority_line: "cross_line",
   source_manifest_sha256: sourceManifestSha256,
   revision_ref_ids: sortUnique([...left.revision_ref_ids, ...right.revision_ref_ids]),
-  observation_kinds: sortUnique([
-    ...left.observation_kinds,
-    ...right.observation_kinds,
-  ]) as InventoryEnvelope["observation_kinds"],
+  observation_kinds: sortUnique([...left.observation_kinds, ...right.observation_kinds]),
   rows: [...left.rows, ...right.rows].sort(
     (a, b) =>
       compareByteOrder(a.row_id, b.row_id) || compareByteOrder(a.canonical_key, b.canonical_key),
@@ -3483,20 +4174,24 @@ const mergeC2Envelopes = (
     .sort((a, b) => compareByteOrder(a.edge_id, b.edge_id)),
 });
 
-const commandCollection = (
-  context: ManifestContext,
-  sourceManifestSha256: string,
-): {
+type EffectInventoryCollection = {
   readonly inventories: readonly [InventoryEnvelope, InventoryEnvelope];
   readonly failures: readonly C2CollectionFailure[];
   readonly rows: readonly InventoryRow[];
-} => {
-  const legacy = parseCommandUnits(context, "legacy");
-  const mono = parseCommandUnits(context, "mono");
+};
+
+const commandCollection = (
+  context: ManifestContext,
+  sourceManifestSha256: string,
+  graphs: AuthorityGraphs,
+): EffectInventoryCollection => {
+  const legacy = parseCommandUnits(context, "legacy", graphs.legacy);
+  const mono = parseCommandUnits(context, "mono", graphs.mono);
   const legacyRows = legacy.parsed.map((entry) => entry.row);
   const monoRows = mono.parsed.map((entry) => entry.row);
   applyDuplicateGroups(legacyRows);
   applyDuplicateGroups(monoRows);
+
   const legacyEnvelope = makeEnvelope(
     context,
     "command_write",
@@ -3505,6 +4200,7 @@ const commandCollection = (
     commandLinks(legacy.parsed),
     sourceManifestSha256,
   );
+
   const monoEnvelope = makeEnvelope(
     context,
     "command_write",
@@ -3513,8 +4209,10 @@ const commandCollection = (
     commandLinks(mono.parsed),
     sourceManifestSha256,
   );
+
   const reconciled = reconcilePair(legacyEnvelope, monoEnvelope);
   const failures: C2CollectionFailure[] = [...legacy.failures, ...mono.failures];
+
   for (const row of [...reconciled.left.rows, ...reconciled.right.rows]) {
     if (row.reason_codes.includes("UNSAFE_SOURCE"))
       failures.push({
@@ -3559,6 +4257,7 @@ const commandCollection = (
         sourceRefIds: row.source_ref_ids,
       });
   }
+
   return {
     inventories: [
       { ...reconciled.left, links: [...reconciled.left.links, ...reconciled.links] },
@@ -3590,6 +4289,7 @@ const cronAliases = new Set([
   "@midnight",
   "@hourly",
 ]);
+
 const cronMonthNames = new Set([
   "JAN",
   "FEB",
@@ -3604,49 +4304,63 @@ const cronMonthNames = new Set([
   "NOV",
   "DEC",
 ]);
+
 const cronWeekdayNames = new Set(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]);
 
 const cronFieldBounds = (
   fieldCount: number,
   fieldIndex: number,
 ): readonly [number, number] | null => {
-  const boundsByCount: Record<number, readonly (readonly [number, number])[]> = {
-    5: [
-      [0, 59],
-      [0, 23],
-      [1, 31],
-      [1, 12],
-      [0, 7],
+  const boundsByCount = new Map<number, readonly (readonly [number, number])[]>([
+    [
+      5,
+      [
+        [0, 59],
+        [0, 23],
+        [1, 31],
+        [1, 12],
+        [0, 7],
+      ],
     ],
-    6: [
-      [0, 59],
-      [0, 59],
-      [0, 23],
-      [1, 31],
-      [1, 12],
-      [0, 7],
+    [
+      6,
+      [
+        [0, 59],
+        [0, 59],
+        [0, 23],
+        [1, 31],
+        [1, 12],
+        [0, 7],
+      ],
     ],
-    7: [
-      [0, 59],
-      [0, 59],
-      [0, 23],
-      [1, 31],
-      [1, 12],
-      [0, 7],
-      [1970, 9999],
+    [
+      7,
+      [
+        [0, 59],
+        [0, 59],
+        [0, 23],
+        [1, 31],
+        [1, 12],
+        [0, 7],
+        [1970, 9999],
+      ],
     ],
-  };
-  return boundsByCount[fieldCount]?.[fieldIndex] ?? null;
+  ]);
+
+  return boundsByCount.get(fieldCount)?.[fieldIndex] ?? null;
 };
 
 const cronFieldTokenValid = (token: string, fieldIndex: number, fieldCount: number): boolean => {
   const parts = token.split("/");
   const base = parts[0] ?? "";
   const step = parts[1];
+
   if (parts.length > 2 || (step !== undefined && (!/^\d{1,4}$/.test(step) || Number(step) < 1)))
     return false;
   const bounds = cronFieldBounds(fieldCount, fieldIndex);
+
   if (bounds === null) return false;
+
   const names =
     fieldCount === 5
       ? fieldIndex === 3
@@ -3665,28 +4379,40 @@ const cronFieldTokenValid = (token: string, fieldIndex: number, fieldCount: numb
           : fieldIndex === 5
             ? cronWeekdayNames
             : null;
+
   if (base === "*") return true;
   const range = base.split("-");
+
   if (range.length > 2 || range.some((value) => value.length === 0)) return false;
+
   const values = range.map((value) => {
     if (/^\d{1,4}$/.test(value)) return Number(value);
+
     return names?.has(value.toUpperCase()) === true ? value.toUpperCase() : null;
   });
+
   if (values.some((value) => value === null)) return false;
-  if (typeof values[0] === "number" && (values[0] < bounds[0] || values[0] > bounds[1]))
+
+  if (Predicate.isNumber(values[0]) && (values[0] < bounds[0] || values[0] > bounds[1]))
     return false;
-  if (typeof values[1] === "number" && (values[1] < bounds[0] || values[1] > bounds[1]))
+
+  if (Predicate.isNumber(values[1]) && (values[1] < bounds[0] || values[1] > bounds[1]))
     return false;
-  if (typeof values[0] === "number" && typeof values[1] === "number" && values[0] > values[1])
+
+  if (Predicate.isNumber(values[0]) && Predicate.isNumber(values[1]) && values[0] > values[1])
     return false;
+
   return true;
 };
 
 const cronExpressionValid = (value: string): boolean => {
   const normalized = value.trim().normalize("NFC");
+
   if (cronAliases.has(normalized.toLowerCase())) return true;
   const fields = normalized.split(/\s+/);
+
   if (cronFieldBounds(fields.length, 0) === null) return false;
+
   return fields.every(
     (field, index) =>
       field.length > 0 &&
@@ -3696,44 +4422,60 @@ const cronExpressionValid = (value: string): boolean => {
 
 const opaqueScheduleValue = (value: string): boolean => {
   if (value.length < 24) return false;
+
   if (/^[a-f0-9]{32,}$/i.test(value)) return true;
   let classes = 0;
+
   if (/[a-z]/.test(value)) classes += 1;
+
   if (/[A-Z]/.test(value)) classes += 1;
+
   if (/[0-9]/.test(value)) classes += 1;
+
   if (/[^A-Za-z0-9_.:-]/.test(value)) classes += 1;
+
   return classes >= 3;
 };
 
 const scheduleIdentityFor = (raw: string | null, reasons: string[]): string | null => {
   const value = raw?.trim().normalize("NFC") ?? "";
+
   if (!/^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/.test(value)) {
     reasons.push("SCHEDULE_IDENTITY_UNRESOLVED");
+
     return null;
   }
+
   if (
     opaqueScheduleValue(value) ||
     /(?:password|passwd|secret|token|credential|api[_-]?key|authorization)/i.test(value)
   ) {
     reasons.push("SCHEDULE_IDENTITY_UNRESOLVED", "UNSAFE_SOURCE");
+
     return null;
   }
+
   return value;
 };
 
 const cronExpressionFor = (value: string | null, reasons: string[]): string | null => {
   if (value === null) {
     reasons.push("SCHEDULE_EXPRESSION_UNRESOLVED");
+
     return null;
   }
+
   const normalized = value.trim().normalize("NFC");
+
   if (
     !cronExpressionValid(normalized) ||
     sanitizeScalar(normalized, "schedule_expression") === null
   ) {
     reasons.push("SCHEDULE_EXPRESSION_UNRESOLVED", "UNSAFE_SOURCE");
+
     return null;
   }
+
   return normalized;
 };
 
@@ -3749,49 +4491,67 @@ const yamlScheduleDeclarationsFor = (
   path: string,
 ): readonly YamlScheduleDeclaration[] => {
   const declarations: YamlScheduleDeclaration[] = [];
-  const direct = (value: unknown): YamlScheduleDeclaration | null => {
+
+  const direct = (value: ParsedNode | null): YamlScheduleDeclaration | null => {
     const pairs = loaderYamlPairs(value);
     const cronPair = pairs.find((pair) => loaderYamlKey(pair.key) === "cron");
+
     if (cronPair === undefined) return null;
+
     const handlerPair = pairs.find((pair) =>
       ["handler", "command", "class"].includes(loaderYamlKey(pair.key) ?? ""),
     );
+
     const disabledPair = pairs.find((pair) => loaderYamlKey(pair.key) === "disabled");
     const enabledPair = pairs.find((pair) => loaderYamlKey(pair.key) === "enabled");
-    const scalarBoolean = (raw: unknown): boolean | null => {
-      const node = loaderYamlNode(raw);
-      if (node?.value === true) return true;
-      if (node?.value === false) return false;
+
+    const scalarBoolean = (raw: ParsedNode | null): boolean | null => {
+      if (isScalar(raw) && Predicate.isBoolean(raw.value)) return raw.value;
       const scalar = loaderYamlScalar(raw);
-      return scalar === "true" ? true : scalar === "false" ? false : null;
+
+      return Match.value(scalar).pipe(
+        Match.when("true", () => true as const),
+        Match.when("false", () => false as const),
+        Match.orElse(() => null),
+      );
     };
+
     const disabled = disabledPair === undefined ? null : scalarBoolean(disabledPair.value);
     const explicitlyEnabled = enabledPair === undefined ? null : scalarBoolean(enabledPair.value);
+
     return {
       expression: loaderYamlScalar(cronPair.value),
       handler: handlerPair === undefined ? null : loaderYamlScalar(handlerPair.value),
       enabled: disabled === true || explicitlyEnabled === false ? false : true,
-      offset: cronPair.range?.[0] ?? 0,
+      offset: cronPair.key.range[0],
     };
   };
-  const collectScheduleContainer = (value: unknown): void => {
-    const node = loaderYamlNode(value);
-    if (node?.items === undefined) return;
+
+  const collectScheduleContainer = (node: ParsedNode | null): void => {
+    if (!isMap(node) && !isSeq(node)) return;
+
     for (const item of node.items) {
-      const directItem = direct(item);
+      const value = isPair<ParsedNode, ParsedNode | null>(item) ? item.value : item;
+      const directItem = direct(value);
+
       if (directItem !== null) declarations.push(directItem);
       else
-        for (const pair of loaderYamlPairs(item)) {
+        for (const pair of loaderYamlPairs(value)) {
           const nested = direct(pair.value);
+
           if (nested !== null) declarations.push(nested);
         }
     }
   };
+
   try {
     const document = parseDocument(source, { prettyErrors: false });
+
     if (document.errors.length > 0) return declarations;
+
     for (const pair of loaderYamlPairs(document.contents)) {
       const key = loaderYamlKey(pair.key);
+
       if (key === "on") {
         for (const nested of loaderYamlPairs(pair.value)) {
           if (loaderYamlKey(nested.key) === "schedule") collectScheduleContainer(nested.value);
@@ -3800,12 +4560,14 @@ const yamlScheduleDeclarationsFor = (
         collectScheduleContainer(pair.value);
       } else if (/(^|\/)(?:scheduler|schedules?|triggers)\.ya?ml$/i.test(path)) {
         const declaration = direct(pair.value);
+
         if (declaration !== null) declarations.push(declaration);
       }
     }
   } catch {
     return declarations;
   }
+
   return declarations;
 };
 
@@ -3818,16 +4580,20 @@ const schedulePathReachable = (
     authority.reachableSources.has(path) &&
     !authority.cyclicSources.has(path) &&
     !authority.cyclicOnlySources.has(path);
+
   if (/\.(?:ts|tsx|js|mjs)$/i.test(entryPath)) {
     return (
       authority.runtimeEntrySources.has(entryPath) && authority.runtimeEntrySources.has(targetPath)
     );
   }
+
   if (authority.authority === "legacy" && entryPath.startsWith("app/config/"))
     return noncyclicSource(targetPath);
+
   if (/\.(?:ya?ml|json)$/i.test(entryPath)) {
     return authority.reachableLoaders.has(entryPath) && noncyclicSource(targetPath);
   }
+
   return noncyclicSource(entryPath) && noncyclicSource(targetPath);
 };
 
@@ -3838,21 +4604,28 @@ const scheduleHandlerFor = (
   unit: SourceUnit,
 ): string | null => {
   const value = raw?.trim() ?? "";
+
   if (!/^(?:[A-Za-z_$][A-Za-z0-9_$]*)(?:(?:\\|::|\.)[A-Za-z_$][A-Za-z0-9_$]*)*$/.test(value)) {
     reasons.push("SCHEDULE_HANDLER_UNRESOLVED");
+
     return null;
   }
+
   const normalized = normalizeSafe(value, "handler_ref", reasons);
+
   if (normalized === null) return null;
   const target = resolveClassForPath(authority, unit.path, normalized);
+
   if (target !== undefined && schedulePathReachable(authority, unit.path, target.path))
     return normalized;
+
   if (
     authority.functionsByPath.get(unit.path)?.has(normalized) &&
     schedulePathReachable(authority, unit.path, unit.path)
   )
     return normalized;
   reasons.push("SCHEDULE_HANDLER_UNRESOLVED");
+
   return normalized;
 };
 
@@ -3866,21 +4639,25 @@ const scheduleTriggersFor = (
   const owner = classMatches(structure)[0]?.name ?? null;
   const ownerReasons: string[] = [];
   const ownerRef = owner === null ? null : classOwner(structure, owner, ownerReasons);
+
   const enabled = /\.(?:ya?ml)$/i.test(unit.path)
     ? true
     : /\b(?:disabled|enabled)\s*[:=]\s*(?:true|false)/i.test(structure)
       ? !/\bdisabled\s*[:=]\s*true|\benabled\s*[:=]\s*false/i.test(structure)
       : true;
+
   for (const call of literalCallsFor(code, "schedule")) {
     const reasons: string[] = [...ownerReasons];
     const triggerIdentity = scheduleIdentityFor(call.args[0] ?? null, reasons);
     const expression = cronExpressionFor(call.args[1] ?? null, reasons);
+
     const handlerRef =
       call.rawArgs.length >= 3
         ? scheduleHandlerFor(call.rawArgs[2] ?? null, reasons, authority, unit)
         : ownerRef === null
           ? null
           : scheduleHandlerFor(ownerRef, reasons, authority, unit);
+
     if (
       call.rawArgs.length < 2 ||
       call.rawArgs.length > 3 ||
@@ -3888,8 +4665,10 @@ const scheduleTriggersFor = (
       call.args[1] === null
     )
       reasons.push("SCHEDULE_PARSE_INCOMPLETE");
+
     const runtimeRegistered =
       handlerRef !== null && !reasons.includes("SCHEDULE_HANDLER_UNRESOLVED");
+
     if (!runtimeRegistered) reasons.push("SCHEDULE_REGISTRATION_UNRESOLVED");
     triggers.push({
       triggerKind: "cron",
@@ -3903,19 +4682,25 @@ const scheduleTriggersFor = (
       reasons,
     });
   }
+
   if (/\.(?:ya?ml)$/i.test(unit.path)) {
     for (const declaration of yamlScheduleDeclarationsFor(code, unit.path)) {
       const reasons: string[] = [...ownerReasons];
       const expression = cronExpressionFor(declaration.expression, reasons);
+
       const workflowSchedule =
         /\/\.github\/workflows\//.test(`/${unit.path}/`) && declaration.handler === null;
+
       const handlerRef = workflowSchedule
         ? null
         : scheduleHandlerFor(declaration.handler, reasons, authority, unit);
+
       const triggerIdentity = normalizeSafe(`${unit.path}:cron`, "source_path", reasons);
+
       const runtimeRegistered =
         workflowSchedule ||
         (handlerRef !== null && !reasons.includes("SCHEDULE_HANDLER_UNRESOLVED"));
+
       if (!runtimeRegistered) reasons.push("SCHEDULE_REGISTRATION_UNRESOLVED");
       triggers.push({
         triggerKind: "cron",
@@ -3930,6 +4715,7 @@ const scheduleTriggersFor = (
       });
     }
   }
+
   if (/^\s*workflow_dispatch\s*:/im.test(structure)) {
     const offset = structure.search(/^\s*workflow_dispatch\s*:/im);
     triggers.push({
@@ -3944,9 +4730,11 @@ const scheduleTriggersFor = (
       reasons: ownerReasons,
     });
   }
+
   const runtimeRegistered = /\b(?:register|registry|dispatch|scheduler)\b/i.test(structure)
     ? true
     : null;
+
   if (/\b(?:queue|consume|MessageHandler|QueueConsumer)\b/i.test(structure)) {
     const offset = structure.search(/\b(?:queue|consume|MessageHandler|QueueConsumer)\b/i);
     triggers.push({
@@ -3961,6 +4749,7 @@ const scheduleTriggersFor = (
       reasons: ownerReasons,
     });
   }
+
   if (
     /EventSubscriber|EventListener|subscribe\s*\(/i.test(structure) ||
     /\/EventSubscriber\//i.test(unit.path)
@@ -3978,6 +4767,7 @@ const scheduleTriggersFor = (
       reasons: ownerReasons,
     });
   }
+
   if (/\/Command\//i.test(unit.path) && classMatches(structure).length > 0) {
     const reasons: string[] = [...ownerReasons];
     const commandName = commandNameFor(code, reasons, true);
@@ -3994,6 +4784,7 @@ const scheduleTriggersFor = (
       reasons,
     });
   }
+
   if (/\b(?:startup|onStartup|kernel\.boot|on_boot)\b/i.test(structure)) {
     const offset = structure.search(/\b(?:startup|onStartup|kernel\.boot|on_boot)\b/i);
     triggers.push({
@@ -4008,6 +4799,7 @@ const scheduleTriggersFor = (
       reasons: ownerReasons,
     });
   }
+
   if (/\b(?:webhook|handleRequest)\b/i.test(structure)) {
     const offset = structure.search(/\b(?:webhook|handleRequest)\b/i);
     triggers.push({
@@ -4022,8 +4814,10 @@ const scheduleTriggersFor = (
       reasons: ownerReasons,
     });
   }
+
   return triggers;
 };
+
 const scheduleRow = (
   context: ManifestContext,
   unit: SourceUnit,
@@ -4032,9 +4826,11 @@ const scheduleRow = (
   role: string,
 ): ParsedRow => {
   const reasons = [...trigger.reasons];
+
   if (trigger.triggerIdentity === null && trigger.triggerKind !== "unknown")
     reasons.push("SCHEDULE_IDENTITY_UNRESOLVED");
   const status: InventoryRow["status"] = reasons.length > 0 ? "unresolved" : "covered";
+
   const details: ScheduleBackgroundDetails = {
     trigger_kind: trigger.triggerKind,
     trigger_identity: trigger.triggerIdentity,
@@ -4045,6 +4841,7 @@ const scheduleRow = (
     repository_owned: true,
     runtime_registered: trigger.runtimeRegistered,
   };
+
   const declaration = declarationId(
     unit.authority,
     unit.authority,
@@ -4052,6 +4849,7 @@ const scheduleRow = (
     "schedule_background",
     ordinal,
   );
+
   const signature = canonicalJson([
     "schedule_background",
     details.trigger_kind,
@@ -4060,6 +4858,7 @@ const scheduleRow = (
     details.handler_ref,
     details.schedule_expression,
   ]);
+
   const sourceRefId = sourceRefFor(
     context,
     unit.authority,
@@ -4069,6 +4868,7 @@ const scheduleRow = (
     trigger.line,
     details.handler_ref,
   );
+
   return {
     path: unit.path,
     sourceRefIds: [sourceRefId],
@@ -4109,6 +4909,7 @@ const absentScheduleRow = (
   role: string,
 ): ParsedRow => {
   const sourceRefId = absentSource(context, authority, familyId, role);
+
   const details: ScheduleBackgroundDetails = {
     trigger_kind: "cron",
     trigger_identity: null,
@@ -4119,8 +4920,10 @@ const absentScheduleRow = (
     repository_owned: true,
     runtime_registered: null,
   };
+
   const signature = canonicalJson(["schedule_background", "cron", null, null, null, null]);
   const declaration = declarationId(authority, authority, familyId, "absent_schedule_family", 0);
+
   return {
     path: familyId,
     sourceRefIds: [sourceRefId],
@@ -4153,25 +4956,32 @@ const absentScheduleRow = (
 const parseSchedules = (
   context: ManifestContext,
   authority: "legacy" | "mono",
-): { readonly parsed: readonly ParsedRow[]; readonly failures: readonly C2CollectionFailure[] } => {
+  authorityGraph: AuthorityGraph,
+): ParsedEffectRows => {
   const familyId =
     authority === "legacy" ? C2_FAMILY_IDS.legacySchedules : C2_FAMILY_IDS.monoSchedules;
+
   const role = authority === "legacy" ? "legacy_schedule_authority" : "mono_schedule_authority";
   const source = sourceUnits(context, authority, familyId, role);
-  const authorityGraph = authorityGraphFor(context, authority);
+
   const parsed: ParsedRow[] = [];
   let ordinal = 0;
   let hasPositiveTrigger = false;
+
   for (const unit of source.units) {
     const triggers = scheduleTriggersFor(unit, authorityGraph);
+
     if (triggers.length > 0) hasPositiveTrigger = true;
+
     for (const trigger of triggers)
       parsed.push(scheduleRow(context, unit, ordinal++, trigger, role));
   }
 
   if (!hasPositiveTrigger) parsed.push(absentScheduleRow(context, authority, familyId, role));
+
   return { parsed, failures: source.failures };
 };
+
 const localTransportImportFor = (source: string): boolean =>
   /\bimport\s+(?:type\s+)?\{[^}]*\bTransport\b[^}]*\}\s+from\s*["'][^"']*\/transport(?:\.[^"']+)?["']/i.test(
     source,
@@ -4180,16 +4990,21 @@ const localTransportImportFor = (source: string): boolean =>
 const localTransportReceiverFor = (unit: SourceUnit, call: EffectCall): boolean => {
   if (!localTransportImportFor(unit.text) || call.receiver === null) return false;
   const receiverRoot = call.receiver.split(/->|::|\./).find((part) => part.length > 0);
+
   if (receiverRoot === undefined || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(receiverRoot)) return false;
+
   if (localReceiverTypesFor(unit, call.offset).get(receiverRoot) === "Transport") return true;
   const identifier = receiverRoot.replace(/^\$/, "");
+
   return new RegExp(
     `(?:[(,]|\\b(?:const|let|var)\\s+)\\s*\\$?${identifier}\\s*:\\s*Transport\\b`,
   ).test(withoutComments(unit.text).slice(0, call.offset));
 };
+
 const localCollectionMutationReceiverFor = (unit: SourceUnit, call: EffectCall): boolean => {
   if (call.callable.toLowerCase() !== "delete" || call.receiver === null) return false;
   const receiverRoot = call.receiver.split(/->|::|\./).find((part) => part.length > 0);
+
   if (
     receiverRoot === undefined ||
     receiverRoot.startsWith("$") ||
@@ -4197,6 +5012,7 @@ const localCollectionMutationReceiverFor = (unit: SourceUnit, call: EffectCall):
   )
     return false;
   const prefix = withoutLiterals(withoutComments(unit.text)).slice(0, call.offset);
+
   const declarations = [
     ...prefix.matchAll(
       new RegExp(
@@ -4205,23 +5021,22 @@ const localCollectionMutationReceiverFor = (unit: SourceUnit, call: EffectCall):
       ),
     ),
   ];
+
   return declarations.length > 0;
 };
 
 const scheduleCollection = (
   context: ManifestContext,
   sourceManifestSha256: string,
-): {
-  readonly inventories: readonly [InventoryEnvelope, InventoryEnvelope];
-  readonly failures: readonly C2CollectionFailure[];
-  readonly rows: readonly InventoryRow[];
-} => {
-  const legacy = parseSchedules(context, "legacy");
-  const mono = parseSchedules(context, "mono");
+  graphs: AuthorityGraphs,
+): EffectInventoryCollection => {
+  const legacy = parseSchedules(context, "legacy", graphs.legacy);
+  const mono = parseSchedules(context, "mono", graphs.mono);
   const legacyRows = legacy.parsed.map((entry) => entry.row);
   const monoRows = mono.parsed.map((entry) => entry.row);
   applyDuplicateGroups(legacyRows);
   applyDuplicateGroups(monoRows);
+
   const legacyObservations = legacyRows
     .filter((row) => row.status === "absent")
     .map((row) => ({
@@ -4233,6 +5048,7 @@ const scheduleCollection = (
       label: "absent_schedule_family",
       count: 0,
     }));
+
   const monoObservations = monoRows
     .filter((row) => row.status === "absent")
     .map((row) => ({
@@ -4244,6 +5060,7 @@ const scheduleCollection = (
       label: "absent_schedule_family",
       count: 0,
     }));
+
   const legacyEnvelope = makeEnvelope(
     context,
     "schedule_background",
@@ -4253,6 +5070,7 @@ const scheduleCollection = (
     sourceManifestSha256,
     legacyObservations,
   );
+
   const monoEnvelope = makeEnvelope(
     context,
     "schedule_background",
@@ -4262,8 +5080,10 @@ const scheduleCollection = (
     sourceManifestSha256,
     monoObservations,
   );
+
   const reconciled = reconcilePair(legacyEnvelope, monoEnvelope);
   const failures: C2CollectionFailure[] = [...legacy.failures, ...mono.failures];
+
   for (const row of [...reconciled.left.rows, ...reconciled.right.rows]) {
     if (row.reason_codes.includes("ABSENT_SCHEDULE"))
       failures.push({
@@ -4287,6 +5107,7 @@ const scheduleCollection = (
         sourceRefIds: row.source_ref_ids,
       });
   }
+
   return {
     inventories: [
       { ...reconciled.left, links: [...reconciled.left.links, ...reconciled.links] },
@@ -4296,6 +5117,7 @@ const scheduleCollection = (
     rows: [...reconciled.left.rows, ...reconciled.right.rows],
   };
 };
+
 const providerFromText = (text: string): string | null => {
   const patterns: readonly [RegExp, string][] = [
     [/\b(?:Google|GoogleClient|GoogleApis?|GoogleAdapter|GoogleService)\b/i, "google"],
@@ -4313,9 +5135,12 @@ const providerFromText = (text: string): string | null => {
       "vektorprogrammet-api",
     ],
   ];
+
   for (const [pattern, provider] of patterns) if (pattern.test(text)) return provider;
+
   return null;
 };
+
 const providerFromReceiverType = (
   unit: SourceUnit,
   call: EffectCall | undefined,
@@ -4324,15 +5149,19 @@ const providerFromReceiverType = (
   if (call?.receiver === null || call?.receiver === undefined) return null;
   const receiverParts = call.receiver.split(/->|::|\./).filter((part) => part.length > 0);
   const receiverRoot = receiverParts[0];
+
   if (receiverRoot === undefined) return null;
+
   let receiverType =
     /^(?:\$?this)$/i.test(receiverRoot) && receiverParts[1] !== undefined
       ? (constructorPropertyTypeFor(unit.text, receiverParts[1], ownerClass) ??
         ownerClass?.properties.get(receiverParts[1]))
       : localReceiverTypesFor(unit, call.offset).get(receiverRoot);
+
   if (receiverType === undefined && /\.[cm]?[jt]sx?$/i.test(unit.path)) {
     const sourceFile = ts.createSourceFile(unit.path, unit.text, ts.ScriptTarget.Latest, true);
     let containingFunction: ts.FunctionLikeDeclaration | undefined;
+
     const visit = (node: ts.Node): void => {
       const functionLike =
         ts.isArrowFunction(node) ||
@@ -4341,6 +5170,7 @@ const providerFromReceiverType = (
         ts.isMethodDeclaration(node) ||
         ts.isGetAccessorDeclaration(node) ||
         ts.isSetAccessorDeclaration(node);
+
       if (
         functionLike &&
         node.getStart(sourceFile) < call.offset &&
@@ -4351,28 +5181,38 @@ const providerFromReceiverType = (
         containingFunction = node;
       ts.forEachChild(node, visit);
     };
+
     visit(sourceFile);
+
     const parameter = containingFunction?.parameters.find(
       (candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === receiverRoot,
     );
+
     receiverType = parameter?.type?.getText(sourceFile);
   }
+
   if (receiverType === null || receiverType === undefined) return null;
-  return /\bJourneyHttpClient(?:Shape)?\b/.test(receiverType)
+
+  return /\bJourneyHttpClient(?:Operations)?\b/.test(receiverType)
     ? "vektorprogrammet-api"
     : providerFromText(receiverType);
 };
+
 const providerFromEndpointArguments = (argumentsText: string): string | null => {
   const named = providerFromText(argumentsText);
+
   if (named !== null) return named;
   const value = argumentsText.trim();
+
   if (/^`?https?:\/\/(?:127\.0\.0\.1|localhost)(?::|\b)/i.test(value)) return "loopback-http";
+
   return /^(?:url|endpoint|request\.url|input\.url|[A-Za-z_$][A-Za-z0-9_$]*(?:Path|Url))$/i.test(
     value,
   ) || /\$\{\s*[A-Za-z_$][A-Za-z0-9_$]*Path\s*\}/.test(value)
     ? "configured-http-endpoint"
     : null;
 };
+
 const providerFromCallExpression = (
   unit: SourceUnit,
   call: EffectCall | undefined,
@@ -4380,6 +5220,7 @@ const providerFromCallExpression = (
   if (call === undefined || !/\.[cm]?[jt]sx?$/i.test(unit.path)) return null;
   const sourceFile = ts.createSourceFile(unit.path, unit.text, ts.ScriptTarget.Latest, true);
   let selected: ts.CallExpression | undefined;
+
   const visit = (node: ts.Node): void => {
     if (
       ts.isCallExpression(node) &&
@@ -4390,36 +5231,50 @@ const providerFromCallExpression = (
       selected = node;
     ts.forEachChild(node, visit);
   };
+
   visit(sourceFile);
+
   if (selected === undefined) return null;
   const callText = selected.getText(sourceFile);
   const named = providerFromText(callText);
+
   if (named !== null) return named;
+
   if (/^route\.fetch\s*\(/.test(callText)) return "configured-http-endpoint";
+
   const argumentProvider = providerFromEndpointArguments(
     selected.arguments[0]?.getText(sourceFile) ?? "",
   );
+
   if (argumentProvider !== null) return argumentProvider;
   let parent: ts.Node | undefined = selected.parent;
+
   while (parent !== undefined && parent.getWidth(sourceFile) <= 4_000) {
     if (ts.isCallExpression(parent)) {
       const parentProvider = providerFromText(parent.getText(sourceFile));
+
       if (parentProvider !== null) return parentProvider;
     }
+
     parent = parent.parent;
   }
+
   return null;
 };
 
 const integrationAdapterPattern =
   /\b(?:HttpClient|GuzzleHttp|HttpAdapter|RestClient|Axios|CurlClient|WebhookClient|Transport|RequestInit|executeFetch)\b/i;
 
-const secretShapedEndpointSegment = (segment: string): boolean => {
+const isSecretEndpointSegment = (segment: string): boolean => {
   if (segment.length < 20 || /^[a-f0-9]{32,}$/i.test(segment)) return false;
   let classes = 0;
+
   if (/[a-z]/.test(segment)) classes += 1;
+
   if (/[A-Z]/.test(segment)) classes += 1;
+
   if (/[0-9]/.test(segment)) classes += 1;
+
   return classes >= 3 || (classes >= 2 && segment.length >= 24);
 };
 
@@ -4427,17 +5282,18 @@ const safeEndpoint = (raw: string, reasons: string[]): string | null => {
   try {
     const url = new URL(raw);
     const credentialPath = /\/services\/[^/]{4,}\/[^/]{4,}\/[^/]{8,}(?:\/|$)/i.test(url.pathname);
-    const secretHost = url.hostname
-      .split(".")
-      .some((segment) => secretShapedEndpointSegment(segment));
-    const secretPath = url.pathname
-      .split("/")
-      .some((segment) => secretShapedEndpointSegment(segment));
+
+    const secretHost = url.hostname.split(".").some((segment) => isSecretEndpointSegment(segment));
+
+    const secretPath = url.pathname.split("/").some((segment) => isSecretEndpointSegment(segment));
+
     const credentialQuery = /(?:^|[?&])(token|secret|password|key|authorization)=([^&#]*)/i.exec(
       raw,
     );
+
     const symbolicCredentialQuery =
       credentialQuery !== null && /(?:\$[A-Za-z_{]|\{[^}]*\})/.test(credentialQuery[2] ?? "");
+
     if (
       url.username.length > 0 ||
       url.password.length > 0 ||
@@ -4447,17 +5303,21 @@ const safeEndpoint = (raw: string, reasons: string[]): string | null => {
       (credentialQuery !== null && !symbolicCredentialQuery)
     ) {
       reasons.push("UNSAFE_SOURCE");
+
       return null;
     }
+
     url.pathname = url.pathname
       .split("/")
       .map((segment) => (/(?:\$|%24|%7b|%7d)/i.test(segment) ? ":dynamic" : segment))
       .join("/");
     url.search = "";
     url.hash = "";
+
     return normalizeSafe(url.toString().replace(/\/$/, ""), "endpoint_ref", reasons);
   } catch {
     reasons.push("UNKNOWN_INTEGRATION");
+
     return null;
   }
 };
@@ -4470,25 +5330,37 @@ const protocolFor = (endpoint: string | null, text: string): string | null => {
       return null;
     }
   }
+
   if (/\b(?:smtp|mailer|mail)\b/i.test(text)) return "smtp";
+
   if (/\b(?:sms|twilio|gatewayapi)\b/i.test(text)) return "sms";
+
   if (/\b(?:slack|google|github|stripe|s3client|openai|anthropic)\b/i.test(text)) return "https";
+
   if (/\b(?:grpc|protobuf)\b/i.test(text)) return "grpc";
+
   if (/\b(?:fetch|curl|https?|amqp|websocket)\b/i.test(text)) return "http";
+
   return null;
 };
+
 const credentialSlotFor = (raw: string | null, reasons: string[]): string | null => {
   const value = raw?.trim().normalize("NFC") ?? "";
   const slotPattern = /^(?:env|secret|credential|vault)(?:[.:/])[A-Za-z][A-Za-z0-9_.-]{0,127}$/i;
   const envPattern = /^[A-Z][A-Z0-9_]{1,127}$/;
+
   if (!slotPattern.test(value) && !envPattern.test(value)) {
     reasons.push("CREDENTIAL_SLOT_UNRESOLVED", "UNSAFE_SOURCE");
+
     return null;
   }
+
   if (opaqueScheduleValue(value) || unsafeScalarReason(value, "field") !== null) {
     reasons.push("CREDENTIAL_SLOT_UNRESOLVED", "UNSAFE_SOURCE");
+
     return null;
   }
+
   return normalizeSafe(value, "credential_slot_ref", reasons);
 };
 
@@ -4505,10 +5377,12 @@ const typescriptIntegrationBoundariesFor = (
   source: string,
 ): readonly TypeScriptIntegrationBoundary[] => {
   const sourceFile = typescriptSourceFileFor(path, source);
+
   if (sourceFile === null) return [];
 
   const literalByIdentifier = new Map<string, string>();
   const helperBodyByIdentifier = new Map<string, ts.Node>();
+
   const collectDeclarations = (node: ts.Node): void => {
     if (
       ts.isVariableDeclaration(node) &&
@@ -4526,21 +5400,29 @@ const typescriptIntegrationBoundariesFor = (
       helperBodyByIdentifier.set(node.name.text, node.body);
     ts.forEachChild(node, collectDeclarations);
   };
+
   collectDeclarations(sourceFile);
 
   const originByHelper = new Map<string, { readonly symbol: string; readonly endpoint: string }>();
+
   for (const [helper, body] of helperBodyByIdentifier) {
     let origin: { readonly symbol: string; readonly endpoint: string } | null = null;
+
     const findOrigin = (node: ts.Node): void => {
       if (origin !== null) return;
+
       if (ts.isIdentifier(node)) {
         const endpoint = literalByIdentifier.get(node.text);
+
         if (endpoint !== undefined && /(?:^|_)ORIGIN$/i.test(node.text))
           origin = { symbol: node.text, endpoint };
       }
+
       ts.forEachChild(node, findOrigin);
     };
+
     findOrigin(body);
+
     if (origin !== null) originByHelper.set(helper, origin);
   }
 
@@ -4548,26 +5430,35 @@ const typescriptIntegrationBoundariesFor = (
     nodes: readonly ts.Node[],
   ): { readonly symbol: string; readonly endpoint: string } | null => {
     let origin: { readonly symbol: string; readonly endpoint: string } | null = null;
+
     const visit = (node: ts.Node): void => {
       if (origin !== null) return;
+
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
         const candidate = originByHelper.get(node.expression.text);
+
         if (candidate !== undefined) {
           origin = candidate;
+
           return;
         }
       }
+
       ts.forEachChild(node, visit);
     };
+
     for (const node of nodes) visit(node);
+
     return origin;
   };
 
   const boundaries: TypeScriptIntegrationBoundary[] = [];
+
   const collectCalls = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
       const expression = node.expression;
       const globalFetch = ts.isIdentifier(expression) && expression.text === "fetch";
+
       const serviceBinding =
         ts.isPropertyAccessExpression(expression) &&
         expression.name.text === "fetch" &&
@@ -4576,6 +5467,7 @@ const typescriptIntegrationBoundariesFor = (
         expression.expression.expression.text === "env"
           ? expression.expression.name.text
           : null;
+
       if (globalFetch || serviceBinding !== null) {
         const backendOrigin = globalFetch ? backendOriginFor(node.arguments) : null;
         boundaries.push({
@@ -4587,9 +5479,12 @@ const typescriptIntegrationBoundariesFor = (
         });
       }
     }
+
     ts.forEachChild(node, collectCalls);
   };
+
   collectCalls(sourceFile);
+
   return boundaries;
 };
 
@@ -4599,20 +5494,26 @@ const typescriptIntegrationBoundariesFor = (
  */
 const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): readonly number[] => {
   const parsedSourceFile = typescriptSourceFileFor(path, source);
+
   if (parsedSourceFile === null) return [];
   let containsGuard = false;
+
   const findGuard = (node: ts.Node): void => {
     if (
       (ts.isClassDeclaration(node) || ts.isClassExpression(node)) &&
       node.name?.text === "LocalNetworkGuard"
     )
       containsGuard = true;
+
     if (!containsGuard) ts.forEachChild(node, findGuard);
   };
+
   findGuard(parsedSourceFile);
+
   if (!containsGuard) return [];
 
   const virtualPath = `/__parity__/${path.replaceAll("\\", "/")}`;
+
   const compilerOptions: ts.CompilerOptions = {
     target: ts.ScriptTarget.ESNext,
     module: ts.ModuleKind.ESNext,
@@ -4622,6 +5523,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     skipLibCheck: true,
     types: [],
   };
+
   const compilerHost = ts.createCompilerHost(compilerOptions, true);
   const getSourceFile = compilerHost.getSourceFile.bind(compilerHost);
   compilerHost.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
@@ -4634,18 +5536,24 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
           path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
         )
       : getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+
   const program = ts.createProgram({
     rootNames: [virtualPath],
     options: compilerOptions,
     host: compilerHost,
   });
+
   const sourceFile = program.getSourceFile(virtualPath);
+
   if (sourceFile === undefined) return [];
   const checker = program.getTypeChecker();
+
   const resolvesToDeclaration = (node: ts.Node, declaration: ts.Declaration): boolean =>
     checker.getSymbolAtLocation(node)?.valueDeclaration === declaration;
+
   const resolvesToDefaultLibraryValue = (node: ts.Node): boolean => {
     const declarations = checker.getSymbolAtLocation(node)?.declarations;
+
     return (
       declarations !== undefined &&
       declarations.length > 0 &&
@@ -4656,19 +5564,24 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
   };
 
   const declarationsByName = new Map<string, ts.Node[]>();
+
   const addDeclaration = (name: string, declaration: ts.Node): void => {
     const declarations = declarationsByName.get(name) ?? [];
     declarations.push(declaration);
     declarationsByName.set(name, declarations);
   };
+
   const addBindingName = (name: ts.BindingName, declaration: ts.Node): void => {
     if (ts.isIdentifier(name)) {
       addDeclaration(name.text, declaration);
+
       return;
     }
+
     for (const element of name.elements)
       if (ts.isBindingElement(element)) addBindingName(element.name, declaration);
   };
+
   const collectDeclarations = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) || ts.isParameter(node)) {
       addBindingName(node.name, node);
@@ -4693,9 +5606,12 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     } else if (ts.isCatchClause(node) && node.variableDeclaration !== undefined) {
       addBindingName(node.variableDeclaration.name, node.variableDeclaration);
     }
+
     ts.forEachChild(node, collectDeclarations);
   };
+
   collectDeclarations(sourceFile);
+
   if (
     ["fetch", "Request", "URL", "Set"].some(
       (name) => (declarationsByName.get(name)?.length ?? 0) > 0,
@@ -4705,10 +5621,12 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
 
   const identifierIs = (node: ts.Node | undefined, name: string): boolean =>
     node !== undefined && ts.isIdentifier(node) && node.text === name;
+
   const stringIs = (node: ts.Node | undefined, value: string): boolean =>
     node !== undefined &&
     (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
     node.text === value;
+
   const propertyIs = (
     node: ts.Node | undefined,
     receiverName: string,
@@ -4718,30 +5636,39 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     ts.isPropertyAccessExpression(node) &&
     identifierIs(node.expression, receiverName) &&
     node.name.text === propertyName;
+
   const referencesNamedResolveTo = (
     root: ts.Node,
     name: string,
     declaration: ts.Declaration,
   ): boolean => {
     let resolved = true;
+
     const visit = (node: ts.Node): void => {
       if (!resolved) return;
+
       if (ts.isIdentifier(node) && node.text === name) {
         const propertyName =
           (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) ||
           (ts.isPropertyAssignment(node.parent) && node.parent.name === node) ||
           (ts.isMethodDeclaration(node.parent) && node.parent.name === node) ||
           (ts.isPropertyDeclaration(node.parent) && node.parent.name === node);
+
         if (!propertyName && !resolvesToDeclaration(node, declaration)) {
           resolved = false;
+
           return;
         }
       }
+
       ts.forEachChild(node, visit);
     };
+
     visit(root);
+
     return resolved;
   };
+
   const strictComparisonValue = (
     expression: ts.Expression,
     identifierName: string,
@@ -4751,14 +5678,18 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
       expression.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken
     )
       return null;
+
     if (identifierIs(expression.left, identifierName) && ts.isStringLiteral(expression.right))
       return expression.right.text;
+
     return identifierIs(expression.right, identifierName) && ts.isStringLiteral(expression.left)
       ? expression.left.text
       : null;
   };
+
   const normalizerDeclarations = declarationsByName.get("normalizedLoopbackHost") ?? [];
   const normalizer = normalizerDeclarations[0];
+
   if (
     normalizerDeclarations.length !== 1 ||
     normalizer === undefined ||
@@ -4776,6 +5707,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     return [];
   const normalizerParameter = "host";
   const normalizerCondition = normalizer.initializer.body.condition;
+
   if (
     !ts.isBinaryExpression(normalizerCondition) ||
     normalizerCondition.operatorToken.kind !== ts.SyntaxKind.BarBarToken ||
@@ -4809,6 +5741,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     node.expression.kind === ts.SyntaxKind.ThisKeyword &&
     ts.isPrivateIdentifier(node.name) &&
     node.name.getText(sourceFile) === "#allowedOrigins";
+
   const privateSetCall = (
     expression: ts.Expression,
     methodName: "add" | "has",
@@ -4823,8 +5756,10 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
       !propertyIs(expression.arguments[0], urlName, "origin")
     )
       return null;
+
     return expression;
   };
+
   const orMatches = (
     expression: ts.Expression,
     left: (operand: ts.Expression) => boolean,
@@ -4834,11 +5769,13 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     expression.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
     ((left(expression.left) && right(expression.right)) ||
       (right(expression.left) && left(expression.right)));
+
   const nonHttpCondition = (expression: ts.Expression, urlName: string): boolean =>
     ts.isBinaryExpression(expression) &&
     expression.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken &&
     propertyIs(expression.left, urlName, "protocol") &&
     stringIs(expression.right, "http:");
+
   const nonLoopbackCondition = (expression: ts.Expression, urlName: string): boolean =>
     ts.isBinaryExpression(expression) &&
     expression.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken &&
@@ -4848,10 +5785,12 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     expression.left.arguments.length === 1 &&
     propertyIs(expression.left.arguments[0], urlName, "hostname") &&
     stringIs(expression.right, "127.0.0.1");
+
   const absentOriginCondition = (expression: ts.Expression, urlName: string): boolean =>
     ts.isPrefixUnaryExpression(expression) &&
     expression.operator === ts.SyntaxKind.ExclamationToken &&
     privateSetCall(expression.operand, "has", urlName) !== null;
+
   const constNewExpression = (
     statement: ts.Statement | undefined,
     variableName: string,
@@ -4865,6 +5804,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     )
       return null;
     const declaration = statement.declarationList.declarations[0];
+
     if (
       declaration === undefined ||
       !identifierIs(declaration.name, variableName) ||
@@ -4873,12 +5813,16 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
       !identifierIs(declaration.initializer.expression, constructorName)
     )
       return null;
+
     return declaration.initializer;
   };
+
   const containsBypass = (node: ts.Node): boolean => {
     let bypass = false;
+
     const visit = (candidate: ts.Node): void => {
       if (bypass) return;
+
       if (
         candidate !== node &&
         (ts.isFunctionDeclaration(candidate) ||
@@ -4888,6 +5832,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
           ts.isClassExpression(candidate))
       )
         return;
+
       if (
         ts.isReturnStatement(candidate) ||
         ts.isBreakStatement(candidate) ||
@@ -4895,15 +5840,20 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
         ts.isYieldExpression(candidate)
       ) {
         bypass = true;
+
         return;
       }
+
       ts.forEachChild(candidate, visit);
     };
+
     visit(node);
+
     return bypass;
   };
 
   const guards: (ts.ClassDeclaration | ts.ClassExpression)[] = [];
+
   const collectGuards = (node: ts.Node): void => {
     if (
       (ts.isClassDeclaration(node) || ts.isClassExpression(node)) &&
@@ -4912,16 +5862,21 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
       guards.push(node);
     ts.forEachChild(node, collectGuards);
   };
+
   collectGuards(sourceFile);
+
   if (guards.length !== 1) return [];
   const guard = guards[0]!;
+
   const allowedOriginFields = guard.members.filter(
     (member): member is ts.PropertyDeclaration =>
       ts.isPropertyDeclaration(member) &&
       ts.isPrivateIdentifier(member.name) &&
       member.name.getText(sourceFile) === "#allowedOrigins",
   );
+
   const allowedOrigins = allowedOriginFields[0];
+
   if (
     allowedOriginFields.length !== 1 ||
     allowedOrigins === undefined ||
@@ -4943,6 +5898,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
       member.name.text === "addHttp" &&
       member.body !== undefined,
   );
+
   const fetchLoopbackFields = guard.members.filter(
     (member): member is ts.PropertyDeclaration =>
       ts.isPropertyDeclaration(member) &&
@@ -4952,9 +5908,11 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
       (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer)) &&
       ts.isBlock(member.initializer.body),
   );
+
   if (addHttpMethods.length !== 1 || fetchLoopbackFields.length !== 1) return [];
   const addHttp = addHttpMethods[0]!;
   const fetchLoopback = fetchLoopbackFields[0]!;
+
   if (
     addHttp.parameters.length < 1 ||
     !identifierIs(addHttp.parameters[0]?.name, "origin") ||
@@ -4972,6 +5930,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
   const admittedUrl = constNewExpression(addStatements[0], "url", "URL");
   const addGuard = addStatements[1];
   const addOrigin = addStatements[2];
+
   if (
     admittedUrl === null ||
     !resolvesToDefaultLibraryValue(admittedUrl.expression) ||
@@ -4996,6 +5955,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     privateSetCall(addOrigin.expression, "add", "url") === null
   )
     return [];
+
   if (
     !ts.isVariableDeclaration(admittedUrl.parent) ||
     !referencesNamedResolveTo(addHttp.body!, "url", admittedUrl.parent) ||
@@ -5005,11 +5965,13 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     return [];
 
   const fetchStatements = fetchLoopback.initializer.body.statements;
+
   if (fetchStatements.length !== 4) return [];
   const request = constNewExpression(fetchStatements[0], "request", "Request");
   const requestedUrl = constNewExpression(fetchStatements[1], "url", "URL");
   const fetchGuard = fetchStatements[2];
   const dispatchStatement = fetchStatements[3];
+
   if (
     request === null ||
     !resolvesToDefaultLibraryValue(request.expression) ||
@@ -5046,6 +6008,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     !identifierIs(dispatchStatement.expression.arguments[0], "request")
   )
     return [];
+
   if (
     !ts.isVariableDeclaration(request.parent) ||
     !ts.isVariableDeclaration(requestedUrl.parent) ||
@@ -5066,10 +6029,13 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
 
   const privateAccesses: ts.PropertyAccessExpression[] = [];
   const globalFetchCalls: ts.CallExpression[] = [];
+
   const collectGuardEffects = (node: ts.Node): void => {
     if (node !== guard && (ts.isClassDeclaration(node) || ts.isClassExpression(node))) return;
+
     if (ts.isPropertyAccessExpression(node) && isPrivateAllowedOrigins(node))
       privateAccesses.push(node);
+
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
@@ -5078,8 +6044,10 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
       globalFetchCalls.push(node);
     ts.forEachChild(node, collectGuardEffects);
   };
+
   collectGuardEffects(guard);
   const dispatch = dispatchStatement.expression;
+
   if (
     privateAccesses.length !== 2 ||
     privateAccesses.some((access) => !resolvesToDeclaration(access.name, allowedOrigins)) ||
@@ -5088,13 +6056,16 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
     !resolvesToDefaultLibraryValue(dispatch.expression)
   )
     return [];
+
   return [dispatch.expression.getStart(sourceFile)];
 };
 
 const productionIntegrationSource = (path: string): boolean =>
   !/(?:^|\/)(?:test|tests|e2e|fixtures)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(path);
+
 const integrationCallPattern =
   /\b(?:fetch|file_get_contents|curl_exec|curl_init|request|publish|send(?:Message|Payload)?|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/g;
+
 const integrationCallsFor = (
   unit: SourceUnit,
   authority: AuthorityGraph,
@@ -5103,28 +6074,36 @@ const integrationCallsFor = (
   const seen = new Set<number>();
   const stripped = withoutComments(unit.text);
   const structure = withoutLiterals(stripped);
+
   if (transportParserArtifactFor(structure)) return [];
   const interfaceRanges = interfaceDeclarationRangesFor(structure);
   const classes = authority.classesByPath.get(unit.path) ?? [];
   const typeScriptBoundaries = typescriptIntegrationBoundariesFor(unit.path, unit.text);
+
   const loopbackDispatchOffsets = new Set(
     typescriptLoopbackDispatchOffsetsFor(unit.path, unit.text),
   );
+
   const effectCalls = effectCallExpressionsFor(unit.text);
+
   const ownerClassForOffset = (offset: number): LanguageClass | undefined =>
     classes.find((entry) => offset >= entry.start && offset < entry.end);
-  const importerFor = (
-    ownerRef: string | null,
-  ): { readonly imported: boolean; readonly importerPath: string | null } => {
+
+  const importerFor = (ownerRef: string | null) => {
     const importerPath = importedBySources(authority, unit, ownerRef);
+
     return { imported: importerPath !== null, importerPath };
   };
+
   const callPattern = new RegExp(integrationCallPattern.source, integrationCallPattern.flags);
+
   for (const match of structure.matchAll(callPattern)) {
     if (match.index === undefined) continue;
+
     if (interfaceRanges.some((range) => match.index > range.start && match.index < range.end))
       continue;
     const callableName = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(match[0] ?? "")?.[1] ?? null;
+
     const declarationName =
       callableName !== null &&
       (/\bfunction\s*(?:&\s*)?$/.test(
@@ -5135,47 +6114,60 @@ const integrationCallsFor = (
         ))
         ? callableName
         : null;
+
     if (declarationName !== null) continue;
+
     const effectCall = effectCalls.find(
       (call) =>
         match.index !== undefined &&
         match.index >= call.offset &&
         match.index <= call.offset + call.chain.length,
     );
+
     if (
       declarationName === null &&
       (effectCall === undefined || callableName !== effectCall.callable)
     )
       continue;
+
     if (
       callableName?.toLowerCase() === "file_get_contents" &&
       (effectCall === undefined || !externalFileGetContentsCall(unit.text, effectCall))
     )
       continue;
     const callOffset = effectCall?.offset ?? match.index;
+
     if (seen.has(callOffset)) continue;
     seen.add(callOffset);
     const ownerClass = ownerClassForOffset(callOffset);
     const ownerRef = ownerClass?.fqn ?? null;
     const { imported, importerPath } = importerFor(ownerRef);
     const functionContext = functionContextFor(unit.text, callOffset);
+
     const contextStart =
       functionContext?.bodyStart === undefined
         ? (ownerClass?.start ?? 0)
         : functionContext.bodyStart + 1;
+
     const contextEnd = functionContext?.bodyEnd ?? ownerClass?.end ?? stripped.length;
     const contextText = stripped.slice(contextStart, contextEnd);
     const contextStructure = structure.slice(contextStart, contextEnd);
     const reasons: string[] = [];
+
     const resolvedCall =
       effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass);
+
     if (loopbackDispatchOffsets.has(callOffset)) continue;
     const receiverProviderRef = providerFromReceiverType(unit, effectCall, ownerClass);
+
     const typeScriptBoundary = typeScriptBoundaries.find(
       (boundary) => callOffset === boundary.start,
     );
+
     if (effectCall !== undefined && localTransportReceiverFor(unit, effectCall)) continue;
+
     if (effectCall !== undefined && localCollectionMutationReceiverFor(unit, effectCall)) continue;
+
     if (
       ownerClass !== undefined &&
       effectCall !== undefined &&
@@ -5183,19 +6175,24 @@ const integrationCallsFor = (
       ownerClass.methods.has(effectCall.callable)
     )
       continue;
+
     const receiverTypeEvidence =
       effectCall?.receiver === null || effectCall?.receiver === undefined
         ? null
         : localReceiverTypesFor(unit, effectCall.offset).get(
             effectCall.receiver.split(/->|::|\./).find((part) => part.length > 0) ?? "",
           );
+
     const adapterEvidence =
       integrationAdapterPattern.test(resolvedCall?.symbol ?? "") ||
       integrationAdapterPattern.test(effectCall?.receiver ?? "") ||
       integrationAdapterPattern.test(receiverTypeEvidence ?? "");
+
     const callProviderRef = providerFromCallExpression(unit, effectCall);
+
     const namedProviderRef =
       providerFromText(resolvedCall?.symbol ?? "") ?? providerFromText(ownerRef ?? "");
+
     const literalCall =
       callableName === null
         ? undefined
@@ -5204,21 +6201,27 @@ const integrationCallsFor = (
               candidate.offset >= callOffset &&
               candidate.offset <= callOffset + (effectCall?.chain.length ?? callableName.length),
           );
+
     // URL-first HTTP calls take their destination from the first argument.
     // Headers and body are request data, not integration endpoints.
     const urlFirstCall = /^(?:fetch|file_get_contents|post|put|delete)$/.test(callableName ?? "");
+
     const rawEndpointArguments = urlFirstCall
       ? (literalCall?.rawArgs[0] ?? "")
       : (literalCall?.rawArgs.join(",") ?? "");
+
     const endpointArguments = urlFirstCall
       ? literalDestination(literalCall?.rawArgs[0])
       : rawEndpointArguments;
+
     const argumentProviderRef = providerFromEndpointArguments(rawEndpointArguments);
+
     const guardedProviderRef =
       callableName === "fetch" &&
       /\.origin\s*!==?\s*[A-Za-z_$][A-Za-z0-9_$]*\.backendOrigin\b/.test(contextStructure)
         ? providerFromText(contextStructure)
         : null;
+
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(endpointArguments);
     const endpointRaw = endpointMatch?.[0] ?? typeScriptBoundary?.backendOriginEndpoint ?? null;
     const endpointRef = endpointRaw === null ? null : safeEndpoint(endpointRaw, reasons);
@@ -5227,6 +6230,7 @@ const integrationCallsFor = (
     const callSiteName = callSiteContext?.name ?? callableName;
     const dynamicMailerDispatch = ownerShortName(ownerRef) === "Mailer" && callSiteName === "send";
     const callPrefix = structure.slice(Math.max(0, callOffset - 240), callOffset);
+
     const previewContainerBoundary =
       unit.authority === "mono" &&
       /^infra\/alchemy\/preview\/worker\.ts$/i.test(unit.path) &&
@@ -5234,23 +6238,30 @@ const integrationCallsFor = (
       declarationName === null &&
       /\bgetContainer\s*\([^)]*\)\s*\.\s*$/i.test(callPrefix) &&
       /\bfrom\s*["']@cloudflare\/containers["']/i.test(unit.text);
+
     const previewContainerProvider = previewContainerBoundary ? "cloudflare-containers" : null;
+
     const serviceBindingProvider =
       typeScriptBoundary?.serviceBindingName === null ||
       typeScriptBoundary?.serviceBindingName === undefined
         ? null
         : `cloudflare-service-binding:${typeScriptBoundary.serviceBindingName}`;
+
     const backendOriginProvider = typeScriptBoundary?.backendOriginSymbol ?? null;
     const syntaxProvider = serviceBindingProvider ?? backendOriginProvider;
+
     const detectedProtocol =
       protocolFor(
         endpointRef,
         `${contextStructure} ${callableName ?? ""} ${resolvedCall?.symbol ?? ""} ${namedProviderRef ?? ""}`,
       ) ?? (adapterEvidence ? "http" : null);
+
     const protocol = dynamicMailerDispatch ? "smtp" : detectedProtocol;
+
     const transportEvidence =
       adapterEvidence ||
       /^(?:fetch|file_get_contents|curl_exec|curl_init)$/i.test(callableName ?? "");
+
     const positiveAnchor =
       endpointRef !== null ||
       callProviderRef !== null ||
@@ -5260,45 +6271,58 @@ const integrationCallsFor = (
       receiverProviderRef !== null ||
       guardedProviderRef !== null ||
       transportEvidence;
+
     if (!positiveAnchor) continue;
+
     if (protocol === null) reasons.push("UNKNOWN_INTEGRATION");
+
     const credentialMatch =
       /\b(?:getenv|env|secret|credential|apiKey|api_key)\s*\(\s*["']([A-Za-z0-9_.:-]+)["']/i.exec(
         contextText,
       );
+
     const credentialSlotRef =
       credentialMatch?.[1] === undefined ? null : credentialSlotFor(credentialMatch[1], reasons);
+
     const effectClasses: EffectClass[] =
       previewContainerBoundary || syntaxProvider !== null
         ? ["outbound"]
         : resolvedCall === null
           ? ["unknown"]
           : ["outbound"];
+
     const direction: ExternalIntegrationDetails["direction"] =
       /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure)
         ? "inbound"
         : "outbound";
+
     const callSiteBase =
       callSiteName === null
         ? null
         : ownerRef === null
           ? `${unit.path}#${callSiteName}`
           : `${ownerRef}::${callSiteName}`;
+
     const callSiteQualifier =
       typeScriptBoundary?.serviceBindingName !== null &&
       typeScriptBoundary?.serviceBindingName !== undefined
         ? `env.${typeScriptBoundary.serviceBindingName}.fetch`
         : (typeScriptBoundary?.backendOriginSymbol ?? null);
+
     const callSiteRef =
       callSiteBase === null || callSiteQualifier === null
         ? callSiteBase
         : `${callSiteBase}->${callSiteQualifier}`;
+
     const safeSymbol = normalizeSafe(callSiteRef, "symbol", reasons);
+
     if (safeSymbol === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED");
+
     const resolvedProviderRef =
       transportEvidence && resolvedCall !== null
         ? normalizeSafe(resolvedCall.symbol, "field", reasons)
         : null;
+
     const detectedProviderRef =
       syntaxProvider ??
       previewContainerProvider ??
@@ -5309,10 +6333,13 @@ const integrationCallsFor = (
       namedProviderRef ??
       receiverProviderRef ??
       resolvedProviderRef;
+
     const providerRef = dynamicMailerDispatch
       ? "mailer"
       : normalizeSafe(detectedProviderRef, "field", reasons);
+
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION");
+
     if (
       dynamicMailerDispatch &&
       calls.some(
@@ -5341,12 +6368,14 @@ const integrationCallsFor = (
       line: lineAt(unit.text, callOffset),
     });
   }
+
   if (calls.length > 0) {
     const specificity = (call: IntegrationCall): number =>
       (call.effectClasses.includes("outbound") ? 1 : 0) +
       (call.protocol === null ? 0 : 1) +
       (call.endpointRef === null ? 0 : 1) +
       (call.credentialSlotRef === null ? 0 : 1);
+
     const selected = calls.filter(
       (call, index) =>
         !calls.some(
@@ -5359,7 +6388,9 @@ const integrationCallsFor = (
             specificity(candidate) > specificity(call),
         ),
     );
+
     const identities = new Set<string>();
+
     return selected.filter((call) => {
       const identity = canonicalJson([
         call.providerRef,
@@ -5369,13 +6400,17 @@ const integrationCallsFor = (
         call.credentialSlotRef,
         call.symbolRef,
       ]);
+
       if (identities.has(identity)) return false;
       identities.add(identity);
+
       return true;
     });
   }
+
   return calls;
 };
+
 const integrationRow = (
   context: ManifestContext,
   call: IntegrationCall,
@@ -5392,7 +6427,9 @@ const integrationRow = (
     contract_ref: null,
     effect_classes: call.effectClasses,
   };
+
   const reasons = [...call.reasonCodes];
+
   const status: InventoryRow["status"] =
     reasons.includes("UNSAFE_SOURCE") ||
     reasons.includes("UNKNOWN_INTEGRATION") ||
@@ -5401,7 +6438,9 @@ const integrationRow = (
       : !call.imported
         ? "dead_unimported"
         : "covered";
+
   if (status === "dead_unimported") reasons.push("DEAD_UNIMPORTED_SOURCE");
+
   const declaration = declarationId(
     call.authority,
     call.authority,
@@ -5409,6 +6448,7 @@ const integrationRow = (
     "external_integration",
     ordinal,
   );
+
   const sourceRefId = sourceRefFor(
     context,
     call.authority,
@@ -5418,6 +6458,7 @@ const integrationRow = (
     call.line,
     details.call_site_ref,
   );
+
   const signature = canonicalJson([
     "external_integration",
     details.provider_ref,
@@ -5427,6 +6468,7 @@ const integrationRow = (
     details.credential_slot_ref,
     details.call_site_ref,
   ]);
+
   return {
     path: call.path,
     sourceRefIds: [sourceRefId],
@@ -5449,11 +6491,11 @@ const integrationRow = (
       accepted_intent_ref_ids: [],
       duplicate_group_id: null,
       mismatch: mismatch(
-        status === "unresolved"
-          ? "unresolved"
-          : status === "dead_unimported"
-            ? "dead_unimported"
-            : "none",
+        Match.value(status).pipe(
+          Match.when("unresolved", () => "unresolved" as const),
+          Match.when("dead_unimported", () => "dead_unimported" as const),
+          Match.orElse(() => "none" as const),
+        ),
         [],
         reasons[0] ?? null,
       ),
@@ -5464,39 +6506,49 @@ const integrationRow = (
   };
 };
 
-const parseIntegrations = (
-  context: ManifestContext,
-  authority: "legacy" | "mono",
-): {
+type ParsedIntegrations = {
   readonly parsed: readonly ParsedRow[];
   readonly calls: readonly IntegrationCall[];
   readonly failures: readonly C2CollectionFailure[];
-} => {
+};
+
+const parseIntegrations = (
+  context: ManifestContext,
+  authority: "legacy" | "mono",
+  authorityGraph: AuthorityGraph,
+): ParsedIntegrations => {
   const familyId =
     authority === "legacy" ? C2_FAMILY_IDS.legacyIntegrations : C2_FAMILY_IDS.monoIntegrations;
+
   const role =
     authority === "legacy" ? "legacy_integration_authority" : "mono_integration_authority";
+
   const source = sourceUnits(context, authority, familyId, role);
   const units = source.units.filter((unit) => productionIntegrationSource(unit.path));
-  const authorityGraph = authorityGraphFor(context, authority);
+
   const parsed: ParsedRow[] = [];
   const calls: IntegrationCall[] = [];
   let ordinal = 0;
+
   for (const unit of units) {
     const found = integrationCallsFor(unit, authorityGraph);
+
     for (const call of found) {
       calls.push(call);
       parsed.push(integrationRow(context, call, ordinal++, role));
     }
   }
+
   return { parsed, calls, failures: source.failures };
 };
 
 const integrationLinks = (parsed: readonly ParsedRow[]): readonly InventoryLink[] => {
   const links: InventoryLink[] = [];
+
   for (const target of parsed) {
     if (!target.imported || target.importerPath === null || target.ownerRef === null) continue;
     const importer = parsed.find((candidate) => candidate.path === target.importerPath);
+
     if (importer === undefined || importer.path === target.path) continue;
     links.push({
       relation_id: relationId("imports", importer.row.row_id, target.row.row_id, [
@@ -5509,25 +6561,30 @@ const integrationLinks = (parsed: readonly ParsedRow[]): readonly InventoryLink[
       source_ref_ids: sortUnique([...importer.sourceRefIds, ...target.sourceRefIds]),
     });
   }
+
   return [...new Map(links.map((link) => [link.relation_id, link])).values()];
 };
 
-const integrationCollection = (
-  context: ManifestContext,
-  sourceManifestSha256: string,
-): {
+type IntegrationCollection = {
   readonly inventories: readonly [InventoryEnvelope, InventoryEnvelope];
   readonly parsed: readonly [readonly ParsedRow[], readonly ParsedRow[]];
   readonly failures: readonly C2CollectionFailure[];
   readonly rows: readonly InventoryRow[];
   readonly calls: readonly IntegrationCall[];
-} => {
-  const legacy = parseIntegrations(context, "legacy");
-  const mono = parseIntegrations(context, "mono");
+};
+
+const integrationCollection = (
+  context: ManifestContext,
+  sourceManifestSha256: string,
+  graphs: AuthorityGraphs,
+): IntegrationCollection => {
+  const legacy = parseIntegrations(context, "legacy", graphs.legacy);
+  const mono = parseIntegrations(context, "mono", graphs.mono);
   const legacyRows = legacy.parsed.map((entry) => entry.row);
   const monoRows = mono.parsed.map((entry) => entry.row);
   applyDuplicateGroups(legacyRows);
   applyDuplicateGroups(monoRows);
+
   const legacyEnvelope = makeEnvelope(
     context,
     "external_integration",
@@ -5536,6 +6593,7 @@ const integrationCollection = (
     integrationLinks(legacy.parsed),
     sourceManifestSha256,
   );
+
   const monoEnvelope = makeEnvelope(
     context,
     "external_integration",
@@ -5544,8 +6602,10 @@ const integrationCollection = (
     integrationLinks(mono.parsed),
     sourceManifestSha256,
   );
+
   const reconciled = reconcilePair(legacyEnvelope, monoEnvelope);
   const failures: C2CollectionFailure[] = [...legacy.failures, ...mono.failures];
+
   for (const row of [...reconciled.left.rows, ...reconciled.right.rows]) {
     if (row.reason_codes.includes("UNSAFE_SOURCE"))
       failures.push({
@@ -5584,6 +6644,7 @@ const integrationCollection = (
         sourceRefIds: row.source_ref_ids,
       });
   }
+
   return {
     inventories: [
       { ...reconciled.left, links: [...reconciled.left.links, ...reconciled.links] },
@@ -5601,7 +6662,9 @@ export const applyAcceptedAbsent = (
   acceptedIntentRefIds: readonly string[],
 ): InventoryEnvelope => {
   const refs = sortUnique(acceptedIntentRefIds.filter((value) => value.startsWith("intent://")));
+
   if (refs.length === 0) return inventory;
+
   return {
     ...inventory,
     rows: inventory.rows.map((row) =>
@@ -5626,6 +6689,7 @@ const failureRows = (
   existing: readonly C2CollectionFailure[],
 ): readonly C2CollectionFailure[] => {
   const failures = [...existing];
+
   for (const inventory of inventories) {
     for (const row of inventory.rows) {
       if (
@@ -5644,32 +6708,43 @@ const failureRows = (
         });
     }
   }
+
   return failures;
 };
 
 export const collectC2 = (context: ManifestContext, sourceManifestSha256: string): C2Collection => {
-  const commands = commandCollection(context, sourceManifestSha256);
-  const schedules = scheduleCollection(context, sourceManifestSha256);
-  const integrations = integrationCollection(context, sourceManifestSha256);
+  const graphs: AuthorityGraphs = {
+    legacy: authorityGraphFor(context, "legacy"),
+    mono: authorityGraphFor(context, "mono"),
+  };
+
+  const commands = commandCollection(context, sourceManifestSha256, graphs);
+  const schedules = scheduleCollection(context, sourceManifestSha256, graphs);
+  const integrations = integrationCollection(context, sourceManifestSha256, graphs);
+
   const commandWrites = mergeC2Envelopes(
     commands.inventories[0],
     commands.inventories[1],
     sourceManifestSha256,
   );
+
   const scheduleWorkflows = mergeC2Envelopes(
     schedules.inventories[0],
     schedules.inventories[1],
     sourceManifestSha256,
   );
+
   const externalIntegrations = mergeC2Envelopes(
     integrations.inventories[0],
     integrations.inventories[1],
     sourceManifestSha256,
   );
+
   const failures = failureRows(
     [commandWrites, scheduleWorkflows, externalIntegrations],
     [...commands.failures, ...schedules.failures, ...integrations.failures],
   );
+
   return {
     commandWrites,
     schedules: scheduleWorkflows,
@@ -5679,17 +6754,25 @@ export const collectC2 = (context: ManifestContext, sourceManifestSha256: string
   };
 };
 
-export const collectC2ByAuthority = (
-  context: ManifestContext,
-  sourceManifestSha256: string,
-): {
+type AuthorityCollections = {
   readonly legacy: readonly InventoryEnvelope[];
   readonly mono: readonly InventoryEnvelope[];
   readonly failures: readonly C2CollectionFailure[];
-} => {
-  const commands = commandCollection(context, sourceManifestSha256);
-  const schedules = scheduleCollection(context, sourceManifestSha256);
-  const integrations = integrationCollection(context, sourceManifestSha256);
+};
+
+export const collectC2ByAuthority = (
+  context: ManifestContext,
+  sourceManifestSha256: string,
+): AuthorityCollections => {
+  const graphs: AuthorityGraphs = {
+    legacy: authorityGraphFor(context, "legacy"),
+    mono: authorityGraphFor(context, "mono"),
+  };
+
+  const commands = commandCollection(context, sourceManifestSha256, graphs);
+  const schedules = scheduleCollection(context, sourceManifestSha256, graphs);
+  const integrations = integrationCollection(context, sourceManifestSha256, graphs);
+
   return {
     legacy: [commands.inventories[0], schedules.inventories[0], integrations.inventories[0]],
     mono: [commands.inventories[1], schedules.inventories[1], integrations.inventories[1]],

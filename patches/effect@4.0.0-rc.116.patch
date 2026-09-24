@@ -1,0 +1,66 @@
+diff --git a/dist/unstable/http/FetchHttpClient.d.ts b/dist/unstable/http/FetchHttpClient.d.ts
+index 870f18a591afbdab839f9addacf4c9e35ce810fc..e9b381fcbfa04ee5fc67d02509d7c3630cedd5b6 100644
+--- a/dist/unstable/http/FetchHttpClient.d.ts
++++ b/dist/unstable/http/FetchHttpClient.d.ts
+@@ -21,7 +21,7 @@ import * as HttpClient from "./HttpClient.ts";
+  * @category services
+  * @since 4.0.0
+  */
+-export declare const Fetch: Context.Reference<typeof globalThis.fetch>;
++export declare const Fetch: Context.Reference<(...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>>;
+ declare const RequestInit_base: Context.ServiceClass<RequestInit, "effect/http/FetchHttpClient/RequestInit", globalThis.RequestInit>;
+ /**
+  * Service that contains default fetch options for the fetch-based HTTP client.
+diff --git a/dist/unstable/httpapi/HttpApiEndpoint.d.ts b/dist/unstable/httpapi/HttpApiEndpoint.d.ts
+index bb77f657d985be023e5cb43a2b4cb4f8542e5f8c..05ea981a6a9594a0d471846054dc431eb95ce24f 100644
+--- a/dist/unstable/httpapi/HttpApiEndpoint.d.ts
++++ b/dist/unstable/httpapi/HttpApiEndpoint.d.ts
+@@ -286,12 +286,8 @@ export type ClientRequest<Params extends Schema.Constraint, Query extends Schema
+     readonly query: Query["Type"];
+ }) & ([Headers["Type"]] extends [never] ? {} : {
+     readonly headers: Headers["Type"];
+-}) & ([Payload["Type"]] extends [never] ? {} : Payload["Type"] extends infer P ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId> ? {
+-    readonly payload: FormData;
+-} : {
+-    readonly payload: Payload["Type"];
+-} : {
+-    readonly payload: Payload["Type"];
++}) & ([Payload["Type"]] extends [never] ? {} : {
++    readonly payload: Payload["Type"] extends infer P ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId> ? FormData : P : Payload["Type"];
+ })) extends infer Req ? keyof Req extends never ? (void | {
+     readonly responseMode?: ResponseMode;
+     readonly sseOptions?: Sse.DecodeOptions | undefined;
+diff --git a/src/unstable/http/FetchHttpClient.ts b/src/unstable/http/FetchHttpClient.ts
+index 279cd35d0a79d56e7ee96217906497871faf3ab6..8998b763c29cf7c112454bf9d54a00c5077a2beb 100644
+--- a/src/unstable/http/FetchHttpClient.ts
++++ b/src/unstable/http/FetchHttpClient.ts
+@@ -27,7 +27,7 @@ import * as HttpClientResponse from "./HttpClientResponse.ts"
+  * @category services
+  * @since 4.0.0
+  */
+-export const Fetch = Context.Reference<typeof globalThis.fetch>("effect/http/FetchHttpClient/Fetch", {
++export const Fetch = Context.Reference<(...args: Parameters<typeof globalThis.fetch>) => ReturnType<typeof globalThis.fetch>>("effect/http/FetchHttpClient/Fetch", {
+   defaultValue: () => globalThis.fetch
+ })
+ 
+diff --git a/src/unstable/httpapi/HttpApiEndpoint.ts b/src/unstable/httpapi/HttpApiEndpoint.ts
+index 3fc9406fe262da8dfd98a91cefe9fcefdfc0805b..1da17b857a5e5f82b2505328b717edba6eb03ee5 100644
+--- a/src/unstable/httpapi/HttpApiEndpoint.ts
++++ b/src/unstable/httpapi/HttpApiEndpoint.ts
+@@ -506,11 +506,11 @@ export type ClientRequest<
+   & ([Query["Type"]] extends [never] ? {} : { readonly query: Query["Type"] })
+   & ([Headers["Type"]] extends [never] ? {} : { readonly headers: Headers["Type"] })
+   & ([Payload["Type"]] extends [never] ? {}
+-    : Payload["Type"] extends infer P ?
+-      P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId>
+-        ? { readonly payload: FormData }
+-      : { readonly payload: Payload["Type"] }
+-    : { readonly payload: Payload["Type"] })
++    : { readonly payload: Payload["Type"] extends infer P
++      ? P extends Brand<HttpApiSchema.MultipartTypeId> | Brand<HttpApiSchema.MultipartStreamTypeId>
++        ? FormData
++        : P
++      : Payload["Type"] })
+ ) extends infer Req ? keyof Req extends never ? (void | {
+       readonly responseMode?: ResponseMode
+       readonly sseOptions?: Sse.DecodeOptions | undefined

@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 
 const adminEmail = "admin.journey@example.invalid";
+
 const adminPassword = "journey-secret-2026";
 
 test.describe("Native authenticated session journey (spec 0054)", () => {
@@ -23,6 +24,7 @@ test.describe("Native authenticated session journey (spec 0054)", () => {
     const sessionToken = (await context.cookies()).find(
       (cookie) => cookie.name === "better-auth.session_token",
     );
+
     expect(sessionToken?.value ?? "").not.toBe("");
 
     // The dashboard resolved the profile behind the session.

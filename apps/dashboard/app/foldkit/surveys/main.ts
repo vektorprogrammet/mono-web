@@ -1,9 +1,9 @@
 import { Runtime } from "foldkit";
 import type { SchoolSurveysClient } from "./browser-client";
-import { makeSchoolSurveysCommands } from "./command";
-import { Model, makeInitialModel } from "./model";
+import { commandsFor } from "./command";
+import { Model, init } from "./model";
 import "./styles.css";
-import { makeUpdate } from "./update";
+import { updateFor } from "./update";
 import { view } from "./view";
 
 export interface SchoolSurveysRuntimeInput {
@@ -14,13 +14,14 @@ export const embedSchoolSurveys = (
   container: HTMLElement,
   input: SchoolSurveysRuntimeInput,
 ): (() => void) => {
-  const commands = makeSchoolSurveysCommands(input.client);
-  const initialModel = makeInitialModel();
+  const commands = commandsFor(input.client);
+  const initialModel = init();
+
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => [initialModel, [commands.LoadCatalog({ requestId: 1 })]],
-    update: makeUpdate(commands),
+    init: () => ({ model: initialModel, commands: [commands.LoadCatalog({ requestId: 1 })] }),
+    update: updateFor(commands),
     view,
     devTools: false,
     slow: false,
@@ -35,6 +36,8 @@ export const embedSchoolSurveys = (
         ),
     },
   });
+
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 };

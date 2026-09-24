@@ -10,15 +10,16 @@ import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
-import { Effect, Layer, ManagedRuntime, Predicate, Redacted } from "effect";
+import { Cause, Effect, Layer, ManagedRuntime, Predicate, Redacted } from "effect";
 import { HttpEffect, HttpRouter, HttpServer } from "effect/unstable/http";
-import { makeBackendConfig } from "./config.js";
+import { decodeBackendConfig } from "./config.js";
 import { CloudflareMailLive, type CloudflareSendEmailBinding } from "./mail/cloudflare.js";
-import { makeReceiptDeliveryLayer, receiptDeliveryConfig } from "./receipt/delivery.js";
-import { makeR2ReceiptFileStore, type R2Bucket } from "./receipt/r2.js";
+import { ReceiptDeliveryLive, receiptDeliveryConfig } from "./receipt/delivery.js";
+import { R2ReceiptFileStoreLive, type R2Bucket } from "./receipt/r2.js";
+import { ReceiptFileStoreResource } from "./receipt/filesystem.js";
 import {
-  makeBackendHttp,
-  makeExternalNativeApiRouterLayer,
+  backendHttpHandler,
+  ExternalNativeApiRouterLive,
   nativeHttpRouterConfig,
   type BackendAuthHandler,
   type BackendHttp,
@@ -62,29 +63,33 @@ export const requireCloudflareBackendBindings = (
 ): CloudflareBackendBindings => {
   if (
     !Predicate.isObject(env.HYPERDRIVE) ||
-    typeof env.HYPERDRIVE.connectionString !== "string" ||
+    !Predicate.isString(env.HYPERDRIVE.connectionString) ||
     env.HYPERDRIVE.connectionString.length === 0
   ) {
     throw new CloudflareBackendBindingError("HYPERDRIVE");
   }
+
   if (
     !Predicate.isObject(env.RECEIPT_FILES) ||
-    typeof env.RECEIPT_FILES.get !== "function" ||
-    typeof env.RECEIPT_FILES.put !== "function" ||
-    typeof env.RECEIPT_FILES.delete !== "function"
+    !Predicate.isFunction(env.RECEIPT_FILES.get) ||
+    !Predicate.isFunction(env.RECEIPT_FILES.put) ||
+    !Predicate.isFunction(env.RECEIPT_FILES.delete)
   ) {
     throw new CloudflareBackendBindingError("RECEIPT_FILES");
   }
-  if (!Predicate.isObject(env.MAIL) || typeof env.MAIL.send !== "function") {
+
+  if (!Predicate.isObject(env.MAIL) || !Predicate.isFunction(env.MAIL.send)) {
     throw new CloudflareBackendBindingError("MAIL");
   }
-  if (typeof env.MAIL_SENDER !== "string" || env.MAIL_SENDER.length === 0) {
+
+  if (!Predicate.isString(env.MAIL_SENDER) || env.MAIL_SENDER.length === 0) {
     throw new CloudflareBackendBindingError("MAIL_SENDER");
   }
+
   return {
-    hyperdrive: env.HYPERDRIVE as CloudflareHyperdriveBinding,
-    receiptFiles: env.RECEIPT_FILES as R2Bucket,
-    mail: env.MAIL as CloudflareSendEmailBinding,
+    hyperdrive: env.HYPERDRIVE,
+    receiptFiles: env.RECEIPT_FILES,
+    mail: env.MAIL,
     sender: env.MAIL_SENDER,
   };
 };
@@ -92,45 +97,60 @@ export const requireCloudflareBackendBindings = (
 /** Builds the same modular HTTP application as Bun, with Worker-owned provider Layers. */
 export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<BackendHttp> => {
   const bindings = requireCloudflareBackendBindings(env);
+
   const configEnv = Object.fromEntries(
-    Object.entries(env).filter(([, value]) => typeof value === "string"),
-  ) as Record<string, string | undefined>;
-  const config = makeBackendConfig({
+    Object.entries(env).flatMap(([name, value]) =>
+      Predicate.isString(value) ? [[name, value]] : [],
+    ),
+  );
+
+  const config = decodeBackendConfig({
     ...configEnv,
     BACKEND_PG_URL: bindings.hyperdrive.connectionString,
   });
+
   const timeout = env.MAIL_TIMEOUT_MS === undefined ? 10_000 : Number(env.MAIL_TIMEOUT_MS);
+
   const databaseLayer = DatabaseRuntimeLive({
     url: Redacted.make(bindings.hyperdrive.connectionString),
     applicationName: "vektorprogrammet-cloudflare-worker",
     maxConnections: 8,
   });
+
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
   const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
   const returningAssistantsLayer = ReturningAssistantsLive.pipe(Layer.provide(databaseLayer));
+
   const profileLayer = ProfileLive.pipe(
     Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
   );
+
   const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
   const contentManagementLayer = ContentManagementLive.pipe(Layer.provide(databaseLayer));
+
   const contentLayer = ContentLive.pipe(
     Layer.provide(Layer.mergeAll(databaseLayer, organizationLayer, profileLayer)),
   );
+
   const recruitmentLayer = RecruitmentLive.pipe(
     Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),
   );
+
   const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(databaseLayer));
   const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(databaseLayer));
   const authLayer = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
-  const receiptDeliveryLayer = makeReceiptDeliveryLayer(receiptDeliveryConfig(configEnv)).pipe(
+
+  const receiptDeliveryLayer = ReceiptDeliveryLive(receiptDeliveryConfig(configEnv)).pipe(
     Layer.provide(databaseLayer),
   );
+
   const mailLayer = CloudflareMailLive({
     binding: bindings.mail,
     recipientOverride: env.MAIL_RECIPIENT_OVERRIDE,
     deliveryTimeoutMilliseconds: timeout,
   });
+
   const services = Layer.mergeAll(
     databaseLayer,
     admissionsLayer,
@@ -148,29 +168,39 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
     receiptDeliveryLayer,
     mailLayer,
   );
+
   const httpLayer = Layer.merge(
     HttpServer.layerServices,
     HttpRouter.layer.pipe(
       Layer.provide(Layer.succeed(HttpRouter.RouterConfig)(nativeHttpRouterConfig)),
     ),
   );
-  const fileStore = makeR2ReceiptFileStore({ bucket: bindings.receiptFiles });
-  const nativeApiLayer = makeExternalNativeApiRouterLayer(config, {
-    receiptFileStore: fileStore,
-  }).pipe(HttpRouter.provideRequest(services), Layer.provide(services), Layer.provide(httpLayer));
+
+  const nativeApiLayer = Layer.unwrap(
+    Effect.map(ReceiptFileStoreResource, (receiptFileStore) =>
+      ExternalNativeApiRouterLive(config, { receiptFileStore }),
+    ),
+  ).pipe(
+    Layer.provide(R2ReceiptFileStoreLive({ bucket: bindings.receiptFiles })),
+    HttpRouter.provideRequest(services),
+    Layer.provide(services),
+    Layer.provide(httpLayer),
+  );
+
   const runtime = ManagedRuntime.make(Layer.mergeAll(services, httpLayer, nativeApiLayer));
   const router = await runtime.runPromise(HttpRouter.HttpRouter);
   const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
+
   const runAuth = <A>(operation: (engine: AuthEngineService) => Promise<A>) =>
     runtime.runPromise(
       AuthEngine.use((engine) =>
         Effect.tryPromise({
           try: () => operation(engine),
-          catch: (cause) =>
-            cause instanceof Error ? cause : new Error("Better Auth runtime operation failed"),
+          catch: (cause) => new Cause.UnknownError(cause, "Better Auth runtime operation failed"),
         }),
       ),
     );
+
   const authHandler: BackendAuthHandler = {
     handle: (request, context) => runAuth((engine) => engine.handler(request, context)),
     handleOAuth: (request, context) => runAuth((engine) => engine.oauthHandler(request, context)),
@@ -181,7 +211,8 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
     recordTrustedOriginRejection: (context, credentialFlow) =>
       runAuth((engine) => engine.recordTrustedOriginRejection(context, credentialFlow)),
   };
-  return makeBackendHttp(nativeHandler, authHandler, config.sessionBoundary);
+
+  return backendHttpHandler(nativeHandler, authHandler, config.sessionBoundary);
 };
 
 let application: Promise<BackendHttp> | undefined;
@@ -189,6 +220,7 @@ let application: Promise<BackendHttp> | undefined;
 export default {
   fetch: (request: Request, env: CloudflareBackendEnv) => {
     application ??= makeCloudflareBackend(env);
+
     return application.then((backend) => backend.fetch(request));
   },
 };

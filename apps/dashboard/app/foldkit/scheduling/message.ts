@@ -3,7 +3,7 @@ import { RecruitmentInterviewId } from "@vektorprogrammet/http-api"
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
-import { m } from "foldkit/message";
+import { taggedStruct } from "foldkit/schema";
 import {
   RecruitmentBridgeFailure,
   RecruitmentInterviewConductObservationSchema,
@@ -11,100 +11,131 @@ import {
 } from "../recruitment/bridge";
 import { ConductRequestId, SchedulingRequestId } from "./model";
 
-export const RequestedBoardRefresh = m("RequestedBoardRefresh");
-export const SucceededLoadSchedulingBoard = m("SucceededLoadSchedulingBoard", {
+export const RequestedBoardRefresh = taggedStruct("RequestedBoardRefresh", {});
+
+export const SucceededLoadSchedulingBoard = taggedStruct("SucceededLoadSchedulingBoard", {
   requestId: SchedulingRequestId,
   board: SchedulingBoard,
 });
-export const FailedLoadSchedulingBoard = m("FailedLoadSchedulingBoard", {
+
+export const FailedLoadSchedulingBoard = taggedStruct("FailedLoadSchedulingBoard", {
   requestId: SchedulingRequestId,
   message: S.String,
 });
-export const OpenedSchedule = m("OpenedSchedule", { interviewId: RecruitmentInterviewId });
-export const ClosedSchedule = m("ClosedSchedule");
-export const UpdatedScheduledAt = m("UpdatedScheduledAt", { value: S.String });
-export const UpdatedRoom = m("UpdatedRoom", { value: S.String });
-export const UpdatedCampus = m("UpdatedCampus", { value: S.String });
-export const UpdatedMapLink = m("UpdatedMapLink", { value: S.String });
-export const UpdatedMessage = m("UpdatedMessage", { value: S.String });
-export const SubmittedSchedule = m("SubmittedSchedule");
-export const SucceededSchedule = m("SucceededSchedule", {
+
+export const OpenedSchedule = taggedStruct("OpenedSchedule", { interviewId: RecruitmentInterviewId });
+
+export const ClosedSchedule = taggedStruct("ClosedSchedule", {});
+
+export const UpdatedScheduledAt = taggedStruct("UpdatedScheduledAt", { value: S.String });
+
+export const UpdatedRoom = taggedStruct("UpdatedRoom", { value: S.String });
+
+export const UpdatedCampus = taggedStruct("UpdatedCampus", { value: S.String });
+
+export const UpdatedMapLink = taggedStruct("UpdatedMapLink", { value: S.String });
+
+export const UpdatedMessage = taggedStruct("UpdatedMessage", { value: S.String });
+
+export const SubmittedSchedule = taggedStruct("SubmittedSchedule", {});
+
+export const SucceededSchedule = taggedStruct("SucceededSchedule", {
   requestId: SchedulingRequestId,
   board: SchedulingBoard,
 });
-export const FailedSchedule = m("FailedSchedule", {
+
+export const FailedSchedule = taggedStruct("FailedSchedule", {
   requestId: SchedulingRequestId,
   message: S.String,
 });
-export const GotScheduleDialogMessage = m("GotScheduleDialogMessage", {
+
+export const GotScheduleDialogMessage = taggedStruct("GotScheduleDialogMessage", {
   message: Dialog.Message,
 });
 
-export const OpenedConduct = m("OpenedConduct", { interviewId: RecruitmentInterviewId });
-export const ClosedConduct = m("ClosedConduct");
-export const SucceededConduct = m("SucceededConduct", {
+export const OpenedConduct = taggedStruct("OpenedConduct", { interviewId: RecruitmentInterviewId });
+
+export const ClosedConduct = taggedStruct("ClosedConduct", {});
+
+export const SucceededConduct = taggedStruct("SucceededConduct", {
   requestId: ConductRequestId,
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
   detail: RecruitmentInterviewConductObservationSchema,
   etag: StrongETag,
 });
-export const FailedConduct = m("FailedConduct", {
+
+export const FailedConduct = taggedStruct("FailedConduct", {
   requestId: ConductRequestId,
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
   failure: RecruitmentBridgeFailure,
 });
-export const ChangedAnswer = m("ChangedAnswer", {
+
+export const ChangedAnswer = taggedStruct("ChangedAnswer", {
   questionId: S.String,
   answer: S.Union([S.String, S.Array(S.String)]),
 });
-export const ClosedConductConfirmation = m("ClosedConductConfirmation");
-export const ChangedRecommendation = m("ChangedRecommendation", {
+
+export const ClosedConductConfirmation = taggedStruct("ClosedConductConfirmation", {});
+
+export const ChangedRecommendation = taggedStruct("ChangedRecommendation", {
   value: S.NullOr(InterviewRecommendationSchema),
 });
-export const ChangedScore = m("ChangedScore", {
+
+export const ChangedScore = taggedStruct("ChangedScore", {
   axis: S.Literals(["explanatoryPower", "roleModel", "suitability"]),
   value: S.String,
 });
-export const SubmittedFinalize = m("SubmittedFinalize");
-export const SubmittedCancel = m("SubmittedCancel");
-export const ConfirmedFinalize = m("ConfirmedFinalize");
-export const ConfirmedCancel = m("ConfirmedCancel");
-export const SucceededFinalize = m("SucceededFinalize", {
+
+export const SubmittedFinalize = taggedStruct("SubmittedFinalize", {});
+
+export const SubmittedCancel = taggedStruct("SubmittedCancel", {});
+
+export const ConfirmedFinalize = taggedStruct("ConfirmedFinalize", {});
+
+export const ConfirmedCancel = taggedStruct("ConfirmedCancel", {});
+
+export const SucceededFinalize = taggedStruct("SucceededFinalize", {
   requestId: ConductRequestId,
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
 });
-export const SucceededCorrection = m("SucceededCorrection", {
+
+export const SucceededCorrection = taggedStruct("SucceededCorrection", {
   requestId: ConductRequestId,
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
 });
-export const FailedCorrection = m("FailedCorrection", {
-  requestId: ConductRequestId,
-  generation: ConductRequestId,
-  interviewId: RecruitmentInterviewId,
-  failure: RecruitmentBridgeFailure,
-});
-export const FailedFinalize = m("FailedFinalize", {
-  requestId: ConductRequestId,
-  generation: ConductRequestId,
-  interviewId: RecruitmentInterviewId,
-  failure: RecruitmentBridgeFailure,
-});
-export const SucceededCancel = m("SucceededCancel", {
-  requestId: ConductRequestId,
-  generation: ConductRequestId,
-  interviewId: RecruitmentInterviewId,
-});
-export const FailedCancel = m("FailedCancel", {
+
+export const FailedCorrection = taggedStruct("FailedCorrection", {
   requestId: ConductRequestId,
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
   failure: RecruitmentBridgeFailure,
 });
-export const GotConductDialogMessage = m("GotConductDialogMessage", {
+
+export const FailedFinalize = taggedStruct("FailedFinalize", {
+  requestId: ConductRequestId,
+  generation: ConductRequestId,
+  interviewId: RecruitmentInterviewId,
+  failure: RecruitmentBridgeFailure,
+});
+
+export const SucceededCancel = taggedStruct("SucceededCancel", {
+  requestId: ConductRequestId,
+  generation: ConductRequestId,
+  interviewId: RecruitmentInterviewId,
+});
+
+export const FailedCancel = taggedStruct("FailedCancel", {
+  requestId: ConductRequestId,
+  generation: ConductRequestId,
+  interviewId: RecruitmentInterviewId,
+  failure: RecruitmentBridgeFailure,
+});
+
+export const GotConductDialogMessage = taggedStruct("GotConductDialogMessage", {
   message: Dialog.Message,
 });
 
@@ -143,4 +174,5 @@ export const Message = S.Union([
   FailedCancel,
   GotConductDialogMessage,
 ]);
+
 export type Message = S.Schema.Type<typeof Message>;

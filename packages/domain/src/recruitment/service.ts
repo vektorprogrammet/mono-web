@@ -68,6 +68,7 @@ import type {
   RecruitmentLifecycleCommandConflict,
   RecruitmentConductValidationError,
 } from "./errors.js";
+
 export type RecruitmentFailure =
   | RecruitmentDecodeError
   | RecruitmentInactiveActor
@@ -102,7 +103,7 @@ export type RecruitmentFailure =
   | OrganizationPersistenceError
   | ProfileFailure;
 
-export interface RecruitmentShape {
+export interface RecruitmentOperations {
   readonly readAssignmentBoard: (
     query: RecruitmentAssignmentBoardQuery,
     context: RecruitmentReadAssignmentBoardContext,
@@ -153,6 +154,6 @@ export interface RecruitmentShape {
   ) => Effect.Effect<CorrectInterviewAssessmentResult, RecruitmentFailure>;
 }
 
-export class Recruitment extends Context.Service<Recruitment, RecruitmentShape>()(
+export class Recruitment extends Context.Service<Recruitment, RecruitmentOperations>()(
   "@vektorprogrammet/domain/Recruitment",
 ) {}

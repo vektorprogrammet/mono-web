@@ -19,6 +19,7 @@ export class IdentityOwnedSessionNotFound extends Schema.TaggedError<IdentityOwn
   "IdentityOwnedSessionNotFound",
   { sessionId: Schema.String },
 ) {}
+
 export class IdentityRateLimited extends Schema.TaggedError<IdentityRateLimited>()(
   "IdentityRateLimited",
   {},

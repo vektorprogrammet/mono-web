@@ -3,7 +3,7 @@ import {
   Mail,
   MailDeliveryError,
   type MailDeliveryRequest,
-  type MailShape,
+  type MailOperations,
 } from "@vektorprogrammet/domain/mail";
 
 export interface CloudflareEmailMessage {
@@ -30,12 +30,13 @@ export interface CloudflareMailConfig {
   readonly deliveryTimeoutMilliseconds: number;
   readonly recipientOverride?: string;
 }
+
 export class CloudflareMailConfigurationError extends Schema.TaggedError<CloudflareMailConfigurationError>()(
   "CloudflareMailConfigurationError",
   {},
 ) {}
 
-const PERMANENT_REJECTION_CODES: Readonly<Record<string, true>> = {
+const PERMANENT_REJECTION_CODES = {
   E_CONTENT_TOO_LARGE: true,
   E_FIELD_MISSING: true,
   E_HEADER_NAME_INVALID: true,
@@ -52,8 +53,10 @@ const PERMANENT_REJECTION_CODES: Readonly<Record<string, true>> = {
   E_TOO_MANY_ATTACHMENTS: true,
   E_TOO_MANY_RECIPIENTS: true,
   E_VALIDATION_ERROR: true,
-};
+} as const;
+
 const CONTROL = /[\r\n\0]/u;
+
 const MAILBOX = /^[^\s@]+@[^\s@]+$/u;
 
 const validMailbox = (value: string): boolean =>
@@ -64,18 +67,21 @@ const validMailbox = (value: string): boolean =>
   MAILBOX.test(value);
 
 const permanent = (): MailDeliveryError => new MailDeliveryError({ kind: "permanent-rejection" });
+
 const temporary = (): MailDeliveryError =>
   new MailDeliveryError({ kind: "temporary-unavailability" });
+
 const ambiguous = (): MailDeliveryError => new MailDeliveryError({ kind: "ambiguous-outcome" });
 
 export const classifyCloudflareMailError = (cause: unknown): MailDeliveryError => {
   if (
     Predicate.isObject(cause) &&
-    typeof cause.code === "string" &&
-    PERMANENT_REJECTION_CODES[cause.code]
+    Predicate.isString(cause.code) &&
+    Object.hasOwn(PERMANENT_REJECTION_CODES, cause.code)
   ) {
     return permanent();
   }
+
   return temporary();
 };
 
@@ -99,36 +105,46 @@ const validateRequest = (request: MailDeliveryRequest): void => {
 const messageFor = (
   request: MailDeliveryRequest,
   recipientOverride: string | undefined,
-): CloudflareEmailMessage => ({
-  from: request.sender,
-  to: recipientOverride ?? request.recipient,
-  ...(request.replyTo === undefined ? {} : { replyTo: request.replyTo }),
-  subject: request.subject,
-  text: request.text,
-  headers: {
-    "Message-ID": `<${encodeURIComponent(request.deliveryId)}@delivery.vektorprogrammet.no>`,
-  },
-});
+): CloudflareEmailMessage => {
+  const message: CloudflareEmailMessage = {
+    from: request.sender,
+    to: recipientOverride ?? request.recipient,
+    subject: request.subject,
+    text: request.text,
+    headers: {
+      "Message-ID": `<${encodeURIComponent(request.deliveryId)}@delivery.vektorprogrammet.no>`,
+    },
+  };
 
-export const makeCloudflareMail = (config: CloudflareMailConfig): MailShape => ({
+  if (request.replyTo !== undefined) Object.assign(message, { replyTo: request.replyTo });
+
+  return message;
+};
+
+export const makeCloudflareMail = (config: CloudflareMailConfig): MailOperations => ({
   deliver: (request) =>
     Effect.gen(function* () {
       yield* Effect.try({ try: () => validateRequest(request), catch: () => permanent() });
+
       const acknowledgement = yield* Effect.tryPromise({
         try: () => config.binding.send(messageFor(request, config.recipientOverride)),
         catch: classifyCloudflareMailError,
       }).pipe(
         Effect.timeout(Duration.millis(config.deliveryTimeoutMilliseconds)),
-        Effect.mapError((error) => (error._tag === "TimeoutError" ? ambiguous() : error)),
+        Effect.mapError((error) =>
+          Predicate.isTagged(error, "TimeoutError") ? ambiguous() : error,
+        ),
       );
+
       if (
-        typeof acknowledgement.messageId !== "string" ||
+        !Predicate.isString(acknowledgement.messageId) ||
         acknowledgement.messageId.length === 0 ||
         acknowledgement.messageId.length > 512 ||
         CONTROL.test(acknowledgement.messageId)
       ) {
         return yield* ambiguous();
       }
+
       return { providerReference: acknowledgement.messageId };
     }),
 });
@@ -143,7 +159,7 @@ export const CloudflareMailLive = (
       try: () => {
         if (
           !Predicate.isObject(config.binding) ||
-          typeof config.binding.send !== "function" ||
+          !Predicate.isFunction(config.binding.send) ||
           (config.recipientOverride !== undefined && !validMailbox(config.recipientOverride)) ||
           !Number.isSafeInteger(config.deliveryTimeoutMilliseconds) ||
           config.deliveryTimeoutMilliseconds < 1 ||
@@ -151,6 +167,7 @@ export const CloudflareMailLive = (
         ) {
           throw new Error("invalid Cloudflare mail binding");
         }
+
         return Mail.of(makeCloudflareMail(config));
       },
       catch: () => new CloudflareMailConfigurationError(),

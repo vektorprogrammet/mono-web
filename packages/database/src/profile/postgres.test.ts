@@ -1,91 +1,78 @@
-import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
-import { Database, type DatabaseShape } from "../service.js";
-import { Organization } from "@vektorprogrammet/domain/organization";
+import { afterAll, expect, it } from "vitest";
+import { Effect, Layer, Predicate } from "effect";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { ProfileContactNotFound } from "@vektorprogrammet/domain/profile";
+import { Database } from "../service.js";
+import { DatabaseTest } from "../layers.js";
+import { OrganizationLive } from "../organization/postgres-layer.js";
+import { makeControlledTestRuntime } from "../../test/runtime.js";
 import { readDirectoryPage, readOwnProfileHttpSourcePostgres } from "./postgres.js";
 
-interface DirectoryRow {
-  readonly personId: string;
-  readonly firstName: string;
-  readonly lastName: string;
-  readonly email: string | null;
-  readonly phone: string | null;
-}
-
-it.effect("fails the whole directory page when a scanned person has no contact row", () =>
-  Effect.gen(function* () {
-    const missing = PersonId.make("person-directory-missing-contact");
-    const present = PersonId.make("person-directory-with-contact");
-    const nameRows: ReadonlyArray<DirectoryRow> = [
-      { personId: missing, firstName: "Ann", lastName: "Aardvark", email: null, phone: null },
-      {
-        personId: present,
-        firstName: "Bob",
-        lastName: "Zebra",
-        email: "bob@example.invalid",
-        phone: "+4700000001",
-      },
-    ];
-    const sql = ((_strings: TemplateStringsArray) => {
-      // Emulate the join over person_profiles x person_contact_profiles: the
-      // second person has a contact row, the first does not. An INNER JOIN
-      // silently drops the contact-less person from the scan; a LEFT JOIN
-      // keeps them with NULL contacts for the typed null-check to reject.
-      const joinsContacts = _strings.join("?").includes("LEFT JOIN");
-      return Effect.succeed(
-        joinsContacts ? nameRows : nameRows.filter((row) => row.email !== null),
-      );
-    }) as unknown as DatabaseShape;
-    const failure = yield* Effect.flip(
-      readDirectoryPage({ limit: 10 }).pipe(
-        Effect.provideService(Database, sql),
-        Effect.provideService(Organization, {} as never),
-      ),
-    );
-    expect(failure._tag).toBe("ProfileContactNotFound");
-    expect((failure as ProfileContactNotFound).personId).toBe(missing);
-  }),
+const runtime = makeControlledTestRuntime(
+  OrganizationLive.pipe(Layer.provideMerge(DatabaseTest())),
 );
 
-it.effect(
-  "reads the persisted Profile HTTP representation revision with the profile snapshot",
-  () =>
+afterAll(() => runtime.dispose());
+
+it("fails the whole directory page when a scanned person has no contact row", async () => {
+  const missing = PersonId.make("person-directory-missing-contact");
+  const present = PersonId.make("person-directory-with-contact");
+
+  const failure = await runtime.runPromise(
     Effect.gen(function* () {
-      const personId = PersonId.make("person-profile-http-source");
-      let statement = "";
-      const sql = ((strings: TemplateStringsArray) => {
-        statement = strings.join("?");
-        return Effect.succeed([
-          {
-            personId,
-            firstName: "Ada",
-            lastName: "Lovelace",
-            nameRevision: 4,
-            representationRevision: 9,
-            contactPersonId: personId,
-            email: "ada@example.invalid",
-            phone: "+4712345678",
-            contactRevision: 6,
-          },
-        ]);
-      }) as unknown as DatabaseShape;
+      const sql = yield* Database;
+      yield* sql`
+        INSERT INTO person_profiles (person_id, first_name, last_name)
+        VALUES (${missing}, 'Ann', 'Aardvark'), (${present}, 'Bob', 'Zebra')
+      `;
+      yield* sql`
+        INSERT INTO person_contact_profiles (person_id, email, phone)
+        VALUES (${present}, 'bob@example.invalid', '+4700000001')
+      `;
 
-      const source = yield* readOwnProfileHttpSourcePostgres(personId).pipe(
-        Effect.provideService(Database, sql),
-      );
-      expect(statement).toContain("INNER JOIN public.profile_http_versions");
-
-      expect(source.representationRevision).toBe(9);
-      expect(source.profile).toEqual({
-        personId,
-        firstName: "Ada",
-        lastName: "Lovelace",
-        email: "ada@example.invalid",
-        phone: "+4712345678",
-        nameRevision: 4,
-        contactRevision: 6,
-      });
+      return yield* Effect.flip(readDirectoryPage({ limit: 10 }));
     }),
-);
+  );
+
+  expect(failure._tag).toBe("ProfileContactNotFound");
+
+  if (!Predicate.isTagged(failure, "ProfileContactNotFound")) {
+    throw new Error("Expected a missing contact failure");
+  }
+
+  expect(failure.personId).toBe(missing);
+}, 15_000);
+
+it("reads the persisted Profile HTTP representation revision with the profile snapshot", async () => {
+  const personId = PersonId.make("person-profile-http-source");
+
+  const source = await runtime.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      yield* sql`
+        INSERT INTO person_profiles (person_id, first_name, last_name, revision)
+        VALUES (${personId}, 'Ada', 'Lovelace', 4)
+      `;
+      yield* sql`
+        INSERT INTO person_contact_profiles (person_id, email, phone, revision)
+        VALUES (${personId}, 'ada@example.invalid', '+4712345678', 6)
+      `;
+      yield* sql`
+        UPDATE profile_http_versions SET representation_revision = 9
+        WHERE person_id = ${personId}
+      `;
+
+      return yield* readOwnProfileHttpSourcePostgres(personId);
+    }),
+  );
+
+  expect(source.representationRevision).toBe(9);
+  expect(source.profile).toEqual({
+    personId,
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "ada@example.invalid",
+    phone: "+4712345678",
+    nameRevision: 4,
+    contactRevision: 6,
+  });
+}, 15_000);

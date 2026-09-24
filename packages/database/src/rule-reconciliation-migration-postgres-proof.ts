@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { Database, type DatabaseShape } from "./service.js";
-import { Cause, Effect, Option, Redacted } from "effect";
+import { Database, type DatabaseOperations } from "./service.js";
+import { Schema, Predicate, Cause, Effect, Option, Redacted } from "effect";
 import { isSqlError } from "effect/unstable/sql/SqlError";
 import { DatabaseLive } from "./layers.js";
 import { databaseMigrationDefinitions } from "./migrations.js";
@@ -16,7 +16,7 @@ const expectedFailures = [
   { reasonCode: "VARIANT_INVALID", ruleId: "migration-preflight-variant" },
 ] as const;
 
-const reset = (sql: DatabaseShape) =>
+const reset = (sql: DatabaseOperations) =>
   sql
     .unsafe(`
       DROP SCHEMA IF EXISTS auth CASCADE;
@@ -25,23 +25,23 @@ const reset = (sql: DatabaseShape) =>
     `)
     .pipe(Effect.asVoid, Effect.orDie);
 
-const executeMigration = (sql: DatabaseShape, index: number) =>
+const executeMigration = (sql: DatabaseOperations, index: number) =>
   Effect.tryPromise(() => readFile(databaseMigrationDefinitions[index]!.url, "utf8")).pipe(
     Effect.flatMap((source) => sql.unsafe(source)),
     Effect.asVoid,
   );
 
-const migrateThrough25 = (sql: DatabaseShape) =>
+const migrateThrough25 = (sql: DatabaseOperations) =>
   Effect.forEach(
     databaseMigrationDefinitions.slice(0, -1),
     (_, index) => executeMigration(sql, index),
     { discard: true },
   );
 
-const migrate26 = (sql: DatabaseShape) =>
+const migrate26 = (sql: DatabaseOperations) =>
   executeMigration(sql, databaseMigrationDefinitions.length - 1);
 
-const prepareMigration25State = (sql: DatabaseShape) =>
+const prepareMigration25State = (sql: DatabaseOperations) =>
   Effect.gen(function* () {
     yield* sql.unsafe(`
       INSERT INTO public.person_profiles (person_id, first_name, last_name)
@@ -70,7 +70,7 @@ const prepareMigration25State = (sql: DatabaseShape) =>
     `);
   });
 
-const insertValidRows = (sql: DatabaseShape) =>
+const insertValidRows = (sql: DatabaseOperations) =>
   sql.unsafe(`
     INSERT INTO public.authz_rules (
       rule_id, capability_id, effect_kind, subject_kind,
@@ -104,7 +104,7 @@ const insertValidRows = (sql: DatabaseShape) =>
       );
   `);
 
-const insertInvalidRows = (sql: DatabaseShape) =>
+const insertInvalidRows = (sql: DatabaseOperations) =>
   sql.unsafe(`
     INSERT INTO public.authz_rules (
       rule_id, capability_id, effect_kind, subject_kind,
@@ -156,11 +156,14 @@ const insertInvalidRows = (sql: DatabaseShape) =>
       );
   `);
 
-const parseReport = (failure: string): ReadonlyArray<unknown> => {
+const parseReport = (failure: string) => {
   const prefix = "authz_rules preflight failed: ";
   const start = failure.indexOf(prefix);
   assert.notEqual(start, -1);
-  return JSON.parse(failure.slice(start + prefix.length)) as ReadonlyArray<unknown>;
+
+  return Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Array(Schema.Json)))(
+    failure.slice(start + prefix.length),
+  );
 };
 
 export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<string>) => {
@@ -169,6 +172,7 @@ export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<
     applicationName: "rule-reconciliation-migration-proof-0056-2",
     maxConnections: 1,
   });
+
   return Effect.gen(function* () {
     const sql = yield* Database;
     yield* reset(sql);
@@ -178,7 +182,9 @@ export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<
     yield* insertInvalidRows(sql);
     const failed = yield* Effect.exit(migrate26(sql));
     assert.equal(failed._tag, "Failure");
-    if (failed._tag !== "Failure") throw new Error("migration 26 unexpectedly succeeded");
+
+    if (!Predicate.isTagged(failed, "Failure"))
+      throw new Error("migration 26 unexpectedly succeeded");
     const failureOption = Cause.findErrorOption(failed.cause);
     assert(Option.isSome(failureOption));
     assert(isSqlError(failureOption.value));
@@ -188,12 +194,14 @@ export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<
     assert.equal(failure.includes("preflight-secret-ciphertext"), false);
     assert.equal(failure.includes("do-not-report"), false);
     assert.equal(failure.includes("migration-preflight-valid-"), false);
+
     const [preserved] = yield* sql<{ readonly definition: string }>`
       SELECT pg_get_constraintdef(oid) AS definition
       FROM pg_constraint
       WHERE conrelid = 'public.authz_rules'::regclass
         AND conname = 'authz_rules_params_declared'
     `;
+
     assert.equal(preserved?.definition, "CHECK (true)");
 
     yield* reset(sql);
@@ -201,11 +209,13 @@ export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<
     yield* prepareMigration25State(sql);
     yield* insertValidRows(sql);
     yield* migrate26(sql);
+
     const validRows = yield* sql<{ readonly ruleId: string }>`
       SELECT rule_id AS "ruleId"
       FROM public.authz_rules
       ORDER BY rule_id
     `;
+
     assert.deepEqual(
       validRows.map(({ ruleId }) => ruleId),
       [
@@ -215,6 +225,7 @@ export const proveRuleReconciliationMigration = (databaseUrl: Redacted.Redacted<
         "migration-preflight-valid-payment",
       ],
     );
+
     return {
       invalidRows: expectedFailures,
       preservedConstraint: preserved.definition,

@@ -1,20 +1,23 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
-import { Effect, Layer } from "effect";
+import { Schema, Result, Match, Array, Predicate, Effect, Layer } from "effect";
 import { DomainProcessLive, nodeArguments, setNodeExitCode } from "./node.js";
 import { main, TutorD1Proof, type D1ProofResult } from "../src/tutor/d1-proof.js";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../src/tutor/evidence.js";
+import {
+  canonicalJsonValue,
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "../src/tutor/evidence.js";
 import {
   REPLAY_SQL,
   type BatchPlan,
-  type D1Binding,
   type D1AppendResult,
   type ReplayEventRow,
   type ReplayResult,
-  type TutorD1Failure,
   type TutorD1Store,
-  makeTutorD1Store,
+  tutorD1Store,
   normalizeBlobBytes,
   runWithTutorD1,
   validateReplayRows,
@@ -30,41 +33,51 @@ import {
   FIXTURE_PERSON_ID,
   FIXTURE_SEED_EVENTS,
 } from "../src/tutor/fixture.js";
+
 const PINNED_BUN_VERSION = "1.3.10";
+
 const EFFECT_VERSION = "4.0.0-rc.109";
+
 const MINIFLARE_VERSION = "4.20260706.0";
+
 const SPEC_ID = "0017";
+
 const BASE_COMMIT = "a8dafe618907dfd623718802fdaf5712d55f70d4";
+
 const SOURCE_CANDIDATE_PARENT = "266185e98d22718576653df9973ece8246da124a";
+
 const SOURCE_CANDIDATE_COMMIT = "7ddca9eb18c307f7c6baf47134793eda5c299db6";
+
 const CANONICAL_INTEGRATION_BASE = "0f09064d4d85039f51127bd25b6501b71696980e";
+
 const CANONICAL_D1_INTEGRATION_COMMIT = "9a166a327a21924537a3a3ac23ede88619b64c98";
+
 const PREDECESSOR_COMMIT = "a8dafe618907dfd623718802fdaf5712d55f70d4";
+
 const ADR_SHA256 = "94a2dbe93d353ddf98af784d3d6a66903c69631f8adc656c07f98a329491c830";
+
 const D1_CLIENT_SOURCE_HASH = "33d086b2b5599349e012f93241d40f079ff78d09ddea00857744217e39b8647e";
+
 const STATEMENT_SOURCE_HASH = "d0217382c9cded3a4f143058461b96aecf18c0f2daedd7995e726831d7cc12f5";
+
 const SQL_EVENT_JOURNAL_SOURCE_HASH =
   "832b3143d50baeb589a6739f6938357d57a794d22bae5cb28bad51b94c4748ac";
+
 const MIGRATOR_SOURCE_HASH = "c94e7d36a4d253210e76e694bde656aeace439e541e503b9442e06bf95878de9";
+
 const SQL_CLIENT_SOURCE_HASH = "aed2fc43ca7582797a4762198318936ed9e743696b7aa4ec43002bbc1622d27f";
+
 const D1_BINDING_NAME = "TUTOR_D1";
 
 const stream: StreamKey = FIXTURE_COMMAND.stream;
 
-interface LocalPrepared {
-  bind: (...values: ReadonlyArray<unknown>) => LocalPrepared;
-  all: <A extends Record<string, unknown>>() => Promise<{ readonly results: ReadonlyArray<A> }>;
-  run: () => Promise<unknown>;
-}
-
-interface LocalBinding {
-  prepare: (query: string) => LocalPrepared;
-}
+type LocalBinding = Awaited<ReturnType<Miniflare["getD1Database"]>>;
 
 interface LocalRuntime {
   readonly miniflare: Miniflare;
   readonly db: LocalBinding;
 }
+
 let activeRuntime: LocalRuntime | undefined;
 
 interface HeadSnapshot {
@@ -79,7 +92,7 @@ interface RowCounts {
 }
 
 const readFixtureHead = async (db: LocalBinding): Promise<HeadSnapshot | null> => {
-  const rows = await dbRows<Record<string, unknown>>(
+  const rows = await dbRows<Schema.JsonObject>(
     db,
     `SELECT current_version, last_command_id
      FROM stream_heads
@@ -94,16 +107,19 @@ const readFixtureHead = async (db: LocalBinding): Promise<HeadSnapshot | null> =
       stream.cycle.semester.term,
     ],
   );
+
   const row = rows[0];
+
   if (row === undefined) return null;
   assert(Number.isInteger(row.current_version), "head snapshot version is not an integer");
   assert(
-    row.last_command_id === null || typeof row.last_command_id === "string",
+    row.last_command_id === null || Predicate.isString(row.last_command_id),
     "head snapshot token is not text/null",
   );
+
   return {
     current_version: Number(row.current_version),
-    last_command_id: row.last_command_id as string | null,
+    last_command_id: row.last_command_id,
   };
 };
 
@@ -122,7 +138,7 @@ interface CaseRecord {
   readonly before: RowCounts;
   readonly after: RowCounts;
   readonly rows: ReadonlyArray<string>;
-  readonly details: Readonly<Record<string, unknown>>;
+  readonly details: Schema.Json;
 }
 
 interface D1Evidence {
@@ -139,16 +155,16 @@ interface D1Evidence {
   readonly localMiniflareVersion: string;
   readonly correlationId: string;
   readonly stream: StreamKey;
-  readonly seedHead: Readonly<Record<string, unknown>>;
-  readonly seedEvents: ReadonlyArray<Readonly<Record<string, unknown>>>;
-  readonly batch: Readonly<Record<string, unknown>>;
+  readonly seedHead: Schema.Json;
+  readonly seedEvents: ReadonlyArray<Schema.Json>;
+  readonly batch: Schema.Json;
   readonly cases: ReadonlyArray<CaseRecord>;
-  readonly replay: Readonly<Record<string, unknown>>;
-  readonly projection: Readonly<Record<string, unknown>>;
+  readonly replay: Schema.Json;
+  readonly projection: Schema.Json;
   readonly effectDescriptors: ReadonlyArray<Descriptor>;
-  readonly rowCounts: Readonly<Record<string, unknown>>;
+  readonly rowCounts: Schema.Json;
   readonly limits: ReadonlyArray<string>;
-  readonly provenance: Readonly<Record<string, unknown>>;
+  readonly provenance: Schema.Json;
 }
 
 interface RenderedEvidence {
@@ -162,48 +178,40 @@ function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const errorTag = (error: unknown): string =>
-  typeof error === "object" && error !== null && "_tag" in error && typeof error._tag === "string"
-    ? error._tag
-    : error instanceof Error
-      ? error.name
-      : "UnknownError";
+const errorTag = Match.type<unknown>().pipe(
+  Match.when(Schema.is(Schema.Struct({ _tag: Schema.String })), (error) => error._tag),
+  Match.when(Predicate.isError, (error) => error.name),
+  Match.orElse(() => "UnknownError"),
+);
 
-const errorReason = (error: unknown): string =>
-  typeof error === "object" &&
-  error !== null &&
-  "reasonCode" in error &&
-  typeof error.reasonCode === "string"
-    ? error.reasonCode
-    : error instanceof Error
-      ? error.name
-      : "UNKNOWN";
+const errorReason = Match.type<unknown>().pipe(
+  Match.when(Schema.is(Schema.Struct({ reasonCode: Schema.String })), (error) => error.reasonCode),
+  Match.when(Predicate.isError, (error) => error.name),
+  Match.orElse(() => "UNKNOWN"),
+);
 
-const expectFailure = async <E>(
+const expectFailure = async (
   promise: Promise<unknown>,
-  predicate: (error: E) => boolean,
+  predicate: Predicate.Predicate<Error>,
   message: string,
-): Promise<E> => {
+): Promise<Error> => {
   try {
     await promise;
   } catch (error) {
-    if (predicate(error as E)) return error as E;
+    if (error instanceof Error && predicate(error)) return error;
     throw new Error(`${message}: observed ${errorTag(error)}:${errorReason(error)}`);
   }
+
   throw new Error(`${message}: operation unexpectedly succeeded`);
 };
 
-const dbExec = (
-  db: LocalBinding,
-  sql: string,
-  binds: ReadonlyArray<unknown> = [],
-): Promise<unknown> =>
+const dbExec = (db: LocalBinding, sql: string, binds: ReadonlyArray<unknown> = []) =>
   db
     .prepare(sql)
     .bind(...binds)
     .run();
 
-const dbRows = async <A extends Record<string, unknown>>(
+const dbRows = async <A extends object>(
   db: LocalBinding,
   sql: string,
   binds: ReadonlyArray<unknown> = [],
@@ -223,8 +231,10 @@ const rowCounts = async (db: LocalBinding): Promise<RowCounts> => {
       (SELECT COUNT(*) FROM tutor_events) AS tutor_events,
       (SELECT COUNT(*) FROM command_receipts) AS command_receipts;`,
   );
+
   const row = rows[0];
   assert(row !== undefined, "count query returned no row");
+
   return {
     stream_heads: Number(row.stream_heads),
     tutor_events: Number(row.tutor_events),
@@ -234,7 +244,8 @@ const rowCounts = async (db: LocalBinding): Promise<RowCounts> => {
 
 const openRuntime = async (): Promise<LocalRuntime> => {
   const miniflare = new Miniflare({ modules: true, script: "", d1Databases: [D1_BINDING_NAME] });
-  const db = (await miniflare.getD1Database(D1_BINDING_NAME)) as unknown as LocalBinding;
+  const db = await miniflare.getD1Database(D1_BINDING_NAME);
+
   return { miniflare, db };
 };
 
@@ -248,6 +259,7 @@ const migrationSql = (): Promise<string> =>
 
 const applyMigration = async (db: LocalBinding, sql: string): Promise<void> => {
   const statements = sql.split(/;\s*(?=CREATE TABLE|CREATE TRIGGER)/);
+
   for (const statement of statements) {
     const sqlText = statement.trim();
     await db.prepare(sqlText.endsWith(";") ? sqlText : `${sqlText};`).run();
@@ -273,6 +285,7 @@ const seedStream = async (
       headToken,
     ],
   );
+
   for (const event of seedEvents) {
     await dbExec(
       db,
@@ -297,6 +310,7 @@ const seedStream = async (
     );
   }
 };
+
 const resetDatabase = async (db: LocalBinding): Promise<void> => {
   for (const sql of [
     "DROP TRIGGER IF EXISTS tutor_events_immutable_update;",
@@ -310,12 +324,15 @@ const resetDatabase = async (db: LocalBinding): Promise<void> => {
     await dbExec(db, sql);
   }
 };
+
 const withMigration = async <A>(run: (runtime: LocalRuntime) => Promise<A>): Promise<A> => {
   const ownsRuntime = activeRuntime === undefined;
   const runtime = activeRuntime ?? (await openRuntime());
+
   try {
     await resetDatabase(runtime.db);
     await applyMigration(runtime.db, await migrationSql());
+
     return await run(runtime);
   } finally {
     if (ownsRuntime) {
@@ -327,23 +344,22 @@ const withMigration = async <A>(run: (runtime: LocalRuntime) => Promise<A>): Pro
 const withSeed = async <A>(run: (runtime: LocalRuntime) => Promise<A>): Promise<A> =>
   withMigration(async (runtime) => {
     await seedStream(runtime.db);
+
     return run(runtime);
   });
 
 const withStore = <A, E>(
   db: LocalBinding,
   operation: (store: TutorD1Store) => Effect.Effect<A, E>,
-): Promise<A> =>
-  Effect.runPromise(
-    runWithTutorD1(db as unknown as D1Binding, Effect.flatMap(makeTutorD1Store, operation)),
-  );
+): Promise<A> => Effect.runPromise(runWithTutorD1(db, Effect.flatMap(tutorD1Store, operation)));
+
 const append = (
   db: LocalBinding,
-  input: unknown,
+  input: Schema.Json,
   options?: { readonly beforeBatch?: ((plan: BatchPlan) => Promise<void>) | undefined },
 ): Promise<D1AppendResult> => withStore(db, (store) => store.appendAccepted(input, options));
 
-const readReplay = (db: LocalBinding): Promise<unknown> =>
+const readReplay = (db: LocalBinding): Promise<ReplayResult> =>
   withStore(db, (store) => store.readStream(stream));
 
 const caseRecord = (
@@ -354,7 +370,7 @@ const caseRecord = (
   before: RowCounts,
   after: RowCounts,
   rows: ReadonlyArray<string> = ["candidate"],
-  details: Readonly<Record<string, unknown>> = {},
+  details: Schema.Json = {},
 ): CaseRecord => ({ caseId, status, reasonCode, commandId, before, after, rows, details });
 
 const conductedEventFor = (
@@ -413,16 +429,20 @@ const observationFor = (commandId: string): CommandObservation => ({
 const migrationCase = async (sql: string): Promise<CaseRecord> =>
   withMigration(async ({ db }) => {
     const before = await rowCounts(db);
-    const schemaRows = await dbRows<Record<string, unknown>>(
+
+    const schemaRows = await dbRows<Schema.JsonObject>(
       db,
       `SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'trigger') ORDER BY type, name;`,
     );
-    const tableNames = schemaRows
-      .filter((row) => row.type === "table")
-      .map((row) => String(row.name));
-    const triggerNames = schemaRows
-      .filter((row) => row.type === "trigger")
-      .map((row) => String(row.name));
+
+    const tableNames = Array.filterMap(schemaRows, (row) =>
+      row.type === "table" ? Result.succeed(String(row.name)) : Result.failVoid,
+    );
+
+    const triggerNames = Array.filterMap(schemaRows, (row) =>
+      row.type === "trigger" ? Result.succeed(String(row.name)) : Result.failVoid,
+    );
+
     const requiredTables = ["command_receipts", "stream_heads", "tutor_events"];
     assert(
       requiredTables.every((tableName) => tableNames.includes(tableName)),
@@ -433,6 +453,7 @@ const migrationCase = async (sql: string): Promise<CaseRecord> =>
       "migration contains explicit transaction delimiter",
     );
     const after = await rowCounts(db);
+
     return caseRecord(
       "adr-01-migration",
       "accepted",
@@ -441,12 +462,12 @@ const migrationCase = async (sql: string): Promise<CaseRecord> =>
       before,
       after,
       ["schema"],
-      {
+      canonicalJsonValue({
         migrationOperation: "D1Database.prepare(...).run",
         tableNames,
         triggerNames,
         strictTables: true,
-      },
+      }),
     );
   });
 
@@ -455,15 +476,15 @@ const seedCase = async (): Promise<CaseRecord> =>
     const before = await rowCounts(db);
     await seedStream(db);
     const after = await rowCounts(db);
-    const replay = (await readReplay(db)) as {
-      readonly events: ReadonlyArray<EventEnvelopeV1>;
-      readonly folded: { readonly events: ReadonlyArray<EventEnvelopeV1> };
-    };
+
+    const replay = await readReplay(db);
+
     assert(
       replay.events.length === 3 && replay.folded.events.length === 3,
       "seed replay count mismatch",
     );
     assert(after.command_receipts === 0, "seed created receipt");
+
     return caseRecord(
       "adr-02-seed",
       "accepted",
@@ -472,12 +493,12 @@ const seedCase = async (): Promise<CaseRecord> =>
       before,
       after,
       ["fixture", "seed"],
-      {
+      canonicalJsonValue({
         currentVersion: 3,
         lastCommandId: FIXTURE_ID,
         eventIds: replay.events.map((event) => event.eventId),
         projectionStatus: "accepted",
-      },
+      }),
     );
   });
 
@@ -485,12 +506,12 @@ const appendAcceptedCase = async (): Promise<{
   readonly record: CaseRecord;
   readonly result: D1AppendResult;
   readonly observation: CommandObservation;
-  readonly plan: Readonly<Record<string, unknown>>;
+  readonly plan: Schema.Json;
 }> =>
   withSeed(async ({ db }) => {
     const before = await rowCounts(db);
     const result = await append(db, FIXTURE_COMMAND);
-    assert(result._tag === "AcceptedResult", "accepted command did not append");
+    assert(Predicate.isTagged(result, "AcceptedResult"), "accepted command did not append");
     assert(result.batchResults[0]?.length === 1, "CAS result did not contain one row");
     const returned = result.batchResults[0]?.[0];
     assert(
@@ -504,15 +525,16 @@ const appendAcceptedCase = async (): Promise<{
         after.command_receipts === before.command_receipts + 1,
       "accepted counts mismatch",
     );
+
     return {
       result,
       observation: result.observation,
-      plan: {
+      plan: canonicalJsonValue({
         sql: result.batchPlan.statements.map((statement) => statement.sql),
         binds: result.batchPlan.statements.map((statement) => statement.binds),
         resultIndexes: [0, 1, 2],
         returned,
-      },
+      }),
       record: caseRecord(
         "adr-04-accepted-append",
         "accepted",
@@ -521,12 +543,12 @@ const appendAcceptedCase = async (): Promise<{
         before,
         after,
         ["candidate"],
-        {
+        canonicalJsonValue({
           resultZero: returned,
           eventId: result.event.eventId,
           newVersion: result.batchPlan.newVersion,
           descriptorExposedAfterCommit: true,
-        },
+        }),
       ),
     };
   });
@@ -534,6 +556,7 @@ const appendAcceptedCase = async (): Promise<{
 const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
   const runtime = await openRuntime();
   activeRuntime = runtime;
+
   try {
     const cases: Array<CaseRecord> = [];
     cases.push(await migrationCase(await migrationSql()));
@@ -541,18 +564,22 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
     cases.push(
       await withMigration(async ({ db }) => {
         const before = await rowCounts(db);
+
         const missingCommand = {
           ...FIXTURE_COMMAND,
           commandId: "cmd-0017-missing-head",
           stream: { ...stream, personId: "person-synth-0017-missing-head" },
         };
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(db, missingCommand),
           (error) => errorReason(error) === "EMPTY_STREAM",
           "missing head",
         );
+
         const after = await rowCounts(db);
         assert(JSON.stringify(before) === JSON.stringify(after), "missing head changed rows");
+
         return caseRecord(
           "adr-03-no-stream-creation",
           "rejected",
@@ -561,7 +588,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["candidate"],
-          { failureTag: errorTag(failure), noWrite: true },
+          canonicalJsonValue({ failureTag: errorTag(failure), noWrite: true }),
         );
       }),
     );
@@ -570,12 +597,14 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
     cases.push(
       await withSeed(async ({ db }) => {
         const acceptedResult = await append(db, FIXTURE_COMMAND);
-        assert(acceptedResult._tag === "AcceptedResult", "replay fixture append failed");
+        assert(
+          Predicate.isTagged(acceptedResult, "AcceptedResult"),
+          "replay fixture append failed",
+        );
         const before = await rowCounts(db);
-        const replay = (await readReplay(db)) as {
-          readonly events: ReadonlyArray<EventEnvelopeV1>;
-          readonly folded: { readonly events: ReadonlyArray<EventEnvelopeV1> };
-        };
+
+        const replay = await readReplay(db);
+
         assert(
           replay.events.map((event) => event.eventId).join(",") ===
             "evt-0014-001,evt-0014-002,evt-0014-003,evt-0014-004",
@@ -583,6 +612,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         );
         assert(replay.folded.events.length === 4, "replay fold count mismatch");
         const after = await rowCounts(db);
+
         return caseRecord(
           "adr-05-replay-accepted",
           "accepted",
@@ -591,7 +621,10 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture", "replay"],
-          { eventOrder: replay.events.map((event) => event.eventId), streamVersion: 4 },
+          canonicalJsonValue({
+            eventOrder: replay.events.map((event) => event.eventId),
+            streamVersion: 4,
+          }),
         );
       }),
     );
@@ -599,18 +632,22 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
       await withSeed(async ({ db }) => {
         await append(db, FIXTURE_COMMAND);
         const before = await rowCounts(db);
+
         const malformed = {
           ...FIXTURE_COMMAND,
           commandId: "cmd-0014-malformed",
           extraField: "reject",
         };
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(db, malformed),
           (error) => errorReason(error) === "DECODE_ERROR",
           "malformed command",
         );
+
         const after = await rowCounts(db);
         assert(JSON.stringify(before) === JSON.stringify(after), "malformed command changed rows");
+
         return caseRecord(
           "adr-06-malformed",
           "rejected",
@@ -619,28 +656,32 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["candidate"],
-          { failureTag: errorTag(failure), noWrite: true },
+          canonicalJsonValue({ failureTag: errorTag(failure), noWrite: true }),
         );
       }),
     );
     cases.push(
       await withMigration(async ({ db }) => {
         const before = await rowCounts(db);
+
         const command = {
           ...FIXTURE_COMMAND,
           commandId: "cmd-0017-missing-head",
           stream: { ...stream, personId: "person-synth-0017-missing-head" },
         };
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(db, command),
           (error) => errorReason(error) === "EMPTY_STREAM",
           "missing head classification",
         );
+
         const after = await rowCounts(db);
         assert(
           JSON.stringify(before) === JSON.stringify(after),
           "missing head classification wrote rows",
         );
+
         return caseRecord(
           "adr-07-empty-stream",
           "rejected",
@@ -649,7 +690,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["candidate"],
-          { failureTag: errorTag(failure) },
+          canonicalJsonValue({ failureTag: errorTag(failure) }),
         );
       }),
     );
@@ -663,11 +704,13 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           `UPDATE stream_heads SET current_version = 2, last_command_id = ?1 WHERE person_id = ?2;`,
           ["diverged-head", stream.personId],
         );
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(db, { ...FIXTURE_COMMAND, commandId: "cmd-0017-divergence" }),
           (error) => errorTag(error) === "D1IntegrityError",
           "head divergence",
         );
+
         const after = await rowCounts(db);
         const headAfter = await readFixtureHead(db);
         assert(
@@ -685,6 +728,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             after.command_receipts === before.command_receipts,
           "divergence changed event or receipt rows",
         );
+
         return caseRecord(
           "adr-08-head-event-divergence",
           "drift",
@@ -693,7 +737,12 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture", "candidate"],
-          { failureTag: errorTag(failure), preservedHead: true, headBefore, headAfter },
+          canonicalJsonValue({
+            failureTag: errorTag(failure),
+            preservedHead: true,
+            headBefore,
+            headAfter,
+          }),
         );
       }),
     );
@@ -703,11 +752,13 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         const headBefore = await readFixtureHead(db);
         assert(headBefore !== null, "stale preflight head missing");
         const command = { ...FIXTURE_COMMAND, commandId: "cmd-0014-stale", expectedVersion: 2 };
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(db, command),
           (error) => errorReason(error) === "STALE_VERSION",
           "stale version",
         );
+
         const after = await rowCounts(db);
         const headAfter = await readFixtureHead(db);
         assert(
@@ -715,6 +766,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           "stale changed head",
         );
         assert(JSON.stringify(before) === JSON.stringify(after), "stale changed rows");
+
         return caseRecord(
           "adr-09-stale-version",
           "stale",
@@ -723,7 +775,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["candidate"],
-          { failureTag: errorTag(failure), headBefore, headAfter },
+          canonicalJsonValue({ failureTag: errorTag(failure), headBefore, headAfter }),
         );
       }),
     );
@@ -732,13 +784,16 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         await append(db, FIXTURE_COMMAND);
         const before = await rowCounts(db);
         const command = { ...FIXTURE_COMMAND, commandId: "cmd-0014-terminal", expectedVersion: 4 };
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(db, command),
           (error) => errorReason(error) === "TERMINAL_CONDUCTED",
           "terminal command",
         );
+
         const after = await rowCounts(db);
         assert(JSON.stringify(before) === JSON.stringify(after), "terminal changed rows");
+
         return caseRecord(
           "adr-10-terminal",
           "terminal",
@@ -747,7 +802,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture", "candidate"],
-          { failureTag: errorTag(failure) },
+          canonicalJsonValue({ failureTag: errorTag(failure) }),
         );
       }),
     );
@@ -757,11 +812,12 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         const before = await rowCounts(db);
         const duplicate = await append(db, FIXTURE_COMMAND);
         assert(
-          duplicate._tag === "DuplicateResult",
+          Predicate.isTagged(duplicate, "DuplicateResult"),
           "exact duplicate did not return stored result",
         );
         const after = await rowCounts(db);
         assert(JSON.stringify(before) === JSON.stringify(after), "duplicate changed rows");
+
         return caseRecord(
           "adr-11-global-duplicate",
           "duplicate",
@@ -770,7 +826,10 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture", "ledger"],
-          { resultBytesEqual: duplicate.resultBytes.length > 0, terminalValidationSkipped: true },
+          canonicalJsonValue({
+            resultBytesEqual: duplicate.resultBytes.length > 0,
+            terminalValidationSkipped: true,
+          }),
         );
       }),
     );
@@ -778,17 +837,21 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
       await withSeed(async ({ db }) => {
         await append(db, FIXTURE_COMMAND);
         const before = await rowCounts(db);
+
         const command = {
           ...FIXTURE_COMMAND,
           stream: { ...stream, personId: "person-synth-0014-other" },
         };
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(db, command),
           (error) => errorReason(error) === "DUPLICATE_COMMAND_CONFLICT",
           "changed global duplicate",
         );
+
         const after = await rowCounts(db);
         assert(JSON.stringify(before) === JSON.stringify(after), "duplicate conflict changed rows");
+
         return caseRecord(
           "adr-12-cross-stream-duplicate",
           "duplicate-conflict",
@@ -797,7 +860,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture", "ledger"],
-          { failureTag: errorTag(failure), streamValidationSkipped: true },
+          canonicalJsonValue({ failureTag: errorTag(failure), streamValidationSkipped: true }),
         );
       }),
     );
@@ -807,24 +870,33 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         const headBefore = await readFixtureHead(db);
         assert(headBefore !== null, "race preflight head missing");
         let markAReady: () => void = () => {};
+
         let markBReady: () => void = () => {};
+
         let releaseA: () => void = () => {};
+
         let releaseB: () => void = () => {};
+
         const readyA = new Promise<void>((resolve) => {
           markAReady = resolve;
         });
+
         const readyB = new Promise<void>((resolve) => {
           markBReady = resolve;
         });
+
         const allowA = new Promise<void>((resolve) => {
           releaseA = resolve;
         });
+
         const allowB = new Promise<void>((resolve) => {
           releaseB = resolve;
         });
+
         const bothReady = Promise.all([readyA, readyB]);
         const commandA = { ...FIXTURE_COMMAND, commandId: "cmd-0017-race-a" };
         const commandB = { ...FIXTURE_COMMAND, commandId: "cmd-0017-race-b" };
+
         const capture = (command: typeof commandA, markReady: () => void, allow: Promise<void>) =>
           append(db, command, {
             beforeBatch: async (_plan) => {
@@ -835,12 +907,16 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           })
             .then((result) => ({ ok: true as const, result }))
             .catch((error) => ({ ok: false as const, error }));
+
         const outcomeAPromise = capture(commandA, markAReady, allowA);
         const outcomeBPromise = capture(commandB, markBReady, allowB);
         await bothReady;
         releaseA();
         const outcomeA = await outcomeAPromise;
-        assert(outcomeA.ok && outcomeA.result._tag === "AcceptedResult", "race A did not win");
+        assert(
+          outcomeA.ok && Predicate.isTagged(outcomeA.result, "AcceptedResult"),
+          "race A did not win",
+        );
         releaseB();
         const outcomeB = await outcomeBPromise;
         assert(
@@ -860,6 +936,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             after.command_receipts === before.command_receipts + 1,
           "race wrote more than one append",
         );
+
         return caseRecord(
           "adr-13-same-version-race",
           "accepted",
@@ -868,11 +945,11 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["competing-writer", "candidate"],
-          {
+          canonicalJsonValue({
             outcomeTags: ["A:AcceptedResult", "B:StaleState:STALE_VERSION"],
             headBefore,
             headAfter,
-          },
+          }),
         );
       }),
     );
@@ -884,7 +961,8 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         const oldEvent = conductedEventFor("cmd-0017-old-event");
         const candidateCommand = { ...FIXTURE_COMMAND, commandId: "cmd-0017-advance-a" };
         let candidatePlan: BatchPlan | undefined;
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(db, candidateCommand, {
             beforeBatch: async (plan) => {
               candidatePlan = plan;
@@ -923,6 +1001,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           (error) => errorReason(error) === "STALE_VERSION",
           "older event causation FK",
         );
+
         const after = await rowCounts(db);
         const headAfter = await readFixtureHead(db);
         assert(candidatePlan !== undefined, "older-event candidate plan missing");
@@ -946,18 +1025,21 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             candidateReceiptBinds[10] === candidatePlan.newVersion,
           "older-event receipt plan mismatch",
         );
+
         const fkCandidateReceipt = {
           eventId: candidateReceiptBinds[9],
           eventStreamVersion: candidateReceiptBinds[10],
           commandId: candidateReceiptBinds[4],
         };
+
         const existingOldEvent = (
-          await dbRows<Record<string, unknown>>(
+          await dbRows<Schema.JsonObject>(
             db,
             `SELECT event_id, stream_version, causation_id FROM tutor_events WHERE event_id = ?1 AND stream_version = ?2;`,
             [oldEvent.eventId, oldEvent.streamVersion],
           )
         )[0];
+
         assert(
           headAfter !== null &&
             headAfter.current_version === 4 &&
@@ -982,6 +1064,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             after.command_receipts === before.command_receipts,
           "older event candidate was not rolled back",
         );
+
         return caseRecord(
           "adr-14a-older-event-causation",
           "stale",
@@ -990,7 +1073,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture-setup", "candidate"],
-          {
+          canonicalJsonValue({
             failureTag: errorTag(failure),
             setupCausationId: existingOldEvent.causation_id,
             candidateCausationId,
@@ -1014,7 +1097,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             candidateRollback: true,
             headBefore,
             headAfter,
-          },
+          }),
         );
       }),
     );
@@ -1023,7 +1106,8 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         const before = await rowCounts(db);
         const headBefore = await readFixtureHead(db);
         assert(headBefore !== null, "beyond-version preflight head missing");
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(
             db,
             { ...FIXTURE_COMMAND, commandId: "cmd-0017-advance-a" },
@@ -1040,6 +1124,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           (error) => errorReason(error) === "STALE_VERSION",
           "beyond version race",
         );
+
         const after = await rowCounts(db);
         const headAfter = await readFixtureHead(db);
         assert(
@@ -1053,6 +1138,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             after.command_receipts === before.command_receipts,
           "beyond-version batch left candidate rows",
         );
+
         return caseRecord(
           "adr-14b-beyond-version",
           "stale",
@@ -1061,7 +1147,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture-setup", "candidate"],
-          {
+          canonicalJsonValue({
             failureTag: errorTag(failure),
             setupHeadVersion: 5,
             setupHeadToken: "cmd-0017-advance-b",
@@ -1069,7 +1155,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             candidateRollback: true,
             headBefore,
             headAfter,
-          },
+          }),
         );
       }),
     );
@@ -1079,13 +1165,16 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         const headBefore = await readFixtureHead(db);
         assert(headBefore !== null, "receipt-conflict preflight head missing");
         const competingCommand = { ...FIXTURE_COMMAND, correlationId: "corr-0017-competing" };
+
         const event = {
           ...conductedEventFor(FIXTURE_COMMAND.commandId),
           eventId: "evt-0017-receipt-competing",
           streamVersion: 5,
         };
+
         const observation = observationFor(FIXTURE_COMMAND.commandId);
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(
             db,
             { ...FIXTURE_COMMAND },
@@ -1132,6 +1221,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           (error) => errorReason(error) === "DUPLICATE_COMMAND_CONFLICT",
           "receipt primary-key conflict",
         );
+
         const after = await rowCounts(db);
         const headAfter = await readFixtureHead(db);
         assert(
@@ -1144,6 +1234,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             after.command_receipts === before.command_receipts + 1,
           "receipt conflict candidate changed rows",
         );
+
         return caseRecord(
           "adr-15a-receipt-primary-key",
           "duplicate-conflict",
@@ -1152,14 +1243,14 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture-setup", "competing-writer", "candidate"],
-          {
+          canonicalJsonValue({
             uniqueness: "command_receipts PRIMARY KEY",
             failureTag: errorTag(failure),
             candidateRollback: true,
             secondLedgerClassification: true,
             headBefore,
             headAfter,
-          },
+          }),
         );
       }),
     );
@@ -1169,7 +1260,8 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         const headBefore = await readFixtureHead(db);
         assert(headBefore !== null, "event-unique preflight head missing");
         const event = conductedEventFor("cmd-0017-event-unique");
-        const failure = await expectFailure<TutorD1Failure>(
+
+        const failure = await expectFailure(
           append(
             db,
             { ...FIXTURE_COMMAND, commandId: "cmd-0017-event-unique" },
@@ -1199,6 +1291,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           (error) => errorTag(error) === "D1BatchError",
           "event uniqueness failure",
         );
+
         const after = await rowCounts(db);
         const headAfter = await readFixtureHead(db);
         assert(
@@ -1211,6 +1304,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             after.command_receipts === before.command_receipts,
           "event uniqueness candidate changed rows",
         );
+
         return caseRecord(
           "adr-15b-event-unique",
           "drift",
@@ -1219,13 +1313,13 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture-setup", "candidate"],
-          {
+          canonicalJsonValue({
             failureTag: errorTag(failure),
             uniqueness: "tutor_events stream_version/event_id",
             candidateRollback: true,
             headBefore,
             headAfter,
-          },
+          }),
         );
       }),
     );
@@ -1233,15 +1327,18 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
       await withSeed(async ({ db }) => {
         await append(db, FIXTURE_COMMAND);
         const before = await rowCounts(db);
+
         const event = (
-          await dbRows<Record<string, unknown>>(
+          await dbRows<Schema.JsonObject>(
             db,
             `SELECT event_id FROM tutor_events WHERE event_id = ?1;`,
             ["evt-0014-004"],
           )
         )[0];
+
         assert(event !== undefined, "trigger fixture event missing");
         const triggerErrors: string[] = [];
+
         for (const sql of [
           "UPDATE tutor_events SET occurred_at = occurred_at WHERE event_id = 'evt-0014-004';",
           "DELETE FROM tutor_events WHERE event_id = 'evt-0014-004';",
@@ -1254,6 +1351,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             triggerErrors.push(error instanceof Error ? error.message : String(error));
           }
         }
+
         assert(triggerErrors.length === 4, "not all immutable trigger operations failed");
         assert(
           triggerErrors.every((message) => message.includes("immutable")),
@@ -1261,6 +1359,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         );
         const after = await rowCounts(db);
         assert(JSON.stringify(before) === JSON.stringify(after), "trigger operations changed rows");
+
         return caseRecord(
           "adr-16-immutable-triggers",
           "rejected",
@@ -1269,38 +1368,43 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture", "trigger"],
-          {
+          canonicalJsonValue({
             triggerMessages: triggerErrors.map((message) =>
               message.includes("tutor_events")
                 ? "tutor_events are immutable"
                 : "command_receipts are immutable",
             ),
-          },
+          }),
         );
       }),
     );
     cases.push(
       await withSeed(async ({ db }) => {
         await append(db, FIXTURE_COMMAND);
-        const rows = (await dbRows<Record<string, unknown>>(db, REPLAY_SQL, [
+
+        const rows = await dbRows<ReplayEventRow>(db, REPLAY_SQL, [
           stream.personId,
           stream.cycle.departmentId,
           stream.cycle.semester.year,
           stream.cycle.semester.term,
-        ])) as unknown as ReadonlyArray<ReplayEventRow>;
+        ]);
+
         const normalizedRows = rows.map((row) => ({
           ...row,
-          envelope_bytes: Array.from(normalizeBlobBytes(row.envelope_bytes)),
+          envelope_bytes: globalThis.Array.from(normalizeBlobBytes(row.envelope_bytes)),
         }));
+
         const replay = await Effect.runPromise(
-          runWithTutorD1(db as unknown as D1Binding, validateReplayRows(stream, normalizedRows)),
+          runWithTutorD1(db, validateReplayRows(stream, normalizedRows)),
         );
+
         assert(
           replay.events.length === 4 && replay.folded.events.length === 4,
           "number-array normalization did not replay",
         );
         const before = await rowCounts(db);
         const after = await rowCounts(db);
+
         return caseRecord(
           "adr-17-number-array-blob",
           "accepted",
@@ -1309,35 +1413,38 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["fixture", "adapter-boundary"],
-          {
+          canonicalJsonValue({
             runtimeType: "number[]",
             normalizedType: "Uint8Array",
             fatalUtf8: true,
             exactReencode: true,
-          },
+          }),
         );
       }),
     );
     cases.push(
       await withSeed(async ({ db }) => {
-        const rows = (await dbRows<Record<string, unknown>>(db, REPLAY_SQL, [
+        const rows = await dbRows<ReplayEventRow>(db, REPLAY_SQL, [
           stream.personId,
           stream.cycle.departmentId,
           stream.cycle.semester.year,
           stream.cycle.semester.term,
-        ])) as unknown as ReadonlyArray<ReplayEventRow>;
+        ]);
+
         const wrongValues: ReadonlyArray<unknown> = [
           "not-bytes",
           { bytes: [1, 2] },
           null,
           [0, 256],
         ];
+
         const failures: string[] = [];
+
         for (const wrong of wrongValues) {
           try {
             await Effect.runPromise(
               runWithTutorD1(
-                db as unknown as D1Binding,
+                db,
                 validateReplayRows(stream, [{ ...rows[0]!, envelope_bytes: wrong }]),
               ),
             );
@@ -1345,12 +1452,14 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             failures.push(`${errorTag(error)}:${errorReason(error)}`);
           }
         }
+
         assert(
           failures.length === wrongValues.length &&
             failures.every((failure) => failure.startsWith("D1IntegrityError:D1_INTEGRITY")),
           "wrong BLOB values did not fail closed",
         );
         const counts = await rowCounts(db);
+
         return caseRecord(
           "adr-18-wrong-blob-runtime-type",
           "drift",
@@ -1359,20 +1468,21 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           counts,
           counts,
           ["fixture", "adapter-boundary"],
-          { failures, foldInvoked: false, descriptorExposed: false },
+          canonicalJsonValue({ failures, foldInvoked: false, descriptorExposed: false }),
         );
       }),
     );
     cases.push(
       await withSeed(async ({ db }) => {
-        assert(accepted.result._tag === "AcceptedResult", "accepted SQL plan missing");
+        assert(Predicate.isTagged(accepted.result, "AcceptedResult"), "accepted SQL plan missing");
         const acceptedResult = accepted.result;
         const before = await rowCounts(db);
         const headBefore = await readFixtureHead(db);
         assert(headBefore !== null, "stale SQL preflight head missing");
         const staleCommand = { ...FIXTURE_COMMAND, commandId: "cmd-0017-sql-stale" };
         let stalePlan: BatchPlan | undefined;
-        const stale = await expectFailure<TutorD1Failure>(
+
+        const stale = await expectFailure(
           append(db, staleCommand, {
             beforeBatch: async (plan) => {
               stalePlan = plan;
@@ -1386,6 +1496,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           (error) => errorReason(error) === "STALE_VERSION",
           "stale SQL batch",
         );
+
         assert(stalePlan !== undefined, "stale batch plan was not captured");
         const acceptedSql = acceptedResult.batchPlan.statements.map((statement) => statement.sql);
         const staleSql = stalePlan.statements.map((statement) => statement.sql);
@@ -1413,6 +1524,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           "stale SQL setup head mismatch",
         );
         assert(JSON.stringify(before) === JSON.stringify(after), "stale SQL batch changed rows");
+
         return caseRecord(
           "adr-19-numbered-sql-binds",
           "stale",
@@ -1421,7 +1533,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           before,
           after,
           ["candidate", "batch-result"],
-          {
+          canonicalJsonValue({
             sqlTexts,
             bindOrder: {
               accepted: acceptedResult.batchPlan.statements.map((statement) => statement.binds),
@@ -1432,7 +1544,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
             staleFailure: `${errorTag(stale)}:${errorReason(stale)}`,
             headBefore,
             headAfter,
-          },
+          }),
         );
       }),
     );
@@ -1440,15 +1552,19 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
 
     const acceptedReplay = await withSeed(async ({ db }) => {
       await append(db, FIXTURE_COMMAND);
-      const result = (await readReplay(db)) as ReplayResult;
+      const result = await readReplay(db);
       const projection = projectFoldedState(result.folded);
       const counts = await rowCounts(db);
+
       return { result, projection, counts };
     });
+
     const descriptor = accepted.observation.descriptor;
     const reasonCounts: Record<string, number> = {};
+
     for (const item of cases)
       reasonCounts[item.reasonCode] = (reasonCounts[item.reasonCode] ?? 0) + 1;
+
     return {
       formatVersion: 1,
       specId: SPEC_ID,
@@ -1469,14 +1585,14 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
       localMiniflareVersion: MINIFLARE_VERSION,
       correlationId: FIXTURE_CORRELATION_ID,
       stream,
-      seedHead: {
+      seedHead: canonicalJsonValue({
         person_id: FIXTURE_PERSON_ID,
         department_id: FIXTURE_DEPARTMENT_ID,
         semester_year: 2026,
         semester_term: "Vår",
         current_version: 3,
         last_command_id: FIXTURE_ID,
-      },
+      }),
       seedEvents: FIXTURE_SEED_EVENTS.map((event) => ({
         eventId: event.eventId,
         streamVersion: event.streamVersion,
@@ -1485,14 +1601,14 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         causationId: event.causationId,
         correlationId: event.correlationId,
       })),
-      batch: {
+      batch: canonicalJsonValue({
         accepted: accepted.plan,
         stale: cases.find((item) => item.caseId === "adr-19-numbered-sql-binds")?.details,
         resultIndexes: [0, 1, 2],
         exactBindCardinality: [7, 12, 11],
-      },
+      }),
       cases,
-      replay: {
+      replay: canonicalJsonValue({
         query: REPLAY_SQL,
         bindOrder: ["personId", "departmentId", "semesterYear", "semesterTerm"],
         eventOrder: acceptedReplay.result.events.map((event) => event.eventId),
@@ -1504,15 +1620,15 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         ],
         persistedBadRowsFailClosed: true,
         adapterArrayLimit: ["duplicate-event-id", "duplicate-stream-version", "cross-stream-row"],
-      },
+      }),
       projection: acceptedReplay.projection,
       effectDescriptors: [descriptor],
-      rowCounts: {
+      rowCounts: canonicalJsonValue({
         finalCanonicalStream: acceptedReplay.counts,
         acceptedStreamVersion: 4,
         acceptedReceiptCount: 1,
         eventIds: acceptedReplay.result.events.map((event) => event.eventId),
-      },
+      }),
       limits: [
         "local-miniflare-only",
         "one-disposable-binding-per-journey-run-reset-between-cases",
@@ -1526,7 +1642,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         "descriptor-is-inert-and-not-interpreted",
         "adapter-array-duplicate-and-cross-stream-cases-are-fold-input-only",
       ],
-      provenance: {
+      provenance: canonicalJsonValue({
         pinnedBunVersion: PINNED_BUN_VERSION,
         miniflareSetup: {
           modules: true,
@@ -1542,7 +1658,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
         canonicalIntegrationBase: CANONICAL_INTEGRATION_BASE,
         canonicalD1IntegrationCommit: CANONICAL_D1_INTEGRATION_COMMIT,
         noNetwork: true,
-      },
+      }),
     };
   } finally {
     activeRuntime = undefined;
@@ -1556,9 +1672,10 @@ const replayCases = async (): Promise<CaseRecord> => {
     readonly reasonCode: string;
     readonly makeEvent: (base: EventEnvelopeV1) => {
       readonly event: EventEnvelopeV1;
-      readonly indexed: Readonly<Record<string, unknown>>;
+      readonly indexed: Partial<Omit<ReplayEventRow, "envelope_bytes">>;
     };
   };
+
   const badRows: ReadonlyArray<BadRow> = [
     {
       caseId: "unknown-schema",
@@ -1597,10 +1714,11 @@ const replayCases = async (): Promise<CaseRecord> => {
       }),
     },
   ];
+
   const insertReplayRow = async (
     db: LocalBinding,
     event: EventEnvelopeV1,
-    indexed: Readonly<Record<string, unknown>>,
+    indexed: Partial<Omit<ReplayEventRow, "envelope_bytes">>,
   ): Promise<void> => {
     const row = {
       person_id: stream.personId,
@@ -1617,6 +1735,7 @@ const replayCases = async (): Promise<CaseRecord> => {
       correlation_id: event.correlationId,
       ...indexed,
     };
+
     await dbExec(
       db,
       `INSERT INTO tutor_events (person_id, department_id, semester_year, semester_term, event_id, stream_version, schema_version, event_type, envelope_bytes, occurred_at, causation_id, correlation_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12);`,
@@ -1636,17 +1755,21 @@ const replayCases = async (): Promise<CaseRecord> => {
       ],
     );
   };
+
   const observations: string[] = [];
+
   for (const bad of badRows) {
     await withSeed(async ({ db }) => {
       const before = await rowCounts(db);
       const { event, indexed } = bad.makeEvent(conductedEventFor(`cmd-0017-replay-${bad.caseId}`));
       await insertReplayRow(db, event, indexed);
-      const failure = await expectFailure<TutorD1Failure>(
+
+      const failure = await expectFailure(
         readReplay(db),
         (error) => errorTag(error) === "D1IntegrityError",
         `persisted replay ${bad.caseId}`,
       );
+
       assert(
         errorReason(failure) === "D1_INTEGRITY",
         `persisted replay ${bad.caseId} did not enter Drift`,
@@ -1660,49 +1783,51 @@ const replayCases = async (): Promise<CaseRecord> => {
       observations.push(`${bad.caseId}:persisted:D1IntegrityError:${bad.reasonCode}`);
     });
   }
+
   await withSeed(async ({ db }) => {
-    const rows = (await dbRows<Record<string, unknown>>(db, REPLAY_SQL, [
+    const rows = await dbRows<ReplayEventRow>(db, REPLAY_SQL, [
       stream.personId,
       stream.cycle.departmentId,
       stream.cycle.semester.year,
       stream.cycle.semester.term,
-    ])) as unknown as ReadonlyArray<ReplayEventRow>;
-    const duplicateFailure = await expectFailure<TutorD1Failure>(
+    ]);
+
+    const duplicateFailure = await expectFailure(
       Effect.runPromise(
-        runWithTutorD1(
-          db as unknown as D1Binding,
-          validateReplayRows(stream, [rows[0]!, rows[0]!, rows[1]!]),
-        ),
+        runWithTutorD1(db, validateReplayRows(stream, [rows[0]!, rows[0]!, rows[1]!])),
       ),
       (error) => errorTag(error) === "D1IntegrityError",
       "adapter duplicate event",
     );
-    const crossStreamFailure = await expectFailure<TutorD1Failure>(
+
+    const crossStreamFailure = await expectFailure(
       Effect.runPromise(
         runWithTutorD1(
-          db as unknown as D1Binding,
+          db,
           validateReplayRows(stream, [{ ...rows[0]!, person_id: "person-synth-0017-other" }]),
         ),
       ),
       (error) => errorTag(error) === "D1IntegrityError",
       "adapter cross-stream row",
     );
+
     observations.push(
       `duplicate-event-id-version:adapter:${errorReason(duplicateFailure)}`,
       `cross-stream-row:adapter:${errorReason(crossStreamFailure)}`,
     );
   });
+
   return withSeed(async ({ db }) => {
     const before = await rowCounts(db);
-    const valid = (await readReplay(db)) as {
-      readonly events: ReadonlyArray<EventEnvelopeV1>;
-      readonly folded: { readonly events: ReadonlyArray<EventEnvelopeV1> };
-    };
+
+    const valid = await readReplay(db);
+
     assert(
       valid.events.length === 3 && valid.folded.events.length === 3,
       "valid replay baseline failed",
     );
     const after = await rowCounts(db);
+
     return caseRecord(
       "adr-20-replay-integrity",
       "rejected",
@@ -1711,7 +1836,7 @@ const replayCases = async (): Promise<CaseRecord> => {
       before,
       after,
       ["fresh-persisted-row", "adapter-row-array"],
-      {
+      canonicalJsonValue({
         observations,
         validEventOrder: valid.events.map((event) => event.eventId),
         localPersistenceLimit: [
@@ -1719,7 +1844,7 @@ const replayCases = async (): Promise<CaseRecord> => {
           "duplicate-stream-version",
           "cross-stream-row",
         ],
-      },
+      }),
     );
   });
 };
@@ -1750,12 +1875,14 @@ const canonicalEvidenceJson = (evidence: D1Evidence): string => {
     ["limits", evidence.limits],
     ["provenance", evidence.provenance],
   ];
+
   return `{${entries.map(([key, value]) => `${JSON.stringify(key)}:${canonicalJson(value)}`).join(",")}}`;
 };
 
 const renderEvidence = (document: D1Evidence): RenderedEvidence => {
   const canonical = canonicalEvidenceJson(document);
   const bytes = new TextEncoder().encode(`${canonical}\n`);
+
   return { document, canonicalJson: canonical, bytes, digest: sha256Hex(bytes) };
 };
 
@@ -1779,6 +1906,7 @@ export const runD1Proof = async (): Promise<D1ProofRun> => {
       firstBase.bytes.every((byte, index) => byte === secondBase.bytes[index]),
     "clean local evidence bytes changed",
   );
+
   const repeatDetails = {
     firstByteLength: firstBase.bytes.length,
     secondByteLength: secondBase.bytes.length,
@@ -1786,6 +1914,7 @@ export const runD1Proof = async (): Promise<D1ProofRun> => {
     secondSha256: secondBase.digest,
     byteIdentical: true,
   };
+
   const finalDocument: D1Evidence = {
     ...first,
     cases: [
@@ -1798,11 +1927,15 @@ export const runD1Proof = async (): Promise<D1ProofRun> => {
         { stream_heads: 1, tutor_events: 4, command_receipts: 1 },
         { stream_heads: 1, tutor_events: 4, command_receipts: 1 },
         ["clean-run-a", "clean-run-b"],
-        repeatDetails,
+        canonicalJsonValue(repeatDetails),
       ),
     ],
-    provenance: { ...first.provenance, twoRunCanonicalEvidence: repeatDetails },
+    provenance: {
+      ...Schema.decodeUnknownSync(Schema.JsonObject)(first.provenance),
+      twoRunCanonicalEvidence: repeatDetails,
+    },
   };
+
   const firstRender = renderEvidence(finalDocument);
   const secondRender = renderEvidence(finalDocument);
   assert(
@@ -1815,35 +1948,36 @@ export const runD1Proof = async (): Promise<D1ProofRun> => {
     "same-document evidence bytes changed",
   );
   const reasonCounts: Record<string, number> = {};
+
   for (const item of finalDocument.cases)
     reasonCounts[item.reasonCode] = (reasonCounts[item.reasonCode] ?? 0) + 1;
+
   return { passed: true, evidence: firstRender, secondRender, reasonCounts };
 };
 
 const TutorD1ProofLive = Layer.succeed(TutorD1Proof, {
-  run: Effect.tryPromise({
-    try: async (): Promise<D1ProofResult> => {
-      const run = await runD1Proof();
-      return {
-        passed: run.passed,
-        caseCount: run.evidence.document.cases.length,
-        reasonCounts: run.reasonCounts,
-        evidenceByteLength: run.evidence.bytes.length,
-        evidenceSha256: run.evidence.digest,
-        secondEvidenceSha256: run.secondRender.digest,
-        byteIdentical: run.evidence.bytes.every(
-          (byte, index) => byte === run.secondRender.bytes[index],
-        ),
-        evidenceCanonicalJson: run.evidence.canonicalJson,
-      };
-    },
-    catch: (cause) => cause,
+  run: Effect.tryPromise(async (): Promise<D1ProofResult> => {
+    const run = await runD1Proof();
+
+    return {
+      passed: run.passed,
+      caseCount: run.evidence.document.cases.length,
+      reasonCounts: run.reasonCounts,
+      evidenceByteLength: run.evidence.bytes.length,
+      evidenceSha256: run.evidence.digest,
+      secondEvidenceSha256: run.secondRender.digest,
+      byteIdentical: run.evidence.bytes.every(
+        (byte, index) => byte === run.secondRender.bytes[index],
+      ),
+      evidenceCanonicalJson: run.evidence.canonicalJson,
+    };
   }),
 });
 
 const exitCode = await Effect.runPromise(
   Effect.scoped(
-    main(nodeArguments()).pipe(Effect.provide(TutorD1ProofLive), Effect.provide(DomainProcessLive)),
+    main(nodeArguments()).pipe(Effect.provide(Layer.merge(TutorD1ProofLive, DomainProcessLive))),
   ),
 );
+
 setNodeExitCode(exitCode);

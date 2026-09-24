@@ -36,7 +36,7 @@ export interface InterviewCommands {
   }) => Command.Command<Message>;
 }
 
-export const makeInterviewCommands = (client: InvitationResponseClient): InterviewCommands => {
+export const commandsFor = (client: InvitationResponseClient): InterviewCommands => {
   const ReadInvitationResponse = Command.define("ReadInvitationResponse", {
     args: { requestId: InvitationResponseRequestIdSchema },
     messages: [SucceededReadInvitationResponse, FailedReadInvitationResponse],
@@ -50,6 +50,7 @@ export const makeInterviewCommands = (client: InvitationResponseClient): Intervi
         ),
       ),
   });
+
   const mutationWithFreshRead = (
     mutation: Effect.Effect<void, InvitationBridgeFailure>,
     requestId: number,

@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { VariantProps, cva } from "class-variance-authority";
@@ -19,10 +20,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
+
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+
 const SIDEBAR_WIDTH = "16rem";
+
 const SIDEBAR_WIDTH_MOBILE = "18rem";
+
 const SIDEBAR_WIDTH_ICON = "3rem";
+
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 type SidebarContextProps = {
@@ -39,6 +45,7 @@ const SidebarContext = React.createContext<SidebarContextProps | null>(null);
 
 function useSidebar() {
   const context = React.useContext(SidebarContext);
+
   if (!context) {
     throw new Error("useSidebar must be used within a SidebarProvider.");
   }
@@ -59,6 +66,12 @@ function SidebarProvider({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const sidebarStyle = {
+              "--sidebar-width": SIDEBAR_WIDTH,
+              "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+              ...style,
+            } satisfies React.CSSProperties & { "--sidebar-width": string; "--sidebar-width-icon": string };
+
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
 
@@ -66,9 +79,11 @@ function SidebarProvider({
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen);
   const open = openProp ?? _open;
+
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value;
+      const openState = Predicate.isFunction(value) ? value(open) : value;
+
       if (setOpenProp) {
         setOpenProp(openState);
       } else {
@@ -96,6 +111,7 @@ function SidebarProvider({
     };
 
     window.addEventListener("keydown", handleKeyDown);
+
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [toggleSidebar]);
 
@@ -122,11 +138,7 @@ function SidebarProvider({
         <div
           data-slot="sidebar-wrapper"
           style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH,
-              "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
-              ...style,
-            } as React.CSSProperties
+            sidebarStyle
           }
           className={cn(
             "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full",
@@ -153,6 +165,10 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
 }) {
+  const mobileSidebarStyle: React.CSSProperties & { "--sidebar-width": string } = {
+              "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
+            };
+
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
 
   if (collapsible === "none") {
@@ -179,9 +195,7 @@ function Sidebar({
           data-mobile="true"
           className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden"
           style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-            } as React.CSSProperties
+            mobileSidebarStyle
           }
           side={side}
         >
@@ -503,7 +517,7 @@ function SidebarMenuButton({
     return button;
   }
 
-  if (typeof tooltip === "string") {
+  if (Predicate.isString(tooltip)) {
     tooltip = {
       children: tooltip,
     };
@@ -580,10 +594,14 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean;
 }) {
+
+
   // Random width between 50 to 90%.
   const width = React.useMemo(() => {
     return `${Math.floor(Math.random() * 40) + 50}%`;
   }, []);
+
+  const skeletonStyle: React.CSSProperties & { "--skeleton-width": string } = { "--skeleton-width": width };
 
   return (
     <div
@@ -597,9 +615,7 @@ function SidebarMenuSkeleton({
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
         style={
-          {
-            "--skeleton-width": width,
-          } as React.CSSProperties
+          skeletonStyle
         }
       />
     </div>

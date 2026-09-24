@@ -1,6 +1,6 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Context, Duration, Effect, Layer, Redacted } from "effect";
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 
 /** The one native PostgreSQL pool shared by Database and Better Auth. */
 export class DatabasePgPool extends Context.Service<DatabasePgPool, Pool>()(
@@ -10,7 +10,7 @@ export class DatabasePgPool extends Context.Service<DatabasePgPool, Pool>()(
 const makeSharedPgPool = (config: Parameters<typeof PgClient.layer>[0]) =>
   Effect.acquireRelease(
     Effect.sync(() => {
-      const pool = new Pool({
+      const options: PoolConfig = {
         connectionString: config.url === undefined ? undefined : Redacted.value(config.url),
         user: config.username,
         host: config.host,
@@ -18,7 +18,6 @@ const makeSharedPgPool = (config: Parameters<typeof PgClient.layer>[0]) =>
         password: config.password === undefined ? undefined : Redacted.value(config.password),
         ssl: config.ssl,
         port: config.port,
-        ...(config.stream === undefined ? {} : { stream: config.stream }),
         connectionTimeoutMillis:
           config.connectTimeout === undefined
             ? undefined
@@ -36,8 +35,14 @@ const makeSharedPgPool = (config: Parameters<typeof PgClient.layer>[0]) =>
         application_name: config.applicationName ?? "@effect/sql-pg",
         options: "-c search_path=auth,public",
         types: config.types,
-      });
+      };
+
+      if (config.stream !== undefined) options.stream = config.stream;
+
+      const pool = new Pool(options);
+
       pool.on("error", () => {});
+
       return pool;
     }),
     (pool) =>
@@ -49,11 +54,14 @@ const makeSharedPgPool = (config: Parameters<typeof PgClient.layer>[0]) =>
 
 export const sharedPgLayer = (config: Parameters<typeof PgClient.layer>[0]) => {
   const poolLayer = Layer.effect(DatabasePgPool, makeSharedPgPool(config));
+
   const clientLayer = PgClient.layerFrom(
     Effect.gen(function* () {
       const pool = yield* DatabasePgPool;
+
       return yield* PgClient.fromPool({ ...config, acquire: Effect.succeed(pool) });
     }),
   );
+
   return clientLayer.pipe(Layer.provideMerge(poolLayer));
 };

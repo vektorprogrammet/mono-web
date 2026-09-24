@@ -13,6 +13,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const redactedLocation = new URL("./redacted", exchangeUrl).pathname;
   const bridgePath = new URL("../interview", exchangeUrl).pathname;
   const capability = params.capability;
+
   if (capability === undefined || capability === "redacted") {
     throw redirect(redactedLocation, { headers: responseHeaders });
   }
@@ -24,9 +25,11 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   }
 
   const interactionId = createInvitationInteractionId();
+
   const redactedInteractionLocation = `${redactedLocation}?${new URLSearchParams({
     interactionId,
   })}`;
+
   throw redirect(redactedInteractionLocation, {
     headers: {
       ...responseHeaders,

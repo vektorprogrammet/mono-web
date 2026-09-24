@@ -16,11 +16,14 @@ export function validateDashboardPreviewStage(
     if (configuredHost !== undefined || configuredHostSuffix !== WORKERS_DEV_HOST_SUFFIX) {
       throw new Error("Invalid Worker Preview host configuration");
     }
+
     return stage;
   }
+
   if (stage !== "p20" && stage !== "dev-main") {
     throw new Error("Unsupported dashboard preview stage");
   }
+
   if (
     configuredHostSuffix !== undefined ||
     configuredHost === undefined ||
@@ -28,6 +31,7 @@ export function validateDashboardPreviewStage(
   ) {
     throw new Error("Dashboard preview stage and host do not match");
   }
+
   return stage;
 }
 
@@ -44,5 +48,6 @@ export function isDashboardPreviewHost(
       requestHost.endsWith(WORKERS_DEV_HOST_SUFFIX)
     );
   }
+
   return configuredHost !== undefined && requestHost === configuredHost.toLowerCase();
 }

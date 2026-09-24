@@ -1,36 +1,39 @@
-import {
-  Database,
-  IdentitySnapshot,
-  OAuthCredentialAuthority,
-  type DatabaseShape,
-} from "@vektorprogrammet/database";
+import { backendDatabase } from "../../test/database.js";
+import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
   IdentityActor,
   IdentitySessionNotFound,
-  type IdentityShape,
+  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import {
-  CreateDepartmentResultSchema,
-  CreateFieldOfStudyResultSchema,
-  CreateTeamResultSchema,
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   Organization,
   PersonId,
   TeamJsonSchema,
-  type OrganizationShape,
+  type OrganizationOperations,
+  OrganizationCommandId,
+  DepartmentCreatedObservationSchema,
+  TeamCreatedObservationSchema,
+  FieldOfStudyCreatedObservationSchema,
+  OrganizationActorSchema,
+  OrganizationRoleDenied,
+  OrganizationCommandConflict,
+  OrganizationPersistenceError,
+  OrganizationInvalidReference,
 } from "@vektorprogrammet/domain/organization";
-import { DateTime, Effect, Layer, Schema } from "effect";
+import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeOrganizationApiConfig } from "./config.js";
+import { decodeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
 
 const ADMIN_SESSION = "organization-admin-session";
+
 const MEMBER_SESSION = "organization-member-session";
 
-const config = makeOrganizationApiConfig({
+const config = decodeOrganizationApiConfig({
   ORGANIZATION_MAX_BODY_BYTES: "1024",
 });
 
@@ -107,29 +110,19 @@ const createFieldOfStudyRequest = {
   departmentId: fieldOfStudy.departmentId,
 } as const;
 
-const departmentResult = (commandId: string, committed: boolean) =>
-  Schema.decodeUnknownSync(CreateDepartmentResultSchema)(
-    committed
-      ? {
-          committed: true,
-          observation: { _tag: "DepartmentCreated", commandId, department },
-        }
-      : {
-          committed: false,
-          observation: {
-            _tag: "Replayed",
-            commandId,
-            original: { _tag: "DepartmentCreated", commandId, department },
-          },
-        },
-    { onExcessProperty: "error" },
-  );
+const departmentResult = (commandId: OrganizationCommandId) => ({
+  committed: true as const,
+  observation: DepartmentCreatedObservationSchema.make({ commandId, department }),
+});
 
 let publicListCalls = 0;
+
 let createCalls = 0;
+
 const organization = {
   listDepartments: Effect.sync(() => {
     publicListCalls += 1;
+
     return [department];
   }),
   listTeams: () => Effect.succeed([team]),
@@ -142,95 +135,58 @@ const organization = {
       memberships: [],
     }),
   createDepartment: (
-    command: Parameters<OrganizationShape["createDepartment"]>[0],
-    actor: Parameters<OrganizationShape["createDepartment"]>[1],
+    command: Parameters<OrganizationOperations["createDepartment"]>[0],
+    actor: Parameters<OrganizationOperations["createDepartment"]>[1],
   ) => {
     createCalls += 1;
-    if (actor._tag === "OrganizationMember") {
-      return Effect.fail({ _tag: "OrganizationRoleDenied" } as never);
-    }
-    if (command.name === "Conflict") {
-      return Effect.fail({ _tag: "OrganizationCommandConflict" } as never);
-    }
-    if (command.name === "Unavailable") {
-      return Effect.fail({ _tag: "OrganizationPersistenceError" } as never);
-    }
-    return Effect.succeed(departmentResult(command.commandId, true));
-  },
-  createTeam: (command: Parameters<OrganizationShape["createTeam"]>[0]) => {
-    createCalls += 1;
-    if (command.departmentId === "department-unknown") {
-      return Effect.fail({ _tag: "OrganizationInvalidReference" } as never);
-    }
-    return Effect.succeed(
-      Schema.decodeUnknownSync(CreateTeamResultSchema)(
-        {
-          committed: true,
-          observation: { _tag: "TeamCreated", commandId: command.commandId, team },
-        },
-        { onExcessProperty: "error" },
-      ),
-    );
-  },
-  createFieldOfStudy: (command: Parameters<OrganizationShape["createFieldOfStudy"]>[0]) =>
-    Effect.succeed(
-      Schema.decodeUnknownSync(CreateFieldOfStudyResultSchema)(
-        {
-          committed: true,
-          observation: {
-            _tag: "FieldOfStudyCreated",
-            commandId: command.commandId,
-            fieldOfStudy,
-          },
-        },
-        { onExcessProperty: "error" },
-      ),
-    ),
-} as unknown as OrganizationShape;
-type NativeReceiptRow = {
-  readonly requestSha256: string;
-  readonly operationId: string;
-  readonly state: "Complete";
-  readonly status: number;
-  readonly mediaType: string | null;
-  readonly bodyBytes: Uint8Array | null;
-  readonly headers: unknown;
-};
 
-const nativeReceipts = new Map<string, NativeReceiptRow>();
-const database = Object.assign(
-  ((strings: TemplateStringsArray, ...values: ReadonlyArray<unknown>) => {
-    const statement = strings.join(" ");
-    if (statement.includes("SET TRANSACTION ISOLATION LEVEL")) return Effect.void;
-    if (statement.includes("SELECT pg_try_advisory_xact_lock")) {
-      return Effect.succeed([{ acquired: true }]);
+    if (Predicate.isTagged(actor, "OrganizationMember")) {
+      return Effect.fail(
+        new OrganizationRoleDenied({
+          actorPersonId: actor.personId,
+          requiredRole: "OrganizationAdministrator",
+        }),
+      );
     }
-    if (statement.includes("UPDATE public.native_http_idempotency_receipts")) {
-      return Effect.succeed([]);
+
+    if (command.name === "Conflict") {
+      return Effect.fail(new OrganizationCommandConflict({ commandId: command.commandId }));
     }
-    if (statement.includes("FROM public.native_http_idempotency_receipts")) {
-      const stored = nativeReceipts.get(String(values[0]));
-      return Effect.succeed(stored === undefined ? [] : [stored]);
+
+    if (command.name === "Unavailable") {
+      return Effect.fail(
+        new OrganizationPersistenceError({
+          operation: "createDepartment",
+          message: "database unavailable",
+        }),
+      );
     }
-    if (statement.includes("INSERT INTO public.native_http_idempotency_receipts")) {
-      nativeReceipts.set(String(values[0]), {
-        requestSha256: String(values[1]),
-        operationId: String(values[2]),
-        state: "Complete",
-        status: Number(values[3]),
-        mediaType: values[4] as string | null,
-        bodyBytes: values[5] as Uint8Array | null,
-        headers: values[6],
-      });
-    }
-    return Effect.succeed([]);
-  }) as unknown as DatabaseShape,
-  {
-    health: Effect.void,
-    json: (value: unknown) => value,
-    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
+
+    return Effect.succeed(departmentResult(command.commandId));
   },
-);
+  createTeam: (command: Parameters<OrganizationOperations["createTeam"]>[0]) => {
+    createCalls += 1;
+
+    if (command.departmentId === "department-unknown") {
+      return Effect.fail(new OrganizationInvalidReference({ referenceKind: "Department" }));
+    }
+
+    return Effect.succeed({
+      committed: true as const,
+      observation: TeamCreatedObservationSchema.make({ commandId: command.commandId, team }),
+    });
+  },
+  createFieldOfStudy: (command: Parameters<OrganizationOperations["createFieldOfStudy"]>[0]) =>
+    Effect.succeed({
+      committed: true as const,
+      observation: FieldOfStudyCreatedObservationSchema.make({
+        commandId: command.commandId,
+        fieldOfStudy,
+      }),
+    }),
+} satisfies Partial<OrganizationOperations>;
+
+const database = backendDatabase();
 
 const identitySnapshot = IdentitySnapshot.of({
   resolveSession: (cookieHeader) =>
@@ -240,6 +196,7 @@ const identitySnapshot = IdentitySnapshot.of({
         : cookieHeader?.includes(MEMBER_SESSION)
           ? PersonId.make("person-member")
           : undefined;
+
       return personId === undefined
         ? Effect.fail(new IdentitySessionNotFound())
         : Effect.succeed(
@@ -259,7 +216,8 @@ const identitySnapshot = IdentitySnapshot.of({
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
-} as never);
+});
+
 const identity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
@@ -268,7 +226,9 @@ const identity = Identity.of({
       : cookieHeader?.includes(MEMBER_SESSION)
         ? PersonId.make("person-member")
         : undefined;
+
     if (personId === undefined) throw new IdentitySessionNotFound();
+
     return new IdentityActor({
       personId,
       sessionId: "organization-http-session",
@@ -283,26 +243,30 @@ const identity = Identity.of({
   revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
   recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
   signOut: async () => ({ setCookies: [] }),
-} satisfies IdentityShape);
+} satisfies IdentityOperations);
+
 const services = Layer.mergeAll(
-  Layer.succeed(Database, database),
+  database.layer,
   Layer.succeed(IdentitySnapshot, identitySnapshot),
-  Layer.succeed(Organization, organization),
+  Layer.mock(Organization, organization),
   Layer.succeed(Identity, identity),
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );
+
 const http = makeOrganizationApiHttp(
   {
     config,
     resolveActor: (request) => {
       const cookieHeader = request.headers.get("cookie");
+
       if (cookieHeader === null) {
         return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
       }
+
       return Effect.succeed(
         cookieHeader.includes(`better-auth.session_token=${ADMIN_SESSION}`)
-          ? { _tag: "OrganizationAdministrator" as const, personId: PersonId.make("person-admin") }
-          : { _tag: "OrganizationMember" as const, personId: PersonId.make("person-member") },
+          ? OrganizationActorSchema.members[0].make({ personId: PersonId.make("person-admin") })
+          : OrganizationActorSchema.members[1].make({ personId: PersonId.make("person-member") }),
       );
     },
     resolveAuthority: () =>
@@ -315,12 +279,14 @@ const http = makeOrganizationApiHttp(
   },
   services,
 );
+
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   http.fetch(new Request(`http://backend.test${pathname}`, init));
+
 const post = (
   pathname: string,
   session: string,
-  body: unknown,
+  body: Schema.Json,
   idempotencyKey: string,
   contentType = "application/json",
 ): Promise<Response> =>
@@ -339,6 +305,7 @@ const responseBody = async (response: Response) => ({
   status: response.status,
   body: await response.json(),
 });
+
 const expectedProblem = (code: string, title: string, status: number, detail: string) => ({
   type: `urn:vektorprogrammet:problem:v0.2:${code}`,
   title,
@@ -358,11 +325,13 @@ describe("Organization HTTP boundary", () => {
     expect(await responseBody(departments)).toEqual({ status: 200, body: [department] });
     expect(await responseBody(teams)).toEqual({ status: 200, body: [team] });
     expect(await responseBody(fields)).toEqual({ status: 200, body: [fieldOfStudy] });
+
     const serialized = JSON.stringify([
       await request("/api/departments").then((response) => response.json()),
       await request("/api/teams").then((response) => response.json()),
       await request("/api/field-of-studies").then((response) => response.json()),
     ]);
+
     for (const forbidden of ["personId", "membership", "commandId", "audit", "actorsByToken"]) {
       expect(serialized).not.toContain(forbidden);
     }
@@ -370,24 +339,28 @@ describe("Organization HTTP boundary", () => {
 
   it("returns canonical resources for committed and replayed generated operations", async () => {
     const departmentKey = "department-create-key-0001";
+
     const created = await post(
       "/api/departments",
       ADMIN_SESSION,
       createDepartmentRequest,
       departmentKey,
     );
+
     const createdTeam = await post(
       "/api/teams",
       ADMIN_SESSION,
       createTeamRequest,
       "team-create-key-00000001",
     );
+
     const createdField = await post(
       "/api/field-of-studies",
       ADMIN_SESSION,
       createFieldOfStudyRequest,
       "field-create-key-0000001",
     );
+
     const replayed = await post(
       "/api/departments",
       ADMIN_SESSION,
@@ -410,18 +383,21 @@ describe("Organization HTTP boundary", () => {
       createDepartmentRequest,
       "department-denied-key-0001",
     );
+
     const invalidReference = await post(
       "/api/teams",
       ADMIN_SESSION,
       { ...createTeamRequest, departmentId: "department-unknown" },
       "team-invalid-ref-key-00001",
     );
+
     const conflict = await post(
       "/api/departments",
       ADMIN_SESSION,
       { ...createDepartmentRequest, name: "Conflict" },
       "department-conflict-key-01",
     );
+
     const unavailable = await post(
       "/api/departments",
       ADMIN_SESSION,
@@ -469,6 +445,7 @@ describe("Organization HTTP boundary", () => {
 
   it("rejects malformed JSON, wrong content type, excess fields, and oversized bodies", async () => {
     const before = createCalls;
+
     const malformed = await request("/api/departments", {
       method: "POST",
       headers: {
@@ -479,6 +456,7 @@ describe("Organization HTTP boundary", () => {
       },
       body: "{",
     });
+
     const wrongContentType = await post(
       "/api/departments",
       ADMIN_SESSION,
@@ -486,12 +464,14 @@ describe("Organization HTTP boundary", () => {
       "department-media-key-0001",
       "text/plain",
     );
+
     const excess = await post(
       "/api/departments",
       ADMIN_SESSION,
       { ...createDepartmentRequest, actorRole: "OrganizationAdministrator" },
       "department-excess-key-001",
     );
+
     const oversized = await post(
       "/api/departments",
       ADMIN_SESSION,
@@ -510,6 +490,7 @@ describe("Organization HTTP boundary", () => {
         ),
       });
     }
+
     expect(await responseBody(oversized)).toEqual({
       status: 413,
       body: expectedProblem(
@@ -525,6 +506,7 @@ describe("Organization HTTP boundary", () => {
   it("rejects public query strings before reading Organization and uses exact credentialed preflight origins", async () => {
     const before = publicListCalls;
     const queried = await request("/api/departments?active=true");
+
     const preflight = await request("/api/departments", {
       method: "OPTIONS",
       headers: {
@@ -557,6 +539,7 @@ describe("Organization HTTP boundary", () => {
       },
       body: JSON.stringify(createDepartmentRequest),
     });
+
     expect(await responseBody(anonymous)).toEqual({
       status: 401,
       body: expectedProblem(

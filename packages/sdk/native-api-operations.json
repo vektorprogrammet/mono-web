@@ -164,6 +164,12 @@
     },
     {
       "group": "organization",
+      "method": "POST",
+      "operationId": "organization.executeLifecycle",
+      "path": "/api/organization/appointments/commands"
+    },
+    {
+      "group": "organization",
       "method": "GET",
       "operationId": "organization.listDepartments",
       "path": "/api/departments"
@@ -191,6 +197,12 @@
       "method": "GET",
       "operationId": "organization.listTeams",
       "path": "/api/teams"
+    },
+    {
+      "group": "organization",
+      "method": "GET",
+      "operationId": "organization.readAppointmentManagement",
+      "path": "/api/organization/appointments"
     },
     {
       "group": "placements",

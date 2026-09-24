@@ -20,6 +20,7 @@ const stageGuard = (stage: string): void => {
       `Only development, ${PREVIEW_IDENTITY.stage}, or ${APEX_IDENTITY.stage} is allowed by this delivery stack`,
     );
   }
+
   if (
     stage === PREVIEW_IDENTITY.stage &&
     PREVIEW_IDENTITY.hostname.includes("vektorprogrammet.no")
@@ -39,6 +40,7 @@ const deploymentState = Layer.unwrap(
     ),
   ),
 );
+
 export default Alchemy.Stack(
   "vektor",
   {
@@ -48,9 +50,11 @@ export default Alchemy.Stack(
   Effect.gen(function* () {
     const stage = yield* Alchemy.Stage;
     stageGuard(stage);
+
     if (stage === "development") {
       return yield* cloudflareDevelopmentStack.pipe(Alchemy.remote());
     }
+
     const domain =
       stage === APEX_IDENTITY.stage ? APEX_IDENTITY.hostname : PREVIEW_IDENTITY.hostname;
 
@@ -77,6 +81,7 @@ export default Alchemy.Stack(
     });
 
     const worker = yield* PreviewWorker(homepage, dashboard);
+
     return {
       app: PREVIEW_IDENTITY.app,
       stage,

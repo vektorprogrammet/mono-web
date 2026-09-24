@@ -16,16 +16,17 @@ export const parityVerifyArguments = (root = repositoryRoot): readonly string[] 
   "diff",
 ];
 
-export const parityExternalInputs = (root: string) => [
-  { label: "legacy repository", path: resolve(root, "..", "vektorprogrammet"), directory: true },
-  {
-    label: "accepted-intent authority register",
-    path: resolve(root, "..", "functional-parity-intent-authority", "accepted-intent.json"),
-    directory: false,
-  },
-  {
-    label: "runtime-evidence authority register",
-    path: resolve(root, "..", "functional-parity-runtime-evidence", "runtime-evidence.json"),
-    directory: false,
-  },
-] as const;
+export const parityExternalInputs = (root: string) =>
+  [
+    { label: "legacy repository", path: resolve(root, "..", "vektorprogrammet"), directory: true },
+    {
+      label: "accepted-intent authority register",
+      path: resolve(root, "..", "functional-parity-intent-authority", "accepted-intent.json"),
+      directory: false,
+    },
+    {
+      label: "runtime-evidence authority register",
+      path: resolve(root, "..", "functional-parity-runtime-evidence", "runtime-evidence.json"),
+      directory: false,
+    },
+  ] as const;

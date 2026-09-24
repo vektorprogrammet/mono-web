@@ -1,6 +1,6 @@
 # Intended system
 
-**Status:** Target business model and product behavior. Revised 2026-09-23.
+**Status:** Target business model and product behavior. Revised 2026-09-24.
 
 This document explains the replacement system. It describes intent, not production
 state. [STATE.md](../STATE.md) records what is implemented and accepted.
@@ -248,6 +248,15 @@ person may hold more than one position or membership.
 A local chapter and a national unit use the same appointment mechanism but have
 different scopes. A chair is not automatically a global administrator.
 
+Authorized appointment actions create, revise, end, suspend, or reinstate a responsibility.
+Every action checks current scope and preserves attributable history.
+Ending or suspending one appointment does not change another appointment, volunteer affiliation, or school placement.
+
+A global administrator can disable or re-enable native human account access through a separate command.
+Disabled access blocks native sessions, human OAuth access, and recovery.
+Re-enable requires fresh authentication and does not revive old sessions.
+These commands do not administer external mail, Google Workspace, or service principals.
+
 ### School surveys
 
 A current department leader manages school surveys for that department. A global
@@ -268,15 +277,18 @@ exports. Unauthorized readers cannot learn whether confidential results exist.
 
 ### Supporting workflows
 
-The native application also contains journeys for:
+Supporting contracts include:
 
 - account claim, password recovery, sessions, and profile self-service;
-- directory and school capacity maintenance;
+- scoped directory reads and separate school-maintenance commands;
 - public content, contact messages, and sponsor presentation;
 - social events and team interest;
-- certificates;
 - authenticated applicant progress;
 - acknowledged receipt and interview notification delivery.
+
+This list defines scope, not implementation status. [STATE.md](../STATE.md#next) records incomplete maintenance and acceptance.
+School-directory reads do not grant school, contact, association, or capacity mutation authority.
+Certificates require a separate operational need and are not a default replacement gate.
 
 Each workflow owns its commands and facts. Shared infrastructure may carry an event
 or deliver a message, but it does not own the business decision.

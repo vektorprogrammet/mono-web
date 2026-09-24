@@ -14,15 +14,20 @@ import {
   previewScenarioManifest,
   runPreviewScenarioApplication,
   type PreviewScenarioApplicationResult,
+  type PreviewScenarioStep,
 } from "./preview-scenario.js";
+import {Array as Arr,  Predicate, Record as Rec, Schema } from "effect";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
+
 const databaseRequire = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
 );
+
 const { Pool } = databaseRequire("pg");
 
 export const LIVE_ACKNOWLEDGMENT = "APPLY-0076-SYNTHETIC-PREVIEW" as const;
+
 export const REHEARSAL_ACKNOWLEDGMENT = "REHEARSE-0076-DISPOSABLE-PREVIEW" as const;
 
 export type LivePreviewScenarioMode = "live" | "rehearsal";
@@ -48,10 +53,12 @@ const exactOptions = {
   ack: true,
   "database-url": true,
 } as const satisfies Record<string, true>;
+
 type ScenarioOptionName = keyof typeof exactOptions;
 
 const parseOptions = (args: ReadonlyArray<string>): ReadonlyMap<ScenarioOptionName, string> => {
   const parsed = new Map<ScenarioOptionName, string>();
+
   for (const argument of args) {
     assert.ok(argument.startsWith("--"), `unexpected positional argument: ${argument}`);
     const separator = argument.indexOf("=");
@@ -59,14 +66,16 @@ const parseOptions = (args: ReadonlyArray<string>): ReadonlyMap<ScenarioOptionNa
     const name = argument.slice(2, separator);
     const value = argument.slice(separator + 1);
     assert.ok(name in exactOptions, `unknown option: --${name}`);
-    const optionName = name as ScenarioOptionName;
+    const optionName = Schema.decodeUnknownSync(Schema.Literals(Rec.keys(exactOptions)))(name);
     assert.ok(value.length > 0, `empty option: --${name}`);
     assert.ok(!parsed.has(optionName), `duplicate option: --${name}`);
     parsed.set(optionName, value);
   }
-  for (const name of Object.keys(exactOptions) as Array<ScenarioOptionName>) {
+
+  for (const name of Rec.keys(exactOptions)) {
     assert.ok(parsed.has(name), `missing option: --${name}`);
   }
+
   return parsed;
 };
 
@@ -92,6 +101,7 @@ export const validateScenarioTarget = (
       "/vektor_preview",
       "live scenario database must be vektor_preview",
     );
+
     return {
       mode,
       databaseUrl: value,
@@ -104,6 +114,7 @@ export const validateScenarioTarget = (
   assertDisposablePostgresUrl(value);
   assert.equal(parsed.port, "5435", "rehearsal target must use port 5435");
   assert.equal(parsed.pathname, "/preview_scenario", "rehearsal database must be preview_scenario");
+
   return {
     mode,
     databaseUrl: value,
@@ -127,6 +138,7 @@ export const parseLivePreviewScenarioCommand = (
   if (mode === "live") {
     assert.equal(target, "synthetic-preview", "live target acknowledgment mismatch");
     assert.equal(acknowledgment, LIVE_ACKNOWLEDGMENT, "live acknowledgment mismatch");
+
     return {
       mode,
       target: "synthetic-preview",
@@ -137,6 +149,7 @@ export const parseLivePreviewScenarioCommand = (
 
   assert.equal(target, "disposable-preview", "rehearsal target acknowledgment mismatch");
   assert.equal(acknowledgment, REHEARSAL_ACKNOWLEDGMENT, "rehearsal acknowledgment mismatch");
+
   return {
     mode,
     target: "disposable-preview",
@@ -159,9 +172,11 @@ const providerEnvironmentNames = [
 export const assertProviderDeliveryDisabled = (environment: NodeJS.ProcessEnv): void => {
   const mode = environment.PUBLIC_APPLICATION_EFFECT_MODE;
   assert.ok(mode === undefined || mode === "disabled", "public application delivery is enabled");
+
   for (const name of providerEnvironmentNames) {
     assert.ok(environment[name] === undefined, `${name} must be absent`);
   }
+
   for (const [name, value] of Object.entries(environment)) {
     if (name.endsWith("_URL") || name.endsWith("_HOST")) {
       assert.ok(
@@ -182,12 +197,16 @@ export const readSourceIdentity = (): SourceIdentity => {
     cwd: repositoryRoot,
     encoding: "utf8",
   });
+
   assert.equal(head.status, 0, `cannot resolve source HEAD: ${head.stderr}`);
+
   const status = spawnSync("git", ["status", "--porcelain"], {
     cwd: repositoryRoot,
     encoding: "utf8",
   });
+
   assert.equal(status.status, 0, `cannot resolve source status: ${status.stderr}`);
+
   return { head: head.stdout.trim(), clean: status.stdout.trim().length === 0 };
 };
 
@@ -205,6 +224,7 @@ const liveMarkerPath = join(homedir(), ".local", "state", "vektor-preview", ".se
 const fileExists = async (path: string): Promise<boolean> => {
   try {
     await stat(path);
+
     return true;
   } catch {
     return false;
@@ -217,14 +237,17 @@ export const preflightScenarioTarget = async (
 ): Promise<PreflightEvidence> => {
   assertProviderDeliveryDisabled(environment);
   const pool = new Pool({ connectionString: target.databaseUrl, max: 2 });
+
   try {
     await assertPreviewScenarioCompatibility(pool);
+
     const revision = await pool.query(
       `SELECT migration_id::text || '_' || name AS revision
        FROM public.vektorprogrammet_schema_migrations
        ORDER BY migration_id DESC
        LIMIT 1`,
     );
+
     assert.equal(
       revision.rows[0]?.revision,
       previewScenarioManifest.schemaRevision,
@@ -234,20 +257,24 @@ export const preflightScenarioTarget = async (
     const canonicalIds = Object.values(previewScenarioManifest.persons).map(
       ({ personId }) => personId,
     );
+
     const canonical = await pool.query(
       `SELECT COUNT(*)::int AS count
        FROM person_profiles
        WHERE person_id = ANY($1::text[])`,
       [canonicalIds],
     );
+
     const canonicalScenarioCohortPresent = canonical.rows[0]?.count === canonicalIds.length;
     assert.ok(canonicalScenarioCohortPresent, "canonical 0072 identity cohort is missing");
 
     let syntheticIdentityCohortPresent = true;
     let stateMarkerPresent = true;
+
     if (target.mode === "live") {
       stateMarkerPresent = await fileExists(liveMarkerPath);
       assert.ok(stateMarkerPresent, `synthetic preview marker is missing: ${liveMarkerPath}`);
+
       const bootstrap = await pool.query(
         `SELECT COUNT(*)::int AS count
          FROM person_profiles AS person
@@ -256,17 +283,20 @@ export const preflightScenarioTarget = async (
            AND contact.email LIKE '%@example.invalid'`,
         [["apex-preview-administrator", "apex-preview-member"]],
       );
+
       const grant = await pool.query(
         `SELECT COUNT(*)::int AS count
          FROM organization_global_administrator_grants
          WHERE grant_id = 'apex-preview-administrator-grant'
            AND person_id = 'apex-preview-administrator'`,
       );
+
       syntheticIdentityCohortPresent = bootstrap.rows[0]?.count === 2 && grant.rows[0]?.count === 1;
       assert.ok(syntheticIdentityCohortPresent, "synthetic preview identity cohort is missing");
     }
 
     await assertScenarioPrerequisites(pool);
+
     return {
       schemaRevision: revision.rows[0].revision,
       stateMarkerPresent,
@@ -300,21 +330,26 @@ export const createPgDumpBackup = async (
   const filePath = join(directory, fileName);
   const handle = await open(filePath, "wx", 0o600);
   await handle.close();
+
   const dump = spawnSync(
     "pg_dump",
     ["--format=custom", "--no-owner", "--no-acl", `--file=${filePath}`, target.databaseUrl],
     { encoding: "utf8" },
   );
+
   if (dump.status !== 0) {
     await rm(filePath, { force: true });
     throw new Error(`pg_dump failed: ${dump.stderr.trim()}`);
   }
+
   await chmod(filePath, 0o600);
   const details = await stat(filePath);
   assert.ok(details.size > 0, "pg_dump produced an empty snapshot");
   assert.equal(details.mode & 0o777, 0o600, "pg_dump snapshot mode is not 0600");
   const snapshotDigest = createHash("sha256");
+
   for await (const chunk of createReadStream(filePath)) snapshotDigest.update(chunk);
+
   return {
     filePath,
     fileName,
@@ -330,6 +365,7 @@ export const runBackupGatedApplication = async <A>(
 ): Promise<{ readonly backup: BackupMetadata; readonly application: A }> => {
   const snapshot = await backup();
   const application = await apply(snapshot);
+
   return { backup: snapshot, application };
 };
 
@@ -355,22 +391,31 @@ export const readScenarioDatabaseFacts = async (
   target: ValidatedScenarioTarget,
 ): Promise<ScenarioDatabaseFacts> => {
   const pool = new Pool({ connectionString: target.databaseUrl, max: 2 });
-  const facts = {} as ScenarioDatabaseFacts;
+  const facts = new Map<keyof typeof scenarioTables, ScenarioTableFact>();
+
   try {
-    for (const [table, order] of Object.entries(scenarioTables) as Array<
-      [keyof typeof scenarioTables, string]
-    >) {
+    for (const table of Rec.keys(scenarioTables)) {
+      const order = scenarioTables[table];
+
       const result = await pool.query(
         `SELECT to_jsonb(row_value) AS value
          FROM ${table} AS row_value
          ORDER BY ${order}`,
       );
-      facts[table] = {
+
+      facts.set(table, {
         count: result.rowCount ?? 0,
         sha256: createHash("sha256").update(JSON.stringify(result.rows)).digest("hex"),
-      };
+      });
     }
-    return facts;
+
+    return Schema.decodeUnknownSync(
+      Schema.Struct(
+        Rec.map(scenarioTables, () =>
+          Schema.Struct({ count: Schema.Number, sha256: Schema.String }),
+        ),
+      ),
+    )(Object.fromEntries(facts));
   } finally {
     await pool.end().catch(() => undefined);
   }
@@ -387,20 +432,24 @@ export const readCommandReceiptFacts = async (
   observed: ReadonlyArray<{ readonly kind: string; readonly identitySha256: string }>,
 ): Promise<ReadonlyArray<CommandReceiptFact>> => {
   const pool = new Pool({ connectionString: target.databaseUrl, max: 2 });
+
   try {
     assert.equal(
       observed.length,
       Object.values(previewScenarioManifest.commandIds).flat().length,
       "scenario must witness every native HTTP mutation",
     );
+
     const result = await pool.query(
       `SELECT identity_sha256 FROM public.native_http_idempotency_receipts
        WHERE identity_sha256 = ANY($1::text[]) AND state = 'Complete'`,
       [observed.map(({ identitySha256 }) => identitySha256)],
     );
+
     const present = new Set(
       result.rows.map((row: { identity_sha256: string }) => row.identity_sha256),
     );
+
     return observed.map((receipt) => ({
       ...receipt,
       present: present.has(receipt.identitySha256),
@@ -411,22 +460,26 @@ export const readCommandReceiptFacts = async (
 };
 
 const sensitiveKey = /password|secret|token|cookie|databaseurl|postgresurl|userinfo|email|phone/i;
+
 const secretValue = /postgres(?:ql)?:\/\/|https?:\/\/|@example\.invalid/i;
 
-export const sanitizeEvidence = (input: unknown): unknown => {
-  if (input === null || typeof input === "boolean" || typeof input === "number") return input;
-  if (typeof input === "string") {
-    assert.ok(!secretValue.test(input), "evidence contains a secret or URL-like value");
-    return input;
-  }
-  if (Array.isArray(input)) return input.map((value) => sanitizeEvidence(value));
-  assert.ok(typeof input === "object", "evidence contains an unsupported value");
-  const output: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input)) {
-    assert.ok(!sensitiveKey.test(key), `evidence contains a sensitive key: ${key}`);
-    output[key] = sanitizeEvidence(value);
-  }
-  return output;
+export const sanitizeEvidence = <A>(input: A): A => {
+  const inspect = (value: Schema.Json): void => {
+    if (Predicate.isString(value)) {
+      assert.ok(!secretValue.test(value), "evidence contains a secret or URL-like value");
+    } else if (Arr.isArray<Schema.Json>(value)) {
+      for (const item of value) inspect(item);
+    } else if (value !== null && !Predicate.isNumber(value) && !Predicate.isBoolean(value)) {
+      for (const [key, item] of Object.entries(value)) {
+        assert.ok(!sensitiveKey.test(key), `evidence contains a sensitive key: ${key}`);
+        inspect(item);
+      }
+    }
+  };
+
+  inspect(Schema.decodeUnknownSync(Schema.Json)(input));
+
+  return input;
 };
 
 export interface ScenarioApplicationRuns {
@@ -448,7 +501,7 @@ export interface LivePreviewScenarioEvidence {
   readonly before: ScenarioDatabaseFacts;
   readonly after: ScenarioDatabaseFacts;
   readonly commandReceipts: ReadonlyArray<CommandReceiptFact>;
-  readonly applicationSteps: ReadonlyArray<Record<string, unknown>>;
+  readonly applicationSteps: ReadonlyArray<Pick<PreviewScenarioStep, "step" | "status">>;
   readonly replay: {
     readonly executed: boolean;
     readonly countsAndDigestsUnchanged: boolean;
@@ -474,22 +527,20 @@ export interface ScenarioReplayEvaluation {
 }
 
 export const evaluateScenarioReplay = (
-  steps: ReadonlyArray<Record<string, unknown>>,
+  steps: ReadonlyArray<PreviewScenarioStep>,
   afterFirstRun: ScenarioDatabaseFacts,
   afterReplay: ScenarioDatabaseFacts,
   runnerCountsUnchanged: boolean,
 ): ScenarioReplayEvaluation => {
-  const commandReplaySteps = steps.filter(
-    ({ step }) => commandStepNames[String(step) as keyof typeof commandStepNames] === true,
-  );
+  const commandReplaySteps = steps.filter(({ step }) => Object.hasOwn(commandStepNames, step));
+
   return {
     allCommandStepsReplayed:
       commandReplaySteps.length === Object.keys(commandStepNames).length &&
       commandReplaySteps.every(({ status }) => status === "replayed"),
     countsAndDigestsUnchanged:
       runnerCountsUnchanged &&
-      Object.keys(scenarioTables).every((table) => {
-        const key = table as keyof ScenarioDatabaseFacts;
+      Rec.keys(scenarioTables).every((key) => {
         return (
           afterFirstRun[key].count === afterReplay[key].count &&
           afterFirstRun[key].sha256 === afterReplay[key].sha256
@@ -508,14 +559,17 @@ export const runLivePreviewScenario = async (
     "PREVIEW_SCENARIO_STORAGE_ROOT is required and must persist for replay",
   );
   const source = readSourceIdentity();
+
   if (command.mode === "live")
     assert.ok(source.clean, "live scenario requires a clean source tree");
 
   if (command.mode === "rehearsal") {
     await prepareDisposableScenarioTarget(command.validatedTarget.databaseUrl);
   }
+
   const preflight = await preflightScenarioTarget(command.validatedTarget, environment);
   const before = await readScenarioDatabaseFacts(command.validatedTarget);
+
   const backupDirectory =
     command.mode === "live"
       ? join(homedir(), ".local", "state", "vektor-preview", "backups")
@@ -529,7 +583,9 @@ export const runLivePreviewScenario = async (
         receiptStorageRoot,
         emitEvidence: false,
       });
+
       const afterFirstRun = await readScenarioDatabaseFacts(command.validatedTarget);
+
       const replay =
         command.mode === "rehearsal"
           ? await runPreviewScenarioApplication({
@@ -538,30 +594,37 @@ export const runLivePreviewScenario = async (
               emitEvidence: false,
             })
           : undefined;
-      return { first, afterFirstRun, ...(replay === undefined ? {} : { replay }) };
+
+      return replay === undefined ? { first, afterFirstRun } : { first, afterFirstRun, replay };
     },
   );
 
   const after = await readScenarioDatabaseFacts(command.validatedTarget);
+
   const commandReceipts = await readCommandReceiptFacts(
     command.validatedTarget,
     gated.application.first.evidence.commandReceipts,
   );
+
   assert.ok(
     commandReceipts.every(({ present }) => present),
     "scenario command receipt is missing",
   );
   const replaySteps = gated.application.replay?.evidence.steps ?? [];
+
   const replayEvaluation = evaluateScenarioReplay(
     replaySteps,
     gated.application.afterFirstRun,
     after,
     gated.application.replay?.evidence.replayCheck?.countsUnchanged === true,
   );
+
   const allCommandStepsReplayed =
     command.mode === "rehearsal" && replayEvaluation.allCommandStepsReplayed;
+
   const countsAndDigestsUnchanged =
     command.mode === "rehearsal" && replayEvaluation.countsAndDigestsUnchanged;
+
   if (command.mode === "rehearsal") {
     assert.ok(allCommandStepsReplayed, "scenario replay must replay every command step");
     assert.ok(countsAndDigestsUnchanged, "scenario replay changed business rows");
@@ -570,10 +633,12 @@ export const runLivePreviewScenario = async (
   const applicationSteps = (
     gated.application.replay?.evidence.steps ?? gated.application.first.evidence.steps
   ).map(({ step, status }) => ({ step, status }));
+
   const rollbackCommand =
     command.mode === "live"
       ? `pg_restore --clean --if-exists --exit-on-error --dbname="$VEKTOR_PREVIEW_SCENARIO_DATABASE_URL" "$HOME/.local/state/vektor-preview/backups/${gated.backup.fileName}"`
       : `pg_restore --clean --if-exists --exit-on-error --dbname="$VEKTOR_PREVIEW_SCENARIO_DATABASE_URL" "<rehearsal-backup-dir>/${gated.backup.fileName}"`;
+
   const evidenceCandidate: LivePreviewScenarioEvidence = {
     specId: "0076",
     formatRevision: 1,
@@ -602,19 +667,25 @@ export const runLivePreviewScenario = async (
     },
     rollbackCommand,
   };
-  const evidence = sanitizeEvidence(evidenceCandidate) as LivePreviewScenarioEvidence;
+
+  const evidence = sanitizeEvidence(evidenceCandidate);
+
   const evidenceDirectory =
     command.mode === "live"
       ? join(homedir(), ".local", "state", "vektor-preview", "evidence")
       : await mkdtemp(join(tmpdir(), "vektor-preview-0076-rehearsal-evidence-"));
+
   await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
   await chmod(evidenceDirectory, 0o700);
+
   const evidencePath = join(
     evidenceDirectory,
     `0076-${command.mode}-${source.head.slice(0, 12)}-${randomBytes(6).toString("hex")}.json`,
   );
+
   await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
   await chmod(evidencePath, 0o600);
+
   return { evidence, evidencePath };
 };
 
@@ -627,24 +698,29 @@ const main = async (): Promise<void> => {
 if (import.meta.main) {
   main().catch((cause: unknown) => {
     process.stderr.write(`${String(cause)}\n`);
-    if (typeof cause === "object" && cause !== null) {
+
+    if ((cause === null || Predicate.isObjectOrArray(cause)) && cause !== null) {
       const fields = Object.fromEntries(
         Object.entries(cause).filter(([key]) =>
           ["_tag", "code", "status", "title", "message"].includes(key),
         ),
       );
-      const body = (cause as { readonly body?: unknown }).body;
-      if (typeof body === "object" && body !== null) {
+
+      const body = Predicate.hasProperty(cause, "body") ? cause.body : undefined;
+
+      if ((body === null || Predicate.isObjectOrArray(body)) && body !== null) {
         fields.body = Object.fromEntries(
           Object.entries(body).filter(
             ([key, value]) =>
               ["type", "title", "status", "code", "detail"].includes(key) &&
-              (typeof value === "string" || typeof value === "number"),
+              (Predicate.isString(value) || Predicate.isNumber(value)),
           ),
         );
       }
+
       process.stderr.write(`${JSON.stringify(fields)}\n`);
     }
+
     process.exitCode = 1;
   });
 }

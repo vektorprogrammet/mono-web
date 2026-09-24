@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Pool } from "pg";
-import { Effect, Redacted } from "effect";
+import { flow, Effect, Redacted } from "effect";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { parseDisposableCohortDatabaseUrl, readPrivateCohortJson } from "./cohort-cli.js";
 import { databaseHealth } from "./service.js";
@@ -14,17 +14,19 @@ import {
 
 const invalidSnapshot = () => new IdentityCohortFailure("InvalidSnapshot");
 
-export const decodeSyntheticIdentityCohort = (input: unknown) => {
-  const snapshot = decodeIdentityCohort(input);
+export const decodeSyntheticIdentityCohort = flow(decodeIdentityCohort, (snapshot) => {
   if (snapshot.sourceKind !== "Synthetic" || snapshot.passwordlessPolicy !== "Quarantine")
     throw invalidSnapshot();
+
   return snapshot;
-};
+});
 
 export const summarizeIdentityCohort = (report: CohortReport) => {
   const reasons: Record<string, number> = {};
+
   for (const occurrence of report.occurrences)
     reasons[occurrence.reason] = (reasons[occurrence.reason] ?? 0) + 1;
+
   return {
     input: report.input,
     accepted: report.accepted,
@@ -38,6 +40,7 @@ export const summarizeIdentityCohort = (report: CohortReport) => {
 
 export const disposableCohortDatabaseUrl = (value: string | undefined): string =>
   parseDisposableCohortDatabaseUrl(value, /^\/identity_cohort_[a-z0-9_]+$/, invalidSnapshot);
+
 export const runIdentityCohortCli = async () => {
   if (
     process.env.IDENTITY_COHORT_MODE !== "synthetic" ||
@@ -45,15 +48,18 @@ export const runIdentityCohortCli = async () => {
   )
     throw invalidSnapshot();
   const url = disposableCohortDatabaseUrl(process.env.IDENTITY_COHORT_PG_URL);
+
   const input = decodeSyntheticIdentityCohort(
     await readPrivateCohortJson(process.env.IDENTITY_COHORT_INPUT, invalidSnapshot),
   );
+
   await Effect.runPromise(
     databaseHealth.pipe(
       Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 1 })),
     ),
   );
   const pool = new Pool({ connectionString: url, max: 2 });
+
   try {
     process.stdout.write(
       JSON.stringify(summarizeIdentityCohort(await importIdentityCohort(pool, input))) + "\n",

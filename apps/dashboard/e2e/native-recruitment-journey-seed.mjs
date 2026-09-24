@@ -27,20 +27,24 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const databaseRoot = join(repositoryRoot, "packages", "database");
 
 // `pg` is a dependency of the database package; resolve from there so this
 // dashboard-side support script adds no new package dependency.
 const require = createRequire(join(repositoryRoot, "packages/database/package.json"));
+
 const { Pool } = require("pg");
 
 const postgresUrl =
   process.env.JOURNEY_SEED_PG_URL ?? "postgres://postgres@127.0.0.1:45121/postgres";
 
 const parsedUrl = new URL(postgresUrl);
+
 if (!["postgres:", "postgresql:"].includes(parsedUrl.protocol)) {
   throw new Error("JOURNEY_SEED_PG_URL must use PostgreSQL");
 }
+
 if (!["127.0.0.1", "localhost", "::1"].includes(parsedUrl.hostname)) {
   throw new Error("journey seed is restricted to loopback PostgreSQL");
 }
@@ -71,20 +75,31 @@ export const journeyPersons = {
 };
 
 const departmentId = "department-native-journey-0049";
+
 const semesterId = "semester-native-journey-0049";
+
 const admissionPeriodId = "admission-period-native-journey-0049";
+
 const fieldOfStudyId = "field-native-journey-0049";
+
 const recruitmentTeamId = "team-native-journey-0049";
+
 const applicantId = "applicant-native-journey-0049";
+
 const applicationId = "application-native-journey-0049";
+
 const interviewSchemaId = "interview-schema-native-journey-0049";
 
 // The admission period must be OPEN at the authorization instant (real clock),
 // so its window brackets 2026. Membership windows bracket 2026 as well.
 const membershipStartAt = "2026-01-01T00:00:00.000Z";
+
 const semesterStartAt = "2026-01-01T00:00:00.000Z";
+
 const semesterEndAt = "2027-01-01T00:00:00.000Z";
+
 const periodStartAt = "2026-08-01T00:00:00.000Z";
+
 const periodEndAt = "2026-09-30T23:59:59.999Z";
 
 const seedSql = `
@@ -219,6 +234,7 @@ const runIdentitySeed = () => {
     },
     encoding: "utf8",
   });
+
   assert(result.status === 0, `identity:seed failed:\n${result.stdout}\n${result.stderr}`);
   process.stdout.write(`identity:seed: ${result.stdout.trim().split("\n").pop()}\n`);
 };
@@ -247,6 +263,7 @@ async function main() {
         (SELECT count(*) FROM person_contact_profiles c WHERE c.person_id IN ('${journeyPersons.leader.personId}', '${journeyPersons.interviewerA.personId}', '${journeyPersons.interviewerB.personId}')) AS contacts,
         (SELECT count(*) FROM auth."user" u WHERE u.id IN ('${journeyPersons.leader.personId}', '${journeyPersons.interviewerA.personId}', '${journeyPersons.interviewerB.personId}')) AS users
     `);
+
     const counts = checks.rows[0];
     assert(Number(counts.applications) === 1, "exactly one applicant application");
     assert(Number(counts.open_periods) === 1, "open admission period present");

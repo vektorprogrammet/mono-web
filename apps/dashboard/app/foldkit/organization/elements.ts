@@ -1,8 +1,10 @@
 import { createBrowserOrganizationCatalogClient } from "./browser-client";
 import { embedOrganizationCatalog } from "./main";
+import { embedAppointmentManagement } from "./management";
 import type { OrganizationCatalogKind } from "./model";
 
 export const TEAM_CATALOG_ELEMENT = "vektor-team-catalog";
+
 export const FIELD_OF_STUDY_CATALOG_ELEMENT = "vektor-field-of-study-catalog";
 
 const defineOrganizationCatalogElement = (
@@ -25,10 +27,9 @@ const defineOrganizationCatalogElement = (
         this.replaceChildren(this.#container);
 
         try {
-          this.#dispose = embedOrganizationCatalog(this.#container, {
-            catalogKind,
-            client: createBrowserOrganizationCatalogClient(),
-          });
+          this.#dispose = catalogKind === "Team"
+            ? embedAppointmentManagement(this.#container)
+            : embedOrganizationCatalog(this.#container, {catalogKind,client:createBrowserOrganizationCatalogClient()});
         } catch (cause) {
           const error = document.createElement("section");
           error.className = "organization-catalog organization-catalog__error";

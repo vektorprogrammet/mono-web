@@ -12,7 +12,9 @@ export const APEX_VITE_RESOURCE_MEMOS = (() => {
       Object.freeze({ cwd: "../../packages/sdk" }),
     ],
   });
+
   Object.freeze(memo.workspaces);
+
   return Object.freeze({ homepage: memo, dashboard: memo });
 })();
 
@@ -27,6 +29,7 @@ export const assertApexIdentity = (): void => {
   if (APEX_IDENTITY.stage !== "dev-main") {
     throw new Error("Apex preview must run on stage dev-main");
   }
+
   if (
     APEX_IDENTITY.zoneName !== "phibkro.org" ||
     APEX_IDENTITY.hostname !== "vektor.phibkro.org" ||
@@ -36,6 +39,7 @@ export const assertApexIdentity = (): void => {
   ) {
     throw new Error("Apex identity drift");
   }
+
   if (
     APEX_IDENTITY.hostname.includes(APEX_IDENTITY.forbiddenHost) ||
     APEX_IDENTITY.apiHostname.includes(APEX_IDENTITY.forbiddenHost)
@@ -46,9 +50,11 @@ export const assertApexIdentity = (): void => {
 
 export const apexStack = Effect.gen(function* () {
   const stage = yield* Alchemy.Stage;
+
   if (stage !== APEX_IDENTITY.stage) {
     throw new Error(`Only ${APEX_IDENTITY.stage} is allowed by the apex delivery stack`);
   }
+
   assertApexIdentity();
 
   const homepage = yield* Cloudflare.Website.Vite(`${APEX_IDENTITY.resourcePrefix}-homepage`, {

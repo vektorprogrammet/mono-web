@@ -4,18 +4,23 @@ import {
   personCohortSourceRowDigest,
   type PersonCohortSnapshot,
 } from "@vektorprogrammet/database/person-cohort";
-import type { PersonId } from "@vektorprogrammet/domain/organization";
+import { PersonId } from "@vektorprogrammet/domain/organization";
+import { PersonContactEmail } from "@vektorprogrammet/domain/profile";
+import { Schema } from "effect";
 
-export interface LegacyUserJson {
-  readonly id: number | string;
-  readonly active: number | string | boolean;
-  readonly firstName: unknown;
-  readonly lastName: unknown;
-  readonly email: unknown;
-  readonly phone: unknown;
-  readonly username: unknown;
-  readonly companyEmail: unknown;
-}
+// Contact and name values remain raw: Person reconciliation owns quarantine decisions.
+export const LegacyUserJson = Schema.Struct({
+  id: Schema.Union([Schema.Number, Schema.String]),
+  active: Schema.Union([Schema.Number, Schema.String, Schema.Boolean]),
+  firstName: Schema.Unknown,
+  lastName: Schema.Unknown,
+  email: Schema.Unknown,
+  phone: Schema.Unknown,
+  username: Schema.Unknown,
+  companyEmail: Schema.Unknown,
+});
+
+export type LegacyUserJson = typeof LegacyUserJson.Type;
 
 interface SnapshotIdentity {
   readonly sourceRevision: string;
@@ -31,6 +36,7 @@ export const buildLegacyPersonSnapshot = (
 ): PersonCohortSnapshot => {
   const occurrences = rows.map((source) => {
     const sourceUserId = `legacy-user:${String(source.id)}`;
+
     const row = {
       sourceUserId,
       active: source.active === 1 || source.active === "1" || source.active === true,
@@ -41,22 +47,25 @@ export const buildLegacyPersonSnapshot = (
       username: source.username,
       companyEmail: source.companyEmail,
     };
+
     return {
       occurrenceId: `legacy-user-row-${String(source.id)}`,
       row,
       sourceRowDigest: personCohortSourceRowDigest(row),
     };
   });
+
   const mappings = occurrences.flatMap(({ row, sourceRowDigest }) =>
     isPersonCohortMappableRow(row)
       ? [
           {
             _tag: "CreatePerson" as const,
             sourceUserId: row.sourceUserId,
-            personId: ("legacy-person-" +
-              row.sourceUserId.slice("legacy-user:".length)) as PersonId,
+            personId: PersonId.make(
+              "legacy-person-" + row.sourceUserId.slice("legacy-user:".length),
+            ),
             emailOwnership: {
-              email: row.email as string,
+              email: Schema.decodeUnknownSync(PersonContactEmail)(row.email),
               attestedBy: identity.attestedBy,
               evidenceRef: sourceRowDigest,
             },
@@ -64,6 +73,7 @@ export const buildLegacyPersonSnapshot = (
         ]
       : [],
   );
+
   return decodePersonCohort({
     sourceRepository: "vektorprogrammet/vektorprogrammet",
     sourceRevision: identity.sourceRevision,

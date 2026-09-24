@@ -9,12 +9,14 @@ class RuntimeProbe extends Context.Service<RuntimeProbe, { readonly value: strin
 describe("controlled test runtime lifecycle", () => {
   it("releases its layer once and rejects execution after disposal", async () => {
     let releases = 0;
+
     const layer = Layer.effect(
       RuntimeProbe,
       Effect.acquireRelease(Effect.succeed({ value: "ready" }), () =>
         Effect.sync(() => void (releases += 1)),
       ),
     );
+
     const runtime = makeControlledTestRuntime(layer);
 
     await expect(

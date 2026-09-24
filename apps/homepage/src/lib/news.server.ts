@@ -1,4 +1,5 @@
-import type { NewsArticleSlug, PublishedNewsArticle, PublishedNewsListing } from "./api-types";
+import { ArticleSlug } from "@vektorprogrammet/http-api";
+import type { PublishedNewsArticle, PublishedNewsListing } from "./api-types";
 import { createHomepageApiClient } from "./api.server";
 import {
   applyDepartmentFilter,
@@ -7,6 +8,8 @@ import {
   type NewsDetailData,
   type NewsListingData,
 } from "./news";
+import { Predicate } from "effect";
+
 
 /**
  * Server-only news loaders (spec 0062 §Homepage public surface contract).
@@ -22,22 +25,23 @@ const upstreamFailure = (): Response =>
 
 const notFound = (): Response => new Response("Nyheten finnes ikke.", { status: 404 });
 
-const hasProblemCode = (error: unknown, code: string): boolean => {
-  if (typeof error !== "object" || error === null) return false;
-  const problem = "body" in error ? error.body : error;
-  return (
-    typeof problem === "object" && problem !== null && "code" in problem && problem.code === code
-  );
+const hasProblemCode = (cause: unknown, code: string): boolean => {
+ const problem = Predicate.hasProperty(cause, "body") ? cause.body : cause;
+
+ return Predicate.hasProperty(problem, "code") && problem.code === code;
 };
 
 const readListing = async (): Promise<PublishedNewsListing> => {
   const client = createHomepageApiClient();
+
   try {
     const result = await client.content.listNews({
       query: {},
       headers: {},
     });
+
     if (result.body === undefined) throw new Error("The conditional news response has no body.");
+
     return result.body;
   } catch {
     throw upstreamFailure();
@@ -46,30 +50,36 @@ const readListing = async (): Promise<PublishedNewsListing> => {
 
 export const loadNewsListing = async (departmentSlugOrId?: string): Promise<NewsListingData> => {
   const client = createHomepageApiClient();
+
   const departments = await client.organization
     .listDepartments({ headers: {} })
     .then((result) => {
       if (result.body === undefined) {
         throw new Error("The conditional department response has no body.");
       }
+
       return result.body;
     })
     .catch((): readonly never[] => []);
+
   const { departmentId, degraded } = resolveDepartmentFilter(departments, departmentSlugOrId);
   // One fresh listing read per render; the filter is applied client-side on
   // the already-read snapshot so the teaser and the listing share one read.
   const full = await readListing();
+
   if (degraded) {
     return {
       listing: full,
       notice: { kind: "filter-degraded", departmentId: departmentSlugOrId ?? "" },
     };
   }
+
   return { listing: applyDepartmentFilter(full, departmentId), notice: null };
 };
 
 export const loadNewsTeaser = async (): Promise<PublishedNewsListing> => {
   const listing = await readListing();
+
   return { articles: listing.articles.slice(0, NEWS_TEASER_COUNT) };
 };
 
@@ -79,22 +89,27 @@ export const loadNewsArticle = async (
 ): Promise<NewsDetailData> => {
   const client = createHomepageApiClient();
   const version = versionParam === undefined ? undefined : Number(versionParam);
+
   if (version !== undefined && (!Number.isSafeInteger(version) || version <= 0)) {
     throw notFound();
   }
+
   try {
     const [articleResult, listingResult] = await Promise.all([
       client.content.readNewsArticle({
-        params: { slug: slug as NewsArticleSlug },
+        params: { slug: ArticleSlug.make(slug) },
         query: version === undefined ? {} : { version },
         headers: {},
       }),
       client.content.listNews({ query: {}, headers: {} }),
     ]);
+
     if (articleResult.body === undefined || listingResult.body === undefined) {
       throw new Error("The conditional news response has no body.");
     }
+
     const article: PublishedNewsArticle = articleResult.body;
+
     return {
       article,
       otherNews: listingResult.body.articles

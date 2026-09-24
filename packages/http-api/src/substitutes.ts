@@ -20,33 +20,35 @@ import {
   endpointProblemResponses,
   problemUnion,
 } from "./http-semantics.js";
+
 export { SubstituteMutation };
 
 export const ActiveSubstituteResource = Schema.Struct({
   ...SubstituteEntry.members[0].fields,
   etag: StrongETag,
 });
+
 export const InactiveSubstituteResource = Schema.Struct({
   ...SubstituteEntry.members[1].fields,
   etag: StrongETag,
 });
+
 export const SubstituteResource = Schema.Union([
   ActiveSubstituteResource,
   InactiveSubstituteResource,
 ]).annotate({ identifier: "SubstituteResource" });
+
 const BoardFields = {
   ...SubstituteScope.fields,
   admissionPeriodId: Schema.NullOr(AdmissionPeriodId),
   entries: Schema.Array(ActiveSubstituteResource),
 };
-export const SubstituteBoard = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal("ReadOnly"), ...BoardFields }),
-  Schema.Struct({
-    _tag: Schema.Literal("Manage"),
-    ...BoardFields,
-    candidates: Schema.Array(InactiveSubstituteResource),
-  }),
-]).annotate({ identifier: "SubstituteBoard" });
+
+export const SubstituteBoard = Schema.TaggedUnion({
+  ReadOnly: BoardFields,
+  Manage: { ...BoardFields, candidates: Schema.Array(InactiveSubstituteResource) },
+}).annotate({ identifier: "SubstituteBoard" });
+
 export const SubstituteProblem = problemUnion("SubstituteProblem", [
   ["request.malformed", 400],
   ["request.too-large", 413],
@@ -69,12 +71,14 @@ export const SubstituteProblem = problemUnion("SubstituteProblem", [
   ["internal.error", 500],
   ["media-type.unsupported", 415],
 ]);
+
 const access = (write: boolean) =>
   personNativeAccess({
     capability: write ? "substitutes.manage" : "substitutes.read",
     canonicalScopeResolver: "substitutes.application-scope",
     decisionTime: write ? "Transaction" : "SnapshotRead",
   });
+
 export const ListSubstituteScopesEndpoint = HttpApiEndpoint.get(
   "listScopes",
   "/api/substitutes/scopes",
@@ -91,6 +95,7 @@ export const ListSubstituteScopesEndpoint = HttpApiEndpoint.get(
       "Authorized departments and canonical historical semesters.",
     ),
   );
+
 export const ReadSubstitutePoolEndpoint = HttpApiEndpoint.get("readPool", "/api/substitutes", {
   query: SubstituteScope.fields,
   success: privateReadResponse(SubstituteBoard),
@@ -104,6 +109,7 @@ export const ReadSubstitutePoolEndpoint = HttpApiEndpoint.get("readPool", "/api/
       "Only leaders receive inactive candidate applications.",
     ),
   );
+
 export const ReadSubstituteEndpoint = HttpApiEndpoint.get(
   "readEntry",
   "/api/substitutes/:applicationId",
@@ -122,9 +128,10 @@ export const ReadSubstituteEndpoint = HttpApiEndpoint.get(
       "Members can select only active entries; leaders can select candidates.",
     ),
   );
+
 export const ActivateSubstituteEndpoint = HttpApiEndpoint.post(
   "activate",
-  "/api/substitutes/:applicationId([^:]+)::activate",
+  "/api/substitutes/:applicationId:activate",
   {
     params: { applicationId: PublicApplicationIdSchema },
     headers: IdempotencyIfMatchHeaders,
@@ -141,9 +148,10 @@ export const ActivateSubstituteEndpoint = HttpApiEndpoint.post(
       "Explicit preferences are required. Fresh activation of an active entry rejects.",
     ),
   );
+
 export const EditSubstituteEndpoint = HttpApiEndpoint.post(
   "edit",
-  "/api/substitutes/:applicationId([^:]+)::edit",
+  "/api/substitutes/:applicationId:edit",
   {
     params: { applicationId: PublicApplicationIdSchema },
     headers: IdempotencyIfMatchHeaders,
@@ -160,9 +168,10 @@ export const EditSubstituteEndpoint = HttpApiEndpoint.post(
       "Updates declared preferences and the canonical application year of study.",
     ),
   );
+
 export const DeactivateSubstituteEndpoint = HttpApiEndpoint.post(
   "deactivate",
-  "/api/substitutes/:applicationId([^:]+)::deactivate",
+  "/api/substitutes/:applicationId:deactivate",
   {
     params: { applicationId: PublicApplicationIdSchema },
     headers: IdempotencyIfMatchHeaders,
@@ -179,6 +188,7 @@ export const DeactivateSubstituteEndpoint = HttpApiEndpoint.post(
       "Preserves application, recruitment history and preferences; fresh inactive deactivation rejects.",
     ),
   );
+
 export class SubstitutesApi extends HttpApiGroup.make("substitutes")
   .add(ListSubstituteScopesEndpoint)
   .add(ReadSubstitutePoolEndpoint)

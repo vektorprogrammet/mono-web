@@ -6,7 +6,7 @@ const service = (name: string) => ({
   fetch: vi.fn(async () => new Response(name, { headers: { "x-service": name } })),
 });
 
-function apexEnv(): ApexWorkerEnv {
+function apexEnv() {
   return {
     Homepage: service("homepage"),
     Dashboard: service("dashboard"),
@@ -15,10 +15,10 @@ function apexEnv(): ApexWorkerEnv {
     PasswordResetEmail: {
       send: vi.fn(async () => ({ messageId: "unused-in-routing-tests" })),
     },
-  };
+  } satisfies ApexWorkerEnv;
 }
 
-const apexRequest = (path: string, init?: RequestInit) =>
+const apexRequest = (path: string, init?: RequestInit & { duplex?: "half" }) =>
   new Request(`https://vektor.phibkro.org${path}`, {
     ...init,
     headers: { host: "vektor.phibkro.org", ...init?.headers },
@@ -35,10 +35,12 @@ afterEach(() => vi.unstubAllGlobals());
 describe("apex edge worker", () => {
   it("fetches capability routes from dashboard and public routes from homepage", async () => {
     const env = apexEnv();
+
     const dashboardResponse = await worker.fetch(
       apexRequest("/interview-response/accept.data"),
       env,
     );
+
     const homepageResponse = await worker.fetch(apexRequest("/nyheter"), env);
 
     expect(await dashboardResponse.text()).toBe("dashboard");
@@ -50,6 +52,7 @@ describe("apex edge worker", () => {
 
   it("serves dashboard assets before falling back to homepage assets", async () => {
     const dashboardEnv = apexEnv();
+
     const dashboardAsset = await worker.fetch(
       apexRequest("/assets/dashboard-entry.abc123.js"),
       dashboardEnv,
@@ -61,6 +64,7 @@ describe("apex edge worker", () => {
 
     const homepageEnv = apexEnv();
     homepageEnv.Dashboard.fetch.mockResolvedValueOnce(new Response(null, { status: 404 }));
+
     const homepageAsset = await worker.fetch(
       apexRequest("/assets/homepage-entry.def456.js"),
       homepageEnv,
@@ -73,6 +77,7 @@ describe("apex edge worker", () => {
 
   it("routes React Router manifest patches to the application owning their paths", async () => {
     const dashboardEnv = apexEnv();
+
     const dashboardManifest = await worker.fetch(
       apexRequest("/__manifest?paths=%2Fundersokelse%2C%2Fundersokelse%2Fsurvey-0111&version=abc"),
       dashboardEnv,
@@ -83,6 +88,7 @@ describe("apex edge worker", () => {
     expect(dashboardEnv.Homepage.fetch).not.toHaveBeenCalled();
 
     const homepageEnv = apexEnv();
+
     const homepageManifest = await worker.fetch(
       apexRequest("/__manifest?paths=%2Fnyheter%2C%2Fnyheter%2Farticle&version=abc"),
       homepageEnv,
@@ -123,6 +129,7 @@ describe("apex edge worker", () => {
       "fetch",
       vi.fn(async (request: Request) => {
         forwarded = request;
+
         return Response.json({ status: "ok" });
       }),
     );
@@ -138,6 +145,7 @@ describe("apex edge worker", () => {
     "rejects unapproved edge host %s before dispatch",
     async (host) => {
       const env = apexEnv();
+
       const response = await worker.fetch(
         new Request("https://vektor.phibkro.org/api/health", { headers: { host } }),
         env,
@@ -155,6 +163,7 @@ describe("apex edge worker", () => {
       "fetch",
       vi.fn(async (request: Request) => {
         forwarded = request;
+
         return new Response(null, {
           status: 302,
           headers: {
@@ -171,7 +180,7 @@ describe("apex edge worker", () => {
         body: "credential-payload",
         headers: { cookie: "prior=session", "content-type": "text/plain" },
         duplex: "half",
-      } as RequestInit),
+      } satisfies RequestInit & { duplex: "half" }),
       apexEnv(),
     );
 
@@ -193,6 +202,7 @@ describe("apex edge worker", () => {
       "fetch",
       vi.fn(async (request: Request) => {
         forwarded = request;
+
         return Response.json({ code: "RESET_PASSWORD_DISABLED" }, { status: 400 });
       }),
     );

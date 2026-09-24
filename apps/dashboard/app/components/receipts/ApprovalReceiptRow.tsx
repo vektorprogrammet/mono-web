@@ -1,3 +1,4 @@
+import { Match } from "effect";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,18 +31,22 @@ type ResolutionActionProps = {
 function ResolutionAction({ receipt, intent, failure, actionErrorId }: ResolutionActionProps) {
   const relevantFailure =
     failure?.intent === intent && failure.etag === receipt.etag ? failure : undefined;
+
   const [commandId, setCommandId] = useState(relevantFailure?.commandId ?? "");
   const dialogId = useId();
   const titleId = `${dialogId}-${intent}-title`;
   const descriptionId = `${dialogId}-${intent}-description`;
   const navigation = useNavigation();
+
   const busy =
     navigation.state !== "idle" &&
     navigation.formData?.get("receiptId") === receipt.receiptId &&
     navigation.formData?.get("_intent") === intent;
+
   const approving = intent === "approve";
   const reopening = intent === "reopen";
   const label = approving ? "Godkjenn" : reopening ? "Åpne for korrigering" : "Avvis";
+
   const confirmation = approving
     ? "Bekreft godkjenning"
     : reopening
@@ -203,8 +208,8 @@ export function ApprovalReceiptRow({ receipt, failure, actionErrorId }: Approval
           >
             Vis kvittering
           </a>
-          {receipt.status === "Pending" ? (
-            <>
+          {Match.value(receipt).pipe(
+Match.when({ status: "Pending" }, (receipt) => (<>
               <ResolutionAction
                 receipt={receipt}
                 intent="approve"
@@ -217,19 +222,17 @@ export function ApprovalReceiptRow({ receipt, failure, actionErrorId }: Approval
                 failure={relevantFailure}
                 actionErrorId={actionErrorId}
               />
-            </>
-          ) : receipt.status === "Rejected" ? (
-            <ResolutionAction
+            </>)),
+Match.when({ status: "Rejected" }, (receipt) => (<ResolutionAction
               receipt={receipt}
               intent="reopen"
               failure={relevantFailure}
               actionErrorId={actionErrorId}
-            />
-          ) : (
-            <span className="text-muted-foreground text-sm" data-terminal="true">
+            />)),
+Match.orElse(() => (<span className="text-muted-foreground text-sm" data-terminal="true">
               Ferdigbehandlet
-            </span>
-          )}
+            </span>))
+)}
         </div>
       </TableCell>
     </TableRow>

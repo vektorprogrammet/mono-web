@@ -1,3 +1,4 @@
+import { CredentialMechanismSchema, PrincipalSchema } from "@vektorprogrammet/domain/authz";
 import {
   AuthorityRef,
   AuthorizationInstant,
@@ -14,11 +15,11 @@ import {
   type Scope,
   accessHttpStatus,
   evaluateAccessJourney,
-  makeGrant,
+  decodeGrant,
 } from "@vektorprogrammet/domain/authz";
 import type { NativeHttpCommandOutcome } from "./http-api/receipt-transaction.js";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect } from "effect";
+import { Match, Predicate, Effect, type Schema } from "effect";
 import {
   HttpSemanticFailure,
   nativeProblemResponse,
@@ -26,27 +27,30 @@ import {
 } from "./http-semantics.js";
 
 const capabilities = (spec: AccessSpec) => {
-  switch (spec.capabilities._tag) {
-    case "None":
+  return Match.value(spec.capabilities).pipe(
+    Match.tag("None", () => {
       return [];
-    case "One":
-      return [spec.capabilities.capability];
-    case "All":
-    case "Any":
-      return spec.capabilities.capabilities;
-  }
+    }),
+    Match.tag("One", (capabilities) => {
+      return [capabilities.capability];
+    }),
+    Match.tag("All", "Any", (capabilities) => {
+      return capabilities.capabilities;
+    }),
+    Match.exhaustive,
+  );
 };
 
 const rejectedCode = (status: 401 | 403 | 404) =>
-  status === 401
-    ? "credential.invalid"
-    : status === 404
-      ? "resource.not-found"
-      : "authority.denied";
+  Match.value(status).pipe(
+    Match.when(401, () => "credential.invalid" as const),
+    Match.when(404, () => "resource.not-found" as const),
+    Match.orElse(() => "authority.denied" as const),
+  );
 
 export const authorizeAnonymousNativeOperation = (
   spec: AccessSpec,
-  resolution: CanonicalScopeResolution<Record<string, unknown>>,
+  resolution: CanonicalScopeResolution<Schema.JsonObject>,
   now: string,
 ): Effect.Effect<void, HttpSemanticFailure> =>
   evaluateAccessJourney(spec, undefined, {
@@ -54,8 +58,8 @@ export const authorizeAnonymousNativeOperation = (
     resolveCredential: () =>
       Effect.succeed({
         _tag: "Accepted" as const,
-        mechanism: { _tag: "None" as const },
-        principal: { _tag: "Anonymous" as const },
+        mechanism: CredentialMechanismSchema.cases.None.make({}),
+        principal: PrincipalSchema.cases.Anonymous.make({}),
         evidenceRef: CredentialEvidenceRef.make("anonymous"),
       }),
     resolveScope: () => Effect.succeed(resolution),
@@ -63,6 +67,7 @@ export const authorizeAnonymousNativeOperation = (
   }).pipe(
     Effect.flatMap((evaluation) => {
       const status = accessHttpStatus(evaluation, spec.concealment);
+
       return status === 200
         ? Effect.void
         : Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
@@ -76,7 +81,7 @@ export const authorizePersonNativeOperation = (input: {
   readonly credential?: AcceptedCredential;
   readonly request?: Request;
   readonly personId: PersonId;
-  readonly resolution: CanonicalScopeResolution<Record<string, unknown>>;
+  readonly resolution: CanonicalScopeResolution<Schema.JsonObject>;
   readonly grantScopes: ReadonlyArray<Scope>;
   readonly now: string;
 }): Effect.Effect<void, HttpSemanticFailure> => {
@@ -92,21 +97,28 @@ export const authorizePersonNativeOperation = (input: {
                 ? ("OAuthUserBearer" as const)
                 : ("BetterAuthCookie" as const),
           },
-          principal: { _tag: "Person" as const, personId: input.personId },
+          principal: PrincipalSchema.cases.Person.make({ personId: input.personId }),
           evidenceRef: CredentialEvidenceRef.make("native-person-credential"),
         } satisfies AcceptedCredential));
+
   if (credential === undefined) {
     return Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
   }
-  if (credential.principal._tag !== "Person" || credential.principal.personId !== input.personId) {
+
+  if (
+    !Predicate.isTagged(credential.principal, "Person") ||
+    credential.principal.personId !== input.personId
+  ) {
     return Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
   }
+
   const instant = AuthorizationInstant.make(input.now);
   const principal = credential.principal;
+
   const grants: ReadonlyArray<Grant> = capabilities(input.spec).flatMap(
     (capability, capabilityIndex) =>
       input.grantScopes.map((scope, scopeIndex) =>
-        makeGrant({
+        decodeGrant({
           grantId: GrantId.make(
             `native-role:${input.personId}:${capability.type}:${capabilityIndex}:${scopeIndex}`,
           ),
@@ -121,6 +133,7 @@ export const authorizePersonNativeOperation = (input: {
         }),
       ),
   );
+
   return evaluateAccessJourney(input.spec, undefined, {
     now: Effect.succeed(instant),
     resolveCredential: () => Effect.succeed(credential),
@@ -129,6 +142,7 @@ export const authorizePersonNativeOperation = (input: {
   }).pipe(
     Effect.flatMap((evaluation) => {
       const status = accessHttpStatus(evaluation, input.spec.concealment);
+
       return status === 200
         ? Effect.void
         : Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
@@ -142,7 +156,7 @@ export const genericContext = (input: {
   readonly resourceKind?: Parameters<typeof ResourceKind.make>[0];
   readonly resourceId?: Parameters<typeof ResourceId.make>[0];
   readonly authorityVersion: string;
-  readonly facts?: Readonly<Record<string, unknown>>;
+  readonly facts?: Readonly<Schema.JsonObject>;
 }) => ({
   domainId: DomainId.make(input.domainId),
   departmentId: input.departmentId ?? null,
@@ -155,15 +169,19 @@ export const genericContext = (input: {
 });
 
 export const nativeCommandOutcomeResponse = (outcome: NativeHttpCommandOutcome): Response => {
-  switch (outcome._tag) {
-    case "Committed":
-    case "Replay":
+  return Match.value(outcome).pipe(
+    Match.tag("Committed", "Replay", (outcome) => {
       return responseFromCapsule(outcome.response);
-    case "InFlight":
+    }),
+    Match.tag("InFlight", () => {
       return nativeProblemResponse("idempotency.in-flight", 409, { "retry-after": "1" });
-    case "DigestConflict":
+    }),
+    Match.tag("DigestConflict", () => {
       return nativeProblemResponse("idempotency.digest-conflict", 409);
-    case "ResponseExpired":
+    }),
+    Match.tag("ResponseExpired", () => {
       return nativeProblemResponse("idempotency.response-expired", 409);
-  }
+    }),
+    Match.exhaustive,
+  );
 };

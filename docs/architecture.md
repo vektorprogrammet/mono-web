@@ -53,12 +53,15 @@ write its tables or duplicate its rules.
 
 ## Dependency rules
 
+This diagram defines architectural ownership, not the exact installed dependency inventory.
+Package manifests define that inventory.
+
 ```text
 apps/*                  -> packages/http-api, packages/sdk, packages/domain
 packages/http-api       -> packages/domain
 packages/database       -> packages/domain
 packages/sdk            -> generated HTTP contract
-packages/domain         -> Effect only
+packages/domain         -> Effect and portable domain dependencies
 ```
 
 Required rules:
@@ -123,6 +126,23 @@ not expose database rows or transport objects. Not every group has a service yet
 Placements and Substitutes currently export schemas and policy, while the backend
 also calls PostgreSQL functions directly. Keep the domain decision separate from
 its SQL implementation when closing those server-to-database contracts.
+
+Economy uses its [service contract](../packages/domain/src/receipt/service.ts) for
+receipt queries and settlement commands. The [owner query](../packages/database/src/receipt/projections.ts)
+uses `SqlSchema.findAll` with field schemas from `Receipt`. SQL owns the projection,
+filters, and ordering.
+
+The [settlement command](../packages/database/src/receipt/settlement.ts) resolves
+current authority and writes the business facts inside the caller transaction.
+HTTP owns response receipts and revision preconditions. Its revision-only
+preflight does not grant write authority. The complete command checks authority again.
+
+`SqlSchema` checks runtime inputs and results. It does not statically prove SQL or generate database constraints.
+Model variants describe representations, not authority, lifecycle transitions, or automatically partial update commands.
+Public responses require explicit public-schema encoding. Raw model serialization does not enforce private-field omission.
+
+These boundaries do not require a new queue, event log, state runtime, or generic repository.
+Adoption criteria and verification practices live in [AGENTS.md](../AGENTS.md#boundary-practices).
 
 ## Boundary encoding
 
@@ -242,6 +262,10 @@ It then runs the server and worker programs.
 root. It uses the same domain and HTTP contracts. Its Layers provide Hyperdrive
 PostgreSQL access, R2 private-file storage, provider email, identity, and Worker HTTP.
 Concrete Cloudflare imports stay in the application and infrastructure packages.
+
+The deployed development journey still requires acceptance.
+[STATE.md](../STATE.md#current) records the unresolved schema and scheduled-recovery ownership.
+A resource declaration or cron configuration does not prove a working delivery drain.
 
 The homepage and dashboard have separate Worker entry points. Pull-request previews
 build the exact proposed revision without credentials. Trusted default-branch code

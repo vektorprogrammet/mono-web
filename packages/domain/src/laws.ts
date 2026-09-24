@@ -1,27 +1,33 @@
+import { Array, Record } from "effect";
 import type { Dataset, PersonAuthorityProjection } from "./data.js";
 
 export const LAW_ID = "S-DEP-2-TEAM" as const;
+
 export const LAW_STATEMENT =
   "Every retained TeamMembership resolves through Team.department to a local Department, while every retained ExecutiveBoardMembership resolves through the separate Global Hovedstyret container." as const;
 
-export const REASON_CODES = [
-  "ACCEPT_LOCAL",
-  "ACCEPT_GLOBAL",
-  "TEAM_UNRESOLVED",
-  "LOCAL_DEPARTMENT_NULL",
-  "LOCAL_DEPARTMENT_UNRESOLVED",
-  "GLOBAL_UNRESOLVED",
-  "LOCAL_DEPARTMENT_MISMATCH",
-  "DECODE_FAILURE",
-  "DUPLICATE_DEPARTMENT_ID",
-  "DUPLICATE_TEAM_ID",
-  "DUPLICATE_BOARD_ID",
-  "PERSON_AUTHORITY_UNAVAILABLE",
-  "PERSON_AUTHORITY_MISSING",
-] as const;
+const reasonDefaults = {
+  ACCEPT_LOCAL: 0,
+  ACCEPT_GLOBAL: 0,
+  TEAM_UNRESOLVED: 0,
+  LOCAL_DEPARTMENT_NULL: 0,
+  LOCAL_DEPARTMENT_UNRESOLVED: 0,
+  GLOBAL_UNRESOLVED: 0,
+  LOCAL_DEPARTMENT_MISMATCH: 0,
+  DECODE_FAILURE: 0,
+  DUPLICATE_DEPARTMENT_ID: 0,
+  DUPLICATE_TEAM_ID: 0,
+  DUPLICATE_BOARD_ID: 0,
+  PERSON_AUTHORITY_UNAVAILABLE: 0,
+  PERSON_AUTHORITY_MISSING: 0,
+};
+
+export const REASON_CODES = Record.keys(reasonDefaults);
 
 export type ReasonCode = (typeof REASON_CODES)[number];
+
 export type LawStatus = "PASS" | "FAIL" | "INFO";
+
 export type Completeness = "FULL" | "PARTIAL";
 
 export interface TechnicalSample {
@@ -83,17 +89,9 @@ export interface SDep2TeamOptions {
   readonly personAuthority?: PersonAuthorityProjection;
 }
 
-const createReasonCounts = (): Record<ReasonCode, number> => {
-  const counts = {} as Record<ReasonCode, number>;
-  for (const code of REASON_CODES) counts[code] = 0;
-  return counts;
-};
+const createReasonCounts = () => ({ ...reasonDefaults });
 
-const createReasonSamples = (): Record<ReasonCode, TechnicalSample[]> => {
-  const samples = {} as Record<ReasonCode, TechnicalSample[]>;
-  for (const code of REASON_CODES) samples[code] = [];
-  return samples;
-};
+const createReasonSamples = () => Record.map(reasonDefaults, () => Array.empty<TechnicalSample>());
 
 const increment = (counts: Record<ReasonCode, number>, code: ReasonCode): void => {
   counts[code] += 1;
@@ -106,7 +104,9 @@ const addSample = (
   sample: TechnicalSample,
 ): void => {
   const reasonSamples = samples[code];
+
   if (reasonSamples.length < 3) reasonSamples.push(sample);
+
   if (
     allSamples.length < 20 &&
     !allSamples.some((item) => item.source === sample.source && item.id === sample.id)
@@ -154,36 +154,45 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
   for (const membership of dataset.teamMemberships) {
     const sample: TechnicalSample = { source: "team_membership", id: membership.id };
     const teamId = membership.teamId;
+
     if (teamId === null) {
       recordRelationFailure("TEAM_UNRESOLVED", sample);
       continue;
     }
+
     if (dataset.duplicateIds.teams.includes(teamId)) {
       increment(reasonCounts, "DUPLICATE_TEAM_ID");
       addSample(reasonSamples, allSamples, "DUPLICATE_TEAM_ID", sample);
       recordRelationFailure("TEAM_UNRESOLVED", sample);
       continue;
     }
+
     const team = dataset.teamById.get(teamId);
+
     if (team === undefined) {
       recordRelationFailure("TEAM_UNRESOLVED", sample);
       continue;
     }
+
     const departmentId = team.departmentId;
+
     if (departmentId === null) {
       recordRelationFailure("LOCAL_DEPARTMENT_NULL", sample);
       continue;
     }
+
     if (dataset.duplicateIds.departments.includes(departmentId)) {
       increment(reasonCounts, "DUPLICATE_DEPARTMENT_ID");
       addSample(reasonSamples, allSamples, "DUPLICATE_DEPARTMENT_ID", sample);
       recordRelationFailure("LOCAL_DEPARTMENT_UNRESOLVED", sample);
       continue;
     }
+
     if (!dataset.departmentById.has(departmentId)) {
       recordRelationFailure("LOCAL_DEPARTMENT_UNRESOLVED", sample);
       continue;
     }
+
     recordRelationSuccess("ACCEPT_LOCAL", sample);
     localAcceptedEdges += 1;
     const departmentSet = localDepartmentsByUser.get(membership.userId) ?? new Set<number>();
@@ -194,13 +203,16 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
     if (options.personAuthority === undefined) {
       continue;
     }
+
     const authorized = options.personAuthority.departmentIdsByUser.get(membership.userId);
+
     if (authorized === undefined) {
       personMissing += 1;
       increment(reasonCounts, "PERSON_AUTHORITY_MISSING");
       addSample(reasonSamples, allSamples, "PERSON_AUTHORITY_MISSING", sample);
       continue;
     }
+
     if (!authorized.has(departmentId)) {
       personMismatches += 1;
       increment(reasonCounts, "LOCAL_DEPARTMENT_MISMATCH");
@@ -212,20 +224,24 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
   for (const membership of dataset.globalMemberships) {
     const sample: TechnicalSample = { source: "executive_board_membership", id: membership.id };
     const boardId = membership.boardId;
+
     if (boardId === null) {
       recordRelationFailure("GLOBAL_UNRESOLVED", sample);
       continue;
     }
+
     if (dataset.duplicateIds.executiveBoards.includes(boardId)) {
       increment(reasonCounts, "DUPLICATE_BOARD_ID");
       addSample(reasonSamples, allSamples, "DUPLICATE_BOARD_ID", sample);
       recordRelationFailure("GLOBAL_UNRESOLVED", sample);
       continue;
     }
+
     if (!dataset.executiveBoardById.has(boardId)) {
       recordRelationFailure("GLOBAL_UNRESOLVED", sample);
       continue;
     }
+
     recordRelationSuccess("ACCEPT_GLOBAL", sample);
     globalAcceptedEdges += 1;
     globalUsers.add(membership.userId);
@@ -236,19 +252,24 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
   }
 
   const localUsers = new Set(localDepartmentsByUser.keys());
+
   const localMultiDepartmentUsers = [...localDepartmentsByUser.values()].filter(
     (departments) => departments.size > 1,
   ).length;
+
   const globalUsersWithLocalMembership = [...globalUsers].filter((userId) =>
     localUsers.has(userId),
   ).length;
+
   const globalUsersWithoutLocalMembership = globalUsers.size - globalUsersWithLocalMembership;
   const checked = dataset.teamMemberships.length + dataset.globalMemberships.length;
+
   const unresolvedCoverage =
     reasonCounts.TEAM_UNRESOLVED > 0 ||
     reasonCounts.LOCAL_DEPARTMENT_NULL > 0 ||
     reasonCounts.LOCAL_DEPARTMENT_UNRESOLVED > 0 ||
     reasonCounts.GLOBAL_UNRESOLVED > 0;
+
   const relationCompleteness: Completeness =
     dataset.decodeFailures.length === 0 &&
     dataset.duplicateIds.departments.length === 0 &&
@@ -258,20 +279,35 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
     checked > 0
       ? "FULL"
       : "PARTIAL";
+
   const personCompleteness: Completeness =
     options.personAuthority === undefined || personMissing > 0 ? "PARTIAL" : "FULL";
+
   const personStatus: PersonComparison["status"] =
     options.personAuthority === undefined ? "UNAVAILABLE" : personCompleteness;
+
   const status: LawStatus =
     violations > 0
       ? "FAIL"
       : relationCompleteness === "FULL" && personCompleteness === "FULL"
         ? "PASS"
         : "INFO";
+
   const drift = status !== "PASS";
 
-  const immutableReasonSamples = {} as Record<ReasonCode, ReadonlyArray<TechnicalSample>>;
-  for (const code of REASON_CODES) immutableReasonSamples[code] = reasonSamples[code];
+  let provenance: SDep2TeamResult["provenance"] = {
+    snapshot: options.snapshotId ?? "unspecified",
+    files: sourceFiles,
+    tables: [
+      "team_membership.team_id→team.department_id→department.id",
+      "executive_board_membership.board_id→executive_board.id",
+    ],
+    scope: { team: "Local", executiveBoard: "Global" },
+    pii: "none",
+  };
+
+  if (options.snapshotHash !== undefined)
+    provenance = { ...provenance, hash: options.snapshotHash };
 
   return {
     lawId: LAW_ID,
@@ -289,7 +325,7 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
     violations,
     drift,
     reasonCounts,
-    reasonSamples: immutableReasonSamples,
+    reasonSamples: reasonSamples,
     samples: allSamples,
     relation: {
       departments: dataset.departments.length,
@@ -306,17 +342,7 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
       globalUsersWithLocalMembership,
       globalUsersWithoutLocalMembership,
     },
-    provenance: {
-      snapshot: options.snapshotId ?? "unspecified",
-      ...(options.snapshotHash === undefined ? {} : { hash: options.snapshotHash }),
-      files: sourceFiles,
-      tables: [
-        "team_membership.team_id→team.department_id→department.id",
-        "executive_board_membership.board_id→executive_board.id",
-      ],
-      scope: { team: "Local", executiveBoard: "Global" },
-      pii: "none",
-    },
+    provenance,
     input: dataset.input,
   };
 };

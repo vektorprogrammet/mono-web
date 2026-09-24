@@ -1,6 +1,8 @@
 const cache = new Map<string, string>();
+
 type JourneyResponse = { readonly status: number };
-type JourneyHttpClientShape = {
+
+type JourneyHttpClientOperations = {
   readonly request: (request: { readonly url: string }) => Promise<JourneyResponse>;
 };
 
@@ -20,7 +22,7 @@ export const methods = {
       fetch: (input: Request, init?: RequestInit) => fetch(input, init),
     }),
   journey: async (
-    http: JourneyHttpClientShape,
+    http: JourneyHttpClientOperations,
     request: { readonly url: string },
   ): Promise<{ readonly status: number }> => http.request(request),
   contact: async (
@@ -30,9 +32,10 @@ export const methods = {
     if (new URL(input.url).origin !== ingress.backendOrigin) {
       throw new Error("Unsupported contact backend origin");
     }
+
     return fetch(input);
   },
-  inspect: (response: { request(): unknown }): unknown => {
+  inspect: (response: { request(): Request }): Request => {
     return response.request();
   },
   geolocate: async (): Promise<Response> => {

@@ -1,3 +1,4 @@
+import { ApplicantProgressStateSchema } from "@vektorprogrammet/domain/application";
 import { afterAll, describe, expect, it } from "vitest";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { readApplicantProgress } from "./application/postgres.js";
@@ -7,9 +8,11 @@ import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
+
 afterAll(() => runtime.dispose());
 
 const now = "2038-09-01T12:00:00.000Z";
+
 const personId = PersonId.make("applicant-progress-person");
 
 const readProgress = () => runtime.runPromise(readApplicantProgress(personId, now));
@@ -136,10 +139,11 @@ describe("applicant progress projection", () => {
 
     const received = await readProgress();
     expect(received.applications).toHaveLength(1);
+    expect(received.applications[0]).toHaveProperty("progress._tag", "ApplicationReceived");
     expect(received.applications[0]).toMatchObject({
       applicationId: "applicant-progress-current-application",
       departmentName: "Applicant progress",
-      progress: { _tag: "ApplicationReceived" },
+      progress: {},
     });
 
     await runtime.runPromise(
@@ -185,15 +189,16 @@ describe("applicant progress projection", () => {
     );
 
     const invited = await readProgress();
-    expect(invited.applications[0]?.progress).toEqual({
-      _tag: "InvitedToInterview",
-      schedule: {
-        scheduledAt: "2038-09-03T10:00:00.000Z",
-        room: "A-101",
-        campus: "Gløshaugen",
-        mapLink: "https://example.invalid/map",
-      },
-    });
+    expect(invited.applications[0]?.progress).toEqual(
+      ApplicantProgressStateSchema.cases.InvitedToInterview.make({
+        schedule: {
+          scheduledAt: "2038-09-03T10:00:00.000Z",
+          room: "A-101",
+          campus: "Gløshaugen",
+          mapLink: "https://example.invalid/map",
+        },
+      }),
+    );
 
     await runtime.runPromise(
       Database.use((sql) =>
@@ -229,7 +234,9 @@ describe("applicant progress projection", () => {
     );
 
     const completed = await readProgress();
-    expect(completed.applications[0]?.progress).toEqual({ _tag: "InterviewCompleted" });
+    expect(completed.applications[0]?.progress).toEqual(
+      ApplicantProgressStateSchema.cases.InterviewCompleted.make({}),
+    );
 
     await runtime.runPromise(
       Database.use(
@@ -243,9 +250,9 @@ describe("applicant progress projection", () => {
         `,
       ),
     );
-    expect((await readProgress()).applications[0]?.progress).toEqual({
-      _tag: "AffiliationPending",
-    });
+    expect((await readProgress()).applications[0]?.progress).toEqual(
+      ApplicantProgressStateSchema.cases.AffiliationPending.make({}),
+    );
 
     await runtime.runPromise(
       Database.use(
@@ -258,9 +265,9 @@ describe("applicant progress projection", () => {
         `,
       ),
     );
-    expect((await readProgress()).applications[0]?.progress).toEqual({
-      _tag: "AffiliationActive",
-    });
+    expect((await readProgress()).applications[0]?.progress).toEqual(
+      ApplicantProgressStateSchema.cases.AffiliationActive.make({}),
+    );
 
     await runtime.runPromise(
       Database.use(
@@ -273,9 +280,9 @@ describe("applicant progress projection", () => {
         `,
       ),
     );
-    expect((await readProgress()).applications[0]?.progress).toEqual({
-      _tag: "InterviewCompleted",
-    });
+    expect((await readProgress()).applications[0]?.progress).toEqual(
+      ApplicantProgressStateSchema.cases.InterviewCompleted.make({}),
+    );
 
     await runtime.runPromise(
       Database.use((sql) =>
@@ -286,6 +293,7 @@ describe("applicant progress projection", () => {
             WHERE person_id = ${personId}
               AND department_id = 'applicant-progress-department'
           `;
+
           const schools = yield* sql<{ readonly schoolId: number }>`
             INSERT INTO schools_directory_schools (
               name, contact_person, email, phone, language, active
@@ -296,6 +304,7 @@ describe("applicant progress projection", () => {
             )
             RETURNING school_id::double precision AS "schoolId"
           `;
+
           const schoolId = schools[0]!.schoolId;
           yield* sql`
             INSERT INTO schools_directory_departments (school_id, department_id)
@@ -314,9 +323,9 @@ describe("applicant progress projection", () => {
         }),
       ),
     );
-    expect((await readProgress()).applications[0]?.progress).toEqual({
-      _tag: "AssignedToSchool",
-    });
+    expect((await readProgress()).applications[0]?.progress).toEqual(
+      ApplicantProgressStateSchema.cases.AssignedToSchool.make({}),
+    );
     expect(JSON.stringify(completed)).not.toMatch(
       /email|phone|recommendation|answers|capability|interviewer/iu,
     );

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Predicate, Context, Effect, Layer } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import type { ReceiptOutboxRequest } from "./effects.js";
 import {
@@ -15,14 +15,14 @@ export type ReceiptFileRequest = Extract<
   { readonly _tag: "PromoteReceiptFile" | "DeleteReceiptFile" }
 >;
 
-export interface ReceiptFileServiceShape {
+export interface ReceiptFileServiceOperations {
   readonly stage: (file: ReceiptFile) => Effect.Effect<void, ReceiptFileFailure>;
   readonly apply: (request: ReceiptFileRequest) => Effect.Effect<void, ReceiptFileFailure>;
 }
 
 export class ReceiptFileService extends Context.Service<
   ReceiptFileService,
-  ReceiptFileServiceShape
+  ReceiptFileServiceOperations
 >()("@vektorprogrammet/domain/ReceiptFileService") {}
 
 export interface ReceiptFileEvent {
@@ -78,38 +78,45 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
     failOnce: new Set(),
   };
 
-  const service: ReceiptFileServiceShape = {
+  const service: ReceiptFileServiceOperations = {
     stage: (file) =>
       Effect.gen(function* () {
         const occupiedStaged = state.staged.find(
           (candidate) =>
             candidate.fileRef === file.fileRef || candidate.objectKey === file.objectKey,
         );
+
         const occupiedCurrent = state.current.find(
           (candidate) =>
             candidate.fileRef === file.fileRef || candidate.objectKey === file.objectKey,
         );
+
         if (
           (occupiedStaged !== undefined && !sameIdentity(occupiedStaged, file)) ||
           occupiedCurrent !== undefined
         ) {
           state.conflicts.push(`stage:${file.fileRef}:${file.objectKey}`);
+
           return yield* new ReceiptFileIdentityConflict({
             effectId: "stage",
             objectKey: file.objectKey,
           });
         }
+
         if (occupiedStaged === undefined) state.staged.push(file);
       }),
     apply: (request) =>
       Effect.gen(function* () {
         const digest = sha256Hex(canonicalJsonBytes(request));
         const appliedDigest = state.applied.get(request.effectId);
+
         if (appliedDigest !== undefined) {
           if (appliedDigest !== digest) {
             state.conflicts.push(`effect:${request.effectId}`);
+
             return yield* new ReceiptFileEffectConflict({ effectId: request.effectId });
           }
+
           return;
         }
 
@@ -117,29 +124,35 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
           return yield* new ReceiptFileInjectedFailure({ effectId: request.effectId });
         }
 
-        if (request._tag === "PromoteReceiptFile") {
+        if (Predicate.isTagged(request, "PromoteReceiptFile")) {
           const staged = state.staged.find(
             (candidate) => candidate.fileRef === request.file.fileRef,
           );
+
           if (staged === undefined || !sameIdentity(staged, request.file)) {
             return yield* new ReceiptFileNotStaged({
               effectId: request.effectId,
               fileRef: request.file.fileRef,
             });
           }
+
           const current = state.current.find(
             (candidate) => candidate.objectKey === request.file.objectKey,
           );
+
           if (current !== undefined && !sameIdentity(current, request.file)) {
             state.conflicts.push(`identity:${request.effectId}:${request.file.objectKey}`);
+
             return yield* new ReceiptFileIdentityConflict({
               effectId: request.effectId,
               objectKey: request.file.objectKey,
             });
           }
+
           state.staged = state.staged.filter(
             (candidate) => candidate.fileRef !== request.file.fileRef,
           );
+
           if (current === undefined) state.current.push(request.file);
           state.events.push({
             effectId: request.effectId,
@@ -151,13 +164,16 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
           const current = state.current.find(
             (candidate) => candidate.objectKey === request.file.objectKey,
           );
+
           if (current !== undefined && !sameIdentity(current, request.file)) {
             state.conflicts.push(`identity:${request.effectId}:${request.file.objectKey}`);
+
             return yield* new ReceiptFileIdentityConflict({
               effectId: request.effectId,
               objectKey: request.file.objectKey,
             });
           }
+
           if (current === undefined) {
             state.events.push({
               effectId: request.effectId,
@@ -178,6 +194,7 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
             });
           }
         }
+
         state.applied.set(request.effectId, digest);
       }),
   };

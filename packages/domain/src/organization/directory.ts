@@ -1,3 +1,4 @@
+import { Result, Array, Data } from "effect";
 import type { OrganizationAuthorityInstant } from "./authority.js";
 import {
   type OrganizationAuthorityMembership,
@@ -64,6 +65,7 @@ export const accumulateOrganizationDirectoryFacts = (input: {
       isActive: boolean;
     }
   >();
+
   for (const personId of input.personIds) {
     facts.set(personId, {
       departments: new Set(),
@@ -71,18 +73,25 @@ export const accumulateOrganizationDirectoryFacts = (input: {
       isActive: false,
     });
   }
+
   for (const membership of input.memberships) {
     const fact = facts.get(membership.personId);
+
     if (fact === undefined) continue;
     fact.departments.add(membership.departmentId);
+
     if (membership.departmentName !== undefined) {
       fact.namesByDepartment.set(membership.departmentId, membership.departmentName);
     }
+
     if (membership.active) fact.isActive = true;
   }
+
   const grantsByPerson = new Map<PersonId, OrganizationGlobalAdministratorStatus>();
+
   for (const grant of input.grants) grantsByPerson.set(grant.personId, grant.globalAdministrator);
   const result = new Map<PersonId, OrganizationDirectoryFact>();
+
   for (const [personId, fact] of facts) {
     result.set(personId, {
       departments: [...fact.departments].sort((left, right) => left.localeCompare(right)),
@@ -93,6 +102,7 @@ export const accumulateOrganizationDirectoryFacts = (input: {
       globalAdministrator: grantsByPerson.get(personId) ?? "Absent",
     });
   }
+
   return result;
 };
 
@@ -106,6 +116,8 @@ export type DirectoryGateScope =
   | { readonly _tag: "AllDepartments" }
   | { readonly _tag: "Departments"; readonly departmentIds: ReadonlyArray<DepartmentId> };
 
+export const DirectoryGateScope = Data.taggedEnum<DirectoryGateScope>();
+
 /**
  * Maps the caller projection onto the directory gate (spec 0057 §Gating
  * table). Memberships that exist but carry no active leadership, and ended
@@ -116,18 +128,23 @@ export const resolveDirectoryGateScope = (
   authority: OrganizationPersonAuthority,
 ): Decision<DirectoryGateScope> => {
   if (authority.globalAdministrator === "Active") {
-    return allow<DirectoryGateScope>({ _tag: "AllDepartments" });
+    return allow<DirectoryGateScope>(DirectoryGateScope.AllDepartments());
   }
+
   const departmentIds = [
     ...new Set(
-      authority.memberships
-        .filter((membership) => membership.active && membership.teamLeader)
-        .map((membership: OrganizationAuthorityMembership) => membership.departmentId),
+      Array.filterMap(authority.memberships, (membership: OrganizationAuthorityMembership) =>
+        membership.active && membership.teamLeader
+          ? Result.succeed(membership.departmentId)
+          : Result.failVoid,
+      ),
     ),
   ].sort((left, right) => left.localeCompare(right));
+
   if (departmentIds.length > 0) {
-    return allow<DirectoryGateScope>({ _tag: "Departments", departmentIds });
+    return allow<DirectoryGateScope>(DirectoryGateScope.Departments({ departmentIds }));
   }
+
   return deny<DirectoryGateScope>(
     authority.memberships.length > 0 || authority.globalAdministrator === "Inactive"
       ? "AuthorityInactive"
@@ -143,6 +160,7 @@ export const directoryRowInScope = (
   scope: DirectoryGateScope,
   departments: ReadonlyArray<DepartmentId>,
 ): boolean => {
-  if (scope._tag === "AllDepartments") return true;
+  if (DirectoryGateScope.$is("AllDepartments")(scope)) return true;
+
   return departments.some((departmentId) => scope.departmentIds.includes(departmentId));
 };

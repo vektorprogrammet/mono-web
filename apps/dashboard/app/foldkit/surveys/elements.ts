@@ -5,6 +5,7 @@ export const SCHOOL_SURVEYS_ELEMENT = "vektor-school-surveys-workspace";
 
 export const registerSchoolSurveysElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
+
   if (customElements.get(SCHOOL_SURVEYS_ELEMENT) !== undefined) return;
 
   customElements.define(
@@ -17,6 +18,7 @@ export const registerSchoolSurveysElement = (): void => {
         if (this.#dispose !== undefined) return;
         this.#container.id = "foldkit-school-surveys";
         this.replaceChildren(this.#container);
+
         try {
           this.#dispose = embedSchoolSurveys(this.#container, {
             client: createBrowserSchoolSurveysClient(),

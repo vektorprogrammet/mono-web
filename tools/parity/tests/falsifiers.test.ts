@@ -1,4 +1,6 @@
-import { Effect } from "effect";
+import { Effect, Schema, Predicate } from "effect";
+import type { ZeroGapReport } from "../src/types.js";
+import { validateAcceptedIntentRegister } from "../src/accepted-intent-schema.js";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -33,10 +35,11 @@ import {
 } from "../src/runtime.js";
 import {
   canonicalRuntimeEvidenceBytes,
-  makeRuntimeEvidenceReceipt,
-  makeRuntimeEvidenceRegister,
+  buildRuntimeEvidenceReceipt,
+  buildRuntimeEvidenceRegister,
 } from "../src/runtime-evidence.js";
 import { canonicalJson, sha256 } from "../src/canonical.js";
+
 const repoRoot = join(import.meta.dir, "../../..");
 
 const falsifiers: readonly FalsifierId[] = [
@@ -61,6 +64,7 @@ describe("C0 and C1 fixture falsifiers", () => {
           falsifierId,
         }).pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       expect(result.exitCode).toBe(13);
       expect(result.report.status).toBe("falsifier_passed");
       expect(result.report.falsifier_id).toBe(falsifierId);
@@ -79,10 +83,12 @@ describe("C0 and C1 fixture falsifiers", () => {
           Effect.provide(NodeRuntimeLayer),
         ),
       );
+
       expect(result.exitCode).toBe(13);
       expect(result.report.status).toBe("falsifier_passed");
       expect(result.report.openapi_reconciliation_ref).toBe("openapi-reconciliation.json");
       expect(result.artifacts?.apiOperations.inventory_kind).toBe("api_operation");
+
       if (falsifierId === "F8_openapi_stale") {
         expect(result.artifacts?.report).toMatchObject({ status: "stale", exit_code: 5 });
         expect(result.artifacts?.openapiReconciliation.status).toBe("stale");
@@ -106,7 +112,9 @@ describe("C0 and C1 fixture falsifiers", () => {
             "uri_template" in row.details &&
             row.details.uri_template === "/fixture/h3-authority-copy",
         );
+
         expect(h3Copy).toBeDefined();
+
         if (h3Copy === undefined) throw new Error("H3 authority copy row missing");
         expect(h3Copy).toMatchObject({
           authority_line: "cross_line",
@@ -126,6 +134,7 @@ describe("C0 and C1 fixture falsifiers", () => {
     });
   }
 });
+
 test("C1 H3 derivation dedup preserves unique route rows and all edge contracts", async () => {
   const result = await Effect.runPromise(
     run({
@@ -135,23 +144,29 @@ test("C1 H3 derivation dedup preserves unique route rows and all edge contracts"
       falsifierId: "F0_deterministic_replay",
     }).pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   const artifacts = result.artifacts;
+
   if (artifacts === undefined) throw new Error("fixture artifacts unavailable");
+
   const allRows = [
     ...artifacts.legacyRoutes.rows,
     ...artifacts.monoRoutes.rows,
     ...artifacts.apiOperations.rows,
   ];
+
   expect(new Set(artifacts.monoRoutes.rows.map((row) => row.row_id)).size).toBe(
     artifacts.monoRoutes.rows.length,
   );
   expect(new Set(allRows.map((row) => row.row_id)).size).toBe(allRows.length);
+
   const edgeNames = [
     ...artifacts.monoRoutes.derivation_edges,
     ...artifacts.apiOperations.derivation_edges,
   ]
     .map((edge) => edge.derivation)
     .sort();
+
   expect([...new Set(edgeNames)]).toEqual(
     [
       "E-H3-CANONICALIZATION",
@@ -170,6 +185,7 @@ test("C1 H3 derivation dedup preserves unique route rows and all edge contracts"
       (observation) => observation.label === "h3_resource_inventory",
     ),
   ).toBe(true);
+
   for (const edge of [
     ...artifacts.monoRoutes.derivation_edges,
     ...artifacts.apiOperations.derivation_edges,
@@ -178,6 +194,7 @@ test("C1 H3 derivation dedup preserves unique route rows and all edge contracts"
     expect(edge.to_row_ids.length).toBeGreaterThan(0);
   }
 });
+
 const c3ReceiptMatrix = [
   ["F11_intent_missing_or_stale", "accepted_intent_invalid", "ACCEPTED_INTENT_MISSING"],
   ["F12_uncovered_journey", "gaps_found", "COVERAGE_REF_REQUIRED"],
@@ -195,18 +212,23 @@ describe("C3 falsifier receipts", () => {
           Effect.provide(NodeRuntimeLayer),
         ),
       );
+
       expect(result.exitCode).toBe(13);
       expect(result.report.status).toBe("falsifier_passed");
       expect(result.report.falsifier_id).toBe(falsifierId);
+
       const receipts = result.report.failures.filter(
         (failure) => failure.reason_code === reasonCode,
       );
+
       expect(receipts.length).toBeGreaterThan(0);
+
       for (const receipt of receipts) {
         expect(receipt.status).toBe(failureStatus);
         expect(receipt.row_ids).toEqual([...new Set(receipt.row_ids)].sort());
         expect(receipt.source_ref_ids).toEqual([...new Set(receipt.source_ref_ids)].sort());
       }
+
       if (falsifierId === "F12_uncovered_journey") {
         const receipt = receipts[0];
         expect(receipt?.row_ids.length).toBe(1);
@@ -216,19 +238,22 @@ describe("C3 falsifier receipts", () => {
           ),
         ).toBe(true);
       }
+
       if (falsifierId === "F15_secret_or_pii_input") {
         expect(JSON.stringify(result.report)).not.toContain("sk_live_fixture_secret");
       }
+
       expect(result.report.verification.forbidden_states_empty).toBe(false);
     });
   }
 });
+
 const terminalReport = (
   mode: "diff" | "write",
   status: "zero_gap" | "projection_written",
   exitCode: 0 | 14,
   deterministicDiff: "equal" | "not_run",
-): Record<string, unknown> => ({
+): ZeroGapReport => ({
   $schema: "https://json-schema.org/draft/2020-12/schema",
   schema_version: "functional-parity-zero-gap-report/v1",
   status,
@@ -255,28 +280,6 @@ const terminalReport = (
   },
 });
 
-test("terminal diff publishes only a clean zero-gap receipt", () => {
-  const report = terminalReport("diff", "zero_gap", 0, "equal");
-  expect(report).toMatchObject({
-    status: "zero_gap",
-    exit_code: 0,
-    mode: "diff",
-    projection_write: { status: "not_requested" },
-    verification: { deterministic_diff: "equal", forbidden_states_empty: true },
-  });
-  expect(canonicalJson(report)).toBe(canonicalJson(JSON.parse(canonicalJson(report))));
-});
-
-test("terminal write promotion is exit fourteen and does not run diff", () => {
-  const report = terminalReport("write", "projection_written", 14, "not_run");
-  expect(report).toMatchObject({
-    status: "projection_written",
-    exit_code: 14,
-    mode: "write",
-    projection_write: { status: "written", target_ref: "artifacts/parity" },
-    verification: { deterministic_diff: "not_run" },
-  });
-});
 test("terminal claims require the closed generated artifact bundle", async () => {
   const result = await Effect.runPromise(
     run({
@@ -286,40 +289,40 @@ test("terminal claims require the closed generated artifact bundle", async () =>
       falsifierId: "F0_deterministic_replay",
     }).pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   const artifacts = result.artifacts;
+
   if (artifacts === undefined) throw new Error("fixture artifacts unavailable");
+
   const observation: ProjectionObservation = {
     entries: [],
     bytes: Object.fromEntries(COMMITTED_PROJECTIONS.map((name) => [name, null])),
     writeReceipt: false,
   };
-  const forgedZeroGap = terminalReport(
-    "diff",
-    "zero_gap",
-    0,
-    "equal",
-  ) as unknown as typeof artifacts.report;
-  const forgedProjectionWritten = terminalReport(
-    "write",
-    "projection_written",
-    14,
-    "not_run",
-  ) as unknown as typeof artifacts.report;
+
+  const forgedZeroGap = terminalReport("diff", "zero_gap", 0, "equal");
+
+  const forgedProjectionWritten = terminalReport("write", "projection_written", 14, "not_run");
+
   expect(validateReportBundle({ ...artifacts, report: forgedZeroGap }, observation)).toBe(false);
   expect(validateReportBundle({ ...artifacts, report: forgedProjectionWritten }, observation)).toBe(
     false,
   );
 });
+
 test("projection listings ignore co-located acceptance evidence directories", async () => {
   const root = mkdtempSync("/tmp/functional-parity-projections-");
+
   try {
     putFixture(root, "artifacts/parity/source-manifest.json", "{}");
     putFixture(root, "artifacts/parity/0051/runtime.json", "{}");
+
     const entries = await Effect.runPromise(
       readProjectionDirectoryEffect(root, "artifacts/parity").pipe(
         Effect.provide(NodeRuntimeLayer),
       ),
     );
+
     expect(entries).toEqual(["source-manifest.json"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -331,6 +334,7 @@ const gitFixture = (): string => {
   execFileSync("git", ["-C", root, "init", "-q"]);
   execFileSync("git", ["-C", root, "config", "user.email", "parity@example.invalid"]);
   execFileSync("git", ["-C", root, "config", "user.name", "parity-test"]);
+
   return root;
 };
 
@@ -339,23 +343,27 @@ const putFixture = (root: string, path: string, text: string): void => {
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, text, "utf8");
 };
-const createIntentAuthority = (
-  root: string,
-  legacyRoot: string,
-): { readonly path: string; readonly directory: string } => {
+
+type FixtureAuthority = { readonly path: string; readonly directory: string };
+
+const createIntentAuthority = (root: string, legacyRoot: string): FixtureAuthority => {
   let selectedRevisionRefIds = ["rev-legacy-test", "rev-mono-intent-test"];
+
   try {
     const legacy = Effect.runSync(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const mono = Effect.runSync(
       scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
     selectedRevisionRefIds = [legacy.revisionRefId, acceptedIntentRevisionRefId(context)].sort();
   } catch {
     // Source-root drift is the subject of several tests; the authority must still be independently pinned.
   }
+
   const intentPayload = {
     intent_ref_id: "intent://test-authority",
     intent_revision: "test-authority-v1",
@@ -368,6 +376,7 @@ const createIntentAuthority = (
     inventory_kinds: [],
     journey_ref_ids: ["intent://test-journey"],
   };
+
   const journeyPayload = {
     journey_ref_id: "intent://test-journey",
     journey_key: "test-authority-journey",
@@ -378,34 +387,32 @@ const createIntentAuthority = (
     steps: [],
     coverage_scope: "accepted_non_user_facing" as const,
   };
+
   const register = {
     schema_version: "functional-parity-accepted-intent/v1" as const,
     intents: [{ ...intentPayload, intent_digest: sha256(canonicalJson(intentPayload)) }],
     journeys: [{ ...journeyPayload, journey_digest: sha256(canonicalJson(journeyPayload)) }],
   };
+
   const directory = gitFixture();
   const path = join(directory, "accepted-intent.json");
   writeFileSync(path, canonicalJson(register), "utf8");
   execFileSync("git", ["-C", directory, "add", "--", "accepted-intent.json"]);
   execFileSync("git", ["-C", directory, "commit", "-qm", "intent-authority"]);
+
   return { path, directory };
 };
-const createEvidenceAuthority = (
-  intentPath: string,
-): { readonly path: string; readonly directory: string } => {
-  const accepted = JSON.parse(readFileSync(intentPath, "utf8")) as {
-    readonly journeys: readonly [
-      {
-        readonly journey_ref_id: string;
-        readonly selected_revision_ref_ids: readonly string[];
-        readonly source_ref_ids: readonly string[];
-        readonly steps: readonly { readonly step_id: string }[];
-      },
-    ];
-  };
+
+const createEvidenceAuthority = (intentPath: string): FixtureAuthority => {
+  const accepted = Schema.decodeUnknownSync(
+    Schema.fromJsonString(Schema.declare(validateAcceptedIntentRegister)),
+  )(readFileSync(intentPath, "utf8"));
+
   const journey = accepted.journeys[0];
+
   if (journey === undefined) throw new Error("fixture journey authority is unavailable");
-  const receipt = makeRuntimeEvidenceReceipt({
+
+  const receipt = buildRuntimeEvidenceReceipt({
     journey_ref_id: journey.journey_ref_id,
     step_ids: [journey.steps[0]?.step_id ?? "fixture-step"],
     legacy_revision_ref_id:
@@ -423,17 +430,20 @@ const createEvidenceAuthority = (
     result: "failed",
     artifact_digest: sha256("test-artifact"),
   });
+
   const directory = gitFixture();
   const path = join(directory, "runtime-evidence.json");
   writeFileSync(
     path,
-    canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])),
+    canonicalRuntimeEvidenceBytes(buildRuntimeEvidenceRegister([receipt])),
     "utf8",
   );
   execFileSync("git", ["-C", directory, "add", "--", "runtime-evidence.json"]);
   execFileSync("git", ["-C", directory, "commit", "-qm", "runtime-evidence-authority"]);
+
   return { path, directory };
 };
+
 const intentContextFor = async (
   text: string,
 ): Promise<{
@@ -445,13 +455,17 @@ const intentContextFor = async (
   const monoRoot = gitFixture();
   const legacyRoot = gitFixture();
   execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "legacy-fixture"]);
+
   const legacy = await Effect.runPromise(
     scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   const mono = await Effect.runPromise(
     scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
   );
+
   const context = createManifestContextFromSnapshots(legacy, mono);
+
   return {
     context,
     monoRoot,
@@ -467,9 +481,11 @@ const intentContextFor = async (
     },
   };
 };
+
 const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "diff" | "write") => {
   const authority = createIntentAuthority(root, legacyRoot);
   const evidenceAuthority = createEvidenceAuthority(authority.path);
+
   try {
     return await Effect.runPromise(
       run({
@@ -485,16 +501,20 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
     rmSync(evidenceAuthority.directory, { recursive: true, force: true });
   }
 };
+
 test("accepted-intent decoder rejects PII, duplicate members, and noncanonical JSON", async () => {
   const pii = await intentContextFor(
     '{"schema_version":"functional-parity-accepted-intent/v1","intents":[],"journeys":[],"note":"sk_live_fixture_secret"}',
   );
+
   const duplicate = await intentContextFor(
     '{"schema_version":"functional-parity-accepted-intent/v1","intents":[],"intents":[],"journeys":[]}',
   );
+
   const noncanonical = await intentContextFor(
     '{ "schema_version": "functional-parity-accepted-intent/v1", "intents": [], "journeys": [] }',
   );
+
   try {
     expect(loadAcceptedIntentRegister(pii.context, pii.intentInput)).toMatchObject({
       register: null,
@@ -531,10 +551,12 @@ test("accepted-intent decoder rejects PII, duplicate members, and noncanonical J
     rmSync(noncanonical.legacyRoot, { recursive: true, force: true });
   }
 });
+
 test("projection state cannot provide accepted intent authority", async () => {
   const fixture = await intentContextFor(
     '{"schema_version":"functional-parity-accepted-intent/v1","intents":[],"journeys":[]}',
   );
+
   try {
     expect(loadAcceptedIntentRegister(fixture.context)).toMatchObject({
       register: null,
@@ -551,10 +573,12 @@ test("projection state cannot provide accepted intent authority", async () => {
     rmSync(fixture.legacyRoot, { recursive: true, force: true });
   }
 });
+
 test("external intent authority must remain clean while pinned", () => {
   const legacy = gitFixture();
   const mono = gitFixture();
   const authority = createIntentAuthority(mono, legacy);
+
   try {
     writeFileSync(
       authority.path,
@@ -574,10 +598,12 @@ test("external intent authority must remain clean while pinned", () => {
     rmSync(legacy, { recursive: true, force: true });
   }
 });
-test("real target API identities and normalized H3 edges do not invoke ambient runtime", async () => {
+
+test("real target API identities reject stale H3 source evidence without ambient runtime", async () => {
   const sourceRoot = join(import.meta.dir, "../../..");
   const monoRoot = gitFixture();
   const legacyRoot = gitFixture();
+
   const copiedPaths = new Set([
     "tools/parity/data/security-h3/0015/source-manifest.json",
     "tools/parity/data/security-h3/0015/route-collector.json",
@@ -586,79 +612,111 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     "apps/server/tools/security-h3/0015/generate.ts",
     "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
   ]);
-  const sourceManifest = JSON.parse(
+
+  const sourceManifest = Schema.decodeUnknownSync(
+    Schema.fromJsonString(Schema.Array(Schema.Struct({ path: Schema.String }))),
+  )(
     readFileSync(
       join(sourceRoot, "tools/parity/data/security-h3/0015/source-manifest.json"),
       "utf8",
     ),
-  ) as readonly { readonly path: string }[];
+  );
+
   for (const source of sourceManifest) copiedPaths.add(source.path);
+
   try {
     for (const path of copiedPaths) {
       const target = join(monoRoot, path);
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, readFileSync(join(sourceRoot, path)));
     }
+
     execFileSync("git", ["-C", monoRoot, "add", "."]);
     execFileSync("git", ["-C", monoRoot, "commit", "-qm", "real-target-probe"]);
     execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy-probe"]);
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const context = createManifestContextFromSnapshots(legacy, mono);
+
     const routes = await Effect.runPromise(
       collectRoutes(context, sha256("real-target-probe"), undefined, true).pipe(
         Effect.provide(NodeRuntimeLayer),
       ),
     );
+
     const api = await Effect.runPromise(
       collectApiOperations(context, sha256("real-target-probe"), routes.mono.rows, false).pipe(
         Effect.provide(NodeRuntimeLayer),
       ),
     );
+
     const staticRows = api.rows.filter((row) => row.observation_kinds.includes("static_source"));
+
     const deleteOperation = staticRows.find((row) => {
       if (!("operation_name" in row.details)) return false;
+
       return (
         row.details.operation_name === "Delete" &&
         row.details.method === "DELETE" &&
         row.details.uri_template === "/admin/admission-periods/{id}"
       );
     });
-    const openApi = JSON.parse(
+
+    const openApi = Schema.decodeUnknownSync(
+      Schema.fromJsonString(
+        Schema.Struct({
+          paths: Schema.optionalKey(
+            Schema.Record(
+              Schema.String,
+              Schema.Record(
+                Schema.String,
+                Schema.NullOr(Schema.Struct({ operationId: Schema.optionalKey(Schema.String) })),
+              ),
+            ),
+          ),
+        }),
+      ),
+    )(
       readFileSync(
         join(sourceRoot, "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json"),
         "utf8",
       ),
-    ) as {
-      readonly paths?: Record<string, Record<string, { readonly operationId?: string } | null>>;
-    };
+    );
+
     expect(staticRows.length).toBeGreaterThan(0);
     expect(deleteOperation).toBeDefined();
+
     const staticContent = staticRows.filter(
       (row) =>
         "resource_class_ref" in row.details &&
         row.details.resource_class_ref === "App\\Content\\Infrastructure\\Entity\\StaticContent" &&
         row.details.operation_name === "GetCollection",
     );
+
     expect(staticContent).toHaveLength(1);
     expect(staticContent[0]?.observation_kinds).toContain("derived_h3");
+
     const sourceBackedRouteKeys = new Set([
       JSON.stringify(["/opptak", "GET"]),
       JSON.stringify(["/opptak/{shortName}", "ANY"]),
       JSON.stringify(["/avdeling/{shortName}", "ANY"]),
       JSON.stringify(["/opptak/avdeling/{id}", "GET"]),
     ]);
+
     const sourceBackedRoutes = api.h3RouteRows.filter(
       (row) =>
         row.observation_kinds.includes("static_source") &&
-        row.observation_kinds.includes("derived_h3") &&
         "path_template" in row.details &&
         sourceBackedRouteKeys.has(JSON.stringify([row.details.path_template, row.details.method])),
     );
+
     expect(
       new Set(
         sourceBackedRoutes.map((row) =>
@@ -668,16 +726,26 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
         ),
       ),
     ).toEqual(sourceBackedRouteKeys);
+    expect(sourceBackedRoutes.every((row) => !row.observation_kinds.includes("derived_h3"))).toBe(
+      true,
+    );
+    expect(api.failures.some((failure) => failure.reasonCode === "H3_SOURCE_DIGEST_MISMATCH")).toBe(
+      true,
+    );
     expect(
-      api.h3RouteRows.some(
-        (row) =>
-          row.authority_line === "cross_line" &&
-          "path_template" in row.details &&
-          sourceBackedRouteKeys.has(
-            JSON.stringify([row.details.path_template, row.details.method]),
-          ),
-      ),
-    ).toBe(false);
+      api.h3RouteRows
+        .filter(
+          (row) =>
+            row.authority_line === "cross_line" &&
+            "path_template" in row.details &&
+            sourceBackedRouteKeys.has(
+              JSON.stringify([row.details.path_template, row.details.method]),
+            ),
+        )
+        .every(
+          (row) => row.status === "unresolved" && row.reason_codes.includes("H3_UNMATCHED_DRIFT"),
+        ),
+    ).toBe(true);
     expect(openApi.paths?.["/api/admin/admission-periods/{id}"]?.delete?.operationId).toBe(
       "api_adminadmission-periods_id_delete",
     );
@@ -702,16 +770,18 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     rmSync(legacyRoot, { recursive: true, force: true });
   }
 });
+
 test("OpenAPI route keys remain structural while credential and schema values fail closed", async () => {
   const runFixture = async (
-    openApiPayload: Record<string, unknown>,
-    runtimePayload: unknown,
+    openApiPayload: Schema.JsonObject,
+    runtimePayload: Schema.Json,
   ): Promise<{
     readonly result: ApiCollection;
     readonly openApiAvailability: string | null;
   }> => {
     const monoRoot = gitFixture();
     const legacyRoot = gitFixture();
+
     try {
       putFixture(
         monoRoot,
@@ -721,33 +791,41 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       execFileSync("git", ["-C", monoRoot, "add", "."]);
       execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-safety-boundary"]);
       execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
+
       const mono = await Effect.runPromise(
         scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const legacy = await Effect.runPromise(
         scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const context = createManifestContextFromSnapshots(legacy, mono);
+
       const result = await Effect.runPromise(
         collectApiOperations(context, sha256("openapi-safety-boundary"), [], true, undefined, {
           path: "openapi-safety-runtime.json",
           bytes: Buffer.from(JSON.stringify(runtimePayload), "utf8"),
         }).pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const openApiObservation = [...context.runtimeObservations]
         .reverse()
         .find((observation) => observation.collector_kind === "openapi_projection");
+
       return { result, openApiAvailability: openApiObservation?.availability ?? null };
     } finally {
       rmSync(monoRoot, { recursive: true, force: true });
       rmSync(legacyRoot, { recursive: true, force: true });
     }
   };
+
   const operation = {
     method: "PUT",
     uri_template: "/api/me/password",
     operation_id: "read_me_password",
   };
+
   const wrapperDocument = {
     openapi: "3.1.0",
     info: { title: "Fixture API", version: "1.0.0" },
@@ -760,19 +838,23 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     },
     components: {},
   };
+
   const safe = await runFixture(wrapperDocument, [operation]);
   expect(safe.openApiAvailability).toBe("available");
   expect(safe.result.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")).toBe(
     false,
   );
+
   const prototype = await runFixture(wrapperDocument, [
     { ...operation, uri_template: "__proto__" },
   ]);
+
   expect(prototype.openApiAvailability).toBe("available");
   expect(prototype.result.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")).toBe(
     false,
   );
   expect(Object.prototype).not.toHaveProperty("put");
+
   const twoRouteDocument = {
     ...wrapperDocument,
     paths: {
@@ -790,6 +872,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const twoRoute = await runFixture(twoRouteDocument, [operation]);
   expect(
     twoRoute.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID"),
@@ -803,6 +886,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const credential = await runFixture(credentialDocument, [operation]);
   expect(
     credential.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID"),
@@ -832,6 +916,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const schema = await runFixture(schemaDocument, [operation]);
   expect(
     schema.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID"),
@@ -841,9 +926,11 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     { paths: { "/api/me/password": { operationId: "read_me_password" } } },
     { paths: { "/api/me/password": { operationId: "read_me_password" } } },
   );
+
   expect(nonOpenApi.result.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")).toBe(
     true,
   );
+
   const validDocument = {
     openapi: "3.1.0",
     info: { title: "Fixture API", version: "1.0.0" },
@@ -854,6 +941,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     },
     components: {},
   };
+
   const metadataSchema = {
     type: "object",
     properties: {
@@ -863,6 +951,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       userId: { type: "integer", format: "int64", readOnly: true },
     },
   };
+
   const metadataDocument = {
     ...validDocument,
     components: {
@@ -874,10 +963,12 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const metadata = await runFixture(metadataDocument, [operation]);
   expect(
     metadata.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID"),
   ).toBe(false);
+
   const placeholderDocument = {
     ...validDocument,
     components: {
@@ -899,10 +990,12 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const placeholder = await runFixture(placeholderDocument, [operation]);
   expect(
     placeholder.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID"),
   ).toBe(false);
+
   for (const carrier of ["example", "default", "enum", "const"]) {
     const sensitiveDocument = {
       ...validDocument,
@@ -918,11 +1011,13 @@ test("OpenAPI route keys remain structural while credential and schema values fa
         },
       },
     };
+
     const sensitive = await runFixture(sensitiveDocument, [operation]);
     expect(
       sensitive.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID"),
     ).toBe(true);
   }
+
   const descriptionDocument = {
     ...validDocument,
     components: {
@@ -935,10 +1030,12 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const description = await runFixture(descriptionDocument, [operation]);
   expect(
     description.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID"),
   ).toBe(true);
+
   const nestedMetadataDocument = {
     ...validDocument,
     components: {
@@ -958,12 +1055,14 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const nestedMetadata = await runFixture(nestedMetadataDocument, [operation]);
   expect(
     nestedMetadata.result.failures.some(
       (failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID",
     ),
   ).toBe(false);
+
   const nestedSensitiveDocument = {
     ...validDocument,
     components: {
@@ -982,12 +1081,14 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const nestedSensitive = await runFixture(nestedSensitiveDocument, [operation]);
   expect(
     nestedSensitive.result.failures.some(
       (failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID",
     ),
   ).toBe(true);
+
   const ordinaryPayloadDocument = {
     ...validDocument,
     paths: {
@@ -1008,6 +1109,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       },
     },
   };
+
   const ordinaryPayload = await runFixture(ordinaryPayloadDocument, [operation]);
   expect(
     ordinaryPayload.result.failures.some(
@@ -1015,6 +1117,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     ),
   ).toBe(true);
 }, 10_000);
+
 test("shared JSON member safety rejects nested duplicates before decoding", () => {
   expect(
     hasDuplicateJsonMembers(
@@ -1033,24 +1136,30 @@ test("shared JSON member safety rejects nested duplicates before decoding", () =
   ).toBe(false);
   expect(hasDuplicateJsonMembers('{"openapi":"3.1.0"')).toBe(true);
 });
+
 test("nonvalid JSON member scans reject runtime fixtures before digest or observation capture", async () => {
   const runFixtureBytes = async (bytes: Uint8Array) => {
     const monoRoot = gitFixture();
     const legacyRoot = gitFixture();
+
     try {
       const mono = await Effect.runPromise(
         scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const legacy = await Effect.runPromise(
         scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const context = createManifestContextFromSnapshots(legacy, mono);
+
       const result = await Effect.runPromise(
         collectApiOperations(context, sha256("json-member-prehash-boundary"), [], true, undefined, {
           path: "api-operations-malformed.json",
           bytes,
         }).pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       return {
         result,
         observations: [...context.runtimeObservations],
@@ -1061,6 +1170,7 @@ test("nonvalid JSON member scans reject runtime fixtures before digest or observ
       rmSync(legacyRoot, { recursive: true, force: true });
     }
   };
+
   const depth = 50_000;
   const nested = `[${"[".repeat(depth)}0${"]".repeat(depth)}]`;
   const stackDeepDuplicate = `{"operations":[{"method":"GET","uri_template":"/safe","operation_id":"safe"}],"deep":0,"deep":${nested},"deep":0}`;
@@ -1070,6 +1180,7 @@ test("nonvalid JSON member scans reject runtime fixtures before digest or observ
     deep: 0,
   });
   expect(hasDuplicateJsonMembers(stackDeepDuplicate)).toBe(true);
+
   for (const [text, expectedReason] of [
     [stackDeepDuplicate, "SOURCE_PARSE_ERROR"],
     [truncated, "SOURCE_PARSE_ERROR"],
@@ -1097,6 +1208,7 @@ test("nonvalid JSON member scans reject runtime fixtures before digest or observ
     ).toBe(false);
   }
 });
+
 test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blocked", async () => {
   const payloads = [
     {
@@ -1129,9 +1241,11 @@ test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blo
       components: { responses: [] },
     },
   ] as const;
+
   for (const payload of payloads) {
     const monoRoot = gitFixture();
     const legacyRoot = gitFixture();
+
     try {
       putFixture(
         monoRoot,
@@ -1164,21 +1278,26 @@ test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blo
     }
   }
 });
+
 test("API resource trivia is accepted while unterminated block comments fail closed", async () => {
   const collectFixture = async (source: string): Promise<ApiCollection> => {
     const monoRoot = gitFixture();
     const legacyRoot = gitFixture();
+
     try {
       putFixture(monoRoot, "apps/server/src/App/Api/Resource/Fixture.php", source);
       execFileSync("git", ["-C", monoRoot, "add", "."]);
       execFileSync("git", ["-C", monoRoot, "commit", "-qm", "api-resource-trivia"]);
       execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
+
       const legacy = await Effect.runPromise(
         scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const mono = await Effect.runPromise(
         scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       return await Effect.runPromise(
         collectApiOperations(
           createManifestContextFromSnapshots(legacy, mono),
@@ -1194,8 +1313,10 @@ test("API resource trivia is accepted while unterminated block comments fail clo
       rmSync(legacyRoot, { recursive: true, force: true });
     }
   };
+
   const validSource =
     "<?php\nnamespace App\\Fixture\\Api\\Resource;\nuse ApiPlatform\\Metadata\\ApiResource;\nuse ApiPlatform\\Metadata\\Get;\n#[ApiResource(operations: [new Get(uriTemplate: '/fixture/api', name: 'fixture_api')])]\n/** declaration trivia */\nfinal class FixtureResource {}\n";
+
   const valid = await collectFixture(validSource);
   expect(valid.failures.some((failure) => failure.reasonCode === "SOURCE_PARSE_ERROR")).toBe(false);
   expect(
@@ -1209,15 +1330,18 @@ test("API resource trivia is accepted while unterminated block comments fail clo
   const malformed = await collectFixture(
     validSource.replace("/** declaration trivia */", "/* declaration trivia"),
   );
+
   expect(malformed.failures).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ status: "unresolved", reasonCode: "SOURCE_PARSE_ERROR" }),
     ]),
   );
 });
+
 test("runtime defaults resolve omitted API metadata while explicit conflicts remain changed", async () => {
   const monoRoot = gitFixture();
   const legacyRoot = gitFixture();
+
   try {
     putFixture(
       monoRoot,
@@ -1273,12 +1397,15 @@ test("runtime defaults resolve omitted API metadata while explicit conflicts rem
     execFileSync("git", ["-C", monoRoot, "add", "."]);
     execFileSync("git", ["-C", monoRoot, "commit", "-qm", "metadata-mismatch"]);
     execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const api = await Effect.runPromise(
       collectApiOperations(
         createManifestContextFromSnapshots(legacy, mono),
@@ -1292,20 +1419,24 @@ test("runtime defaults resolve omitted API metadata while explicit conflicts rem
         },
       ).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const changedRows = api.rows.filter(
       (row) =>
         row.status === "changed" &&
         row.observation_kinds.includes("static_source") &&
         row.observation_kinds.includes("runtime_resolution"),
     );
+
     expect(changedRows.length).toBe(1);
     expect(changedRows[0]?.reason_codes).toContain("STATIC_RUNTIME_MISMATCH");
+
     const defaultedStaticRow = api.rows.find(
       (row) =>
         row.observation_kinds.includes("static_source") &&
         "resource_class_ref" in row.details &&
         row.details.resource_class_ref === "App\\Fixture\\Api\\Resource\\DefaultedResource",
     );
+
     expect(defaultedStaticRow).toMatchObject({
       status: "covered",
       observation_kinds: ["static_source", "runtime_resolution"],
@@ -1316,19 +1447,26 @@ test("runtime defaults resolve omitted API metadata while explicit conflicts rem
     rmSync(legacyRoot, { recursive: true, force: true });
   }
 });
+
 test("canonical JSON preserves prototype-named own keys and digest distinctions", () => {
-  const aliased = JSON.parse(
-    '{"components":{"schemas":{"__proto__":{"type":"string"}}}}',
-  ) as Record<string, unknown>;
-  const empty = JSON.parse('{"components":{"schemas":{}}}') as Record<string, unknown>;
+  const aliased = Schema.decodeUnknownSync(
+    Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)),
+  )('{"components":{"schemas":{"__proto__":{"type":"string"}}}}');
+
+  const empty = Schema.decodeUnknownSync(
+    Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)),
+  )('{"components":{"schemas":{}}}');
+
   const canonical = canonicalJson(aliased);
   expect(canonical).toContain('"__proto__"');
   expect(JSON.parse(canonical)).toEqual(aliased);
   expect(sha256(canonical)).not.toBe(sha256(canonicalJson(empty)));
 });
+
 test("OpenAPI prototype-named component changes stale the zero-operation reconciliation", async () => {
   const monoRoot = gitFixture();
   const legacyRoot = gitFixture();
+
   try {
     putFixture(monoRoot, "apps/server/var/parity/api-operations.json", "[]");
     putFixture(
@@ -1344,12 +1482,15 @@ test("OpenAPI prototype-named component changes stale the zero-operation reconci
     execFileSync("git", ["-C", monoRoot, "add", "."]);
     execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-alias"]);
     execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
+
     const mono = await Effect.runPromise(
       scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const legacy = await Effect.runPromise(
       scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     const api = await Effect.runPromise(
       collectApiOperations(
         createManifestContextFromSnapshots(legacy, mono),
@@ -1363,6 +1504,7 @@ test("OpenAPI prototype-named component changes stale the zero-operation reconci
         },
       ).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     expect(api.reconciliation.status).toBe("stale");
     expect(api.reconciliation.committed_document_sha256).not.toBe(
       api.reconciliation.regenerated_document_sha256,
@@ -1375,18 +1517,11 @@ test("OpenAPI prototype-named component changes stale the zero-operation reconci
     rmSync(legacyRoot, { recursive: true, force: true });
   }
 });
-const cliReport = (
-  root: string,
-  legacyRoot: string,
-  mode: "diff" | "write" = "diff",
-): {
-  readonly status: number | null;
-  readonly report: Record<string, unknown>;
-  readonly output: string;
-  readonly diagnostics: string;
-} => {
+
+const cliReport = (root: string, legacyRoot: string, mode: "diff" | "write" = "diff") => {
   const authority = createIntentAuthority(root, legacyRoot);
   const evidenceAuthority = createEvidenceAuthority(authority.path);
+
   try {
     const process = spawnSync(
       "bun",
@@ -1406,10 +1541,14 @@ const cliReport = (
       ],
       { cwd: join(import.meta.dir, ".."), encoding: "utf8" },
     );
+
     const output = process.stdout;
+
     return {
       status: process.status,
-      report: JSON.parse(output) as Record<string, unknown>,
+      report: Schema.decodeUnknownSync(
+        Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)),
+      )(output),
       diagnostics: process.stderr,
       output,
     };
@@ -1418,6 +1557,7 @@ const cliReport = (
     rmSync(evidenceAuthority.directory, { recursive: true, force: true });
   }
 };
+
 const putParityBaseline = (legacyRoot: string, monoRoot: string, legacyRouting: string): void => {
   putFixture(legacyRoot, "app/config/routing.yml", legacyRouting);
   putFixture(
@@ -1477,12 +1617,15 @@ test("unsafe parsed scalars produce identical blocked receipts", () => {
     mkdtempSync("/tmp/functional-parity-scalar-a-"),
     mkdtempSync("/tmp/functional-parity-scalar-b-"),
   ];
+
   const routes = [
     "first:\n  path: /safe/:token\n  defaults: { _controller: :sk_live_51Ab9xY7qP4wR8tU2nM6kL9zC3 }\n  methods: [GET]\nsecond:\n  path: /safe\n  defaults: { _controller: alice@university.no }\n  methods: [GET]\n",
     "second:\n  path: /safe\n  defaults: { _controller: alice@university.no }\n  methods: [GET]\nfirst:\n  path: /safe/:token\n  defaults: { _controller: :sk_live_51Ab9xY7qP4wR8tU2nM6kL9zC3 }\n  methods: [GET]\n",
   ];
+
   try {
     const outputs: string[] = [];
+
     for (const [index, root] of roots.entries()) {
       const legacyRoot = join(root, "legacy");
       const monoRoot = join(root, "mono");
@@ -1504,6 +1647,7 @@ test("unsafe parsed scalars produce identical blocked receipts", () => {
       expect(receipt.output).not.toContain("university.no");
       outputs.push(receipt.output);
     }
+
     expect(outputs[0]).toBe(outputs[1]);
   } finally {
     for (const root of roots) rmSync(root, { recursive: true, force: true });
@@ -1514,6 +1658,7 @@ test("fixture injection ignores poisoned authority-root paths", async () => {
   const directory = mkdtempSync("/tmp/functional-parity-poison-");
   const poisonRoot = join(directory, "authority-file");
   writeFileSync(poisonRoot, "sk_live_51Ab9xY7qP4wR8tU2nM6kL9zC3\n", "utf8");
+
   try {
     const result = await Effect.runPromise(
       run({
@@ -1523,22 +1668,27 @@ test("fixture injection ignores poisoned authority-root paths", async () => {
         falsifierId: "F0_deterministic_replay",
       }).pipe(Effect.provide(NodeRuntimeLayer)),
     );
+
     expect(result.exitCode).toBe(13);
     expect(result.report.status).toBe("falsifier_passed");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
 test("runtime abort receipts remain schema-valid and non-promotable", () => {
   const unsafe = mkdtempSync("/tmp/functional-parity-receipt-unsafe-");
   const dirty = gitFixture();
   const symlink = mkdtempSync("/tmp/functional-parity-receipt-symlink-");
+
   const roots: readonly [string, number][] = [
     [unsafe, 6],
     [dirty, 7],
     [symlink, 6],
   ];
+
   const legacyRoots = roots.map(() => gitFixture());
+
   try {
     putFixture(unsafe, "src/user@university.no.php", "<?php\n");
     putFixture(dirty, "safe.txt", "before\n");
@@ -1547,6 +1697,7 @@ test("runtime abort receipts remain schema-valid and non-promotable", () => {
     writeFileSync(join(dirty, "safe.txt"), "after\n", "utf8");
     mkdirSync(join(symlink, "target"), { recursive: true });
     symlinkSync(join(symlink, "target"), join(symlink, "link"));
+
     for (const [index, [root, expectedExit]] of roots.entries()) {
       const receipt = cliReport(root, legacyRoots[index] ?? legacyRoots[0] ?? root);
       expect(receipt.report.status).toBe(
@@ -1558,14 +1709,16 @@ test("runtime abort receipts remain schema-valid and non-promotable", () => {
         inventory_artifact_sha256: {},
         projection_write: { status: "blocked", target_ref: null },
       });
-      const verification = receipt.report.verification as Record<string, unknown>;
-      expect(verification.schema_validation).toBe(false);
-      expect(verification.cross_reference_validation).toBe(false);
-      expect(verification.deterministic_diff).toBe("different");
+      expect(receipt.report.verification).toMatchObject({
+        schema_validation: false,
+        cross_reference_validation: false,
+        deterministic_diff: "different",
+      });
       expect(receipt.output).not.toContain("user@university.no");
     }
   } finally {
     for (const root of roots) rmSync(root[0], { recursive: true, force: true });
+
     for (const legacyRoot of legacyRoots) rmSync(legacyRoot, { recursive: true, force: true });
   }
 });
@@ -1573,14 +1726,17 @@ test("runtime abort receipts remain schema-valid and non-promotable", () => {
 describe("C0 source traversal safety", () => {
   test("reads captured Git paths with non-ASCII names", async () => {
     const root = gitFixture();
+
     try {
       const path = "apps/server/src/App/Foo/Controller/TorPekerPåTekst1.png";
       putFixture(root, path, "fixture-bytes\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+
       const snapshot = await Effect.runPromise(
         scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const nonAscii = snapshot.files.find((file) => file.path === path);
       expect(new TextDecoder().decode(nonAscii?.bytes ?? new Uint8Array())).toContain(
         "fixture-bytes",
@@ -1593,6 +1749,7 @@ describe("C0 source traversal safety", () => {
   test("rejects unsafe PII paths before manifest construction", async () => {
     const root = gitFixture();
     const piiPath = "apps/server/src/App/Foo/Controller/user@university.no.php";
+
     try {
       putFixture(root, piiPath, "<?php\nfinal class User {}\n");
       execFileSync("git", ["-C", root, "add", "."]);
@@ -1609,27 +1766,35 @@ describe("C0 source traversal safety", () => {
   });
   test("uses value-independent failure for differing unsafe scalars", async () => {
     const roots = [gitFixture(), gitFixture()];
+
     const unsafePaths = [
       "apps/server/src/App/Foo/Controller/user@university.no.php",
       "apps/server/src/App/Foo/Controller/other@university.no.php",
     ];
+
     try {
       const failures: Array<{ readonly operation: string; readonly message: string }> = [];
+
       for (const [index, root] of roots.entries()) {
         putFixture(root, unsafePaths[index] ?? unsafePaths[0], "<?php\nfinal class User {}\n");
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+
         try {
           await Effect.runPromise(
             scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
           );
         } catch (error) {
           failures.push({
-            operation: (error as { operation?: string }).operation ?? "",
-            message: (error as Error).message,
+            operation:
+              Predicate.hasProperty(error, "operation") && Predicate.isString(error.operation)
+                ? error.operation
+                : "",
+            message: error instanceof Error ? error.message : String(error),
           });
         }
       }
+
       expect(failures).toHaveLength(2);
       expect(failures[0]).toEqual(failures[1]);
       expect(failures[0]?.message).toBe(
@@ -1644,15 +1809,18 @@ describe("C0 source traversal safety", () => {
 
   test("allows source code beneath logs-named directories", async () => {
     const root = gitFixture();
+
     try {
       const path = "src/AppBundle/Controller/logs/Token.php";
       putFixture(root, "src/AppBundle/Controller/Safe.php", "<?php\nfinal class Safe {}\n");
       putFixture(root, path, "<?php\n$token = 'fixture';\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+
       const snapshot = await Effect.runPromise(
         scanRootEffect(root, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const file = snapshot.files.find((entry) => entry.path === path);
       expect(file?.unsafe).toBe(false);
       expect(file?.digest).toMatch(/^sha256:/);
@@ -1663,6 +1831,7 @@ describe("C0 source traversal safety", () => {
 
   test("rejects every ignored parseable authority file", async () => {
     const root = gitFixture();
+
     try {
       putFixture(root, ".gitignore", "app/config/routing.yml\\n");
       putFixture(root, "app/config/routing.yml", "home:\\n  path: /home\\n");
@@ -1680,6 +1849,7 @@ describe("C0 source traversal safety", () => {
 
   test("proceeds past derivation residuals in a clean tracked tree", async () => {
     const root = gitFixture();
+
     try {
       putFixture(root, ".gitignore", "node_modules/\n.turbo/\ndist/\n");
       putFixture(root, "node_modules/parity/index.js", "module.exports = 1;\n");
@@ -1690,9 +1860,11 @@ describe("C0 source traversal safety", () => {
       putFixture(root, "apps/server/config/routes.yaml", "home:\n  path: /home\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "authority"]);
+
       const snapshot = await Effect.runPromise(
         scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       expect(snapshot.files.map((file) => file.path)).toEqual([
         ".gitignore",
         "apps/server/config/routes.yaml",
@@ -1706,15 +1878,18 @@ describe("C0 source traversal safety", () => {
     const root = gitFixture();
     const routePath = "apps/dashboard/app/routes/home.ts";
     const generatedPath = "apps/dashboard/.react-router/types/app/routes/+types/home.ts";
+
     try {
       putFixture(root, ".gitignore", "apps/*/.react-router/\n");
       putFixture(root, routePath, "export const route = '/home';\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
       putFixture(root, generatedPath, "export type Route = typeof import('../../home');\n");
+
       const snapshot = await Effect.runPromise(
         scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       expect(snapshot.files.map((file) => file.path)).toEqual([".gitignore", routePath]);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1723,6 +1898,7 @@ describe("C0 source traversal safety", () => {
 
   test("rejects ignored authority paths outside the residual register", async () => {
     const root = gitFixture();
+
     try {
       putFixture(root, ".gitignore", "src/AppBundle/Controller/HomeController.php\n");
       putFixture(
@@ -1745,6 +1921,7 @@ describe("C0 source traversal safety", () => {
 
   test("rejects tracked authority paths matched by ignore rules", async () => {
     const root = gitFixture();
+
     try {
       putFixture(root, ".gitignore", "packages/sdk/dist/**\n");
       putFixture(root, "packages/sdk/dist/module.js", "export const module = 1;\n");
@@ -1763,12 +1940,15 @@ describe("C0 source traversal safety", () => {
 
   test("ignores legacy var logs before reading bytes", async () => {
     const root = mkdtempSync("/tmp/functional-parity-tree-");
+
     try {
       const path = "var/logs/.gitkeep";
       putFixture(root, path, "\xff\xfe");
+
       const snapshot = await Effect.runPromise(
         scanRootEffect(root, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const file = snapshot.files.find((entry) => entry.path === path);
       expect(file?.bytes).toBeNull();
       expect(file?.byteLength).toBeNull();
@@ -1780,13 +1960,17 @@ describe("C0 source traversal safety", () => {
   });
   test("CLI write returns fixed unsafe report without projection artifacts", () => {
     const roots = [gitFixture(), gitFixture()];
+
     const unsafePaths = [
       "apps/server/src/App/Foo/Controller/user@university.no.php",
       "apps/server/src/App/Foo/Controller/other@university.no.php",
     ];
+
     const legacyRoots = roots.map(() => gitFixture());
+
     try {
       const reports: string[] = [];
+
       for (const [index, root] of roots.entries()) {
         putFixture(root, unsafePaths[index] ?? unsafePaths[0], "<?php\nfinal class User {}\n");
         execFileSync("git", ["-C", root, "add", "."]);
@@ -1798,8 +1982,13 @@ describe("C0 source traversal safety", () => {
         expect(cli.stderr).not.toContain("other@university.no");
         reports.push(cli.stdout);
       }
+
       expect(reports[0]).toBe(reports[1]);
-      const report = JSON.parse(reports[0] ?? "{}") as Record<string, unknown>;
+
+      const report = Schema.decodeUnknownSync(
+        Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)),
+      )(reports[0] ?? "{}");
+
       expect(report.status).toBe("source_unavailable");
       expect(report.projection_write).toEqual({ status: "blocked", target_ref: null });
       expect(report.source_manifest_sha256).toBeNull();
@@ -1812,6 +2001,7 @@ describe("C0 source traversal safety", () => {
       expect(reports.join("\n")).not.toContain("other@university.no");
     } finally {
       for (const root of roots) rmSync(root, { recursive: true, force: true });
+
       for (const legacyRoot of legacyRoots) rmSync(legacyRoot, { recursive: true, force: true });
     }
   });
@@ -1829,6 +2019,7 @@ describe("source safety boundary", () => {
     ]) {
       expect(isUnsafeSourcePath(path)).toBe(true);
     }
+
     for (const path of [
       ".env",
       ".env.local",
@@ -1847,27 +2038,35 @@ describe("source safety boundary", () => {
   describe("safe source census regressions", () => {
     test("classifies tracked legacy logs before reading or hashing bytes", async () => {
       const root = gitFixture();
+
       try {
         const paths = [
           "var/logs/.gitkeep",
           "app/Resources/assets/js/ckeditor/skins/bootstrapck/npm-debug.log",
         ];
+
         for (const path of paths) {
           const target = join(root, path);
           mkdirSync(dirname(target), { recursive: true });
           writeFileSync(target, Buffer.from([0xff, 0xfe, 0xfd]));
         }
+
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "ignored-logs"]);
+
         const snapshot = await Effect.runPromise(
           scanRootEffect(root, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
         );
+
         const context = createManifestContextFromSnapshots(snapshot, snapshot);
+
         for (const path of paths) {
           const file = snapshot.files.find((entry) => entry.path === path);
+
           const census = context.rootCensus.find(
             (entry) => entry.root_ref === "legacy" && entry.path === path,
           );
+
           expect(file).toMatchObject({
             bytes: null,
             byteLength: null,
@@ -1891,6 +2090,7 @@ describe("source safety boundary", () => {
     test("keeps fixture bytes out of the root census and source-set digest", async () => {
       const root = gitFixture();
       const path = "apps/server/var/parity/api-operations.json";
+
       const payload = JSON.stringify([
         {
           resource_class_ref: "App\\Fixture\\Api\\Resource\\FixtureResource",
@@ -1900,17 +2100,22 @@ describe("source safety boundary", () => {
           operation_id: "fixture_get",
         },
       ]);
+
       try {
         putFixture(root, path, payload);
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "fixture-runtime"]);
+
         const snapshot = await Effect.runPromise(
           scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
         );
+
         const baselineContext = createManifestContextFromSnapshots(snapshot, snapshot);
+
         const baselineBytes = new TextEncoder().encode(
           payload.replace("fixture_get", "fixture_other"),
         );
+
         await Effect.runPromise(
           collectApiOperations(
             baselineContext,
@@ -1962,24 +2167,22 @@ describe("source safety boundary", () => {
       }
     });
 
-    test("allows the real test env class with explicit sentinels and preserves staging flags", () => {
+    test("allows explicit test environment sentinels", () => {
       const envPath = "apps/server/.env.test";
+
       const envBytes = new TextEncoder().encode(
         "APP_ENV=test\nAPP_SECRET=test_app_secret_for_testing_only\nDATABASE_URL=sqlite:///:memory:\nJWT_PASSPHRASE=\n",
       );
+
       expect(sourceTextSafetyReason(envPath, envBytes)).toBeNull();
       expect(unsafeEnvSourceTextReason(new TextDecoder().decode(envBytes), envPath)).toBeNull();
-      const staging = readFileSync(join(repoRoot, "apps/server/.env.staging"), "utf8");
-      expect(staging).not.toContain("DATABASE_URL=");
-      expect(staging).toContain("APP_ENV=staging");
-      expect(staging).toContain("SLACK_DISABLED=true");
-      expect(staging).toContain("SMS_DISABLE=true");
     });
 
-    test("admits only the exact tracked OAuth and native HTTP migration bytes", () => {
+    test("admits only exact reviewed migration bytes and rejects digest drift", () => {
       for (const migrationPath of [
         "packages/database/migrations/0027-native-oauth-provider.sql",
         "packages/database/migrations/0029-native-http-semantics.sql",
+        "packages/database/migrations/0059-school-service-person-intervals.sql",
       ]) {
         const migration = readFileSync(join(repoRoot, migrationPath));
         const migrationText = new TextDecoder().decode(migration);
@@ -1997,6 +2200,7 @@ describe("source safety boundary", () => {
     test("accepts migration 0012 DDL comparisons without digest admission", () => {
       const migrationPath =
         "packages/database/migrations/0012-native-recruitment-invitation-response.sql";
+
       const migration = readFileSync(join(repoRoot, migrationPath));
       const migrationText = new TextDecoder().decode(migration);
       expect(unsafeSqlSourceTextReason(migrationText, migrationPath)).toBeNull();
@@ -2039,6 +2243,7 @@ describe("source safety boundary", () => {
           ),
         ).toBe("UNSAFE_SOURCE");
       };
+
       assertUnsafeAssignment("password = 'concrete-password';");
       assertUnsafeAssignment("api_token = 'concrete-token';");
       assertUnsafeAssignment(`
@@ -2052,6 +2257,7 @@ describe("source safety boundary", () => {
         END;
         $procedure$;
       `);
+
       for (const comparison of [
         "SELECT user_id FROM users WHERE password = $1;",
         "SELECT user_id FROM users JOIN credentials ON credentials.password = $1;",
@@ -2086,6 +2292,7 @@ describe("source safety boundary", () => {
         WHERE TRUE
         ON CONFLICT (person_id) DO NOTHING;
       `;
+
       expect(unsafeSqlSourceTextReason(statement)).toBeNull();
       expect(
         sourceTextSafetyReason(
@@ -2123,6 +2330,7 @@ describe("source safety boundary", () => {
         SELECT seed_row.person_id
         FROM jsonb_to_recordset($1::jsonb) AS seed_row(person_id text);
       `;
+
       for (const statement of [
         `${safeRecordset}
          /* stacked literal DML must not inherit the first statement's authority */
@@ -2231,6 +2439,7 @@ describe("source safety boundary", () => {
       ]) {
         expect(unsafeSourceTextReason(output)).toBe("UNSAFE_SOURCE");
       }
+
       expect(
         unsafeSourceTextReason('{"properties":{"newPassword":{"example":"${PASSWORD}"}}}'),
       ).toBeNull();
@@ -2263,6 +2472,7 @@ describe("source safety boundary", () => {
       expect(unsafeEnvSourceTextReason("APP_ENV=@placeholder@", "apps/server/.env.test")).toBe(
         "UNSAFE_SOURCE",
       );
+
       const cases = [
         ["apps/server/.env.test", "DATABASE_URL=mysql://vektor:concrete-secret@db/app\n"],
         ["apps/server/.env.test", "JWT_PASSPHRASE=@correct-horse-battery-staple@\n"],
@@ -2285,8 +2495,10 @@ describe("source safety boundary", () => {
           "UPDATE users SET `password` /*!50000 = 'correct-horse-battery-staple' */;\n",
         ],
       ] as const;
+
       for (const [path, contents] of cases) {
         const root = gitFixture();
+
         try {
           putFixture(root, path, contents);
           execFileSync("git", ["-C", root, "add", "."]);
@@ -2305,6 +2517,7 @@ describe("source safety boundary", () => {
 
     test("rejects invalid UTF-8 in matched textual source before hashing", async () => {
       const root = gitFixture();
+
       try {
         const path = join(root, "apps/server/.env.test");
         mkdirSync(dirname(path), { recursive: true });
@@ -2324,6 +2537,7 @@ describe("source safety boundary", () => {
 
     test("excludes the projection mount before source enumeration", async () => {
       const root = gitFixture();
+
       try {
         putFixture(
           root,
@@ -2332,9 +2546,11 @@ describe("source safety boundary", () => {
         );
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "projection"]);
+
         const snapshot = await Effect.runPromise(
           scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
         );
+
         expect(snapshot.files.some((entry) => entry.path.startsWith("artifacts/parity/"))).toBe(
           false,
         );
@@ -2361,15 +2577,19 @@ describe("source safety boundary", () => {
   });
   test("keeps real-tree-shaped hashed assets hashable", async () => {
     const root = gitFixture();
+
     const hashedAsset =
       "apps/server/src/App/Content/Controller/Asset_9f2A7c4E1dB8cF0a7E3d9C5b1A6f2D8e4.png";
+
     try {
       putFixture(root, hashedAsset, "fixture-bytes\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+
       const snapshot = await Effect.runPromise(
         scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
       );
+
       const asset = snapshot.files.find((file) => file.path === hashedAsset);
       expect(asset?.unsafe).toBe(false);
       expect(unsafeSourceScalarReason(hashedAsset, "path")).toBeNull();
@@ -2390,6 +2610,7 @@ describe("source safety boundary", () => {
     ]) {
       expect(unsafeSourceScalarReason(symbol, "symbol")).toBe("UNSAFE_SOURCE");
     }
+
     expect(
       unsafeSourceScalarReason("App\\Content\\Controller\\HomeController::index", "symbol"),
     ).toBeNull();
@@ -2414,6 +2635,7 @@ describe("source safety boundary", () => {
       expect(unsafeScalarReason(value, field)).toBe("UNSAFE_SOURCE");
       expect(sanitizeScalar(value, field)).toBeNull();
     }
+
     expect(unsafeScalarReason("AppBundle:Token:index", "controller")).toBeNull();
     expect(unsafeScalarReason(":sk_live_51Ab9xY7qP4wR8tU2nM6kL9zC3", "_controller")).toBe(
       "UNSAFE_SOURCE",
@@ -2437,6 +2659,7 @@ describe("source safety boundary", () => {
     const root = mkdtempSync("/tmp/functional-parity-controller-token-");
     const legacyRoot = join(root, "legacy");
     const monoRoot = join(root, "mono");
+
     try {
       putFixture(
         legacyRoot,
@@ -2477,7 +2700,9 @@ describe("source safety boundary", () => {
         needle: "GET]Bearer",
       },
     ] as const;
+
     const roots = cases.map(() => mkdtempSync("/tmp/functional-parity-method-"));
+
     try {
       for (const [index, root] of roots.entries()) {
         const legacyRoot = join(root, "legacy");
@@ -2506,6 +2731,7 @@ describe("source safety boundary", () => {
     const legacyRoot = join(root, "legacy");
     const monoRoot = join(root, "mono");
     const token = "Ab9xY7qP4wR8tU2nM6kL9zC3vB5sD7fH1";
+
     try {
       putParityBaseline(legacyRoot, monoRoot, "safe:\n  path: /safe\n  methods: [GET]\n");
       putFixture(
@@ -2532,6 +2758,7 @@ describe("source safety boundary", () => {
     const legacyRoot = join(root, "legacy");
     const monoRoot = join(root, "mono");
     const token = "Bearer abc.def~ghi";
+
     try {
       putParityBaseline(legacyRoot, monoRoot, "safe:\n  path: /safe\n  methods: [GET]\n");
       putFixture(
@@ -2558,6 +2785,7 @@ describe("source safety boundary", () => {
     const legacyRoot = join(root, "legacy");
     const monoRoot = join(root, "mono");
     const token = "Bearer abc.def~ghi";
+
     try {
       putParityBaseline(legacyRoot, monoRoot, "safe:\n  path: /safe\n  methods: [GET]\n");
       putFixture(
@@ -2588,6 +2816,7 @@ describe("source safety boundary", () => {
       const legacyRoot = join(root, "legacy");
       const monoRoot = join(root, "mono");
       const token = "Bearer abc.def~ghi";
+
       try {
         putParityBaseline(legacyRoot, monoRoot, "safe:\n  path: /safe\n  methods: [GET]\n");
         putFixture(
@@ -2633,6 +2862,7 @@ describe("source safety boundary", () => {
   });
   test("allows route placeholders but blocks literal route PII and credentials", () => {
     expect(unsafeScalarReason("/reset/{token}", "path")).toBeNull();
+
     for (const value of [
       "/reset?token=REAL_SECRET",
       "/contact/alice@university.no",
@@ -2653,6 +2883,7 @@ describe("source safety boundary", () => {
       expect(unsafeScalarReason(value, "path")).toBe("UNSAFE_SOURCE");
       expect(sanitizeScalar(value, "path")).toBeNull();
     }
+
     expect(unsafeScalarReason("/assets/0123456789abcdef0123456789abcdef", "path")).toBeNull();
     expect(unsafeScalarReason("/reset/{token}", "path")).toBeNull();
     expect(unsafeScalarReason("/reset/<token>", "path")).toBeNull();
@@ -2660,6 +2891,7 @@ describe("source safety boundary", () => {
     const root = mkdtempSync("/tmp/functional-parity-controller-");
     const legacyRoot = join(root, "legacy");
     const monoRoot = join(root, "mono");
+
     try {
       putFixture(
         legacyRoot,
@@ -2683,6 +2915,7 @@ describe("source safety boundary", () => {
     const root = mkdtempSync("/tmp/functional-parity-route-");
     const legacyRoot = join(root, "legacy");
     const monoRoot = join(root, "mono");
+
     try {
       putFixture(
         legacyRoot,
@@ -2707,6 +2940,7 @@ describe("source safety boundary", () => {
     const legacyRoot = join(root, "legacy");
     const monoRoot = join(root, "mono");
     const hex = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
+
     try {
       putParityBaseline(
         legacyRoot,

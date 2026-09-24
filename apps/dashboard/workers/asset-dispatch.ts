@@ -1,10 +1,12 @@
 import { schoolSurveyPath } from "../app/lib/school-survey-path";
+
 export interface DashboardAssetBinding {
   fetch(request: Request): Promise<Response>;
 }
 
 const isStaticAssetPath = (pathname: string): boolean => {
   const last = pathname.split("/").at(-1);
+
   return (
     pathname.startsWith("/assets/") || (last?.includes(".") === true && !pathname.endsWith(".data"))
   );
@@ -18,22 +20,28 @@ const isStaticAssetPath = (pathname: string): boolean => {
 export const dashboardApplicationRequest = (request: Request): Request => {
   if (request.method !== "GET" && request.method !== "HEAD") return request;
   const url = new URL(request.url);
+
   if (!url.pathname.startsWith("/undersokelse/") || !url.pathname.endsWith(".data")) {
     return request;
   }
+
   const documentRequest =
     request.headers.get("sec-fetch-dest") === "document" ||
     request.headers.get("accept")?.includes("text/html") === true;
+
   if (!documentRequest) return request;
 
   const encodedSurveyId = url.pathname.slice("/undersokelse/".length);
   let surveyId: string;
+
   try {
     surveyId = decodeURIComponent(encodedSurveyId);
   } catch {
     return request;
   }
+
   url.pathname = schoolSurveyPath(surveyId);
+
   return new Request(url, request);
 };
 
@@ -47,8 +55,10 @@ export const dashboardAssetResponse = async (
   assets: DashboardAssetBinding,
 ): Promise<Response | undefined> => {
   const pathname = new URL(request.url).pathname;
+
   if (!isStaticAssetPath(pathname)) return undefined;
 
   const response = await assets.fetch(request);
+
   return response.status !== 404 || pathname.startsWith("/assets/") ? response : undefined;
 };

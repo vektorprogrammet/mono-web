@@ -30,6 +30,7 @@ function describedBy(
 
 export function ReceiptSubmitForm({ error, submission, commandId, draft }: Props) {
   const navigation = useNavigation();
+
   const isSubmitting =
     navigation.state !== "idle" && navigation.formData?.get("_intent") === "submit";
 

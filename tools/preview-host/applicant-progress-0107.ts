@@ -1,3 +1,12 @@
+import {
+  canonicalJson,
+  canonicalJsonBytes,
+  sha256Hex,
+} from "../../packages/domain/src/tutor/evidence.js";
+import {
+  FinalizeInterviewCommandSchema,
+  FinalizeInterviewObservationSchema,
+} from "../../packages/domain/src/recruitment/schema.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -7,6 +16,7 @@ import { decodeApplicantProgressResponse } from "../../packages/domain/src/appli
 import type { Page } from "playwright";
 import { join } from "node:path";
 import type { Pool, PoolClient } from "pg";
+import {Array as Arr,  Match, Predicate, Schema } from "effect";
 
 export const applicantProgressUnlinkedIdentity = {
   personId: "applicant-progress-unlinked-person",
@@ -15,7 +25,9 @@ export const applicantProgressUnlinkedIdentity = {
   email: "unlinked.progress@example.invalid",
   password: "applicant-progress-unlinked-secret-0107",
 } as const;
+
 const personId = "journey-conduct-leader-0063";
+
 const base = {
   applicant: "applicant-recommendation-self",
   application: "application-recommendation-self",
@@ -34,7 +46,7 @@ const clone = async (
   client: PoolClient,
   table: string,
   predicate: string,
-  values: Readonly<Record<string, unknown>>,
+  values: Readonly<Schema.JsonObject>,
 ) => {
   await client.query(
     `INSERT INTO public.${table} SELECT (jsonb_populate_record(NULL::public.${table},to_jsonb(source)||$1::jsonb)).* FROM public.${table} source WHERE ${predicate}`,
@@ -79,6 +91,7 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
     submitted_at: `2026-08-21T10:0${ordinal}:00.000Z`,
   });
   await linkApplicant(client, state, applicationId, applicantId);
+
   if (state === "received") return;
 
   await clone(client, "recruitment_interviews", `interview_id='${base.interview}'`, {
@@ -90,14 +103,14 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
     scheduled_at: `2026-09-2${ordinal}T10:00:00.000Z`,
     room: `P-${ordinal}01`,
   });
-  const responseState =
-    state === "pending"
-      ? "Pending"
-      : state === "new-time"
-        ? "RequestedNewTime"
-        : state === "rejected"
-          ? "Rejected"
-          : "Accepted";
+
+  const responseState = Match.value(state).pipe(
+    Match.when("pending", () => "Pending" as const),
+    Match.when("new-time", () => "RequestedNewTime" as const),
+    Match.when("rejected", () => "Rejected" as const),
+    Match.orElse(() => "Accepted" as const),
+  );
+
   const responded = responseState === "Pending" ? null : "2026-09-10T10:00:00.000Z";
   const responseMessage = responseState === "RequestedNewTime" ? "Trenger et nytt tidspunkt" : null;
   await clone(client, "recruitment_invitations", `invitation_id='${base.invitation}'`, {
@@ -109,12 +122,14 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
     responded_at: responded,
     response_revision: responseState === "Pending" ? 0 : 1,
   });
+
   if (responseState !== "Pending") {
     await client.query(
       `INSERT INTO public.recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at) VALUES($1,$2,1,1,$3,$4,$5)`,
       [invitationId, interviewId, responseState, responseMessage, responded],
     );
   }
+
   if (responseState === "Rejected" || responseState === "RequestedNewTime") {
     await client.query(
       `INSERT INTO public.recruitment_invitation_response_outbox(effect_id,effect_type,invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,ordinal,payload_json,status,attempts,delivered_at) VALUES($1,'SendInterviewInvitationResponse',$2,$3,1,1,$4,$5,0,'{}'::jsonb,'Delivered',1,$6)`,
@@ -128,9 +143,32 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
       ],
     );
   }
+
   if (state !== "completed") return;
 
   const commandId = "applicant-progress-completed-command-0107";
+
+  const command = FinalizeInterviewCommandSchema.make({
+    commandId: FinalizeInterviewCommandSchema.fields.commandId.make(commandId),
+    interviewId: FinalizeInterviewCommandSchema.fields.interviewId.make(interviewId),
+    expectedRevision: 1,
+    answers: [],
+    score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
+    recommendation: "Ja",
+  });
+
+  const observation = FinalizeInterviewObservationSchema.make({
+    commandId: command.commandId,
+    interviewId: command.interviewId,
+    interviewRevision: 2,
+    finalizedAt: FinalizeInterviewObservationSchema.fields.finalizedAt.make(
+      "2026-09-20T10:00:00.000Z",
+    ),
+    completionState: "Completed",
+    cancellationState: "NotCancelled",
+    notificationState: "Pending",
+  });
+
   await client.query(
     `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES($1,'[]'::jsonb,7,8,9,$2,'2026-09-20T10:00:00.000Z',2,'Ja')`,
     [interviewId, personId],
@@ -139,9 +177,9 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
     `INSERT INTO public.recruitment_interview_lifecycle_command_receipts(command_id,command_sha256,command_json,observation_json,kind,interview_id,resulting_revision,committed_at) VALUES($1,$2,$3::jsonb,$4::jsonb,'InterviewFinalized',$5,2,'2026-09-20T10:00:00.000Z')`,
     [
       commandId,
-      digest(commandId),
-      JSON.stringify({ _tag: "FinalizeInterview", commandId, interviewId }),
-      JSON.stringify({ _tag: "InterviewFinalized", commandId, interviewId }),
+      sha256Hex(canonicalJsonBytes(command)),
+      canonicalJson(command),
+      canonicalJson(observation),
       interviewId,
     ],
   );
@@ -201,10 +239,12 @@ const seedScopedApplication = async (
     `INSERT INTO public.organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES($1,$2,$3,1)`,
     [personId, departmentId, suffix === "returning" ? "Inactive" : "Active"],
   );
+
   const school = await client.query(
     `INSERT INTO public.schools_directory_schools(name,contact_person,email,phone,language,active,revision) VALUES($1,'Synthetic Contact',$2,'90000000','Norwegian',true,0) RETURNING school_id`,
     [`Progress ${suffix} school`, `${suffix}.school@example.invalid`],
   );
+
   const schoolId = school.rows[0].school_id;
   await client.query(
     `INSERT INTO public.schools_directory_departments(school_id,department_id,revision) VALUES($1,$2,0)`,
@@ -215,6 +255,7 @@ const seedScopedApplication = async (
     `INSERT INTO public.assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES($1,$2,$3,$4,$5,'Monday',4,'1',$6,1)`,
     [placementId, personId, departmentId, base.semester, schoolId, activePlacement],
   );
+
   if (suffix === "returning") {
     await client.query(
       `INSERT INTO public.admission_returning_registrations(registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,3,false,false,false,false,false,4,'all','Norsk',NULL,false,'[]'::jsonb,'2026-09-01T00:00:00.000Z')`,
@@ -235,6 +276,7 @@ const seedScopedApplication = async (
 
 export const seedApplicantProgress0107 = async (pool: Pool) => {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
     await seedProgressState(client, "received", 1);
@@ -252,13 +294,18 @@ export const seedApplicantProgress0107 = async (pool: Pool) => {
     client.release();
   }
 };
+
 const forbidden = /email|phone|recommendation|answers|capability|interviewer|score/iu;
-const assertNoForbiddenKeys = (value: unknown): void => {
-  if (Array.isArray(value)) {
+
+const assertNoForbiddenKeys = (value: Schema.Json): void => {
+  if (Arr.isArray<Schema.Json>(value)) {
     for (const item of value) assertNoForbiddenKeys(item);
+
     return;
   }
-  if (value === null || typeof value !== "object") return;
+
+  if (value === null || Predicate.isString(value) || Predicate.isNumber(value) || Predicate.isBoolean(value)) return;
+
   for (const [key, child] of Object.entries(value)) {
     assert.equal(forbidden.test(key), false, `forbidden applicant-progress field ${key}`);
     assertNoForbiddenKeys(child);
@@ -277,12 +324,14 @@ export const runApplicantProgress0107 = async (input: {
 }) => {
   const request = (path: string, cookie = input.cookie) =>
     fetch(`${input.api}${path}`, { headers: { cookie, origin: input.ui } });
+
   assert.equal((await fetch(`${input.api}/api/applicant-progress`)).status, 401);
   assert.equal((await request("/api/applicant-progress?applicationId=other")).status, 400);
   const response = await request("/api/applicant-progress");
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+
   const unlinkedSignIn = await fetch(`${input.api}/api/auth/sign-in/email`, {
     method: "POST",
     headers: { origin: input.ui, "content-type": "application/json" },
@@ -291,33 +340,42 @@ export const runApplicantProgress0107 = async (input: {
       password: applicantProgressUnlinkedIdentity.password,
     }),
   });
+
   assert.equal(unlinkedSignIn.status, 200);
   const unlinkedCookie = unlinkedSignIn.headers.get("set-cookie")?.split(";")[0];
   assert.ok(unlinkedCookie);
   const unlinkedResponse = await request("/api/applicant-progress", unlinkedCookie);
   assert.equal(unlinkedResponse.status, 200);
   assert.deepEqual(decodeApplicantProgressResponse(await unlinkedResponse.json()).applications, []);
+
   const expiredSessions = await input.pool.query(
     `UPDATE auth.session SET "expiresAt"=CURRENT_TIMESTAMP-interval '1 minute' WHERE "userId"=$1`,
     [applicantProgressUnlinkedIdentity.personId],
   );
+
   assert.ok((expiredSessions.rowCount ?? 0) >= 1);
   assert.equal((await request("/api/applicant-progress", unlinkedCookie)).status, 401);
   const body = decodeApplicantProgressResponse(await response.json());
   const tags = body.applications.map((application) => application.progress._tag);
   const observedStates = new Set(tags);
+
   const readCompletedApplicationState = async () => {
     const current = decodeApplicantProgressResponse(
       await (await request("/api/applicant-progress")).json(),
     );
+
     const application = current.applications.find(
       (candidate) => candidate.applicationId === "application-progress-completed-0107",
     );
+
     assert.ok(application, "completed applicant-progress fixture is missing");
     observedStates.add(application.progress._tag);
+
     return application.progress._tag;
   };
+
   const sdk = createPromiseClient(input.api, { cookie: input.cookie, origin: input.ui });
+
   const readSdk = async () => {
     try {
       return await sdk.admissions.readApplicantProgress();
@@ -325,10 +383,12 @@ export const runApplicantProgress0107 = async (input: {
       throw new Error(`applicant progress SDK failed: ${inspect(cause, { depth: 10 })}`, { cause });
     }
   };
+
   const sdkResponse = await readSdk();
   const sdkBody = decodeApplicantProgressResponse(sdkResponse.body);
   assert.equal(sdkBody.personId, body.personId);
   assert.deepEqual(sdkBody.applications, body.applications);
+
   for (const tag of [
     "ApplicationReceived",
     "InvitedToInterview",
@@ -341,6 +401,7 @@ export const runApplicantProgress0107 = async (input: {
   ] as const) {
     assert.ok(tags.includes(tag), `missing applicant progress state ${tag}`);
   }
+
   for (let index = 1; index < body.applications.length; index += 1) {
     const previous = body.applications[index - 1];
     const current = body.applications[index];
@@ -353,11 +414,13 @@ export const runApplicantProgress0107 = async (input: {
       "applicant progress is not in deterministic newest-first order",
     );
   }
+
   assertNoForbiddenKeys(body);
 
   await input.page.goto(`${input.ui}/dashboard/soknad`);
   await input.page.getByRole("heading", { name: "Min søknad", exact: true }).waitFor();
   const renderedText = await input.page.locator("body").innerText();
+
   for (const title of [
     "Søknaden er mottatt",
     "Du er invitert til intervju",
@@ -373,6 +436,7 @@ export const runApplicantProgress0107 = async (input: {
       `missing rendered applicant-progress heading ${title}: ${renderedText}`,
     );
   }
+
   assert.equal(await input.page.getByText("P-201", { exact: true }).count(), 1);
   assert.equal(forbidden.test(renderedText), false);
   const violations = await input.audit(input.page);
@@ -396,10 +460,12 @@ export const runApplicantProgress0107 = async (input: {
   const completedCard = input.page.getByRole("article").filter({
     has: input.page.getByRole("heading", { name: "Intervjuet er fullført", exact: true }),
   });
+
   const handoffLink = completedCard.getByRole("link", {
     name: "Åpne assistentoversikten",
     exact: true,
   });
+
   await handoffLink.focus();
   assert.equal(
     await handoffLink.evaluate((element) => element.ownerDocument.activeElement === element),
@@ -419,10 +485,12 @@ export const runApplicantProgress0107 = async (input: {
     await input.page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
     true,
   );
+
   const ownAffiliation = input.page.getByRole("form", {
     name: "Min tilknytning",
     exact: true,
   });
+
   await ownAffiliation.getByRole("button", { name: "Be om tilknytning", exact: true }).click();
   await ownAffiliation
     .getByRole("status")
@@ -439,10 +507,12 @@ export const runApplicantProgress0107 = async (input: {
       semesterId: "semester-native-conduct-0063",
     })}`,
   );
+
   const approveAffiliation = input.page.getByRole("button", {
     name: "Godkjenn tilknytning",
     exact: true,
   });
+
   await approveAffiliation.click();
   await input.page.getByText("Endringen er lagret.", { exact: true }).waitFor();
   await input.page.goto(`${input.ui}/dashboard/soknad`);
@@ -452,6 +522,7 @@ export const runApplicantProgress0107 = async (input: {
   assert.equal(await readCompletedApplicationState(), "AffiliationActive");
 
   const client = await input.pool.connect();
+
   try {
     await client.query("BEGIN");
     await client.query(
@@ -467,6 +538,7 @@ export const runApplicantProgress0107 = async (input: {
   } finally {
     client.release();
   }
+
   await input.page.reload();
   assert.equal(
     await input.page
@@ -486,10 +558,12 @@ export const runApplicantProgress0107 = async (input: {
       semesterId: "semester-native-conduct-0063",
     })}`,
   );
+
   const placement = input.page.getByRole("form", {
     name: "Ny skoleplassering",
     exact: true,
   });
+
   await placement.getByRole("combobox", { name: "Frivillig", exact: true }).selectOption(personId);
   await placement
     .getByRole("combobox", { name: "Skole", exact: true })
@@ -507,10 +581,12 @@ export const runApplicantProgress0107 = async (input: {
   );
   assert.equal(await readCompletedApplicationState(), "AssignedToSchool");
   assert.deepEqual(await input.audit(input.page), []);
+
   const signOut = await fetch(`${input.api}/api/auth/sign-out`, {
     method: "POST",
     headers: { cookie: input.cookie, origin: input.ui },
   });
+
   assert.equal(signOut.status, 200);
   assert.equal((await request("/api/applicant-progress")).status, 401);
   assert.deepEqual(input.errors, []);
@@ -527,6 +603,7 @@ export const runApplicantProgress0107 = async (input: {
       2,
     )}\n`,
   );
+
   return {
     states: [...observedStates].sort(),
     applicationCount: body.applications.length,

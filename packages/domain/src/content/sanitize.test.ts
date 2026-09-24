@@ -31,6 +31,7 @@ describe("content article HTML sanitizer", () => {
         "test sanitize",
         '<p>before</p><script>alert(1)</script><iframe src="https://example.invalid"></iframe><p>after</p>',
       );
+
       expect(sanitized).toBe("<p>before</p><p>after</p>");
 
       for (const payload of [
@@ -50,6 +51,7 @@ describe("content article HTML sanitizer", () => {
         "test sanitize",
         '<p><a href="https&#58;//example.invalid/?a=1&amp;b=2">safe</a></p>',
       );
+
       expect(sanitized).toBe('<p><a href="https://example.invalid/?a=1&amp;b=2">safe</a></p>');
     }),
   );
@@ -59,6 +61,7 @@ describe("content article HTML sanitizer", () => {
         "test sanitize",
         '<p onclick="alert(1)" style="background:url(javascript:alert(1))"><a href="/nyheter" ping="https://tracker.invalid">safe</a><img src="/image.png" srcset="data:image/svg+xml,unsafe 2x"></p>',
       );
+
       expect(sanitized).toBe('<p><a href="/nyheter">safe</a><img src="/image.png"></p>');
     }),
   );

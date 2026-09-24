@@ -9,8 +9,11 @@ import { describe, expect, it, vi } from "vitest";
 import { createPromiseClient } from "../src/promise.js";
 
 const idempotencyKey = IdempotencyKey.make("content-idempotency-key-0001");
+
 const etag = StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"');
+
 const articleId = ContentArticleDetailSchema.fields.articleId.make(7);
+
 const createPayload = Schema.decodeUnknownSync(CreateArticleRequest)({
   title: "Tittel",
   bodyHtml: "<p>Brødtekst</p>",
@@ -28,13 +31,16 @@ const credentialProblem = {
 describe("generated content SDK", () => {
   it("uses canonical routes, RFC 9457 errors, and reflected mutation headers", async () => {
     const requests: Request[] = [];
+
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       requests.push(new Request(input, init));
+
       return new Response(JSON.stringify(credentialProblem), {
         status: 401,
         headers: { "content-type": "application/problem+json" },
       });
     });
+
     const client = createPromiseClient("http://api.test", {
       cookie: "better-auth.session_token=content-session",
       fetch,
@@ -72,12 +78,15 @@ describe("generated content SDK", () => {
       ["POST", "http://api.test/api/content/articles/7:publish"],
       ["POST", "http://api.test/api/content/articles/7:unpublish"],
     ]);
+
     for (const request of requests.slice(2)) {
       expect(request.headers.get("Idempotency-Key")).toBe(idempotencyKey);
     }
+
     for (const request of requests.slice(3)) {
       expect(request.headers.get("If-Match")).toBe(etag);
     }
+
     const mutationBodies = await Promise.all(requests.slice(2).map((request) => request.json()));
     expect(JSON.stringify(mutationBodies)).not.toMatch(/commandId|expectedRevision/u);
   });

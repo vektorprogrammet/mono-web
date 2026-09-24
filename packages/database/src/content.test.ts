@@ -2,11 +2,12 @@ import { databaseSchemaRevision } from "./migrations.js";
 import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "./service.js";
 import { ContentWorkspaceSchema } from "@vektorprogrammet/domain/content";
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
+
 const runtime = makeControlledTestRuntime(databaseLayer);
 
 afterAll(async () => {
@@ -19,6 +20,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
       Effect.gen(function* () {
         const database = yield* Database;
         yield* database.migrate;
+
         const migrationRows = yield* database<{
           readonly migrationId: number;
           readonly name: string;
@@ -29,6 +31,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
           FROM vektorprogrammet_schema_migrations AS migration
           WHERE migration.migration_id = 20
         `;
+
         const tableRows = yield* database<{ readonly tableName: string }>`
           SELECT table_name AS "tableName"
           FROM information_schema.tables
@@ -41,6 +44,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
           )
           ORDER BY table_name
         `;
+
         return {
           revision: database.schemaRevision,
           migrationRows,
@@ -70,20 +74,24 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
             department_id, name, short_name, email, city
           ) VALUES ('content-test-dep', 'Testavdeling', 'TAV', 'tav@example.invalid', 'Oslo')
         `;
+
         const insertDraft = (slug: string) =>
           database`
             INSERT INTO public.content_articles (title, slug, body_html, sticky, created_by_person_id)
             VALUES (${`Tittel ${slug}`}, ${slug}, '<p>x</p>', FALSE, 'person-1')
           `;
+
         yield* insertDraft("unikt-lenkenavn");
+
         const idRows = yield* database<{ readonly articleId: number }>`
           SELECT article_id AS "articleId" FROM public.content_articles WHERE slug = 'unikt-lenkenavn'
         `;
+
         const articleId = Number(idRows[0]!.articleId);
 
         // A duplicate slug across drafts is rejected.
         const duplicateSlug = yield* Effect.exit(insertDraft("unikt-lenkenavn"));
-        const duplicateSlugRejected = duplicateSlug._tag === "Failure";
+        const duplicateSlugRejected = Predicate.isTagged(duplicateSlug, "Failure");
 
         yield* database`
           INSERT INTO public.content_article_departments (article_id, department_id)
@@ -100,19 +108,22 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
               FALSE, '2030-01-01T00:00:00.000Z', 'person-1'
             )
           `.pipe(Effect.asVoid);
+
         yield* insertVersion(1);
         // The same (article, version) pair is a PK violation.
         const duplicateVersion = yield* Effect.exit(insertVersion(1));
-        const duplicateVersionRejected = duplicateVersion._tag === "Failure";
+        const duplicateVersionRejected = Predicate.isTagged(duplicateVersion, "Failure");
 
         // Historical versions may share listing-order keys.
         const sameListingOrder = yield* Effect.exit(insertVersion(2));
-        const sameListingOrderAccepted = sameListingOrder._tag === "Success";
+        const sameListingOrderAccepted = Predicate.isTagged(sameListingOrder, "Success");
+
         const listingIndexRows = yield* database<{ readonly isUnique: boolean }>`
           SELECT index.indisunique AS "isUnique"
           FROM pg_index AS index
           WHERE index.indexrelid = 'content_article_versions_current_listing_order'::regclass
         `;
+
         const listingIndexIsNonUnique = listingIndexRows[0]?.isUnique === false;
 
         yield* database`
@@ -131,12 +142,15 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
             'CreateDraft', NULL, '2030-01-01T00:00:00.000Z'
           )
         `;
+
         const auditRows = yield* database<{ readonly auditId: number }>`
           SELECT audit_id AS "auditId"
           FROM public.content_publication_audit
           WHERE command_id = 'content-audit-protection-command'
         `;
+
         const auditInsertWorked = auditRows.length === 1;
+
         const auditUpdate = yield* Effect.exit(
           database`
             UPDATE public.content_publication_audit
@@ -144,14 +158,17 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
             WHERE command_id = 'content-audit-protection-command'
           `.pipe(Effect.asVoid),
         );
-        const auditUpdateRejected = auditUpdate._tag === "Failure";
+
+        const auditUpdateRejected = Predicate.isTagged(auditUpdate, "Failure");
+
         const auditDelete = yield* Effect.exit(
           database`
             DELETE FROM public.content_publication_audit
             WHERE command_id = 'content-audit-protection-command'
           `.pipe(Effect.asVoid),
         );
-        const auditDeleteRejected = auditDelete._tag === "Failure";
+
+        const auditDeleteRejected = Predicate.isTagged(auditDelete, "Failure");
 
         // FK RESTRICT blocks deleting a department still referenced.
         const restrict = yield* Effect.exit(
@@ -159,7 +176,8 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
             Effect.asVoid,
           ),
         );
-        const restrictBlocked = restrict._tag === "Failure";
+
+        const restrictBlocked = Predicate.isTagged(restrict, "Failure");
 
         return {
           duplicateSlugRejected,
@@ -173,6 +191,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
         };
       }),
     );
+
     expect(outcome).toEqual({
       duplicateSlugRejected: true,
       duplicateVersionRejected: true,

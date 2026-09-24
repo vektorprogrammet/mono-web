@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ?? undefined;
+
 const externalDashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "https://vektor.phibkro.org";
 
 export default defineConfig({

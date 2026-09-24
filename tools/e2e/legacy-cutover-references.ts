@@ -2,32 +2,42 @@ import { createHash } from "node:crypto";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import type { Pool, PoolClient } from "pg";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
+import { flow } from "effect";
 
-const digest = (value: unknown): string =>
-  createHash("sha256").update(canonicalJson(value)).digest("hex");
+const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+
 const positiveId = (value: number | string): string => {
   const id = String(value);
+
   if (!/^[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id)))
     throw new Error("Source reference ID is not safe");
+
   return id;
 };
+
 const flag = (value: number | string | boolean): boolean => {
   if (value === true || value === 1 || value === "1") return true;
+
   if (value === false || value === 0 || value === "0") return false;
   throw new Error("Source reference flag is invalid");
 };
+
 const unique = (keys: ReadonlyArray<string>): void => {
   if (keys.length !== new Set(keys).size) throw new Error("Source reference keys are ambiguous");
 };
+
 const sortBy = <T>(rows: ReadonlyArray<T>, key: (row: T) => string): T[] =>
   [...rows].sort((left, right) => {
     const a = key(left),
       b = key(right);
+
     return a < b ? -1 : a > b ? 1 : 0;
   });
 
 export const departmentId = (id: number | string): string => `legacy-department:${positiveId(id)}`;
+
 export const semesterId = (id: number | string): string => `legacy-semester:${positiveId(id)}`;
+
 export const schoolId = (id: number | string): number => Number(positiveId(id));
 
 export const buildLegacyReferences = (source: LegacySourceSnapshot) => {
@@ -48,12 +58,14 @@ export const buildLegacyReferences = (source: LegacySourceSnapshot) => {
     })),
     (row) => row.department_id,
   );
+
   const semesters = sortBy(
     source.semesters.map((row) => {
       if (!/^[0-9]{4}$/.test(row.year) || !["Vår", "Høst"].includes(row.semesterTime))
         throw new Error("Source semester is not recognized");
       const year = Number(row.year);
       const spring = row.semesterTime === "Vår";
+
       return {
         semester_id: semesterId(row.id),
         start_at: new Date(Date.UTC(year, spring ? 0 : 7, 1)).toISOString(),
@@ -62,6 +74,7 @@ export const buildLegacyReferences = (source: LegacySourceSnapshot) => {
     }),
     (row) => row.semester_id,
   );
+
   const schools = sortBy(
     source.schools.map((row) => ({
       school_id: String(schoolId(row.id)),
@@ -75,6 +88,7 @@ export const buildLegacyReferences = (source: LegacySourceSnapshot) => {
     })),
     (row) => row.school_id,
   );
+
   const relationships = source.relationships
     .map((row) => ({
       school_id: String(schoolId(row.schoolId)),
@@ -84,22 +98,27 @@ export const buildLegacyReferences = (source: LegacySourceSnapshot) => {
     .sort((a, b) => {
       const byDepartment =
         a.department_id < b.department_id ? -1 : a.department_id > b.department_id ? 1 : 0;
+
       return byDepartment || (a.school_id < b.school_id ? -1 : a.school_id > b.school_id ? 1 : 0);
     });
+
   unique(departments.map((row) => row.department_id));
   unique(semesters.map((row) => row.semester_id));
   unique(schools.map((row) => row.school_id));
   unique(relationships.map((row) => `${row.department_id}:${row.school_id}`));
+
   if (departments.length === 0 || semesters.length === 0 || schools.length === 0)
     throw new Error("Source references are empty");
   const departmentIds = new Set(departments.map((row) => row.department_id));
   const schoolIds = new Set(schools.map((row) => row.school_id));
+
   if (
     relationships.some(
       (row) => !departmentIds.has(row.department_id) || !schoolIds.has(row.school_id),
     )
   )
     throw new Error("Source relationship has an unknown reference");
+
   const mappings = {
     departments: source.departments.map((row) => ({
       sourceDepartmentId: departmentId(row.id),
@@ -120,6 +139,7 @@ export const buildLegacyReferences = (source: LegacySourceSnapshot) => {
       schoolId: schoolId(row.schoolId),
     })),
   };
+
   return {
     rows: {
       departments,
@@ -152,11 +172,13 @@ interface DepartmentReference {
   readonly active: boolean;
   readonly revision: number;
 }
+
 interface SemesterReference {
   readonly semester_id: string;
   readonly start_at: string;
   readonly end_at: string;
 }
+
 interface SchoolReference {
   readonly school_id: string;
   readonly name: string;
@@ -167,11 +189,13 @@ interface SchoolReference {
   readonly active: boolean;
   readonly revision: number;
 }
+
 interface RelationshipReference {
   readonly school_id: string;
   readonly department_id: string;
   readonly revision: number;
 }
+
 interface ReferenceRows {
   readonly departments: ReadonlyArray<DepartmentReference>;
   readonly admissionDepartments: ReadonlyArray<{ readonly department_id: string }>;
@@ -179,6 +203,7 @@ interface ReferenceRows {
   readonly schools: ReadonlyArray<SchoolReference>;
   readonly relationships: ReadonlyArray<RelationshipReference>;
 }
+
 export interface LegacyReferences {
   readonly rows: ReferenceRows;
   readonly mappings: {
@@ -209,11 +234,13 @@ const targetRows = async (tx: PoolClient): Promise<ReferenceRows> => {
        FROM public.organization_departments ORDER BY department_id`,
     )
   ).rows;
+
   const admissionDepartments = (
     await tx.query<ReferenceRows["admissionDepartments"][number]>(
       "SELECT department_id FROM public.admission_period_departments ORDER BY department_id",
     )
   ).rows;
+
   const semesters = (
     await tx.query<{ semester_id: string; start_at: Date; end_at: Date }>(
       "SELECT semester_id, start_at, end_at FROM public.admission_period_semesters ORDER BY semester_id",
@@ -223,18 +250,21 @@ const targetRows = async (tx: PoolClient): Promise<ReferenceRows> => {
     start_at: start_at.toISOString(),
     end_at: end_at.toISOString(),
   }));
+
   const schools = (
     await tx.query<ReferenceRows["schools"][number]>(
       `SELECT school_id::text AS school_id, name, contact_person, email, phone, language, active, revision
        FROM public.schools_directory_schools ORDER BY school_id::text`,
     )
   ).rows;
+
   const relationships = (
     await tx.query<ReferenceRows["relationships"][number]>(
       `SELECT school_id::text AS school_id, department_id, revision
        FROM public.schools_directory_departments ORDER BY department_id, school_id::text`,
     )
   ).rows;
+
   return { departments, admissionDepartments, semesters, schools, relationships };
 };
 
@@ -247,15 +277,18 @@ const seedRows = async (tx: PoolClient, rows: ReferenceRows): Promise<void> => {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       Object.values(row),
     );
+
   for (const row of rows.admissionDepartments)
     await tx.query("INSERT INTO public.admission_period_departments (department_id) VALUES ($1)", [
       row.department_id,
     ]);
+
   for (const row of rows.semesters)
     await tx.query(
       "INSERT INTO public.admission_period_semesters (semester_id,start_at,end_at) VALUES ($1,$2,$3)",
       [row.semester_id, row.start_at, row.end_at],
     );
+
   for (const row of rows.schools)
     await tx.query(
       `INSERT INTO public.schools_directory_schools
@@ -263,6 +296,7 @@ const seedRows = async (tx: PoolClient, rows: ReferenceRows): Promise<void> => {
        OVERRIDING SYSTEM VALUE VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       Object.values(row),
     );
+
   for (const row of rows.relationships)
     await tx.query(
       `INSERT INTO public.schools_directory_departments (school_id,department_id,revision)
@@ -271,6 +305,7 @@ const seedRows = async (tx: PoolClient, rows: ReferenceRows): Promise<void> => {
     );
   // Identity restart is transactional, unlike setval, so failed provenance writes leave no residue.
   const nextSchoolId = Math.max(...rows.schools.map((school) => Number(school.school_id))) + 1;
+
   if (!Number.isSafeInteger(nextSchoolId))
     throw new Error("Source school IDs exhaust target ID range");
   await tx.query(
@@ -290,22 +325,28 @@ export const seedLegacyReferences = async (
   client?: PoolClient,
 ): Promise<"Seeded" | "ExactReplay"> => {
   const tx = client ?? (await pool.connect());
+
   try {
     if (!client) await tx.query("BEGIN");
     await tx.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('legacy-cutover-reference-seed',0))",
     );
+
     const marker = (
       await tx.query<{ exists: boolean }>(
         `SELECT to_regclass('public.vektorprogrammet_schema_migrations') IS NOT NULL
               AND to_regclass('public.historical_service_reference_provenance') IS NOT NULL AS exists`,
       )
     ).rows[0]?.exists;
+
     if (!marker) throw new Error("Native target schema is not migrated for cutover");
+
     const migrations = await tx.query(
       "SELECT 1 FROM public.vektorprogrammet_schema_migrations LIMIT 1",
     );
+
     if (!migrations.rowCount) throw new Error("Native target has no migration marker");
+
     const prior = (
       await tx.query<{
         source_revision: string;
@@ -318,7 +359,9 @@ export const seedLegacyReferences = async (
         [identity.sourceRepository, identity.snapshotId],
       )
     ).rows[0];
+
     let outcome: "Seeded" | "ExactReplay";
+
     if (prior) {
       if (
         prior.source_revision !== identity.sourceRevision ||
@@ -334,23 +377,29 @@ export const seedLegacyReferences = async (
            AND left(nspname, 3) <> 'pg_'
          LIMIT 1
       `);
+
       if (extraSchemas.rowCount)
         throw new Error("Native target contains an unexpected application schema");
+
       const tables = await tx.query<{ schemaname: string; tablename: string }>(`
         SELECT schemaname, tablename FROM pg_catalog.pg_tables
          WHERE schemaname IN ('public', 'auth')
            AND NOT (schemaname = 'public' AND tablename = 'vektorprogrammet_schema_migrations')
          ORDER BY schemaname, tablename
       `);
+
       for (const { schemaname, tablename } of tables.rows) {
         const schema = '"' + schemaname.replaceAll('"', '""') + '"';
         const table = '"' + tablename.replaceAll('"', '""') + '"';
+
         const occupied = await tx.query<{ occupied: boolean }>(
           "SELECT EXISTS(SELECT 1 FROM " + schema + "." + table + ") AS occupied",
         );
+
         if (occupied.rows[0]?.occupied)
           throw new Error("Native target contains preexisting application state");
       }
+
       await seedRows(tx, references.rows);
       await tx.query(
         `INSERT INTO public.historical_service_reference_provenance
@@ -366,9 +415,12 @@ export const seedLegacyReferences = async (
       );
       outcome = "Seeded";
     }
+
     if (canonicalJson(await targetRows(tx)) !== canonicalJson(references.rows))
       throw new Error("Native reference values differ from source snapshot");
+
     if (!client) await tx.query("COMMIT");
+
     return outcome;
   } catch {
     if (!client) await tx.query("ROLLBACK");

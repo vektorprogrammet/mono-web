@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nativeDashboardRecoveryMode } from "./native-account-mode.server";
+
 describe("native credential composition", () => {
   it("keeps recovery disabled until explicitly enabled for a native cohort", () => {
     expect(nativeDashboardRecoveryMode({})).toBe("disabled");

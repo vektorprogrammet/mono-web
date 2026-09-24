@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -15,43 +16,67 @@ import { createPromiseClient } from "@vektorprogrammet/sdk";
 import { dashboardMount } from "../dashboard-base.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const composeFile = join(repositoryRoot, "docker-compose.yml");
+
 const seedPath = fileURLToPath(new URL("./native-receipt-settlement-seed.mjs", import.meta.url));
+
 const dashboardRequire = createRequire(new URL("../package.json", import.meta.url));
+
 const { Pool } = dashboardRequire("pg");
 
 const configuredLoopbackPort = (name, fallback) => {
   const value = process.env[name] ?? String(fallback);
+
   if (!/^\d+$/u.test(value)) throw new Error(`${name} must be a decimal TCP port`);
   const port = Number(value);
+
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`${name} must be between 1 and 65535`);
   }
+
   return port;
 };
 
 const dashboardPort = 5174;
+
 const backendPort = configuredLoopbackPort("RECEIPT_SETTLEMENT_E2E_BACKEND_PORT", 8794);
+
 const postgresPort = configuredLoopbackPort("RECEIPT_SETTLEMENT_E2E_PG_PORT", 55434);
+
 const disposablePorts = [dashboardPort, backendPort, postgresPort];
+
 if (new Set(disposablePorts).size !== disposablePorts.length) {
   throw new Error("Receipt settlement disposable loopback ports must be distinct");
 }
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
+
 const composeProject = `mono-web-receipt-settlement-0114-${process.pid}`;
+
 const commandTimeoutMs = 300_000;
+
 const shutdownTimeoutMs = 5_000;
+
 const nixPostgresPackage = "nixpkgs#postgresql_17";
+
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+
 const postgresTopology = dockerAvailable ? "docker" : "local";
+
 const settlementRoute = "/dashboard/utlegg/oppgjor";
+
 const privatePaymentDestination = "synthetic-payment-destination-0114-only";
+
 const syntheticPersonaPassword = "receipt-settlement-0114-password";
+
 const pngReceiptBytes = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
@@ -68,10 +93,13 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
+
+      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
+
         return;
       }
+
       rejectPort(new Error(`Could not inspect loopback port ${port}`));
     });
   });
@@ -80,28 +108,34 @@ function assertPortAvailable(port) {
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
+
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: captureOutput ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
     });
+
     const stdout = [];
     const stderr = [];
+
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
       child.stderr.on("data", (chunk) => stderr.push(chunk));
     }
 
     let settled = false;
+
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       const hardKill = setTimeout(() => child.kill("SIGKILL"), shutdownTimeoutMs);
       hardKill.unref();
+
       if (!settled) {
         settled = true;
         rejectCommand(new Error(`${options.label} timed out`));
       }
     }, commandTimeoutMs);
+
     timeout.unref();
 
     child.once("error", () => {
@@ -114,6 +148,7 @@ function runCommand(command, args, options) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+
       if (code !== null && (options.acceptedExitCodes ?? [0]).includes(code)) {
         resolveCommand(
           captureOutput
@@ -123,11 +158,14 @@ function runCommand(command, args, options) {
               }
             : undefined,
         );
+
         return;
       }
+
       const detail = captureOutput
         ? Buffer.concat(stderr).toString("utf8").trim() || Buffer.concat(stdout).toString("utf8").trim()
         : "";
+
       rejectCommand(
         new Error(
           `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}${detail.length === 0 ? "" : `:\n${detail}`}`,
@@ -144,7 +182,9 @@ function startProcess(command, args, options) {
     stdio: ["ignore", "inherit", "inherit"],
     detached: true,
   });
+
   child.once("error", () => undefined);
+
   return child;
 }
 
@@ -155,46 +195,58 @@ function runNixPostgres(command, args, options) {
 async function stopProcess(child) {
   if (child === undefined || child.exitCode !== null || child.pid === undefined) return;
   const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
+
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not stop local process group");
     }
+
     return;
   }
+
   const stopped = await Promise.race([
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
+
   if (stopped) return;
+
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
+    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not terminate local process group");
     }
   }
+
   await exited;
 }
 
 async function waitForHttp(url, child, label) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`${label} exited before readiness`);
+
     try {
       const response = await fetch(url, { redirect: "manual" });
+
       if (response.status >= 200 && response.status < 500) return;
     } catch {
       // The bounded readiness loop owns transient startup failures.
     }
+
     await sleep(250);
   }
+
   throw new Error(`${label} did not become ready`);
 }
 
 async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
+
   while (Date.now() < deadline) {
     try {
       const args =
@@ -215,19 +267,23 @@ async function waitForPostgres(environment) {
               "receipt_proof",
             ]
           : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+
       const options = {
         cwd: repositoryRoot,
         env: environment,
         label: "Disposable receipt settlement PostgreSQL readiness",
         captureOutput: true,
       };
+
       if (postgresTopology === "docker") await runCommand("docker", args, options);
       else await runNixPostgres("pg_isready", args, options);
+
       return;
     } catch {
       await sleep(250);
     }
   }
+
   throw new Error("Disposable receipt settlement PostgreSQL did not become ready");
 }
 
@@ -292,11 +348,13 @@ async function stopLocalPostgres(dataRoot, environment) {
 async function pathExists(path) {
   try {
     await access(path);
+
     return true;
   } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return false;
     }
+
     throw error;
   }
 }
@@ -311,6 +369,7 @@ const readIncoming = (request) =>
 
 const parseJson = (bytes) => {
   if (bytes.byteLength === 0) return null;
+
   try {
     return JSON.parse(bytes.toString("utf8"));
   } catch {
@@ -320,11 +379,13 @@ const parseJson = (bytes) => {
 
 async function startRecordingProxy(targetOrigin) {
   const records = [];
+
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", targetOrigin);
       const requestBody = await readIncoming(request);
       const headers = new Headers();
+
       for (const [name, value] of Object.entries(request.headers)) {
         if (
           value === undefined ||
@@ -335,12 +396,14 @@ async function startRecordingProxy(targetOrigin) {
           continue;
         headers.set(name, Array.isArray(value) ? value.join(",") : value);
       }
+
       const upstream = await fetch(url, {
         method: request.method,
         headers,
         body: requestBody.byteLength === 0 ? undefined : requestBody,
         redirect: "manual",
       });
+
       const upstreamBody = Buffer.from(await upstream.arrayBuffer());
       records.push({
         method: request.method ?? "GET",
@@ -349,7 +412,7 @@ async function startRecordingProxy(targetOrigin) {
         targetOrigin: url.origin,
         requestHeaders: {
           authorization: request.headers.authorization ?? null,
-          cookiePresent: typeof request.headers.cookie === "string",
+          cookiePresent: Predicate.isString(request.headers.cookie),
           idempotencyKey: request.headers["idempotency-key"] ?? null,
           ifMatch: request.headers["if-match"] ?? null,
           contentType: request.headers["content-type"] ?? null,
@@ -364,6 +427,7 @@ async function startRecordingProxy(targetOrigin) {
         responseJson: parseJson(upstreamBody),
       });
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers.entries()) {
         if (
           ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
@@ -371,7 +435,9 @@ async function startRecordingProxy(targetOrigin) {
           continue;
         response.setHeader(name, value);
       }
+
       const setCookies = upstream.headers.getSetCookie();
+
       if (setCookies.length > 0) response.setHeader("set-cookie", setCookies);
       response.setHeader("content-length", String(upstreamBody.byteLength));
       response.end(upstreamBody);
@@ -380,6 +446,7 @@ async function startRecordingProxy(targetOrigin) {
       response.end(JSON.stringify({ error: error instanceof Error ? error.message : "proxy failure" }));
     }
   });
+
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", () => {
@@ -388,7 +455,9 @@ async function startRecordingProxy(targetOrigin) {
     });
   });
   const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("Receipt proxy has no TCP address");
+
+  if (address === null || Predicate.isString(address)) throw new Error("Receipt proxy has no TCP address");
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     records,
@@ -399,37 +468,42 @@ async function startRecordingProxy(targetOrigin) {
 async function startDeliverySink() {
   const deliveries = [];
   let failNextDelivery = false;
+
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const bytes = await readIncoming(request);
     const envelope = parseJson(bytes);
     const loopback = request.socket.remoteAddress === "127.0.0.1" || request.socket.remoteAddress === "::1";
+
     if (
       request.method !== "POST" ||
       url.pathname !== "/receipt-delivery" ||
       !loopback ||
       envelope === null ||
-      typeof envelope !== "object" ||
+      !Predicate.isObjectOrArray(envelope) ||
       Array.isArray(envelope)
     ) {
       response.writeHead(400);
       response.end();
+
       return;
     }
+
     const status = failNextDelivery ? 503 : 204;
     failNextDelivery = false;
     deliveries.push({
-      deliveryId: typeof envelope.deliveryId === "string" ? envelope.deliveryId : null,
-      from: typeof envelope.from === "string" ? envelope.from : null,
-      to: typeof envelope.to === "string" ? envelope.to : null,
-      subject: typeof envelope.subject === "string" ? envelope.subject : null,
-      text: typeof envelope.text === "string" ? envelope.text : null,
+      deliveryId: Predicate.isString(envelope.deliveryId) ? envelope.deliveryId : null,
+      from: Predicate.isString(envelope.from) ? envelope.from : null,
+      to: Predicate.isString(envelope.to) ? envelope.to : null,
+      subject: Predicate.isString(envelope.subject) ? envelope.subject : null,
+      text: Predicate.isString(envelope.text) ? envelope.text : null,
       status,
       loopback,
     });
     response.writeHead(status);
     response.end();
   });
+
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(0, "127.0.0.1", () => {
@@ -438,8 +512,10 @@ async function startDeliverySink() {
     });
   });
   const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("Receipt delivery sink has no TCP address");
+
+  if (address === null || Predicate.isString(address)) throw new Error("Receipt delivery sink has no TCP address");
   const origin = `http://127.0.0.1:${address.port}`;
+
   return {
     environment: {
       RECEIPT_DELIVERY_URL: `${origin}/receipt-delivery`,
@@ -460,18 +536,21 @@ async function startDeliverySink() {
 }
 
 function resultBody(result, label) {
-  assert.ok(result && typeof result === "object", `${label} did not return an SDK response`);
+  assert.ok(result && (result === null || Predicate.isObjectOrArray(result)), `${label} did not return an SDK response`);
   assert.ok("body" in result, `${label} SDK response has no body`);
   assert.ok(result.body !== undefined, `${label} SDK response returned no body`);
+
   return result.body;
 }
 
 function nativeHeaders(cookie, headers = {}) {
-  return {
-    Origin: dashboardOrigin,
-    ...(cookie === undefined ? {} : { Cookie: cookie }),
-    ...headers,
-  };
+  const result = new Headers({ Origin: dashboardOrigin });
+
+  if (cookie !== undefined) result.set("Cookie", cookie);
+
+  for (const [name, value] of Object.entries(headers)) result.set(name, value);
+
+  return result;
 }
 
 async function requestSettlement(apiOrigin, cookie, receiptId, etag, idempotencyKey, payload) {
@@ -485,6 +564,7 @@ async function requestSettlement(apiOrigin, cookie, receiptId, etag, idempotency
     body: JSON.stringify(payload),
   });
 }
+
 async function requestFinanceEvidence(apiOrigin, cookie, receiptId) {
   return fetch(`${apiOrigin}/api/receipt-settlement-queue/${encodeURIComponent(receiptId)}`, {
     headers: nativeHeaders(cookie),
@@ -510,17 +590,21 @@ async function expectProblem(response, expectedStatus, expectedCode, label) {
     `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
     `${label} problem type`,
   );
+
   return body;
 }
 
 async function eventually(operation, predicate, label, timeout = 30_000) {
   const deadline = Date.now() + timeout;
   let last;
+
   while (Date.now() < deadline) {
     last = await operation();
+
     if (predicate(last)) return last;
     await sleep(200);
   }
+
   throw new Error(`${label} did not converge: ${JSON.stringify(last)}`);
 }
 
@@ -532,6 +616,7 @@ async function readWriteCounts(pool) {
     'audits', (SELECT count(*)::int FROM economy_receipt_audit),
     'outbox', (SELECT count(*)::int FROM economy_receipt_outbox)
   ) AS evidence`);
+
   return result.rows[0]?.evidence;
 }
 
@@ -591,12 +676,14 @@ async function readReceiptEvidence(pool, receiptId) {
     ) AS evidence`,
     [receiptId],
   );
+
   return result.rows[0]?.evidence;
 }
 
 function receiptById(items, receiptId, label) {
   const receipt = items.find((item) => item?.receiptId === receiptId);
   assert.ok(receipt, `${label} omitted ${receiptId}`);
+
   return receipt;
 }
 
@@ -612,19 +699,24 @@ async function login(browser, persona) {
     timeout: 15_000,
     waitUntil: "commit",
   });
+
   const sessionCookies = (await context.cookies(dashboardOrigin)).filter(
     ({ name }) => name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
   );
+
   assert.equal(sessionCookies.length, 1, `${persona.personId} must have one Better Auth session cookie`);
   const sessionCookie = sessionCookies[0];
   assert.ok(sessionCookie, `${persona.personId} session cookie is missing`);
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
+
   const sessionResponse = await fetch(`${backendOrigin}/api/session`, {
     headers: nativeHeaders(cookie),
   });
+
   assert.equal(sessionResponse.status, 200, `${persona.personId} native session read`);
   const session = await sessionResponse.json();
   assert.equal(session?.personId, persona.personId, `${persona.personId} canonical session binding`);
+
   return {
     context,
     page,
@@ -664,6 +756,7 @@ async function main() {
   await Promise.all([mkdir(stagingRoot, { recursive: true }), mkdir(committedRoot, { recursive: true })]);
 
   const baseEnvironment = { ...process.env };
+
   for (const name of [
     "API_MODE",
     "VITE_API_MODE",
@@ -680,6 +773,7 @@ async function main() {
   ]) {
     delete baseEnvironment[name];
   }
+
   const forbiddenProviderConfiguration = [
     "BANK_PROVIDER_URL",
     "PAYMENT_PROVIDER_URL",
@@ -688,15 +782,18 @@ async function main() {
     "VIPPS_CLIENT_SECRET",
     "NETS_SECRET_KEY",
   ].filter((name) => baseEnvironment[name] !== undefined);
+
   assert.deepEqual(
     forbiddenProviderConfiguration,
     [],
     "The disposable settlement runtime must not inherit a payment-provider configuration",
   );
+
   const postgresEnvironment = {
     ...baseEnvironment,
     RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
   };
+
   const sharedEnvironment = {
     ...postgresEnvironment,
     BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"),
@@ -718,6 +815,7 @@ async function main() {
     if (cleaned) return;
     cleaned = true;
     const errors = [];
+
     for (const session of sessions) {
       try {
         await session.context.close();
@@ -725,36 +823,43 @@ async function main() {
         errors.push(error);
       }
     }
+
     try {
       await browser?.close();
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await stopProcess(dashboardProcess);
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await stopProcess(backendProcess);
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await pool?.end();
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await proxy?.close();
     } catch (error) {
       errors.push(error);
     }
+
     try {
       await deliverySink?.close();
     } catch (error) {
       errors.push(error);
     }
+
     if (postgresStarted) {
       try {
         if (postgresTopology === "docker") {
@@ -774,17 +879,20 @@ async function main() {
         errors.push(error);
       }
     }
+
     try {
       await rm(temporaryRoot, { recursive: true, force: true });
     } catch (error) {
       errors.push(error);
     }
+
     if (errors.length > 0) throw new AggregateError(errors, "Receipt settlement runtime cleanup failed");
   };
 
   const interrupt = (signal) => {
     void cleanup().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
   };
+
   const onInterrupt = () => interrupt("SIGINT");
   const onTerminate = () => interrupt("SIGTERM");
   process.once("SIGINT", onInterrupt);
@@ -792,8 +900,10 @@ async function main() {
 
   let evidence;
   let primaryError;
+
   try {
     postgresStarted = true;
+
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
@@ -815,12 +925,14 @@ async function main() {
       label: "Native receipt settlement direct PostgreSQL seed",
       captureOutput: true,
     });
+
     const seed = JSON.parse(seedRun.stdout.trim().split(/\r?\n/u).at(-1));
     assert.equal(seed.fixtureCounts.settlementGrants, 4, "Seed must include independent settlement grants");
     assert.equal(seed.fixtureCounts.approvalGrants, 1, "Seed must include a separate approval grant");
     assert.equal(seed.paymentDestinationFingerprint.length, 64, "Seed fingerprint must be SHA-256 hex");
 
     deliverySink = await startDeliverySink();
+
     const backendEnvironment = {
       ...sharedEnvironment,
       ...deliverySink.environment,
@@ -836,8 +948,10 @@ async function main() {
       RECEIPT_MAX_FILE_BYTES: "10485760",
       RECEIPT_E2E_TEST_MODE: "1",
     };
+
     const startBackend = () => {
       const configuredCommand = process.env.BACKEND_COMMAND;
+
       return configuredCommand
         ? startProcess("/bin/sh", ["-c", configuredCommand], { cwd: repositoryRoot, env: backendEnvironment })
         : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
@@ -849,6 +963,7 @@ async function main() {
     backendProcess = startBackend();
     await waitForHttp(`${backendOrigin}/health`, backendProcess, "Native Effect backend");
     proxy = await startRecordingProxy(backendOrigin);
+
     const dashboardEnvironment = {
       ...sharedEnvironment,
       API_URL: proxy.origin,
@@ -860,6 +975,7 @@ async function main() {
       HOST: "127.0.0.1",
       PORT: String(dashboardPort),
     };
+
     await runCommand("bun", ["run", "build"], {
       cwd: dashboardRoot,
       env: dashboardEnvironment,
@@ -888,15 +1004,20 @@ async function main() {
         "/etc/profiles/per-user/nori/bin/chromium-browser",
     });
     const browserRequestOrigins = [];
+
     const recordBrowserRequest = (request) => {
       browserRequestOrigins.push(new URL(request.url()).origin);
     };
+
     const personaById = new Map(seed.personas.map((persona) => [persona.personId, persona]));
+
     const requirePersona = (personId) => {
       const persona = personaById.get(personId);
       assert.ok(persona, `Seed omitted ${personId}`);
+
       return { ...persona, password: syntheticPersonaPassword };
     };
+
     const owner = await login(browser, requirePersona("settlement-owner-0114"));
     const approver = await login(browser, requirePersona("settlement-approver-0114"));
     const settler = await login(browser, requirePersona("settlement-settler-0114"));
@@ -905,20 +1026,25 @@ async function main() {
     const expiredSettler = await login(browser, requirePersona("settlement-expired-0114"));
     const foreignSettler = await login(browser, requirePersona("settlement-foreign-0114"));
     sessions.push(owner, approver, settler, ordinary, inactiveSettler, expiredSettler, foreignSettler);
+
     for (const session of sessions) session.context.on("request", recordBrowserRequest);
 
     const ownerSdk = createPromiseClient(proxy.origin, { cookie: owner.cookie, origin: dashboardOrigin });
     const approverSdk = createPromiseClient(proxy.origin, { cookie: approver.cookie, origin: dashboardOrigin });
     const settlerSdk = createPromiseClient(proxy.origin, { cookie: settler.cookie, origin: dashboardOrigin });
+
     const listOwned = async () =>
       resultBody(await ownerSdk.receipts.listReceipts({ query: {} }), "list owned receipts");
+
     const listSettlementQueue = async () =>
       resultBody(await settlerSdk.receipts.listReceiptsForSettlement({ query: {} }), "list settlement queue");
+
     const readFinanceSettlement = async (receiptId) =>
       resultBody(
         await settlerSdk.receipts.readReceiptSettlementForFinance({ params: { receiptId } }),
         "read settlement evidence for finance",
       );
+
     const initialOwnerProjection = await listOwned();
     assert.ok(
       Array.isArray(initialOwnerProjection?.items),
@@ -928,17 +1054,20 @@ async function main() {
 
     const claimDescription = "Expense claim approved before settlement evidence 0114";
     await submitReceiptFromDashboard(owner.page, claimDescription);
+
     const ownedAfterSubmission = await eventually(
       listOwned,
       (body) => Array.isArray(body?.items) && body.items.some((item) => item?.description === claimDescription),
       "dashboard receipt submission",
     );
+
     const submittedReceipt = ownedAfterSubmission.items.find((item) => item?.description === claimDescription);
     assert.ok(submittedReceipt, "Submitted receipt is missing from owner projection");
     assert.equal(submittedReceipt.status, "Pending", "Dashboard submission begins pending");
     assert.equal(submittedReceipt.revision, 0, "Dashboard submission begins at revision zero");
 
     const approvalKey = randomUUID();
+
     const approvedResult = resultBody(
       await approverSdk.receipts.approveReceipt({
         params: { receiptId: submittedReceipt.receiptId },
@@ -947,9 +1076,10 @@ async function main() {
       }),
       "approve receipt through generated SDK",
     );
+
     assert.equal(approvedResult.status, "Approved", "Approval changes the claim decision only");
     assert.equal(approvedResult.revision, 1, "Approval increments the receipt revision once");
-    assert.equal(typeof approvedResult.approvedAt, "string", "Approval records approvedAt");
+    assert.equal(Predicate.isString(approvedResult.approvedAt), true, "Approval records approvedAt");
     assert.equal(JSON.stringify(approvedResult).includes("settlementId"), false, "Approval response has no settlement evidence");
 
     const ownerAfterApproval = receiptById((await listOwned()).items, submittedReceipt.receiptId, "owner after approval");
@@ -971,11 +1101,13 @@ async function main() {
     );
 
     const queueBeforeSettlement = await listSettlementQueue();
+
     const queuedReceipt = receiptById(
       queueBeforeSettlement.items,
       submittedReceipt.receiptId,
       "independently authorized settler queue",
     );
+
     assert.equal(queuedReceipt.status, "Approved", "Settlement queue shows only the approved source");
     assert.equal(queuedReceipt.revision, 1, "Settlement queue exposes the approval revision");
     assert.notEqual(settler.persona.personId, owner.persona.personId, "Settler must be a different person from owner");
@@ -983,13 +1115,16 @@ async function main() {
 
     const queuePath = `${proxy.origin}/api/receipt-settlement-queue`;
     const denialCountsBefore = await readWriteCounts(pool);
+
     const settlementAttemptPayload = (reference, expectedRevision = approvedResult.revision) => ({
       externalAuthority: "External settlement authority",
       expectedRevision,
       externalReference: reference,
       settledAt: "2026-09-21T10:00:00.000Z",
     });
+
     const denials = [];
+
     for (const [label, cookie, queueStatus, denialStatus, denialCode] of [
       ["anonymous", undefined, 401, 401, "credential.invalid"],
       [
@@ -1013,6 +1148,7 @@ async function main() {
         cookie !== undefined,
         `${label} queue credential transport`,
       );
+
       if (queueStatus === 200) {
         assert.equal(queueResponse.status, 200, `${label} settlement queue status`);
         const queueBody = await queueResponse.json();
@@ -1025,17 +1161,20 @@ async function main() {
       } else {
         await expectProblem(queueResponse, queueStatus, denialCode, `${label} settlement queue`);
       }
+
       const financeResponse = await requestFinanceEvidence(
         proxy.origin,
         cookie,
         submittedReceipt.receiptId,
       );
+
       await expectProblem(
         financeResponse,
         denialStatus,
         denialCode,
         `${label} settlement evidence`,
       );
+
       const commandResponse = await requestSettlement(
         proxy.origin,
         cookie,
@@ -1044,6 +1183,7 @@ async function main() {
         randomUUID(),
         settlementAttemptPayload(`denied-${label.replaceAll(" ", "-")}-0114`),
       );
+
       await expectProblem(
         commandResponse,
         denialStatus,
@@ -1058,7 +1198,9 @@ async function main() {
         code: denialCode,
       });
     }
+
     const unknownReceiptId = `unknown-settlement-receipt-${randomUUID()}`;
+
     const unknownResponse = await requestSettlement(
       proxy.origin,
       settler.cookie,
@@ -1067,6 +1209,7 @@ async function main() {
       randomUUID(),
       settlementAttemptPayload("unknown-settlement-reference-0114"),
     );
+
     await expectProblem(unknownResponse, 404, "receipt.not-found", "unknown receipt settlement concealment");
     const unknownEvidenceResponse = await requestFinanceEvidence(proxy.origin, settler.cookie, unknownReceiptId);
     await expectProblem(unknownEvidenceResponse, 404, "receipt.not-found", "unknown receipt settlement evidence concealment");
@@ -1074,6 +1217,7 @@ async function main() {
 
     const ownerSeededItems = (await listOwned()).items;
     const seededReceipt = (kind) => receiptById(ownerSeededItems, seed.seededReceiptIds[kind], `seeded ${kind} receipt`);
+
     for (const [kind, expectedCode] of [
       ["pending", "receipt.invalid-transition"],
       ["rejected", "receipt.invalid-transition"],
@@ -1082,6 +1226,7 @@ async function main() {
     ]) {
       const receipt = seededReceipt(kind);
       const countsBefore = await readWriteCounts(pool);
+
       const response = await requestSettlement(
         proxy.origin,
         settler.cookie,
@@ -1090,11 +1235,13 @@ async function main() {
         randomUUID(),
         settlementAttemptPayload(`${kind}-invalid-source-0114`, receipt.revision),
       );
+
       await expectProblem(response, 409, expectedCode, `${kind} receipt cannot settle`);
       assert.deepEqual(await readWriteCounts(pool), countsBefore, `${kind} failure creates no evidence`);
     }
 
     const duplicateCandidate = seededReceipt("duplicateExternalReference");
+
     const futureSettlement = await requestSettlement(
       proxy.origin,
       settler.cookie,
@@ -1108,20 +1255,24 @@ async function main() {
         settledAt: "2099-01-01T00:00:00.000Z",
       },
     );
+
     await expectProblem(futureSettlement, 422, "settlement.after-recorded-at", "future settlement instant");
 
     const mobileContext = await browser.newContext({
       baseURL: dashboardOrigin,
       viewport: { width: 390, height: 844 },
     });
+
     mobileContext.on("request", recordBrowserRequest);
     await mobileContext.addCookies([settler.browserCookie]);
     const mobilePage = await mobileContext.newPage();
     await mobilePage.goto(`${dashboardOrigin}${settlementRoute}`);
     await mobilePage.getByRole("heading", { name: /oppgjør/u }).waitFor();
+
     const mobileOverflow = await mobilePage.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
+
     assert.equal(mobileOverflow, true, "Settlement queue fits a 390-pixel viewport");
     await mobileContext.close();
 
@@ -1129,9 +1280,11 @@ async function main() {
     await settler.page.getByRole("heading", { name: /oppgjør/u }).waitFor();
     const settlementList = settler.page.getByTestId("receipt-settlement-list");
     await settlementList.waitFor();
+
     const queueRow = settlementList.locator(
       `tr[data-receipt-id=${JSON.stringify(submittedReceipt.receiptId)}]`,
     );
+
     await queueRow.waitFor();
     const openSettlement = queueRow.getByTestId("record-receipt-settlement");
     assert.equal(await openSettlement.innerText(), "Registrer oppgjør", "Settlement action text");
@@ -1158,9 +1311,11 @@ async function main() {
     assert.match(confirmationText, /125(?:,|\.)50/u);
     assert.match(confirmationText, new RegExp(submittedReceipt.visualId, "u"));
     assert.match(confirmationText, /browser-settlement-reference-0114/u);
+
     const axe = await new AxeBuilder({ page: settler.page })
       .include("[data-receipt-settlement-dialog]")
       .analyze();
+
     assert.deepEqual(
       axe.violations.map(({ id }) => id),
       [],
@@ -1195,6 +1350,7 @@ async function main() {
             record.method === "POST" &&
             record.pathname === `/api/receipts/${encodeURIComponent(submittedReceipt.receiptId)}:settle`,
         );
+
         return records.find(
           (record) =>
             record.responseStatus === 200 &&
@@ -1204,8 +1360,9 @@ async function main() {
       (record) => record !== undefined,
       "dashboard settlement command through the real backend",
     );
+
     assert.equal(canonicalRecord.requestHeaders.ifMatch, approvedResult.etag, "Dashboard sends the visible approval revision");
-    assert.equal(typeof canonicalRecord.requestHeaders.idempotencyKey, "string", "Dashboard sends an idempotency key");
+    assert.equal(Predicate.isString(canonicalRecord.requestHeaders.idempotencyKey), true, "Dashboard sends an idempotency key");
     assert.deepEqual(
       Object.keys(canonicalRecord.requestJson).sort(),
       ["expectedRevision", "externalAuthority", "externalReference", "settledAt"],
@@ -1239,6 +1396,7 @@ async function main() {
       (state) => state?.settlements?.length === 1,
       "canonical settlement persistence",
     );
+
     const canonicalSettlement = canonicalEvidence.settlements[0];
     assert.deepEqual(
       {
@@ -1273,17 +1431,21 @@ async function main() {
     );
     assert.equal(canonicalEvidence.receipt.status, "Approved", "Settlement leaves the approval decision intact");
     assert.equal(canonicalEvidence.receipt.revision, 2, "Settlement increments the receipt revision");
+
     const canonicalSettlementAudits = canonicalEvidence.audits.filter(
       (audit) => audit.action === "ReceiptSettled",
     );
+
     assert.deepEqual(
       canonicalSettlementAudits.map((audit) => audit.receiptRevision),
       [2],
       "Settlement creates exactly one receipt audit",
     );
+
     const canonicalSettlementOutbox = canonicalEvidence.outbox.filter(
       (row) => row.effectType === "NotifyReceiptSettled",
     );
+
     assert.deepEqual(
       canonicalSettlementOutbox.map(({ effectId, ordinal }) => ({ effectId, ordinal })),
       [
@@ -1300,6 +1462,7 @@ async function main() {
       submittedReceipt.receiptId,
       "owner settlement projection",
     );
+
     assert.equal(ownerAfterSettlement.status, "Approved", "Owner claim decision remains approved after settlement");
     assert.ok(ownerAfterSettlement.settlement, "Owner list projection embeds separate settlement evidence");
     assert.equal(
@@ -1309,11 +1472,13 @@ async function main() {
     );
     const financeSettlementResponse = await readFinanceSettlement(submittedReceipt.receiptId);
     const financeSettlementDetail = financeSettlementResponse.settlement ?? financeSettlementResponse;
+
     for (const [label, projection] of [
       ["owner list", ownerAfterSettlement.settlement],
       ["finance detail", financeSettlementDetail],
     ]) {
       const serializedProjection = JSON.stringify(projection);
+
       for (const value of [
         canonicalSettlement.settlementId,
         submittedReceipt.receiptId,
@@ -1324,17 +1489,21 @@ async function main() {
       ]) {
         assert.equal(serializedProjection.includes(value), true, `${label} exposes immutable settlement evidence`);
       }
+
       assert.equal(
         serializedProjection.includes(privatePaymentDestination),
         false,
         `${label} never exposes payment destination ciphertext`,
       );
     }
+
     await owner.page.goto(`${dashboardOrigin}/dashboard/mine-utlegg`);
     await owner.page.reload();
+
     const ownerReceiptRow = owner.page.locator(
       `tr[data-receipt-settlement][data-receipt-id=${JSON.stringify(submittedReceipt.receiptId)}]`,
     );
+
     await ownerReceiptRow.waitFor();
     const ownerEvidenceElement = ownerReceiptRow.getByTestId("receipt-settlement-evidence");
     await ownerEvidenceElement.waitFor();
@@ -1363,6 +1532,7 @@ async function main() {
     );
 
     const replayCountsBefore = await readWriteCounts(pool);
+
     const replayResponse = await requestSettlement(
       proxy.origin,
       settler.cookie,
@@ -1371,6 +1541,7 @@ async function main() {
       canonicalRecord.requestHeaders.idempotencyKey,
       canonicalRecord.requestJson,
     );
+
     assert.equal(replayResponse.status, 200, "Idempotent settlement replay succeeds");
     const replayEvidence = await replayResponse.json();
     assert.deepEqual(
@@ -1379,6 +1550,7 @@ async function main() {
       "Idempotent replay returns the byte-equivalent first settlement resource",
     );
     assert.deepEqual(await readWriteCounts(pool), replayCountsBefore, "Idempotent replay writes nothing");
+
     const changedReplayResponse = await requestSettlement(
       proxy.origin,
       settler.cookie,
@@ -1387,7 +1559,9 @@ async function main() {
       canonicalRecord.requestHeaders.idempotencyKey,
       { ...canonicalRecord.requestJson, externalReference: "changed-replay-reference-0114" },
     );
+
     await expectProblem(changedReplayResponse, 409, "idempotency.digest-conflict", "changed settlement replay");
+
     const staleRevisionResponse = await requestSettlement(
       proxy.origin,
       settler.cookie,
@@ -1396,7 +1570,9 @@ async function main() {
       randomUUID(),
       settlementAttemptPayload("stale-revision-reference-0114"),
     );
+
     await expectProblem(staleRevisionResponse, 412, "precondition.failed", "stale settlement revision");
+
     const alreadySettledResponse = await requestSettlement(
       proxy.origin,
       settler.cookie,
@@ -1408,6 +1584,7 @@ async function main() {
         canonicalEvidence.receipt.revision,
       ),
     );
+
     await expectProblem(alreadySettledResponse, 409, "receipt.already-settled", "second settlement evidence");
 
     const duplicateReferenceResponse = await requestSettlement(
@@ -1423,6 +1600,7 @@ async function main() {
         settledAt,
       },
     );
+
     await expectProblem(
       duplicateReferenceResponse,
       409,
@@ -1432,10 +1610,12 @@ async function main() {
 
     const concurrentCandidate = seededReceipt("concurrent");
     const concurrentKey = randomUUID();
+
     const concurrentPayload = settlementAttemptPayload(
       "concurrent-settlement-reference-0114",
       concurrentCandidate.revision,
     );
+
     const concurrentResponses = await Promise.all([
       requestSettlement(
         proxy.origin,
@@ -1454,6 +1634,7 @@ async function main() {
         concurrentPayload,
       ),
     ]);
+
     const concurrentStatuses = concurrentResponses.map(({ status }) => status).sort((left, right) => left - right);
     assert.deepEqual(
       concurrentStatuses,
@@ -1466,11 +1647,13 @@ async function main() {
       concurrentBodies[0],
       "Concurrent duplicate returns the same durable settlement resource",
     );
+
     const concurrentEvidence = await eventually(
       () => readReceiptEvidence(pool, concurrentCandidate.receiptId),
       (state) => state?.settlements?.length === 1,
       "concurrent settlement exactly-once persistence",
     );
+
     assert.equal(
       concurrentEvidence.outbox.filter((row) => row.effectType === "NotifyReceiptSettled").length,
       1,
@@ -1480,6 +1663,7 @@ async function main() {
     const deliveryCandidate = seededReceipt("deliveryRetry");
     const deliveryKey = randomUUID();
     deliverySink.failNext();
+
     const deliverySettlement = resultBody(
       await settlerSdk.receipts.settleReceipt({
         params: { receiptId: deliveryCandidate.receiptId },
@@ -1491,12 +1675,15 @@ async function main() {
       }),
       "settle delivery-retry receipt through generated SDK",
     );
+
     assert.equal(deliverySettlement.receiptId, deliveryCandidate.receiptId, "SDK settlement response identifies the receipt");
+
     const failedDeliveryEvidence = await eventually(
       () => readReceiptEvidence(pool, deliveryCandidate.receiptId),
       (state) => state?.settlements?.length === 1 && state.outbox.some((row) => row.status === "Failed"),
       "failed settlement notification persistence",
     );
+
     const failedOutbox = failedDeliveryEvidence.outbox.find((row) => row.effectType === "NotifyReceiptSettled");
     assert.deepEqual(
       {
@@ -1519,6 +1706,7 @@ async function main() {
     await stopProcess(backendProcess);
     backendProcess = startBackend();
     await waitForHttp(`${backendOrigin}/health`, backendProcess, "Restarted native Effect backend");
+
     const drain = await runCommand(
       "bun",
       ["run", "--cwd", "apps/backend", "src/receipt/drain-main.ts", deliveryCandidate.receiptId],
@@ -1529,20 +1717,25 @@ async function main() {
         captureOutput: true,
       },
     );
+
     const drainEvidence = JSON.parse(drain.stdout.trim().split(/\r?\n/u).at(-1));
     assert.equal(drainEvidence.result, "Complete", "Bounded retry acknowledges the settlement notification");
+
     const recoveredDeliveryEvidence = await eventually(
       () => readReceiptEvidence(pool, deliveryCandidate.receiptId),
       (state) => state?.settlements?.length === 1 && state.outbox.some((row) => row.status === "Delivered"),
       "acknowledged settlement notification retry",
     );
+
     const recoveredOutbox = recoveredDeliveryEvidence.outbox.find((row) => row.effectType === "NotifyReceiptSettled");
     assert.equal(recoveredDeliveryEvidence.settlements.length, 1, "Retry does not create another settlement record");
     assert.equal(recoveredOutbox?.effectId, failedOutbox?.effectId, "Retry keeps the original effect identity");
     assert.ok(recoveredOutbox?.attempts >= 2, "Retry records a second delivery attempt");
+
     const retryDeliveries = deliverySink.deliveries.filter(
       ({ deliveryId }) => deliveryId === failedOutbox?.effectId,
     );
+
     assert.deepEqual(
       retryDeliveries.map(({ status }) => status),
       [503, 204],
@@ -1553,9 +1746,9 @@ async function main() {
     assert.ok(
       retryDeliveries.every(
         ({ subject, text }) =>
-          typeof subject === "string" &&
+          Predicate.isString(subject) &&
           subject.length > 0 &&
-          typeof text === "string" &&
+          Predicate.isString(text) &&
           text.includes("delivery-retry-reference-0114") &&
           text.includes(normalizedAuthority),
       ),
@@ -1569,6 +1762,7 @@ async function main() {
       deliveryTargets: deliverySink.deliveries.map(({ loopback }) => loopback),
       providerCalls: proxy.records.filter(({ pathname }) => /(?:bank|payment|provider|stripe|vipps|nets)/iu.test(pathname)),
     };
+
     assert.deepEqual(providerNetworkRecords.configuredPaymentProviders, [], "No provider configuration is present");
     assert.deepEqual(providerNetworkRecords.browserOrigins, [dashboardOrigin], "Chromium only reaches the loopback dashboard");
     assert.deepEqual(providerNetworkRecords.proxyTargets, [backendOrigin], "All dashboard API calls remain on loopback backend");
@@ -1584,6 +1778,7 @@ async function main() {
       deliveries: deliverySink.deliveries,
       proxyRecords: proxy.records,
     });
+
     assert.equal(noCiphertextEvidence.includes(privatePaymentDestination), false, "Runtime evidence contains no payment destination ciphertext");
 
     evidence = {
@@ -1656,6 +1851,7 @@ async function main() {
   }
 
   let cleanupError;
+
   try {
     await cleanup();
   } catch (error) {
@@ -1664,20 +1860,26 @@ async function main() {
     process.removeListener("SIGINT", onInterrupt);
     process.removeListener("SIGTERM", onTerminate);
   }
+
   if (primaryError !== undefined && cleanupError !== undefined) {
     throw new AggregateError([primaryError, cleanupError], "Receipt settlement runtime and cleanup both failed");
   }
+
   if (primaryError !== undefined) throw primaryError;
+
   if (cleanupError !== undefined) throw cleanupError;
+
   if (await pathExists(temporaryRoot)) {
     throw new Error("Receipt settlement runtime left its temporary root behind");
   }
+
   await Promise.all(disposablePorts.map(assertPortAvailable));
   process.stdout.write(`${JSON.stringify({ ...evidence, cleanup: { temporaryRootRemoved: true, postgresRemoved: true } })}\n`);
 }
 
 const formatError = (error) => {
   if (error instanceof AggregateError) return `${error.message}: ${error.errors.map(formatError).join("; ")}`;
+
   return error instanceof Error ? error.message : String(error);
 };
 

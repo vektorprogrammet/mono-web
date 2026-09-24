@@ -4,7 +4,7 @@
  * @since 0.2.0
  */
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { Effect } from "effect";
+import { Predicate, Effect } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import { apiUrl } from "./config.js";
@@ -13,7 +13,7 @@ import { apiUrl } from "./config.js";
 export type CookieOption = string | (() => string | undefined);
 
 /** Fetch capability supplied by the SDK composition root. */
-export type FetchCapability = typeof globalThis.fetch;
+export type FetchCapability = Effect.Success<typeof FetchHttpClient.Fetch>;
 
 /** Runtime options shared by every generated operation. */
 export interface ClientOptions {
@@ -24,58 +24,50 @@ export interface ClientOptions {
 }
 
 const resolveCookie = (cookie: CookieOption | undefined): string | undefined =>
-  typeof cookie === "function" ? cookie() : cookie;
+  Predicate.isFunction(cookie) ? cookie() : cookie;
 
 const resolveHeaders = (headers: ClientOptions["headers"]): Readonly<Record<string, string>> =>
-  typeof headers === "function" ? headers() : (headers ?? {});
+  Predicate.isFunction(headers) ? headers() : (headers ?? {});
 
-const transformClient = (
+const transformClient =
+  (options: ClientOptions) =>
+  (client: HttpClient.HttpClient): HttpClient.HttpClient =>
+    client.pipe(
+      HttpClient.mapRequest((request) => {
+        let next = HttpClientRequest.setHeaders(request, resolveHeaders(options.headers));
+        const cookie = resolveCookie(options.cookie);
+
+        if (cookie !== undefined && cookie.length > 0)
+          next = HttpClientRequest.setHeader(next, "Cookie", cookie);
+
+        if (options.origin !== undefined && options.origin.length > 0)
+          next = HttpClientRequest.setHeader(next, "Origin", options.origin);
+
+        return next;
+      }),
+      HttpClient.transformResponse((response) => {
+        const operation = response.pipe(
+          Effect.provideService(FetchHttpClient.RequestInit, { credentials: "include" }),
+        );
+
+        return options.fetch === undefined
+          ? operation
+          : operation.pipe(Effect.provideService(FetchHttpClient.Fetch, options.fetch));
+      }),
+    );
+
+const makeNativeClient = (
+  baseUrl: string | undefined,
   options: ClientOptions,
-): ((client: HttpClient.HttpClient) => HttpClient.HttpClient) =>
-  HttpClient.mapRequest((request) => {
-    let next = HttpClientRequest.setHeaders(request, resolveHeaders(options.headers));
-    const cookie = resolveCookie(options.cookie);
-    if (cookie !== undefined && cookie.length > 0) {
-      next = HttpClientRequest.setHeader(next, "Cookie", cookie);
-    }
-    if (options.origin !== undefined && options.origin.length > 0) {
-      next = HttpClientRequest.setHeader(next, "Origin", options.origin);
-    }
-    return next;
-  });
-
-const makeNativeClient = (baseUrl: string | undefined, options: ClientOptions) =>
+): Effect.Effect<NativeClient> =>
   HttpApiClient.make(ExternalNativeApi, {
-    ...(baseUrl === undefined ? {} : { baseUrl }),
+    baseUrl,
     transformClient: transformClient(options),
   }).pipe(Effect.provide(FetchHttpClient.layer));
 
-type NativeClient = Effect.Success<ReturnType<typeof makeNativeClient>>;
-
-type AnyEffectMethod = (...args: ReadonlyArray<never>) => Effect.Effect<unknown, unknown, unknown>;
-
-const bindRuntime = <A>(value: A, options: ClientOptions): A => {
-  if (typeof value === "function") {
-    const method = value as AnyEffectMethod;
-    return ((...args: ReadonlyArray<never>) => {
-      let operation = method(...args);
-      if (options.fetch !== undefined) {
-        operation = operation.pipe(Effect.provideService(FetchHttpClient.Fetch, options.fetch));
-      }
-      operation = operation.pipe(
-        Effect.provideService(FetchHttpClient.RequestInit, { credentials: "include" }),
-      );
-      return operation;
-    }) as A;
-  }
-  if (typeof value !== "object" || value === null) return value;
-
-  const output: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    output[key] = bindRuntime(child, options);
-  }
-  return output as A;
-};
+type NativeClient = HttpApiClient.Client<
+  (typeof ExternalNativeApi.groups)[keyof typeof ExternalNativeApi.groups]
+>;
 
 /**
  * Creates the complete Effect SDK directly from `ExternalNativeApi`.
@@ -87,7 +79,7 @@ const bindRuntime = <A>(value: A, options: ClientOptions): A => {
 export const createEffectClient = (
   baseUrl: string | undefined,
   options: ClientOptions = {},
-): NativeClient => bindRuntime(Effect.runSync(makeNativeClient(baseUrl, options)), options);
+): NativeClient => Effect.runSync(makeNativeClient(baseUrl, options));
 
 /** Creates an Effect SDK from the SDK-owned environment configuration. */
 export const createConfiguredEffectClient = (options: ClientOptions = {}): NativeClient =>

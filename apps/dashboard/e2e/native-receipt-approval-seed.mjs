@@ -1,41 +1,54 @@
+import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const databaseRequire = createRequire(
   new URL("../../../packages/database/package.json", import.meta.url),
 );
+
 const { Pool } = databaseRequire("pg");
 
 const postgresUrl = process.env.RECEIPT_APPROVAL_PG_URL;
+
 const trustedOrigins = JSON.parse(process.env.NATIVE_IDENTITY_TRUSTED_ORIGINS ?? "null");
+
 assert.ok(
   Array.isArray(trustedOrigins) &&
     trustedOrigins.length === 1 &&
-    typeof trustedOrigins[0] === "string",
+    Predicate.isString(trustedOrigins[0]),
   "NATIVE_IDENTITY_TRUSTED_ORIGINS must contain one dashboard origin",
 );
+
 const dashboardOrigin = trustedOrigins[0];
+
 assert.ok(postgresUrl !== undefined, "RECEIPT_APPROVAL_PG_URL is required");
+
 assert.ok(process.env.BETTER_AUTH_SECRET !== undefined, "BETTER_AUTH_SECRET is required");
 
 const parsedPostgresUrl = new URL(postgresUrl);
+
 assert.ok(
   parsedPostgresUrl.protocol === "postgres:" || parsedPostgresUrl.protocol === "postgresql:",
   "Receipt approval seed requires PostgreSQL",
 );
+
 assert.ok(
   ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsedPostgresUrl.hostname),
   "Receipt approval seed is restricted to loopback PostgreSQL",
 );
+
 assert.equal(
   decodeURIComponent(parsedPostgresUrl.pathname.slice(1)),
   "receipt_proof",
   "Receipt approval seed requires the disposable receipt_proof database",
 );
+
 const parsedDashboardOrigin = new URL(dashboardOrigin);
+
 assert.ok(
   parsedDashboardOrigin.protocol === "http:" &&
     ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsedDashboardOrigin.hostname),
@@ -107,9 +120,13 @@ export const receiptApprovalDepartments = {
 };
 
 const persons = Object.values(receiptApprovalPersonas);
+
 const identityPersons = persons.map(({ fixtureLabel: _, ...person }) => person);
+
 const personIds = persons.map(({ personId }) => personId);
+
 const departmentIds = Object.values(receiptApprovalDepartments);
+
 const teamIds = ["receipt-approval-team-a-0037", "receipt-approval-team-b-0037"];
 
 const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
@@ -123,6 +140,7 @@ const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
   },
   encoding: "utf8",
 });
+
 assert.equal(
   identitySeed.status,
   0,
@@ -135,7 +153,9 @@ const pool = new Pool({
   max: 1,
   application_name: "native-receipt-approval-seed-0037",
 });
+
 const client = await pool.connect();
+
 try {
   await client.query("BEGIN");
   await client.query(
@@ -233,6 +253,7 @@ try {
       'receiptApprovalGrants', (SELECT count(*)::int FROM public.economy_receipt_approval_grants)
     ) AS evidence`,
   );
+
   const fixtureCounts = counts.rows[0]?.evidence;
   assert.deepEqual(fixtureCounts, {
     identityUsers: 7,

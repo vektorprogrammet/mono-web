@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APEX_LOCAL_STATE_LOGICAL_IDS } from "../preview/state-contract.ts";
 import { APEX_IDENTITY } from "../preview/identity.ts";
+import { Predicate, Schema } from "effect";
 
 export type CloudCommand = "plan" | "deploy" | "destroy";
 
@@ -44,6 +45,7 @@ export type HomepageCliOptions = {
 export class HomepageCliUsageError extends Error {}
 
 const STAGE_PATTERN = /^(?:p(?:[1-9][0-9]|00[1-9]|0[1-9][0-9]|[1-9][0-9]{2})|dev-main)$/;
+
 const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 // These names can select a deployment target. The wrapper requires every
@@ -72,12 +74,13 @@ const usage = (): string =>
     "  destroy --stage <p01..p99|p001..p999|dev-main> --profile <token> (--dry-run|--yes)",
   ].join("\n");
 
-const usageError = (message: string): never => {
+function usageError(message: string): never {
   throw new HomepageCliUsageError(message);
-};
+}
 
 export const parseHomepageCommand = (argv: readonly string[]): ParsedCommand => {
   const [commandToken, ...tokens] = argv;
+
   if (
     commandToken !== "guard" &&
     commandToken !== "plan" &&
@@ -90,18 +93,25 @@ export const parseHomepageCommand = (argv: readonly string[]): ParsedCommand => 
   let stage: string | undefined;
   let profile: string | undefined;
   let confirmation: "dry-run" | "yes" | undefined;
+
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
+
     if (token === "--stage" || token === "--profile") {
-      const option = token.slice(2) as "stage" | "profile";
+      const option = token === "--stage" ? "stage" : "profile";
+
       if (option === "stage" ? stage !== undefined : profile !== undefined) {
         usageError(`duplicate --${option}`);
       }
+
       const value = tokens[index + 1];
+
       if (value === undefined || value.startsWith("--")) {
         usageError(`--${option} requires one value`);
       }
+
       index += 1;
+
       if (option === "stage") stage = value;
       else profile = value;
       continue;
@@ -120,21 +130,27 @@ export const parseHomepageCommand = (argv: readonly string[]): ParsedCommand => 
     if (stage !== "p000") {
       usageError("guard accepts only --stage p000");
     }
+
     if (profile !== undefined) usageError("guard does not accept --profile");
+
     if (confirmation !== undefined) {
       usageError("guard does not accept a confirmation flag");
     }
+
     return { command: "guard", stage: "p000" };
   }
 
   if (stage === undefined || !STAGE_PATTERN.test(stage)) {
     usageError("cloud commands require an explicit stage: p001..p999 or dev-main");
   }
+
   if (profile === undefined || !PROFILE_PATTERN.test(profile)) {
     usageError("cloud commands require an explicit profile token");
   }
-  const validatedStage = stage as string;
-  const validatedProfile = profile as string;
+
+  const validatedStage = stage;
+  const validatedProfile = profile;
+
   if (validatedProfile.toLowerCase() === "default") {
     usageError("cloud commands reject the reserved default profile token");
   }
@@ -151,7 +167,8 @@ export const parseHomepageCommand = (argv: readonly string[]): ParsedCommand => 
     usageError("destroy requires exactly one of --dry-run or --yes");
   }
 
-  const cloudCommand = commandToken as CloudCommand;
+  const cloudCommand = commandToken;
+
   return {
     command: cloudCommand,
     stage: validatedStage,
@@ -162,40 +179,69 @@ export const parseHomepageCommand = (argv: readonly string[]): ParsedCommand => 
 
 export function rejectAmbientSelectors(env: NodeJS.ProcessEnv): void {
   const found = Object.keys(env).filter((name) => AMBIENT_SELECTOR_NAMES.has(name));
+
   if (found.length > 0) {
     usageError(`ambient selector '${found[0]}' is not allowed`);
   }
 }
 
-interface ApexLocalStateRecord {
-  readonly fqn?: unknown;
-  readonly logicalId?: unknown;
-  readonly instanceId?: unknown;
-  readonly resourceType?: unknown;
-  readonly props?: {
-    readonly env?: Record<string, unknown>;
-    readonly isExternal?: unknown;
-  };
-  readonly attr?: {
-    readonly accountId?: unknown;
-    readonly domain?: { readonly aliases?: unknown; readonly name?: unknown };
-    readonly routes?: unknown;
-    readonly tags?: unknown;
-    readonly url?: unknown;
-    readonly workerId?: unknown;
-    readonly workerName?: unknown;
-  };
-  readonly providerMode?: unknown;
-  readonly removalPolicy?: unknown;
-}
+const WorkerBindingSchema = Schema.Struct({
+  workerId: Schema.optionalKey(Schema.String),
+  workerName: Schema.optionalKey(Schema.String),
+});
+
+const ApexLocalStateRecordSchema = Schema.Struct({
+  fqn: Schema.optionalKey(Schema.String),
+  logicalId: Schema.optionalKey(Schema.String),
+  instanceId: Schema.optionalKey(Schema.String),
+  resourceType: Schema.optionalKey(Schema.String),
+  props: Schema.optionalKey(
+    Schema.Struct({
+      env: Schema.optionalKey(
+        Schema.Struct({
+          Homepage: Schema.optionalKey(WorkerBindingSchema),
+          Dashboard: Schema.optionalKey(WorkerBindingSchema),
+        }),
+      ),
+      isExternal: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
+  attr: Schema.optionalKey(
+    Schema.Struct({
+      accountId: Schema.optionalKey(Schema.String),
+      domain: Schema.optionalKey(
+        Schema.Struct({
+          aliases: Schema.optionalKey(Schema.Array(Schema.String)),
+          name: Schema.optionalKey(Schema.String),
+        }),
+      ),
+      routes: Schema.optionalKey(
+        Schema.Array(
+          Schema.Struct({ id: Schema.String, pattern: Schema.String, zoneId: Schema.String }),
+        ),
+      ),
+      tags: Schema.optionalKey(Schema.Array(Schema.String)),
+      url: Schema.optionalKey(Schema.String),
+      workerId: Schema.optionalKey(Schema.String),
+      workerName: Schema.optionalKey(Schema.String),
+    }),
+  ),
+  providerMode: Schema.optionalKey(Schema.String),
+  removalPolicy: Schema.optionalKey(Schema.String),
+});
+
+type ApexLocalStateRecord = typeof ApexLocalStateRecordSchema.Type;
 
 export function assertApexLocalState(standaloneDirectory: string): void {
   const stateDirectory = resolve(standaloneDirectory, ".alchemy/state/vektor/dev-main");
+
   const expectedFiles = [
     "__stack_output__.json",
     ...APEX_LOCAL_STATE_LOGICAL_IDS.map((logicalId) => `${logicalId}.json`),
   ].sort();
+
   let actualFiles: string[];
+
   try {
     actualFiles = readdirSync(stateDirectory)
       .filter((name) => name.endsWith(".json"))
@@ -203,11 +249,12 @@ export function assertApexLocalState(standaloneDirectory: string): void {
   } catch {
     throw new Error("missing apex local state directory");
   }
+
   if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
     throw new Error("apex local state file set mismatch");
   }
 
-  const expectedOutput: Record<string, string> = {
+  const expectedOutput = {
     app: APEX_IDENTITY.app,
     apiHostname: APEX_IDENTITY.apiHostname,
     backendHostname: APEX_IDENTITY.backendHostname,
@@ -220,14 +267,17 @@ export function assertApexLocalState(standaloneDirectory: string): void {
     target: APEX_IDENTITY.target,
     url: `https://${APEX_IDENTITY.hostname}`,
   };
-  let stackOutput: Record<string, unknown>;
+
+  let stackOutput: Schema.JsonObject;
+
   try {
-    stackOutput = JSON.parse(
+    stackOutput = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.JsonObject))(
       readFileSync(resolve(stateDirectory, "__stack_output__.json"), "utf8"),
-    ) as Record<string, unknown>;
+    );
   } catch {
     throw new Error("invalid apex local stack output");
   }
+
   if (
     JSON.stringify(Object.keys(stackOutput).sort()) !==
       JSON.stringify(Object.keys(expectedOutput).sort()) ||
@@ -238,44 +288,51 @@ export function assertApexLocalState(standaloneDirectory: string): void {
 
   const records = new Map<string, ApexLocalStateRecord>();
   let accountId: string | undefined;
+
   for (const logicalId of APEX_LOCAL_STATE_LOGICAL_IDS) {
     let record: ApexLocalStateRecord;
+
     try {
-      record = JSON.parse(
+      record = Schema.decodeUnknownSync(Schema.fromJsonString(ApexLocalStateRecordSchema))(
         readFileSync(resolve(stateDirectory, `${logicalId}.json`), "utf8"),
-      ) as typeof record;
+      );
     } catch {
       throw new Error(`invalid apex local state record: ${logicalId}`);
     }
+
     const workerName = record.attr?.workerName;
+
     const expectedTags = [
       "alchemy:stack:vektor",
       `alchemy:stage:${APEX_IDENTITY.stage}`,
       `alchemy:id:${logicalId}`,
     ];
+
     if (
       record.fqn !== logicalId ||
       record.logicalId !== logicalId ||
-      typeof record.instanceId !== "string" ||
+      !Predicate.isString(record.instanceId) ||
       !/^[a-f0-9]{32}$/u.test(record.instanceId) ||
       record.resourceType !== "Cloudflare.Worker" ||
       record.props?.isExternal !== true ||
       record.providerMode !== "live" ||
       record.removalPolicy !== "destroy" ||
-      typeof workerName !== "string" ||
+      !Predicate.isString(workerName) ||
       record.attr?.workerId !== workerName ||
       !new RegExp(`^vektor-${logicalId}-${APEX_IDENTITY.stage}-[a-z0-9]{16}$`, "u").test(
         workerName,
       ) ||
       JSON.stringify(record.attr?.tags) !== JSON.stringify(expectedTags) ||
-      typeof record.attr?.accountId !== "string" ||
+      !Predicate.isString(record.attr?.accountId) ||
       !/^[a-f0-9]{32}$/u.test(record.attr.accountId)
     ) {
       throw new Error(`apex local state identity mismatch: ${logicalId}`);
     }
+
     if (accountId !== undefined && record.attr.accountId !== accountId) {
       throw new Error("apex local state account ownership mismatch");
     }
+
     accountId = record.attr.accountId;
     records.set(logicalId, record);
   }
@@ -283,26 +340,27 @@ export function assertApexLocalState(standaloneDirectory: string): void {
   const edge = records.get("vektor-apex-worker");
   const homepageName = records.get("vektor-apex-homepage")?.attr?.workerName;
   const dashboardName = records.get("vektor-apex-dashboard")?.attr?.workerName;
-  const homepageBinding = edge?.props?.env?.Homepage as
-    | { readonly workerId?: unknown; readonly workerName?: unknown }
-    | undefined;
-  const dashboardBinding = edge?.props?.env?.Dashboard as
-    | { readonly workerId?: unknown; readonly workerName?: unknown }
-    | undefined;
+
+  const homepageBinding = edge?.props?.env?.Homepage;
+
+  const dashboardBinding = edge?.props?.env?.Dashboard;
+
   const aliases = edge?.attr?.domain?.aliases;
   const routes = edge?.attr?.routes;
   const apiRoute = Array.isArray(routes) && routes.length === 1 ? routes[0] : undefined;
+
   const hasRestoredApiRoute =
     apiRoute !== null &&
-    typeof apiRoute === "object" &&
+    (apiRoute === null || Predicate.isObjectOrArray(apiRoute)) &&
     "id" in apiRoute &&
-    typeof apiRoute.id === "string" &&
+    Predicate.isString(apiRoute.id) &&
     /^[a-f0-9]{32}$/u.test(apiRoute.id) &&
     "pattern" in apiRoute &&
     apiRoute.pattern === `${APEX_IDENTITY.apiHostname}/*` &&
     "zoneId" in apiRoute &&
-    typeof apiRoute.zoneId === "string" &&
+    Predicate.isString(apiRoute.zoneId) &&
     /^[a-f0-9]{32}$/u.test(apiRoute.zoneId);
+
   if (
     homepageBinding?.workerId !== homepageName ||
     homepageBinding?.workerName !== homepageName ||
@@ -322,28 +380,36 @@ function runAlchemy(parsed: ParsedCloudCommand, options: HomepageCliOptions): nu
   // standalone install, and the declaration is always the checked-in entrypoint.
   const standaloneDirectory =
     options.standaloneDirectory ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
   if (parsed.stage === "dev-main") {
     assertApexLocalState(standaloneDirectory);
   }
+
   const alchemyBinary = resolve(standaloneDirectory, "node_modules/.bin/alchemy");
-  const childEnvironment = {
+
+  const childEnvironment: NodeJS.ProcessEnv = {
     ...(options.env ?? process.env),
     ALCHEMY_TELEMETRY_DISABLED: "1",
-    ...(parsed.stage === APEX_IDENTITY.stage
-      ? { DASHBOARD_MOUNT: APEX_IDENTITY.dashboardMount }
-      : {}),
   };
+
+  if (parsed.stage === APEX_IDENTITY.stage)
+    childEnvironment.DASHBOARD_MOUNT = APEX_IDENTITY.dashboardMount;
+
   const spawn = options.spawn ?? nodeSpawnSync;
+
   if (parsed.command === "deploy") {
     const sdkDirectory = resolve(standaloneDirectory, "../..", "packages/sdk");
+
     const sdkBuild = spawn(process.execPath, ["run", "--cwd", sdkDirectory, "build"], {
       cwd: standaloneDirectory,
       env: childEnvironment,
       stdio: "inherit",
     });
+
     if (sdkBuild.error !== undefined) {
       throw new Error(`failed to build the local SDK: ${sdkBuild.error.message}`);
     }
+
     if (sdkBuild.status !== 0) return sdkBuild.status ?? 1;
   }
 
@@ -355,7 +421,9 @@ function runAlchemy(parsed: ParsedCloudCommand, options: HomepageCliOptions): nu
     "--profile",
     parsed.profile,
   ];
+
   if (parsed.confirmation === "yes") args.push("--yes");
+
   if (parsed.confirmation === "dry-run") args.push("--dry-run");
 
   const result = spawn(alchemyBinary, args, {
@@ -363,9 +431,11 @@ function runAlchemy(parsed: ParsedCloudCommand, options: HomepageCliOptions): nu
     env: childEnvironment,
     stdio: "inherit",
   });
+
   if (result.error !== undefined) {
     throw new Error(`failed to start local Alchemy: ${result.error.message}`);
   }
+
   return result.status ?? 1;
 }
 
@@ -382,6 +452,7 @@ export function executeHomepageCli(
   }
 
   rejectAmbientSelectors(options.env ?? process.env);
+
   return runAlchemy(parsed, options);
 }
 
@@ -393,17 +464,21 @@ export function main(
     return executeHomepageCli(argv, options);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+
     const report =
       options.report ??
       ((line: string): void => {
         process.stderr.write(`${line}\n`);
       });
+
     report(`homepage-cli: ${message}`);
     report(usage());
+
     return 1;
   }
 }
 
 const invokedDirectly =
   process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
 if (invokedDirectly) process.exit(main());

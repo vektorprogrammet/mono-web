@@ -18,7 +18,9 @@ type EndpointBody<Endpoint extends HttpApiEndpoint.Constraint> = Exclude<
 export type HomepageDepartment = EndpointBody<typeof ListDepartmentsEndpoint>[number];
 
 export type PublishedNewsListing = EndpointBody<typeof ListNewsEndpoint>;
+
 export type PublishedNewsSummary = PublishedNewsListing["articles"][number];
+
 export type PublishedNewsArticle = EndpointBody<typeof ReadNewsArticleEndpoint>;
 
 export type PublicApplicationCatalog = EndpointBody<typeof ReadApplicationCatalogEndpoint>;
@@ -26,6 +28,7 @@ export type PublicApplicationCatalog = EndpointBody<typeof ReadApplicationCatalo
 export type ContactMessagePayload = HttpApiEndpoint.Payload<
   typeof SubmitContactMessageEndpoint
 >["Type"];
+
 export type ContactMessageHeaders = HttpApiEndpoint.Headers<
   typeof SubmitContactMessageEndpoint
 >["Type"];

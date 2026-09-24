@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import { PREVIEW_DEVTOOLS_BUILD, previewDevtoolsEnabled } from "./preview-devtools";
 import {
   PREVIEW_ROLES,
@@ -22,12 +23,14 @@ import {
  */
 
 const PANEL_ELEMENT_ID = "vektor-preview-devtools-panel";
+
 const DASHBOARD_ELEMENT = "vektor-foldkit-dashboard";
 
 export const panelAllowed = (hostname = window.location.hostname): boolean => {
   if (!PREVIEW_DEVTOOLS_BUILD) return false;
 
   const normalizedHost = hostname.toLowerCase();
+
   if (
     normalizedHost === "localhost" ||
     normalizedHost === "127.0.0.1" ||
@@ -35,12 +38,15 @@ export const panelAllowed = (hostname = window.location.hostname): boolean => {
   ) {
     return true;
   }
+
   if (normalizedHost === "vektor.phibkro.org") {
     return previewDevtoolsEnabled("preview-stage", "dev-main", normalizedHost);
   }
+
   if (normalizedHost === "p20.vektor.phibkro.org") {
     return previewDevtoolsEnabled("preview-stage", "p20", normalizedHost);
   }
+
   return false;
 };
 
@@ -54,13 +60,14 @@ const reembedAll = (config: DevToolsEmbedConfig): void => {
       DASHBOARD_ELEMENT,
     )
     .forEach((element) => {
-      if (typeof element.setDevTools === "function") element.setDevTools(config);
+      if (Predicate.isFunction(element.setDevTools)) element.setDevTools(config);
     });
 };
 
 export const toggleFoldkitDevTools = (): boolean => {
   foldkitDevToolsOn = !foldkitDevToolsOn;
   reembedAll(foldkitDevToolsOn ? { show: "Always", mode: "Inspect" } : false);
+
   return foldkitDevToolsOn;
 };
 
@@ -108,6 +115,7 @@ export const mountPreviewDevtoolsPanel = (): void => {
     button.type = "button";
     button.textContent = role.replace("ROLE_", "");
     button.dataset.role = role;
+
     if (current === role) button.dataset.active = "1";
     button.addEventListener("click", () => {
       writeRoleOverride(role);

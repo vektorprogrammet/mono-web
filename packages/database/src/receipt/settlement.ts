@@ -1,12 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { Effect, Schema } from "effect";
+import { flow, Predicate, Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
 import {
   mapExistingReceiptSettlementActor,
   selectReceiptSettlementGrant,
-  type ReceiptSettlementAuthorization,
-  type ReceiptSettlementAuthorizationTarget,
   type ReceiptSettlementTransactionResult,
 } from "@vektorprogrammet/domain/receipt";
 import {
@@ -23,10 +21,12 @@ import {
   SettlementAfterRecordedAt,
   StaleReceiptRevision,
   ReceiptAlreadySettled,
-  makeReceiptOutboxRequest,
+  receiptOutboxRequest,
   Receipt,
   ReceiptCommandPrincipalSchema,
   type ReceiptCommandPrincipal,
+  type ReceiptId,
+  type ReceiptSettlementActor,
   type ReceiptSettlementCommandRequest,
   type ReceiptSettlementEvidence,
   type ReceiptSettlementListFailure,
@@ -44,11 +44,17 @@ import {
   resolveOrganizationPersonAuthorityForRead,
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
-import { Database, type DatabaseShape } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import {
   resolveReceiptAuthorityForRead,
   resolveReceiptAuthorityWithSql,
 } from "./authority-postgres.js";
+
+interface SettlementAuthorization {
+  readonly principal: ReceiptCommandPrincipal;
+  readonly actor: ReceiptSettlementActor;
+  readonly current: Receipt;
+}
 
 interface CommandReceiptRow {
   readonly command_sha256: string;
@@ -71,7 +77,7 @@ const receiptFromRow = (
   );
 
 const findReceiptForSettlement = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   receiptId: string,
 ): Effect.Effect<Receipt | undefined, ReceiptPersistenceError> =>
   sql<typeof Receipt.Encoded>`
@@ -110,20 +116,18 @@ const findReceiptForSettlement = (
     ),
   );
 
-const decodeSettlementEvidence = (
-  row: unknown,
-): Effect.Effect<ReceiptSettlementEvidence, ReceiptPersistenceError> =>
-  Schema.decodeUnknownEffect(ReceiptSettlementEvidenceSelectSchema)(row, {
+const decodeSettlementEvidence = flow(
+  Schema.decodeUnknownEffect(ReceiptSettlementEvidenceSelectSchema, {
     onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError((cause) => persistenceError("decode Receipt settlement evidence", cause)),
-  );
+  }),
+  Effect.mapError((cause) => persistenceError("decode Receipt settlement evidence", cause)),
+);
 
 const findSettlementByReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   receiptId: string,
 ): Effect.Effect<ReceiptSettlementEvidence | undefined, ReceiptPersistenceError> =>
-  sql<Record<string, unknown>>`
+  sql`
     SELECT
       settlement_id AS "settlementId",
       receipt_id AS "receiptId",
@@ -148,10 +152,10 @@ const findSettlementByReceipt = (
   );
 
 const findSettlementById = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   settlementId: string,
 ): Effect.Effect<ReceiptSettlementEvidence | undefined, ReceiptPersistenceError> =>
-  sql<Record<string, unknown>>`
+  sql`
     SELECT
       settlement_id AS "settlementId",
       receipt_id AS "receiptId",
@@ -176,7 +180,7 @@ const findSettlementById = (
   );
 
 const findCommandReceipt = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   commandId: string,
 ): Effect.Effect<CommandReceiptRow | undefined, ReceiptPersistenceError> =>
   sql<CommandReceiptRow>`
@@ -195,25 +199,26 @@ const decodePrincipal = (input: ReceiptCommandPrincipal) =>
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
 
-const decodeCommand = (
-  input: unknown,
-): Effect.Effect<ReceiptSettlementCommandRequest, ReceiptDecodeError> =>
-  Schema.decodeUnknownEffect(ReceiptSettlementCommandRequestSchema)(input, {
+const decodeCommand = flow(
+  Schema.decodeUnknownEffect(ReceiptSettlementCommandRequestSchema, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+  }),
+  Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })),
+);
 
 const resolveSettlementAuthorizationWithSql = (
-  sql: DatabaseShape,
-  target: ReceiptSettlementAuthorizationTarget,
+  sql: DatabaseOperations,
+  receiptId: ReceiptId,
   principal: ReceiptCommandPrincipal,
-): Effect.Effect<ReceiptSettlementAuthorization, ReceiptSettlementFailure> =>
+): Effect.Effect<SettlementAuthorization, ReceiptSettlementFailure> =>
   Effect.gen(function* () {
-    const current = yield* findReceiptForSettlement(sql, target.receiptId);
-    if (current === undefined)
-      return yield* Effect.fail(new ReceiptNotFound({ receiptId: target.receiptId }));
+    const current = yield* findReceiptForSettlement(sql, receiptId);
+
+    if (current === undefined) return yield* Effect.fail(new ReceiptNotFound({ receiptId }));
     yield* lockPersonAuthorization(sql, principal.personId).pipe(
       Effect.mapError((cause) => persistenceError(cause.operation, cause.message)),
     );
+
     const organization = yield* resolveOrganizationPersonAuthorityWithSql(
       sql,
       principal.personId,
@@ -221,11 +226,12 @@ const resolveSettlementAuthorizationWithSql = (
       "ForShare",
     ).pipe(
       Effect.mapError((cause) =>
-        cause._tag === "OrganizationDecodeError"
+        Predicate.isTagged(cause, "OrganizationDecodeError")
           ? new ReceiptDecodeError({ message: `${cause.operation}: ${cause.message}` })
           : persistenceError(cause.operation, cause.message),
       ),
     );
+
     const authority = yield* resolveReceiptAuthorityWithSql(
       sql,
       principal.personId,
@@ -234,54 +240,49 @@ const resolveSettlementAuthorizationWithSql = (
       "ForShare",
     ).pipe(
       Effect.mapError((cause) =>
-        cause._tag === "ReceiptPersistenceError"
+        Predicate.isTagged(cause, "ReceiptPersistenceError")
           ? cause
-          : cause._tag === "ReceiptDecodeError"
+          : Predicate.isTagged(cause, "ReceiptDecodeError")
             ? cause
             : new ReceiptDecodeError({
                 message: `Receipt authority projection mismatch for ${cause.personId}`,
               }),
       ),
     );
+
     const actor = yield* mapExistingReceiptSettlementActor(
       authority,
       current.receiptId,
       current.departmentId,
     );
-    return { _tag: "RecordReceiptSettlement", principal, actor, current };
+
+    return { principal, actor, current };
   });
 
-export const authorizeReceiptSettlement = (
-  target: ReceiptSettlementAuthorizationTarget,
+export const readReceiptSettlementRevision = (
+  receiptId: ReceiptId,
   principalInput: ReceiptCommandPrincipal,
-): Effect.Effect<ReceiptSettlementAuthorization, ReceiptSettlementFailure, Database> =>
+): Effect.Effect<Receipt["revision"], ReceiptSettlementFailure, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const principal = yield* decodePrincipal(principalInput);
-    return yield* resolveSettlementAuthorizationWithSql(sql, target, principal);
+    const authorization = yield* resolveSettlementAuthorizationWithSql(sql, receiptId, principal);
+
+    return authorization.current.revision;
   });
 
 const executeAuthorizedReceiptSettlementWithSql = (
-  sql: DatabaseShape,
+  sql: DatabaseOperations,
   command: ReceiptSettlementCommandRequest,
-  authorization: ReceiptSettlementAuthorization,
+  authorization: SettlementAuthorization,
 ): Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure> =>
   Effect.gen(function* () {
-    if (
-      authorization._tag !== command._tag ||
-      authorization.current.receiptId !== command.receiptId
-    ) {
-      return yield* Effect.fail(
-        new ReceiptDecodeError({
-          message: "Receipt settlement authorization does not match the command",
-        }),
-      );
-    }
     const commandEnvelope = {
       schema: "ReceiptSettlementCommandRequest/v1" as const,
       principalPersonId: authorization.principal.personId,
       request: command,
     };
+
     const commandJson = canonicalJson(commandEnvelope);
     const commandDigest = sha256Hex(canonicalJsonBytes(commandEnvelope));
     yield* sql`
@@ -295,12 +296,14 @@ const executeAuthorizedReceiptSettlementWithSql = (
       ),
     );
     const stored = yield* findCommandReceipt(sql, command.commandId);
+
     if (stored !== undefined) {
       if (stored.command_sha256 !== commandDigest) {
         return yield* Effect.fail(
           new DuplicateReceiptCommandConflict({ commandId: command.commandId }),
         );
       }
+
       const observation = yield* Schema.decodeUnknownEffect(ReceiptSettlementObservationSchema)(
         stored.observation_json,
         { onExcessProperty: "error" },
@@ -309,12 +312,15 @@ const executeAuthorizedReceiptSettlementWithSql = (
           persistenceError("decode stored Receipt settlement observation", cause),
         ),
       );
+
       const settlement = yield* findSettlementById(sql, observation.settlementId);
+
       if (settlement === undefined) {
         return yield* Effect.fail(
           persistenceError("read Receipt settlement replay", "recorded settlement was not found"),
         );
       }
+
       return {
         observation: { ...observation, replayed: true },
         receipt: authorization.current,
@@ -326,9 +332,11 @@ const executeAuthorizedReceiptSettlementWithSql = (
 
     const current = authorization.current;
     const existingSettlement = yield* findSettlementByReceipt(sql, current.receiptId);
+
     if (existingSettlement !== undefined) {
       return yield* Effect.fail(new ReceiptAlreadySettled({ receiptId: current.receiptId }));
     }
+
     if (current.revision !== command.expectedRevision) {
       return yield* Effect.fail(
         new StaleReceiptRevision({
@@ -338,6 +346,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
         }),
       );
     }
+
     if (current.status !== "Approved") {
       return yield* Effect.fail(
         new InvalidReceiptTransition({
@@ -347,7 +356,9 @@ const executeAuthorizedReceiptSettlementWithSql = (
         }),
       );
     }
+
     const recordedAt = authorization.principal.authorizationInstant;
+
     if (compareRfc3339Instants(command.settledAt, recordedAt) > 0) {
       return yield* Effect.fail(
         new SettlementAfterRecordedAt({ settledAt: command.settledAt, recordedAt }),
@@ -358,6 +369,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
       command.externalAuthority,
       command.externalReference,
     ]);
+
     yield* sql`
       SELECT pg_catalog.pg_advisory_xact_lock(
         pg_catalog.hashtextextended(${`receipt-settlement-reference:${externalReferenceLock}`}, 0)
@@ -368,6 +380,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
         Effect.fail(persistenceError("lock Receipt settlement external reference", cause)),
       ),
     );
+
     const duplicateExternal = yield* sql<{ readonly settlementId: string }>`
       SELECT settlement_id AS "settlementId"
       FROM public.economy_receipt_settlements
@@ -379,6 +392,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
         Effect.fail(persistenceError("read Receipt settlement external reference", cause)),
       ),
     );
+
     if (duplicateExternal[0] !== undefined) {
       return yield* Effect.fail(
         new DuplicateExternalSettlementReference({
@@ -399,7 +413,9 @@ const executeAuthorizedReceiptSettlementWithSql = (
         Effect.fail(persistenceError("advance Receipt settlement revision", cause)),
       ),
     );
+
     const revision = updated[0]?.revision;
+
     if (revision === undefined) {
       return yield* Effect.fail(
         new StaleReceiptRevision({
@@ -425,6 +441,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
       recordedAt,
       receiptRevision: revision,
     };
+
     yield* sql`
       INSERT INTO public.economy_receipt_settlements (
         settlement_id,
@@ -465,6 +482,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
       revision,
       replayed: false,
     };
+
     yield* sql`
       INSERT INTO economy_receipt_command_receipts (
         command_id, command_sha256, command_json, observation_json,
@@ -478,11 +496,13 @@ const executeAuthorizedReceiptSettlementWithSql = (
         Effect.fail(persistenceError("insert Receipt settlement command receipt", cause)),
       ),
     );
-    const notification = makeReceiptOutboxRequest(
+
+    const notification = receiptOutboxRequest(
       command.commandId,
       settlement.receiptId,
       "NotifyReceiptSettled",
     );
+
     yield* sql`
       INSERT INTO economy_receipt_outbox (
         effect_id, effect_type, receipt_id, command_id, ordinal, payload_json
@@ -509,6 +529,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
         Effect.fail(persistenceError("insert Receipt settlement audit", cause)),
       ),
     );
+
     return {
       observation,
       receipt: { ...current, revision },
@@ -518,32 +539,25 @@ const executeAuthorizedReceiptSettlementWithSql = (
     };
   });
 
-export const executeAuthorizedReceiptSettlement = (
-  input: unknown,
-  authorization: ReceiptSettlementAuthorization,
-): Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-    const command = yield* decodeCommand(input);
-    return yield* executeAuthorizedReceiptSettlementWithSql(sql, command, authorization);
-  });
-
 export const recordReceiptSettlement = (
-  input: unknown,
+  input: typeof ReceiptSettlementCommandRequestSchema.Encoded,
   principalInput: ReceiptCommandPrincipal,
 ): Effect.Effect<ReceiptSettlementTransactionResult, ReceiptSettlementFailure, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           const command = yield* decodeCommand(input);
           const principal = yield* decodePrincipal(principalInput);
+
           const authorization = yield* resolveSettlementAuthorizationWithSql(
             sql,
-            { _tag: "RecordReceiptSettlement", receiptId: command.receiptId },
+            command.receiptId,
             principal,
           );
+
           return yield* executeAuthorizedReceiptSettlementWithSql(sql, command, authorization);
         }),
       )
@@ -564,18 +578,20 @@ export const listReceiptsForSettlement = (
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(
             Effect.asVoid,
           );
+
           const organization = yield* resolveOrganizationPersonAuthorityForRead(
             personId,
             authorizationInstant,
           ).pipe(
             Effect.mapError((cause) =>
-              cause._tag === "OrganizationPersistenceError"
+              Predicate.isTagged(cause, "OrganizationPersistenceError")
                 ? persistenceError(
                     "resolve Receipt settlement queue Organization authority",
                     cause.message,
@@ -583,21 +599,23 @@ export const listReceiptsForSettlement = (
                 : new ReceiptDecodeError({ message: `${cause.operation}: ${cause.message}` }),
             ),
           );
+
           const authority = yield* resolveReceiptAuthorityForRead(
             personId,
             authorizationInstant,
             organization,
           ).pipe(
             Effect.mapError((cause) =>
-              cause._tag === "ReceiptPersistenceError"
+              Predicate.isTagged(cause, "ReceiptPersistenceError")
                 ? cause
-                : cause._tag === "ReceiptDecodeError"
+                : Predicate.isTagged(cause, "ReceiptDecodeError")
                   ? cause
                   : new ReceiptDecodeError({
                       message: `Receipt authority projection mismatch for ${cause.personId}`,
                     }),
             ),
           );
+
           const rows = yield* sql<ReceiptSettlementQueueItem>`
             SELECT
               receipt.receipt_id AS "receiptId",
@@ -622,6 +640,7 @@ export const listReceiptsForSettlement = (
               Effect.fail(persistenceError("list Receipt settlement queue", cause)),
             ),
           );
+
           return rows.filter(
             (row) => selectReceiptSettlementGrant(authority, row.departmentId)?.active === true,
           );
@@ -641,12 +660,14 @@ export const readReceiptSettlementForFinance = (
 ): Effect.Effect<ReceiptSettlementEvidence, ReceiptSettlementReadFailure, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
+
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
           yield* sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(
             Effect.asVoid,
           );
+
           const rows = yield* sql<FinanceSettlementRow>`
             SELECT
               receipt.department_id AS "departmentId",
@@ -672,15 +693,18 @@ export const readReceiptSettlementForFinance = (
               Effect.fail(persistenceError("read Receipt finance settlement", cause)),
             ),
           );
+
           const row = rows[0];
+
           if (row === undefined) return yield* Effect.fail(new ReceiptNotFound({ receiptId }));
           const settlement = yield* decodeSettlementEvidence(row.settlement);
+
           const organization = yield* resolveOrganizationPersonAuthorityForRead(
             personId,
             authorizationInstant,
           ).pipe(
             Effect.mapError((cause) =>
-              cause._tag === "OrganizationPersistenceError"
+              Predicate.isTagged(cause, "OrganizationPersistenceError")
                 ? persistenceError(
                     "resolve Receipt finance settlement Organization authority",
                     cause.message,
@@ -688,22 +712,25 @@ export const readReceiptSettlementForFinance = (
                 : new ReceiptDecodeError({ message: `${cause.operation}: ${cause.message}` }),
             ),
           );
+
           const authority = yield* resolveReceiptAuthorityForRead(
             personId,
             authorizationInstant,
             organization,
           ).pipe(
             Effect.mapError((cause) =>
-              cause._tag === "ReceiptPersistenceError"
+              Predicate.isTagged(cause, "ReceiptPersistenceError")
                 ? cause
-                : cause._tag === "ReceiptDecodeError"
+                : Predicate.isTagged(cause, "ReceiptDecodeError")
                   ? cause
                   : new ReceiptDecodeError({
                       message: `Receipt authority projection mismatch for ${cause.personId}`,
                     }),
             ),
           );
+
           yield* mapExistingReceiptSettlementActor(authority, receiptId, row.departmentId);
+
           return settlement;
         }),
       )

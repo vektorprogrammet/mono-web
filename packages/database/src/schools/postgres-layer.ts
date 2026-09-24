@@ -8,6 +8,7 @@ export const SchoolsLive: Layer.Layer<Schools, never, Database> = Layer.effect(
   Schools,
   Effect.gen(function* () {
     const database = yield* Database;
+
     return Schools.of({
       listDirectory: (input) =>
         listSchoolDirectoryPostgres(input).pipe(Effect.provideService(Database, database)),

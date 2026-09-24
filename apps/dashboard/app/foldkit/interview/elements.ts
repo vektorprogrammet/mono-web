@@ -10,6 +10,7 @@ const CANDIDATE_ELEMENT = "vektor-interview-response";
 
 export const registerInterviewElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") return;
+
   if (customElements.get(CANDIDATE_ELEMENT) !== undefined) return;
 
   customElements.define(
@@ -23,14 +24,17 @@ export const registerInterviewElement = (): void => {
       #mount(): void {
         if (this.#dispose !== undefined) return;
         let interactionId: InvitationInteractionId;
+
         try {
           interactionId = decodeInvitationInteractionId(
             this.getAttribute(INVITATION_INTERACTION_ATTRIBUTE),
           );
         } catch {
           this.replaceChildren();
+
           return;
         }
+
         this.#container.id = "foldkit-candidate-response";
         this.replaceChildren(this.#container);
         this.#dispose = embedInterview(this.#container, {
@@ -54,6 +58,7 @@ export const registerInterviewElement = (): void => {
         ) {
           return;
         }
+
         this.#dispose?.();
         this.#dispose = undefined;
         this.#mount();

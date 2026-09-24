@@ -4,8 +4,8 @@ import { Command } from "foldkit";
 import type { SchoolsBridgeFailure } from "./bridge";
 import type { SchoolsDirectoryClient } from "./browser-client";
 import { FailedDirectory, SucceededDirectory, type Message } from "./message";
-import type { Model, SchoolDirectoryFailure } from "./model";
-import { SchoolDirectoryRequestId } from "./model";
+import { type Model, SchoolDirectoryFailure, SchoolDirectoryRequestId } from "./model";
+
 
 export interface SchoolsDirectoryCommands {
   readonly LoadDirectory: (args: {
@@ -17,22 +17,21 @@ export interface SchoolsDirectoryCommands {
 const failureFrom = (error: SchoolsBridgeFailure): SchoolDirectoryFailure => {
   switch (error.error.tag) {
     case "UnauthenticatedActor":
-      return { _tag: "Denied", message: "Økten din er utløpt. Logg inn på nytt." };
+      return SchoolDirectoryFailure.cases.Denied.make({ message: "Økten din er utløpt. Logg inn på nytt." });
     case "AuthorityInactive":
-      return { _tag: "Denied", message: "Tilgangen din til skoleoversikten er ikke aktiv." };
+      return SchoolDirectoryFailure.cases.Denied.make({ message: "Tilgangen din til skoleoversikten er ikke aktiv." });
     case "NotInScope":
-      return { _tag: "Denied", message: "Du har ikke tilgang til skoleoversikten." };
+      return SchoolDirectoryFailure.cases.Denied.make({ message: "Du har ikke tilgang til skoleoversikten." });
     case "SchoolsDepartmentOutOfScope":
-      return { _tag: "Denied", message: "Du har ikke tilgang til den valgte avdelingen." };
+      return SchoolDirectoryFailure.cases.Denied.make({ message: "Du har ikke tilgang til den valgte avdelingen." });
     default:
-      return {
-        _tag: "Failed",
+      return SchoolDirectoryFailure.cases.Failed.make({
         message: "Skoleoversikten kunne ikke hentes. Prøv på nytt.",
-      };
+      });
   }
 };
 
-export const makeSchoolsDirectoryCommands = (
+export const commandsFor = (
   client: SchoolsDirectoryClient,
 ): SchoolsDirectoryCommands => {
   const LoadDirectory = Command.define("LoadSchoolsDirectory", {

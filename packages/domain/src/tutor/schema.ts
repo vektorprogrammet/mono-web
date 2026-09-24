@@ -1,39 +1,48 @@
-import { Effect, Schema } from "effect";
+import { flow, Effect, Schema } from "effect";
 
 const IdentifierSchema = Schema.NonEmptyString;
+
 const PositiveIntegerSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
 );
+
 const ScoreValueSchema = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 10 }));
+
 const Rfc3339Schema = Schema.String.check(
   Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
 );
 
 export const DepartmentIdSchema = IdentifierSchema;
+
 export type DepartmentId = typeof DepartmentIdSchema.Type;
 
 export const PersonIdSchema = IdentifierSchema;
+
 export type PersonId = typeof PersonIdSchema.Type;
 
 export const SemesterTermSchema = Schema.Union([Schema.Literal("Vår"), Schema.Literal("Høst")]);
+
 export type SemesterTerm = typeof SemesterTermSchema.Type;
 
 export const SemesterSchema = Schema.Struct({
   year: Schema.Int,
   term: SemesterTermSchema,
 });
+
 export type Semester = typeof SemesterSchema.Type;
 
 export const CycleSchema = Schema.Struct({
   departmentId: DepartmentIdSchema,
   semester: SemesterSchema,
 });
+
 export type Cycle = typeof CycleSchema.Type;
 
 export const StreamKeySchema = Schema.Struct({
   personId: PersonIdSchema,
   cycle: CycleSchema,
 });
+
 export type StreamKey = typeof StreamKeySchema.Type;
 
 export const SuitabilitySchema = Schema.Union([
@@ -41,12 +50,14 @@ export const SuitabilitySchema = Schema.Union([
   Schema.Literal("Kanskje"),
   Schema.Literal("Nei"),
 ]);
+
 export type Suitability = typeof SuitabilitySchema.Type;
 
 export const AnswersSchema = Schema.Struct({
   "q-0014-a": Schema.String,
   "q-0014-b": Schema.String,
 });
+
 export type Answers = typeof AnswersSchema.Type;
 
 const ScoreFields = {
@@ -58,12 +69,14 @@ const ScoreFields = {
 };
 
 export const InterviewScoreSchema = Schema.Struct(ScoreFields);
+
 export type InterviewScore = typeof InterviewScoreSchema.Type;
 
 export const ConductedInterviewScoreSchema = Schema.Struct({
   ...ScoreFields,
   conductedAt: Rfc3339Schema,
 });
+
 export type ConductedInterviewScore = typeof ConductedInterviewScoreSchema.Type;
 
 const EventEnvelopeFields = {
@@ -77,11 +90,13 @@ const EventEnvelopeFields = {
 };
 
 export const EmptyEventPayloadSchema = Schema.Struct({});
+
 export type EmptyEventPayload = typeof EmptyEventPayloadSchema.Type;
 
 export const InterviewConductedPayloadSchema = Schema.Struct({
   scores: ConductedInterviewScoreSchema,
 });
+
 export type InterviewConductedPayload = typeof InterviewConductedPayloadSchema.Type;
 
 const ApplicationReceivedEventSchema = Schema.Struct({
@@ -89,16 +104,19 @@ const ApplicationReceivedEventSchema = Schema.Struct({
   eventType: Schema.Literal("ApplicationReceived"),
   payload: EmptyEventPayloadSchema,
 });
+
 const InterviewInvitedEventSchema = Schema.Struct({
   ...EventEnvelopeFields,
   eventType: Schema.Literal("InterviewInvited"),
   payload: EmptyEventPayloadSchema,
 });
+
 const InterviewAcceptedEventSchema = Schema.Struct({
   ...EventEnvelopeFields,
   eventType: Schema.Literal("InterviewAccepted"),
   payload: EmptyEventPayloadSchema,
 });
+
 const InterviewConductedEventSchema = Schema.Struct({
   ...EventEnvelopeFields,
   eventType: Schema.Literal("InterviewConducted"),
@@ -111,6 +129,7 @@ export const EventEnvelopeV1Schema = Schema.Union([
   InterviewAcceptedEventSchema,
   InterviewConductedEventSchema,
 ]);
+
 export type EventEnvelopeV1 = typeof EventEnvelopeV1Schema.Type;
 
 export const EventTypeSchema = Schema.Union([
@@ -119,6 +138,7 @@ export const EventTypeSchema = Schema.Union([
   Schema.Literal("InterviewAccepted"),
   Schema.Literal("InterviewConducted"),
 ]);
+
 export type EventType = typeof EventTypeSchema.Type;
 
 export const ConductInterviewV1Schema = Schema.Struct({
@@ -131,6 +151,7 @@ export const ConductInterviewV1Schema = Schema.Struct({
   ),
   scores: InterviewScoreSchema,
 });
+
 export type ConductInterviewV1 = typeof ConductInterviewV1Schema.Type;
 
 export class TutorDecodeError extends Error {
@@ -143,15 +164,15 @@ export class TutorDecodeError extends Error {
   }
 }
 
-export const decodeConductInterviewV1 = (input: unknown) =>
-  Schema.decodeUnknownEffect(ConductInterviewV1Schema, { onExcessProperty: "error" })(input).pipe(
-    Effect.mapError(() => new TutorDecodeError("command")),
-  );
+export const decodeConductInterviewV1 = flow(
+  Schema.decodeUnknownEffect(ConductInterviewV1Schema, { onExcessProperty: "error" }),
+  Effect.mapError(() => new TutorDecodeError("command")),
+);
 
-export const decodeEventEnvelopeV1 = (input: unknown) =>
-  Schema.decodeUnknownEffect(EventEnvelopeV1Schema, { onExcessProperty: "error" })(input).pipe(
-    Effect.mapError(() => new TutorDecodeError("event")),
-  );
+export const decodeEventEnvelopeV1 = flow(
+  Schema.decodeUnknownEffect(EventEnvelopeV1Schema, { onExcessProperty: "error" }),
+  Effect.mapError(() => new TutorDecodeError("event")),
+);
 
 export const DescriptorSchema = Schema.Struct({
   descriptorVersion: Schema.Literal(1),
@@ -161,6 +182,7 @@ export const DescriptorSchema = Schema.Struct({
   correlationId: IdentifierSchema,
   idempotencyKey: IdentifierSchema,
 });
+
 export type Descriptor = typeof DescriptorSchema.Type;
 
 export const ProjectionStatusSchema = Schema.Union([
@@ -169,13 +191,16 @@ export const ProjectionStatusSchema = Schema.Union([
   Schema.Literal("accepted"),
   Schema.Literal("completed"),
 ]);
+
 export type ProjectionStatus = typeof ProjectionStatusSchema.Type;
+
 export const LawRefSchema = Schema.Union([
   Schema.Literal("T-INT-1"),
   Schema.Literal("S-INT-1"),
   Schema.Literal("T-INT-2"),
   Schema.Literal("R-APP-1"),
 ]);
+
 export type LawRef = typeof LawRefSchema.Type;
 
 export const ReasonCodeSchema = Schema.Union([
@@ -196,6 +221,7 @@ export const ReasonCodeSchema = Schema.Union([
   Schema.Literal("DUPLICATE_IDEMPOTENT"),
   Schema.Literal("EVIDENCE_REPEATABLE"),
 ]);
+
 export type ReasonCode = typeof ReasonCodeSchema.Type;
 
 export const ProjectionSchema = Schema.Struct({
@@ -218,6 +244,7 @@ export const EvidenceCaseStatusSchema = Schema.Union([
   Schema.Literal("duplicate"),
   Schema.Literal("duplicate-conflict"),
 ]);
+
 export type EvidenceCaseStatus = typeof EvidenceCaseStatusSchema.Type;
 
 export const EvidenceCaseSchema = Schema.Struct({
@@ -233,6 +260,7 @@ export const EvidenceCaseSchema = Schema.Struct({
     Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
   ),
 });
+
 export type EvidenceCase = typeof EvidenceCaseSchema.Type;
 
 export const CounterexampleReceiptSchema = Schema.Struct({
@@ -246,6 +274,7 @@ export const CounterexampleReceiptSchema = Schema.Struct({
     Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
   ),
 });
+
 export type CounterexampleReceipt = typeof CounterexampleReceiptSchema.Type;
 
 export const ProvenanceSchema = Schema.Struct({
@@ -257,6 +286,7 @@ export const ProvenanceSchema = Schema.Struct({
   limits: Schema.Array(IdentifierSchema),
   counterexampleReceipts: Schema.Array(CounterexampleReceiptSchema),
 });
+
 export type Provenance = typeof ProvenanceSchema.Type;
 
 export const EvidenceSchema = Schema.Struct({
@@ -273,9 +303,10 @@ export const EvidenceSchema = Schema.Struct({
   effectDescriptors: Schema.Array(DescriptorSchema),
   provenance: ProvenanceSchema,
 });
+
 export type Evidence = typeof EvidenceSchema.Type;
 
-export const decodeEvidence = (input: unknown) =>
-  Schema.decodeUnknownEffect(EvidenceSchema, { onExcessProperty: "error" })(input).pipe(
-    Effect.mapError(() => new TutorDecodeError("evidence")),
-  );
+export const decodeEvidence = flow(
+  Schema.decodeUnknownEffect(EvidenceSchema, { onExcessProperty: "error" }),
+  Effect.mapError(() => new TutorDecodeError("evidence")),
+);

@@ -19,29 +19,34 @@ export const ContentBridgeErrorTagSchema = S.Literals([
   "Network",
   "Configuration",
 ]);
+
 export type ContentBridgeErrorTag = typeof ContentBridgeErrorTagSchema.Type;
 
 export const ContentBridgeFailureSchema = S.Struct({
   error: S.Struct({ tag: ContentBridgeErrorTagSchema }),
 });
+
 export type ContentBridgeFailure = typeof ContentBridgeFailureSchema.Type;
 
 export const ContentWorkspaceBootstrapSchema = S.Struct({
   workspace: ContentWorkspaceSchema,
   knownDepartments: S.Array(KnownDepartmentSchema),
 });
+
 export type ContentWorkspaceBootstrap = typeof ContentWorkspaceBootstrapSchema.Type;
 
 export const ContentArticleObservationSchema = S.Struct({
   body: ContentArticleDetailSchema,
   etag: StrongETag,
 });
+
 export type ContentArticleObservation = typeof ContentArticleObservationSchema.Type;
 
 export const ContentCreateCommandSchema = S.Struct({
   commandId: IdempotencyKey,
   ...CreateArticleRequest.fields,
 });
+
 export type ContentCreateCommand = typeof ContentCreateCommandSchema.Type;
 
 export const ContentReviseCommandSchema = S.Struct({
@@ -50,14 +55,40 @@ export const ContentReviseCommandSchema = S.Struct({
   etag: StrongETag,
   ...ArticleMergePatch.fields,
 });
+
 export type ContentReviseCommand = typeof ContentReviseCommandSchema.Type;
 
 export const ContentTransitionCommandSchema = S.Struct({
   commandId: IdempotencyKey,
   articleId: ArticleId,
 });
+
 export type ContentTransitionCommand = typeof ContentTransitionCommandSchema.Type;
 
 export const contentBridgeFailure = (tag: ContentBridgeErrorTag): ContentBridgeFailure => ({
   error: { tag },
 });
+
+
+export const ContentBridgeActionSchema = S.Union([
+  S.Struct({ operation: S.Literals(["readArticle"]), articleId: ArticleId }),
+  S.Struct({
+    operation: S.Literals(["createDraft"]),
+    commandId: IdempotencyKey,
+    ...CreateArticleRequest.fields,
+  }),
+  S.Struct({
+    operation: S.Literals(["reviseDraft"]),
+    commandId: IdempotencyKey,
+    articleId: ArticleId,
+    etag: StrongETag,
+    ...ArticleMergePatch.fields,
+  }),
+  S.Struct({
+    operation: S.Literals(["publish", "unpublish"]),
+    commandId: IdempotencyKey,
+    articleId: ArticleId,
+  }),
+]);
+
+export type ContentBridgeAction = typeof ContentBridgeActionSchema.Encoded;

@@ -5,25 +5,29 @@ import type {
   AdmissionPeriodTransactionResult,
 } from "../admission-period/context.js";
 import type { AdmissionPeriodFailure } from "../admission-period/errors.js";
-import type { AdmissionPeriodProjection } from "../admission-period/schema.js";
+import {
+  type AdmissionPeriodProjection,
+  type AdmissionPeriodCommand,
+} from "../admission-period/schema.js";
 import type {
   ApplicantContactProjectionFailure,
   PublicApplicationError,
 } from "../application/errors.js";
-import type {
-  ApplicantContactProjection,
-  ApplicantProgressResponse,
-  PublicApplicationCatalogContext,
-  PublicApplicationCatalogHttpSource,
-  PublicApplicationConfirmation,
-  PublicApplicationSubmitContext,
-  PublicApplicationId,
-  PublicApplicationSubmitResult,
+import {
+  type ApplicantContactProjection,
+  type ApplicantProgressResponse,
+  type PublicApplicationCatalogContext,
+  type PublicApplicationCatalogHttpSource,
+  type PublicApplicationConfirmation,
+  type PublicApplicationSubmitContext,
+  type PublicApplicationId,
+  type PublicApplicationSubmitResult,
+  type PublicApplicationSubmitInput,
 } from "../application/schema.js";
 
-export interface AdmissionsShape {
+export interface AdmissionsOperations {
   readonly executeAdmissionPeriod: (
-    input: unknown,
+    input: AdmissionPeriodCommand,
     context: AdmissionPeriodCommandContext,
   ) => Effect.Effect<AdmissionPeriodTransactionResult, AdmissionPeriodFailure>;
   readonly listAdmissionPeriodsForManagement: (
@@ -33,7 +37,7 @@ export interface AdmissionsShape {
     now: string,
   ) => Effect.Effect<ReadonlyArray<AdmissionPeriodProjection>, AdmissionPeriodFailure>;
   readonly executePublicApplication: (
-    input: unknown,
+    input: PublicApplicationSubmitInput,
     context: PublicApplicationSubmitContext,
   ) => Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError>;
   readonly listPublicApplicationCatalog: (
@@ -51,6 +55,6 @@ export interface AdmissionsShape {
   ) => Effect.Effect<ApplicantProgressResponse, PublicApplicationError>;
 }
 
-export class Admissions extends Context.Service<Admissions, AdmissionsShape>()(
+export class Admissions extends Context.Service<Admissions, AdmissionsOperations>()(
   "@vektorprogrammet/domain/Admissions",
 ) {}

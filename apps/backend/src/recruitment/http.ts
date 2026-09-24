@@ -2,8 +2,27 @@ import { InterviewReportQuery, InterviewReport } from "@vektorprogrammet/domain/
 import {
   readCompletedInterviewReport,
   resolveInterviewReportLeader,
+  RecruitmentInvitationHttpTransition,
+  guardInterviewApplicantIdentity,
+  assignApplicant,
+  cancelInterview,
+  correctInterviewAssessment as correctInterviewAssessmentPostgres,
+  executeRecruitmentInvitationTransitionPostgres,
+  finalizeInterview,
+  readInterviewConductInTransaction,
+  readRecruitmentApplicationHttpAccessPostgres,
+  readRecruitmentInterviewHttpSourcePostgres,
+  readRecruitmentInvitationHttpSnapshotPostgres,
+  readRecruitmentInvitationHttpSourcePostgres,
+  readRecruitmentPersonAuthorityHttpSourcesPostgres,
+  readRecruitmentTargetActorPostgres,
+  readRecruitmentTargetAuthorityPostgres,
+  scheduleInterview as scheduleInterviewPostgres,
+  type RecruitmentAuthorityHttpSource,
+  type RecruitmentInterviewHttpSource,
+  type RecruitmentInvitationHttpSource,
 } from "@vektorprogrammet/database/recruitment";
-import { guardInterviewApplicantIdentity } from "@vektorprogrammet/database/recruitment";
+
 import {
   AssignmentBoard,
   AssignApplicantEndpoint,
@@ -55,10 +74,10 @@ import {
   ResourceKind,
   accessHttpStatus,
   evaluateAccessJourney,
-  makeGrant,
+  decodeGrant,
   type AccessSpec,
   type CanonicalScopeResolution,
-  type Scope,
+  Scope,
 } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
@@ -77,27 +96,8 @@ import {
   type RecruitmentActor,
   type RecruitmentSchedulingBoard,
 } from "@vektorprogrammet/domain/recruitment";
-import {
-  assignApplicant,
-  cancelInterview,
-  correctInterviewAssessment as correctInterviewAssessmentPostgres,
-  executeRecruitmentInvitationTransitionPostgres,
-  finalizeInterview,
-  readInterviewConductInTransaction,
-  readRecruitmentApplicationHttpAccessPostgres,
-  readRecruitmentInterviewHttpSourcePostgres,
-  readRecruitmentInvitationHttpSnapshotPostgres,
-  readRecruitmentInvitationHttpSourcePostgres,
-  readRecruitmentPersonAuthorityHttpSourcesPostgres,
-  readRecruitmentTargetActorPostgres,
-  readRecruitmentTargetAuthorityPostgres,
-  scheduleInterview as scheduleInterviewPostgres,
-  type RecruitmentAuthorityHttpSource,
-  type RecruitmentInterviewHttpSource,
-  type RecruitmentInvitationHttpSource,
-  type RecruitmentInvitationHttpTransition,
-} from "@vektorprogrammet/database/recruitment";
-import { Effect, Option, Schema } from "effect";
+
+import { flow, Cause, Match, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
@@ -140,7 +140,7 @@ export interface RecruitmentApiHttpOptions<E = never, R = never> {
   ) => Effect.Effect<RecruitmentConductContextResolution, E, R>;
 }
 
-type GenericFacts = Readonly<Record<string, unknown>>;
+type GenericFacts = Schema.JsonObject;
 
 export const RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS = {
   readInvitationResponse: {
@@ -215,11 +215,16 @@ export const RECRUITMENT_NATIVE_OPERATION_IDS = Object.values(
 ).map((registration) => registration.operationId);
 
 const NO_STORE = "no-store";
+
 const PRIVATE_NO_STORE = "private, no-store";
+
 const PERSON_CHALLENGE = 'VektorSession realm="native-api", Bearer realm="native-api"';
 
 const errorTag = (cause: unknown): string | undefined =>
-  cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
+  cause !== null &&
+  (cause === null || Predicate.isObjectOrArray(cause)) &&
+  "_tag" in cause &&
+  Predicate.isString(cause._tag)
     ? cause._tag
     : undefined;
 
@@ -227,17 +232,22 @@ const errorResponse = (
   cause: unknown,
   unavailableCode: "recruitment.unavailable" | "dependency.unavailable" = "dependency.unavailable",
 ): Response => {
-  const sqlCode = (value: unknown, depth = 0): string | undefined =>
-    depth < 8 && typeof value === "object" && value !== null
-      ? "code" in value && typeof value.code === "string"
-        ? value.code
-        : "cause" in value
-          ? sqlCode(value.cause, depth + 1)
+  while (Cause.isUnknownError(cause)) cause = cause.cause;
+
+  const sqlCode = (cause: unknown, depth = 0): string | undefined =>
+    depth < 8 && (cause === null || Predicate.isObjectOrArray(cause)) && cause !== null
+      ? "code" in cause && Predicate.isString(cause.code)
+        ? cause.code
+        : "cause" in cause
+          ? sqlCode(cause.cause, depth + 1)
           : undefined
       : undefined;
+
   const code = sqlCode(cause);
+
   if (code === "40001" || code === "40P01")
     return nativeProblemResponse("transaction.conflict", 409);
+
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(
       cause.code,
@@ -245,6 +255,7 @@ const errorResponse = (
       cause.status === 401 ? { "www-authenticate": PERSON_CHALLENGE } : undefined,
     );
   }
+
   switch (errorTag(cause)) {
     case "UnauthenticatedActor":
       return nativeProblemResponse("credential.invalid", 401, {
@@ -312,21 +323,19 @@ export const recruitmentHttpErrorResponse = errorResponse;
 
 const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
-  value: unknown,
   failure: {
     readonly code: "request.malformed" | "validation.failed";
     readonly status: 400 | 422;
   } = { code: "validation.failed", status: 422 },
 ) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(() => new HttpSemanticFailure(failure.code, failure.status)),
   );
 
-const strictOutput = <S extends Schema.ConstraintDecoder<unknown, never>>(
-  schema: S,
-  value: unknown,
-) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+const strictOutput = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
   );
 
@@ -342,55 +351,72 @@ const readJsonBody = (request: Request, maxBodyBytes: number, malformedOnly = fa
           malformedOnly ? 400 : status,
         );
       };
+
       const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+
       if (mediaType !== "application/json") fail("media-type.unsupported", 415);
       const declaredLength = request.headers.get("content-length");
+
       if (declaredLength !== null) {
         const length = Number(declaredLength);
+
         if (!Number.isSafeInteger(length) || length < 0) fail("request.malformed", 400);
+
         if (length > maxBodyBytes) fail("request.too-large", 413);
       }
+
       const chunks: Uint8Array[] = [];
       let byteLength = 0;
+
       if (request.body !== null) {
         const reader = request.body.getReader();
+
         try {
           while (true) {
             const chunk = await reader.read();
+
             if (chunk.done) break;
             byteLength += chunk.value.byteLength;
+
             if (byteLength > maxBodyBytes) {
               await reader.cancel().catch(() => undefined);
               fail("request.too-large", 413);
             }
+
             chunks.push(chunk.value);
           }
         } finally {
           reader.releaseLock();
         }
       }
+
       const bytes = new Uint8Array(byteLength);
       let offset = 0;
+
       for (const chunk of chunks) {
         bytes.set(chunk, offset);
         offset += chunk.byteLength;
       }
+
       try {
         return parseJsonWithoutDuplicateMembers(bytes);
       } catch (cause) {
         if (malformedOnly && cause instanceof HttpSemanticFailure) {
           throw new HttpSemanticFailure("request.malformed", 400);
         }
+
         throw cause;
       }
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
   });
 
 export const readRecruitmentRequestBody = readJsonBody;
 
 const headerValues = (request: Request, name: string): ReadonlyArray<string> => {
   const value = request.headers.get(name);
+
   return value === null ? [] : [value];
 };
 
@@ -401,20 +427,24 @@ const noQuery = (request: Request) =>
         throw new HttpSemanticFailure("request.malformed", 400);
       }
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
   });
 
 const decodeBoardQuery = (request: Request) =>
   Effect.try({
     try: () => {
       const parameters = [...new URL(request.url).searchParams];
+
       if (parameters.length !== 1 || parameters[0]?.[0] !== "status") {
         throw new HttpSemanticFailure("request.malformed", 400);
       }
+
       return { status: parameters[0][1] };
     },
-    catch: (cause) => cause,
-  }).pipe(Effect.flatMap((query) => strictDecode(RecruitmentAssignmentBoardQuerySchema, query)));
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
+  }).pipe(Effect.flatMap((query) => strictDecode(RecruitmentAssignmentBoardQuerySchema)(query)));
 
 const invitationCapability = (request: Request) =>
   Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(
@@ -435,16 +465,16 @@ const actorFor = <E, R>(
   );
 
 const capabilityForSpec = (spec: AccessSpec) =>
-  spec.capabilities._tag === "One"
+  Predicate.isTagged(spec.capabilities, "One")
     ? Effect.succeed(spec.capabilities.capability)
     : Effect.fail(new HttpSemanticFailure("internal.error", 500));
 
 const rejectedCode = (status: 401 | 403 | 404) =>
-  status === 401
-    ? "credential.invalid"
-    : status === 404
-      ? "resource.not-found"
-      : "authority.denied";
+  Match.value(status).pipe(
+    Match.when(401, () => "credential.invalid" as const),
+    Match.when(404, () => "resource.not-found" as const),
+    Match.orElse(() => "authority.denied" as const),
+  );
 
 const authorizePersonOperation = (input: {
   readonly spec: AccessSpec;
@@ -458,8 +488,9 @@ const authorizePersonOperation = (input: {
     const principal = { _tag: "Person" as const, personId: input.actor.personId };
     const instant = AuthorizationInstant.make(input.authorizationInstant);
     const capability = yield* capabilityForSpec(input.spec);
+
     const grants = input.grantScopes.map((scope, index) =>
-      makeGrant({
+      decodeGrant({
         grantId: GrantId.make(
           `native-recruitment:${input.actor.personId}:${capability.type}:${index}`,
         ),
@@ -473,7 +504,9 @@ const authorizePersonOperation = (input: {
         revision: 0,
       }),
     );
+
     const bearer = input.request.headers.get("authorization")?.startsWith("Bearer ") === true;
+
     const evaluation = yield* evaluateAccessJourney(input.spec, undefined, {
       now: Effect.succeed(instant),
       resolveCredential: () =>
@@ -488,7 +521,9 @@ const authorizePersonOperation = (input: {
       resolveScope: () => Effect.succeed(input.resolution),
       resolveGrants: () => Effect.succeed(grants),
     });
+
     const status = accessHttpStatus(evaluation, input.spec.concealment);
+
     if (status !== 200) {
       return yield* Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
     }
@@ -504,11 +539,14 @@ const authorizeInvitationOperation = (input: {
     const capabilityId = CapabilityId.make(input.source.capabilitySha256);
     const principal = { _tag: "CapabilityHolder" as const, capabilityId };
     const instant = AuthorizationInstant.make(input.authorizationInstant);
+
     const resource = {
       kind: RECRUITMENT_INVITATION_RESOURCE_KIND,
       id: ResourceId.make(input.source.invitationId),
     };
+
     const capability = yield* capabilityForSpec(input.spec);
+
     const resolution = {
       selection: "ExactlyOne" as const,
       contexts: [
@@ -531,17 +569,19 @@ const authorizeInvitationOperation = (input: {
         },
       ],
     };
-    const grant = makeGrant({
+
+    const grant = decodeGrant({
       grantId: GrantId.make(`native-invitation:${input.source.capabilitySha256}`),
       subject: principal,
       capability,
-      scope: { _tag: "Resource", resource },
+      scope: Scope.Resource({ resource }),
       startAt: instant,
       endAt: null,
       requirements: [],
       source: AuthorityRef.make("native-invitation-capability"),
       revision: input.source.responseRevision,
     });
+
     const evaluation = yield* evaluateAccessJourney(input.spec, undefined, {
       now: Effect.succeed(instant),
       resolveCredential: () =>
@@ -559,14 +599,16 @@ const authorizeInvitationOperation = (input: {
       resolveScope: () => Effect.succeed(resolution),
       resolveGrants: () => Effect.succeed([grant]),
     });
+
     const status = accessHttpStatus(evaluation, input.spec.concealment);
+
     if (status !== 200) {
       return yield* Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
     }
   });
 
 const actorDepartment = (actor: RecruitmentActor): DepartmentId | null =>
-  actor._tag === "GlobalAdmin" ? null : actor.departmentId;
+  Predicate.isTagged(actor, "GlobalAdmin") ? null : actor.departmentId;
 
 const boardContext = (actor: RecruitmentActor, facts: GenericFacts, version: string) => ({
   domainId: DomainId.make("recruitment"),
@@ -613,7 +655,9 @@ export const recruitmentInterviewAccessContext = (
       : [],
     linkedApplicantPersonId: source.linkedApplicantPersonId,
     departmentLeaderPersonIds:
-      allowLeader && actor._tag === "DepartmentLeader" && actor.departmentId === source.departmentId
+      allowLeader &&
+      Predicate.isTagged(actor, "DepartmentLeader") &&
+      actor.departmentId === source.departmentId
         ? [actor.personId]
         : [],
   },
@@ -661,7 +705,7 @@ export const schedulingBoardWithETags = (
   })),
 });
 
-export const conditionalJsonResponse = (request: Request, body: unknown, etag: StrongETag) =>
+export const conditionalJsonResponse = (request: Request, body: Schema.Json, etag: StrongETag) =>
   Effect.try({
     try: () => {
       const decision = evaluateReadPreconditions({
@@ -669,10 +713,14 @@ export const conditionalJsonResponse = (request: Request, body: unknown, etag: S
         ifMatch: parseReadIfMatch(headerValues(request, "if-match")),
         ifNoneMatch: parseIfNoneMatch(headerValues(request, "if-none-match")),
       });
-      if (decision._tag === "Failed") return nativeProblemResponse(decision.code, decision.status);
-      if (decision._tag === "NotModified") {
+
+      if (Predicate.isTagged(decision, "Failed"))
+        return nativeProblemResponse(decision.code, decision.status);
+
+      if (Predicate.isTagged(decision, "NotModified")) {
         return notModifiedResponse({ etag, cacheControl: PRIVATE_NO_STORE, vary: "Origin" });
       }
+
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: {
@@ -683,7 +731,8 @@ export const conditionalJsonResponse = (request: Request, body: unknown, etag: S
         },
       });
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
   });
 
 const commandIdentity = (
@@ -694,6 +743,7 @@ const commandIdentity = (
   identities: Readonly<Record<string, string>>,
 ) => {
   const idempotencyKey = parseIdempotencyKey(headerValues(request, "idempotency-key"));
+
   return deriveHttpIdentity({
     credentialSubject,
     qualifiedOperationId: operationId,
@@ -729,6 +779,7 @@ const executeCommand = <CommandId, E, R>(input: {
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const prepared = yield* input.prepare();
+
         const derived = yield* Effect.try({
           try: () =>
             commandIdentity(
@@ -738,9 +789,12 @@ const executeCommand = <CommandId, E, R>(input: {
               input.routeTemplate,
               input.identities,
             ),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
         });
-        const commandId = yield* strictDecode(input.commandIdSchema, derived.commandId);
+
+        const commandId = yield* strictDecode(input.commandIdSchema)(derived.commandId);
+
         return {
           identity: {
             identitySha256: derived.identitySha256,
@@ -751,7 +805,8 @@ const executeCommand = <CommandId, E, R>(input: {
             Effect.flatMap((response) =>
               Effect.tryPromise({
                 try: () => responseCapsule(response),
-                catch: (cause) => cause,
+                catch: (cause) =>
+                  cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
               }),
             ),
           ),
@@ -759,6 +814,7 @@ const executeCommand = <CommandId, E, R>(input: {
       }),
       input.retry === undefined ? {} : { retry: input.retry },
     );
+
     return nativeCommandOutcomeResponse(outcome);
   });
 
@@ -774,7 +830,8 @@ const readInvitationResponse = <E, R>(request: Request, input: RecruitmentApiHtt
       source: snapshot.source,
       authorizationInstant: now,
     });
-    const output = yield* strictOutput(InvitationResponseObservation, snapshot.observation);
+    const output = yield* strictOutput(InvitationResponseObservation)(snapshot.observation);
+
     return yield* conditionalJsonResponse(request, output, invitationETag(snapshot.source));
   });
 
@@ -785,45 +842,50 @@ const invitationMutation = <E, R>(
 ) =>
   Effect.gen(function* () {
     yield* noQuery(request);
+
     const ifMatch = yield* Effect.try({
       try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
     });
+
     yield* Effect.try({
       try: () => parseIdempotencyKey(headerValues(request, "idempotency-key")),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
     });
     const capability = yield* invitationCapability(request);
-    const endpoint =
-      operation === "Confirm"
-        ? ConfirmInvitationEndpoint
-        : operation === "Reject"
-          ? RejectInvitationEndpoint
-          : RequestNewInvitationTimeEndpoint;
+
+    const endpoint = Match.value(operation).pipe(
+      Match.when("Confirm", () => ConfirmInvitationEndpoint),
+      Match.when("Reject", () => RejectInvitationEndpoint),
+      Match.orElse(() => RequestNewInvitationTimeEndpoint),
+    );
+
     let transition: RecruitmentInvitationHttpTransition;
+
     if (operation === "Confirm") {
-      yield* strictDecode(
-        ConfirmInvitationPayload,
+      yield* strictDecode(ConfirmInvitationPayload, { code: "request.malformed", status: 400 })(
         yield* readJsonBody(request, input.config.maxBodyBytes, true),
-        { code: "request.malformed", status: 400 },
       );
-      transition = { _tag: "Confirm" };
+      transition = RecruitmentInvitationHttpTransition.Confirm();
     } else if (operation === "Reject") {
-      const body = yield* strictDecode(
-        InvitationRejectInput,
+      const body = yield* strictDecode(InvitationRejectInput)(
         yield* readJsonBody(request, input.config.maxBodyBytes),
       );
-      transition = {
-        _tag: "Reject",
-        ...(body.message === undefined ? {} : { message: body.message }),
-      };
+
+      transition =
+        body.message === undefined
+          ? RecruitmentInvitationHttpTransition.Reject({})
+          : RecruitmentInvitationHttpTransition.Reject({ message: body.message });
     } else {
-      const body = yield* strictDecode(
-        InvitationRequestNewTimeInput,
+      const body = yield* strictDecode(InvitationRequestNewTimeInput)(
         yield* readJsonBody(request, input.config.maxBodyBytes),
       );
-      transition = { _tag: "RequestNewTime", message: body.message };
+
+      transition = RecruitmentInvitationHttpTransition.RequestNewTime({ message: body.message });
     }
+
     const now = input.config.now();
     const source = yield* readRecruitmentInvitationHttpSourcePostgres(capability);
     yield* authorizeInvitationOperation({
@@ -832,18 +894,22 @@ const invitationMutation = <E, R>(
       source,
       authorizationInstant: now,
     });
+
     if (source.responseState === "Pending") {
       const precondition = evaluateMutationPrecondition(invitationETag(source), ifMatch);
-      if (precondition._tag === "Failed") {
+
+      if (Predicate.isTagged(precondition, "Failed")) {
         return yield* Effect.fail(new HttpSemanticFailure(precondition.code, precondition.status));
       }
     }
+
     yield* executeRecruitmentInvitationTransitionPostgres({
       capability,
       transition,
       now,
     });
     const updated = yield* readRecruitmentInvitationHttpSourcePostgres(capability);
+
     return new Response(null, {
       status: 204,
       headers: {
@@ -871,7 +937,9 @@ const readAssignmentBoard = <E, R>(request: Request, input: RecruitmentApiHttpOp
             actor,
             {
               departmentLeaderPersonIds:
-                actor._tag === "DepartmentLeader" && actor.active ? [actor.personId] : [],
+                Predicate.isTagged(actor, "DepartmentLeader") && actor.active
+                  ? [actor.personId]
+                  : [],
             },
             now,
           ),
@@ -879,14 +947,17 @@ const readAssignmentBoard = <E, R>(request: Request, input: RecruitmentApiHttpOp
       },
       grantScopes:
         departmentId === null
-          ? [{ _tag: "Domain", domainId: DomainId.make("recruitment") }]
-          : [{ _tag: "Department", departmentId }],
+          ? [Scope.Domain({ domainId: DomainId.make("recruitment") })]
+          : [Scope.Department({ departmentId })],
       authorizationInstant: now,
     });
+
     const observation = yield* Recruitment.use(({ readAssignmentBoard: read }) =>
       read(query, { actor, now }),
     );
-    const output = yield* strictOutput(AssignmentBoard, observation);
+
+    const output = yield* strictOutput(AssignmentBoard)(observation);
+
     return new Response(JSON.stringify(output), {
       status: 200,
       headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
@@ -898,16 +969,20 @@ const readInterviewReport = <E, R>(request: Request, input: RecruitmentApiHttpOp
     const queryInput = yield* Effect.try({
       try: () => {
         const values = new URL(request.url).searchParams;
+
         for (const key of values.keys()) {
           if (values.getAll(key).length !== 1) {
             throw new HttpSemanticFailure("request.malformed", 400);
           }
         }
+
         return Object.fromEntries(values);
       },
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
     });
-    const query = yield* strictDecode(InterviewReportQuery, queryInput);
+
+    const query = yield* strictDecode(InterviewReportQuery)(queryInput);
     const caller = yield* actorFor(request, input);
     const now = input.config.now();
     const actor = yield* resolveInterviewReportLeader(caller.personId, now);
@@ -919,11 +994,12 @@ const readInterviewReport = <E, R>(request: Request, input: RecruitmentApiHttpOp
         selection: "AllMatching",
         contexts: [boardContext(actor, { departmentLeaderPersonIds: [actor.personId] }, now)],
       },
-      grantScopes: [{ _tag: "Department", departmentId: actor.departmentId }],
+      grantScopes: [Scope.Department({ departmentId: actor.departmentId })],
       authorizationInstant: now,
     });
     const observation = yield* readCompletedInterviewReport(actor.personId, now, query);
-    const output = yield* strictOutput(InterviewReport, observation);
+    const output = yield* strictOutput(InterviewReport)(observation);
+
     return new Response(JSON.stringify(output), {
       status: 200,
       headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
@@ -947,7 +1023,7 @@ const readSchedulingBoard = <E, R>(request: Request, input: RecruitmentApiHttpOp
             actor,
             {
               departmentMemberPersonIds:
-                actor._tag !== "GlobalAdmin" && actor.active ? [actor.personId] : [],
+                !Predicate.isTagged(actor, "GlobalAdmin") && actor.active ? [actor.personId] : [],
             },
             now,
           ),
@@ -955,18 +1031,21 @@ const readSchedulingBoard = <E, R>(request: Request, input: RecruitmentApiHttpOp
       },
       grantScopes:
         departmentId === null
-          ? [{ _tag: "Domain", domainId: DomainId.make("recruitment") }]
-          : [{ _tag: "Department", departmentId }],
+          ? [Scope.Domain({ domainId: DomainId.make("recruitment") })]
+          : [Scope.Department({ departmentId })],
       authorizationInstant: now,
     });
+
     const observation = yield* Recruitment.use(({ readSchedulingBoard: read }) =>
       read({ actor, now }),
     );
+
     const authority = yield* readRecruitmentPersonAuthorityHttpSourcesPostgres(actor.personId);
-    const output = yield* strictOutput(
-      SchedulingBoard,
+
+    const output = yield* strictOutput(SchedulingBoard)(
       schedulingBoardWithETags(observation, authority),
     );
+
     return new Response(JSON.stringify(output), {
       status: 200,
       headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
@@ -980,10 +1059,11 @@ const createApplicationInterview = <E, R>(
 ) =>
   Effect.gen(function* () {
     yield* noQuery(request);
-    const body = yield* strictDecode(
-      CreateApplicationInterviewRequest,
+
+    const body = yield* strictDecode(CreateApplicationInterviewRequest)(
       yield* readJsonBody(request, input.config.maxBodyBytes),
     );
+
     return yield* executeCommand({
       request,
       operationId: "recruitment.createApplicationInterview",
@@ -996,20 +1076,24 @@ const createApplicationInterview = <E, R>(
           const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
             now: input.config.now,
           });
+
           const access = yield* readRecruitmentApplicationHttpAccessPostgres({
             applicationId,
             interviewerPersonId: body.interviewerPersonId,
             authorizationInstant: authorization.authorizationInstant,
           });
+
           const actor = yield* readRecruitmentTargetActorPostgres({
             personId: authorization.authority.personId,
             departmentId: access.departmentId,
             authorizationInstant: authorization.authorizationInstant,
           });
+
           const resource = {
             kind: ResourceKind.make("application"),
             id: ResourceId.make(applicationId),
           };
+
           yield* authorizePersonNativeOperation({
             spec: Option.getOrThrow(reflectAccessSpec(AssignApplicantEndpoint)),
             credential: authorization.credential,
@@ -1022,7 +1106,9 @@ const createApplicationInterview = <E, R>(
                   departmentId: access.departmentId,
                   facts: {
                     departmentLeaderPersonIds:
-                      actor._tag === "DepartmentLeader" && actor.active ? [actor.personId] : [],
+                      Predicate.isTagged(actor, "DepartmentLeader") && actor.active
+                        ? [actor.personId]
+                        : [],
                     eligibleInterviewerPersonIds: access.interviewerEligible
                       ? [actor.personId]
                       : [],
@@ -1031,9 +1117,10 @@ const createApplicationInterview = <E, R>(
                 }),
               ],
             },
-            grantScopes: [{ _tag: "Resource", resource }],
+            grantScopes: [Scope.Resource({ resource })],
             now: authorization.authorizationInstant,
           });
+
           return {
             credentialSubject: `Person:${actor.personId}`,
             execute: (commandId: RecruitmentAssignmentCommandId) =>
@@ -1046,17 +1133,21 @@ const createApplicationInterview = <E, R>(
                     interviewId: input.config.nextInterviewId(),
                   },
                 );
+
                 const output = yield* Schema.decodeEffect(RecruitmentInterviewResource)(
                   result.observation.interview,
                   { onExcessProperty: "error" },
                 ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                 const source = yield* readRecruitmentInterviewHttpSourcePostgres(
                   result.observation.interview.interviewId,
                   actor.personId,
                 );
+
                 const location = normalizeTarget("/api/recruitment/interviews/{interviewId}", {
                   interviewId: result.observation.interview.interviewId,
                 });
+
                 return new Response(JSON.stringify(output), {
                   status: 201,
                   headers: {
@@ -1088,20 +1179,25 @@ const interviewAuthorizationInTransaction = <E, R>(
     const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
       now: input.config.now,
     });
+
     yield* guardInterviewApplicantIdentity(interviewId, authorization.authority.personId);
+
     const source = yield* readRecruitmentInterviewHttpSourcePostgres(
       interviewId,
       authorization.authority.personId,
     );
+
     const { actor, activeMember } = yield* readRecruitmentTargetAuthorityPostgres({
       personId: authorization.authority.personId,
       departmentId: source.departmentId,
       authorizationInstant: authorization.authorizationInstant,
     });
+
     const resource = {
       kind: ResourceKind.make("recruitment-interview"),
       id: ResourceId.make(interviewId),
     };
+
     yield* authorizePersonNativeOperation({
       spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
       credential: authorization.credential,
@@ -1110,9 +1206,10 @@ const interviewAuthorizationInTransaction = <E, R>(
         selection: "ExactlyOne",
         contexts: [recruitmentInterviewAccessContext(source, actor, allowLeader, activeMember)],
       },
-      grantScopes: [{ _tag: "Resource", resource }],
+      grantScopes: [Scope.Resource({ resource })],
       now: authorization.authorizationInstant,
     });
+
     return {
       actor,
       authorizationInstant: authorization.authorizationInstant,
@@ -1127,14 +1224,17 @@ const scheduleInterview = <E, R>(
 ) =>
   Effect.gen(function* () {
     yield* noQuery(request);
-    const body = yield* strictDecode(
-      ScheduleInterviewRequest,
+
+    const body = yield* strictDecode(ScheduleInterviewRequest)(
       yield* readJsonBody(request, input.config.maxBodyBytes),
     );
+
     const ifMatch = yield* Effect.try({
       try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
     });
+
     return yield* executeCommand({
       request,
       operationId: "recruitment.scheduleInterview",
@@ -1151,15 +1251,18 @@ const scheduleInterview = <E, R>(
             true,
             input,
           );
+
           const precondition = evaluateMutationPrecondition(
             interviewETag(authorization.source),
             ifMatch,
           );
-          if (precondition._tag === "Failed") {
+
+          if (Predicate.isTagged(precondition, "Failed")) {
             return yield* Effect.fail(
               new HttpSemanticFailure(precondition.code, precondition.status),
             );
           }
+
           return {
             credentialSubject: `Person:${authorization.actor.personId}`,
             execute: (commandId: RecruitmentScheduleCommandId) =>
@@ -1178,7 +1281,9 @@ const scheduleInterview = <E, R>(
                     responseCapability: input.config.nextResponseCapability(),
                   },
                 );
+
                 const observation = result.observation;
+
                 const output = yield* Schema.decodeEffect(ScheduleInterviewResponse)(
                   {
                     interviewId: observation.interviewId,
@@ -1188,10 +1293,12 @@ const scheduleInterview = <E, R>(
                   },
                   { onExcessProperty: "error" },
                 ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                 const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
                   interviewId,
                   authorization.actor.personId,
                 );
+
                 return new Response(JSON.stringify(output), {
                   status: 200,
                   headers: {
@@ -1213,6 +1320,7 @@ const readInterviewConductHandler = <E, R>(
 ) =>
   Effect.gen(function* () {
     yield* noQuery(request);
+
     const snapshot = yield* Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -1223,6 +1331,7 @@ const readInterviewConductHandler = <E, R>(
             false,
             input,
           );
+
           const observation = yield* readInterviewConductInTransaction(
             interviewId,
             {
@@ -1232,16 +1341,22 @@ const readInterviewConductHandler = <E, R>(
             },
             sql,
           );
+
           const source = yield* readRecruitmentInterviewHttpSourcePostgres(
             interviewId,
             authorization.actor.personId,
           );
+
           return { observation, source };
         }),
       ),
     );
-    const output = yield* strictOutput(ConductObservation, snapshot.observation);
-    return yield* conditionalJsonResponse(request, output, interviewETag(snapshot.source));
+
+    const output = yield* strictOutput(ConductObservation)(snapshot.observation);
+
+    const encoded = yield* Schema.encodeEffect(Schema.toCodecJson(ConductObservation))(output);
+
+    return yield* conditionalJsonResponse(request, encoded, interviewETag(snapshot.source));
   });
 
 const correctInterviewAssessment = <E, R>(
@@ -1251,14 +1366,17 @@ const correctInterviewAssessment = <E, R>(
 ) =>
   Effect.gen(function* () {
     yield* noQuery(request);
-    const body = yield* strictDecode(
-      CorrectInterviewAssessmentRequest,
+
+    const body = yield* strictDecode(CorrectInterviewAssessmentRequest)(
       yield* readJsonBody(request, input.config.maxBodyBytes),
     );
+
     const ifMatch = yield* Effect.try({
       try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
     });
+
     return yield* executeCommand({
       request,
       operationId: "recruitment.correctInterviewAssessment",
@@ -1275,6 +1393,7 @@ const correctInterviewAssessment = <E, R>(
             false,
             input,
           );
+
           return {
             credentialSubject: `Person:${authorization.actor.personId}`,
             execute: (commandId: RecruitmentInterviewCorrectionCommandId) =>
@@ -1283,14 +1402,17 @@ const correctInterviewAssessment = <E, R>(
                   interviewETag(authorization.source),
                   ifMatch,
                 );
-                if (precondition._tag === "Failed") {
+
+                if (Predicate.isTagged(precondition, "Failed")) {
                   return yield* Effect.fail(
                     new HttpSemanticFailure(precondition.code, precondition.status),
                   );
                 }
+
                 if (body.expectedRevision !== authorization.source.interviewRevision) {
                   return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
                 }
+
                 const result = yield* correctInterviewAssessmentPostgres(
                   {
                     commandId,
@@ -1303,7 +1425,9 @@ const correctInterviewAssessment = <E, R>(
                     authorizationInstant: authorization.authorizationInstant,
                   },
                 );
+
                 const observation = result.observation;
+
                 const output = yield* Schema.decodeEffect(CorrectInterviewAssessmentResponse)(
                   {
                     _tag: observation._tag,
@@ -1315,10 +1439,12 @@ const correctInterviewAssessment = <E, R>(
                   },
                   { onExcessProperty: "error" },
                 ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                 const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
                   interviewId,
                   authorization.actor.personId,
                 );
+
                 return new Response(JSON.stringify(output), {
                   status: 200,
                   headers: {
@@ -1343,10 +1469,13 @@ const lifecycleInterview = <E, R>(
     yield* noQuery(request);
     const endpoint = operation === "Finalize" ? FinalizeInterviewEndpoint : CancelInterviewEndpoint;
     const rawBody = yield* readJsonBody(request, input.config.maxBodyBytes);
+
     const ifMatch = yield* Effect.try({
       try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
     });
+
     const prepareAuthorization = () =>
       Effect.gen(function* () {
         const authorization = yield* interviewAuthorizationInTransaction(
@@ -1356,11 +1485,15 @@ const lifecycleInterview = <E, R>(
           false,
           input,
         );
+
         yield* guardInterviewApplicantIdentity(interviewId, authorization.actor.personId);
+
         return authorization;
       });
+
     if (operation === "Finalize") {
-      const body = yield* strictDecode(FinalizeInterviewRequest, rawBody);
+      const body = yield* strictDecode(FinalizeInterviewRequest)(rawBody);
+
       return yield* executeCommand({
         request,
         operationId: "recruitment.finalizeInterview",
@@ -1371,6 +1504,7 @@ const lifecycleInterview = <E, R>(
         prepare: () =>
           Effect.gen(function* () {
             const authorization = yield* prepareAuthorization();
+
             return {
               credentialSubject: `Person:${authorization.actor.personId}`,
               execute: (commandId: RecruitmentConductCommandId) =>
@@ -1379,11 +1513,13 @@ const lifecycleInterview = <E, R>(
                     interviewETag(authorization.source),
                     ifMatch,
                   );
-                  if (precondition._tag === "Failed") {
+
+                  if (Predicate.isTagged(precondition, "Failed")) {
                     return yield* Effect.fail(
                       new HttpSemanticFailure(precondition.code, precondition.status),
                     );
                   }
+
                   const result = yield* finalizeInterview(
                     {
                       commandId,
@@ -1397,7 +1533,9 @@ const lifecycleInterview = <E, R>(
                       authorizationInstant: authorization.authorizationInstant,
                     },
                   );
+
                   const observation = result.observation;
+
                   const output = yield* Schema.decodeEffect(FinalizeInterviewResponse)(
                     {
                       interviewId: observation.interviewId,
@@ -1407,10 +1545,12 @@ const lifecycleInterview = <E, R>(
                     },
                     { onExcessProperty: "error" },
                   ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                   const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
                     interviewId,
                     authorization.actor.personId,
                   );
+
                   return new Response(JSON.stringify(output), {
                     status: 200,
                     headers: {
@@ -1424,7 +1564,9 @@ const lifecycleInterview = <E, R>(
           }),
       });
     }
-    const body = yield* strictDecode(CancelInterviewRequest, rawBody);
+
+    const body = yield* strictDecode(CancelInterviewRequest)(rawBody);
+
     return yield* executeCommand({
       request,
       operationId: "recruitment.cancelInterview",
@@ -1435,6 +1577,7 @@ const lifecycleInterview = <E, R>(
       prepare: () =>
         Effect.gen(function* () {
           const authorization = yield* prepareAuthorization();
+
           return {
             credentialSubject: `Person:${authorization.actor.personId}`,
             execute: (commandId: RecruitmentCancellationCommandId) =>
@@ -1443,11 +1586,13 @@ const lifecycleInterview = <E, R>(
                   interviewETag(authorization.source),
                   ifMatch,
                 );
-                if (precondition._tag === "Failed") {
+
+                if (Predicate.isTagged(precondition, "Failed")) {
                   return yield* Effect.fail(
                     new HttpSemanticFailure(precondition.code, precondition.status),
                   );
                 }
+
                 const result = yield* cancelInterview(
                   {
                     commandId,
@@ -1460,7 +1605,9 @@ const lifecycleInterview = <E, R>(
                     authorizationInstant: authorization.authorizationInstant,
                   },
                 );
+
                 const observation = result.observation;
+
                 const output = yield* Schema.decodeEffect(CancelInterviewResponse)(
                   {
                     interviewId: observation.interviewId,
@@ -1470,10 +1617,12 @@ const lifecycleInterview = <E, R>(
                   },
                   { onExcessProperty: "error" },
                 ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                 const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
                   interviewId,
                   authorization.actor.personId,
                 );
+
                 return new Response(JSON.stringify(output), {
                   status: 200,
                   headers: {

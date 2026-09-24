@@ -2,7 +2,7 @@ import { StrongETag } from "@vektorprogrammet/http-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import { createBrowserInterviewClient } from "./browser-client";
-import { INVITATION_INTERACTION_HEADER } from "./bridge";
+import { INVITATION_INTERACTION_HEADER, InvitationBridgeFailureSchema } from "./bridge";
 
 const observation = {
   scheduledAt: "2031-09-20T13:30:00.000Z",
@@ -11,16 +11,14 @@ const observation = {
   responseState: "Pending",
   responseMessage: null,
 } as const;
+
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
+
 const resource = { observation, etag };
 
 const interactionId = "a".repeat(32);
 
-const jsonResponse = (value: unknown, status = 200): Response =>
-  new Response(JSON.stringify(value), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
+
 
 describe("browser invitation response bridge", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -40,7 +38,7 @@ describe("browser invitation response bridge", () => {
 
   it("sends strict interaction binding and preserves no-content mutation responses", async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse(resource))
+      .mockResolvedValueOnce(Response.json(resource))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -78,8 +76,9 @@ describe("browser invitation response bridge", () => {
 
   it("strictly decodes the applicant observation", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ ...resource, observation: { ...observation, invitationId: "forbidden" } }),
+      Response.json({ ...resource, observation: { ...observation, invitationId: "forbidden" } }),
     );
+
     const failure = await Effect.runPromise(
       createBrowserInterviewClient(interactionId)
         .recruitment.readInvitationResponse()
@@ -91,31 +90,27 @@ describe("browser invitation response bridge", () => {
 
   it("preserves a safe typed bridge failure", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(
-        {
-          _tag: "InvitationAlreadyResponded",
+      Response.json(InvitationBridgeFailureSchema.cases.InvitationAlreadyResponded.make({
           message: "Invitation already responded",
-        },
-        409,
-      ),
+        }), { status: 409 }),
     );
+
     const failure = await Effect.runPromise(
       createBrowserInterviewClient(interactionId)
         .recruitment.confirmInvitation({ etag })
         .pipe(Effect.flip),
     );
 
-    expect(failure).toEqual({
-      _tag: "InvitationAlreadyResponded",
+    expect(failure).toEqual(InvitationBridgeFailureSchema.cases.InvitationAlreadyResponded.make({
       message: "Invitation already responded",
-    });
+    }));
   });
 
   it("maps malformed failures and unexpected success statuses to unavailable", async () => {
     const client = createBrowserInterviewClient(interactionId).recruitment;
     fetchMock
-      .mockResolvedValueOnce(jsonResponse({ message: "unsafe persistence detail" }, 503))
-      .mockResolvedValueOnce(jsonResponse(resource, 201));
+      .mockResolvedValueOnce(Response.json({ message: "unsafe persistence detail" }, { status: 503 }))
+      .mockResolvedValueOnce(Response.json(resource, { status: 201 }));
 
     const malformed = await Effect.runPromise(client.readInvitationResponse().pipe(Effect.flip));
     const unexpected = await Effect.runPromise(client.readInvitationResponse().pipe(Effect.flip));

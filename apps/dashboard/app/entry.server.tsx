@@ -1,3 +1,5 @@
+import { nativeFailureFrom } from "./lib/native-problem";
+import { flow } from "effect";
 import type { EntryContext, RouterContextProvider } from "react-router";
 import { ServerRouter } from "react-router";
 import { isbot } from "isbot";
@@ -13,11 +15,13 @@ export default async function handleRequest(
   _loadContext: RouterContextProvider,
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
+
   if (pathname === "/dashboard/login" || pathname === "/dashboard/oauth/consent") {
     responseHeaders.set("Cache-Control", "no-store");
     responseHeaders.set("Pragma", "no-cache");
     responseHeaders.set("Referrer-Policy", "no-referrer");
   }
+
   if (request.method.toUpperCase() === "HEAD") {
     return new Response(null, {
       status: responseStatusCode,
@@ -26,24 +30,29 @@ export default async function handleRequest(
   }
 
   let shellRendered = false;
+
   const body = await renderToReadableStream(
     <ServerRouter context={routerContext} url={request.url} />,
     {
       signal: AbortSignal.timeout(STREAM_TIMEOUT_MS + 1_000),
-      onError(_error: unknown) {
+      onError() {
         responseStatusCode = 500;
+
         if (shellRendered) console.error("Dashboard stream failed");
       },
     },
   );
+
   shellRendered = true;
 
   const userAgent = request.headers.get("user-agent");
+
   if ((userAgent && isbot(userAgent)) || routerContext.isSpaMode) {
     await body.allReady;
   }
 
   responseHeaders.set("Content-Type", "text/html");
+
   return new Response(body, {
     status: responseStatusCode,
     headers: responseHeaders,
@@ -51,12 +60,9 @@ export default async function handleRequest(
 }
 
 /** Request errors may contain credential URLs; log only a bounded typed summary. */
-export function handleError(error: unknown) {
+export const handleError = flow(nativeFailureFrom, (error) => {
   const status = error instanceof Response ? String(error.status) : "unknown";
-  const code =
-    error !== null && typeof error === "object" && "code" in error && typeof error.code === "string"
-      ? error.code
-      : "unknown";
-  const kind = error instanceof Error ? error.name : typeof error;
+  const code = error instanceof Error || error instanceof Response ? "unknown" : error?.code ?? "unknown";
+  const kind = error instanceof Error ? error.name : "unknown";
   console.error(`Dashboard request failed phase=handler kind=${kind} status=${status} code=${code}`);
-}
+});

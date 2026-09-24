@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
-import { Database, type DatabaseShape } from "./service.js";
+import { Database, type DatabaseOperations } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   NotificationGateway,
@@ -9,13 +9,17 @@ import {
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import {
+  RecruitmentNotificationEffectId,
+  RecruitmentInvitationId,
+  RecruitmentInterviewId,
+  RecruitmentInvitationResponseOutboxRequestSchema,
   Recruitment,
   RecruitmentInvitationCapabilitySchema,
   RecruitmentNotificationDeliveryError,
 } from "@vektorprogrammet/domain/recruitment";
 import { deliverNextRecruitmentInvitationResponse } from "@vektorprogrammet/database/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
-import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
+import { Schema, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
 
@@ -39,14 +43,21 @@ const cohort = {
 } as const;
 
 const headMigration = databaseMigrationDefinitions.at(-1);
+
 assert(headMigration);
+
 const headMigrationId = Number(headMigration.id.split("_", 1)[0]);
 
 const raceCapability = "R".repeat(43);
+
 const deliveryCapability = "D".repeat(43);
+
 const responseInstant = "2035-09-15T12:03:00.000Z";
+
 const raceScheduledInstant = "2035-09-20T09:00:00.000Z";
-const capabilityShapedMessage = "C".repeat(44);
+
+const capabilityBearingMessage = "C".repeat(44);
+
 const validNearbyMessage = "V".repeat(42);
 
 const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
@@ -55,21 +66,25 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
     applicationName,
     maxConnections: 1,
   });
+
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
   const profileLayer = ProfileLive.pipe(
     Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
   );
+
   const supportLayer = Layer.mergeAll(
     databaseLayer,
     admissionsLayer,
     organizationLayer,
     profileLayer,
   );
+
   return Layer.merge(supportLayer, RecruitmentLive.pipe(Layer.provide(supportLayer)));
 };
 
-const resetCohort = (sql: DatabaseShape) =>
+const resetCohort = (sql: DatabaseOperations) =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
@@ -131,7 +146,7 @@ const resetCohort = (sql: DatabaseShape) =>
     }),
   );
 
-const seedCohort = (sql: DatabaseShape) =>
+const seedCohort = (sql: DatabaseOperations) =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* sql`
@@ -363,12 +378,15 @@ const contender = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const recruitment = yield* Recruitment;
+
     const [connection] = yield* sql<{ readonly pid: number }>`
       SELECT pg_backend_pid() AS pid
     `;
+
     yield* Deferred.succeed(ready, undefined);
     yield* Deferred.await(start);
     const capability = RecruitmentInvitationCapabilitySchema.make(raceCapability);
+
     const outcome = yield* Effect.result(
       action === "confirm"
         ? recruitment.confirmInvitation(capability, { now: responseInstant })
@@ -378,19 +396,20 @@ const contender = (
             { now: responseInstant },
           ),
     );
+
     return { action, pid: connection?.pid ?? -1, outcome };
   });
 
-const proveMessageConfinement = (sql: DatabaseShape) =>
+const proveMessageConfinement = (sql: DatabaseOperations) =>
   Effect.gen(function* () {
     const ordinaryMessage = "Cannot attend the proposed time.";
-    const embeddedCapabilitySequence = `Do not persist (${capabilityShapedMessage}) here`;
+    const embeddedCapabilitySequence = `Do not persist (${capabilityBearingMessage}) here`;
     const outboxEffectId = `recruitment-invitation-response:${cohort.raceInvitationId}:1`;
-    const makeOutboxPayload = (overrides: Readonly<Record<string, unknown>>) => ({
-      _tag: "SendInterviewInvitationResponse",
-      effectId: outboxEffectId,
-      invitationId: cohort.raceInvitationId,
-      interviewId: cohort.raceInterviewId,
+
+    const validOutboxPayload = RecruitmentInvitationResponseOutboxRequestSchema.members[0].make({
+      effectId: RecruitmentNotificationEffectId.make(outboxEffectId),
+      invitationId: RecruitmentInvitationId.make(cohort.raceInvitationId),
+      interviewId: RecruitmentInterviewId.make(cohort.raceInterviewId),
       scheduleRevision: 1,
       responseRevision: 1,
       applicantDisplayName: "Proof Applicant",
@@ -399,13 +418,19 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
       scheduledAt: raceScheduledInstant,
       responseState: "Rejected",
       responseMessage: ordinaryMessage,
+    });
+
+    const makeOutboxPayload = (overrides: Readonly<Record<string, Schema.Json>>) => ({
+      ...validOutboxPayload,
       ...overrides,
     });
+
     const [migration] = yield* sql<{ readonly count: string }>`
       SELECT count(*)::text AS count
       FROM vektorprogrammet_schema_migrations
       WHERE migration_id = ${headMigrationId}
     `;
+
     const before = yield* sql<{
       readonly responseState: string;
       readonly responseMessage: string | null;
@@ -430,6 +455,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
       FROM recruitment_invitations AS invitation
       WHERE invitation.invitation_id = ${cohort.raceInvitationId}
     `;
+
     const stageRejectedInvitation = (message: string) => sql`
       UPDATE recruitment_invitations
       SET response_state = 'Rejected',
@@ -438,6 +464,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
         response_revision = 1
       WHERE invitation_id = ${cohort.raceInvitationId}
     `;
+
     const insertAudit = (message: string) => sql`
       INSERT INTO recruitment_invitation_response_audit (
         invitation_id,
@@ -457,23 +484,28 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
         ${responseInstant}
       )
     `;
+
     const invitationMessage = yield* Effect.result(
       sql.withTransaction(
         Effect.gen(function* () {
-          yield* stageRejectedInvitation(capabilityShapedMessage);
+          yield* stageRejectedInvitation(capabilityBearingMessage);
+
           return yield* Effect.fail("InvitationMessageConfinementMissing");
         }),
       ),
     );
+
     const auditMessage = yield* Effect.result(
       sql.withTransaction(
         Effect.gen(function* () {
           yield* stageRejectedInvitation(ordinaryMessage);
           yield* insertAudit(embeddedCapabilitySequence);
+
           return yield* Effect.fail("AuditMessageConfinementMissing");
         }),
       ),
     );
+
     const outboxMessage = yield* Effect.result(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -499,15 +531,17 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               1,
               1,
               'Rejected',
-              ${capabilityShapedMessage},
+              ${capabilityBearingMessage},
               0,
               ${sql.json(makeOutboxPayload({}))}
             )
           `;
+
           return yield* Effect.fail("OutboxMessageConfinementMissing");
         }),
       ),
     );
+
     const outboxPayload = yield* Effect.result(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -538,10 +572,12 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               ${sql.json(makeOutboxPayload({ responseMessage: embeddedCapabilitySequence }))}
             )
           `;
+
           return yield* Effect.fail("OutboxPayloadConfinementMissing");
         }),
       ),
     );
+
     const outboxNestedPayload = yield* Effect.result(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -572,10 +608,12 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               ${sql.json(makeOutboxPayload({ nested: { note: embeddedCapabilitySequence } }))}
             )
           `;
+
           return yield* Effect.fail("OutboxNestedPayloadConfinementMissing");
         }),
       ),
     );
+
     const outboxNamedCapabilityPayload = yield* Effect.result(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -606,10 +644,12 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               ${sql.json(makeOutboxPayload({ capabilitySha256: "redacted" }))}
             )
           `;
+
           return yield* Effect.fail("OutboxNamedCapabilityPayloadConfinementMissing");
         }),
       ),
     );
+
     const outboxIdentifierMismatch = yield* Effect.result(
       sql.withTransaction(
         Effect.gen(function* () {
@@ -637,13 +677,15 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               'Rejected',
               ${ordinaryMessage},
               0,
-              ${sql.json(makeOutboxPayload({ effectId: capabilityShapedMessage }))}
+              ${sql.json(makeOutboxPayload({ effectId: capabilityBearingMessage }))}
             )
           `;
+
           return yield* Effect.fail("OutboxIdentifierConfinementMissing");
         }),
       ),
     );
+
     const after = yield* sql<{
       readonly responseState: string;
       readonly responseMessage: string | null;
@@ -668,6 +710,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
       FROM recruitment_invitations AS invitation
       WHERE invitation.invitation_id = ${cohort.raceInvitationId}
     `;
+
     const constraintRejections = [
       invitationMessage,
       auditMessage,
@@ -678,12 +721,13 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
       outboxIdentifierMismatch,
     ].map(
       (result) =>
-        result._tag === "Failure" &&
-        typeof result.failure === "object" &&
+        Predicate.isTagged(result, "Failure") &&
+        (result.failure === null || Predicate.isObjectOrArray(result.failure)) &&
         result.failure !== null &&
         "_tag" in result.failure &&
-        result.failure._tag === "SqlError",
+        Predicate.isTagged(result.failure, "SqlError"),
     );
+
     return {
       migrationReplayed: migration?.count === "1",
       invitationMessageRejected: constraintRejections[0] === true,
@@ -714,6 +758,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
 
     const messageConfinement = yield* Effect.gen(function* () {
       const sql = yield* Database;
+
       return yield* proveMessageConfinement(sql);
     }).pipe(
       Effect.provide(
@@ -723,6 +768,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
 
     const rollbackResult = yield* Effect.gen(function* () {
       const sql = yield* Database;
+
       return yield* Effect.result(
         sql.withTransaction(
           Effect.gen(function* () {
@@ -732,6 +778,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
               WHERE invitation_id = ${cohort.raceInvitationId}
               FOR UPDATE
             `;
+
             return yield* Effect.fail("ForcedRollbackAfterRowLock");
           }),
         ),
@@ -742,6 +789,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
 
     const lockReleased = yield* Effect.gen(function* () {
       const sql = yield* Database;
+
       return yield* sql
         .withTransaction(
           sql`
@@ -761,6 +809,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     const readyA = yield* Deferred.make<void>();
     const readyB = yield* Deferred.make<void>();
     const start = yield* Deferred.make<void>();
+
     const fiberA = yield* Effect.forkScoped(
       contender("confirm", readyA, start).pipe(
         Effect.provide(
@@ -768,6 +817,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         ),
       ),
     );
+
     const fiberB = yield* Effect.forkScoped(
       contender("reject", readyB, start).pipe(
         Effect.provide(
@@ -775,15 +825,18 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         ),
       ),
     );
+
     yield* Deferred.await(readyA);
     yield* Deferred.await(readyB);
     yield* Deferred.succeed(start, undefined);
+
     const contenders = yield* Effect.all([Fiber.join(fiberA), Fiber.join(fiberB)], {
       concurrency: "unbounded",
     });
 
     const recording = makeRecordingNotificationGateway("2035-09-15T12:08:00.000Z");
     const raceDrainRecording = makeRecordingNotificationGateway("2035-09-15T12:03:30.000Z");
+
     const failingGateway = Layer.succeed(
       NotificationGateway,
       NotificationGateway.of({
@@ -814,6 +867,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     const durable = yield* Effect.gen(function* () {
       const sql = yield* Database;
       const recruitment = yield* Recruitment;
+
       const [raceRow] = yield* sql<{
         readonly responseState: string;
         readonly responseMessage: string | null;
@@ -838,6 +892,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         FROM recruitment_invitations AS invitation
         WHERE invitation.invitation_id = ${cohort.raceInvitationId}
       `;
+
       const invalidRelationalWrite = yield* Effect.result(sql`
         UPDATE recruitment_invitations
         SET response_state = 'Pending',
@@ -846,6 +901,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
           response_revision = 0
         WHERE invitation_id = ${cohort.raceInvitationId}
       `);
+
       yield* deliverNextRecruitmentInvitationResponse(
         "invitation-response-proof-race-drain",
         "2035-09-15T12:03:30.000Z",
@@ -856,6 +912,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         { message: validNearbyMessage },
         { now: "2035-09-15T12:04:00.000Z" },
       );
+
       const [validNearby] = yield* sql<{ readonly stored: boolean }>`
         SELECT
           invitation.response_message = ${validNearbyMessage}
@@ -870,10 +927,12 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
           ON outbox.invitation_id = invitation.invitation_id
         WHERE invitation.invitation_id = ${cohort.deliveryInvitationId}
       `;
+
       const failedDelivery = yield* deliverNextRecruitmentInvitationResponse(
         "invitation-response-proof-failed-claim",
         "2035-09-15T12:05:00.000Z",
       ).pipe(Effect.provide(failingGateway));
+
       const [afterFailure] = yield* sql<{
         readonly responseState: string;
         readonly responseRevision: number;
@@ -896,10 +955,12 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         FROM recruitment_invitations AS invitation
         WHERE invitation.invitation_id = ${cohort.deliveryInvitationId}
       `;
+
       const recoveredDelivery = yield* deliverNextRecruitmentInvitationResponse(
         "invitation-response-proof-recording-claim",
         "2035-09-15T12:06:00.000Z",
       ).pipe(Effect.provide(recording.layer));
+
       const [privacy] = yield* sql<{ readonly capabilityAbsent: boolean }>`
         SELECT NOT EXISTS (
           SELECT 1
@@ -929,6 +990,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
             OR canonical_artifacts.artifact LIKE ${`%${deliveryCapability}%`}
         ) AS "capabilityAbsent"
       `;
+
       return {
         raceRow,
         invalidRelationalWrite,
@@ -944,10 +1006,11 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     );
 
     const outcomeTags = contenders.map((entry) =>
-      entry.outcome._tag === "Success"
+      Predicate.isTagged(entry.outcome, "Success")
         ? `Recorded:${entry.outcome.success.responseState}`
         : entry.outcome.failure._tag,
     );
+
     const evidence = {
       specId: "0051" as const,
       database: "PostgreSQL" as const,
@@ -966,11 +1029,11 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         responseOutboxRows: Number(durable.raceRow?.outbox ?? "-1"),
       },
       rollback: {
-        forcedRollbackObserved: rollbackResult._tag === "Failure",
+        forcedRollbackObserved: Predicate.isTagged(rollbackResult, "Failure"),
         rowLockReleased: lockReleased,
       },
       relationalConstraint: {
-        invalidResponseRejected: durable.invalidRelationalWrite._tag === "Failure",
+        invalidResponseRejected: Predicate.isTagged(durable.invalidRelationalWrite, "Failure"),
       },
       messageConfinement: {
         ...messageConfinement,
@@ -978,12 +1041,12 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
       },
       deliveryIsolation: {
         responseCommittedBeforeDelivery: durable.deliveryRecorded.responseState === "Rejected",
-        failedDeliveryObserved: durable.failedDelivery._tag === "Failed",
+        failedDeliveryObserved: Predicate.isTagged(durable.failedDelivery, "Failed"),
         storedStateAfterFailure: durable.afterFailure?.responseState ?? "Missing",
         responseRevisionAfterFailure: durable.afterFailure?.responseRevision ?? -1,
         auditRowsAfterFailure: Number(durable.afterFailure?.audits ?? "-1"),
         outboxStatusAfterFailure: durable.afterFailure?.outboxStatus ?? "Missing",
-        recordingRetryDelivered: durable.recoveredDelivery._tag === "Delivered",
+        recordingRetryDelivered: Predicate.isTagged(durable.recoveredDelivery, "Delivered"),
         invitationRecordingRequests: recording.requests.length,
         responseRecordingRequests: recording.responseRequests.length,
       },
@@ -1028,16 +1091,17 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
       responseRecordingRequests: 1,
     });
     assert.equal(evidence.privacy.canonicalCapabilityAbsent, true);
+
     return evidence;
   });
 
 export const program = Effect.gen(function* () {
-  const databaseUrl = yield* Config.redacted("DATABASE_URL");
+  const databaseUrl = yield* Config.Redacted("DATABASE_URL");
   const evidence = yield* proof(databaseUrl);
   const canonicalEvidence = canonicalJson(evidence);
   assert.equal(canonicalEvidence.includes(raceCapability), false);
   assert.equal(canonicalEvidence.includes(deliveryCapability), false);
-  assert.equal(canonicalEvidence.includes(capabilityShapedMessage), false);
+  assert.equal(canonicalEvidence.includes(capabilityBearingMessage), false);
   const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));
   yield* Effect.sync(() =>
     process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),

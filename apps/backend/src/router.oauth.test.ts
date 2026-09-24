@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { makeBackendHttp, makeInternalBackendHttp, type BackendAuthHandler } from "./router.js";
+import {
+  backendHttpHandler,
+  internalBackendHttpHandler,
+  type BackendAuthHandler,
+} from "./router.js";
 import type { NativeSessionBoundaryPolicy } from "./session-security.js";
 
 const sessionBoundary: NativeSessionBoundaryPolicy = {
@@ -20,13 +24,21 @@ const makeAuth = (): BackendAuthHandler => ({
 });
 
 const authorizeUrl = new URL("http://127.0.0.1:4173/api/auth/oauth2/authorize");
+
 authorizeUrl.searchParams.set("client_id", "delegated-client");
+
 authorizeUrl.searchParams.set("redirect_uri", "http://127.0.0.1:4173/dashboard/oauth/callback");
+
 authorizeUrl.searchParams.set("state", "s".repeat(43));
+
 authorizeUrl.searchParams.set("code_challenge", "a".repeat(43));
+
 authorizeUrl.searchParams.set("code_challenge_method", "S256");
+
 authorizeUrl.searchParams.set("resource", "urn:vektorprogrammet:native-api");
+
 authorizeUrl.searchParams.set("response_type", "code");
+
 authorizeUrl.searchParams.set("scope", "native-api offline_access");
 
 const allowedRoutes = [
@@ -44,17 +56,19 @@ const allowedRoutes = [
 describe("frozen external OAuth ingress", () => {
   it.each(allowedRoutes)("dispatches only %s %s to the OAuth graph", async (method, url) => {
     const auth = makeAuth();
-    const http = makeBackendHttp(
+
+    const http = backendHttpHandler(
       vi.fn(async () => new Response("native")),
       auth,
       sessionBoundary,
     );
 
     const browserMutation = url.endsWith("/consent") || url.endsWith("/delete-consent");
+
     const response = await http.fetch(
       new Request(url, {
         method,
-        ...(browserMutation ? { headers: { origin: "http://127.0.0.1:4173" } } : {}),
+        headers: browserMutation ? { origin: "http://127.0.0.1:4173" } : undefined,
       }),
     );
 
@@ -71,7 +85,7 @@ describe("frozen external OAuth ingress", () => {
     ["GET", "http://127.0.0.1:4173/api/auth/userinfo"],
   ])("returns route-not-found for %s %s", async (method, url) => {
     const auth = makeAuth();
-    const http = makeBackendHttp(vi.fn(), auth, sessionBoundary);
+    const http = backendHttpHandler(vi.fn(), auth, sessionBoundary);
 
     const response = await http.fetch(new Request(url, { method }));
 
@@ -82,11 +96,12 @@ describe("frozen external OAuth ingress", () => {
 
   it("does not dispatch an unregistered redirect and never reflects OAuth CORS", async () => {
     const auth = makeAuth();
-    const http = makeBackendHttp(vi.fn(), auth, sessionBoundary);
+    const http = backendHttpHandler(vi.fn(), auth, sessionBoundary);
     const wrong = new URL(authorizeUrl);
     wrong.searchParams.set("redirect_uri", "http://127.0.0.1:4173/other");
 
     const denied = await http.fetch(new Request(wrong));
+
     const token = await http.fetch(
       new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
         method: "POST",
@@ -104,7 +119,7 @@ describe("frozen external OAuth ingress", () => {
 describe("independent internal OAuth ingress", () => {
   it("reveals no token signal to a wrong network", async () => {
     const auth = makeAuth();
-    const http = makeInternalBackendHttp(vi.fn(), auth, ["10.20.0.0/16"]);
+    const http = internalBackendHttpHandler(vi.fn(), auth, ["10.20.0.0/16"]);
 
     const response = await http.fetch(
       new Request("http://127.0.0.1:4173/api/auth/oauth2/introspect", {
@@ -119,12 +134,13 @@ describe("independent internal OAuth ingress", () => {
 
   it("dispatches only POST introspection from an allowed source", async () => {
     const auth = makeAuth();
-    const http = makeInternalBackendHttp(vi.fn(), auth, ["10.20.0.0/16"]);
+    const http = internalBackendHttpHandler(vi.fn(), auth, ["10.20.0.0/16"]);
     const url = "http://127.0.0.1:4173/api/auth/oauth2/introspect";
 
     const accepted = await http.fetch(
       new Request(url, { method: "POST", headers: { "x-real-ip": "10.20.4.5" } }),
     );
+
     const rejectedMethod = await http.fetch(
       new Request(url, { headers: { "x-real-ip": "10.20.4.5" } }),
     );

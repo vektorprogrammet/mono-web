@@ -1,3 +1,5 @@
+import { InvitationResponseResourceSchema, type InvitationResponseObservation } from "../app/foldkit/interview/bridge";
+import { Schema, Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -13,12 +15,17 @@ import {
 import { readBrowserStorage, readDocumentCookie } from "../browser/interview-response-state.js";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
+
 const REAL_NATIVE_INVITATION_RESPONSE_E2E = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
+
 const INVITATION_COOKIE_PREFIX = "recruitment_invitation_capability_";
+
 const INVITATION_INTERACTION_HEADER = "X-Recruitment-Invitation-Interaction-Id";
+
 const INVITATION_INTERACTION_PATTERN = /^[a-f0-9]{32}$/;
 
 type ResponseState = "Pending" | "Accepted" | "Rejected" | "RequestedNewTime";
+
 type ApplicantCase = {
   readonly key: "accepted" | "rejected" | "requested-new-time";
   readonly capabilityEnvironment: string;
@@ -77,17 +84,20 @@ const APPLICANT_CASES: readonly ApplicantCase[] = [
 
 const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
+
   if (value === undefined || value.length === 0) {
     throw new Error(`${name} is required for the native invitation-response journey`);
   }
+
   return value;
 };
 
 const containsCapability = (value: string, capabilities: readonly string[]): boolean =>
   capabilities.some((capability) => value.includes(capability));
 
-const assertCapabilityAbsent = (value: unknown, capabilities: readonly string[]): void => {
-  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+const assertCapabilityAbsent = <Value>(value: Value, capabilities: readonly string[]): void => {
+  const serialized = Predicate.isString(value) ? value : JSON.stringify(value);
+
   if (containsCapability(serialized, capabilities)) {
     throw new Error("Raw invitation capability entered browser-visible evidence");
   }
@@ -95,15 +105,18 @@ const assertCapabilityAbsent = (value: unknown, capabilities: readonly string[])
 
 const bridgeOperation = (request: Request): string | undefined => {
   const pathname = new URL(request.url()).pathname;
+
   if (request.method() !== "POST" || (pathname !== "/interview" && pathname !== "/recruitment")) {
     return undefined;
   }
+
   try {
     const payload: unknown = request.postDataJSON();
-    return typeof payload === "object" &&
+
+    return Predicate.isObjectOrArray(payload) &&
       payload !== null &&
       "operation" in payload &&
-      typeof payload.operation === "string"
+      Predicate.isString(payload.operation)
       ? payload.operation
       : undefined;
   } catch {
@@ -135,15 +148,19 @@ const observePage = (
     const url = new URL(request.url());
     const pathname = url.pathname;
     const operation = bridgeOperation(request);
+
     if (operation !== undefined) observation.bridgeOperations.push({ actor, operation });
+
     if (request.headers().authorization !== undefined) observation.bearerRequests.push(pathname);
 
     const requestContainsCapability = containsCapability(request.url(), capabilities);
+
     if (requestContainsCapability) {
       const expectedExchangePath =
         expectedExchangeCapability === null
           ? null
           : `/interview-response/${expectedExchangeCapability}`;
+
       if (
         expectedExchangePath !== pathname ||
         !request.isNavigationRequest() ||
@@ -154,21 +171,28 @@ const observePage = (
         observation.capabilityExchanges[actor] = (observation.capabilityExchanges[actor] ?? 0) + 1;
       }
     }
+
     const postData = request.postData();
+
     if (postData !== null && containsCapability(postData, capabilities)) {
       observation.rawCapabilityLeak = true;
     }
+
     const nonCookieHeaders = Object.entries(request.headers())
       .filter(([name]) => name.toLowerCase() !== "cookie")
       .map(([name, value]) => `${name}:${value}`)
       .join("\n");
+
     if (containsCapability(nonCookieHeaders, capabilities)) {
       observation.rawCapabilityLeak = true;
     }
+
     if (url.origin !== DASHBOARD_ORIGIN) observation.externalRequests += 1;
+
     if (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
       observation.providerRequests += 1;
     }
+
     if (
       pathname.startsWith("/api/interview-responses") ||
       pathname === "/api/admin/interviews" ||
@@ -180,10 +204,12 @@ const observePage = (
   });
   page.on("pageerror", (error) => {
     observation.pageErrors += 1;
+
     if (containsCapability(error.message, capabilities)) observation.rawCapabilityLeak = true;
   });
   page.on("console", (message) => {
     const text = message.text();
+
     if (
       message.type() !== "error" ||
       /^Failed to load resource: the server responded with a status of \d+/.test(text)
@@ -193,6 +219,7 @@ const observePage = (
     observation.consoleErrorMessages.push(
       containsCapability(text, capabilities) ? "[capability redacted]" : text,
     );
+
     if (containsCapability(text, capabilities)) observation.rawCapabilityLeak = true;
   });
 };
@@ -203,12 +230,14 @@ const waitForBridgeResponse = (page: Page, operation: string): Promise<Response>
 const readResponseBody = async (
   response: Response,
   capabilities: readonly string[],
-): Promise<unknown> => {
+): Promise<Schema.Json | undefined> => {
   const body = await response.text();
   assertCapabilityAbsent(body, capabilities);
+
   if (body.length === 0) return undefined;
+
   try {
-    return JSON.parse(body) as unknown;
+    return Schema.decodeUnknownSync(Schema.Json)(JSON.parse(body));
   } catch {
     throw new Error("The invitation-response bridge returned malformed JSON");
   }
@@ -218,6 +247,7 @@ const interactionIdForPage = (page: Page): string => {
   const url = new URL(page.url());
   const parameters = [...url.searchParams.entries()];
   const interactionId = parameters[0]?.[1];
+
   if (
     url.origin !== DASHBOARD_ORIGIN ||
     url.pathname !== "/interview-response/redacted" ||
@@ -228,15 +258,17 @@ const interactionIdForPage = (page: Page): string => {
   ) {
     throw new Error("Applicant navigation did not expose one strict interaction binding");
   }
+
   return interactionId;
 };
 
 const bridgeFetch = async (
   page: Page,
-  payload: Readonly<Record<string, unknown>>,
+  payload: Readonly<Record<string, Schema.Json>>,
   capabilities: readonly string[],
-): Promise<{ readonly status: number; readonly body: unknown }> => {
+): Promise<{ readonly status: number; readonly body: Schema.Json | undefined }> => {
   const interactionId = interactionIdForPage(page);
+
   const result = await page.evaluate(
     async ({ body, interactionId, interactionHeader }) => {
       const response = await fetch("/interview", {
@@ -248,6 +280,7 @@ const bridgeFetch = async (
         },
         body: JSON.stringify(body),
       });
+
       return { status: response.status, text: await response.text() };
     },
     {
@@ -256,20 +289,23 @@ const bridgeFetch = async (
       interactionHeader: INVITATION_INTERACTION_HEADER,
     },
   );
+
   assertCapabilityAbsent(result.text, capabilities);
-  let body: unknown;
+  let body: Schema.Json | undefined;
+
   if (result.text.length > 0) {
     try {
-      body = JSON.parse(result.text) as unknown;
+      body = Schema.decodeUnknownSync(Schema.Json)(JSON.parse(result.text));
     } catch {
       throw new Error("The invitation-response bridge returned malformed JSON");
     }
   }
+
   return { status: result.status, body };
 };
 
 const assertObservation = (
-  value: unknown,
+  value: InvitationResponseObservation,
   responseCase: ApplicantCase,
   responseState: ResponseState,
   responseMessage: string | null,
@@ -283,20 +319,7 @@ const assertObservation = (
   });
 };
 
-const decodeBridgeResource = (
-  value: unknown,
-): { readonly observation: unknown; readonly etag: string } => {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("observation" in value) ||
-    !("etag" in value) ||
-    typeof value.etag !== "string"
-  ) {
-    throw new Error("The invitation-response bridge omitted its current read resource");
-  }
-  return { observation: value.observation, etag: value.etag };
-};
+const decodeBridgeResource = Schema.decodeUnknownSync(InvitationResponseResourceSchema, { onExcessProperty: "error" });
 
 const authenticate = async (
   page: Page,
@@ -307,6 +330,7 @@ const authenticate = async (
   await page.getByLabel("E-post").fill(requiredEnvironment(emailEnvironment));
   await page.getByLabel("Passord", { exact: true }).fill(requiredEnvironment(passwordEnvironment));
   await page.getByRole("button", { name: "Logg inn" }).click();
+
   try {
     await page.waitForURL(/\/dashboard\/?$/, { timeout: 5_000 });
   } catch (error) {
@@ -315,6 +339,7 @@ const authenticate = async (
       { cause: error },
     );
   }
+
   const sessionCookieNames = (await page.context().cookies(DASHBOARD_ORIGIN))
     .filter(
       ({ name }) =>
@@ -322,9 +347,11 @@ const authenticate = async (
     )
     .map(({ name }) => name)
     .sort();
+
   if (sessionCookieNames.length === 0) {
     throw new Error("native login did not issue a Better Auth session cookie");
   }
+
   return sessionCookieNames;
 };
 
@@ -342,6 +369,7 @@ const assertApplicantPrivacy = async (
   readonly interactionBound: true;
 }> => {
   const interactionId = interactionIdForPage(page);
+
   const [content, bodyText, readableCookie, browserStorage, cookies] = await Promise.all([
     page.content(),
     page.locator("body").innerText(),
@@ -349,6 +377,7 @@ const assertApplicantPrivacy = async (
     page.evaluate(readBrowserStorage),
     context.cookies(`${DASHBOARD_ORIGIN}/interview`),
   ]);
+
   assertCapabilityAbsent(page.url(), capabilities);
   assertCapabilityAbsent(content, capabilities);
   assertCapabilityAbsent(bodyText, capabilities);
@@ -356,10 +385,13 @@ const assertApplicantPrivacy = async (
   assertCapabilityAbsent(browserStorage, capabilities);
 
   const expectedCookieName = `${INVITATION_COOKIE_PREFIX}${interactionId}`;
+
   const invitationCookies = cookies.filter((cookie) =>
     cookie.name.startsWith(INVITATION_COOKIE_PREFIX),
   );
+
   const invitationCookie = invitationCookies.find((cookie) => cookie.name === expectedCookieName);
+
   if (
     invitationCookie === undefined ||
     invitationCookie.value !== expectedCapability ||
@@ -380,6 +412,7 @@ const assertApplicantPrivacy = async (
   ) {
     throw new Error("The server-held invitation cookies violated their interaction bindings");
   }
+
   if (
     cookies.some(
       (cookie) =>
@@ -389,6 +422,7 @@ const assertApplicantPrivacy = async (
   ) {
     throw new Error("A raw invitation capability entered an unrelated browser cookie");
   }
+
   return {
     httpOnly: true,
     sameSite: "Strict",
@@ -401,6 +435,7 @@ const assertApplicantPrivacy = async (
 
 const waitForDeferred = async (promise: Promise<void>, label: string): Promise<void> => {
   let timeout: NodeJS.Timeout | undefined;
+
   try {
     await Promise.race([
       promise,
@@ -423,27 +458,36 @@ const runCommandWithFreshReadGate = async (
   readonly etag: string;
 }> => {
   let resolveReadArrival!: () => void;
+
   const readArrived = new Promise<void>((resolve) => {
     resolveReadArrival = resolve;
   });
+
   let releaseRead!: () => void;
+
   const readReleased = new Promise<void>((resolve) => {
     releaseRead = resolve;
   });
+
   let routeHandlerStarted = false;
   let resolveRouteHandler!: () => void;
+
   const routeHandlerCompleted = new Promise<void>((resolve) => {
     resolveRouteHandler = resolve;
   });
+
   let gateArmed = true;
+
   const routeHandler = async (route: Route): Promise<void> => {
     routeHandlerStarted = true;
+
     try {
       if (gateArmed && bridgeOperation(route.request()) === "readInvitationResponse") {
         gateArmed = false;
         resolveReadArrival();
         await readReleased;
       }
+
       await route.continue();
     } finally {
       resolveRouteHandler();
@@ -452,30 +496,40 @@ const runCommandWithFreshReadGate = async (
 
   await page.route("**/interview", routeHandler);
   const commandResponse = waitForBridgeResponse(page, responseCase.operation);
+
   try {
     await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
     const command = await commandResponse;
+
     if (command.status() !== 204) {
       const failure = await readResponseBody(command, capabilities);
+
       const failureTag =
-        failure !== null && typeof failure === "object" && "_tag" in failure
+        failure !== null && Predicate.isObjectOrArray(failure) && "_tag" in failure
           ? String(failure._tag)
           : "Unknown";
+
       throw new Error(
         `A valid ${responseCase.key} invitation response returned ${command.status()} ${failureTag}`,
       );
     }
+
     const contentLength = command.headers()["content-length"];
+
     if (contentLength !== undefined && contentLength !== "0") {
       throw new Error("A successful invitation response command returned interface data");
     }
+
     await waitForDeferred(readArrived, "Post-command applicant read");
+
     if ((await page.getByText(responseCase.stateLabel, { exact: true }).count()) !== 0) {
       throw new Error("The applicant interface changed before its fresh server read");
     }
+
     const freshReadResponse = waitForBridgeResponse(page, "readInvitationResponse");
     releaseRead();
     const read = await freshReadResponse;
+
     if (read.status() !== 200) throw new Error("The post-command applicant read did not succeed");
     const resource = decodeBridgeResource(await readResponseBody(read, capabilities));
     assertObservation(
@@ -484,9 +538,11 @@ const runCommandWithFreshReadGate = async (
       responseCase.finalState,
       responseCase.responseMessage,
     );
+
     return { commandStatus: 204, freshReadStatus: 200, etag: resource.etag };
   } finally {
     releaseRead();
+
     if (routeHandlerStarted) await routeHandlerCompleted;
     await page.unroute("**/interview", routeHandler);
   }
@@ -522,13 +578,16 @@ test.describe("Native recruitment invitation response", () => {
     browser,
   }) => {
     const evidencePath = requiredEnvironment("INVITATION_RESPONSE_E2E_BROWSER_EVIDENCE_PATH");
-    const capabilitiesByCase = Object.fromEntries(
+
+    const capabilitiesByCase = Schema.decodeUnknownSync(Schema.Record(Schema.Literals(APPLICANT_CASES.map(item => item.key)), Schema.String))(Object.fromEntries(
       APPLICANT_CASES.map((responseCase) => [
         responseCase.key,
         requiredEnvironment(responseCase.capabilityEnvironment),
       ]),
-    ) as Record<ApplicantCase["key"], string>;
+    ));
+
     const capabilities = Object.values(capabilitiesByCase);
+
     if (
       capabilities.length !== 3 ||
       new Set(capabilities).size !== 3 ||
@@ -549,13 +608,16 @@ test.describe("Native recruitment invitation response", () => {
       consoleErrorMessages: [],
       rawCapabilityLeak: false,
     };
-    const applicantEvidence: Array<Record<string, unknown>> = [];
+
+    const applicantEvidence: Array<Record<string, Schema.Json>> = [];
+
     const applicantGroups: ReadonlyArray<ReadonlyArray<ApplicantCase>> = [
       APPLICANT_CASES.filter(({ key }) => key !== "requested-new-time"),
       APPLICANT_CASES.filter(({ key }) => key === "requested-new-time"),
     ];
+
     let applicantContextsClosed = 0;
-    let tabBindingEvidence: Record<string, unknown> | null = null;
+    let tabBindingEvidence: Record<string, Schema.Json> | null = null;
     let accessibilityRuns = 0;
     let trailingSlashRouteRead = false;
 
@@ -564,6 +626,7 @@ test.describe("Native recruitment invitation response", () => {
         baseURL: DASHBOARD_ORIGIN,
         viewport: { width: 1440, height: 900 },
       });
+
       try {
         const tabs: Array<{
           readonly responseCase: ApplicantCase;
@@ -571,6 +634,7 @@ test.describe("Native recruitment invitation response", () => {
           readonly page: Page;
           readonly initialEtag: string;
         }> = [];
+
         for (const responseCase of responseCases) {
           const capability = capabilitiesByCase[responseCase.key];
           const page = await context.newPage();
@@ -579,12 +643,15 @@ test.describe("Native recruitment invitation response", () => {
           const initialReadResponse = waitForBridgeResponse(page, "readInvitationResponse");
           await page.goto(`/interview-response/${capability}`);
           const initialRead = await initialReadResponse;
+
           if (initialRead.status() !== 200) {
             throw new Error("Initial applicant read did not succeed");
           }
+
           const initialResource = decodeBridgeResource(
             await readResponseBody(initialRead, capabilities),
           );
+
           assertObservation(initialResource.observation, responseCase, "Pending", null);
           interactionIdForPage(page);
           await expect(
@@ -594,14 +661,17 @@ test.describe("Native recruitment invitation response", () => {
           await expect(page.getByText(responseCase.campus, { exact: true })).toBeVisible();
           await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
           tabs.push({ responseCase, capability, page, initialEtag: initialResource.etag });
+
           if (responseCase.key === "accepted") {
             const trailingSlashUrl = new URL(page.url());
             trailingSlashUrl.pathname = `${trailingSlashUrl.pathname}/`;
             const trailingSlashRead = waitForBridgeResponse(page, "readInvitationResponse");
             await page.goto(trailingSlashUrl.toString());
+
             if ((await trailingSlashRead).status() !== 200) {
               throw new Error("Trailing-slash applicant read did not succeed");
             }
+
             await expect(
               page.getByRole("heading", { name: "Svar på intervjutid", exact: true }),
             ).toBeVisible();
@@ -618,18 +688,22 @@ test.describe("Native recruitment invitation response", () => {
 
         if (tabs.length === 2) {
           const interactionIds = tabs.map(({ page }) => interactionIdForPage(page));
+
           if (new Set(interactionIds).size !== interactionIds.length) {
             throw new Error("Two invitation tabs received the same interaction id");
           }
+
           const expectedCookieNames = interactionIds
             .map((interactionId) => `${INVITATION_COOKIE_PREFIX}${interactionId}`)
             .sort();
+
           const cookieNamesBeforeInvalidExchange = (
             await context.cookies(`${DASHBOARD_ORIGIN}/interview`)
           )
             .filter((cookie) => cookie.name.startsWith(INVITATION_COOKIE_PREFIX))
             .map((cookie) => cookie.name)
             .sort();
+
           if (
             JSON.stringify(cookieNamesBeforeInvalidExchange) !== JSON.stringify(expectedCookieNames)
           ) {
@@ -639,12 +713,14 @@ test.describe("Native recruitment invitation response", () => {
           const invalidPage = await context.newPage();
           observePage(invalidPage, "Applicant:invalid-exchange", null, capabilities, observation);
           const invalidExchangeResponse = await invalidPage.goto("/interview-response/invalid");
+
           if (
             invalidExchangeResponse?.status() !== 404 ||
             new URL(invalidPage.url()).pathname !== "/interview-response/redacted"
           ) {
             throw new Error("Invalid invitation exchange did not fail on the redacted route");
           }
+
           await invalidPage.close();
 
           const cookieNamesAfterInvalidExchange = (
@@ -653,12 +729,14 @@ test.describe("Native recruitment invitation response", () => {
             .filter((cookie) => cookie.name.startsWith(INVITATION_COOKIE_PREFIX))
             .map((cookie) => cookie.name)
             .sort();
+
           if (
             JSON.stringify(cookieNamesAfterInvalidExchange) !==
             JSON.stringify(cookieNamesBeforeInvalidExchange)
           ) {
             throw new Error("Invalid invitation exchange erased another tab binding");
           }
+
           tabBindingEvidence = {
             sameBrowserContext: true,
             exchangedTabs: 2,
@@ -677,8 +755,9 @@ test.describe("Native recruitment invitation response", () => {
             capabilities,
           );
 
-          let invalidBlankEvidence: Record<string, unknown> | null = null;
-          let capabilityShapedMessageEvidence: Record<string, unknown> | null = null;
+          let invalidBlankEvidence: Record<string, Schema.Json> | null = null;
+          let capabilityTokenMessageEvidence = null;
+
           if (responseCase.key === "requested-new-time") {
             const operationsBeforeClientValidation = observation.bridgeOperations.length;
             await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
@@ -688,18 +767,22 @@ test.describe("Native recruitment invitation response", () => {
               }),
             ).toBeVisible();
             await page.waitForTimeout(100);
+
             if (observation.bridgeOperations.length !== operationsBeforeClientValidation) {
               throw new Error("Blank new-time input crossed the Foldkit command boundary");
             }
+
             await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
 
             const responseMessageInput = page.getByLabel("Melding", { exact: true });
             await responseMessageInput.fill(`Flytt intervjuet ${capabilitiesByCase.accepted} takk`);
             await expect(responseMessageInput).toHaveValue("");
             const renderedBody = await page.locator("body").textContent();
+
             if (renderedBody?.includes(capabilitiesByCase.accepted) === true) {
               throw new Error("Capability-shaped input remained in the rendered page");
             }
+
             const operationsBeforeCapabilityMessage = observation.bridgeOperations.length;
             await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
             await expect(
@@ -708,11 +791,13 @@ test.describe("Native recruitment invitation response", () => {
               }),
             ).toBeVisible();
             await page.waitForTimeout(100);
+
             if (observation.bridgeOperations.length !== operationsBeforeCapabilityMessage) {
               throw new Error("Capability-shaped input crossed the Foldkit command boundary");
             }
+
             await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
-            capabilityShapedMessageEvidence = {
+            capabilityTokenMessageEvidence = {
               clientCommandBlocked: true,
               bridgeFetchAttempted: false,
               preservedState: "Pending",
@@ -724,35 +809,42 @@ test.describe("Native recruitment invitation response", () => {
               { operation: "requestNewInvitationTime", etag: initialEtag, message: "   " },
               capabilities,
             );
+
             if (
               invalid.status !== 422 ||
-              typeof invalid.body !== "object" ||
+              !(invalid.body === null || Predicate.isObjectOrArray(invalid.body)) ||
               invalid.body === null ||
               !("_tag" in invalid.body) ||
-              invalid.body._tag !== "InvitationDecodeError"
+              !Predicate.isTagged(invalid.body, "InvitationDecodeError")
             ) {
               throw new Error("The strict bridge did not reject blank new-time input");
             }
+
             const preserved = await bridgeFetch(
               page,
               { operation: "readInvitationResponse" },
               capabilities,
             );
+
             if (preserved.status !== 200) {
               throw new Error("Invalid response preservation read failed");
             }
+
             assertObservation(
               decodeBridgeResource(preserved.body).observation,
               responseCase,
               "Pending",
               null,
             );
+
             const pendingAccessibility = await new AxeBuilder({ page })
               .include("main.foldkit-interview")
               .analyze();
+
             if (pendingAccessibility.violations.length !== 0) {
               throw new Error("Applicant pending validation state has accessibility violations");
             }
+
             accessibilityRuns += 1;
             invalidBlankEvidence = {
               clientCommandBlocked: true,
@@ -765,12 +857,15 @@ test.describe("Native recruitment invitation response", () => {
           if (responseCase.responseMessage !== null) {
             await page.getByLabel("Melding", { exact: true }).fill(responseCase.responseMessage);
           }
+
           const commandEvidence = await runCommandWithFreshReadGate(
             page,
             responseCase,
             capabilities,
           );
+
           await expect(page.getByText(responseCase.stateLabel, { exact: true })).toBeVisible();
+
           if (responseCase.responseMessage !== null) {
             await expect(
               page.getByText(responseCase.responseMessage, { exact: true }),
@@ -788,23 +883,27 @@ test.describe("Native recruitment invitation response", () => {
                 },
             capabilities,
           );
+
           if (
             repeated.status !== 409 ||
-            typeof repeated.body !== "object" ||
+            !(repeated.body === null || Predicate.isObjectOrArray(repeated.body)) ||
             repeated.body === null ||
             !("_tag" in repeated.body) ||
-            repeated.body._tag !== "InvitationAlreadyResponded"
+            !Predicate.isTagged(repeated.body, "InvitationAlreadyResponded")
           ) {
             throw new Error("A repeated invitation response did not return the typed conflict");
           }
+
           const repeatedRead = await bridgeFetch(
             page,
             { operation: "readInvitationResponse" },
             capabilities,
           );
+
           if (repeatedRead.status !== 200) {
             throw new Error("Repeated response preservation read failed");
           }
+
           assertObservation(
             decodeBridgeResource(repeatedRead.body).observation,
             responseCase,
@@ -817,9 +916,11 @@ test.describe("Native recruitment invitation response", () => {
           const accessibility = await new AxeBuilder({ page })
             .include("main.foldkit-interview")
             .analyze();
+
           if (accessibility.violations.length !== 0) {
             throw new Error("Applicant response state has accessibility violations");
           }
+
           accessibilityRuns += 1;
           applicantEvidence.push({
             key: responseCase.key,
@@ -836,7 +937,7 @@ test.describe("Native recruitment invitation response", () => {
             repeatedState: responseCase.finalState,
             scheduleRetained: true,
             invalidBlank: invalidBlankEvidence,
-            capabilityShapedMessage: capabilityShapedMessageEvidence,
+            capabilityTokenMessage: capabilityTokenMessageEvidence,
             cookie: cookieEvidence,
             redactedUrl: true,
           });
@@ -847,8 +948,9 @@ test.describe("Native recruitment invitation response", () => {
       }
     }
 
-    const staffEvidence: Record<string, unknown> = {};
+    const staffEvidence: Record<string, Schema.Json> = {};
     let staffContextsClosed = 0;
+
     for (const staffCase of [
       {
         actor: "DepartmentLeader",
@@ -865,35 +967,44 @@ test.describe("Native recruitment invitation response", () => {
         baseURL: DASHBOARD_ORIGIN,
         viewport: { width: 1440, height: 900 },
       });
+
       try {
         const page = await context.newPage();
         const sessionCookieNames = await authenticate(page, staffCase.email, staffCase.password);
+
         if (JSON.stringify(sessionCookieNames) !== JSON.stringify(["better-auth.session_token"])) {
           throw new Error("Native login issued an unexpected Better Auth session cookie");
         }
+
         observePage(page, staffCase.actor, null, capabilities, observation);
         await page.goto("/dashboard/intervjuer");
         await expect(
           page.getByRole("heading", { level: 1, name: "Planlegg intervjuer" }),
         ).toBeVisible({ timeout: 30_000 });
+
         const freshBoardResponse = page.waitForResponse(
           (response) => bridgeOperation(response.request()) === "readSchedulingBoard",
         );
+
         await page.getByRole("button", { name: "Hent oppdatert oversikt", exact: true }).click();
         const boardResponse = await freshBoardResponse;
+
         if (boardResponse.status() !== 200)
           throw new Error("Fresh staff board read did not succeed");
         await readResponseBody(boardResponse, capabilities);
 
         for (const responseCase of APPLICANT_CASES) {
           const card = applicantCard(page, responseCase.applicantName);
+
           if (staffCase.actor === "Member" && responseCase.finalState === "Rejected") {
             await expect(card).toHaveCount(0);
             continue;
           }
+
           await expect(card).toHaveCount(1);
           await expect(card).toContainText(responseCase.room);
           await expect(card).toContainText(responseCase.stateLabel);
+
           if (responseCase.responseMessage === null) {
             await expect(card).not.toContainText("Melding fra søker");
           } else {
@@ -901,12 +1012,15 @@ test.describe("Native recruitment invitation response", () => {
             await expect(card).toContainText(responseCase.responseMessage);
           }
         }
+
         const accessibility = await new AxeBuilder({ page })
           .include('section[aria-labelledby="fs-page-title"]')
           .analyze();
+
         if (accessibility.violations.length !== 0) {
           throw new Error("Staff scheduling board has accessibility violations");
         }
+
         accessibilityRuns += 1;
         assertCapabilityAbsent(await page.locator("body").innerText(), capabilities);
         staffEvidence[staffCase.actor] = {
@@ -946,12 +1060,14 @@ test.describe("Native recruitment invitation response", () => {
       { actor: "DepartmentLeader", operation: "readSchedulingBoard" },
       { actor: "Member", operation: "readSchedulingBoard" },
     ];
+
     expect(observation.bridgeOperations).toEqual(expectedBridgeOperations);
     expect(observation.capabilityExchanges).toEqual({
       "Applicant:accepted": 1,
       "Applicant:rejected": 1,
       "Applicant:requested-new-time": 1,
     });
+
     if (
       applicantContextsClosed !== 2 ||
       staffContextsClosed !== 2 ||
@@ -960,6 +1076,7 @@ test.describe("Native recruitment invitation response", () => {
     ) {
       throw new Error("Browser contexts or invitation route evidence were incomplete");
     }
+
     assertNoObservedFailures(observation);
 
     const evidence = {
@@ -991,6 +1108,7 @@ test.describe("Native recruitment invitation response", () => {
       rawCapabilityObservedOutsideExchange: false,
       rawCapabilitySerialized: false,
     };
+
     const serializedEvidence = `${JSON.stringify(evidence)}\n`;
     assertCapabilityAbsent(serializedEvidence, capabilities);
     await mkdir(dirname(evidencePath), { recursive: true });

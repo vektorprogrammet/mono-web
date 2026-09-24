@@ -1,22 +1,27 @@
+import { deny, allow } from "../authz/decision.js";
+import { Predicate } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
-import type { DepartmentId, PersonId } from "../organization/schema.js";
+import { TeamId, MembershipId, DepartmentId, PersonId } from "../organization/schema.js";
 import {
+  ContentScope,
   canPublishContent,
   canReviseDraft,
   contentScopeFor,
   resolveContentActor,
-  type ContentActor,
+  ContentActor,
 } from "./actor.js";
 
-const editorId = "editor" as PersonId;
-const departmentA = "department-a" as DepartmentId;
-const departmentB = "department-b" as DepartmentId;
-const editor: ContentActor = {
-  _tag: "ContentEditor",
+const editorId = PersonId.make("editor");
+
+const departmentA = DepartmentId.make("department-a");
+
+const departmentB = DepartmentId.make("department-b");
+
+const editor: ContentActor = ContentActor.ContentEditor({
   personId: editorId,
   departmentIds: [departmentA],
-};
+});
 
 describe("content editor scope", () => {
   it("allows only the editor's own draft inside an active department", () => {
@@ -36,7 +41,7 @@ describe("content editor scope", () => {
     ).toBe(false);
     expect(
       canReviseDraft(editor, {
-        createdByPersonId: "another-editor" as PersonId,
+        createdByPersonId: PersonId.make("another-editor"),
         currentVersionNumber: null,
         departmentIds: [departmentA],
       }),
@@ -53,6 +58,7 @@ describe("content editor scope", () => {
     ).toBe(false);
   });
 });
+
 describe("published article revision boundary", () => {
   const published = {
     createdByPersonId: editorId,
@@ -64,17 +70,16 @@ describe("published article revision boundary", () => {
     expect(canReviseDraft(editor, published)).toBe(false);
     expect(
       canReviseDraft(
-        {
-          _tag: "ContentPublisher",
-          personId: "leader" as PersonId,
+        ContentActor.ContentPublisher({
+          personId: PersonId.make("leader"),
           departmentIds: [departmentA],
-        },
+        }),
         published,
       ),
     ).toBe(true);
     expect(
       canReviseDraft(
-        { _tag: "ContentAdministrator", personId: "administrator" as PersonId },
+        ContentActor.ContentAdministrator({ personId: PersonId.make("administrator") }),
         published,
       ),
     ).toBe(true);
@@ -87,7 +92,7 @@ describe("content actor derivation", () => {
     memberships: OrganizationPersonAuthority["memberships"],
   ): OrganizationPersonAuthority => ({
     personId: editorId,
-    evaluatedAt: "2030-01-01T00:00:00.000Z" as OrganizationPersonAuthority["evaluatedAt"],
+    evaluatedAt: "2030-01-01T00:00:00.000Z",
     globalAdministrator,
     memberships,
   });
@@ -96,15 +101,15 @@ describe("content actor derivation", () => {
     const decision = resolveContentActor(
       authority("Absent", [
         {
-          membershipId: "leader-a" as never,
-          teamId: "team-a" as never,
+          membershipId: MembershipId.make("leader-a"),
+          teamId: TeamId.make("team-a"),
           departmentId: departmentA,
           active: true,
           teamLeader: true,
         },
         {
-          membershipId: "member-b" as never,
-          teamId: "team-b" as never,
+          membershipId: MembershipId.make("member-b"),
+          teamId: TeamId.make("team-b"),
           departmentId: departmentB,
           active: true,
           teamLeader: false,
@@ -112,23 +117,18 @@ describe("content actor derivation", () => {
       ]),
     );
 
-    expect(decision).toEqual({
-      _tag: "Allow",
-      value: {
-        _tag: "ContentPublisher",
-        personId: editorId,
-        departmentIds: [departmentA],
-      },
-    });
+    expect(decision).toEqual(
+      allow(ContentActor.ContentPublisher({ personId: editorId, departmentIds: [departmentA] })),
+    );
   });
   it("lets a scoped leader revise and publish only intersecting non-org-wide articles", () => {
-    const publisher: ContentActor = {
-      _tag: "ContentPublisher",
+    const publisher: ContentActor = ContentActor.ContentPublisher({
       personId: editorId,
       departmentIds: [departmentA],
-    };
+    });
+
     const draft = (departmentIds: ReadonlyArray<DepartmentId>) => ({
-      createdByPersonId: "another-editor" as PersonId,
+      createdByPersonId: PersonId.make("another-editor"),
       currentVersionNumber: null,
       departmentIds,
     });
@@ -145,12 +145,13 @@ describe("content actor derivation", () => {
   it("lets an active global administrator span org-wide and department content", () => {
     const decision = resolveContentActor(authority("Active", []));
     expect(decision._tag).toBe("Allow");
-    if (decision._tag === "Deny") return;
 
-    expect(contentScopeFor(decision.value)).toEqual({ _tag: "All" });
+    if (Predicate.isTagged(decision, "Deny")) return;
+
+    expect(contentScopeFor(decision.value)).toEqual(ContentScope.All());
     expect(
       canReviseDraft(decision.value, {
-        createdByPersonId: "another-editor" as PersonId,
+        createdByPersonId: PersonId.make("another-editor"),
         currentVersionNumber: 3,
         departmentIds: [],
       }),
@@ -163,8 +164,8 @@ describe("content actor derivation", () => {
     const decision = resolveContentActor(
       authority("Inactive", [
         {
-          membershipId: "active-member" as never,
-          teamId: "team-a" as never,
+          membershipId: MembershipId.make("active-member"),
+          teamId: TeamId.make("team-a"),
           departmentId: departmentA,
           active: true,
           teamLeader: false,
@@ -172,31 +173,28 @@ describe("content actor derivation", () => {
       ]),
     );
 
-    expect(decision).toEqual({ _tag: "Deny", reason: "AuthorityInactive" });
+    expect(decision).toEqual(deny("AuthorityInactive"));
   });
   it("distinguishes ended memberships from no authority records", () => {
     const ended = resolveContentActor(
       authority("Absent", [
         {
-          membershipId: "ended" as never,
-          teamId: "team-a" as never,
+          membershipId: MembershipId.make("ended"),
+          teamId: TeamId.make("team-a"),
           departmentId: departmentA,
           active: false,
           teamLeader: true,
         },
       ]),
     );
-    expect(ended).toEqual({ _tag: "Deny", reason: "AuthorityInactive" });
-    expect(resolveContentActor(authority("Absent", []))).toEqual({
-      _tag: "Deny",
-      reason: "NotInScope",
-    });
+
+    expect(ended).toEqual(deny("AuthorityInactive"));
+    expect(resolveContentActor(authority("Absent", []))).toEqual(deny("NotInScope"));
   });
 
   it("keeps editor workspace scope inside active memberships", () => {
-    expect(contentScopeFor(editor)).toEqual({
-      _tag: "DepartmentIds",
-      departmentIds: [departmentA],
-    });
+    expect(contentScopeFor(editor)).toEqual(
+      ContentScope.DepartmentIds({ departmentIds: [departmentA] }),
+    );
   });
 });

@@ -71,6 +71,7 @@ describe("native content HTTP boundary", () => {
     for (const [failure, status, code] of cases) {
       await expectProblem(contentHttpErrorResponse(failure), status, code);
     }
+
     expect(contentHttpErrorResponse(cases[4][0]).headers.get("retry-after")).toBe("5");
   });
 
@@ -89,6 +90,7 @@ describe("native content HTTP boundary", () => {
       headers: { "content-type": "text/plain" },
       body: "{}",
     });
+
     const oversized = new Request("http://backend.test/api/content/articles", {
       method: "POST",
       headers: { "content-type": "application/json" },

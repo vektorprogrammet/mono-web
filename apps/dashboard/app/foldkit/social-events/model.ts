@@ -20,6 +20,7 @@ export const SocialEventsFailureTag = S.Literals([
   "Configuration",
   "InvalidDraft",
 ]);
+
 export type SocialEventsFailureTag = S.Schema.Type<typeof SocialEventsFailureTag>;
 
 export const SocialEventsFailure = S.TaggedUnion({
@@ -41,6 +42,7 @@ export const SocialEventsFailure = S.TaggedUnion({
     message: S.String,
   },
 });
+
 export type SocialEventsFailure = S.Schema.Type<typeof SocialEventsFailure>;
 
 export const SocialEventDraft = S.Struct({
@@ -53,6 +55,7 @@ export const SocialEventDraft = S.Struct({
   startAt: S.String,
   endAt: S.String,
 });
+
 export type SocialEventDraft = S.Schema.Type<typeof SocialEventDraft>;
 
 export const ScopeState = S.TaggedUnion({
@@ -61,6 +64,7 @@ export const ScopeState = S.TaggedUnion({
   Success: { data: SocialEventScopeResource },
   Failure: { error: SocialEventsFailure },
 });
+
 export type ScopeState = S.Schema.Type<typeof ScopeState>;
 
 export const ListState = S.TaggedUnion({
@@ -69,6 +73,7 @@ export const ListState = S.TaggedUnion({
   Success: { data: SocialEventListResource },
   Failure: { error: SocialEventsFailure },
 });
+
 export type ListState = S.Schema.Type<typeof ListState>;
 
 export const Model = S.Struct({
@@ -82,10 +87,11 @@ export const Model = S.Struct({
   failure: S.NullOr(SocialEventsFailure),
   success: S.Boolean,
 });
+
 export type Model = S.Schema.Type<typeof Model>;
 
 
-export const makeDraft = (): SocialEventDraft => ({
+export const emptyDraft = (): SocialEventDraft => ({
   departmentId: null,
   semesterId: null,
   audience: "TeamMembers",
@@ -96,10 +102,10 @@ export const makeDraft = (): SocialEventDraft => ({
   endAt: "",
 });
 
-export const makeInitialModel = (): Model => ({
-  scope: { _tag: "Loading" },
-  list: { _tag: "Idle" },
-  draft: makeDraft(),
+export const init = (): Model => ({
+  scope: ScopeState.cases.Loading.make({}),
+  list: ListState.cases.Idle.make({}),
+  draft: emptyDraft(),
   requestId: 1,
   commandSequence: 1,
   commandSeed: globalThis.crypto.randomUUID().replaceAll("-", ""),

@@ -17,9 +17,11 @@ export const runPersonCohortCli = async (): Promise<void> => {
   )
     throw invalidSnapshot();
   const url = disposablePersonCohortDatabaseUrl(process.env.PERSON_COHORT_PG_URL);
+
   const input = decodePersonCohort(
     await readPrivateCohortJson(process.env.PERSON_COHORT_INPUT, invalidSnapshot),
   );
+
   if (input.sourceKind !== "Synthetic") throw invalidSnapshot();
   await Effect.runPromise(
     databaseHealth.pipe(
@@ -27,6 +29,7 @@ export const runPersonCohortCli = async (): Promise<void> => {
     ),
   );
   const pool = new Pool({ connectionString: url, max: 2 });
+
   try {
     process.stdout.write(JSON.stringify(await importPersonCohort(pool, input)) + "\n");
   } finally {

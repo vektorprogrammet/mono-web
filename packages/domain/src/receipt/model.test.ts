@@ -1,13 +1,14 @@
+import { DepartmentId, PersonId } from "../organization/schema.js";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { Receipt } from "./schema.js";
+import { ReceiptId, Receipt } from "./schema.js";
 
 it.effect("decodes a selected Receipt and rejects an excess persisted field", () => {
   const selected = {
-    receiptId: "receipt-model-1",
+    receiptId: ReceiptId.make("receipt-model-1"),
     visualId: "REC-MODEL-1",
-    ownerPersonId: "person-1",
-    departmentId: "department-1",
+    ownerPersonId: PersonId.make("person-1"),
+    departmentId: DepartmentId.make("department-1"),
     amountOre: "12345",
     currency: "NOK",
     description: "Travel",
@@ -30,6 +31,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
     const receipt = yield* Schema.decodeUnknownEffect(Receipt)(selected, {
       onExcessProperty: "error",
     });
+
     expect(receipt.receiptId).toBe("receipt-model-1");
     expect(receipt.file.byteLength).toBe(128);
 
@@ -41,6 +43,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
         },
       ),
     );
+
     expect(String(failure)).toContain("duplicateAuthority");
 
     const oversizedFile = yield* Effect.flip(
@@ -55,6 +58,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
         { onExcessProperty: "error" },
       ),
     );
+
     expect(String(oversizedFile)).toContain("byteLength");
 
     const fractionalAmount = yield* Effect.flip(
@@ -63,6 +67,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
         { onExcessProperty: "error" },
       ),
     );
+
     expect(String(fractionalAmount)).toContain("amountOre");
   });
 });

@@ -7,7 +7,7 @@ import {
   SucceededTeamCatalog,
   type Message,
 } from "./message";
-import { OrganizationCatalogKind, OrganizationCatalogRequestId } from "./model";
+import { OrganizationCatalogKind, OrganizationCatalogRequestId, TeamCatalogSnapshot, FieldOfStudyCatalogSnapshot } from "./model";
 
 export interface OrganizationCatalogCommands {
   readonly LoadCatalog: (args: {
@@ -16,7 +16,7 @@ export interface OrganizationCatalogCommands {
   }) => Command.Command<Message>;
 }
 
-export const makeOrganizationCatalogCommands = (
+export const commandsFor = (
   client: OrganizationCatalogClient,
 ): OrganizationCatalogCommands => {
   const LoadCatalog = Command.define("LoadOrganizationCatalog", {
@@ -47,11 +47,10 @@ export const makeOrganizationCatalogCommands = (
               SucceededTeamCatalog({
                 requestId,
                 catalogKind,
-                snapshot: {
-                  _tag: "Team",
+                snapshot: TeamCatalogSnapshot.make({
                   departments: freshDepartments,
                   records: freshTeams,
-                },
+                }),
               }),
             ),
             Effect.catch(failure),
@@ -67,11 +66,10 @@ export const makeOrganizationCatalogCommands = (
               SucceededFieldOfStudyCatalog({
                 requestId,
                 catalogKind,
-                snapshot: {
-                  _tag: "FieldOfStudy",
+                snapshot: FieldOfStudyCatalogSnapshot.make({
                   departments: freshDepartments,
                   records: freshFields,
-                },
+                }),
               }),
             ),
             Effect.catch(failure),

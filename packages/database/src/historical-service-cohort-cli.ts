@@ -16,15 +16,18 @@ export const disposableHistoricalServiceDatabaseUrl = (value: string | undefined
 
 export const runHistoricalServiceCohortCli = async (): Promise<void> => {
   const mode = process.env.HISTORICAL_SERVICE_MODE;
+
   if (
     (mode !== "synthetic" && mode !== "legacy-backup") ||
     process.env.NATIVE_IDENTITY_DEPLOYMENT !== "local"
   )
     throw invalidSnapshot();
   const url = disposableHistoricalServiceDatabaseUrl(process.env.HISTORICAL_SERVICE_PG_URL);
+
   const input = decodeHistoricalServiceSnapshot(
     await readPrivateCohortJson(process.env.HISTORICAL_SERVICE_INPUT, invalidSnapshot, 16_777_216),
   );
+
   if ((mode === "synthetic") !== (input.sourceKind === "Synthetic")) throw invalidSnapshot();
   await Effect.runPromise(
     databaseHealth.pipe(
@@ -32,6 +35,7 @@ export const runHistoricalServiceCohortCli = async (): Promise<void> => {
     ),
   );
   const pool = new Pool({ connectionString: url, max: 2 });
+
   try {
     process.stdout.write(JSON.stringify(await importHistoricalServiceCohort(pool, input)) + "\n");
   } finally {

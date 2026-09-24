@@ -19,17 +19,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
-import { stopPreviewScenarioBackend } from "./preview-scenario.js";
+import {type PreviewRuntimeObservation,  stopPreviewScenarioBackend } from "./preview-scenario.js";
+import { Predicate, Schema, Record as Rec } from "effect";
+
 const root = new URL("../../", import.meta.url).pathname;
+
 const requireDatabase = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
 );
-const requireApi = createRequire(new URL("../../packages/http-api/package.json", import.meta.url));
-const { Schema } = await import(requireApi.resolve("effect"));
+
 const { Pool } = requireDatabase("pg");
+
 const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
   execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
+
 const execFileAsync = promisify(execFile);
+
 const runAsync = async (command: string, args: string[], env = process.env, timeout = 60_000) =>
   (
     await execFileAsync(command, args, {
@@ -40,23 +45,33 @@ const runAsync = async (command: string, args: string[], env = process.env, time
       maxBuffer: 10 * 1024 * 1024,
     })
   ).stdout;
+
 const mode = process.argv[2];
+
 assert.ok(
   process.argv.length === 3 && (mode === "--browser" || mode === "--api-only"),
   "Usage: bun run tools/preview-host/placement-check.ts --browser | --api-only",
 );
+
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
+
 assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
+
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-placements-0096-"));
+
 const children: ReturnType<typeof spawn>[] = [];
+
 const outputs: string[] = [];
+
 const start = (command: string, args: string[], env = process.env) => {
   const child = spawn(command, args, { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   children.push(child);
   child.stdout?.on("data", (chunk) => outputs.push(String(chunk)));
   child.stderr?.on("data", (chunk) => outputs.push(String(chunk)));
+
   return child;
 };
+
 const port = async (requested = 0): Promise<number> => {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -64,70 +79,95 @@ const port = async (requested = 0): Promise<number> => {
     server.listen(requested, "127.0.0.1", resolve);
   });
   const address = server.address();
-  assert.ok(address && typeof address !== "string");
+  assert.ok(address && !Predicate.isString(address));
   const value = address.port;
   await new Promise<void>((resolve) => server.close(() => resolve()));
+
   return value;
 };
+
 const eventually = async <T>(
   description: string,
   inspect: () => Promise<T | undefined>,
   timeout = 20_000,
 ): Promise<T> => {
   const deadline = Date.now() + timeout;
+
   for (;;) {
     const value = await inspect();
+
     if (value !== undefined) return value;
+
     if (Date.now() >= deadline) throw Error(`Timed out waiting for ${description}`);
     await delay(50);
   }
 };
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 let pool: InstanceType<typeof Pool> | undefined;
-let evidence: Record<string, unknown> | undefined;
+
+let evidence: Schema.JsonObject | undefined;
+
 let notificationServer: HttpServer | undefined;
+
 let dispatchProviderFails = true;
-const notificationRequests: Array<{
-  readonly authorization: string | undefined;
-  readonly idempotencyKey: string | undefined;
-  readonly body: typeof SchoolServiceNotificationRequest.Type;
-}> = [];
-const dispatchNotificationRequests: Array<{
-  readonly authorization: string | undefined;
-  readonly idempotencyKey: string | undefined;
-  readonly body: typeof SchoolServiceDispatchNotificationRequest.Type;
-}> = [];
+
+type NotificationCapture<Payload> = {
+  authorization?: string;
+  idempotencyKey?: string;
+  readonly body: Payload;
+};
+
+const notificationRequests: Array<NotificationCapture<typeof SchoolServiceNotificationRequest.Type>> = [];
+
+const dispatchNotificationRequests: Array<NotificationCapture<typeof SchoolServiceDispatchNotificationRequest.Type>> = [];
+
 try {
   const pgPort = await port();
   const backendPort = await port();
   const dashboardPort = await port();
   const notificationPort = await port();
+
   const server = createHttpServer(async (request, response) => {
     const chunks: Buffer[] = [];
+
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const idempotencyKeyHeader = request.headers["idempotency-key"];
+
     const idempotencyKey = Array.isArray(idempotencyKeyHeader)
       ? idempotencyKeyHeader[0]
       : idempotencyKeyHeader;
+
     const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    if (payload._tag === "NotifySchoolServiceSubstituteOffer") {
-      dispatchNotificationRequests.push({
-        authorization: request.headers.authorization,
-        idempotencyKey,
+
+    if (Predicate.isTagged(payload, "NotifySchoolServiceSubstituteOffer")) {
+      const observed: NotificationCapture<typeof SchoolServiceDispatchNotificationRequest.Type> = {
         body: Schema.decodeUnknownSync(SchoolServiceDispatchNotificationRequest)(payload),
-      });
+      };
+
+      if (request.headers.authorization !== undefined) observed.authorization = request.headers.authorization;
+
+      if (idempotencyKey !== undefined) observed.idempotencyKey = idempotencyKey;
+      dispatchNotificationRequests.push(observed);
       response.statusCode = dispatchProviderFails ? 503 : 204;
       response.end();
+
       return;
     }
-    notificationRequests.push({
-      authorization: request.headers.authorization,
-      idempotencyKey,
+
+    const observed: NotificationCapture<typeof SchoolServiceNotificationRequest.Type> = {
       body: Schema.decodeUnknownSync(SchoolServiceNotificationRequest)(payload),
-    });
+    };
+
+    if (request.headers.authorization !== undefined) observed.authorization = request.headers.authorization;
+
+    if (idempotencyKey !== undefined) observed.idempotencyKey = idempotencyKey;
+    notificationRequests.push(observed);
     response.statusCode = 204;
     response.end();
   });
+
   notificationServer = server;
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -138,6 +178,7 @@ try {
   start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
   const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
   pool = new Pool({ connectionString: postgresUrl });
+
   for (let n = 0; ; n++) {
     try {
       await pool.query("SELECT 1");
@@ -147,8 +188,10 @@ try {
       await delay(100);
     }
   }
+
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
   const environment = {
     ...process.env,
     BACKEND_HOST: "127.0.0.1",
@@ -175,12 +218,14 @@ try {
     SCHOOL_SERVICE_DISPATCH_NOTIFICATION_STALE_MS: "1000",
     SCHOOL_SERVICE_DISPATCH_NOTIFICATION_TIMEOUT_MS: "2000",
   };
+
   for (const key of Object.keys(environment))
     if (
       key.startsWith("CONTACT_") ||
       (key.startsWith("PUBLIC_APPLICATION_EFFECT_") && key !== "PUBLIC_APPLICATION_EFFECT_MODE")
     )
-      delete environment[key as keyof typeof environment];
+      Reflect.deleteProperty(environment, key);
+
   const substitute = {
     personId: "journey-coverage-substitute-0111",
     firstName: "Kari",
@@ -188,6 +233,7 @@ try {
     email: "kari.kandidat@example.invalid",
     password: "journey-secret-0123456789abcdef",
   };
+
   run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
   run("bun", ["run", "--cwd", "packages/database", "identity:seed"], {
     ...environment,
@@ -229,6 +275,7 @@ try {
       (964,'Skole Inaktiv','Kontakt','inactive@example.invalid','synthetic','Norwegian',false,0);
     INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (961,'${departmentId}',0),(962,'${departmentId}',0),(963,'${wrongDepartmentId}',0),(964,'${departmentId}',0);
   `);
+
   const credentialSnapshot = async () =>
     createHash("sha256")
       .update(
@@ -241,16 +288,20 @@ try {
         ),
       )
       .digest("hex");
+
   const credentialsBefore = await credentialSnapshot();
   const peopleBefore = (await pool.query("SELECT * FROM person_profiles ORDER BY person_id")).rows;
   start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
+
   for (let n = 0; ; n++) {
     try {
       if ((await fetch(`${backendOrigin}/health`)).ok) break;
     } catch {}
+
     if (n > 150) throw Error("backend startup failed");
     await delay(200);
   }
+
   const persons = {
     leader: { email: "lina.leader@example.invalid", password: "journey-secret-0123456789abcdef" },
     volunteer: {
@@ -263,72 +314,99 @@ try {
     },
     candidate: { email: substitute.email, password: substitute.password },
   };
+
   const login = async (person: { email: string; password: string }) => {
     const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: dashboardOrigin },
       body: JSON.stringify(person),
     });
+
     assert.equal(response.status, 200);
     const cookie = response.headers.get("set-cookie")?.split(";")[0];
     assert.ok(cookie);
+
     return cookie;
   };
+
   const leader = await login(persons.leader),
     volunteer = await login(persons.volunteer),
     wrong = await login(persons.wrongDepartment),
     candidate = await login(persons.candidate);
+
   const sdk = createPromiseClient(backendOrigin, { cookie: leader, origin: dashboardOrigin });
+
   const volunteerSdk = createPromiseClient(backendOrigin, {
     cookie: volunteer,
     origin: dashboardOrigin,
   });
+
   const wrongSdk = createPromiseClient(backendOrigin, { cookie: wrong, origin: dashboardOrigin });
+
   const candidateSdk = createPromiseClient(backendOrigin, {
     cookie: candidate,
     origin: dashboardOrigin,
   });
+
   const query = Schema.decodeUnknownSync(PlacementScope)({ departmentId, semesterId });
   const boardPath = `/api/placements?${new URLSearchParams(query)}`;
   const ownPath = `/api/placements/affiliation?departmentId=${departmentId}`;
   const coverageBoardPath = `/api/placements/coverage?${new URLSearchParams(query)}`;
   const ownCoveragePath = `/api/placements/coverage/own?${new URLSearchParams(query)}`;
+
   const request = async (
     path: string,
     cookie?: string,
-    body?: unknown,
+    body?: Schema.Json,
     etag?: string,
     key = randomBytes(18).toString("base64url"),
-  ) =>
-    fetch(`${backendOrigin}${path}`, {
+  ) => {
+    const nativeHeaders = new Headers();
+    nativeHeaders.set("origin", dashboardOrigin);
+
+    if (cookie) {
+      nativeHeaders.set("cookie", cookie);
+    }
+
+    if (!(body === undefined)) {
+      nativeHeaders.set("content-type", "application/json");
+      nativeHeaders.set("idempotency-key", key);
+
+      if (etag) {
+        nativeHeaders.set("if-match", etag);
+      }
+    }
+
+    const requestBody: Pick<RequestInit, "body"> =
+      body === undefined ? {} : { body: JSON.stringify(body) };
+
+    return fetch(`${backendOrigin}${path}`, {
       method: body === undefined ? "GET" : "POST",
-      headers: {
-        origin: dashboardOrigin,
-        ...(cookie ? { cookie } : {}),
-        ...(body === undefined
-          ? {}
-          : {
-              "content-type": "application/json",
-              "idempotency-key": key,
-              ...(etag ? { "if-match": etag } : {}),
-            }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      headers: nativeHeaders,
+      ...requestBody,
     });
+  };
+
   const expectStatus = async (response: Response, status: number, code?: string) => {
     const body = await response.json();
     assert.equal(response.status, status, JSON.stringify(body));
+
     if (code) assert.equal(body.code, code);
+
     return body;
   };
+
   const idempotencyHeaders = (etag: string, key = randomBytes(18).toString("base64url")) =>
     Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
       "if-match": etag,
       "idempotency-key": key,
     });
+
   const readBoard = async () => (await sdk.placements.readBoard({ query })).body;
-  const command = async (payload: unknown) => {
+
+  const command = async (payload: Schema.Json) => {
     const board = await readBoard();
+
     return (
       await sdk.placements.commandBoard({
         query,
@@ -337,16 +415,20 @@ try {
       })
     ).body;
   };
+
   const readOwnCoverage = async (client: typeof sdk) =>
     (await client.placements.readOwnCoverage({ query })).body;
+
   const readCoverageBoard = async () => (await sdk.placements.readCoverageBoard({ query })).body;
+
   const commandOwnCoverage = async (
     client: typeof sdk,
-    payload: unknown,
+    payload: Schema.Json,
     etag?: string,
     key?: string,
   ) => {
     const resource = etag === undefined ? await readOwnCoverage(client) : undefined;
+
     return (
       await client.placements.commandOwnCoverage({
         query,
@@ -355,8 +437,10 @@ try {
       })
     ).body;
   };
-  const commandCoverage = async (payload: unknown, etag?: string, key?: string) => {
+
+  const commandCoverage = async (payload: Schema.Json, etag?: string, key?: string) => {
     const resource = etag === undefined ? await readCoverageBoard() : undefined;
+
     return (
       await sdk.placements.commandCoverageBoard({
         query,
@@ -365,6 +449,7 @@ try {
       })
     ).body;
   };
+
   const boardResponse = await request(boardPath, leader);
   assert.equal(boardResponse.headers.get("cache-control"), "private, no-store");
   await expectStatus(boardResponse, 200);
@@ -410,10 +495,12 @@ try {
   // API cohort uses the coordinator's own Person; browser starts with an untouched no-team volunteer.
   let own = await expectStatus(await request(ownPath, leader), 200);
   const ownKey = randomBytes(18).toString("base64url");
+
   const pending = await expectStatus(
     await request(ownPath, leader, { action: "Request" }, own.etag, ownKey),
     200,
   );
+
   assert.equal(pending.status, "Pending");
   assert.deepEqual(
     await expectStatus(
@@ -431,6 +518,7 @@ try {
   own = await expectStatus(await request(ownPath, leader), 200);
   await expectStatus(await request(ownPath, leader, { action: "Request" }, own.etag), 200);
   await command({ action: "Affiliation", personId: leaderId, transition: "Establish" });
+
   const create = {
     action: "Create",
     personId: leaderId,
@@ -439,8 +527,10 @@ try {
     workdays: 4,
     block: "1",
   };
+
   let board = await readBoard();
   await expectStatus(await request(boardPath, leader, create), 428, "precondition.required");
+
   for (const invalid of [
     { ...create, workdays: 0 },
     { ...create, workdays: 9 },
@@ -448,6 +538,7 @@ try {
     { ...create, block: "3" },
   ])
     await expectStatus(await request(boardPath, leader, invalid, board.etag), 422);
+
   for (const schoolId of [963, 964])
     await expectStatus(
       await request(boardPath, leader, { ...create, schoolId }, board.etag),
@@ -461,13 +552,16 @@ try {
   );
   const createKey = randomBytes(18).toString("base64url");
   const createEtag = board.etag;
+
   const created = await expectStatus(
     await request(boardPath, leader, create, board.etag, createKey),
     200,
   );
+
   const placementId = created.placements.find(
     (p: { personId: string; block: string }) => p.personId === leaderId && p.block === "1",
   ).placementId;
+
   assert.deepEqual(
     await expectStatus(await request(boardPath, leader, create, board.etag, createKey), 200),
     created,
@@ -499,6 +593,7 @@ try {
     "resource.not-found",
   );
   board = await readBoard();
+
   const edits = await Promise.all(
     [6, 7].map((workdays) =>
       request(
@@ -509,7 +604,9 @@ try {
       ),
     ),
   );
+
   assert.equal(edits.filter((r) => r.status === 200).length, 1);
+
   for (const response of edits.filter((r) => r.status !== 200))
     await expectStatus(
       response,
@@ -517,10 +614,12 @@ try {
       response.status === 409 ? "transaction.conflict" : "precondition.failed",
     );
   await command({ action: "Remove", placementId });
+
   const retained = await pool.query(
     "SELECT active,revision FROM assistant_placements WHERE placement_id=$1",
     [placementId],
   );
+
   assert.deepEqual(retained.rows, [{ active: false, revision: 3 }]);
   assert.deepEqual(
     (
@@ -532,19 +631,24 @@ try {
     ["Create", "Edit", "Remove"],
   );
   board = await readBoard();
+
   const concurrentCreates = await Promise.all(
     [0, 1].map(() => request(boardPath, leader, create, board.etag)),
   );
+
   assert.equal(concurrentCreates.filter((r) => r.status === 200).length, 1);
+
   for (const response of concurrentCreates.filter((r) => r.status !== 200))
     await expectStatus(
       response,
       response.status === 409 ? 409 : 412,
       response.status === 409 ? "transaction.conflict" : "precondition.failed",
     );
+
   const replacement = (await readBoard()).placements.find(
     (p) => p.personId === leaderId && p.block === "1" && p.active,
   );
+
   assert.ok(replacement);
   await command({ action: "Remove", placementId: replacement.placementId });
   await command({ action: "Affiliation", personId: leaderId, transition: "Revoke" });
@@ -570,6 +674,7 @@ try {
   await pool.query("UPDATE organization_memberships SET is_suspended=false WHERE person_id=$1", [
     leaderId,
   ]);
+
   for (const placement of (await readBoard()).placements.filter(
     (candidate) => candidate.personId === leaderId && candidate.active,
   ))
@@ -710,6 +815,7 @@ try {
   const historicalOccurrenceId = `school-service-occurrence-${"3".repeat(64)}`;
   // Simulate a pre-migration row in the disposable database. Product writes cannot bypass this guard.
   const fixtureClient = await pool.connect();
+
   try {
     await fixtureClient.query("BEGIN");
     await fixtureClient.query(
@@ -737,6 +843,7 @@ try {
   } finally {
     fixtureClient.release();
   }
+
   const schedule = (
     day: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday",
     serviceDate: string,
@@ -750,25 +857,30 @@ try {
     startTime: "09:00",
     endTime: "11:00",
   });
+
   const serviceDates = {
     Monday: "2024-03-04",
     Tuesday: "2024-03-05",
     Wednesday: "2024-03-06",
     Thursday: "2024-03-07",
   } as const;
-  const commitments = {} as Record<keyof typeof serviceDates, string>;
-  for (const [day, serviceDate] of Object.entries(serviceDates) as Array<
-    [keyof typeof serviceDates, string]
-  >) {
+
+  const commitmentIds = new Map<keyof typeof serviceDates, string>();
+
+  for (const day of Rec.keys(serviceDates)) {
+    const serviceDate = serviceDates[day];
     const before = await readBoard();
     const result = await command(schedule(day, serviceDate));
+
     const commitment = result.commitments.find(
       (item) => item.schoolId === 961 && item.serviceDate === serviceDate && item.block === "1",
     );
+
     assert.ok(commitment);
     assert.equal(commitment.requiredVolunteers, day === "Wednesday" ? 2 : 1);
     assert.equal(commitment.decision, null);
-    commitments[day] = commitment.commitmentId;
+    commitmentIds.set(day, commitment.commitmentId);
+
     if (day === "Monday") {
       await expectStatus(
         await request(boardPath, leader, schedule(day, serviceDate), before.etag),
@@ -781,6 +893,11 @@ try {
       );
     }
   }
+
+  const commitments = Schema.decodeUnknownSync(
+    Schema.Struct(Rec.map(serviceDates, () => Schema.String)),
+  )(Object.fromEntries(commitmentIds));
+
   assert.equal(
     (await readCoverageBoard()).commitments.filter(
       (item) => item.proposalId === apiCoverageProposalId,
@@ -903,18 +1020,21 @@ try {
   );
   const coveredAbsenceCommand = { action: "ReportAbsence", commitmentId: commitments.Monday };
   const reportAbsenceKey = randomBytes(18).toString("base64url");
+
   const reportedOwnCoverage = await commandOwnCoverage(
     volunteerSdk,
     coveredAbsenceCommand,
     initialOwnCoverage.etag,
     reportAbsenceKey,
   );
+
   const coveredAbsence = reportedOwnCoverage.absences.find(
     (absence) =>
       absence.proposalId === apiCoverageProposalId &&
       absence.personId === volunteerId &&
       absence.serviceDate === "2024-03-04",
   );
+
   assert.ok(coveredAbsence);
   assert.deepEqual(
     await expectStatus(
@@ -940,6 +1060,7 @@ try {
     409,
     "idempotency.digest-conflict",
   );
+
   const overlapBoard = await command({
     action: "Create",
     personId: substitute.personId,
@@ -948,6 +1069,7 @@ try {
     workdays: 4,
     block: "1",
   });
+
   const overlapPlacement = overlapBoard.placements.find(
     (placement) =>
       placement.personId === substitute.personId &&
@@ -955,13 +1077,16 @@ try {
       placement.block === "1" &&
       placement.active,
   );
+
   assert.ok(overlapPlacement);
   let coverageBoard = await readCoverageBoard();
+
   const dispatch = (candidatePersonId: string) => ({
     action: "DispatchSubstituteOffer",
     absenceId: coveredAbsence.absenceId,
     candidatePersonId,
   });
+
   await expectStatus(
     await request(coverageBoardPath, leader, dispatch(volunteerId), coverageBoard.etag),
     422,
@@ -993,15 +1118,19 @@ try {
       },
     ],
   );
+
   const dispatchedCoverage = await commandCoverage(
     dispatch(substitute.personId),
     coverageBoard.etag,
   );
+
   const coveredOffer = dispatchedCoverage.offers.find(
     (offer) => offer.absenceId === coveredAbsence.absenceId,
   );
+
   assert.ok(coveredOffer);
   assert.equal(coveredOffer.status, "Offered");
+
   const failedDelivery = await eventually("failed substitute-offer delivery", async () => {
     const row = (
       await pool.query(
@@ -1011,10 +1140,13 @@ try {
         [coveredOffer.offerId],
       )
     ).rows[0];
+
     return row?.status === "Failed" && row.attempts >= 1 ? row : undefined;
   });
+
   assert.ok(failedDelivery.lastFailureTag);
   dispatchProviderFails = false;
+
   const deliveredDispatch = await eventually("retried substitute-offer delivery", async () => {
     const row = (
       await pool.query(
@@ -1024,18 +1156,23 @@ try {
         [coveredOffer.offerId],
       )
     ).rows[0];
+
     return row?.status === "Delivered" && row.attempts >= 2 ? row : undefined;
   });
+
   const deliveredDispatchRequests = dispatchNotificationRequests.filter(
     (request) => request.body.offerId === coveredOffer.offerId,
   );
+
   assert.ok(deliveredDispatchRequests.length >= 2);
   assert.equal(new Set(deliveredDispatchRequests.map((request) => request.body.effectId)).size, 1);
   assert.equal(new Set(deliveredDispatchRequests.map((request) => request.idempotencyKey)).size, 1);
+
   for (const request of deliveredDispatchRequests) {
     assert.equal(request.authorization, "Bearer synthetic-school-service-dispatch-token");
     assert.deepEqual(request.body, deliveredDispatchRequests[0]?.body);
   }
+
   assert.deepEqual(deliveredDispatch.payload, deliveredDispatchRequests[0]?.body);
   const deliveredCoverage = await readCoverageBoard();
   await expectStatus(
@@ -1080,6 +1217,7 @@ try {
     "offer.unresolved",
   );
   const wrongCoverage = await readOwnCoverage(wrongSdk);
+
   const wrongResponseFactsBefore = (
     await pool.query(
       `SELECT
@@ -1088,6 +1226,7 @@ try {
       [coveredOffer.offerId],
     )
   ).rows;
+
   await expectStatus(
     await request(
       ownCoveragePath,
@@ -1111,11 +1250,13 @@ try {
     "a wrong Person cannot produce an offer response or audit fact",
   );
   const candidateCoverage = await readOwnCoverage(candidateSdk);
+
   const acceptOffer = {
     action: "RespondToOffer",
     offerId: coveredOffer.offerId,
     response: "Accept",
   };
+
   const acceptanceRace = await Promise.all(
     [0, 1].map(() =>
       request(
@@ -1127,12 +1268,14 @@ try {
       ),
     ),
   );
+
   const acceptanceResults = await Promise.all(
     acceptanceRace.map(async (response) => ({
       status: response.status,
       body: await response.json(),
     })),
   );
+
   assert.equal(acceptanceResults.filter((result) => result.status === 200).length, 1);
   const losingAcceptance = acceptanceResults.find((result) => result.status !== 200);
   assert.ok(losingAcceptance);
@@ -1157,13 +1300,16 @@ try {
   const staleAcknowledgementSnapshot = await readCoverageBoard();
   assert.equal(acknowledgementSnapshot.etag, staleAcknowledgementSnapshot.etag);
   const acknowledgeOffer = { action: "AcknowledgeCoverage", offerId: coveredOffer.offerId };
+
   const acknowledgedCoverage = await commandCoverage(
     acknowledgeOffer,
     acknowledgementSnapshot.etag,
   );
+
   const acknowledgement = acknowledgedCoverage.acknowledgements.find(
     (item) => item.offerId === coveredOffer.offerId,
   );
+
   assert.ok(acknowledgement);
   assert.deepEqual(
     (await readOwnCoverage(candidateSdk)).commitments
@@ -1171,6 +1317,7 @@ try {
       .map((item) => item.commitmentId),
     [commitments.Monday],
   );
+
   const acknowledgementFacts = (
     await pool.query(
       `SELECT count(*)::integer AS acknowledgements,
@@ -1180,6 +1327,7 @@ try {
       [coveredOffer.offerId],
     )
   ).rows;
+
   await expectStatus(
     await request(coverageBoardPath, leader, acknowledgeOffer, staleAcknowledgementSnapshot.etag),
     412,
@@ -1198,12 +1346,14 @@ try {
     acknowledgementFacts,
     "a stale acknowledgement does not write another acknowledgement or audit fact",
   );
+
   const completeCovered = {
     action: "CompleteService",
     commitmentId: commitments.Monday,
     attendedPersonIds: [substitute.personId],
     evidenceSource: "Skole Alfa kontakt, telefon 2024-03-04",
   };
+
   let closeCoverageBoard = await readCoverageBoard();
   await expectStatus(
     await request(
@@ -1216,11 +1366,13 @@ try {
     "commitment.attendance-invalid",
   );
   const completeKey = randomBytes(18).toString("base64url");
+
   const coveredClosure = await commandCoverage(
     completeCovered,
     closeCoverageBoard.etag,
     completeKey,
   );
+
   assert.equal(
     coveredClosure.commitments.find((item) => item.commitmentId === commitments.Monday)?.decision
       ?.outcome,
@@ -1311,22 +1463,27 @@ try {
     closeCoverageBoard.etag,
     "post-terminal commands write no second fact",
   );
+
   const coordinatorAbsence = {
     action: "ReportAbsenceForVolunteer",
     personId: leaderId,
     commitmentId: commitments.Tuesday,
   };
+
   const coordinatorAbsenceBoard = await commandCoverage(
     coordinatorAbsence,
     closeCoverageBoard.etag,
   );
+
   const uncoveredAbsence = coordinatorAbsenceBoard.absences.find(
     (absence) =>
       absence.proposalId === apiCoverageProposalId &&
       absence.personId === leaderId &&
       absence.serviceDate === "2024-03-05",
   );
+
   assert.ok(uncoveredAbsence);
+
   const declinedDispatchBoard = await commandCoverage(
     {
       action: "DispatchSubstituteOffer",
@@ -1335,9 +1492,11 @@ try {
     },
     coordinatorAbsenceBoard.etag,
   );
+
   const declinedOffer = declinedDispatchBoard.offers.find(
     (offer) => offer.absenceId === uncoveredAbsence.absenceId,
   );
+
   assert.ok(declinedOffer);
   await eventually("sequential declined-offer delivery", async () => {
     const row = (
@@ -1346,19 +1505,23 @@ try {
         [declinedOffer.offerId],
       )
     ).rows[0];
+
     return row?.status === "Delivered" ? row : undefined;
   });
   const candidateDeclineCoverage = await readOwnCoverage(candidateSdk);
+
   const declinedCoverage = await commandOwnCoverage(
     candidateSdk,
     { action: "RespondToOffer", offerId: declinedOffer.offerId, response: "Decline" },
     candidateDeclineCoverage.etag,
   );
+
   assert.equal(
     declinedCoverage.responses.find((response) => response.offerId === declinedOffer.offerId)
       ?.response,
     "Decline",
   );
+
   const redispatchBoard = await commandCoverage(
     {
       action: "DispatchSubstituteOffer",
@@ -1367,10 +1530,12 @@ try {
     },
     (await readCoverageBoard()).etag,
   );
+
   const withdrawnOffer = redispatchBoard.offers.find(
     (offer) =>
       offer.absenceId === uncoveredAbsence.absenceId && offer.offerId !== declinedOffer.offerId,
   );
+
   assert.ok(withdrawnOffer);
   await eventually("sequential withdrawn-offer delivery", async () => {
     const row = (
@@ -1379,16 +1544,20 @@ try {
         [withdrawnOffer.offerId],
       )
     ).rows[0];
+
     return row?.status === "Delivered" ? row : undefined;
   });
+
   const withdrawnBoard = await commandCoverage(
     { action: "WithdrawSubstituteOffer", offerId: withdrawnOffer.offerId },
     (await readCoverageBoard()).etag,
   );
+
   assert.equal(
     withdrawnBoard.offers.find((offer) => offer.offerId === withdrawnOffer.offerId)?.status,
     "Withdrawn",
   );
+
   const zeroUnfulfilled = {
     action: "MarkUnfulfilledService",
     commitmentId: commitments.Tuesday,
@@ -1396,6 +1565,7 @@ try {
     reason: "Ingen frivillige møtte",
     evidenceSource: "Skole Alfa kontakt, telefon 2024-03-05",
   };
+
   closeCoverageBoard = await readCoverageBoard();
   await expectStatus(
     await request(
@@ -1442,6 +1612,7 @@ try {
     ),
     409,
   );
+
   const partialUnfulfilled = {
     action: "MarkUnfulfilledService",
     commitmentId: commitments.Wednesday,
@@ -1449,6 +1620,7 @@ try {
     reason: "Én av to frivillige møtte",
     evidenceSource: "Skole Alfa kontakt, telefon 2024-03-06",
   };
+
   const partialBoard = await readCoverageBoard();
   await expectStatus(
     await request(
@@ -1459,35 +1631,45 @@ try {
     ),
     422,
   );
+
   const competingPartial = await Promise.all(
     [0, 1].map(() => request(coverageBoardPath, leader, partialUnfulfilled, partialBoard.etag)),
   );
+
   assert.equal(competingPartial.filter((response) => response.status === 200).length, 1);
+
   for (const response of competingPartial.filter((result) => result.status !== 200)) {
     assert.ok([409, 412].includes(response.status));
     await response.json();
   }
+
   const partialDecision = (await readCoverageBoard()).commitments.find(
     (item) => item.commitmentId === commitments.Wednesday,
   )?.decision;
+
   assert.equal(partialDecision?.outcome, "Unfulfilled");
   assert.deepEqual(partialDecision?.attendedPersonIds, [leaderId]);
   assert.ok(partialDecision?.occurrenceId);
+
   const cancelAbsence = await commandCoverage({
     action: "ReportAbsenceForVolunteer",
     personId: leaderId,
     commitmentId: commitments.Thursday,
   });
+
   const cancelledAbsenceId = cancelAbsence.absences.find(
     (item) => item.commitmentId === commitments.Thursday,
   )?.absenceId;
+
   assert.ok(cancelledAbsenceId);
+
   const cancel = {
     action: "CancelService",
     commitmentId: commitments.Thursday,
     reason: "Skolen avlyste undervisningen",
     evidenceSource: "Skole Alfa kontakt, telefon 2024-03-07",
   };
+
   const beforeCancel = await readCoverageBoard();
   const cancelled = await commandCoverage(cancel, beforeCancel.etag);
   assert.equal(
@@ -1531,6 +1713,7 @@ try {
     ).length,
     2,
   );
+
   const durableDecisions: Array<{
     commitmentId: string;
     serviceDate: string;
@@ -1556,6 +1739,7 @@ try {
       [apiCoverageProposalId],
     )
   ).rows;
+
   assert.deepEqual(
     durableDecisions.map((item) => [
       item.commitmentId,
@@ -1610,10 +1794,10 @@ try {
     durableDecisions.map((item) => [item.startTime, item.endTime]),
     Array.from({ length: 4 }, () => ["09:00:00", "11:00:00"]),
   );
-  assert.ok(durableDecisions[0].occurrenceId);
-  assert.equal(durableDecisions[1].occurrenceId, null);
-  assert.ok(durableDecisions[2].occurrenceId);
-  assert.equal(durableDecisions[3].occurrenceId, null);
+  assert.ok(durableDecisions[0]?.occurrenceId);
+  assert.equal(durableDecisions[1]?.occurrenceId, null);
+  assert.ok(durableDecisions[2]?.occurrenceId);
+  assert.equal(durableDecisions[3]?.occurrenceId, null);
   assert.deepEqual(
     (
       await pool.query(
@@ -1636,12 +1820,14 @@ try {
     ).rows[0].count,
     0,
   );
+
   const apiCoverageAudit = (
     await pool.query(
       `SELECT action,actor_person_id AS "actorPersonId"
        FROM school_service_coverage_audit ORDER BY audit_id`,
     )
   ).rows;
+
   assert.deepEqual(apiCoverageAudit, [
     { action: "ReportAbsence", actorPersonId: volunteerId },
     { action: "DispatchSubstituteOffer", actorPersonId: leaderId },
@@ -1671,6 +1857,7 @@ try {
       { response: "Decline", responderPersonId: substitute.personId },
     ],
   );
+
   const apiCoverageEvidence = {
     proposalId: apiCoverageProposalId,
     coveredAbsenceId: coveredAbsence.absenceId,
@@ -1681,6 +1868,7 @@ try {
     deliveredAttempts: deliveredDispatch.attempts,
     auditActions: apiCoverageAudit.map((entry: { action: string }) => entry.action),
   };
+
   const browserLeaderBoard = await command({
     action: "Create",
     personId: leaderId,
@@ -1689,6 +1877,7 @@ try {
     workdays: 4,
     block: "2",
   });
+
   assert.ok(
     browserLeaderBoard.placements.some(
       (placement) =>
@@ -1699,12 +1888,14 @@ try {
         placement.active,
     ),
   );
+
   const apiHistoryBeforeBrowser = (
     await pool.query(
       "SELECT * FROM assistant_placements WHERE person_id=$1 ORDER BY placement_id",
       [leaderId],
     )
   ).rows;
+
   const manifest = {
     revision,
     backendOrigin,
@@ -1728,9 +1919,11 @@ try {
       api: apiCoverageEvidence,
     },
   };
+
   const manifestPath = join(artifacts, "manifest.json");
   await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
-  let browserEvidence: Record<string, unknown> | null = null;
+  let browserEvidence: Schema.JsonObject | null = null;
+
   if (mode === "--browser") {
     await runAsync(
       "bun",
@@ -1738,28 +1931,33 @@ try {
       { ...environment, PLACEMENT_JOURNEY_MANIFEST: manifestPath },
       300_000,
     );
-    browserEvidence = JSON.parse(await readFile(join(artifacts, "browser-evidence.json"), "utf8"));
+    browserEvidence = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.JsonObject))(
+      await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
+    );
     assert.equal(browserEvidence?.passed, true);
     assert.equal(browserEvidence?.revision, revision);
-    const browserCoverageExpected = browserEvidence?.coverageExpected as
-      | {
-          readonly absencePosts: number;
-          readonly proposalId: string;
-          readonly completedCommitmentId: string;
-          readonly unfulfilledCommitmentId: string;
-          readonly cancelledCommitmentId: string;
-          readonly coveredAbsenceId: string;
-          readonly uncoveredAbsenceId: string;
-          readonly coveredOfferId: string;
-          readonly declinedOfferId: string;
-          readonly withdrawnOfferId: string;
-          readonly coveredAcknowledgementId: string;
-          readonly occurrenceId: string;
-          readonly uncoveredOccurrenceId: string;
-        }
-      | undefined;
+
+    const browserCoverageExpected = Schema.decodeUnknownSync(
+      Schema.Struct({
+        absencePosts: Schema.Number,
+        proposalId: Schema.String,
+        completedCommitmentId: Schema.String,
+        unfulfilledCommitmentId: Schema.String,
+        cancelledCommitmentId: Schema.String,
+        coveredAbsenceId: Schema.String,
+        uncoveredAbsenceId: Schema.String,
+        coveredOfferId: Schema.String,
+        declinedOfferId: Schema.String,
+        withdrawnOfferId: Schema.String,
+        coveredAcknowledgementId: Schema.String,
+        occurrenceId: Schema.String,
+        uncoveredOccurrenceId: Schema.String,
+      }),
+    )(browserEvidence?.coverageExpected);
+
     assert.ok(browserCoverageExpected);
     assert.equal(browserCoverageExpected.absencePosts, 1);
+
     const browserDispatches = await eventually("browser substitute-offer delivery", async () => {
       const rows = (
         await pool.query(
@@ -1774,17 +1972,20 @@ try {
           [browserCoverageExpected.proposalId],
         )
       ).rows;
+
       return rows.length === 3 &&
         rows.every((row: { status: string }) => row.status === "Delivered")
         ? rows
         : undefined;
     });
+
     const actual = (
       await pool.query(
         'SELECT placement_id AS "placementId",person_id AS "personId",school_id::integer AS "schoolId",semester_id AS "semesterId",day,workdays,block,active,revision FROM assistant_placements WHERE person_id=$1 ORDER BY block,placement_id',
         [volunteerId],
       )
     ).rows;
+
     assert.deepEqual(
       actual,
       browserEvidence?.finalExpected,
@@ -1812,6 +2013,7 @@ try {
         { action: "Revoke", actor_person_id: leaderId },
       ],
     );
+
     const serviceProposal = (
       await pool.query(
         `SELECT proposal_id AS "proposalId",status,revision,
@@ -1823,6 +2025,7 @@ try {
         [departmentId, semesterId],
       )
     ).rows[0];
+
     assert.deepEqual(serviceProposal, {
       proposalId: browserEvidence?.serviceProposalId,
       status: "Confirmed",
@@ -1857,6 +2060,7 @@ try {
         { personId: leaderId, status: "Delivered", attempts: 1 },
       ],
     );
+
     const browserDecisions: Array<{
       commitmentId: string;
       requiredVolunteers: number;
@@ -1877,6 +2081,7 @@ try {
         [browserCoverageExpected.proposalId],
       )
     ).rows;
+
     assert.deepEqual(
       browserDecisions.map((item) => [
         item.commitmentId,
@@ -1921,9 +2126,10 @@ try {
       browserDecisions.map((item) => item.reason),
       [null, "Bare én av to frivillige møtte", "Skolen avlyste tjenesten"],
     );
-    assert.ok(browserDecisions[0].occurrenceId);
-    assert.ok(browserDecisions[1].occurrenceId);
-    assert.equal(browserDecisions[2].occurrenceId, null);
+    assert.ok(browserDecisions[0]?.occurrenceId);
+    assert.ok(browserDecisions[1]?.occurrenceId);
+    assert.equal(browserDecisions[2]?.occurrenceId, null);
+
     const browserAbsences = (
       await pool.query(
         `SELECT absence_id AS "absenceId",person_id AS "personId",
@@ -1933,6 +2139,7 @@ try {
         [browserCoverageExpected.proposalId],
       )
     ).rows;
+
     assert.deepEqual(browserAbsences, [
       {
         absenceId: browserCoverageExpected.coveredAbsenceId,
@@ -1947,6 +2154,7 @@ try {
         serviceDate: manifest.coverage.secondServiceDate,
       },
     ]);
+
     const browserOffers = (
       await pool.query(
         `SELECT offer.offer_id AS "offerId",offer.absence_id AS "absenceId",
@@ -1958,6 +2166,7 @@ try {
         [browserCoverageExpected.proposalId],
       )
     ).rows;
+
     assert.equal(browserOffers.length, 3);
     assert.deepEqual(
       browserOffers.map(
@@ -2042,6 +2251,7 @@ try {
         },
       ],
     );
+
     const browserOccurrences = (
       await pool.query(
         `SELECT occurrence_id AS "occurrenceId",occurred_on::text AS "occurredOn",
@@ -2051,6 +2261,7 @@ try {
         [browserCoverageExpected.proposalId],
       )
     ).rows;
+
     assert.deepEqual(
       browserOccurrences.map(
         (occurrence: {
@@ -2142,11 +2353,13 @@ try {
       ],
     );
     assert.equal(notificationRequests.length, 2);
+
     for (const delivered of notificationRequests) {
       assert.equal(delivered.authorization, "Bearer synthetic-school-service-token");
       assert.equal(delivered.idempotencyKey, delivered.body.effectId);
     }
   }
+
   assert.deepEqual(
     await credentialSnapshot(),
     credentialsBefore,
@@ -2157,6 +2370,16 @@ try {
     peopleBefore,
     "canonical Person unchanged",
   );
+  const bunVersion = process.versions.bun;
+
+  const postgresVersion = Schema.decodeUnknownSync(Schema.String)(
+    (await pool.query("SELECT version() AS version")).rows[0].version,
+  );
+
+  const runtime: PreviewRuntimeObservation = bunVersion === undefined
+    ? { postgres: postgresVersion }
+    : { bun: bunVersion, postgres: postgresVersion };
+
   evidence = {
     revision,
     apiPassed: true,
@@ -2164,10 +2387,7 @@ try {
     apiCoverage: apiCoverageEvidence,
     notificationRequests,
     dispatchNotificationRequests,
-    runtime: {
-      bun: process.versions.bun,
-      postgres: (await pool.query("SELECT version() AS version")).rows[0].version,
-    },
+    runtime,
     implementation: {
       generatedCoverageOperations: [
         "placements.readOwnCoverage",
@@ -2214,13 +2434,16 @@ try {
 } finally {
   if (pool) await pool.end();
   const ownedNotificationServer = notificationServer;
+
   if (ownedNotificationServer)
     await new Promise<void>((resolve, reject) =>
       ownedNotificationServer.close((error) => (error ? reject(error) : resolve())),
     );
+
   for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
   await rm(join(artifacts, "manifest.json"), { force: true });
+
   if (evidence) {
     await writeFile(
       join(artifacts, "evidence.json"),

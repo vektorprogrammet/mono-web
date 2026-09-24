@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Database, type DatabaseShape } from "./service.js";
+import { Database, type DatabaseOperations } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   DepartmentId,
@@ -53,12 +53,14 @@ const makeProofLayer = (databaseUrl: Redacted.Redacted<string>) => {
     applicationName: "schools-postgres-proof-0061",
     maxConnections: 4,
   });
+
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
   const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
+
   return Layer.mergeAll(databaseLayer, organizationLayer, schoolsLayer);
 };
 
-const cleanupCohort = (sql: DatabaseShape) =>
+const cleanupCohort = (sql: DatabaseOperations) =>
   Effect.gen(function* () {
     yield* sql`
       DELETE FROM public.schools_directory_schools AS school
@@ -81,7 +83,7 @@ const cleanupCohort = (sql: DatabaseShape) =>
     `;
   });
 
-const resetAndSeed = (sql: DatabaseShape) =>
+const resetAndSeed = (sql: DatabaseOperations) =>
   sql.withTransaction(
     Effect.gen(function* () {
       yield* cleanupCohort(sql);
@@ -133,6 +135,7 @@ const resetAndSeed = (sql: DatabaseShape) =>
             0
           )
       `;
+
       const inserted = yield* sql<{ readonly schoolId: string }>`
         INSERT INTO public.schools_directory_schools (
           name,
@@ -153,19 +156,21 @@ const resetAndSeed = (sql: DatabaseShape) =>
         )
         RETURNING school_id::text AS "schoolId"
       `;
+
       const schoolId = inserted[0]?.schoolId;
       assert.ok(schoolId, "proof school insert must return an identifier");
       yield* sql`
         INSERT INTO public.schools_directory_departments (school_id, department_id, revision)
         VALUES (${schoolId}::bigint, ${proofCohort.departmentA}, 0)
       `;
+
       return schoolId;
     }),
   );
 
 export const program = Effect.scoped(
   Effect.gen(function* () {
-    const databaseUrl = yield* Config.redacted("DATABASE_URL");
+    const databaseUrl = yield* Config.Redacted("DATABASE_URL");
     assertDisposableDatabaseUrl(databaseUrl);
 
     const evidence = yield* Effect.gen(function* () {
@@ -179,17 +184,21 @@ export const program = Effect.scoped(
       const resumeRequest = yield* Deferred.make<void>();
       let intercepted = false;
       let readerConnectionId = -1;
+
       const pausingSchools = Schools.of({
         listDirectory: (input: SchoolDirectoryListInput) => {
           if (intercepted) return schools.listDirectory(input);
           intercepted = true;
+
           return Effect.gen(function* () {
             const [connection] = yield* database<{ readonly pid: number }>`
               SELECT pg_backend_pid() AS pid
             `;
+
             readerConnectionId = connection?.pid ?? -1;
             yield* Deferred.succeed(requestPaused, undefined);
             yield* Deferred.await(resumeRequest);
+
             return yield* schools.listDirectory(input);
           }).pipe(
             Effect.catchTag("SqlError", (cause) =>
@@ -210,6 +219,7 @@ export const program = Effect.scoped(
           Effect.provideService(Schools, pausingSchools),
         ),
       );
+
       yield* Deferred.await(requestPaused);
 
       const mutationConnection = yield* database.withTransaction(
@@ -217,6 +227,7 @@ export const program = Effect.scoped(
           const [connection] = yield* database<{ readonly pid: number }>`
             SELECT pg_backend_pid() AS pid
           `;
+
           yield* database`
             DELETE FROM public.schools_directory_departments AS association
             WHERE association.school_id = ${schoolId}::bigint
@@ -226,20 +237,25 @@ export const program = Effect.scoped(
             INSERT INTO public.schools_directory_departments (school_id, department_id, revision)
             VALUES (${schoolId}::bigint, ${proofCohort.departmentB}, 0)
           `;
+
           return connection;
         }),
       );
+
       yield* Deferred.succeed(resumeRequest, undefined);
 
       const pausedResponse = yield* Fiber.join(firstReadFiber);
+
       const laterResponse = yield* readSchoolsDirectory(
         proofCohort.personId,
         authorizationInstant,
         {},
       );
+
       const pausedDepartments =
         pausedResponse.activeSchools[0]?.departments.map((department) => department.departmentId) ??
         [];
+
       const laterDepartments =
         laterResponse.activeSchools[0]?.departments.map((department) => department.departmentId) ??
         [];

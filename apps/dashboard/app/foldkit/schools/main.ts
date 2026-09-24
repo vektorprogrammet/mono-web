@@ -1,9 +1,9 @@
 import { Runtime } from "foldkit";
 import type { SchoolsDirectoryClient } from "./browser-client";
-import { initialLoad, makeSchoolsDirectoryCommands } from "./command";
-import { Model, makeInitialModel } from "./model";
+import { initialLoad, commandsFor } from "./command";
+import { Model, init } from "./model";
 import "./styles.css";
-import { makeUpdate } from "./update";
+import { updateFor } from "./update";
 import { view } from "./view";
 
 export interface SchoolsDirectoryRuntimeInput {
@@ -14,13 +14,14 @@ export const embedSchoolsDirectory = (
   container: HTMLElement,
   input: SchoolsDirectoryRuntimeInput,
 ): (() => void) => {
-  const commands = makeSchoolsDirectoryCommands(input.client);
-  const initialModel = makeInitialModel();
+  const commands = commandsFor(input.client);
+  const initialModel = init();
+
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => [initialModel, [initialLoad(commands, initialModel)]],
-    update: makeUpdate(commands),
+    init: () => ({ model: initialModel, commands: [initialLoad(commands, initialModel)] }),
+    update: updateFor(commands),
     view,
     devTools: false,
     slow: false,
@@ -37,5 +38,6 @@ export const embedSchoolsDirectory = (
   });
 
   const handle = Runtime.embed(program);
+
   return () => handle.dispose();
 };

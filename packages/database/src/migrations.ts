@@ -15,111 +15,139 @@ export class DatabaseMigrationExecutionError extends Data.TaggedError(
 }> {}
 
 const receiptMigrationUrl = new URL("../migrations/0001-receipt-authority.sql", import.meta.url);
+
 const admissionPeriodMigrationUrl = new URL(
   "../migrations/0002-admission-period-authority.sql",
   import.meta.url,
 );
+
 const publicApplicantMigrationUrl = new URL(
   "../migrations/0003-public-applicant-admission.sql",
   import.meta.url,
 );
+
 const publicApplicantEffectLifecycleMigrationUrl = new URL(
   "../migrations/0005-public-applicant-effect-lifecycle.sql",
   import.meta.url,
 );
+
 const publicApplicantDeliveredPayloadCleanupMigrationUrl = new URL(
   "../migrations/0006-public-applicant-delivered-payload-cleanup.sql",
   import.meta.url,
 );
+
 const publicApplicantActivationSnapshotMigrationUrl = new URL(
   "../migrations/0007-public-applicant-activation-snapshot.sql",
   import.meta.url,
 );
+
 const organizationMigrationUrl = new URL(
   "../migrations/0008-organization-authority.sql",
   import.meta.url,
 );
+
 const contentPublicationMigrationUrl = new URL(
   "../migrations/0020-content-publication.sql",
   import.meta.url,
 );
+
 const schoolsMigrationUrl = new URL("../migrations/0019-schools-directory.sql", import.meta.url);
+
 const importOccurrenceAuthorityMigrationUrl = new URL(
   "../migrations/0009-import-occurrence-authority.sql",
   import.meta.url,
 );
+
 const recruitmentMigrationUrl = new URL(
   "../migrations/0010-native-recruitment-applicant-assignment.sql",
   import.meta.url,
 );
+
 const recruitmentSchedulingMigrationUrl = new URL(
   "../migrations/0011-native-recruitment-interview-scheduling.sql",
   import.meta.url,
 );
+
 const recruitmentInvitationResponseMigrationUrl = new URL(
   "../migrations/0012-native-recruitment-invitation-response.sql",
   import.meta.url,
 );
+
 const organizationAdministrationMigrationUrl = new URL(
   "../migrations/0013-native-organization-administration.sql",
   import.meta.url,
 );
+
 const profileSelfEditMigrationUrl = new URL(
   "../migrations/0014-native-profile-self-edit.sql",
   import.meta.url,
 );
+
 const nativeIdentityMigrationUrl = new URL(
   "../migrations/0015-native-identity-better-auth.sql",
   import.meta.url,
 );
+
 const personKeyedOrganizationAuthorityMigrationUrl = new URL(
   "../migrations/0016-person-keyed-organization-authority.sql",
   import.meta.url,
 );
+
 const organizationTeamInterestMigrationUrl = new URL(
   "../migrations/0018-organization-team-interest.sql",
   import.meta.url,
 );
+
 const personKeyedReceiptAuthorityMigrationUrl = new URL(
   "../migrations/0017-person-keyed-receipt-authority.sql",
   import.meta.url,
 );
+
 const nativeRecruitmentInterviewConductMigrationUrl = new URL(
   "../migrations/0021-native-recruitment-interview-conduct.sql",
   import.meta.url,
 );
+
 const nativeDomainSchemaBoundaryMigrationUrl = new URL(
   "../migrations/0022-native-domain-schema-boundary.sql",
   import.meta.url,
 );
+
 const declarativeAuthorizationRulesMigrationUrl = new URL(
   "../migrations/0023-declarative-authorization-rules.sql",
   import.meta.url,
 );
+
 const identitySecurityAuditMigrationUrl = new URL(
   "../migrations/0024-identity-security-audit.sql",
   import.meta.url,
 );
+
 const principalCredentialAccessAlgebraMigrationUrl = new URL(
   "../migrations/0025-principal-credential-access-algebra.sql",
   import.meta.url,
 );
+
 const declarativeRuleReconciliationMigrationUrl = new URL(
   "../migrations/0026-declarative-rule-reconciliation.sql",
   import.meta.url,
 );
+
 const nativeOAuthProviderMigrationUrl = new URL(
   "../migrations/0027-native-oauth-provider.sql",
   import.meta.url,
 );
+
 const servicePrincipalGrantsMigrationUrl = new URL(
   "../migrations/0028-service-principal-grants.sql",
   import.meta.url,
 );
+
 const nativeHttpSemanticsMigrationUrl = new URL(
   "../migrations/0029-native-http-semantics.sql",
   import.meta.url,
 );
+
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -130,6 +158,7 @@ const migration = (name: string, url: URL, execute: ExecuteMigration) =>
       try: () => readFile(url, "utf8"),
       catch: (cause) => new DatabaseMigrationReadError({ migration: name, cause }),
     });
+
     yield* execute(source);
   });
 
@@ -137,42 +166,52 @@ const returningAssistantRegistrationMigrationUrl = new URL(
   "../migrations/0038-returning-assistant-registration.sql",
   import.meta.url,
 );
+
 const interviewAssessmentCorrectionsMigrationUrl = new URL(
   "../migrations/0039-interview-assessment-corrections.sql",
   import.meta.url,
 );
+
 const coInterviewerAuthorityMigrationUrl = new URL(
   "../migrations/0040-co-interviewer-authority.sql",
   import.meta.url,
 );
+
 const interviewCompletionReceiptMigrationUrl = new URL(
   "../migrations/0041-interview-completion-receipt.sql",
   import.meta.url,
 );
+
 const invitationResponseCapabilityConfinementMigrationUrl = new URL(
   "../migrations/0042-invitation-response-capability-confinement.sql",
   import.meta.url,
 );
+
 const nativeSocialEventCreationMigrationUrl = new URL(
   "../migrations/0043-native-social-event-creation.sql",
   import.meta.url,
 );
+
 const nativeSchoolSurveyParticipationMigrationUrl = new URL(
   "../migrations/0044-native-school-survey-participation.sql",
   import.meta.url,
 );
+
 const nativeSchoolServiceDeliveryMigrationUrl = new URL(
   "../migrations/0045-native-school-service-delivery.sql",
   import.meta.url,
 );
+
 const absenceSubstituteServiceClosureMigrationUrl = new URL(
   "../migrations/0046-absence-substitute-service-closure.sql",
   import.meta.url,
 );
+
 const nativeSchoolSurveyOperationsMigrationUrl = new URL(
   "../migrations/0045-native-school-survey-operations.sql",
   import.meta.url,
 );
+
 const expenseSettlementEvidenceMigrationUrl = new URL(
   "../migrations/0048-expense-settlement-evidence.sql",
   import.meta.url,
@@ -462,6 +501,11 @@ export const databaseMigrationDefinitions = [
     name: "school-service-person-intervals",
     url: new URL("../migrations/0059-school-service-person-intervals.sql", import.meta.url),
   },
+  {
+    id: "60_organization-access-lifecycle",
+    name: "organization-access-lifecycle",
+    url: new URL("../migrations/0060-organization-access-lifecycle.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -470,7 +514,9 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
+
 export const databaseSchemaRevision = databaseMigrationDefinitions.at(-1)!.id.replaceAll("-", "_");
+
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

@@ -1,9 +1,10 @@
+import { DepartmentId } from "../organization/schema.js";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { CreateSchoolSurveyRequest } from "./schema.js";
 
 const request = {
-  departmentId: "survey-schema-department",
+  departmentId: DepartmentId.make("survey-schema-department"),
   semesterId: "survey-schema-semester",
   title: "School survey",
   completionText: "Thank you.",

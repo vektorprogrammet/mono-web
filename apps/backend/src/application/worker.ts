@@ -1,4 +1,4 @@
-import { Duration, Effect } from "effect";
+import { Predicate, Duration, Effect } from "effect";
 import { Database } from "@vektorprogrammet/database";
 import {
   deliverNextPublicApplicationOutbox,
@@ -30,16 +30,19 @@ export const runPublicApplicationOutboxWorker = (
 ): Effect.Effect<never, PublicApplicationPersistenceError, Database> => {
   requirePositiveInteger(options.pollIntervalMilliseconds, "poll interval");
   requirePositiveInteger(options.staleClaimMilliseconds, "stale claim interval");
+
   if (options.workerId.length === 0) throw new Error("worker ID must not be empty");
 
   let claimSequence = 0;
+
   const tick = Effect.gen(function* () {
     const result = yield* deliverNextPublicApplicationOutbox(
       `${options.workerId}:${claimSequence++}`,
       options.now(),
       interpreter,
     );
-    if (result._tag !== "Delivered") {
+
+    if (!Predicate.isTagged(result, "Delivered")) {
       yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
     }
   });
@@ -49,6 +52,7 @@ export const runPublicApplicationOutboxWorker = (
     const claimedBefore = new Date(now - options.staleClaimMilliseconds).toISOString();
     yield* recoverAllStalePublicApplicationOutbox(claimedBefore);
     options.onStart?.();
+
     return yield* Effect.forever(tick);
   }).pipe(Effect.ensuring(Effect.sync(() => options.onStop?.())));
 };

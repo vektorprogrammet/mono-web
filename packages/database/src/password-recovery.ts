@@ -1,13 +1,14 @@
+import { DatabasePgPool } from "./pg-pool.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { Effect } from "effect";
+import { Context, Layer, Match, Predicate, Effect } from "effect";
 import type { Pool, PoolClient } from "pg";
 import type {
   IdentityRequestContext,
   IdentitySecurityEventKind,
   IdentitySecurityOutcomeCode,
 } from "@vektorprogrammet/domain/identity";
-import type { MailShape } from "@vektorprogrammet/domain/mail";
+import type { MailOperations } from "@vektorprogrammet/domain/mail";
 import type { AuthEngineConfig } from "./auth-engine.js";
 
 interface Coordination {
@@ -15,17 +16,21 @@ interface Coordination {
   enqueue: "Absent" | "Accepted" | "Failed";
   subject: string | null;
 }
+
 const unavailable = () =>
   Response.json(
     { code: "RECOVERY_UNAVAILABLE" },
     { status: 503, headers: { "cache-control": "no-store" } },
   );
+
 const transaction = async <A>(pool: Pool, run: (client: PoolClient) => Promise<A>): Promise<A> => {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
     const result = await run(client);
     await client.query("COMMIT");
+
     return result;
   } catch (error) {
     await client.query("ROLLBACK");
@@ -34,6 +39,7 @@ const transaction = async <A>(pool: Pool, run: (client: PoolClient) => Promise<A
     client.release();
   }
 };
+
 const audit = async (
   db: Pool | PoolClient,
   kind: IdentitySecurityEventKind,
@@ -58,8 +64,10 @@ const audit = async (
 export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
   const local = new AsyncLocalStorage<Coordination>();
   const callback = `${config.oauth.dashboardOrigin}/tilbakestill-passord`;
+
   if (!config.trustedOrigins.includes(config.oauth.dashboardOrigin))
     throw new Error("Recovery dashboard origin is not trusted");
+
   return {
     sendResetPassword: async ({
       user,
@@ -71,18 +79,40 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
       url: string;
     }) => {
       const state = local.getStore();
+
       if (!state) throw new Error("Recovery requires an owned request");
+
       try {
         if (
           url !==
           `${config.oauth.canonicalOrigin}/api/auth/reset-password/${token}?callbackURL=${encodeURIComponent(callback)}`
         )
           throw new Error("Recovery callback mismatch");
-        await transaction(pool, async (client) => {
+
+        const accepted = await transaction(pool, async (client) => {
+          await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [
+            `vektorprogrammet:person-authorization:v1:${user.id}`,
+          ]);
+
+          const usable = await client.query(
+            `SELECT 1 FROM auth."user" WHERE id=$1 AND NOT access_disabled`,
+            [user.id],
+          );
+
+          if (usable.rowCount !== 1) {
+            await client.query(`DELETE FROM auth.verification WHERE identifier=$1 AND value=$2`, [
+              `reset-password:${token}`,
+              user.id,
+            ]);
+
+            return false;
+          }
+
           const verification = await client.query<{ id: string }>(
             `SELECT id FROM auth.verification WHERE identifier=$1 AND value=$2 AND "expiresAt">CURRENT_TIMESTAMP`,
             [`reset-password:${token}`, user.id],
           );
+
           if (verification.rows.length !== 1) throw new Error("Recovery verification missing");
           const id = verification.rows[0]!.id;
           await client.query(
@@ -96,8 +126,11 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
             user.id,
             state.context,
           );
+
+          return true;
         });
-        state.enqueue = "Accepted";
+
+        state.enqueue = accepted ? "Accepted" : "Absent";
       } catch {
         state.enqueue = "Failed";
         throw new Error("Recovery enqueue unavailable");
@@ -105,6 +138,7 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
     },
     onPasswordReset: async ({ user }: { user: { id: string } }) => {
       const state = local.getStore();
+
       if (state) state.subject = user.id;
     },
     handler: (
@@ -113,48 +147,63 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
       context: IdentityRequestContext,
     ): Promise<Response> => {
       const url = new URL(request.url);
+
       const requesting =
         request.method === "POST" && url.pathname === "/api/auth/request-password-reset";
+
       const resetting = request.method === "POST" && url.pathname === "/api/auth/reset-password";
+
       const following =
         request.method === "GET" && url.pathname.startsWith("/api/auth/reset-password/");
+
       if (!requesting && !resetting && !following) return handler(request);
+
       return local.run({ context, enqueue: "Absent", subject: null }, async () => {
         const state = local.getStore()!;
+
         try {
           const reject = async (code: "origin-not-trusted" | "redirect-not-allowed") => {
             await audit(pool, "password-reset-request-rejected", code, null, context);
+
             return Response.json({ code: "RECOVERY_REJECTED" }, { status: 403 });
           };
+
           if (
             (requesting || resetting) &&
             !config.trustedOrigins.includes(request.headers.get("origin") ?? "")
           )
             return await reject("origin-not-trusted");
+
           if (
             following &&
             (url.searchParams.getAll("callbackURL").length !== 1 ||
               url.searchParams.get("callbackURL") !== callback)
           )
             return await reject("redirect-not-allowed");
+
           if (requesting) {
             let body: unknown;
+
             try {
               body = await request.clone().json();
             } catch {
               await audit(pool, "password-reset-request-rejected", "input-invalid", null, context);
+
               return Response.json({ code: "INPUT_INVALID" }, { status: 400 });
             }
+
             if (
               body === null ||
-              typeof body !== "object" ||
+              !(body === null || Predicate.isObjectOrArray(body)) ||
               !("redirectTo" in body) ||
               body.redirectTo !== callback
             )
               return await reject("redirect-not-allowed");
           }
+
           if (resetting && url.search) return await reject("redirect-not-allowed");
           const response = await handler(request);
+
           if (requesting) {
             if (state.enqueue === "Failed") {
               await audit(
@@ -164,8 +213,10 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
                 null,
                 context,
               );
+
               return unavailable();
             }
+
             if (state.enqueue === "Absent")
               await audit(
                 pool,
@@ -179,16 +230,22 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
                 context,
               );
           }
+
           if (resetting) {
             if (response.ok && state.subject === null) return unavailable();
+
             const body = response.ok
               ? null
               : await response
                   .clone()
                   .json()
                   .catch(() => null);
+
             const code =
-              body !== null && typeof body === "object" && "code" in body ? body.code : undefined;
+              body !== null && (body === null || Predicate.isObjectOrArray(body)) && "code" in body
+                ? body.code
+                : undefined;
+
             await audit(
               pool,
               response.ok ? "password-reset-success" : "password-reset-failure",
@@ -203,8 +260,10 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
               context,
             );
           }
+
           response.headers.set("cache-control", "no-store");
           response.headers.set("referrer-policy", "no-referrer");
+
           return response;
         } catch {
           if (resetting)
@@ -215,6 +274,7 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
               state.subject,
               context,
             ).catch(() => undefined);
+
           return unavailable();
         }
       });
@@ -226,14 +286,16 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
 export const drainPasswordResetMail = async (
   pool: Pool,
   config: Pick<AuthEngineConfig, "oauth">,
-  mail: MailShape,
+  mail: MailOperations,
   sender: string,
 ): Promise<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim"> => {
   const claim = randomUUID();
+
   const row = await transaction(pool, async (client) => {
     await client.query(
       `UPDATE auth.password_reset_email_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_code='stale-claim' WHERE status='Processing' AND claimed_at<CURRENT_TIMESTAMP-INTERVAL '60 seconds'`,
     );
+
     return (
       await client.query<{
         effect_id: string;
@@ -246,13 +308,16 @@ export const drainPasswordResetMail = async (
       )
     ).rows[0];
   });
+
   if (!row) return "Empty";
+
   const verification = (
     await pool.query<{ identifier: string; value: string; expiresAt: Date; email: string | null }>(
-      `SELECT v.identifier,v.value,v."expiresAt",u.email FROM auth.verification v LEFT JOIN auth."user" u ON u.id=$2 WHERE v.id=$1`,
+      `SELECT v.identifier,v.value,v."expiresAt",u.email FROM auth.verification v LEFT JOIN auth."user" u ON u.id=$2 AND NOT u.access_disabled WHERE v.id=$1`,
       [row.verification_id, row.subject_person_id],
     )
   ).rows[0];
+
   let failure:
     | "verification-invalid"
     | "verification-expired"
@@ -261,8 +326,10 @@ export const drainPasswordResetMail = async (
     | "provider-unavailable"
     | "delivery-timeout"
     | null = null;
+
   let providerReference: string | null = null;
   let quarantined = false;
+
   if (!verification || !/^reset-password:[A-Za-z0-9_-]+$/.test(verification.identifier)) {
     failure = "verification-invalid";
   } else if (verification.value !== row.subject_person_id || !verification.email) {
@@ -270,9 +337,12 @@ export const drainPasswordResetMail = async (
   } else if (verification.expiresAt.getTime() <= Date.now()) {
     failure = "verification-expired";
   }
+
   quarantined = failure !== null;
+
   if (!failure && verification) {
     const token = verification.identifier.slice("reset-password:".length);
+
     const result = await Effect.runPromise(
       Effect.result(
         mail.deliver({
@@ -292,18 +362,19 @@ export const drainPasswordResetMail = async (
         }),
       ),
     );
-    if (result._tag === "Failure") {
-      failure =
-        result.failure.kind === "permanent-rejection"
-          ? "provider-rejected"
-          : result.failure.kind === "ambiguous-outcome"
-            ? "delivery-timeout"
-            : "provider-unavailable";
+
+    if (Predicate.isTagged(result, "Failure")) {
+      failure = Match.value(result.failure.kind).pipe(
+        Match.when("permanent-rejection", () => "provider-rejected" as const),
+        Match.when("ambiguous-outcome", () => "delivery-timeout" as const),
+        Match.orElse(() => "provider-unavailable" as const),
+      );
       quarantined = result.failure.kind !== "temporary-unavailability" || row.attempts >= 3;
     } else {
       providerReference = result.success.providerReference;
     }
   }
+
   return transaction(pool, async (client) => {
     const updated = await client.query(
       `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN CURRENT_TIMESTAMP ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing'`,
@@ -315,6 +386,7 @@ export const drainPasswordResetMail = async (
         providerReference,
       ],
     );
+
     if (updated.rowCount !== 1) return "LostClaim";
     await audit(
       client,
@@ -323,6 +395,18 @@ export const drainPasswordResetMail = async (
       row.subject_person_id,
       null,
     );
+
     return failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed";
   });
 };
+
+export class PasswordRecovery extends Context.Service<
+  PasswordRecovery,
+  ReturnType<typeof makePasswordRecovery>
+>()("@vektorprogrammet/database/PasswordRecovery") {}
+
+export const PasswordRecoveryLive = (config: AuthEngineConfig) =>
+  Layer.effect(
+    PasswordRecovery,
+    Effect.map(DatabasePgPool, (pool) => makePasswordRecovery(pool, config)),
+  );

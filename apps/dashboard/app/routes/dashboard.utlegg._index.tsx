@@ -1,15 +1,7 @@
+import { Predicate, Schema, Match } from "effect";
 import { ApprovalReceiptList } from "@/components/receipts/ApprovalReceiptList";
 import { Button } from "@/components/ui/button";
-import {
-  isUnauthorizedError,
-  mapApprovalReceiptError,
-  mapApprovalReceiptView,
-  type ApprovalReceiptView,
-  type ReceiptApprovalFailure,
-  type ReceiptApprovalIntent,
-  type ReceiptStatus,
-  type ReceiptUiError,
-} from "@/lib/receipt-view";
+import { isUnauthorizedError, mapApprovalReceiptError, mapApprovalReceiptView, type ReceiptApprovalFailure, type ReceiptApprovalIntent, type ReceiptStatus, ReceiptUiError } from "@/lib/receipt-view";
 import { ReceiptId } from "@vektorprogrammet/http-api"
 import {
   IdempotencyKey,
@@ -17,7 +9,7 @@ import {
   type IdempotencyKey as IdempotencyKeyValue,
   type StrongETag as StrongETagValue,
 } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
+
 import { Link, useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
@@ -44,7 +36,8 @@ const statusFilters = [
 
 function readFormText(form: FormData, name: string): string | null {
   const value = form.get(name);
-  return typeof value === "string" ? value : null;
+
+  return Predicate.isString(value) ? value : null;
 }
 
 function isReceiptStatus(value: string | null): value is ReceiptStatus {
@@ -61,6 +54,7 @@ function parseApprovalCommand(
   const etagText = readFormText(form, "etag")?.trim() ?? "";
   const commandIdText = readFormText(form, "commandId")?.trim() ?? "";
   let etag: StrongETagValue | undefined;
+
   try {
     etag = Schema.decodeUnknownSync(StrongETag)(etagText);
   } catch {
@@ -71,12 +65,9 @@ function parseApprovalCommand(
     failure: {
       intent,
       receiptId: receiptIdText,
-      ...(etag === undefined ? {} : { etag }),
+      etag: etag === undefined ? undefined : etag,
       commandId: commandIdText,
-      error: {
-        _tag: "ReceiptDecodeError",
-        message,
-      },
+      error: ReceiptUiError.ReceiptDecodeError({message}),
     },
   });
 
@@ -100,12 +91,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const requestedStatus = new URL(request.url).searchParams.get("status");
 
   if (requestedStatus !== null && !isReceiptStatus(requestedStatus)) {
-    const error: ReceiptUiError = {
-      _tag: "ReceiptDecodeError",
-      message: "Statusfilteret er ugyldig. Velg en status fra listen.",
-    };
+    const error: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({message: "Statusfilteret er ugyldig. Velg en status fra listen."});
+
     return {
-      receipts: [] as ApprovalReceiptView[],
+      receipts: [],
       status: undefined,
       error,
     };
@@ -117,6 +106,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     const result = await client.receipts.listReceiptsForApproval({
       query: status === undefined ? {} : { status },
     });
+
     return {
       receipts: result.body.items.map(mapApprovalReceiptView),
       status,
@@ -126,8 +116,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (isUnauthorizedError(error)) {
       throw await expiredSessionRedirect(request);
     }
+
     return {
-      receipts: [] as ApprovalReceiptView[],
+      receipts: [],
       status,
       error: mapApprovalReceiptError(error),
     };
@@ -141,14 +132,13 @@ export async function action({ request }: Route.ActionArgs) {
   const intentValue = readFormText(form, "_intent");
 
   if (intentValue !== "approve" && intentValue !== "reject" && intentValue !== "reopen") {
-    const actionError: ReceiptUiError = {
-      _tag: "ReceiptDecodeError",
-      message: "Ukjent behandling. Åpne bekreftelsen på nytt og prøv igjen.",
-    };
+    const actionError: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({message: "Ukjent behandling. Åpne bekreftelsen på nytt og prøv igjen."});
+
     return { success: false as const, actionError };
   }
 
   const parsed = parseApprovalCommand(form, intentValue);
+
   if ("failure" in parsed) {
     return { success: false as const, actionFailure: parsed.failure };
   }
@@ -164,12 +154,13 @@ export async function action({ request }: Route.ActionArgs) {
       },
       payload: {},
     };
+
     const result =
-      command.intent === "approve"
-        ? await client.receipts.approveReceipt(requestInput)
-        : command.intent === "reopen"
-          ? await client.receipts.reopenReceipt(requestInput)
-          : await client.receipts.rejectReceipt(requestInput);
+      await Match.value(command).pipe(
+Match.when({ intent: "approve" }, () => (client.receipts.approveReceipt(requestInput))),
+Match.when({ intent: "reopen" }, () => (client.receipts.reopenReceipt(requestInput))),
+Match.orElse(() => (client.receipts.rejectReceipt(requestInput)))
+);
 
     return {
       success: true as const,
@@ -186,6 +177,7 @@ export async function action({ request }: Route.ActionArgs) {
     if (isUnauthorizedError(error)) {
       throw await expiredSessionRedirect(request);
     }
+
     return {
       success: false as const,
       actionFailure: {
@@ -201,14 +193,17 @@ export default function Utlegg() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+
   const actionError =
     actionData?.success === false && "actionError" in actionData
       ? actionData.actionError
       : undefined;
+
   const actionFailure =
     actionData?.success === false && "actionFailure" in actionData
       ? actionData.actionFailure
       : undefined;
+
   const actionNotice = actionData?.success === true ? actionData.actionNotice : undefined;
 
   return (
@@ -233,6 +228,7 @@ export default function Utlegg() {
           <ul className="flex flex-wrap gap-2">
             {statusFilters.map((filter) => {
               const active = loaderData.status === filter.status;
+
               const to =
                 filter.status === undefined
                   ? "/dashboard/utlegg"

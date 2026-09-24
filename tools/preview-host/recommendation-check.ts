@@ -44,7 +44,7 @@ import {
 } from "./interview-correction-boundaries.ts";
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import { runCoInterviewerCorrectionJourney } from "./co-interviewer-correction-0106.ts";
-import { DatabaseLive } from "../../packages/database/src/index.js";
+import { DatabaseLive } from "../../packages/database/src/layers.js";
 import { AdmissionsLive } from "../../packages/database/src/admissions/index.js";
 import { OrganizationLive } from "../../packages/database/src/organization/index.js";
 import { ProfileLive } from "../../packages/database/src/profile/index.js";
@@ -58,11 +58,18 @@ import {
 } from "../../packages/domain/src/recruitment/index.js";
 import { deliverJson } from "../../apps/backend/src/delivery/http.js";
 import { NotificationGateway } from "../../packages/domain/src/notification/service.js";
+import { Array as Arr, Predicate, Schema } from "effect";
+
 const root = new URL("../../", import.meta.url).pathname;
+
 const dbRequire = createRequire(new URL("../../packages/database/package.json", import.meta.url));
+
 const uiRequire = createRequire(new URL("../../apps/dashboard/package.json", import.meta.url));
+
 const { Pool } = dbRequire("pg");
+
 const { Effect, Layer, Redacted } = dbRequire("effect");
+
 const fixtureKeys = {
   invalid0: "invalid-recommendation-0101-0",
   invalid1: "invalid-recommendation-0101-1",
@@ -76,41 +83,53 @@ const fixtureKeys = {
   selfCancel: "self-cancel-recommendation-0101",
   linkRace: "identity-race-recommendation-0101",
 } as const;
-class ReturningLoginProbeComplete extends Error {
-  constructor(readonly result: unknown) {
+
+class ReturningLoginProbeComplete<A> extends Error {
+  constructor(readonly result: A) {
     super("returning login probe complete");
   }
 }
-class ReturningTargetedComplete extends Error {
-  constructor(readonly result: unknown) {
+
+class ReturningTargetedComplete<A> extends Error {
+  constructor(readonly result: A) {
     super("returning targeted journey complete");
   }
 }
-class CorrectionTargetedComplete extends Error {
-  constructor(readonly result: unknown) {
+
+class CorrectionTargetedComplete<A> extends Error {
+  constructor(readonly result: A) {
     super("correction targeted journey complete");
   }
 }
-class CoInterviewerTargetedComplete extends Error {
-  constructor(readonly result: unknown) {
+
+class CoInterviewerTargetedComplete<A> extends Error {
+  constructor(readonly result: A) {
     super("co-interviewer targeted journey complete");
   }
 }
-class ApplicantProgressTargetedComplete extends Error {
-  constructor(readonly result: unknown) {
+
+class ApplicantProgressTargetedComplete<A> extends Error {
+  constructor(readonly result: A) {
     super("applicant progress targeted journey complete");
   }
 }
+
 const coInterviewerMode = process.argv.includes("--co-interviewer-mode");
+
 const applicantProgressMode = process.argv.includes("--applicant-progress-mode");
+
 if (process.argv.includes("--report")) validateInterviewReportFixture();
+
 if (process.argv.includes("--validate-fixture")) {
   // oxlint-effect-plugin allow(no-ambient-console): dev only: local fixture validation result.
   console.log("All recommendation fixture idempotency keys satisfy the canonical schema");
   process.exit(0);
 }
+
 const { chromium } = uiRequire("@playwright/test");
+
 const AxeBuilder = uiRequire("@axe-core/playwright").default;
+
 const run = (cmd: string, args: string[], env = process.env, cwd = root): string => {
   try {
     return execFileSync(cmd, args, {
@@ -127,18 +146,26 @@ const run = (cmd: string, args: string[], env = process.env, cwd = root): string
     );
   }
 };
+
 assert.equal(run("git", ["status", "--porcelain", "--", ".", ":(exclude).serena"]).trim(), "");
+
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
+
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-recommendation-0101-"));
+
 const logs: string[] = [];
+
 const children: ReturnType<typeof spawn>[] = [];
+
 const start = (cmd: string, args: string[], env = process.env, cwd = root) => {
   const c = spawn(cmd, args, { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
   children.push(c);
   c.stdout?.on("data", (v) => logs.push(String(v)));
   c.stderr?.on("data", (v) => logs.push(String(v)));
+
   return c;
 };
+
 const port = async (preferred = 0) => {
   const s = createServer();
   await new Promise<void>((yes, no) => {
@@ -146,37 +173,56 @@ const port = async (preferred = 0) => {
     s.listen(preferred, "127.0.0.1", yes);
   });
   const a = s.address();
-  assert.ok(a && typeof a !== "string");
+  assert.ok(a && !Predicate.isString(a));
   await new Promise<void>((yes) => s.close(() => yes()));
+
   return a.port;
 };
+
 const ready = async (test: () => Promise<boolean>) => {
   for (let i = 0; i < 150; i++) {
     try {
       if (await test()) return;
     } catch {}
+
     await new Promise((r) => setTimeout(r, 100));
   }
+
   throw new Error("Readiness failed");
 };
+
 let pool: any, browser: any, page: any, heldIdentityClient: any, backend: any;
+
 let correctionPre0039Fixture: InterviewCorrectionPre0039Fixture | undefined;
+
 let acceptedCorrectionReplay: InterviewCorrectionReplayRequest | undefined;
+
 let coInterviewerFixture: CoInterviewerCorrection0106Fixture | undefined;
+
 let expectedHistoricalReportRecommendation: "Ja" | "Kanskje" | "Nei" | undefined;
+
 let effectServer: Server | undefined;
+
 const effectCalls: EffectReceiverCall[] = [];
+
 const effectAttempts = new Map<string, number>();
+
 const invitationCapabilities = new Map<string, string>();
+
 let releaseEffectDelivery = false;
+
 const gates: string[] = [];
+
 const recordGate = (...observations: string[]) => {
   gates.push(...observations);
   // oxlint-effect-plugin allow(no-ambient-console): dev only: bounded synthetic rehearsal milestones.
   console.log(JSON.stringify({ observed: observations }));
 };
+
 const secrets: string[] = [];
+
 const accessibility: Array<unknown> = [];
+
 const auditPage = async (page: any, state: string) => {
   const violations = (await new AxeBuilder({ page }).analyze()).violations.map(
     (violation: any) => ({
@@ -188,20 +234,30 @@ const auditPage = async (page: any, state: string) => {
       })),
     }),
   );
+
   accessibility.push({ state, violations });
   let evidence = JSON.stringify(accessibility, null, 2);
+
   for (const secret of secrets) evidence = evidence.replaceAll(secret, "[redacted]");
   await writeFile(join(artifacts, "accessibility.json"), evidence);
+
   return violations;
 };
-const assertNoRecommendation = (value: unknown): void => {
-  if (Array.isArray(value)) for (const item of value) assertNoRecommendation(item);
-  else if (typeof value === "object" && value !== null)
+
+const assertNoRecommendation = (value: Schema.Json): void => {
+  if (Arr.isArray<Schema.Json>(value)) for (const item of value) assertNoRecommendation(item);
+  else if (
+    value !== null &&
+    !Predicate.isString(value) &&
+    !Predicate.isNumber(value) &&
+    !Predicate.isBoolean(value)
+  )
     for (const [key, item] of Object.entries(value)) {
       assert.ok(!["recommendation", "explanatoryPower", "roleModel", "suitability"].includes(key));
       assertNoRecommendation(item);
     }
 };
+
 type EffectReceiverCall = {
   readonly effectId: string;
   readonly commandId: string;
@@ -213,15 +269,20 @@ type EffectReceiverCall = {
 
 const readRequestText = async (request: IncomingMessage): Promise<string> => {
   const chunks: string[] = [];
+
   for await (const chunk of request) chunks.push(String(chunk));
+
   return chunks.join("");
 };
 
-const stringField = (value: unknown, key: string): string => {
-  if (value === null || typeof value !== "object" || !(key in value)) return "";
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === "string" ? field : "";
+const stringField = (value: Schema.Json, key: string): string => {
+  if (value === null || !(value === null || Predicate.isObjectOrArray(value)) || !(key in value))
+    return "";
+  const field = Schema.decodeUnknownSync(Schema.JsonObject)(value)[key];
+
+  return Predicate.isString(field) ? field : "";
 };
+
 const startEffectReceiver = async (
   token: string,
   portNumber: number,
@@ -231,29 +292,38 @@ const startEffectReceiver = async (
     if (request.method !== "POST" || request.url !== "/effects") {
       response.statusCode = 404;
       response.end();
+
       return;
     }
+
     if (request.headers.authorization !== `Bearer ${token}`) {
       response.statusCode = 401;
       response.end();
+
       return;
     }
-    let body: unknown;
+
+    let body: Schema.Json;
+
     try {
-      body = JSON.parse(await readRequestText(request));
+      body = Schema.decodeUnknownSync(Schema.Json)(JSON.parse(await readRequestText(request)));
     } catch {
       response.statusCode = 400;
       response.end();
+
       return;
     }
+
     if (stringField(body, "_tag") === "SendInterviewInvitation") {
       const interviewId = stringField(body, "interviewId");
       const capability = stringField(body, "responseCapability");
+
       if (interviewId !== "" && capability !== "")
         captureInvitationCapability(interviewId, capability);
     }
+
     const effectId = request.headers["idempotency-key"];
-    const normalizedEffectId = typeof effectId === "string" ? effectId : "";
+    const normalizedEffectId = Predicate.isString(effectId) ? effectId : "";
     const attempt = (effectAttempts.get(normalizedEffectId) ?? 0) + 1;
     effectAttempts.set(normalizedEffectId, attempt);
     const kind = stringField(body, "_tag");
@@ -269,12 +339,15 @@ const startEffectReceiver = async (
     response.statusCode = status;
     response.end();
   });
+
   const listening = Promise.withResolvers<void>();
   server.once("error", listening.reject);
   server.listen(portNumber, "127.0.0.1", listening.resolve);
   await listening.promise;
+
   return server;
 };
+
 const deliverRecruitmentInvitationOnce = async ({
   pgUrl,
   endpoint,
@@ -293,22 +366,27 @@ const deliverRecruitmentInvitationOnce = async ({
     applicationName: "native-returning-invitation-delivery",
     maxConnections: 1,
   });
+
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
   const profileLayer = ProfileLive.pipe(
     Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
   );
+
   const authorityLayers = Layer.mergeAll(
     databaseLayer,
     admissionsLayer,
     organizationLayer,
     profileLayer,
   );
+
   const transport = {
     endpoint,
     token,
     deliveryTimeoutMilliseconds: 2_000,
   };
+
   const gateway = Layer.succeed(
     NotificationGateway,
     NotificationGateway.of({
@@ -371,6 +449,7 @@ const deliverRecruitmentInvitationOnce = async ({
         ),
     }),
   );
+
   return Effect.runPromise(
     Effect.scoped(
       deliverNextRecruitmentInvitation(claimId, now()).pipe(
@@ -386,20 +465,25 @@ try {
     apiPort = await port(),
     effectPort = await port(),
     uiPort = await port(5174);
+
   const pgDir = join(artifacts, "postgres");
   run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
   start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
+
   const pg = `postgres://postgres@127.0.0.1:${pgPort}/postgres`,
     api = `http://127.0.0.1:${apiPort}`,
     ui = `http://127.0.0.1:${uiPort}`;
+
   const effectMode = process.argv.includes("--returning-mode") ? "http" : "disabled";
   const effectToken = randomBytes(32).toString("hex");
   pool = new Pool({ connectionString: pg });
   await ready(async () => {
     await pool.query("SELECT 1");
+
     return true;
   });
-  const env = {
+
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     JOURNEY_SEED_PG_URL: pg,
     BACKEND_PG_URL: pg,
@@ -412,14 +496,7 @@ try {
     OAUTH_DASHBOARD_ORIGIN: ui,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: effectMode,
-    ...(effectMode === "http"
-      ? {
-          PUBLIC_APPLICATION_EFFECT_ENDPOINT: `http://127.0.0.1:${effectPort}/effects`,
-          PUBLIC_APPLICATION_EFFECT_TOKEN: effectToken,
-          PUBLIC_APPLICATION_EFFECT_POLL_MS: "1000",
-          PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS: "2000",
-        }
-      : {}),
+
     API_URL: api,
     VITE_API_URL: api,
     DASHBOARD_MOUNT: "/",
@@ -427,17 +504,28 @@ try {
     PORT: String(uiPort),
     NODE_ENV: "production",
   };
+
+  if (effectMode === "http") {
+    env.PUBLIC_APPLICATION_EFFECT_ENDPOINT = `http://127.0.0.1:${effectPort}/effects`;
+    env.PUBLIC_APPLICATION_EFFECT_TOKEN = effectToken;
+    env.PUBLIC_APPLICATION_EFFECT_POLL_MS = "1000";
+    env.PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS = "2000";
+  }
+
+  assert.ok(env.BETTER_AUTH_SECRET);
   secrets.push(env.BETTER_AUTH_SECRET);
   recordGate("disposable PostgreSQL is ready");
   run("bun", ["packages/database/runtime/recommendation-preupgrade-fixture.ts"], {
     ...env,
     RECOMMENDATION_PREUPGRADE_THROUGH_0038: "1",
   });
+
   const historicalBefore = (
     await pool.query(
       `SELECT to_jsonb(c)-'recommendation' value FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
     )
   ).rows[0].value;
+
   recordGate("previous-schema history fixture migrated");
   correctionPre0039Fixture = await seedInterviewCorrectionPre0039Fixture({ pool });
   recordGate("seeded 0105 pre-0039 correction rows from existing native base");
@@ -461,14 +549,17 @@ try {
     },
     join(root, "packages/database"),
   );
+
   if (coInterviewerMode) {
     coInterviewerFixture = await seedCoInterviewerCorrection0106Fixture({ pool });
     recordGate(
       "seeded synthetic 0106 co-interviewer designation after the canonical migration chain",
     );
   }
+
   await seedReturningAssistant({ pool, run, env, root });
   await seedInterviewReportCoordinator({ pool, secrets });
+
   if (effectMode === "http") {
     effectServer = await startEffectReceiver(effectToken, effectPort, (interviewId, capability) => {
       invitationCapabilities.set(interviewId, capability);
@@ -476,12 +567,14 @@ try {
     });
     secrets.push(effectToken);
   }
+
   const effectSnapshot = async () => {
     const tables = (
       await pool.query(
         `SELECT schemaname,tablename FROM pg_tables WHERE schemaname IN ('public','auth') AND (tablename LIKE '%outbox%' OR tablename LIKE '%effect%') ORDER BY schemaname,tablename`,
       )
     ).rows;
+
     return Promise.all(
       tables.map(async ({ schemaname, tablename }: any) => ({
         table: `${schemaname}.${tablename}`,
@@ -493,7 +586,9 @@ try {
       })),
     );
   };
+
   const effectsBefore = await effectSnapshot();
+
   const link = async (suffix: string, personId: string, sql = pool) => {
     const invitation = `identity-recommendation-${suffix}`;
     await sql.query(
@@ -510,11 +605,13 @@ try {
       [`applicant-recommendation-${suffix}`, personId, invitation],
     );
   };
+
   await pool.query(
     `INSERT INTO public.person_profiles(person_id,first_name,last_name,revision) VALUES('recommendation-other-0101','Other','Interviewer',0)`,
   );
   await link("self", "journey-conduct-leader-0063");
   await link("maybe", "recommendation-other-0101");
+
   if (applicantProgressMode) {
     await seedApplicantProgress0107(pool);
     recordGate("seeded synthetic current-semester applicant progress states");
@@ -533,11 +630,13 @@ try {
 
   backend = start("bun", ["apps/backend/src/main.ts"], env);
   await ready(async () => (await fetch(`${api}/health`)).ok);
+
   const historicalAfter = (
     await pool.query(
       `SELECT to_jsonb(c)-'recommendation' value,recommendation FROM public.recruitment_interview_conducts c WHERE interview_id='interview-recommendation-history'`,
     )
   ).rows[0];
+
   assert.deepEqual(historicalAfter.value, historicalBefore);
   assert.equal(historicalAfter.recommendation, null);
   recordGate(
@@ -552,18 +651,23 @@ try {
   run("bun", ["run", "build"], env, join(root, "apps/dashboard"));
   start("bun", ["server.mjs"], env, join(root, "apps/dashboard"));
   await ready(async () => (await fetch(`${ui}/login`)).ok);
+
   const password = "journey-conduct-secret-0123456789",
     email = "lina.conduct@example.invalid";
+
   secrets.push(password, email);
+
   const credentialCheck = await fetch(`${api}/api/auth/sign-in/email`, {
     method: "POST",
     headers: { origin: ui, "content-type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
+
   if (!credentialCheck.ok) {
     const failure = await credentialCheck.json();
     throw new Error(`Native sign-in failed: ${credentialCheck.status} ${JSON.stringify(failure)}`);
   }
+
   await credentialCheck.body?.cancel();
   recordGate("seeded native credentials accepted by real identity engine");
   browser = await chromium.launch({
@@ -581,20 +685,24 @@ try {
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
   await page.waitForURL(/\/dashboard\/?$/);
   await page.goto(`${ui}/dashboard/intervjuer`);
+
   if (process.argv.includes("--returning-login-probe")) {
     const probe = await runReturningAssistantLoginProbe({ browser, pool, ui, artifacts });
     throw new ReturningLoginProbeComplete(probe);
   }
+
   assert.equal(await page.getByRole("link", { name: "Søkerkontoer", exact: true }).count(), 0);
   const cookies = await context.cookies();
   const cookie = cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
   secrets.push(...cookies.map((c: any) => c.value));
+
   if (applicantProgressMode) {
     await pool.query(
       `UPDATE public.organization_memberships
        SET is_team_leader=true, position_id='teamleader'
        WHERE membership_id='membership-native-conduct-leader-0063'`,
     );
+
     const journey = await runApplicantProgress0107({
       pool,
       page,
@@ -605,10 +713,13 @@ try {
       errors,
       audit: (journeyPage) => auditPage(journeyPage, "applicant-progress"),
     });
+
     recordGate("observed applicant-owned progress through the real browser/API/PostgreSQL path");
+
     for (const entry of await readdir(artifacts, { withFileTypes: true })) {
       if (entry.isFile() && !entry.name.endsWith(".png")) {
         const text = await readFile(join(artifacts, entry.name), "utf8");
+
         for (const secret of secrets)
           assert.ok(
             !text.includes(secret),
@@ -616,11 +727,14 @@ try {
           );
       }
     }
+
     throw new ApplicantProgressTargetedComplete(journey);
   }
+
   if (coInterviewerMode) {
     if (coInterviewerFixture === undefined)
       throw new Error("co-interviewer targeted mode requires its synthetic designation fixture");
+
     const journey = await runCoInterviewerCorrectionJourney({
       pool,
       browser,
@@ -637,9 +751,11 @@ try {
       auditPage,
       recordGate,
     });
+
     for (const entry of await readdir(artifacts, { withFileTypes: true })) {
       if (entry.isFile() && !entry.name.endsWith(".png")) {
         const text = await readFile(join(artifacts, entry.name), "utf8");
+
         for (const secret of secrets)
           assert.ok(
             !text.includes(secret),
@@ -647,23 +763,28 @@ try {
           );
       }
     }
+
     throw new CoInterviewerTargetedComplete(journey);
   }
+
   if (process.argv.includes("--returning-mode")) {
     let currentStage = "returning:startup";
     const returningStages: string[] = [];
+
     const stage = (name: string) => {
       currentStage = name;
       returningStages.push(name);
       // oxlint-effect-plugin allow(no-ambient-console): dev only: emit bounded returning-stage evidence.
       console.log(JSON.stringify({ returningStage: name }));
     };
+
     const bounded = async <T>(
       label: string,
       operation: Promise<T>,
       timeoutMs = 90_000,
     ): Promise<T> => {
       let timer: NodeJS.Timeout | undefined;
+
       try {
         return await Promise.race([
           operation,
@@ -678,6 +799,7 @@ try {
         if (timer !== undefined) clearTimeout(timer);
       }
     };
+
     const returningResult = await bounded(
       "returning browser journey",
       runReturningAssistantBrowserJourney({
@@ -701,20 +823,26 @@ try {
             claimId,
             now: () => new Date().toISOString(),
           });
+
           assert.equal(result._tag, "Delivered");
+
           const outbox = await pool.query(
             "SELECT status,attempts FROM public.recruitment_invitation_outbox WHERE effect_id=$1",
             [result.claim.effectId],
           );
+
           assert.deepEqual(outbox.rows, [{ status: "Delivered", attempts: 1 }]);
+
           return result;
         },
       }),
     );
+
     if (effectMode === "http") {
       const recruitmentInvitationCalls = effectCalls.filter(
         (call) => call.kind === "SendInterviewInvitation",
       );
+
       assert.equal(recruitmentInvitationCalls.length, 1);
       assert.deepEqual(
         recruitmentInvitationCalls.map((call) => call.status),
@@ -724,37 +852,48 @@ try {
         "manually drove existing recruitment invitation delivery helper through loopback ACK",
       );
     }
+
     if (effectMode === "http") {
-      type ReturningOutboxRow = {
-        readonly effect_id: string;
-        readonly command_id: string;
-        readonly effect_type: string;
-        readonly ordinal: number;
-        readonly status: string;
-        readonly attempts: number;
-        readonly claimed_at: string | null;
-        readonly last_failure_tag: string | null;
-        readonly origin: string;
-      };
+      const ReturningOutboxRow = Schema.Struct({
+        effect_id: Schema.String,
+        command_id: Schema.String,
+        effect_type: Schema.String,
+        ordinal: Schema.Number,
+        status: Schema.String,
+        attempts: Schema.Number,
+        claimed_at: Schema.NullOr(Schema.Union([Schema.String, Schema.Date])),
+        last_failure_tag: Schema.NullOr(Schema.String),
+        origin: Schema.String,
+      });
+
+      type ReturningOutboxRow = typeof ReturningOutboxRow.Type;
+
       const expectedEffectTypes = [
         "SendApplicantActivationOrConfirmation",
         "CreateAdmissionSubscription",
         "WriteApplicationAudit",
       ] as const;
+
       const acceptedReturningRegistrations = await pool.query(
         "SELECT command_id,registration_id FROM public.admission_returning_command_receipts ORDER BY command_id",
       );
+
       assert.equal(acceptedReturningRegistrations.rows.length, 6);
+
       const expectedOutboxCount =
         acceptedReturningRegistrations.rows.length * expectedEffectTypes.length;
-      const hasExactReturningEffectShape = (rows: ReadonlyArray<ReturningOutboxRow>) => {
+
+      const hasExactReturningEffects = (rows: ReadonlyArray<ReturningOutboxRow>) => {
         if (rows.length !== expectedOutboxCount) return false;
+
         if (rows.some((row) => row.origin !== "ReturningAssistant")) return false;
+
         return acceptedReturningRegistrations.rows.every(
           ({ command_id }: { command_id: string }) => {
             const commandRows = rows
               .filter((row) => row.command_id === command_id)
               .sort((left, right) => left.ordinal - right.ordinal);
+
             return (
               commandRows.length === expectedEffectTypes.length &&
               commandRows.map((row) => row.ordinal).join(",") === "0,1,2" &&
@@ -763,30 +902,37 @@ try {
           },
         );
       };
+
       const readReturningOutbox = async () =>
-        (
-          await pool.query(
-            `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
+        Schema.decodeUnknownSync(Schema.Array(ReturningOutboxRow))(
+          (
+            await pool.query(
+              `SELECT effect_id,command_id,effect_type,ordinal,status,attempts,claimed_at,last_failure_tag,origin
            FROM public.admission_application_outbox
            WHERE origin='ReturningAssistant'
            ORDER BY effect_id`,
-          )
-        ).rows as ReturningOutboxRow[];
+            )
+          ).rows,
+        );
+
       const waitForOutbox = async (
         predicate: (rows: ReadonlyArray<ReturningOutboxRow>) => boolean,
       ) => {
         for (let attempt = 0; attempt < 120; attempt += 1) {
           const rows = await readReturningOutbox();
+
           if (predicate(rows)) return rows;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
+
         throw new Error("returning effect outbox did not reach expected state");
       };
+
       const failedRows = await bounded(
         "returning effect first failure",
         waitForOutbox(
           (rows) =>
-            hasExactReturningEffectShape(rows) &&
+            hasExactReturningEffects(rows) &&
             rows.filter((row) => row.ordinal === 0).length ===
               acceptedReturningRegistrations.rows.length &&
             rows.filter((row) => row.ordinal !== 0).length ===
@@ -812,8 +958,9 @@ try {
         ),
         30_000,
       );
+
       assert.equal(failedRows.length, expectedOutboxCount);
-      assert.ok(hasExactReturningEffectShape(failedRows));
+      assert.ok(hasExactReturningEffects(failedRows));
       assert.equal(failedRows.filter((row) => row.ordinal === 0).length, 6);
       assert.equal(failedRows.filter((row) => row.ordinal !== 0).length, 12);
       assert.ok(
@@ -824,7 +971,7 @@ try {
       );
       const heldFailedRows = await readReturningOutbox();
       assert.equal(heldFailedRows.length, expectedOutboxCount);
-      assert.ok(hasExactReturningEffectShape(heldFailedRows));
+      assert.ok(hasExactReturningEffects(heldFailedRows));
       assert.ok(
         heldFailedRows
           .filter((row) => row.ordinal === 0)
@@ -847,9 +994,11 @@ try {
               row.last_failure_tag === null,
           ),
       );
+
       const preRestartEffectCalls = effectCalls.filter(
         (call) => call.origin === "ReturningAssistant",
       );
+
       assert.ok(preRestartEffectCalls.length >= 6);
       assert.ok(preRestartEffectCalls.every((call) => call.status === 503));
       assert.ok(
@@ -871,24 +1020,29 @@ try {
       releaseEffectDelivery = true;
       backend = start("bun", ["apps/backend/src/main.ts"], env);
       await ready(async () => (await fetch(`${api}/health`)).ok);
+
       const deliveredRows = await bounded(
         "returning effect restart delivery",
         waitForOutbox(
           (rows) =>
-            hasExactReturningEffectShape(rows) && rows.every((row) => row.status === "Delivered"),
+            hasExactReturningEffects(rows) && rows.every((row) => row.status === "Delivered"),
         ),
         90_000,
       );
+
       assert.equal(deliveredRows.length, expectedOutboxCount);
-      assert.ok(hasExactReturningEffectShape(deliveredRows));
+      assert.ok(hasExactReturningEffects(deliveredRows));
       assert.ok(deliveredRows.every((row) => row.status === "Delivered"));
       const expectedEffectsById = new Map(deliveredRows.map((row) => [row.effect_id, row]));
+
       const returningEffectCalls = effectCalls.filter(
         (call) => call.origin === "ReturningAssistant",
       );
+
       assert.ok(
         returningEffectCalls.every((call) => {
           const outboxRow = expectedEffectsById.get(call.effectId);
+
           return (
             outboxRow !== undefined &&
             call.commandId === outboxRow.command_id &&
@@ -898,6 +1052,7 @@ try {
         }),
         "effect receiver observed only the immutable expected envelopes",
       );
+
       for (const outboxRow of deliveredRows) {
         const calls = effectCalls.filter((call) => call.effectId === outboxRow.effect_id);
         const acknowledgements = calls.filter((call) => call.status === 204);
@@ -905,6 +1060,7 @@ try {
         assert.equal(acknowledgements[0]?.commandId, outboxRow.command_id);
         assert.equal(acknowledgements[0]?.origin, outboxRow.origin);
         assert.equal(acknowledgements[0]?.kind, outboxRow.effect_type);
+
         if (outboxRow.ordinal === 0) {
           assert.ok(
             calls.some((call) => call.status === 503),
@@ -912,6 +1068,7 @@ try {
           );
         }
       }
+
       await writeFile(
         join(artifacts, "returning-effect-evidence.json"),
         JSON.stringify(
@@ -928,6 +1085,7 @@ try {
       );
       recordGate("returning effect worker restarted and acknowledged all loopback effects");
     }
+
     const reportEvidence = await bounded(
       "0103 report observer",
       observeInterviewReport({
@@ -946,15 +1104,17 @@ try {
         recordGate,
       }),
     );
+
     const observedReturningGates = new Set(
       returningResult.trace
-        .filter(
-          (entry): entry is { phase: "negative-gate"; gate: string; status: unknown } =>
-            entry.phase === "negative-gate",
-        )
-        .map((entry) => entry.gate),
+        .values()
+        .filter((entry) => entry.phase === "negative-gate")
+        .map((entry) => Schema.decodeUnknownSync(Schema.String)(entry.gate))
+        .toArray(),
     );
+
     const reportGates = Array.isArray(reportEvidence?.gates) ? reportEvidence.gates : [];
+
     const returningFalsifierManifest: Array<{
       falsifier: string;
       gate: string;
@@ -984,12 +1144,13 @@ try {
       gate,
       status: observedReturningGates.has(gate) ? "observed" : "missing",
     }));
+
     returningFalsifierManifest.push(
       {
         falsifier: "report-self-privacy/read-only",
         gate: "0103 report observer",
         status: reportGates.some(
-          (gate) => typeof gate === "string" && gate.includes("no report writes"),
+          (gate) => Predicate.isString(gate) && gate.includes("no report writes"),
         )
           ? "observed"
           : "missing",
@@ -997,7 +1158,7 @@ try {
       {
         falsifier: "report-exact-period/classification/filter-reload",
         gate: "0103 report observer",
-        status: reportGates.some((gate) => typeof gate === "string" && gate.includes("period"))
+        status: reportGates.some((gate) => Predicate.isString(gate) && gate.includes("period"))
           ? "observed"
           : "missing",
       },
@@ -1012,9 +1173,11 @@ try {
     );
     throw new ReturningTargetedComplete({ returningStages, reportEvidence });
   }
+
   const get = (id: string) =>
     fetch(`${api}/api/recruitment/interviews/${id}`, { headers: { cookie, origin: ui } });
-  const post = (id: string, body: unknown, key: string, etag: string) =>
+
+  const post = (id: string, body: Schema.Json, key: string, etag: string) =>
     fetch(`${api}/api/recruitment/interviews/${id}:finalize`, {
       method: "POST",
       headers: {
@@ -1026,7 +1189,8 @@ try {
       },
       body: JSON.stringify(body),
     });
-  const correctPost = (id: string, body: unknown, key: string, etag: string) =>
+
+  const correctPost = (id: string, body: Schema.Json, key: string, etag: string) =>
     fetch(`${api}/api/recruitment/interviews/${id}:correct`, {
       method: "POST",
       headers: {
@@ -1038,6 +1202,7 @@ try {
       },
       body: JSON.stringify(body),
     });
+
   const open = async (p: any, name: string) => {
     await p
       .getByRole("article")
@@ -1046,6 +1211,7 @@ try {
       .click();
     await p.getByRole("heading", { name: `Intervju med ${name}` }).waitFor();
   };
+
   const waitForRecruitmentOperation = (p: any, operation: string) =>
     p.waitForResponse((response: any) => {
       if (
@@ -1053,10 +1219,12 @@ try {
         new URL(response.url()).pathname !== "/recruitment"
       )
         return false;
+
       try {
         const payload: unknown = response.request().postDataJSON();
+
         return (
-          typeof payload === "object" &&
+          (payload === null || Predicate.isObjectOrArray(payload)) &&
           payload !== null &&
           "operation" in payload &&
           payload.operation === operation
@@ -1065,6 +1233,7 @@ try {
         return false;
       }
     });
+
   const fill = async (p: any) => {
     await p
       .locator("#question-interview-schema-native-conduct-0063-q0")
@@ -1072,31 +1241,38 @@ try {
     await p.locator("#question-interview-schema-native-conduct-0063-q1-1").check();
     await p.locator("#question-interview-schema-native-conduct-0063-q2-0").check();
     await p.locator("#question-interview-schema-native-conduct-0063-q3-0").check();
+
     for (const axis of ["explanatoryPower", "roleModel", "suitability"])
       await p.locator(`#score-${axis}`).selectOption("8");
   };
+
   if (process.argv.includes("--correction-mode")) {
     const correctionId = "interview-recommendation-history";
     const correctionName = "history Recommendation";
     const correctionStages: string[] = [];
     const stage = (name: string) => correctionStages.push(name);
+
     const operationFor = (request: any): string | undefined => {
       if (request.method() !== "POST" || new URL(request.url()).pathname !== "/recruitment")
         return undefined;
+
       try {
         const payload: unknown = request.postDataJSON();
-        return typeof payload === "object" &&
+
+        return (payload === null || Predicate.isObjectOrArray(payload)) &&
           payload !== null &&
           "operation" in payload &&
-          typeof payload.operation === "string"
+          Predicate.isString(payload.operation)
           ? payload.operation
           : undefined;
       } catch {
         return undefined;
       }
     };
+
     const responseFor = (operation: string) =>
       page.waitForResponse((response: any) => operationFor(response.request()) === operation);
+
     const correctionPageOpen = async () => {
       await page
         .getByRole("article")
@@ -1105,6 +1281,7 @@ try {
         .click();
       await page.getByRole("heading", { name: `Intervju med ${correctionName}` }).waitFor();
     };
+
     const saveCorrection = async (recommendation: "Ja" | "Kanskje" | "Nei") => {
       await fill(page);
       await page.locator("#interviewer-recommendation").selectOption(recommendation);
@@ -1119,14 +1296,17 @@ try {
         .getByRole("button", { name: "Rett intervju", exact: true })
         .press("Enter");
       const response = await responsePromise;
+
       if (!response.ok())
         throw new Error(`correction response ${response.status()}: ${await response.text()}`);
       await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
       assert.equal(await page.locator("#interviewer-recommendation").inputValue(), recommendation);
     };
+
     const before = await get(correctionId);
     assert.equal(before.status, 200);
     const beforeBody = await before.json();
+
     const originalConductSql = (
       await pool.query(
         `SELECT to_jsonb(c) AS value
@@ -1135,6 +1315,7 @@ try {
         [correctionId],
       )
     ).rows[0].value;
+
     assert.equal(beforeBody.completionState, "Completed");
     assert.equal(beforeBody.history[0]?._tag, "Original");
     assert.equal(beforeBody.history[0]?.recommendation, null);
@@ -1168,9 +1349,11 @@ try {
     await correctionPageOpen();
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Ja");
     const staleCorrectionEtag = (await get(correctionId)).headers.get("etag")!;
+
     const staleCorrectionContext = await browser.newContext({
       storageState: await context.storageState(),
     });
+
     const staleCorrection = await staleCorrectionContext.newPage();
     staleCorrection.on("pageerror", () => errors.push("stale-correction-pageerror"));
     await staleCorrection.goto(`${ui}/dashboard/intervjuer`);
@@ -1192,6 +1375,7 @@ try {
       .fill("Et nytt tydelig svar.");
     await page.locator("#score-explanatoryPower").selectOption("9");
     await page.locator("#interviewer-recommendation").selectOption("Nei");
+
     type CorrectionAttempt = {
       readonly phase: "failed-save" | "retry";
       readonly payload: unknown;
@@ -1199,55 +1383,74 @@ try {
       readonly idempotencyKey: string | undefined;
       readonly fetchedStatus: number;
     };
+
     const correctionAttempts: CorrectionAttempt[] = [];
     let resolveFailedSave!: () => void;
     let rejectFailedSave!: (cause: unknown) => void;
     let resolveCorrectionRetry!: () => void;
     let rejectCorrectionRetry!: (cause: unknown) => void;
+
     const failedSaveSettled = new Promise<void>((resolve, reject) => {
       resolveFailedSave = resolve;
       rejectFailedSave = reject;
     });
+
     const correctionRetrySettled = new Promise<void>((resolve, reject) => {
       resolveCorrectionRetry = resolve;
       rejectCorrectionRetry = reject;
     });
+
     const correctionRoute = async (route: any) => {
       const request = route.request();
+
       if (request.method() !== "POST" || new URL(request.url()).pathname !== "/recruitment") {
         await route.continue();
+
         return;
       }
+
       let payload: unknown;
+
       try {
         payload = request.postDataJSON();
       } catch {
         await route.continue();
+
         return;
       }
+
       if (
         payload === null ||
-        typeof payload !== "object" ||
+        !(payload === null || Predicate.isObjectOrArray(payload)) ||
         !("operation" in payload) ||
         payload.operation !== "correctInterviewAssessment"
       ) {
         await route.continue();
+
         return;
       }
+
       const headersValue = "headers" in payload ? payload.headers : undefined;
+
       const operationHeaders =
-        typeof headersValue === "object" && headersValue !== null ? headersValue : {};
+        (headersValue === null || Predicate.isObjectOrArray(headersValue)) && headersValue !== null
+          ? headersValue
+          : {};
+
       const ifMatch =
-        "if-match" in operationHeaders && typeof operationHeaders["if-match"] === "string"
+        "if-match" in operationHeaders && Predicate.isString(operationHeaders["if-match"])
           ? operationHeaders["if-match"]
           : undefined;
+
       const idempotencyKey =
         "idempotency-key" in operationHeaders &&
-        typeof operationHeaders["idempotency-key"] === "string"
+        Predicate.isString(operationHeaders["idempotency-key"])
           ? operationHeaders["idempotency-key"]
           : undefined;
+
       const phase: CorrectionAttempt["phase"] =
         correctionAttempts.length === 0 ? "failed-save" : "retry";
+
       try {
         const response = await route.fetch({ timeout: 30_000 });
         correctionAttempts.push({
@@ -1257,18 +1460,22 @@ try {
           idempotencyKey,
           fetchedStatus: response.status(),
         });
+
         if (phase === "failed-save") {
           await response.body();
           await route.abort("failed");
           resolveFailedSave();
+
           return;
         }
+
         await route.fulfill({ response });
         resolveCorrectionRetry();
       } catch (cause) {
         (phase === "failed-save" ? rejectFailedSave : rejectCorrectionRetry)(cause);
       }
     };
+
     const rowsBeforeFailedSave = (
       await pool.query(
         `SELECT resulting_revision FROM public.recruitment_interview_correction_assessments
@@ -1276,6 +1483,7 @@ try {
         [correctionId],
       )
     ).rows;
+
     assert.deepEqual(
       rowsBeforeFailedSave.map((row: any) => row.resulting_revision),
       [2],
@@ -1291,6 +1499,7 @@ try {
     await page.locator("#interviewer-recommendation").waitFor({ state: "visible" });
     assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "Nei");
     assert.equal(await page.locator("#score-explanatoryPower").inputValue(), "9");
+
     const rowsBeforeRetry = (
       await pool.query(
         `SELECT resulting_revision FROM public.recruitment_interview_correction_assessments
@@ -1298,6 +1507,7 @@ try {
         [correctionId],
       )
     ).rows;
+
     assert.deepEqual(
       rowsBeforeRetry.map((row: any) => row.resulting_revision),
       [...rowsBeforeFailedSave.map((row: any) => row.resulting_revision), 3],
@@ -1329,10 +1539,12 @@ try {
         ["Correction", 3],
       ],
     );
+
     const formatUiInstant = (instant: string): string =>
       new Intl.DateTimeFormat("nb-NO", { dateStyle: "long", timeStyle: "short" }).format(
         new Date(instant),
       );
+
     const historyView = page.locator(".fs-history");
     await historyView.waitFor();
     const historyText = () => historyView.textContent();
@@ -1370,6 +1582,7 @@ try {
     assert.match(originalText, /Original vurdering, versjon 1/u);
     assert.match(originalText, new RegExp(formatUiInstant(originalEntry.finalizedAt), "u"));
     assert.match(originalText, new RegExp(originalEntry.finalizedByPersonId, "u"));
+
     for (const [label, value] of [
       ["Forklaringskraft", originalEntry.score.explanatoryPower],
       ["Rollemodell", originalEntry.score.roleModel],
@@ -1377,9 +1590,11 @@ try {
     ] as const) {
       assert.match(originalText, new RegExp(`${label}${value}`, "u"));
     }
+
     assert.match(originalText, /AnbefalingIkke registrert/u);
     const originalAnswerNodes = originalView.locator(".fs-history__answer");
     assert.equal(await originalAnswerNodes.count(), Math.max(1, originalEntry.answers.length));
+
     if (originalEntry.answers.length === 0) {
       assert.match(originalText, /Ingen svar registrert/u);
     } else {
@@ -1387,15 +1602,18 @@ try {
         const question = beforeBody.questions.find(
           (candidate: any) => candidate.questionId === answer.questionId,
         );
+
         const renderedAnswer = Array.isArray(answer.answer)
           ? answer.answer.join(", ")
           : answer.answer;
+
         assert.match(
           originalText,
           new RegExp(`${question?.prompt ?? answer.questionId}: ${renderedAnswer}`, "u"),
         );
       }
     }
+
     assert.equal(await historyView.locator("input,textarea,select,button").count(), 0);
     await page.locator("#interviewer-recommendation").focus();
     assert.equal(
@@ -1420,9 +1638,11 @@ try {
     stage(
       "browser ordered original and correction history shows completion metadata after reload with keyboard/mobile/Axe evidence",
     );
+
     const staleCorrectionResponsePromise = staleCorrection.waitForResponse(
       (response: any) => operationFor(response.request()) === "correctInterviewAssessment",
     );
+
     await staleCorrection.getByRole("button", { name: "Rett intervju", exact: true }).click();
     await staleCorrection.getByRole("dialog").waitFor({ state: "visible" });
     await staleCorrection
@@ -1454,6 +1674,7 @@ try {
       await staleCorrection.locator("#interviewer-recommendation").inputValue(),
       "Kanskje",
     );
+
     const staleRowsAfterConflict = (
       await pool.query(
         `SELECT resulting_revision FROM public.recruitment_interview_correction_assessments
@@ -1461,6 +1682,7 @@ try {
         [correctionId],
       )
     ).rows;
+
     assert.deepEqual(
       staleRowsAfterConflict.map((row: any) => row.resulting_revision),
       [2, 3],
@@ -1473,7 +1695,10 @@ try {
     );
     stage("second correction and reload preserve ordered history");
     const afterSecond = await (await get(correctionId)).json();
-    assert.ok(afterSecond.history.filter((entry: any) => entry._tag === "Correction").length >= 2);
+    assert.ok(
+      afterSecond.history.filter((entry: any) => Predicate.isTagged(entry, "Correction")).length >=
+        2,
+    );
     const afterSecondEtag = (await get(correctionId)).headers.get("etag");
     assert.deepEqual(afterSecond.answers, [
       { questionId: "interview-schema-native-conduct-0063-q0", answer: "Et nytt tydelig svar." },
@@ -1485,9 +1710,11 @@ try {
       },
     ]);
     assert.deepEqual(afterSecond.score, { explanatoryPower: 9, roleModel: 5, suitability: 6 });
-    const secondCorrections = afterSecond.history.filter(
-      (entry: any) => entry._tag === "Correction",
+
+    const secondCorrections = afterSecond.history.filter((entry: any) =>
+      Predicate.isTagged(entry, "Correction"),
     );
+
     assert.equal(secondCorrections.length, 2);
     assert.deepEqual(
       secondCorrections.map((entry: any) => [entry.predecessorRevision, entry.revision]),
@@ -1500,10 +1727,11 @@ try {
       secondCorrections.every(
         (entry: any) =>
           entry.correctedByPersonId === "journey-conduct-leader-0063" &&
-          typeof entry.correctedAt === "string" &&
-          typeof entry.commandId === "string",
+          Predicate.isString(entry.correctedAt) &&
+          Predicate.isString(entry.commandId),
       ),
     );
+
     const originalConductAfterSql = (
       await pool.query(
         `SELECT to_jsonb(c) AS value
@@ -1512,7 +1740,9 @@ try {
         [correctionId],
       )
     ).rows[0].value;
+
     assert.deepEqual(originalConductAfterSql, originalConductSql);
+
     const correctionRows = (
       await pool.query(
         `SELECT predecessor_revision AS "predecessorRevision",
@@ -1526,6 +1756,7 @@ try {
         [correctionId],
       )
     ).rows;
+
     assert.equal(correctionRows.length, 2);
     assert.deepEqual(
       correctionRows.map((row: any) => [row.predecessorRevision, row.resultingRevision]),
@@ -1538,9 +1769,10 @@ try {
       correctionRows.every(
         (row: any) =>
           row.correctedByPersonId === "journey-conduct-leader-0063" &&
-          typeof row.commandId === "string",
+          Predicate.isString(row.commandId),
       ),
     );
+
     const receiptRows = (
       await pool.query(
         `SELECT command_id AS "commandId", predecessor_revision AS "predecessorRevision",
@@ -1551,6 +1783,7 @@ try {
         [correctionId],
       )
     ).rows;
+
     const auditRows = (
       await pool.query(
         `SELECT command_id AS "commandId", actor_person_id AS "actorPersonId",
@@ -1561,6 +1794,7 @@ try {
         [correctionId],
       )
     ).rows;
+
     assert.equal(receiptRows.length, 2);
     assert.equal(auditRows.length, 2);
     assert.deepEqual(
@@ -1578,9 +1812,9 @@ try {
     assert.ok(
       receiptRows.every(
         (row: any) =>
-          typeof row.commandJson === "object" &&
+          (row.commandJson === null || Predicate.isObjectOrArray(row.commandJson)) &&
           row.commandJson !== null &&
-          typeof row.observationJson === "object" &&
+          (row.observationJson === null || Predicate.isObjectOrArray(row.observationJson)) &&
           row.observationJson !== null,
       ),
     );
@@ -1600,6 +1834,7 @@ try {
     );
     stage("SQL original conduct immutability and correction chain receipt audit linkage");
     assert.ok(afterSecondEtag);
+
     const writeCount = async () =>
       (
         await pool.query(
@@ -1611,7 +1846,9 @@ try {
           [correctionId],
         )
       ).rows[0];
+
     const beforeMismatch = await writeCount();
+
     const mismatched = await correctPost(
       correctionId,
       {
@@ -1623,11 +1860,13 @@ try {
       "correction-old-body-new-header-0105",
       afterSecondEtag!,
     );
+
     assert.equal(mismatched.status, 412);
     assert.deepEqual(await writeCount(), beforeMismatch);
     stage(
       "old displayed body with newer opaque ETag rejects at correction boundary without writes",
     );
+
     const correctionPayload = (detail: any, recommendation: "Ja" | "Kanskje" | "Nei") => ({
       expectedRevision: detail.revision,
       answers: [
@@ -1639,23 +1878,28 @@ try {
       score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
       recommendation,
     });
+
     const firstDirectDetail = await (await get(correctionId)).json();
     const firstDirectEtag = (await get(correctionId)).headers.get("etag")!;
     const firstDirectPayload = correctionPayload(firstDirectDetail, "Kanskje");
+
     const firstDirect = await correctPost(
       correctionId,
       firstDirectPayload,
       "correction-replay-0105-a",
       firstDirectEtag,
     );
+
     if (firstDirect.status !== 200) {
       throw new Error(`first direct correction ${firstDirect.status}: ${await firstDirect.text()}`);
     }
+
     const acceptedCorrectionRequest = {
       rawKey: "correction-replay-0105-a",
       originalIfMatch: firstDirectEtag,
       exactFourFieldPayload: firstDirectPayload,
     };
+
     acceptedCorrectionReplay = {
       key: acceptedCorrectionRequest.rawKey,
       etag: acceptedCorrectionRequest.originalIfMatch,
@@ -1664,25 +1908,30 @@ try {
     const firstBytes = await firstDirect.text();
     const secondDirectDetail = await (await get(correctionId)).json();
     const secondDirectEtag = (await get(correctionId)).headers.get("etag")!;
+
     const secondDirect = await correctPost(
       correctionId,
       correctionPayload(secondDirectDetail, "Nei"),
       "correction-replay-0105-b",
       secondDirectEtag,
     );
+
     assert.equal(secondDirect.status, 200);
+
     const replay = await correctPost(
       correctionId,
       acceptedCorrectionRequest.exactFourFieldPayload,
       acceptedCorrectionRequest.rawKey,
       acceptedCorrectionRequest.originalIfMatch,
     );
+
     assert.equal(replay.status, 200);
     assert.equal(await replay.text(), firstBytes);
     stage("exact correction replay remains byte-stable after later correction");
     const raceDetail = await (await get(correctionId)).json();
     const raceEtag = (await get(correctionId)).headers.get("etag")!;
     const beforeRaceWrites = await writeCount();
+
     const race = await Promise.all(
       ["correction-race-0105-a", "correction-race-0105-b"].map((key, index) =>
         correctPost(
@@ -1693,6 +1942,7 @@ try {
         ),
       ),
     );
+
     assert.equal(race.filter((response) => response.status === 200).length, 1);
     assert.equal(race.filter((response) => response.status !== 200).length, 1);
     assert.ok(race.every((response) => [200, 409, 412].includes(response.status)));
@@ -1710,7 +1960,10 @@ try {
     assert.equal(finalDetail.finalizedAt, beforeBody.finalizedAt);
     assert.equal(finalDetail.effectiveRevision, 6);
     assert.equal(finalDetail.revision, 6);
-    assert.equal(finalDetail.history.filter((entry: any) => entry._tag === "Correction").length, 5);
+    assert.equal(
+      finalDetail.history.filter((entry: any) => Predicate.isTagged(entry, "Correction")).length,
+      5,
+    );
     assert.ok(finalDetail.canFinalize === false && finalDetail.canCancel === false);
     assert.deepEqual(await effectSnapshot(), effectsBefore);
     stage("corrections create no notification or application effects");
@@ -1787,12 +2040,14 @@ try {
         FOR EACH ROW EXECUTE FUNCTION public.test_correction_audit_failure();
     `);
     const rollbackEtag = (await get(correctionId)).headers.get("etag")!;
+
     const rollbackResponse = await correctPost(
       correctionId,
       correctionPayload(finalDetail, "Ja"),
       "correction-rollback-0105",
       rollbackEtag,
     );
+
     assert.ok([500, 503].includes(rollbackResponse.status));
     assert.deepEqual(await writeCount(), rollbackBefore);
     await pool.query(`
@@ -1824,6 +2079,7 @@ try {
     await page.goto(`${ui}/dashboard/intervjuer`);
     await open(page, "Sofie Gjennomfører");
   }
+
   await fill(page);
   assert.equal(await page.locator("#interviewer-recommendation").inputValue(), "");
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-desktop.png") });
@@ -1835,6 +2091,7 @@ try {
   );
   await page.locator(".fs-conduct").screenshot({ path: join(artifacts, "editable-mobile.png") });
   await auditPage(page, "editable-mobile");
+
   // Viewport observations preserve fixed chrome; tall element captures can stitch it
   // across fields that are visible when the actual viewport is scrolled.
   for (const [selector, name] of [
@@ -1847,6 +2104,7 @@ try {
     await page.locator(selector).focus();
     await page.screenshot({ path: join(artifacts, `${name}.png`) });
   }
+
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "Fullfør intervju", exact: true }).click();
   await page
@@ -1890,17 +2148,22 @@ try {
   recordGate(
     "ordinary assigned member: required choice, keyboard finalization, reload and exact stale-correction conflict retention",
   );
+
   const answers = [
     { questionId: "interview-schema-native-conduct-0063-q0", answer: "Et tydelig svar" },
     { questionId: "interview-schema-native-conduct-0063-q1", answer: "Teknologi" },
     { questionId: "interview-schema-native-conduct-0063-q2", answer: "Praksis" },
     { questionId: "interview-schema-native-conduct-0063-q3", answer: ["Samarbeid"] },
   ];
+
   const payload = { answers, score: { explanatoryPower: 7, roleModel: 8, suitability: 9 } };
+
   const id = "interview-recommendation-maybe",
     initial = await get(id);
+
   assert.equal(initial.status, 200);
   const etag = initial.headers.get("etag")!;
+
   const lifecycleSnapshot = async () =>
     JSON.stringify(
       (
@@ -1909,7 +2172,9 @@ try {
         )
       ).rows[0],
     );
+
   const before = await lifecycleSnapshot();
+
   for (const [i, value] of [undefined, null, "invalid", 9].entries()) {
     const body = value === undefined ? payload : { ...payload, recommendation: value };
     assert.equal(
@@ -1926,6 +2191,7 @@ try {
       422,
     );
   }
+
   assert.equal(await lifecycleSnapshot(), before);
   const first = await post(id, { ...payload, recommendation: "Kanskje" }, fixtureKeys.maybe, etag);
   assert.equal(first.status, 200);
@@ -1941,6 +2207,7 @@ try {
     409,
   );
   const no = await get("interview-recommendation-no");
+
   const race = await Promise.all([
     post(
       "interview-recommendation-no",
@@ -1955,10 +2222,12 @@ try {
       no.headers.get("etag")!,
     ),
   ]);
+
   assert.ok(race.filter((r) => r.status === 200).length === 1);
   assert.ok(race.every((r) => [200, 409, 412].includes(r.status)));
   const saved = (await (await get("interview-recommendation-no")).json()).recommendation;
   assert.equal(saved, race[0].status === 200 ? "Nei" : "Ja");
+
   // Ensure Nei has an independent exact round trip even when Ja won the concurrent race.
   if (saved !== "Nei") {
     const b = await get("interview-native-conduct-b-0063");
@@ -1978,6 +2247,7 @@ try {
       "Nei",
     );
   }
+
   assert.equal((await (await get(id)).json()).recommendation, "Kanskje");
   recordGate(
     "missing/null/unknown/numeric rejected without effects; all choices roundtrip; exact replay and conflicting/concurrent writes fenced",
@@ -2057,6 +2327,7 @@ try {
        ON CONFLICT (interview_id) DO NOTHING`,
   );
   const lifecycleBeforeCorrections = await lifecycleSnapshot();
+
   if (acceptedCorrectionReplay !== undefined && process.argv.includes("--correction-mode")) {
     const boundaryResult = await assertInterviewCorrectionBoundaries({
       pool,
@@ -2071,21 +2342,26 @@ try {
       acceptedReplay: acceptedCorrectionReplay,
       recordGate,
     });
+
     await writeFile(
       join(artifacts, "correction-boundaries.json"),
       JSON.stringify({ revision, ...boundaryResult }, null, 2),
     );
   }
+
   const applicantResponse = await fetch(`${api}/api/recruitment/invitation-response`, {
     headers: { "x-recruitment-invitation-capability": invitationCapability, origin: ui },
   });
+
   assert.equal(applicantResponse.status, 200);
   const applicantObservation = await applicantResponse.text();
   assertNoRecommendation(JSON.parse(applicantObservation));
   assert.ok(!applicantObservation.includes("Kanskje"));
+
   const applicationProjection = await fetch(
     `${api}/api/applications/application-recommendation-maybe`,
   );
+
   assert.equal(applicationProjection.status, 200);
   const applicationBody = await applicationProjection.text();
   assertNoRecommendation(JSON.parse(applicationBody));
@@ -2111,6 +2387,7 @@ try {
     ).status,
     403,
   );
+
   const selfCancel = await fetch(
     `${api}/api/recruitment/interviews/interview-recommendation-self:cancel`,
     {
@@ -2125,6 +2402,7 @@ try {
       body: "{}",
     },
   );
+
   assert.equal(selfCancel.status, 403);
   assert.deepEqual(await effectSnapshot(), effectsAfterInterviewCompletions);
   // This separate actual onboarding action observes its applicant-facing projection.
@@ -2138,11 +2416,13 @@ try {
     `INSERT INTO public.applicant_account_delivery(invitation_id,state,secret,recipient) VALUES('identity-recommendation-no','Pending',$1,'no@example.invalid')`,
     [onboardingToken],
   );
+
   const onboardingProjection = await fetch(`${api}/api/onboarding/claim`, {
     method: "POST",
     headers: { cookie, origin: ui, "content-type": "application/json" },
     body: JSON.stringify({ mode: "ExistingAccount", token: onboardingToken }),
   });
+
   assert.equal(onboardingProjection.status, 200);
   assert.deepEqual(await onboardingProjection.json(), {
     state: "Claimed",
@@ -2166,6 +2446,7 @@ try {
     ).status,
     403,
   );
+
   if (!process.argv.includes("--correction-mode")) {
     run("bun", ["packages/database/runtime/recommendation-domain-replay.ts"], env);
     const raceRead = await get("interview-recommendation-link-race");
@@ -2177,12 +2458,14 @@ try {
       `SELECT applicant_id FROM public.admission_applicants WHERE applicant_id='applicant-recommendation-link-race' FOR UPDATE`,
     );
     const lockerPid = (await locker.query("SELECT pg_backend_pid() pid")).rows[0].pid;
+
     const waiting = post(
       "interview-recommendation-link-race",
       { ...payload, recommendation: "Ja" },
       fixtureKeys.linkRace,
       raceRead.headers.get("etag")!,
     );
+
     await ready(
       async () =>
         (
@@ -2212,6 +2495,7 @@ try {
     );
     assert.equal((await get("interview-recommendation-link-race")).status, 403);
   }
+
   const readLocker = await pool.connect();
   heldIdentityClient = readLocker;
   await readLocker.query("BEGIN");
@@ -2239,6 +2523,7 @@ try {
     "known self denied before read/finalize/cancel and both receipt layers; different Person allowed; real waiting serializable snapshot fails409 then self-denial",
   );
   let immutable = false;
+
   try {
     await pool.query(
       `UPDATE public.recruitment_interview_conducts SET recommendation='Ja' WHERE interview_id='interview-recommendation-history'`,
@@ -2246,19 +2531,24 @@ try {
   } catch {
     immutable = true;
   }
+
   assert.ok(immutable);
+
   for (const value of [null, "wrong", ""]) {
     let rejected = false;
+
     try {
       await pool.query(
         `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES('invalid-direct-0101','[]',1,1,1,'journey-conduct-leader-0063',CURRENT_TIMESTAMP,1,$1)`,
         [value],
       );
     } catch (e) {
-      rejected = (e as { code?: string }).code === "23514";
+      rejected = Predicate.hasProperty(e, "code") && e.code === "23514";
     }
+
     assert.ok(rejected);
   }
+
   await page.reload();
   await open(page, "history Recommendation");
   const currentHistoryDetail = await (await get("interview-recommendation-history")).json();
@@ -2294,6 +2584,7 @@ try {
   await pool.query(
     `UPDATE public.organization_memberships SET is_team_leader=false,position_id='member' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
+
   if (!process.argv.includes("--correction-mode")) {
     await runReturningAssistantBrowserJourney({
       browser,
@@ -2315,11 +2606,13 @@ try {
   recordGate(
     "owned interview shell retains role-scoped onboarding and existing schema/dashboard navigation",
   );
+
   const rows = (
     await pool.query(
       `SELECT interview_id,recommendation,answers,explanatory_power,role_model,suitability FROM public.recruitment_interview_conducts ORDER BY interview_id`,
     )
   ).rows;
+
   assert.equal(
     rows.find((r: any) => r.interview_id === "interview-native-conduct-a-0063").recommendation,
     "Ja",
@@ -2333,34 +2626,48 @@ try {
   assert.equal(maybeRow.explanatory_power, 7);
   assert.equal(maybeRow.role_model, 8);
   assert.equal(maybeRow.suitability, 9);
+
   const lifecycle = (
     await pool.query(
       `SELECT c.interview_id,c.recommendation,a.kind,a.resulting_revision,r.command_id FROM public.recruitment_interview_conducts c JOIN public.recruitment_interview_lifecycle_audit a USING(interview_id) JOIN public.recruitment_interview_lifecycle_command_receipts r ON r.command_id=a.command_id ORDER BY c.interview_id`,
     )
   ).rows;
-  const beforeLifecycle = JSON.parse(lifecycleBeforeCorrections) as {
-    readonly conducts: unknown;
-    readonly receipts: ReadonlyArray<{
-      readonly command_id: string;
-      readonly kind: string;
-    }>;
-    readonly audit: unknown;
-  };
-  const afterLifecycle = JSON.parse(await lifecycleSnapshot()) as {
-    readonly conducts: unknown;
-    readonly receipts: ReadonlyArray<{
-      readonly command_id: string;
-      readonly kind: string;
-    }>;
-    readonly audit: unknown;
-  };
+
+  const beforeLifecycle = Schema.decodeUnknownSync(
+    Schema.StructWithRest(Schema.Struct({
+      conducts: Schema.Json,
+      receipts: Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json),
+        ]),
+      ),
+      audit: Schema.Json,
+    }), [Schema.Record(Schema.String, Schema.Json)]),
+  )(JSON.parse(lifecycleBeforeCorrections));
+
+  const afterLifecycle = Schema.decodeUnknownSync(
+    Schema.StructWithRest(Schema.Struct({
+      conducts: Schema.Json,
+      receipts: Schema.Array(
+        Schema.StructWithRest(Schema.Struct({ command_id: Schema.String, kind: Schema.String }), [
+          Schema.Record(Schema.String, Schema.Json),
+        ]),
+      ),
+      audit: Schema.Json,
+    }), [Schema.Record(Schema.String, Schema.Json)]),
+  )(JSON.parse(await lifecycleSnapshot()));
+
   assert.deepEqual(afterLifecycle.conducts, beforeLifecycle.conducts);
   assert.deepEqual(afterLifecycle.receipts, beforeLifecycle.receipts);
   assert.deepEqual(afterLifecycle.audit, beforeLifecycle.audit);
+
   const knownFinalizationCommandIds = beforeLifecycle.receipts
+    .values()
     .filter((receipt) => receipt.kind === "InterviewFinalized")
     .map((receipt) => receipt.command_id)
+    .toArray()
     .sort();
+
   assert.ok(knownFinalizationCommandIds.length > 0);
   assert.deepEqual(lifecycle.map((row: any) => row.command_id).sort(), knownFinalizationCommandIds);
   assert.ok(lifecycle.every((r: any) => r.kind === "InterviewFinalized"));
@@ -2371,10 +2678,12 @@ try {
     accessibility.every((result: any) => result.violations.length === 0),
     "Accessibility violations retained in accessibility.json",
   );
+
   for (const secret of secrets) assert.ok(!JSON.stringify(logs).includes(secret));
   recordGate(
     "historical immutable not-recorded display; direct storage constraints; desktop/mobile Axe; independent public-schema SQL",
   );
+
   const reportEvidence = process.argv.includes("--report")
     ? await observeInterviewReport({
         root,
@@ -2393,6 +2702,7 @@ try {
         recordGate,
       })
     : undefined;
+
   assert.ok(
     accessibility.every((result: any) => result.violations.length === 0),
     "Report accessibility violations retained",
@@ -2414,13 +2724,16 @@ try {
       2,
     ),
   );
+
   for (const entry of await readdir(artifacts, { withFileTypes: true })) {
     if (entry.isFile() && !entry.name.endsWith(".png")) {
       const text = await readFile(join(artifacts, entry.name), "utf8");
+
       for (const secret of secrets)
         assert.ok(!text.includes(secret), `retained artifact ${entry.name} contains a credential`);
     }
   }
+
   // oxlint-effect-plugin allow(no-ambient-console): dev only: sanitized local acceptance artifact location.
   console.log(JSON.stringify({ result: "Passed", revision, artifacts, gates }));
 } catch (error) {
@@ -2481,6 +2794,7 @@ try {
     );
   } else {
     let detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+
     const activeQueries = pool
       ? await pool
           .query(
@@ -2491,7 +2805,9 @@ try {
           .then((result: { rows: unknown[] }) => result.rows)
           .catch(() => [])
       : [];
+
     detail += ` Active PostgreSQL queries: ${JSON.stringify(activeQueries)}`;
+
     if (page)
       detail += ` Current page: ${await page
         .locator("body")
@@ -2500,7 +2816,9 @@ try {
 
     const safe = (value: string) =>
       secrets.reduce((result, secret) => result.replaceAll(secret, "[redacted]"), value);
+
     detail = safe(detail);
+
     const returningOutbox = pool
       ? await pool
           .query(
@@ -2512,9 +2830,13 @@ try {
           .then((result: { rows: unknown[] }) => result.rows)
           .catch(() => [])
       : [];
+
     const returningEffectCalls = effectCalls
+      .values()
       .filter((call) => call.origin === "ReturningAssistant")
-      .map(({ effectId, commandId, kind, status }) => ({ effectId, commandId, kind, status }));
+      .map(({ effectId, commandId, kind, status }) => ({ effectId, commandId, kind, status }))
+      .toArray();
+
     const failureEvidence = {
       result: "Failed",
       revision,
@@ -2524,6 +2846,7 @@ try {
       returningOutbox,
       returningEffectCalls,
     };
+
     await writeFile(join(artifacts, "failure.json"), JSON.stringify(failureEvidence, null, 2));
     await writeFile(join(artifacts, "runtime.log"), `${logs.map(safe).join("")}${detail}\n`);
     // oxlint-effect-plugin allow(no-ambient-console): dev only: redacted local rehearsal failure evidence.
@@ -2532,16 +2855,20 @@ try {
   }
 } finally {
   await browser?.close();
+
   if (effectServer !== undefined) {
     const closed = Promise.withResolvers<void>();
     effectServer.close(() => closed.resolve());
     await closed.promise;
   }
+
   if (heldIdentityClient) {
     await heldIdentityClient.query("ROLLBACK");
     heldIdentityClient.release();
   }
+
   await pool?.end();
+
   for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
 }

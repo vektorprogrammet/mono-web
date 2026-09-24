@@ -6,16 +6,20 @@ import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 
 export const SchoolDirectoryRequestId = S.Int.check(S.isGreaterThanOrEqualTo(1));
+
 export const SchoolDirectoryTab = S.Literals(["Active", "Inactive"]);
+
 export type SchoolDirectoryTab = S.Schema.Type<typeof SchoolDirectoryTab>;
 
 export const SchoolDirectoryFailure = S.TaggedUnion({
   Denied: { message: S.String },
   Failed: { message: S.String },
 });
+
 export type SchoolDirectoryFailure = S.Schema.Type<typeof SchoolDirectoryFailure>;
 
 export const SchoolDirectoryData = AsyncData.Schema(SchoolDirectorySchema, SchoolDirectoryFailure);
+
 export const SchoolDirectoryTabs = Tabs.create<SchoolDirectoryTab>();
 
 export const Model = S.Struct({
@@ -28,9 +32,10 @@ export const Model = S.Struct({
   department: S.NullOr(DepartmentId),
   knownDepartments: S.Array(SchoolDirectoryDepartmentSchema),
 });
+
 export type Model = S.Schema.Type<typeof Model>;
 
-export const makeInitialModel = (
+export const init = (
   department: S.Schema.Type<typeof DepartmentId> | null = null,
 ): Model => ({
   directory: SchoolDirectoryData.Loading(),

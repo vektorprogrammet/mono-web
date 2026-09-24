@@ -11,24 +11,43 @@ import { chromium } from "@playwright/test";
 import pg from "pg";
 
 const { Client } = pg;
+
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
+
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+
 const runnerPath = fileURLToPath(import.meta.url);
+
 const contractPath = join(repositoryRoot, "docs/system.md");
+
 const manifestPath = join(repositoryRoot, "artifacts/runtime/social-events.json");
+
 const postgresPort = 45310;
+
 const backendPort = 45311;
+
 const proxyPort = 45312;
+
 const dashboardPort = 5174;
+
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/social_events_e2e_0110`;
+
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
 const apiOrigin = `http://127.0.0.1:${proxyPort}`;
+
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
 const betterAuthSecret = randomBytes(32).toString("base64url");
+
 const password = "social-events-0110-password-0123456789";
+
 const ids = {
   departmentA: "department-social-events-a-0110",
   departmentB: "department-social-events-b-0110",
@@ -38,6 +57,7 @@ const ids = {
   semesterB: "semester-social-events-b-0110",
   memberMembership: "membership-social-events-member-0110",
 };
+
 const personas = {
   member: {
     personId: "person-social-events-member-0110",
@@ -75,6 +95,7 @@ const personas = {
     password,
   },
 };
+
 const identitySeedPersons = Object.values(personas).map(
   ({ personId, firstName, lastName, email, password: personaPassword }) => ({
     personId,
@@ -84,7 +105,9 @@ const identitySeedPersons = Object.values(personas).map(
     password: personaPassword,
   }),
 );
+
 const commandTimeoutMs = 600_000;
+
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const withTimeout = (promise, milliseconds, label) =>
@@ -103,11 +126,13 @@ const run = (command, args, { cwd = repositoryRoot, env = process.env, label }) 
     timeout: commandTimeoutMs,
     killSignal: "SIGKILL",
   });
+
   if (result.status !== 0) {
     throw new Error(
       `${label} failed (${String(result.status)}):\n${result.stdout ?? ""}\n${result.stderr ?? ""}`,
     );
   }
+
   return { stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 };
 
@@ -118,23 +143,30 @@ const start = (command, args, { cwd, env, label }) => {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
+
   const output = [];
+
   const capture = (chunk) => {
     output.push(String(chunk));
+
     if (output.length > 400) output.shift();
   };
+
   child.stdout.on("data", capture);
   child.stderr.on("data", capture);
+
   return { child, label, output };
 };
 
 const stop = async (handle) => {
   if (handle === undefined || handle.child.exitCode !== null) return;
+
   try {
     process.kill(-handle.child.pid, "SIGTERM");
   } catch (cause) {
     if (cause?.code !== "ESRCH") throw cause;
   }
+
   await Promise.race([
     new Promise((resolve) => handle.child.once("exit", resolve)),
     delay(5_000).then(() => {
@@ -166,6 +198,7 @@ const waitForPort = (port, label) =>
           });
           socket.once("error", () => resolve(false));
         });
+
         if (ready) return;
         await delay(100);
       }
@@ -180,10 +213,12 @@ const waitForHttp = (url, label) =>
       while (true) {
         try {
           const response = await fetch(url);
+
           if (response.ok) return;
         } catch {
           // The owned process is still starting.
         }
+
         await delay(150);
       }
     })(),
@@ -194,11 +229,14 @@ const waitForHttp = (url, label) =>
 const requestBody = async (request) => {
   const chunks = [];
   let length = 0;
+
   for await (const chunk of request) {
     length += chunk.length;
+
     if (length > 1_000_000) throw new Error("recorded request exceeded 1 MB");
     chunks.push(chunk);
   }
+
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 };
 
@@ -207,18 +245,23 @@ const startRecordingProxy = async (ledger) => {
     const url = new URL(request.url ?? "/", apiOrigin);
     const body = await requestBody(request);
     const headers = new Headers();
+
     for (const [name, value] of Object.entries(request.headers)) {
       if (value === undefined || ["connection", "content-length", "host"].includes(name)) continue;
+
       if (Array.isArray(value)) {
         for (const item of value) headers.append(name, item);
       } else {
         headers.set(name, value);
       }
     }
+
     let requestJson = null;
+
     if (body !== undefined && headers.get("content-type")?.includes("json")) {
       requestJson = JSON.parse(body.toString("utf8"));
     }
+
     const entry = {
       sequence: ledger.length + 1,
       method: request.method ?? "GET",
@@ -230,7 +273,9 @@ const startRecordingProxy = async (ledger) => {
       responseHeaders: {},
       responseJson: null,
     };
+
     ledger.push(entry);
+
     try {
       const upstream = await fetch(new URL(request.url ?? "/", backendOrigin), {
         method: request.method,
@@ -238,19 +283,25 @@ const startRecordingProxy = async (ledger) => {
         body,
         redirect: "manual",
       });
+
       const bytes = Buffer.from(await upstream.arrayBuffer());
       entry.status = upstream.status;
       entry.responseHeaders = Object.fromEntries(upstream.headers.entries());
+
       if (bytes.length > 0 && upstream.headers.get("content-type")?.includes("json")) {
         entry.responseJson = JSON.parse(bytes.toString("utf8"));
       }
+
       response.statusCode = upstream.status;
+
       for (const [name, value] of upstream.headers) {
         if (["connection", "content-length", "set-cookie", "transfer-encoding"].includes(name))
           continue;
         response.setHeader(name, value);
       }
+
       const cookies = upstream.headers.getSetCookie();
+
       if (cookies.length > 0) response.setHeader("set-cookie", cookies);
       response.end(bytes);
     } catch (cause) {
@@ -258,10 +309,12 @@ const startRecordingProxy = async (ledger) => {
       response.end(JSON.stringify({ error: String(cause) }));
     }
   });
+
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(proxyPort, "127.0.0.1", resolve);
   });
+
   return server;
 };
 
@@ -275,11 +328,13 @@ const closeServer = (server) =>
 const connect = async () => {
   const client = new Client({ connectionString: postgresUrl });
   await client.connect();
+
   return client;
 };
 
 const query = async (text, values = []) => {
   const client = await connect();
+
   try {
     return await client.query(text, values);
   } finally {
@@ -299,6 +354,7 @@ const waitForDatabaseWait = async (needle, minimum = 1) =>
               AND query LIKE $1`,
           [`%${needle}%`],
         );
+
         if (result.rows[0]?.count >= minimum) return;
         await delay(25);
       }
@@ -326,6 +382,7 @@ const counts = async () => {
       (SELECT count(*)::int FROM native_http_idempotency_receipts
         WHERE operation_id = 'social-events.create') AS http_receipts
   `);
+
   return result.rows[0];
 };
 
@@ -337,10 +394,13 @@ const signIn = async (browser, persona) => {
   await page.getByLabel("Passord", { exact: true }).fill(persona.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
   await page.waitForURL((url) => url.pathname === "/dashboard/", { timeout: 15_000 });
+
   const cookies = (await context.cookies(dashboardOrigin)).filter(({ name }) =>
     ["better-auth.session_token", "__Secure-better-auth.session_token"].includes(name),
   );
+
   assert.equal(cookies.length, 1, `one Better Auth cookie for ${persona.email}`);
+
   return {
     context,
     page,
@@ -349,19 +409,16 @@ const signIn = async (browser, persona) => {
 };
 
 const api = async (cookie, method, path, { body, key } = {}) => {
-  const request = {
-    method,
-    headers: {
-      cookie,
-      origin: dashboardOrigin,
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...(key === undefined ? {} : { "idempotency-key": key }),
-    },
-    redirect: "manual",
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  };
+  const headers = new Headers({ cookie, origin: dashboardOrigin });
+
+  if (body !== undefined) headers.set("content-type", "application/json");
+
+  if (key !== undefined) headers.set("idempotency-key", key);
+  const request = { method, headers, redirect: "manual", body: JSON.stringify(body) };
+
   const response = await fetch(`${apiOrigin}${path}`, request);
   const bytes = Buffer.from(await response.arrayBuffer());
+
   return {
     status: response.status,
     headers: Object.fromEntries(response.headers.entries()),
@@ -405,6 +462,7 @@ const isoAround = (instant, milliseconds) =>
 const localDateTime = (instant) => {
   const date = new Date(instant);
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+
   return local.toISOString().slice(0, 16);
 };
 
@@ -485,9 +543,11 @@ const exerciseJourney = async ({ browser, ledger }) => {
     .locator("#social-events-department option")
     .filter({ hasText: "Trondheim" })
     .waitFor({ state: "attached" });
+
   const departmentOptions = await member.page
     .locator("#social-events-department option")
     .allTextContents();
+
   assert.deepEqual(departmentOptions, ["Velg avdeling", "Trondheim"]);
   assert.equal(await member.page.locator("#social-events-semester option").count(), 3);
   await member.page.selectOption("#social-events-department", ids.departmentA);
@@ -514,6 +574,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
     ({ method, path, requestJson }) =>
       method === "POST" && path === "/api/social-events" && requestJson?.title === "Sosial kveld",
   );
+
   assert.ok(firstUiPost, "dashboard create reached the native API");
   assert.equal(firstUiPost.status, 201);
   assert.equal(firstUiPost.responseHeaders["cache-control"], "no-store");
@@ -552,16 +613,19 @@ const exerciseJourney = async ({ browser, ledger }) => {
   assert.match(await widerRow.innerText(), /Teammedlemmer og assistenter/u);
 
   const sameStart = isoAround(referenceInstant, 72 * 60 * 60 * 1000);
+
   const equalA = await createEvent(member.cookie, "social-events-equal-a-0110", {
     title: "Lik tid A",
     startAt: sameStart,
     endAt: isoAround(sameStart, 60 * 60 * 1000),
   });
+
   const equalB = await createEvent(member.cookie, "social-events-equal-b-0110", {
     title: "Lik tid B",
     startAt: sameStart,
     endAt: isoAround(sameStart, 60 * 60 * 1000),
   });
+
   assert.equal(equalA.status, 201);
   assert.equal(equalB.status, 201);
 
@@ -574,8 +638,10 @@ const exerciseJourney = async ({ browser, ledger }) => {
     ["Etter syv dager", 7 * 24 * 60 * 60 * 1000 + 1],
     ["Godt etter syv dager", 8 * 24 * 60 * 60 * 1000],
   ];
+
   for (const [title, offset] of boundaryDefinitions) {
     const startAt = isoAround(referenceInstant, offset);
+
     const created = await createEvent(
       member.cookie,
       `social-events-boundary-${String(offset).replace("-", "n")}-0110`,
@@ -586,8 +652,10 @@ const exerciseJourney = async ({ browser, ledger }) => {
         endAt: isoAround(startAt, 1),
       },
     );
+
     assert.equal(created.status, 201, `create ${title}`);
   }
+
   const listed = await listEvents(member.cookie);
   assert.equal(listed.status, 200);
   const equalRows = listed.body.events.filter(({ startAt }) => startAt === sameStart);
@@ -616,6 +684,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
     key: firstUiPost.idempotencyKey,
     body: firstUiPost.requestJson,
   });
+
   assert.equal(replay.status, 201);
   assert.deepEqual(replay.body, firstUiPost.responseJson);
   assert.equal(replay.headers.etag, firstUiPost.responseHeaders.etag);
@@ -627,15 +696,19 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await locker.query("LOCK TABLE social_events IN ACCESS EXCLUSIVE MODE");
   const raceBody = createBody({ title: "Samtidig arrangement", link: null });
   const raceKey = "social-events-race-0110";
+
   const raceOne = api(member.cookie, "POST", "/api/social-events", {
     key: raceKey,
     body: raceBody,
   });
+
   await waitForDatabaseWait("INSERT INTO public.social_events");
+
   const raceTwo = api(member.cookie, "POST", "/api/social-events", {
     key: raceKey,
     body: raceBody,
   });
+
   const quickRace = await withTimeout(raceTwo, 10_000, "matching command in-flight response");
   assertProblem(quickRace, 409, "idempotency.in-flight");
   assert.equal(quickRace.headers["retry-after"], "1");
@@ -645,10 +718,12 @@ const exerciseJourney = async ({ browser, ledger }) => {
   assert.equal(acceptedRace.status, 201);
 
   const digestCounts = await counts();
+
   const changedReplay = await api(member.cookie, "POST", "/api/social-events", {
     key: raceKey,
     body: { ...raceBody, title: "Endret samtidig arrangement" },
   });
+
   assertProblem(changedReplay, 409, "idempotency.digest-conflict");
   assert.deepEqual(await counts(), digestCounts);
 
@@ -669,11 +744,13 @@ const exerciseJourney = async ({ browser, ledger }) => {
   assert.deepEqual(await counts(), tombCounts);
 
   const beforeValidation = await counts();
+
   const invalidTime = await createEvent(member.cookie, "social-events-invalid-time-0110", {
     title: "Ugyldig tid",
     startAt: "2030-03-01T20:00:00.000Z",
     endAt: "2030-03-01T19:00:00.000Z",
   });
+
   assertProblem(invalidTime, 422, "validation.failed");
   assert.deepEqual(await counts(), beforeValidation);
 
@@ -687,6 +764,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
     403,
     "authority.denied",
   );
+
   for (const persona of [inactive, unaffiliated]) {
     assertProblem(await listEvents(persona.cookie), 403, "authority.denied");
     assertProblem(
@@ -701,6 +779,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
       "authority.denied",
     );
   }
+
   assert.deepEqual(await counts(), beforeAuthority);
 
   const adminScope = await api(administrator.cookie, "GET", "/api/social-events/scope");
@@ -711,10 +790,12 @@ const exerciseJourney = async ({ browser, ledger }) => {
   );
   assert.equal((await listEvents(administrator.cookie, ids.departmentA)).status, 200);
   assert.equal((await listEvents(administrator.cookie, ids.departmentB)).status, 200);
+
   const adminCreated = await createEvent(administrator.cookie, "social-events-admin-b-0110", {
     departmentId: ids.departmentB,
     title: "Administrator Bergen",
   });
+
   assert.equal(adminCreated.status, 201);
 
   const beforeUnknown = await counts();
@@ -755,9 +836,11 @@ const exerciseJourney = async ({ browser, ledger }) => {
   const heldListPromise = listEvents(member.cookie);
   await waitForDatabaseWait("FROM public.social_events");
   await setMemberActive(false);
+
   const laterEventPromise = createEvent(administrator.cookie, "social-events-later-snapshot-0110", {
     title: "Etter snapshot",
   });
+
   await waitForDatabaseWait("INSERT INTO public.social_events");
   await snapshotLocker.query("COMMIT");
   await snapshotLocker.end();
@@ -783,10 +866,12 @@ const exerciseJourney = async ({ browser, ledger }) => {
 
   const revocableKey = "social-events-revocable-replay-0110";
   const revocableBody = createBody({ title: "Opprettet før tilbakekall" });
+
   const revocable = await api(member.cookie, "POST", "/api/social-events", {
     key: revocableKey,
     body: revocableBody,
   });
+
   assert.equal(revocable.status, 201);
   await setMemberActive(false);
   const beforeDeniedReplay = await counts();
@@ -806,18 +891,23 @@ const exerciseJourney = async ({ browser, ledger }) => {
   await member.page.selectOption("#social-events-department", ids.departmentA);
   await member.page.selectOption("#social-events-semester", ids.semesterA);
   await member.page.getByText("Sosial kveld").waitFor();
+
   const reloadedWide = member.page
     .locator("tr[data-event-id]")
     .filter({ hasText: "Åpen sosialkveld" });
+
   assert.match(await reloadedWide.innerText(), /Ingen beskrivelse/u);
   assert.match(await reloadedWide.innerText(), /Ingen lenke/u);
   const pastRow = member.page.locator("tr[data-event-id]").filter({ hasText: "Før nå" });
+
   const withinWeekRow = member.page
     .locator("tr[data-event-id]")
     .filter({ hasText: "Sosial kveld" });
+
   const laterRow = member.page
     .locator("tr[data-event-id]")
     .filter({ hasText: "Godt etter syv dager" });
+
   assert.equal(await pastRow.getByText("Har vært").count(), 1);
   assert.equal(await withinWeekRow.getByText("Skjer innen en uke").count(), 1);
   assert.equal(await laterRow.locator(".social-events__label").count(), 0);
@@ -831,14 +921,18 @@ const exerciseJourney = async ({ browser, ledger }) => {
       .evaluate((node) => node === document.activeElement),
     true,
   );
+
   const desktopOverflow = await member.page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
+
   assert.ok(desktopOverflow <= 0, `desktop horizontal overflow: ${desktopOverflow}`);
   await member.page.setViewportSize({ width: 390, height: 844 });
+
   const mobileOverflow = await member.page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
+
   assert.ok(mobileOverflow <= 0, `mobile horizontal overflow: ${mobileOverflow}`);
   const scrollRegion = member.page.locator(".social-events__table-scroll");
   assert.equal(await scrollRegion.getAttribute("tabindex"), "0");
@@ -852,6 +946,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
   assert.ok(finalCounts.events > afterReplay.events);
 
   const immutableClient = await connect();
+
   try {
     await assert.rejects(
       immutableClient.query(
@@ -869,6 +964,7 @@ const exerciseJourney = async ({ browser, ledger }) => {
 
   for (const session of [member, inactive, unaffiliated, administrator])
     await session.context.close();
+
   return {
     scope: { memberDepartments: [ids.departmentA], semesters: [ids.semesterA, ids.semesterB] },
     exactCreateHeaders: firstUiPost.responseHeaders,
@@ -898,10 +994,13 @@ const exerciseJourney = async ({ browser, ledger }) => {
 };
 
 const version = run("postgres", ["--version"], { label: "PostgreSQL version" }).stdout.trim();
+
 assert.match(version, /PostgreSQL\) 17\./u, "0110 requires PostgreSQL 17");
+
 const initialRevision = run("git", ["rev-parse", "HEAD"], {
   label: "runtime revision",
 }).stdout.trim();
+
 assert.equal(
   run("git", ["status", "--porcelain"], { label: "clean runtime tree" }).stdout,
   "",
@@ -909,15 +1008,25 @@ assert.equal(
 );
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), "native-social-events-0110-"));
+
 const postgresData = join(temporaryRoot, "postgres");
+
 const ledger = [];
+
 let postgres;
+
 let backend;
+
 let dashboard;
+
 let proxy;
+
 let browser;
+
 let journey;
+
 let primaryError;
+
 let cleanupError;
 
 try {
@@ -959,6 +1068,7 @@ try {
     RECEIPT_AUTH_TOKENS: "{}",
     ORGANIZATION_AUTH_TOKENS: "{}",
   };
+
   backend = start("bun", ["run", "src/main.ts"], {
     cwd: backendRoot,
     env: backendEnvironment,
@@ -987,6 +1097,7 @@ try {
     PORT: String(dashboardPort),
     NODE_ENV: "production",
   };
+
   run("bun", ["run", "build"], {
     cwd: sdkRoot,
     env: dashboardEnvironment,
@@ -1012,8 +1123,10 @@ try {
   journey = await exerciseJourney({ browser, ledger });
 } catch (cause) {
   primaryError = cause;
+
   if (backend !== undefined) process.stderr.write(`Backend tail:\n${backend.output.join("")}\n`);
   process.stderr.write(`Native transport tail:\n${JSON.stringify(ledger.slice(-10), null, 2)}\n`);
+
   if (dashboard !== undefined)
     process.stderr.write(`Dashboard tail:\n${dashboard.output.join("")}\n`);
 } finally {
@@ -1035,7 +1148,9 @@ try {
 if (primaryError !== undefined && cleanupError !== undefined) {
   throw new AggregateError([primaryError, cleanupError], "0110 journey and cleanup failed");
 }
+
 if (primaryError !== undefined) throw primaryError;
+
 if (cleanupError !== undefined) throw cleanupError;
 
 const manifest = {
@@ -1081,7 +1196,11 @@ const manifest = {
     productionResourcesUsed: false,
   },
 };
+
 await mkdir(dirname(manifestPath), { recursive: true });
+
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+
 await chmod(manifestPath, 0o600);
+
 process.stdout.write(`${JSON.stringify(manifest)}\n`);

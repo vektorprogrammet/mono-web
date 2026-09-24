@@ -14,7 +14,7 @@ import {
   deliverNextRecruitmentInterviewCompletion,
   releaseRecruitmentInterviewCompletion,
 } from "@vektorprogrammet/database/recruitment";
-import { Effect, Layer, Redacted } from "effect";
+import { Schema, Predicate, Effect, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 
 interface CapturedRequest {
@@ -25,7 +25,9 @@ interface CapturedRequest {
 
 const readBody = async (request: IncomingMessage): Promise<string> => {
   const chunks: Buffer[] = [];
+
   for await (const chunk of request) chunks.push(Buffer.from(chunk));
+
   return Buffer.concat(chunks).toString("utf8");
 };
 
@@ -34,10 +36,13 @@ const listen = (server: Server): Promise<number> =>
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
-      if (address === null || typeof address === "string") {
+
+      if (address === null || Predicate.isString(address)) {
         reject(new Error("loopback receiver did not expose a TCP port"));
+
         return;
       }
+
       resolve(address.port);
     });
   });
@@ -47,12 +52,14 @@ const close = (server: Server): Promise<void> =>
 
 const main = async (): Promise<void> => {
   const pgUrl = process.env.COMPLETION_RECEIPT_PG_URL;
+
   if (pgUrl === undefined || pgUrl.trim() === "")
     throw new Error("COMPLETION_RECEIPT_PG_URL is required");
 
   const captured: CapturedRequest[] = [];
   let rejectNext = true;
   const token = "completion-receipt-0108-loopback-token";
+
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     if (
       request.method !== "POST" ||
@@ -61,45 +68,56 @@ const main = async (): Promise<void> => {
     ) {
       response.statusCode = 404;
       response.end();
+
       return;
     }
-    const body = JSON.parse(await readBody(request)) as unknown;
+
+    const body = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+      await readBody(request),
+    );
+
     const status = rejectNext ? 503 : 204;
     rejectNext = false;
     captured.push({
-      idempotencyKey:
-        typeof request.headers["idempotency-key"] === "string"
-          ? request.headers["idempotency-key"]
-          : "",
+      idempotencyKey: Predicate.isString(request.headers["idempotency-key"])
+        ? request.headers["idempotency-key"]
+        : "",
       body,
       status,
     });
     response.statusCode = status;
     response.end();
   });
+
   const port = await listen(server);
+
   try {
     const databaseLayer = DatabaseLive({
       url: Redacted.make(pgUrl),
       applicationName: "interview-completion-receipt-0108",
       maxConnections: 1,
     });
+
     const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
     const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
     const profileLayer = ProfileLive.pipe(
       Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
     );
+
     const authorityLayers = Layer.mergeAll(
       databaseLayer,
       admissionsLayer,
       organizationLayer,
       profileLayer,
     );
+
     const transport = {
       endpoint: new URL(`http://127.0.0.1:${port}/effects`),
       token,
       deliveryTimeoutMilliseconds: 2_000,
     };
+
     const gateway = Layer.succeed(
       NotificationGateway,
       NotificationGateway.of({
@@ -138,23 +156,30 @@ const main = async (): Promise<void> => {
           ),
       }),
     );
+
     const program = Effect.gen(function* () {
       const database = yield* Database;
+
       const winningClaim = yield* claimNextRecruitmentInterviewCompletion(
         "completion-0108-winning-claim",
         "2026-09-20T12:07:00.000Z",
       );
+
       if (winningClaim === undefined)
         return yield* Effect.die(new Error("completion concurrency proof found no winning claim"));
+
       const losingClaim = yield* claimNextRecruitmentInterviewCompletion(
         "completion-0108-losing-claim",
         "2026-09-20T12:07:00.000Z",
       );
+
       yield* releaseRecruitmentInterviewCompletion(winningClaim);
+
       const first = yield* deliverNextRecruitmentInterviewCompletion(
         "completion-0108-failed-claim",
         "2026-09-20T12:08:00.000Z",
       );
+
       const [afterFailure] = yield* database<{
         readonly status: string;
         readonly attempts: number;
@@ -165,10 +190,12 @@ const main = async (): Promise<void> => {
           delivery_envelope AS envelope
         FROM public.recruitment_interview_completion_outbox
       `;
+
       const second = yield* deliverNextRecruitmentInterviewCompletion(
         "completion-0108-retry-claim",
         "2026-09-20T12:09:00.000Z",
       );
+
       yield* database`
         INSERT INTO public.recruitment_interview_completion_outbox (
           effect_id, effect_type, command_id, interview_id, application_id,
@@ -184,10 +211,12 @@ const main = async (): Promise<void> => {
         ORDER BY receipt.committed_at ASC
         LIMIT 1
       `;
+
       const quarantined = yield* deliverNextRecruitmentInterviewCompletion(
         "completion-0108-quarantine-claim",
         "2026-09-20T12:11:00.000Z",
       );
+
       const [afterQuarantine] = yield* database<{
         readonly status: string;
         readonly failureTag: string | null;
@@ -196,10 +225,12 @@ const main = async (): Promise<void> => {
         FROM public.recruitment_interview_completion_outbox
         WHERE effect_id = 'tampered-completion-0108'
       `;
+
       const idle = yield* deliverNextRecruitmentInterviewCompletion(
         "completion-0108-idle-claim",
         "2026-09-20T12:12:00.000Z",
       );
+
       const [afterSuccess] = yield* database<{
         readonly effectId: string;
         readonly status: string;
@@ -216,6 +247,7 @@ const main = async (): Promise<void> => {
         FROM public.recruitment_interview_completion_outbox
         WHERE status = 'Delivered'
       `;
+
       return {
         winningClaim,
         losingClaim,
@@ -227,21 +259,23 @@ const main = async (): Promise<void> => {
         idle,
         afterSuccess,
       };
-    }).pipe(Effect.provide(gateway), Effect.provide(authorityLayers), Effect.scoped);
+    }).pipe(Effect.provide([gateway, authorityLayers]), Effect.scoped);
+
     // oxlint-disable-next-line effect/no-premature-execution -- executable proof composition root
     const observed = await Effect.runPromise(program);
+
     if (
       observed.winningClaim.claimId !== "completion-0108-winning-claim" ||
       observed.losingClaim !== undefined ||
-      observed.first._tag !== "Failed" ||
+      !Predicate.isTagged(observed.first, "Failed") ||
       observed.afterFailure?.status !== "Failed" ||
       observed.afterFailure.attempts !== 2 ||
       observed.afterFailure.payloadRetained !== true ||
-      observed.second._tag !== "Delivered" ||
-      observed.quarantined._tag !== "Idle" ||
+      !Predicate.isTagged(observed.second, "Delivered") ||
+      !Predicate.isTagged(observed.quarantined, "Idle") ||
       observed.afterQuarantine?.status !== "Quarantined" ||
       observed.afterQuarantine.failureTag !== "AuthorityEnvelopeMismatch" ||
-      observed.idle._tag !== "Idle" ||
+      !Predicate.isTagged(observed.idle, "Idle") ||
       observed.afterSuccess?.status !== "Delivered" ||
       observed.afterSuccess.attempts !== 3 ||
       observed.afterSuccess.payloadCleared !== true ||
@@ -255,9 +289,11 @@ const main = async (): Promise<void> => {
     )
       throw new Error(`completion receipt proof failed: ${JSON.stringify({ observed, captured })}`);
     const body = captured[0]?.body;
-    if (body === null || typeof body !== "object")
+
+    if (body === null || !(body === null || Predicate.isObjectOrArray(body)))
       throw new Error("completion body is not an object");
     const keys = Object.keys(body).sort();
+
     const expectedKeys = [
       "_tag",
       "applicantDisplayName",
@@ -270,6 +306,7 @@ const main = async (): Promise<void> => {
       "interviewerDisplayName",
       "interviewerEmail",
     ].sort();
+
     if (JSON.stringify(keys) !== JSON.stringify(expectedKeys))
       throw new Error(`completion envelope fields changed: ${JSON.stringify(keys)}`);
     process.stdout.write(`${JSON.stringify({ result: "Passed", observed, captured }, null, 2)}\n`);

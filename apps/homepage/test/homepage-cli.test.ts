@@ -10,6 +10,7 @@ import {
 } from "../../../infra/alchemy/scripts/homepage-cli";
 
 const validEnvironment = { PATH: "/usr/bin", HOME: "/tmp" };
+
 const logicalIds = ["vektor-apex-dashboard", "vektor-apex-homepage", "vektor-apex-worker"] as const;
 
 function writeApexStateFixture(
@@ -18,11 +19,13 @@ function writeApexStateFixture(
 ): string {
   const directory = resolve(standaloneRoot, ".alchemy/state/vektor/dev-main");
   mkdirSync(directory, { recursive: true });
+
   const workerNames = {
     "vektor-apex-dashboard": "vektor-vektor-apex-dashboard-dev-main-2222222222222222",
     "vektor-apex-homepage": "vektor-vektor-apex-homepage-dev-main-1111111111111111",
     "vektor-apex-worker": "vektor-vektor-apex-worker-dev-main-3333333333333333",
   };
+
   writeFileSync(
     resolve(directory, "__stack_output__.json"),
     JSON.stringify({
@@ -39,23 +42,16 @@ function writeApexStateFixture(
       forbiddenHost: "vektorprogrammet.no",
     }),
   );
+
   for (const [index, logicalId] of logicalIds.entries()) {
     const workerName =
       logicalId === "vektor-apex-dashboard" && options.crossWireDashboard === true
         ? workerNames["vektor-apex-homepage"]
         : workerNames[logicalId];
-    writeFileSync(
-      resolve(directory, `${logicalId}.json`),
-      JSON.stringify({
-        fqn: logicalId,
-        logicalId,
-        instanceId: String(index + 1).repeat(32),
-        resourceType: "Cloudflare.Worker",
-        props: {
-          isExternal: true,
-          ...(logicalId === "vektor-apex-worker"
-            ? {
-                env: {
+
+    const workerProps = { isExternal: true };
+
+    if (logicalId === "vektor-apex-worker") Object.assign(workerProps, { env: {
                   Homepage: {
                     workerId: workerNames["vektor-apex-homepage"],
                     workerName: workerNames["vektor-apex-homepage"],
@@ -64,20 +60,16 @@ function writeApexStateFixture(
                     workerId: workerNames["vektor-apex-dashboard"],
                     workerName: workerNames["vektor-apex-dashboard"],
                   },
-                },
-              }
-            : {}),
-        },
-        attr: {
-          workerId: workerName,
-          workerName,
-          accountId: "a".repeat(32),
-          tags: ["alchemy:stack:vektor", "alchemy:stage:dev-main", `alchemy:id:${logicalId}`],
-          ...(logicalId === "vektor-apex-worker"
-            ? {
-                url: "https://vektor.phibkro.org",
-                domain: { name: "vektor.phibkro.org", aliases: [] },
-                routes:
+                } });
+
+    const workerAttributes = { workerId: workerName,
+workerName,
+accountId: "a".repeat(32),
+tags: ["alchemy:stack:vektor", "alchemy:stage:dev-main", `alchemy:id:${logicalId}`] };
+
+    if (logicalId === "vektor-apex-worker") Object.assign(workerAttributes, { url: "https://vektor.phibkro.org",
+domain: { name: "vektor.phibkro.org", aliases: [] },
+routes:
                   options.omitApiRoute === true
                     ? []
                     : [
@@ -86,20 +78,30 @@ function writeApexStateFixture(
                           pattern: "api.vektor.phibkro.org/*",
                           zoneId: "b".repeat(32),
                         },
-                      ],
-              }
-            : {}),
-        },
+                      ] });
+
+    writeFileSync(
+      resolve(directory, `${logicalId}.json`),
+      JSON.stringify({
+        fqn: logicalId,
+        logicalId,
+        instanceId: String(index + 1).repeat(32),
+        resourceType: "Cloudflare.Worker",
+        props: workerProps,
+        attr: workerAttributes,
         removalPolicy: "destroy",
         providerMode: "live",
       }),
     );
   }
+
   return directory;
 }
 
 const standaloneDirectory = mkdtempSync(join(tmpdir(), "mono-web-alchemy-"));
+
 writeApexStateFixture(standaloneDirectory);
+
 afterAll(() => rmSync(standaloneDirectory, { recursive: true, force: true }));
 
 function captureSpawn() {
@@ -109,10 +111,13 @@ function captureSpawn() {
     cwd: string;
     env: Record<string, string | undefined>;
   }> = [];
+
   const spawn: SpawnSync = (file, args, options) => {
     calls.push({ file, args, cwd: options.cwd, env: options.env });
+
     return { status: 0 };
   };
+
   return { calls, spawn };
 }
 
@@ -124,6 +129,7 @@ it("fails closed when the dev-main local state directory is absent", () => {
 
 it("rejects an extra local state JSON record", () => {
   const root = mkdtempSync(join(tmpdir(), "mono-web-alchemy-extra-"));
+
   try {
     const directory = writeApexStateFixture(root);
     writeFileSync(resolve(directory, "unowned-worker.json"), "{}");
@@ -135,6 +141,7 @@ it("rejects an extra local state JSON record", () => {
 
 it("rejects a missing local stack output", () => {
   const root = mkdtempSync(join(tmpdir(), "mono-web-alchemy-output-"));
+
   try {
     const directory = writeApexStateFixture(root);
     rmSync(resolve(directory, "__stack_output__.json"));
@@ -146,6 +153,7 @@ it("rejects a missing local stack output", () => {
 
 it("rejects a cross-wired logical ID and physical Worker", () => {
   const root = mkdtempSync(join(tmpdir(), "mono-web-alchemy-cross-wire-"));
+
   try {
     writeApexStateFixture(root, { crossWireDashboard: true });
     expect(() => assertApexLocalState(root)).toThrow("identity mismatch: vektor-apex-dashboard");
@@ -156,6 +164,7 @@ it("rejects a cross-wired logical ID and physical Worker", () => {
 
 it("rejects local state without the recovered API route", () => {
   const root = mkdtempSync(join(tmpdir(), "mono-web-alchemy-api-route-"));
+
   try {
     writeApexStateFixture(root, { omitApiRoute: true });
     expect(() => assertApexLocalState(root)).toThrow("binding identity mismatch");
@@ -169,6 +178,7 @@ describe("homepage provider wrapper", () => {
     "rejects profile %s before spawning for every cloud command",
     (profile) => {
       const { spawn, calls } = captureSpawn();
+
       for (const [command, confirmation] of [
         ["plan", []],
         ["deploy", ["--yes"]],
@@ -182,6 +192,7 @@ describe("homepage provider wrapper", () => {
           }),
         ).toThrow("reserved default profile");
       }
+
       expect(calls).toEqual([]);
     },
   );
@@ -226,6 +237,7 @@ describe("homepage provider wrapper", () => {
         }),
       ).toBe(0);
       expect(calls).toHaveLength(argv[0] === "deploy" ? 2 : 1);
+
       if (argv[0] === "deploy") {
         expect(calls[0]).toMatchObject({
           file: process.execPath,
@@ -233,6 +245,7 @@ describe("homepage provider wrapper", () => {
           cwd: standaloneDirectory,
         });
       }
+
       const alchemyCall = calls.at(-1);
       expect(alchemyCall).toMatchObject({
         args: expected,
@@ -240,9 +253,7 @@ describe("homepage provider wrapper", () => {
         env: {
           ...validEnvironment,
           ALCHEMY_TELEMETRY_DISABLED: "1",
-          ...(expectedDashboardMount === undefined
-            ? {}
-            : { DASHBOARD_MOUNT: expectedDashboardMount }),
+          
         },
       });
       expect(alchemyCall?.env.DASHBOARD_MOUNT).toBe(expectedDashboardMount);
@@ -252,6 +263,7 @@ describe("homepage provider wrapper", () => {
 
   it("forwards Cloudflare credentials without treating them as target selectors", () => {
     const { spawn, calls } = captureSpawn();
+
     const credentials = {
       CLOUDFLARE_ACCOUNT_ID: "account",
       CLOUDFLARE_API_TOKEN: "token",
@@ -269,8 +281,10 @@ describe("homepage provider wrapper", () => {
 
   it("does not deploy when the SDK build fails", () => {
     const calls: string[][] = [];
+
     const spawn: SpawnSync = (_file, args) => {
       calls.push(args);
+
       return { status: 2 };
     };
 
@@ -307,6 +321,7 @@ describe("homepage provider wrapper", () => {
     ["plan", "--stage", "p001", "--profile", "alice", "--adopt"],
     ["plan", "--stage", "p001", "--profile", "alice", "--env-file", "vars"],
   ] as const;
+
   it.each(invalidArgvCases.map((argv) => ({ argv })))(
     "rejects unsupported grammar %j",
     ({ argv }) => {

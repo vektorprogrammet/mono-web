@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -5,35 +6,46 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
+
 const databaseRequire = createRequire(
   new URL("../../../packages/database/package.json", import.meta.url),
 );
+
 const { Pool } = databaseRequire("pg");
 
 const postgresUrl = process.env.RECEIPT_SETTLEMENT_PG_URL;
+
 const trustedOrigins = JSON.parse(process.env.NATIVE_IDENTITY_TRUSTED_ORIGINS ?? "null");
+
 assert.ok(postgresUrl !== undefined, "RECEIPT_SETTLEMENT_PG_URL is required");
+
 assert.ok(
-  Array.isArray(trustedOrigins) && trustedOrigins.length === 1 && typeof trustedOrigins[0] === "string",
+  Array.isArray(trustedOrigins) && trustedOrigins.length === 1 && Predicate.isString(trustedOrigins[0]),
   "NATIVE_IDENTITY_TRUSTED_ORIGINS must contain exactly one dashboard origin",
 );
+
 assert.ok(process.env.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET is required");
 
 const parsedPostgresUrl = new URL(postgresUrl);
+
 assert.ok(
   parsedPostgresUrl.protocol === "postgres:" || parsedPostgresUrl.protocol === "postgresql:",
   "Settlement fixture requires PostgreSQL",
 );
+
 assert.ok(
   ["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsedPostgresUrl.hostname),
   "Settlement fixture is restricted to loopback PostgreSQL",
 );
+
 assert.equal(
   decodeURIComponent(parsedPostgresUrl.pathname.slice(1)),
   "receipt_proof",
   "Settlement fixture requires the disposable receipt_proof database",
 );
+
 const dashboardOrigin = new URL(trustedOrigins[0]);
+
 assert.ok(
   dashboardOrigin.protocol === "http:" &&
     ["127.0.0.1", "localhost", "::1", "[::1]"].includes(dashboardOrigin.hostname),
@@ -41,7 +53,9 @@ assert.ok(
 );
 
 const password = "receipt-settlement-0114-password";
+
 const paymentDestination = "synthetic-payment-destination-0114-only";
+
 const paymentDestinationFingerprint = createHash("sha256")
   .update(paymentDestination, "utf8")
   .digest("hex");
@@ -121,9 +135,13 @@ export const seededSettlementReceiptIds = {
 };
 
 const personas = Object.values(receiptSettlementPersonas);
+
 const identityPersons = personas.map(({ fixtureLabel: _, ...persona }) => persona);
+
 const personIds = personas.map(({ personId }) => personId);
+
 const teamIds = ["settlement-team-a-0114", "settlement-team-b-0114"];
+
 const receiptIds = Object.values(seededSettlementReceiptIds);
 
 const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
@@ -137,6 +155,7 @@ const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
   },
   encoding: "utf8",
 });
+
 assert.equal(
   identitySeed.status,
   0,
@@ -149,7 +168,9 @@ const pool = new Pool({
   max: 1,
   application_name: "native-receipt-settlement-seed-0114",
 });
+
 const client = await pool.connect();
+
 try {
   await client.query("BEGIN");
   await client.query(
@@ -294,6 +315,7 @@ try {
     ) AS evidence`,
     [receiptIds, seededSettlementReceiptIds.alreadySettled],
   );
+
   const fixtureCounts = counts.rows[0]?.evidence;
   assert.deepEqual(fixtureCounts, {
     identityUsers: 7,

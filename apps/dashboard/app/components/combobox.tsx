@@ -34,6 +34,7 @@ export function ComboBoxResponsive({
 }: ComboBoxProps) {
   const [open, setOpen] = useState(false);
   const isDesktop = useMediaQuery("(min-width: 768px)");
+
   const [selectedItem, setSelectedItem] = useState<Item | null>(
     defaultItem ?? null,
   );

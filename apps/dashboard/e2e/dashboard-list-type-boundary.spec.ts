@@ -1,15 +1,22 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { expect, test } from "@playwright/test";
 import { dashboardMount } from "../dashboard-base";
+import { Schema } from "effect";
+
 
 const FIXTURE_PORT = 8791;
+
 const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_PORT}`;
+
 const SESSION_TOKEN = "fixture-session-0025";
+
 const SESSION_COOKIE = `better-auth.session_token=${SESSION_TOKEN}`;
+
 const PRIVATE_READ_HEADERS = {
   "Cache-Control": "private, no-store",
   Vary: "Origin",
 } as const;
+
 const PROFILE_READ_HEADERS = {
   ...PRIVATE_READ_HEADERS,
   ETag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
@@ -20,12 +27,13 @@ const apiRequests: Array<{
   readonly path: string;
   readonly cookie: string | undefined;
 }> = [];
+
 let fixtureServer: Server | undefined;
 
 function respondJson(
   response: ServerResponse,
   status: number,
-  body: unknown,
+  body: Schema.Json,
   headers: Readonly<Record<string, string>> = {},
 ): void {
   response.writeHead(status, { "Content-Type": "application/json", ...headers });
@@ -48,6 +56,7 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
       code: "credential.missing",
       detail: "A credential is required for this operation.",
     });
+
     return;
   }
 
@@ -67,6 +76,7 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
       },
       PROFILE_READ_HEADERS,
     );
+
     return;
   }
 
@@ -86,6 +96,7 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
       },
       PRIVATE_READ_HEADERS,
     );
+
     return;
   }
 
@@ -184,6 +195,7 @@ test.describe("dashboard unavailable native projections", () => {
       apiRequests.filter(({ path }) => !["/api/profile", "/api/session"].includes(path)),
     ).toEqual([]);
     expect(apiRequests.every(({ cookie }) => cookie === SESSION_COOKIE)).toBe(true);
+
     for (const path of unsupportedDataPaths) {
       expect(apiRequests.some((request) => request.path === path)).toBe(false);
     }

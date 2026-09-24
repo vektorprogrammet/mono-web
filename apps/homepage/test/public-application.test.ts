@@ -1,8 +1,13 @@
+import { createServer } from "node:http";
+import { createPromiseClient } from "@vektorprogrammet/sdk";
+import { makeNativeProblem } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import {
   mapPublicApplicationError,
   parsePublicApplicationForm,
 } from "../src/lib/public-application";
+import { Predicate } from "effect";
+
 
 const privateCanaries = [
   "Applicant Canary",
@@ -22,6 +27,7 @@ function completeForm(): FormData {
   form.set("gender", "0");
   form.set("fieldOfStudyId", "field-mathematics");
   form.set("yearOfStudy", "3");
+
   return form;
 }
 
@@ -45,6 +51,7 @@ describe("public application form boundary", () => {
         },
       },
     });
+
     if (parsed.ok) {
       expect(Object.keys(parsed.value.payload).sort()).toEqual(
         [
@@ -68,42 +75,40 @@ describe("public application form boundary", () => {
     const duplicate = completeForm();
     duplicate.append("departmentId", "department-foreign");
 
-    expect(parsePublicApplicationForm(excess)).toMatchObject({
-      ok: false,
-      error: { _tag: "ApplicationFormInvalid" },
-    });
-    expect(parsePublicApplicationForm(duplicate)).toMatchObject({
-      ok: false,
-      error: { _tag: "ApplicationFormInvalid" },
-    });
+    const rejectedForm1 = parsePublicApplicationForm(excess);
+expect(rejectedForm1.ok).toBe(false);
+
+if (rejectedForm1.ok) throw new Error("Invalid form was accepted");
+expect(rejectedForm1.error._tag).toBe("ApplicationFormInvalid");
+    const rejectedForm2 = parsePublicApplicationForm(duplicate);
+expect(rejectedForm2.ok).toBe(false);
+
+if (rejectedForm2.ok) throw new Error("Invalid form was accepted");
+expect(rejectedForm2.error._tag).toBe("ApplicationFormInvalid");
   });
 
   it("retains the opaque browser command ID for a rejected draft", () => {
     const form = completeForm();
     form.set("gender", "2");
 
-    expect(parsePublicApplicationForm(form)).toMatchObject({
-      ok: false,
-      commandId: "command-public-application-0039",
-      error: {
-        _tag: "ApplicationFormInvalid",
-        resetCommandId: false,
-      },
-    });
+    const rejectedForm3 = parsePublicApplicationForm(form);
+expect(rejectedForm3.ok).toBe(false);
+
+if (rejectedForm3.ok) throw new Error("Invalid form was accepted");
+expect(rejectedForm3.error._tag).toBe("ApplicationFormInvalid");
+expect(rejectedForm3).toMatchObject({ok: false,commandId: "command-public-application-0039"});
+expect(rejectedForm3.error).toMatchObject({resetCommandId: false});
   });
 
   it("asks the browser for a new command ID only after an idempotency conflict", () => {
-    expect(
-      mapPublicApplicationError({
+    const observedFailure1 = mapPublicApplicationError({
         code: "idempotency.digest-conflict",
-      }),
-    ).toMatchObject({
-      _tag: "idempotency.digest-conflict",
-      resetCommandId: true,
-    });
-    expect(mapPublicApplicationError({ code: "application.duplicate" })).toMatchObject({
-      _tag: "application.duplicate",
-    });
+      });
+
+expect(observedFailure1._tag).toBe("idempotency.digest-conflict");
+expect(observedFailure1).toMatchObject({ resetCommandId: true });
+    const observedFailure2 = mapPublicApplicationError({ code: "application.duplicate" });
+expect(observedFailure2._tag).toBe("application.duplicate");
     expect(
       mapPublicApplicationError({ code: "application.duplicate" }).resetCommandId,
     ).toBeUndefined();
@@ -134,7 +139,9 @@ describe("public application form boundary", () => {
         code,
         detail: privateCanaries.join(" "),
       });
+
       expect(mapped._tag).toBe(code);
+
       for (const canary of privateCanaries) {
         expect(JSON.stringify(mapped)).not.toContain(canary);
       }
@@ -142,8 +149,7 @@ describe("public application form boundary", () => {
   });
 
   it("maps current validation pointers to form fields", () => {
-    expect(
-      mapPublicApplicationError({
+    const observedFailure3 = mapPublicApplicationError({
         code: "validation.failed",
         validation: {
           errors: [
@@ -156,14 +162,13 @@ describe("public application form boundary", () => {
           ],
           truncated: false,
         },
-      }),
-    ).toMatchObject({
-      _tag: "validation.failed",
-      fieldErrors: {
+      });
+
+expect(observedFailure3._tag).toBe("validation.failed");
+expect(observedFailure3).toMatchObject({ fieldErrors: {
         firstName: "Kontroller dette feltet.",
         fieldOfStudyId: "Kontroller dette feltet.",
-      },
-    });
+      } });
   });
 
   it("does not echo rejected form values or unexpected error details", () => {
@@ -176,9 +181,40 @@ describe("public application form boundary", () => {
     for (const canary of privateCanaries) {
       expect(publicResult).not.toContain(canary);
     }
-    expect(unexpected).toEqual({
-      _tag: "Unexpected",
-      message: "Søknaden kunne ikke sendes. Prøv igjen senere.",
-    });
+
+    const { _tag: observedTag4, ...observedFailure4 } = unexpected;
+expect(observedTag4).toBe("Unexpected");
+expect(observedFailure4).toEqual({ message: "Søknaden kunne ikke sendes. Prøv igjen senere." });
   });
 });
+
+
+it("preserves a duplicate-application denial through the real HTTP and generated SDK boundary", async () => {
+  const parsed = parsePublicApplicationForm(completeForm());
+
+  if (!parsed.ok) throw new Error("Invalid application fixture");
+
+  const server = createServer((_request, response) => {
+    response.writeHead(409, { "Content-Type": "application/problem+json", "Cache-Control": "no-store", Vary: "Origin" });
+    response.end(JSON.stringify(makeNativeProblem("application.duplicate", 409)));
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  try {
+    const address = server.address();
+
+    if (address === null || Predicate.isString(address)) throw new Error("Expected a loopback TCP listener");
+    const client = createPromiseClient(`http://127.0.0.1:${address.port}`);
+
+    const failure = await client.admissions.submitApplication({
+      headers: { "idempotency-key": parsed.value.commandId }, payload: parsed.value.payload,
+    }).then(() => { throw new Error("Unexpected application success"); }, mapPublicApplicationError);
+
+    expect(failure._tag).toBe("application.duplicate");
+    expect(failure.resetCommandId).toBeUndefined();
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((cause) => cause ? reject(cause) : resolve()));
+  }
+});
+

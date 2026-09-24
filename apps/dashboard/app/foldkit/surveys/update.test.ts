@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import {
   DepartmentId,
   IdempotencyKey,
@@ -21,45 +22,57 @@ import {
   SubmittedCreate,
   SucceededCreate,
 } from "./message";
-import { makeInitialModel } from "./model";
-import { makeUpdate } from "./update";
+import { ListState, init, SchoolSurveysFailure } from "./model";
+import { updateFor } from "./update";
 
 const issued: Array<string> = [];
+
 const createdCommandIds: Array<string> = [];
+
 const closedCommandIds: Array<string> = [];
+
 const commands: SchoolSurveysCommandFactories = {
   LoadCatalog: ({ requestId }) => {
     issued.push(`catalog:${requestId}`);
+
     return {
       name: "LoadSchoolSurveyAdminCatalog",
       args: { requestId },
-      effect: undefined as never,
+      effect: Effect.die("Transition tests must not execute commands"),
     };
   },
   LoadList: ({ requestId }) => {
     issued.push(`list:${requestId}`);
-    return { name: "ListSchoolSurveys", args: { requestId }, effect: undefined as never };
+
+    return { name: "ListSchoolSurveys", args: { requestId }, effect: Effect.die("Transition tests must not execute commands") };
   },
   Create: ({ requestId, command }) => {
     issued.push(`create:${requestId}`);
     createdCommandIds.push(command.commandId);
-    return { name: "CreateSchoolSurvey", args: { requestId }, effect: undefined as never };
+
+    return { name: "CreateSchoolSurvey", args: { requestId }, effect: Effect.die("Transition tests must not execute commands") };
   },
   Close: ({ requestId, command }) => {
     issued.push(`close:${requestId}`);
     closedCommandIds.push(command.commandId);
-    return { name: "CloseSchoolSurvey", args: { requestId }, effect: undefined as never };
+
+    return { name: "CloseSchoolSurvey", args: { requestId }, effect: Effect.die("Transition tests must not execute commands") };
   },
   LoadResults: ({ requestId }) => {
     issued.push(`results:${requestId}`);
-    return { name: "ReadSchoolSurveyResults", args: { requestId }, effect: undefined as never };
+
+    return { name: "ReadSchoolSurveyResults", args: { requestId }, effect: Effect.die("Transition tests must not execute commands") };
   },
 };
-const update = makeUpdate(commands);
+
+const update = updateFor(commands);
 
 const departmentId = DepartmentId.make("survey-test-department");
+
 const semesterId = SemesterId.make("survey-test-semester");
+
 const surveyId = SurveyId.make("survey-test-id");
+
 const questionId = SurveyQuestionId.make("survey-test-question");
 
 const catalog = {
@@ -114,14 +127,15 @@ const listedSurvey = {
 describe("school-survey Foldkit transitions", () => {
   it("creates a four-kind survey, rejects stale list data, and reloads the scoped list", () => {
     issued.length = 0;
-    const scoped = update(makeInitialModel(), LoadedCatalog({ requestId: 1, catalog }));
+    const scoped = update(init(), LoadedCatalog({ requestId: 1, catalog }));
     expect(issued).toEqual(["list:2"]);
 
-    const loaded = update(scoped[0], LoadedList({ requestId: 2, list: emptyList }));
+    const loaded = update(scoped.model, LoadedList({ requestId: 2, list: emptyList }));
+
     const ready = {
-      ...loaded[0],
+      ...loaded.model,
       draft: {
-        ...loaded[0].draft,
+        ...loaded.model.draft,
         title: survey.title,
         completionText: survey.completionText,
         questions: [
@@ -160,34 +174,36 @@ describe("school-survey Foldkit transitions", () => {
         ],
       },
     };
+
     const submitted = update(ready, SubmittedCreate());
-    expect(submitted[0].pendingCommand).toBe("Create");
+    expect(submitted.model.pendingCommand).toBe("Create");
     expect(issued).toEqual(["list:2", "create:3"]);
 
-    const afterCreate = update(submitted[0], SucceededCreate({ requestId: 3, survey }));
-    expect(afterCreate[0].detail).toEqual(survey);
-    expect(afterCreate[0].list._tag).toBe("Loading");
-    expect(afterCreate[0].draft.questions).toEqual([]);
+    const afterCreate = update(submitted.model, SucceededCreate({ requestId: 3, survey }));
+    expect(afterCreate.model.detail).toEqual(survey);
+    expect(afterCreate.model.list._tag).toBe("Loading");
+    expect(afterCreate.model.draft.questions).toEqual([]);
     expect(issued).toEqual(["list:2", "create:3", "list:4"]);
 
-    const stale = update(afterCreate[0], LoadedList({ requestId: 2, list: listedSurvey }));
-    expect(stale).toEqual([afterCreate[0], []]);
+    const stale = update(afterCreate.model, LoadedList({ requestId: 2, list: listedSurvey }));
+    expect(stale).toEqual({ model: afterCreate.model, commands: [] });
 
-    const refreshed = update(afterCreate[0], LoadedList({ requestId: 4, list: listedSurvey }));
-    expect(refreshed[0].list).toEqual({ _tag: "Success", data: listedSurvey });
-    expect(refreshed[0].detail).toEqual(survey);
+    const refreshed = update(afterCreate.model, LoadedList({ requestId: 4, list: listedSurvey }));
+    expect(refreshed.model.list).toEqual(ListState.cases.Success.make({ data: listedSurvey }));
+    expect(refreshed.model.detail).toEqual(survey);
   });
 
   it("reuses an uncertain create command ID only while its intent is unchanged", () => {
     issued.length = 0;
     createdCommandIds.length = 0;
-    const scoped = update(makeInitialModel(), LoadedCatalog({ requestId: 1, catalog }));
-    const loaded = update(scoped[0], LoadedList({ requestId: 2, list: emptyList }));
+    const scoped = update(init(), LoadedCatalog({ requestId: 1, catalog }));
+    const loaded = update(scoped.model, LoadedList({ requestId: 2, list: emptyList }));
+
     const ready = {
-      ...loaded[0],
+      ...loaded.model,
       commandSeed: "survey-retry-seed",
       draft: {
-        ...loaded[0].draft,
+        ...loaded.model.draft,
         title: survey.title,
         completionText: survey.completionText,
         questions: [
@@ -206,89 +222,97 @@ describe("school-survey Foldkit transitions", () => {
     const submitted = update(ready, SubmittedCreate());
     const firstCommandId = IdempotencyKey.make("school-surveys-create-survey-retry-seed-1");
     expect(createdCommandIds).toEqual([firstCommandId]);
-    expect(submitted[0].commandSequence).toBe(2);
+    expect(submitted.model.commandSequence).toBe(2);
 
     const failed = update(
-      submitted[0],
+      submitted.model,
       FailedCreate({
         requestId: 3,
         commandId: firstCommandId,
-        failure: { _tag: "Failed", tag: "Network", message: "Tjenesten er utilgjengelig." },
+        failure: SchoolSurveysFailure.cases.Failed.make({ tag: "Network", message: "Tjenesten er utilgjengelig." }),
       }),
     );
-    const retried = update(failed[0], SubmittedCreate());
-    expect(createdCommandIds).toEqual([firstCommandId, firstCommandId]);
-    expect(retried[0].commandSequence).toBe(2);
 
-    const edited = update(failed[0], ChangedTitle({ value: "En annen undersøkelse" }));
-    const replaced = update(edited[0], SubmittedCreate());
+    const retried = update(failed.model, SubmittedCreate());
+    expect(createdCommandIds).toEqual([firstCommandId, firstCommandId]);
+    expect(retried.model.commandSequence).toBe(2);
+
+    const edited = update(failed.model, ChangedTitle({ value: "En annen undersøkelse" }));
+    const replaced = update(edited.model, SubmittedCreate());
     expect(createdCommandIds).toEqual([
       firstCommandId,
       firstCommandId,
       "school-surveys-create-survey-retry-seed-2",
     ]);
-    expect(replaced[0].commandSequence).toBe(3);
+    expect(replaced.model.commandSequence).toBe(3);
   });
 
   it("keeps the visible revision after a rejected close and discards stale results", () => {
     issued.length = 0;
-    const scoped = update(makeInitialModel(), LoadedCatalog({ requestId: 1, catalog }));
-    const listed = update(scoped[0], LoadedList({ requestId: 2, list: listedSurvey }));
-    const selected = update(listed[0], SelectedSurvey({ surveyId }));
+    const scoped = update(init(), LoadedCatalog({ requestId: 1, catalog }));
+    const listed = update(scoped.model, LoadedList({ requestId: 2, list: listedSurvey }));
+    const selected = update(listed.model, SelectedSurvey({ surveyId }));
 
     closedCommandIds.length = 0;
+
     const closing = update(
-      { ...selected[0], commandSeed: "survey-close-seed" },
+      { ...selected.model, commandSeed: "survey-close-seed" },
       SubmittedClose({
         surveyId,
         expectedRevision: 7,
       }),
     );
-    expect(closing[0].pendingCommand).toBe("Close");
+
+    expect(closing.model.pendingCommand).toBe("Close");
     expect(issued).toEqual(["list:2", "close:3"]);
 
     const rejected = update(
-      closing[0],
+      closing.model,
       FailedClose({
         requestId: 3,
         commandId: IdempotencyKey.make(closedCommandIds[0]!),
         surveyId,
         expectedRevision: 7,
-        failure: {
-          _tag: "Failed",
+        failure: SchoolSurveysFailure.cases.Failed.make({
           tag: "CommandConflict",
           message: "Undersøkelsen ble endret av en annen.",
-        },
+        }),
       }),
     );
-    expect(rejected[0].pendingCommand).toBeNull();
-    expect(rejected[0].detail?.revision).toBe(7);
-    expect(rejected[0].banner?.tag).toBe("CommandConflict");
 
-    const loadingResults = update(rejected[0], RequestedResults({ surveyId }));
+    expect(rejected.model.pendingCommand).toBeNull();
+    expect(rejected.model.detail?.revision).toBe(7);
+    expect(rejected.model.banner?.tag).toBe("CommandConflict");
+
+    const loadingResults = update(rejected.model, RequestedResults({ surveyId }));
     expect(issued).toEqual(["list:2", "close:3", "results:4"]);
+
     const stale = update(
-      loadingResults[0],
+      loadingResults.model,
       LoadedResults({
         requestId: 3,
         surveyId,
         results: { survey, responseCount: 0, responses: [] },
       }),
     );
-    expect(stale).toEqual([loadingResults[0], []]);
+
+    expect(stale).toEqual({ model: loadingResults.model, commands: [] });
   });
 
   it("keeps newer results when an older list request finishes later", () => {
     issued.length = 0;
-    const scoped = update(makeInitialModel(), LoadedCatalog({ requestId: 1, catalog }));
-    const listed = update(scoped[0], LoadedList({ requestId: 2, list: listedSurvey }));
-    const selected = update(listed[0], SelectedSurvey({ surveyId }));
+    const scoped = update(init(), LoadedCatalog({ requestId: 1, catalog }));
+    const listed = update(scoped.model, LoadedList({ requestId: 2, list: listedSurvey }));
+    const selected = update(listed.model, SelectedSurvey({ surveyId }));
+
     const overlapping = {
-      ...selected[0],
+      ...selected.model,
       requestSequence: 3,
       list: { _tag: "Loading" as const, requestId: 3 },
     };
+
     const loadingResults = update(overlapping, RequestedResults({ surveyId }));
+
     const closedSurvey = {
       ...survey,
       state: "Closed" as const,
@@ -296,21 +320,20 @@ describe("school-survey Foldkit transitions", () => {
       closedAt: "2032-04-01T13:00:00.000Z",
       closedByPersonId: PersonId.make("survey-closing-person"),
     };
+
     const refreshed = update(
-      loadingResults[0],
+      loadingResults.model,
       LoadedResults({
         requestId: 4,
         surveyId,
         results: { survey: closedSurvey, responseCount: 0, responses: [] },
       }),
     );
-    const delayedList = update(refreshed[0], LoadedList({ requestId: 3, list: listedSurvey }));
-    const reselected = update(delayedList[0], SelectedSurvey({ surveyId }));
 
-    expect(reselected[0].detail).toEqual(closedSurvey);
-    expect(reselected[0].list).toEqual({
-      _tag: "Success",
-      data: { ...listedSurvey, surveys: [closedSurvey] },
-    });
+    const delayedList = update(refreshed.model, LoadedList({ requestId: 3, list: listedSurvey }));
+    const reselected = update(delayedList.model, SelectedSurvey({ surveyId }));
+
+    expect(reselected.model.detail).toEqual(closedSurvey);
+    expect(reselected.model.list).toEqual(ListState.cases.Success.make({ data: { ...listedSurvey, surveys: [closedSurvey] } }));
   });
 });

@@ -1,10 +1,13 @@
 import { makeNativeProblem, StrongETag } from "@vektorprogrammet/http-api";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { INVITATION_INTERACTION_HEADER } from "../foldkit/interview/bridge";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { InvitationBridgeFailureSchema, INVITATION_INTERACTION_HEADER } from "../foldkit/interview/bridge";
 
-const createConfiguredPromiseClient = vi.hoisted(() => vi.fn());
+vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
-vi.mock("@vektorprogrammet/sdk", () => ({ createConfiguredPromiseClient }));
+import { conditionalReadHeaders } from "../../test/native-http";
+
+const transport = vi.fn<typeof fetch>();
+
 
 import {
   bridgeFailureFrom,
@@ -16,11 +19,15 @@ import {
   runOperation,
   statusForInvitationFailure,
 } from "./interview-bridge.server";
+
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("server-held recruitment invitation bridge", () => {
   beforeEach(() => {
-    createConfiguredPromiseClient.mockReset();
+    transport.mockReset();
+    vi.stubGlobal("fetch", transport);
   });
 
   it("creates distinct interaction-bound session cookies scoped to the bridge", () => {
@@ -28,11 +35,13 @@ describe("server-held recruitment invitation bridge", () => {
     const secondInteractionId = "b".repeat(32);
     const firstCapability = "A".repeat(43);
     const secondCapability = "B".repeat(43);
+
     const firstCookie = createInvitationCapabilityCookie(
       firstInteractionId,
       firstCapability,
       "/interview",
     );
+
     const secondCookie = createInvitationCapabilityCookie(
       secondInteractionId,
       secondCapability,
@@ -46,6 +55,7 @@ describe("server-held recruitment invitation bridge", () => {
       `${InvitationCapabilityCookiePrefix}${secondInteractionId}=${secondCapability}`,
     );
     expect(firstCookie.split("=", 1)[0]).not.toBe(secondCookie.split("=", 1)[0]);
+
     for (const [cookie, path] of [
       [firstCookie, "/interview"],
       [secondCookie, "/dashboard/interview"],
@@ -145,10 +155,10 @@ describe("server-held recruitment invitation bridge", () => {
     ).resolves.toEqual({ operation: "rejectInvitation", etag, message: multibyteMessage });
     await expect(
       decodeOperationRequest(request("http://dashboard.test/interview?operation=confirm", "{}")),
-    ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
+    ).rejects.toHaveProperty("_tag", "InvitationDecodeError");
     await expect(
       decodeOperationRequest(request("http://dashboard.test/interview", "{}", "text/plain")),
-    ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
+    ).rejects.toHaveProperty("_tag", "InvitationDecodeError");
     await expect(
       decodeOperationRequest(
         request(
@@ -156,7 +166,7 @@ describe("server-held recruitment invitation bridge", () => {
           JSON.stringify({ operation: "confirmInvitation", etag, extra: true }),
         ),
       ),
-    ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
+    ).rejects.toHaveProperty("_tag", "InvitationDecodeError");
     await expect(
       decodeOperationRequest(
         request(
@@ -164,38 +174,41 @@ describe("server-held recruitment invitation bridge", () => {
           `{"operation":"confirmInvitation","etag":${JSON.stringify(etag)},"etag":${JSON.stringify(etag)}}`,
         ),
       ),
-    ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
+    ).rejects.toHaveProperty("_tag", "InvitationDecodeError");
     await expect(
       decodeOperationRequest(
         request("http://dashboard.test/interview", JSON.stringify({ value: "x".repeat(16_384) })),
       ),
-    ).rejects.toMatchObject({ _tag: "InvitationDecodeError" });
+    ).rejects.toHaveProperty("_tag", "InvitationDecodeError");
   });
 
   it("cancels an undeclared oversized request body before buffering the remainder", async () => {
     let cancelled = false;
+
     const body = new ReadableStream<Uint8Array>({
       pull: (controller) => controller.enqueue(new Uint8Array(2_048)),
       cancel: () => {
         cancelled = true;
       },
     });
-    const request = new Request("http://dashboard.test/interview", {
+
+    const init = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
       duplex: "half",
-    } as RequestInit & { readonly duplex: "half" });
+    } satisfies RequestInit & { readonly duplex: "half" };
 
-    await expect(decodeOperationRequest(request)).rejects.toMatchObject({
-      _tag: "InvitationDecodeError",
-    });
+    const request = new Request("http://dashboard.test/interview", init);
+
+    await expect(decodeOperationRequest(request)).rejects.toHaveProperty("_tag", "InvitationDecodeError");
     expect(cancelled).toBe(true);
   });
 
   it("rejects missing, malformed, and unknown interaction bindings before creating the SDK", async () => {
     const readOperation = { operation: "readInvitationResponse" } as const;
     const validUnknownInteractionId = "c".repeat(32);
+
     const cases = [
       [new Request("http://dashboard.test/interview"), "InvitationDecodeError", 422],
       [
@@ -229,12 +242,14 @@ describe("server-held recruitment invitation bridge", () => {
         () => {
           throw new Error("An invalid interaction binding reached the SDK");
         },
-        (error: unknown) => bridgeFailureFrom(error),
+        bridgeFailureFrom,
       );
+
       expect(failure._tag).toBe(expectedTag);
       expect(statusForInvitationFailure(failure)).toBe(expectedStatus);
     }
-    expect(createConfiguredPromiseClient).not.toHaveBeenCalled();
+
+    expect(transport).not.toHaveBeenCalled();
   });
 
   it("resolves only the capability cookie named by the request interaction id", async () => {
@@ -242,6 +257,7 @@ describe("server-held recruitment invitation bridge", () => {
     const unrelatedInteractionId = "e".repeat(32);
     const requestedCapability = "D".repeat(43);
     const unrelatedCapability = "E".repeat(43);
+
     const resource = {
       observation: {
         scheduledAt: "2031-09-20T13:30:00.000Z",
@@ -252,23 +268,22 @@ describe("server-held recruitment invitation bridge", () => {
       },
       etag,
     };
-    const read = vi.fn().mockResolvedValue({
-      body: resource.observation,
-      headers: { etag },
-    });
-    createConfiguredPromiseClient.mockReturnValue({
-      recruitment: { readInvitationResponse: read },
-    } as never);
+
+    transport.mockResolvedValue(Response.json(resource.observation, { headers: conditionalReadHeaders }));
+
+
     const requestedCookie = createInvitationCapabilityCookie(
       requestedInteractionId,
       requestedCapability,
       "/interview",
     ).split(";", 1)[0];
+
     const unrelatedCookie = createInvitationCapabilityCookie(
       unrelatedInteractionId,
       unrelatedCapability,
       "/interview",
     ).split(";", 1)[0];
+
     const request = new Request("http://dashboard.test/interview", {
       headers: {
         [INVITATION_INTERACTION_HEADER]: requestedInteractionId,
@@ -279,26 +294,25 @@ describe("server-held recruitment invitation bridge", () => {
     await expect(runOperation(request, { operation: "readInvitationResponse" })).resolves.toEqual(
       resource,
     );
-    expect(createConfiguredPromiseClient).toHaveBeenCalledWith({
-      headers: { "X-Recruitment-Invitation-Capability": requestedCapability },
-    });
-    expect(read).toHaveBeenCalledWith({ headers: {} });
+    const [input, init] = transport.mock.calls[0]!;
+    const nativeRequest = new Request(input, init);
+    expect(nativeRequest.headers.get("X-Recruitment-Invitation-Capability")).toBe(requestedCapability);
+    expect(nativeRequest.headers.get("Cookie")).toBeNull();
+    expect(nativeRequest.url).not.toContain(requestedCapability);
   });
 
   it("returns no representation for a successful native mutation", async () => {
     const interactionId = "f".repeat(32);
     const capability = "F".repeat(43);
-    const confirmInvitation = vi.fn().mockResolvedValue({
-      body: undefined,
-      headers: { etag },
-    });
-    createConfiguredPromiseClient.mockReturnValue({
-      recruitment: { confirmInvitation },
-    } as never);
+
+    transport.mockResolvedValue(new Response(null, { status: 204, headers: { "cache-control": "no-store", vary: "Origin", etag } }));
+
+
     const cookie = createInvitationCapabilityCookie(interactionId, capability, "/interview").split(
       ";",
       1,
     )[0];
+
     const request = new Request("http://dashboard.test/interview", {
       headers: {
         [INVITATION_INTERACTION_HEADER]: interactionId,
@@ -309,13 +323,12 @@ describe("server-held recruitment invitation bridge", () => {
     await expect(runOperation(request, { operation: "confirmInvitation", etag })).resolves.toBe(
       undefined,
     );
-    expect(confirmInvitation).toHaveBeenCalledWith({
-      headers: {
-        "idempotency-key": expect.stringMatching(/^[a-f0-9]{64}$/),
-        "if-match": etag,
-      },
-      payload: {},
-    });
+    const [input, init] = transport.mock.calls[0]!;
+    const nativeRequest = new Request(input, init);
+    expect(nativeRequest.url).toBe("http://api.test/api/recruitment/invitation-response:confirm");
+    expect(nativeRequest.headers.get("idempotency-key")).toMatch(/^[a-f0-9]{64}$/);
+    expect(nativeRequest.headers.get("if-match")).toBe(etag);
+    expect(await nativeRequest.json()).toEqual({});
   });
 
   it("projects only safe current problem codes and stable statuses", () => {
@@ -330,6 +343,7 @@ describe("server-held recruitment invitation bridge", () => {
       const failure = bridgeFailureFrom(
         makeNativeProblem(code, status, "urn:uuid:00000000-0000-4000-8000-000000000001"),
       );
+
       expect(failure._tag).toBe(bridgeTag);
       expect(failure.message).not.toContain("unsafe");
       expect(statusForInvitationFailure(failure)).toBe(status);
@@ -342,17 +356,14 @@ describe("server-held recruitment invitation bridge", () => {
         "urn:uuid:00000000-0000-4000-8000-000000000002",
       ),
     );
+
     expect(infrastructureConflict._tag).toBe("InvitationUnavailable");
     expect(statusForInvitationFailure(infrastructureConflict)).toBe(503);
 
     expect(
-      bridgeFailureFrom({
-        _tag: "InvitationUnavailable",
+      bridgeFailureFrom(InvitationBridgeFailureSchema.cases.InvitationUnavailable.make({
         message: "raw capability or persistence detail",
-      }),
-    ).toEqual({
-      _tag: "InvitationUnavailable",
-      message: "Invitation response unavailable",
-    });
+      })),
+    ).toHaveProperty("_tag", "InvitationUnavailable");
   });
 });

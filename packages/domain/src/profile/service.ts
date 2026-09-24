@@ -13,7 +13,7 @@ export interface UpdateOwnProfileInput {
   readonly command: UpdateOwnProfileCommand;
 }
 
-export interface ProfileShape {
+export interface ProfileOperations {
   /** Reads a bounded set of canonical names and fails if any requested person is missing. */
   readonly readProfiles: (
     personIds: ReadonlyArray<PersonId>,
@@ -66,6 +66,6 @@ export interface DirectoryPage {
   readonly nextCursor?: string;
 }
 
-export class Profile extends Context.Service<Profile, ProfileShape>()(
+export class Profile extends Context.Service<Profile, ProfileOperations>()(
   "@vektorprogrammet/domain/Profile",
 ) {}

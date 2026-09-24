@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Predicate } from "effect";
+
 
 export const IDENTITY = Object.freeze({
   repository: "vektorprogrammet/mono-web",
@@ -31,46 +33,58 @@ export const STATES = Object.freeze([
 ]);
 
 const HEX_SHA = /^[0-9a-f]{40}$/u;
+
 const HEX_DIGEST = /^sha256:[0-9a-f]{64}$/u;
+
 const POSITIVE_INTEGER = /^[1-9][0-9]*$/u;
+
 const SAFE_ID = /^[A-Za-z0-9._:/-]+$/u;
 
 export function requireString(value, name) {
-  if (typeof value !== "string" || value.length === 0) {
+  if (!Predicate.isString(value) || value.length === 0) {
     throw new Error(`${name} must be a non-empty string`);
   }
+
   return value;
 }
 
 export function requireSha(value, name = "headSha") {
   const sha = requireString(value, name).toLowerCase();
+
   if (!HEX_SHA.test(sha)) {
     throw new Error(`${name} must be a 40-character lower-case commit SHA`);
   }
+
   return sha;
 }
 
 export function requireDigest(value, name) {
   const digest = requireString(value, name).toLowerCase();
+
   if (!HEX_DIGEST.test(digest)) {
     throw new Error(`${name} must be a sha256:<64 hex> digest`);
   }
+
   return digest;
 }
 
 export function requirePrNumber(value) {
   const text = String(value ?? "");
+
   if (!POSITIVE_INTEGER.test(text)) {
     throw new Error("pullRequestNumber must be a positive integer");
   }
+
   return Number(text);
 }
 
 export function requireSafeId(value, name) {
   const id = requireString(value, name);
+
   if (!SAFE_ID.test(id) || id.includes("..")) {
     throw new Error(`${name} contains unsafe characters`);
   }
+
   return id;
 }
 
@@ -91,13 +105,16 @@ export function validateIdentity(input = {}) {
 
   for (const [key, expected] of Object.entries(IDENTITY)) {
     if (key === "environment" || key === "productionHost") continue;
+
     if (identity[key] !== expected) {
       throw new Error(`identity mismatch for ${key}: expected ${expected}`);
     }
   }
+
   if (identity.hostname.includes(IDENTITY.productionHost)) {
     throw new Error("production host is forbidden");
   }
+
   return Object.freeze(identity);
 }
 
@@ -115,12 +132,15 @@ export function validateMainDevIdentity(input = {}) {
     pullRequestNumber: 0,
     headSha: requireSha(input.headSha),
   };
+
   if (identity.repository !== IDENTITY.repository || identity.app !== IDENTITY.app) {
     throw new Error("main-dev repository/app identity mismatch");
   }
+
   if (identity.hostname.includes(IDENTITY.productionHost)) {
     throw new Error("production host is forbidden");
   }
+
   return Object.freeze(identity);
 }
 
@@ -128,6 +148,7 @@ export function ledgerKey(identity) {
   const pr = identity.pullRequestNumber;
   const target = requireString(identity.target, "target");
   const stage = requireString(identity.stage, "stage");
+
   return `${identity.repository}#${pr}#${target}#${stage}`;
 }
 
@@ -141,7 +162,9 @@ export function mainDevLedgerKey(identity) {
 
 export function nowIso(clock = Date) {
   const value = new clock().toISOString();
+
   if (!value.endsWith("Z")) throw new Error("clock must produce UTC timestamps");
+
   return value;
 }
 
@@ -151,9 +174,11 @@ export function sha256(value) {
 
 function sortJson(value) {
   if (Array.isArray(value)) return value.map(sortJson);
-  if (value !== null && typeof value === "object") {
+
+  if (value !== null && (value === null || Predicate.isObjectOrArray(value))) {
     return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, nested]) => [key, sortJson(nested)]));
   }
+
   return value;
 }
 
@@ -169,14 +194,17 @@ export function assertNoForbiddenHost(value, label = "value") {
 
 export function assertState(value) {
   if (!STATES.includes(value)) throw new Error(`unknown preview state: ${value}`);
+
   return value;
 }
 
 export function assertResourceId(value, label = "resourceId") {
   const id = requireSafeId(value, label);
+
   if (id.startsWith("placeholder") || id === "unknown" || id === "pending") {
     throw new Error(`${label} must be an immutable provider identifier`);
   }
+
   return id;
 }
 
@@ -186,19 +214,25 @@ export function isMainModule(metaUrl, argv1 = process.argv[1]) {
 
 export function parseArgs(argv) {
   const result = { _: [] };
+
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+
     if (!token.startsWith("--")) {
       result._.push(token);
       continue;
     }
+
     const equals = token.indexOf("=");
+
     if (equals > 2) {
       result[token.slice(2, equals)] = token.slice(equals + 1);
       continue;
     }
+
     const name = token.slice(2);
     const next = argv[index + 1];
+
     if (next !== undefined && !next.startsWith("--")) {
       result[name] = next;
       index += 1;
@@ -206,6 +240,7 @@ export function parseArgs(argv) {
       result[name] = true;
     }
   }
+
   return result;
 }
 

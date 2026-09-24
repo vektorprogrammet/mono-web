@@ -1,32 +1,40 @@
+import { Effect } from "effect";
 import { SocialEventId, SocialEventObservedAt } from "@vektorprogrammet/http-api"
 import { DepartmentId, SemesterId } from "@vektorprogrammet/http-api"
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import type { SocialEventsCommandFactories } from "./command";
 import { LoadedList, LoadedScope, SubmittedCreate, SucceededCreate } from "./message";
-import { makeInitialModel } from "./model";
-import { makeUpdate } from "./update";
+import { ListState, init } from "./model";
+import { updateFor } from "./update";
 import { timeLabel } from "./view";
 
 const issued: Array<string> = [];
+
 const commands: SocialEventsCommandFactories = {
   LoadScope: ({ requestId }) => {
     issued.push(`scope:${requestId}`);
-    return { name: "LoadSocialEventsScope", args: { requestId }, effect: undefined as never };
+
+    return { name: "LoadSocialEventsScope", args: { requestId }, effect: Effect.die("Transition tests must not execute commands") };
   },
   LoadList: ({ requestId }) => {
     issued.push(`list:${requestId}`);
-    return { name: "LoadSocialEventsList", args: { requestId }, effect: undefined as never };
+
+    return { name: "LoadSocialEventsList", args: { requestId }, effect: Effect.die("Transition tests must not execute commands") };
   },
   Create: ({ requestId }) => {
     issued.push(`create:${requestId}`);
-    return { name: "CreateSocialEvent", args: { requestId }, effect: undefined as never };
+
+    return { name: "CreateSocialEvent", args: { requestId }, effect: Effect.die("Transition tests must not execute commands") };
   },
 };
-const update = makeUpdate(commands);
+
+const update = updateFor(commands);
 
 const departmentId = DepartmentId.make("department-a");
+
 const semesterId = SemesterId.make("semester-a");
+
 const observedAt = SocialEventObservedAt.make("2030-01-01T12:00:00.000Z");
 
 const scope = {
@@ -69,16 +77,17 @@ const listedEvent = {
 describe("social-event Foldkit transitions", () => {
   it("reloads the scoped list after create without inserting the create response", () => {
     issued.length = 0;
-    const scoped = update(makeInitialModel(), LoadedScope({ requestId: 1, scope }));
-    expect(scoped[0].list._tag).toBe("Loading");
+    const scoped = update(init(), LoadedScope({ requestId: 1, scope }));
+    expect(scoped.model.list._tag).toBe("Loading");
     expect(issued).toEqual(["list:2"]);
 
-    const loaded = update(scoped[0], LoadedList({ requestId: 2, list: emptyList }));
+    const loaded = update(scoped.model, LoadedList({ requestId: 2, list: emptyList }));
+
     const submitted = update(
       {
-        ...loaded[0],
+        ...loaded.model,
         draft: {
-          ...loaded[0].draft,
+          ...loaded.model.draft,
           title: "Vintertreff",
           description: "Alle samles.",
           startAt: "2030-01-02T13:00",
@@ -87,26 +96,28 @@ describe("social-event Foldkit transitions", () => {
       },
       SubmittedCreate({ commandId: IdempotencyKey.make("AAAAAAAAAAAAAAAAAAAAAA") }),
     );
-    expect(submitted[0].pendingCommand).toBe("Create");
 
-    const afterCreate = update(submitted[0], SucceededCreate({ requestId: 3 }));
-    expect(afterCreate[0].pendingCommand).toBeNull();
-    expect(afterCreate[0].success).toBe(true);
-    expect(afterCreate[0].list._tag).toBe("Loading");
+    expect(submitted.model.pendingCommand).toBe("Create");
+
+    const afterCreate = update(submitted.model, SucceededCreate({ requestId: 3 }));
+    expect(afterCreate.model.pendingCommand).toBeNull();
+    expect(afterCreate.model.success).toBe(true);
+    expect(afterCreate.model.list._tag).toBe("Loading");
     expect(issued).toEqual(["list:2", "create:3", "list:4"]);
 
-    const afterList = update(afterCreate[0], LoadedList({ requestId: 4, list: listedEvent }));
-    expect(afterList[0].list).toEqual({ _tag: "Success", data: listedEvent });
+    const afterList = update(afterCreate.model, LoadedList({ requestId: 4, list: listedEvent }));
+    expect(afterList.model.list).toEqual(ListState.cases.Success.make({ data: listedEvent }));
   });
 
   it("does not submit a create while the selected scope is still loading", () => {
     issued.length = 0;
-    const scoped = update(makeInitialModel(), LoadedScope({ requestId: 1, scope }));
+    const scoped = update(init(), LoadedScope({ requestId: 1, scope }));
+
     const submitted = update(
       {
-        ...scoped[0],
+        ...scoped.model,
         draft: {
-          ...scoped[0].draft,
+          ...scoped.model.draft,
           title: "Vintertreff",
           description: "Alle samles.",
           startAt: "2030-01-02T13:00",
@@ -116,10 +127,10 @@ describe("social-event Foldkit transitions", () => {
       SubmittedCreate({ commandId: IdempotencyKey.make("BBBBBBBBBBBBBBBBBBBBBB") }),
     );
 
-    expect(submitted[0]).toEqual({
-      ...scoped[0],
+    expect(submitted.model).toEqual({
+      ...scoped.model,
       draft: {
-        ...scoped[0].draft,
+        ...scoped.model.draft,
         title: "Vintertreff",
         description: "Alle samles.",
         startAt: "2030-01-02T13:00",
@@ -127,7 +138,7 @@ describe("social-event Foldkit transitions", () => {
       },
     });
     expect(issued).toEqual(["list:2"]);
-    expect(submitted[1]).toEqual([]);
+    expect(submitted.commands).toEqual([]);
   });
 
   it("uses the frozen half-open observedAt label boundaries", () => {

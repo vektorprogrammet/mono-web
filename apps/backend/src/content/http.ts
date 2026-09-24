@@ -35,6 +35,7 @@ import {
   runContentWorkspace,
   type ContentActor,
   type ContentArticleDetail,
+  PublicNewsRead,
 } from "@vektorprogrammet/domain/content";
 import {
   createDraftPostgres,
@@ -58,16 +59,16 @@ import {
   ResourceKind,
   accessHttpStatus,
   evaluateAccessJourney,
-  makeGrant,
+  decodeGrant,
   type AccessSpec,
   type CanonicalScopeResolution,
-  type Scope,
+  Scope,
 } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { Organization, PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
-import { Effect, Option, Schema } from "effect";
+import { flow, Cause, Match, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   resolveRequestPersonAuthorityInTransaction,
@@ -123,9 +124,13 @@ export const CONTENT_NATIVE_OPERATION_IDS = [
 ] as const;
 
 const NO_STORE = "no-store";
+
 const PRIVATE_NO_STORE = "private, no-store";
+
 const PUBLIC_NEWS_CACHE = "public, max-age=60, s-maxage=300, must-revalidate";
+
 const DEFAULT_MAX_BODY_BYTES = 1_048_576;
+
 const PERSON_CHALLENGE = 'VektorSession realm="native-api", Bearer realm="native-api"';
 
 interface ContentAccessFacts {
@@ -144,11 +149,16 @@ interface TransactionalAuthorizedContentActor extends AuthorizedContentActor {
 }
 
 const errorTag = (cause: unknown): string | undefined =>
-  cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
+  cause !== null &&
+  (cause === null || Predicate.isObjectOrArray(cause)) &&
+  "_tag" in cause &&
+  Predicate.isString(cause._tag)
     ? cause._tag
     : undefined;
 
 const errorResponse = (cause: unknown): Response => {
+  while (Cause.isUnknownError(cause)) cause = cause.cause;
+
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(
       cause.code,
@@ -156,6 +166,7 @@ const errorResponse = (cause: unknown): Response => {
       cause.status === 401 ? { "www-authenticate": PERSON_CHALLENGE } : undefined,
     );
   }
+
   switch (errorTag(cause)) {
     case "UnauthenticatedActor":
       return nativeProblemResponse("credential.invalid", 401, {
@@ -187,19 +198,15 @@ const errorResponse = (cause: unknown): Response => {
 
 export const contentHttpErrorResponse = errorResponse;
 
-const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(
-  schema: S,
-  value: unknown,
-) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
 
-const strictOutput = <S extends Schema.ConstraintDecoder<unknown, never>>(
-  schema: S,
-  value: unknown,
-) =>
-  Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+const strictOutput = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
   );
 
@@ -211,28 +218,42 @@ const readJsonBody = (
   Effect.tryPromise({
     try: async () => {
       const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+
       if (mediaType !== expectedMediaType) {
         throw new HttpSemanticFailure("media-type.unsupported", 415);
       }
+
       const declaredLength = request.headers.get("content-length");
+
       if (declaredLength !== null) {
         const length = Number(declaredLength);
+
         if (!Number.isSafeInteger(length) || length < 0) {
           throw new HttpSemanticFailure("request.malformed", 400);
         }
+
         if (length > maxBodyBytes) throw new HttpSemanticFailure("request.too-large", 413);
       }
+
       const bytes = new Uint8Array(await request.arrayBuffer());
+
       if (bytes.byteLength > maxBodyBytes) throw new HttpSemanticFailure("request.too-large", 413);
+
       return parseJsonWithoutDuplicateMembers(bytes);
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ||
+      cause instanceof ContentAuthorityInactive ||
+      cause instanceof ContentNotInScope
+        ? cause
+        : new Cause.UnknownError(cause),
   });
 
 export const readContentRequestBody = readJsonBody;
 
 const headerValues = (request: Request, name: string): ReadonlyArray<string> => {
   const value = request.headers.get(name);
+
   return value === null ? [] : [value];
 };
 
@@ -243,73 +264,114 @@ const noQuery = (request: Request) =>
         throw new HttpSemanticFailure("request.malformed", 400);
       }
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ||
+      cause instanceof ContentAuthorityInactive ||
+      cause instanceof ContentNotInScope
+        ? cause
+        : new Cause.UnknownError(cause),
   });
 
 const departmentFromQuery = (request: Request) =>
   Effect.try({
     try: () => {
       const parameters = [...new URL(request.url).searchParams];
+
       if (parameters.some(([key]) => key !== "department")) {
         throw new HttpSemanticFailure("request.malformed", 400);
       }
-      const values = parameters.filter(([key]) => key === "department").map(([, value]) => value);
+
+      const values = parameters
+        .values()
+        .filter(([key]) => key === "department")
+        .map(([, value]) => value)
+        .toArray();
+
       if (values.length > 1) throw new HttpSemanticFailure("request.malformed", 400);
+
       return values.length === 0 ? {} : { departmentId: values[0] };
     },
-    catch: (cause) => cause,
-  }).pipe(Effect.flatMap((query) => strictDecode(ContentWorkspaceQuerySchema, query)));
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ||
+      cause instanceof ContentAuthorityInactive ||
+      cause instanceof ContentNotInScope
+        ? cause
+        : new Cause.UnknownError(cause),
+  }).pipe(Effect.flatMap((query) => strictDecode(ContentWorkspaceQuerySchema)(query)));
 
 const versionFromQuery = (request: Request) =>
   Effect.try({
     try: () => {
       const parameters = [...new URL(request.url).searchParams];
+
       if (parameters.some(([key]) => key !== "version")) {
         throw new HttpSemanticFailure("request.malformed", 400);
       }
-      const values = parameters.filter(([key]) => key === "version").map(([, value]) => value);
+
+      const values = parameters
+        .values()
+        .filter(([key]) => key === "version")
+        .map(([, value]) => value)
+        .toArray();
+
       if (values.length > 1) throw new HttpSemanticFailure("request.malformed", 400);
+
       if (values.length === 0) return undefined;
       const version = Number(values[0]);
+
       if (!Number.isSafeInteger(version) || version < 1) {
         throw new HttpSemanticFailure("request.malformed", 400);
       }
+
       return version;
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ||
+      cause instanceof ContentAuthorityInactive ||
+      cause instanceof ContentNotInScope
+        ? cause
+        : new Cause.UnknownError(cause),
   });
 
 const authorizedActor = <E, R>(request: Request, resolveActor: ContentRequestActorResolver<E, R>) =>
   Effect.gen(function* () {
     const actor = yield* resolveActor(request);
+
     const authority = yield* Organization.use(({ resolvePersonAuthority }) =>
       resolvePersonAuthority(actor.personId, actor.authorizationInstant),
     );
+
     const decision = resolveContentActor(authority);
-    if (decision._tag === "Deny") {
+
+    if (Predicate.isTagged(decision, "Deny")) {
       return yield* Effect.fail(
         decision.reason === "AuthorityInactive"
           ? new ContentAuthorityInactive({})
           : new ContentNotInScope({}),
       );
     }
+
     return { ...actor, contentActor: decision.value };
   });
 
 const authorizedActorInTransaction = (request: Request) =>
   Effect.gen(function* () {
     const authenticated = yield* resolveRequestPersonAuthorityInTransaction(request);
-    if (authenticated.credential.principal._tag !== "Person") {
+
+    if (!Predicate.isTagged(authenticated.credential.principal, "Person")) {
       return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
     }
+
     const decision = resolveContentActor(authenticated.authority);
-    if (decision._tag === "Deny") {
+
+    if (Predicate.isTagged(decision, "Deny")) {
       return yield* Effect.fail(
         decision.reason === "AuthorityInactive"
           ? new ContentAuthorityInactive({})
           : new ContentNotInScope({}),
       );
     }
+
     return {
       personId: authenticated.credential.principal.personId,
       authorizationInstant: authenticated.authorizationInstant,
@@ -318,7 +380,7 @@ const authorizedActorInTransaction = (request: Request) =>
     };
   });
 
-const contentScope: Scope = { _tag: "Domain", domainId: DomainId.make("content") };
+const contentScope: Scope = Scope.Domain({ domainId: DomainId.make("content") });
 
 const authorizeContentOperation = (input: {
   readonly spec: AccessSpec;
@@ -328,14 +390,16 @@ const authorizeContentOperation = (input: {
 }) => {
   const instant = AuthorizationInstant.make(input.actor.authorizationInstant);
   const principal = { _tag: "Person" as const, personId: input.actor.personId };
-  const capabilityList =
-    input.spec.capabilities._tag === "One"
-      ? [input.spec.capabilities.capability]
-      : input.spec.capabilities._tag === "All" || input.spec.capabilities._tag === "Any"
-        ? input.spec.capabilities.capabilities
-        : [];
+
+  const capabilityList = Predicate.isTagged(input.spec.capabilities, "One")
+    ? [input.spec.capabilities.capability]
+    : Predicate.isTagged(input.spec.capabilities, "All") ||
+        Predicate.isTagged(input.spec.capabilities, "Any")
+      ? input.spec.capabilities.capabilities
+      : [];
+
   const grants = capabilityList.map((capability, index) =>
-    makeGrant({
+    decodeGrant({
       grantId: GrantId.make(`native-content:${input.actor.personId}:${index}`),
       subject: principal,
       capability,
@@ -347,7 +411,9 @@ const authorizeContentOperation = (input: {
       revision: 0,
     }),
   );
+
   const bearer = input.request.headers.get("authorization")?.startsWith("Bearer ") === true;
+
   return evaluateAccessJourney(input.spec, undefined, {
     now: Effect.succeed(instant),
     resolveCredential: () =>
@@ -364,15 +430,16 @@ const authorizeContentOperation = (input: {
   }).pipe(
     Effect.flatMap((evaluation) => {
       const status = accessHttpStatus(evaluation, input.spec.concealment);
+
       return status === 200
         ? Effect.void
         : Effect.fail(
             new HttpSemanticFailure(
-              status === 401
-                ? "credential.invalid"
-                : status === 404
-                  ? "resource.not-found"
-                  : "authority.denied",
+              Match.value(status).pipe(
+                Match.when(401, () => "credential.invalid" as const),
+                Match.when(404, () => "resource.not-found" as const),
+                Match.orElse(() => "authority.denied" as const),
+              ),
               status,
             ),
           );
@@ -386,6 +453,7 @@ const authorizeAnonymousContentOperation = (
 ) =>
   Effect.gen(function* () {
     const instant = yield* Effect.sync(() => AuthorizationInstant.make(new Date().toISOString()));
+
     const evaluation = yield* evaluateAccessJourney(spec, undefined, {
       now: Effect.succeed(instant),
       resolveCredential: () =>
@@ -398,7 +466,9 @@ const authorizeAnonymousContentOperation = (
       resolveScope: () => Effect.succeed(resolution),
       resolveGrants: () => Effect.succeed([]),
     });
+
     const status = accessHttpStatus(evaluation, spec.concealment);
+
     if (status !== 200) {
       return yield* Effect.fail(
         new HttpSemanticFailure(status === 404 ? "resource.not-found" : "authority.denied", status),
@@ -433,6 +503,7 @@ const articleETagEffect = (articleId: ArticleId, personId: PersonId) =>
       readContentArticleHttpSourcePostgres(articleId),
       readContentAuthorityHttpSourcesPostgres(personId),
     ]);
+
     return deriveStrongETag({
       representationKind: "ContentArticleDetailSchema",
       resourceIdentity: `content-article:${articleId}`,
@@ -446,7 +517,7 @@ const articleETagEffect = (articleId: ArticleId, personId: PersonId) =>
 
 const conditionalJsonResponse = (
   request: Request,
-  body: unknown,
+  body: Schema.Json,
   etag: StrongETag,
   cacheControl: string,
 ) =>
@@ -457,10 +528,14 @@ const conditionalJsonResponse = (
         ifMatch: parseReadIfMatch(headerValues(request, "if-match")),
         ifNoneMatch: parseIfNoneMatch(headerValues(request, "if-none-match")),
       });
-      if (decision._tag === "Failed") return nativeProblemResponse(decision.code, decision.status);
-      if (decision._tag === "NotModified") {
+
+      if (Predicate.isTagged(decision, "Failed"))
+        return nativeProblemResponse(decision.code, decision.status);
+
+      if (Predicate.isTagged(decision, "NotModified")) {
         return notModifiedResponse({ etag, cacheControl, vary: "Origin" });
       }
+
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: {
@@ -471,7 +546,12 @@ const conditionalJsonResponse = (
         },
       });
     },
-    catch: (cause) => cause,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ||
+      cause instanceof ContentAuthorityInactive ||
+      cause instanceof ContentNotInScope
+        ? cause
+        : new Cause.UnknownError(cause),
   });
 
 const commandIdentity = (
@@ -482,6 +562,7 @@ const commandIdentity = (
   identities: Readonly<Record<string, string>>,
 ) => {
   const idempotencyKey = parseIdempotencyKey(headerValues(request, "idempotency-key"));
+
   return deriveHttpIdentity({
     credentialSubject: `Person:${actor.personId}`,
     qualifiedOperationId: operationId,
@@ -509,12 +590,20 @@ const executeCommand = <E, R>(
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const prepared = yield* prepare();
+
         const derived = yield* Effect.try({
           try: () =>
             commandIdentity(request, prepared.actor, operationId, routeTemplate, identities),
-          catch: (cause) => cause,
+          catch: (cause) =>
+            cause instanceof HttpSemanticFailure ||
+            cause instanceof ContentAuthorityInactive ||
+            cause instanceof ContentNotInScope
+              ? cause
+              : new Cause.UnknownError(cause),
         });
-        const commandId = yield* strictDecode(ContentCommandId, derived.commandId);
+
+        const commandId = yield* strictDecode(ContentCommandId)(derived.commandId);
+
         return {
           identity: {
             identitySha256: derived.identitySha256,
@@ -525,13 +614,19 @@ const executeCommand = <E, R>(
             Effect.flatMap((response) =>
               Effect.tryPromise({
                 try: () => responseCapsule(response),
-                catch: (cause) => cause,
+                catch: (cause) =>
+                  cause instanceof HttpSemanticFailure ||
+                  cause instanceof ContentAuthorityInactive ||
+                  cause instanceof ContentNotInScope
+                    ? cause
+                    : new Cause.UnknownError(cause),
               }),
             ),
           ),
         };
       }),
     );
+
     return nativeCommandOutcomeResponse(outcome);
   });
 
@@ -557,7 +652,8 @@ const readWorkspace = <E, R>(request: Request, resolveActor: ContentRequestActor
       },
     });
     const workspace = yield* runContentWorkspace(actor.personId, actor.authorizationInstant, query);
-    const body = yield* strictOutput(ContentWorkspaceSchema, workspace);
+    const body = yield* strictOutput(ContentWorkspaceSchema)(workspace);
+
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
@@ -568,7 +664,8 @@ const createArticle = (request: Request, maxBodyBytes: number) =>
   Effect.gen(function* () {
     yield* noQuery(request);
     const rawBody = yield* readJsonBody(request, "application/json", maxBodyBytes);
-    const body = yield* strictDecode(CreateArticleRequest, rawBody);
+    const body = yield* strictDecode(CreateArticleRequest)(rawBody);
+
     return yield* executeCommand(
       request,
       "content.createArticle",
@@ -597,6 +694,7 @@ const createArticle = (request: Request, maxBodyBytes: number) =>
             grantScopes: [contentScope],
             now: actor.authorizationInstant,
           });
+
           return {
             actor,
             execute: (commandId) =>
@@ -612,10 +710,13 @@ const createArticle = (request: Request, maxBodyBytes: number) =>
                       authorizationInstant: actor.authorizationInstant,
                       articleId: created.articleId,
                     });
+
                     const source = yield* readContentArticleHttpSourcePostgres(created.articleId);
+
                     const authority = yield* readContentAuthorityHttpSourcesPostgres(
                       actor.personId,
                     );
+
                     const etag = deriveStrongETag({
                       representationKind: "ContentArticleDetailSchema",
                       resourceIdentity: `content-article:${created.articleId}`,
@@ -625,9 +726,11 @@ const createArticle = (request: Request, maxBodyBytes: number) =>
                         authority.map((item) => [item.kind, item.identity, item.revisions]),
                       ],
                     });
+
                     const output = yield* Schema.decodeEffect(ContentArticleDetailSchema)(detail, {
                       onExcessProperty: "error",
                     }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                     return new Response(JSON.stringify(output), {
                       status: 201,
                       headers: {
@@ -653,11 +756,13 @@ const readArticle = <E, R>(
   Effect.gen(function* () {
     yield* noQuery(request);
     const actor = yield* authorizedActor(request, resolveActor);
+
     const [detail, source, authority] = yield* Effect.all([
       runContentArticleDetail(actor.personId, actor.authorizationInstant, articleId),
       readContentArticleHttpSourcePostgres(articleId),
       readContentAuthorityHttpSourcesPostgres(actor.personId),
     ]);
+
     yield* authorizeContentOperation({
       spec: Option.getOrThrow(reflectAccessSpec(ReadArticleEndpoint)),
       request,
@@ -667,7 +772,8 @@ const readArticle = <E, R>(
         contexts: [articleContext(detail, source.createdByPersonId, actor.authorizationInstant)],
       },
     });
-    const output = yield* strictOutput(ContentArticleDetailSchema, detail);
+    const output = yield* strictOutput(ContentArticleDetailSchema)(detail);
+
     const etag = deriveStrongETag({
       representationKind: "ContentArticleDetailSchema",
       resourceIdentity: `content-article:${articleId}`,
@@ -677,6 +783,7 @@ const readArticle = <E, R>(
         authority.map((item) => [item.kind, item.identity, item.revisions]),
       ],
     });
+
     return yield* conditionalJsonResponse(request, output, etag, PRIVATE_NO_STORE);
   });
 
@@ -684,18 +791,33 @@ const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: num
   Effect.gen(function* () {
     yield* noQuery(request);
     const patchSource = yield* readJsonBody(request, "application/merge-patch+json", maxBodyBytes);
+
     const interpretation = yield* Effect.try({
       try: () => interpretArticleMergePatchSource(patchSource),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ||
+        cause instanceof ContentAuthorityInactive ||
+        cause instanceof ContentNotInScope
+          ? cause
+          : new Cause.UnknownError(cause),
     });
-    if (interpretation._tag === "Rejected") {
+
+    if (Predicate.isTagged(interpretation, "Rejected")) {
       return validationProblemResponse(interpretation.code, interpretation.errors);
     }
-    const patch = yield* strictDecode(ArticleMergePatch, patchSource);
+
+    const patch = yield* strictDecode(ArticleMergePatch)(patchSource);
+
     const ifMatch = yield* Effect.try({
       try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ||
+        cause instanceof ContentAuthorityInactive ||
+        cause instanceof ContentNotInScope
+          ? cause
+          : new Cause.UnknownError(cause),
     });
+
     return yield* executeCommand(
       request,
       "content.reviseArticle",
@@ -705,6 +827,7 @@ const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: num
       () =>
         Effect.gen(function* () {
           const actor = yield* authorizedActorInTransaction(request);
+
           const [current, source, authority] = yield* Effect.all([
             readArticleDetailInTransactionPostgres({
               personId: actor.personId,
@@ -714,6 +837,7 @@ const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: num
             readContentArticleHttpSourcePostgres(articleId),
             readContentAuthorityHttpSourcesPostgres(actor.personId),
           ]);
+
           yield* authorizePersonNativeOperation({
             spec: Option.getOrThrow(reflectAccessSpec(ReviseArticleEndpoint)),
             credential: actor.credential,
@@ -727,6 +851,7 @@ const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: num
             grantScopes: [contentScope],
             now: actor.authorizationInstant,
           });
+
           const currentETag = deriveStrongETag({
             representationKind: "ContentArticleDetailSchema",
             resourceIdentity: `content-article:${articleId}`,
@@ -736,6 +861,7 @@ const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: num
               authority.map((item) => [item.kind, item.identity, item.revisions]),
             ],
           });
+
           return {
             actor,
             execute: (commandId) =>
@@ -743,11 +869,13 @@ const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: num
                 // Exact replay is selected before execute; a fresh mutation still
                 // checks the selected representation inside the owning transaction.
                 const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
-                if (precondition._tag === "Failed") {
+
+                if (Predicate.isTagged(precondition, "Failed")) {
                   return yield* Effect.fail(
                     new HttpSemanticFailure(precondition.code, precondition.status),
                   );
                 }
+
                 const revised = yield* reviseDraftPostgres({
                   command: {
                     commandId,
@@ -761,15 +889,19 @@ const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: num
                   personId: actor.personId,
                   authorizationInstant: actor.authorizationInstant,
                 });
+
                 const detail = yield* readArticleDetailInTransactionPostgres({
                   personId: actor.personId,
                   authorizationInstant: actor.authorizationInstant,
                   articleId: revised.articleId,
                 });
+
                 const output = yield* Schema.decodeEffect(ContentArticleDetailSchema)(detail, {
                   onExcessProperty: "error",
                 }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                 const etag = yield* articleETagEffect(articleId, actor.personId);
+
                 return new Response(JSON.stringify(output), {
                   status: 200,
                   headers: { "cache-control": NO_STORE, "content-type": "application/json", etag },
@@ -791,14 +923,23 @@ const lifecycleArticle = (
     const endpoint = operation === "Publish" ? PublishArticleEndpoint : UnpublishArticleEndpoint;
     const wireSchema = operation === "Publish" ? PublishArticleRequest : UnpublishArticleRequest;
     const rawBody = yield* readJsonBody(request, "application/json", maxBodyBytes);
-    const body = yield* strictDecode(wireSchema, rawBody);
+    const body = yield* strictDecode(wireSchema)(rawBody);
+
     const ifMatch = yield* Effect.try({
       try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
-      catch: (cause) => cause,
+      catch: (cause) =>
+        cause instanceof HttpSemanticFailure ||
+        cause instanceof ContentAuthorityInactive ||
+        cause instanceof ContentNotInScope
+          ? cause
+          : new Cause.UnknownError(cause),
     });
+
     const operationId =
       operation === "Publish" ? "content.publishArticle" : "content.unpublishArticle";
+
     const suffix = operation === "Publish" ? "publish" : "unpublish";
+
     return yield* executeCommand(
       request,
       operationId,
@@ -808,6 +949,7 @@ const lifecycleArticle = (
       () =>
         Effect.gen(function* () {
           const actor = yield* authorizedActorInTransaction(request);
+
           const [current, source, authority] = yield* Effect.all([
             readArticleDetailInTransactionPostgres({
               personId: actor.personId,
@@ -817,6 +959,7 @@ const lifecycleArticle = (
             readContentArticleHttpSourcePostgres(articleId),
             readContentAuthorityHttpSourcesPostgres(actor.personId),
           ]);
+
           yield* authorizePersonNativeOperation({
             spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
             credential: actor.credential,
@@ -830,6 +973,7 @@ const lifecycleArticle = (
             grantScopes: [contentScope],
             now: actor.authorizationInstant,
           });
+
           const currentETag = deriveStrongETag({
             representationKind: "ContentArticleDetailSchema",
             resourceIdentity: `content-article:${articleId}`,
@@ -839,6 +983,7 @@ const lifecycleArticle = (
               authority.map((item) => [item.kind, item.identity, item.revisions]),
             ],
           });
+
           return {
             actor,
             execute: (commandId) =>
@@ -846,23 +991,28 @@ const lifecycleArticle = (
                 // Exact replay is selected before execute; a fresh mutation still
                 // checks the selected representation inside the owning transaction.
                 const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
-                if (precondition._tag === "Failed") {
+
+                if (Predicate.isTagged(precondition, "Failed")) {
                   return yield* Effect.fail(
                     new HttpSemanticFailure(precondition.code, precondition.status),
                   );
                 }
+
                 if (operation === "Publish") {
                   const published = yield* publishPostgres({
                     command: { commandId, articleId },
                     personId: actor.personId,
                     authorizationInstant: actor.authorizationInstant,
                   });
+
                   const output = yield* Schema.decodeEffect(PublishArticleResponse)({
                     articleId: published.articleId,
                     versionNumber: published.versionNumber,
                     publishedAt: published.publishedAt,
                   }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                   const etag = yield* articleETagEffect(articleId, actor.personId);
+
                   return new Response(JSON.stringify(output), {
                     status: 200,
                     headers: {
@@ -872,15 +1022,19 @@ const lifecycleArticle = (
                     },
                   });
                 }
+
                 const unpublished = yield* unpublishPostgres({
                   command: { commandId, articleId },
                   personId: actor.personId,
                   authorizationInstant: actor.authorizationInstant,
                 });
+
                 const output = yield* Schema.decodeEffect(UnpublishArticleResponse)({
                   articleId: unpublished.articleId,
                 }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+
                 const etag = yield* articleETagEffect(articleId, actor.personId);
+
                 return new Response(JSON.stringify(output), {
                   status: 200,
                   headers: { "cache-control": NO_STORE, "content-type": "application/json", etag },
@@ -909,13 +1063,19 @@ const listNews = (request: Request) =>
         ],
       },
     );
-    const listing = yield* readPublicNews({ _tag: "Listing", departmentId: query.departmentId });
+
+    const listing = yield* readPublicNews(
+      PublicNewsRead.Listing({ departmentId: query.departmentId }),
+    );
+
     const [body, sources] = yield* Effect.all([
-      strictOutput(PublishedNewsListingSchema, listing),
+      strictOutput(PublishedNewsListingSchema)(listing),
       readPublishedNewsCollectionHttpSourcesPostgres(query.departmentId),
     ]);
+
     const identity =
       query.departmentId === undefined ? "/api/news" : `/api/news?department=${query.departmentId}`;
+
     const etag = deriveStrongETag({
       representationKind: "PublishedNewsListing",
       resourceIdentity: identity,
@@ -926,6 +1086,7 @@ const listNews = (request: Request) =>
         source.authorProfileRevision,
       ]),
     });
+
     return yield* conditionalJsonResponse(request, body, etag, PUBLIC_NEWS_CACHE);
   });
 
@@ -950,11 +1111,13 @@ const readNewsArticle = (request: Request, slug: string) =>
         ],
       },
     );
-    const article = yield* readPublicNews({ _tag: "Article", slug, versionNumber });
+    const article = yield* readPublicNews(PublicNewsRead.Article({ slug, versionNumber }));
+
     const [body, source] = yield* Effect.all([
-      strictOutput(PublishedNewsArticleSchema, article),
+      strictOutput(PublishedNewsArticleSchema)(article),
       readPublishedNewsArticleHttpSourcePostgres(slug, versionNumber),
     ]);
+
     const etag = deriveStrongETag({
       representationKind: "PublishedNewsArticle",
       resourceIdentity:
@@ -969,6 +1132,7 @@ const readNewsArticle = (request: Request, slug: string) =>
         source.authorProfileRevision,
       ],
     });
+
     return yield* conditionalJsonResponse(request, body, etag, PUBLIC_NEWS_CACHE);
   });
 

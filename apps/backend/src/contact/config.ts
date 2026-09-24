@@ -7,6 +7,7 @@ export interface ContactConfig {
   readonly sender: string;
   readonly delivery: HttpDeliveryConfig;
 }
+
 /** Absent/partial configuration disables this command, without breaking unrelated services. */
 export const contactConfig = (
   env: Readonly<Record<string, string | undefined>>,
@@ -16,6 +17,7 @@ export const contactConfig = (
   const sender = env.CONTACT_SENDER;
   const endpoint = env.CONTACT_DELIVERY_URL;
   const timeout = Number(env.CONTACT_DELIVERY_TIMEOUT_MS);
+
   if (
     !backendToken ||
     backendToken.length < 32 ||
@@ -28,10 +30,13 @@ export const contactConfig = (
     timeout > 30_000
   )
     return undefined;
+
   try {
     const url = new URL(endpoint);
+
     if (url.username || url.password || url.hash || !["http:", "https:"].includes(url.protocol))
       return undefined;
+
     return {
       backendToken,
       sender,

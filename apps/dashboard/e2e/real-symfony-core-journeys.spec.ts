@@ -1,14 +1,23 @@
+import { Schema, Predicate } from "effect";
 import { fileURLToPath } from "node:url";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
+
 const departmentId = 1;
+
 const fieldOfStudyId = 1;
+
 const surveyId = 1;
+
 const surveyQuestionId = 1;
+
 const coreUsername = "core-journey-user-0032";
+
 const corePassword = "core-journey-password-0032";
+
 const coreEmail = "core-journey-user-0032@example.invalid";
+
 const receiptImagePath = fileURLToPath(
   new URL("../../server/images/receipts/698c00086228f.png", import.meta.url),
 );
@@ -119,13 +128,15 @@ async function loginWithUi(page: Page): Promise<string> {
       password: corePassword,
     },
   });
+
   expect(response.status()).toBe(200);
-  const payload = (await response.json()) as { token?: unknown };
-  expect(typeof payload.token).toBe("string");
-  return payload.token as string;
+  const payload = Schema.decodeUnknownSync(Schema.Struct({ token: Schema.String }))((await response.json()));
+  expect(Predicate.isString(payload.token)).toBe(true);
+
+  return payload.token;
 }
 
-function bearerHeaders(token: string): Record<string, string> {
+function bearerHeaders(token: string) {
   return {
     Accept: "application/json",
     Authorization: `Bearer ${token}`,
@@ -176,6 +187,7 @@ test.describe("Real Symfony core user journeys", () => {
         departmentId,
       },
     });
+
     await expectEmptyCreatedResponse(apiResponse);
   });
 
@@ -206,6 +218,7 @@ test.describe("Real Symfony core user journeys", () => {
         message: "The current Symfony contact API operation was traversed.",
       },
     });
+
     await expectEmptyCreatedResponse(apiResponse);
   });
 
@@ -221,10 +234,11 @@ test.describe("Real Symfony core user journeys", () => {
     const apiResponse = await page.request.get(`${apiOrigin}/api/articles`, {
       headers: { Accept: "application/json" },
     });
+
     expect(apiResponse.status()).toBe(200);
-    const payload = (await apiResponse.json()) as
-      | Array<{ slug?: string }>
-      | { member?: Array<{ slug?: string }> };
+
+    const payload = Schema.decodeUnknownSync(Schema.Union([Schema.mutable(Schema.Array(Schema.Struct({ slug: Schema.optional(Schema.String) }))), Schema.Struct({ member: Schema.optional(Schema.Array(Schema.Struct({ slug: Schema.optional(Schema.String) }))) })]))((await apiResponse.json()));
+
     const articles = Array.isArray(payload) ? payload : payload.member;
     expect(articles).toEqual(
       expect.arrayContaining([expect.objectContaining({ slug: "core-journey-article" })]),
@@ -248,7 +262,7 @@ test.describe("Real Symfony core user journeys", () => {
     const media = page.locator('img[src*="images/assistenter.jpg"]').first();
     await expect(media).toBeVisible();
     await expect.poll(async () =>
-      media.evaluate((image) => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0),
+      media.evaluate((image) => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0),
     ).toBe(true);
     expect(mediaResponses).toEqual(
       expect.arrayContaining([
@@ -269,12 +283,11 @@ test.describe("Real Symfony core user journeys", () => {
     const apiResponse = await page.request.get(`${apiOrigin}/api/me`, {
       headers: bearerHeaders(token),
     });
+
     expect(apiResponse.status()).toBe(200);
-    const payload = (await apiResponse.json()) as {
-      firstName?: string;
-      lastName?: string;
-      email?: string;
-    };
+
+    const payload = Schema.decodeUnknownSync(Schema.Struct({ firstName: Schema.optional(Schema.String), lastName: Schema.optional(Schema.String), email: Schema.optional(Schema.String) }))((await apiResponse.json()));
+
     expect(payload).toMatchObject({
       firstName: "Core",
       lastName: "Journey",
@@ -306,9 +319,11 @@ test.describe("Real Symfony core user journeys", () => {
       page.waitForURL(/\/utlegg$/),
       form.getByRole("button", { name: "Be om refusjon", exact: true }).click(),
     ]);
+
     const receiptRow = page
       .locator("#activeReceiptsTable tbody tr")
       .filter({ hasText: description });
+
     await expect(receiptRow).toBeVisible();
     await expect(receiptRow.getByText("Vis kvittering", { exact: true })).toBeVisible();
 
@@ -323,9 +338,10 @@ test.describe("Real Symfony core user journeys", () => {
         receiptDate: `${year}-${month.padStart(2, "0")}-${day}`,
       },
     });
+
     expect(apiResponse.status()).toBe(201);
-    const payload = (await apiResponse.json()) as { id?: unknown };
-    expect(typeof payload.id).toBe("number");
+    const payload = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.Number }))((await apiResponse.json()));
+    expect(Predicate.isNumber(payload.id)).toBe(true);
 
     await page.reload();
     await expect(
@@ -357,6 +373,7 @@ test.describe("Real Symfony core user journeys", () => {
         },
       },
     );
+
     expect(apiResponse.status()).toBe(204);
     expect(await apiResponse.text()).toBe("");
   });
@@ -382,14 +399,15 @@ test.describe("Real Symfony core user journeys", () => {
     ).toBeVisible();
 
     const token = await loginWithUi(page);
+
     const apiResponse = await page.request.get(`${apiOrigin}/api/admin/team-interest`, {
       headers: bearerHeaders(token),
     });
+
     expect(apiResponse.status()).toBe(200);
-    const payload = (await apiResponse.json()) as {
-      applicants?: unknown[];
-      teams?: unknown[];
-    };
+
+    const payload = Schema.decodeUnknownSync(Schema.Struct({ applicants: Schema.optional(Schema.Array(Schema.Json)), teams: Schema.optional(Schema.Array(Schema.Json)) }))((await apiResponse.json()));
+
     expect(payload).toEqual({
       applicants: [],
       teams: [{ id: expect.any(Number), name: "Core journey team" }],

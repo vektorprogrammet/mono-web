@@ -1,17 +1,25 @@
+import { Predicate } from "effect";
 import { nativeDashboardRecoveryMode } from "./native-account-mode.server";
 import { serverApiEndpoint } from "../lib/api.server";
+
 export class PasswordRecoveryError extends Error {
   constructor(readonly outcome: "InvalidOrExpired" | "OutcomeUnknown" | "Rejected") {
     super(outcome);
   }
 }
+
+type PasswordRecoveryPayload = {readonly email: string; readonly redirectTo: string} | {readonly token: string; readonly newPassword: string};
+
 /** Credential-only client; never part of the native generated operation registry. */
 export const createPasswordRecoveryClient = (request: Request) => {
   const origin = request.headers.get("origin") ?? new URL(request.url).origin;
   const dashboardOrigin = process.env.OAUTH_DASHBOARD_ORIGIN;
+
   if (!dashboardOrigin) throw new Error("Recovery dashboard origin is not configured");
-  const post = async (path: string, body: unknown) => {
+
+  const post = async (path: "request-password-reset" | "reset-password", body: PasswordRecoveryPayload) => {
     let response: Response;
+
     try {
       response = await fetch(serverApiEndpoint(`/api/auth/${path}`), {
         method: "POST",
@@ -23,25 +31,29 @@ export const createPasswordRecoveryClient = (request: Request) => {
     } catch {
       throw new PasswordRecoveryError("OutcomeUnknown");
     }
+
     const decoded: unknown = await response.json().catch(() => null);
+
     if (
       response.ok &&
       decoded !== null &&
-      typeof decoded === "object" &&
+      Predicate.isObjectOrArray(decoded) &&
       "status" in decoded &&
       decoded.status === true
     )
       return;
+
     if (response.status >= 500) throw new PasswordRecoveryError("OutcomeUnknown");
     throw new PasswordRecoveryError(
       decoded !== null &&
-        typeof decoded === "object" &&
+        Predicate.isObjectOrArray(decoded) &&
         "code" in decoded &&
         decoded.code === "INVALID_TOKEN"
         ? "InvalidOrExpired"
         : "Rejected",
     );
   };
+
   return {
     requestPasswordReset: (email: string) =>
       post("request-password-reset", {
@@ -52,6 +64,7 @@ export const createPasswordRecoveryClient = (request: Request) => {
       post("reset-password", { token, newPassword }),
   };
 };
+
 /** Explicit ownership; native dashboard sign-in cannot be paired with legacy reset. */
 export const requireNativePasswordRecovery = () => {
   if (nativeDashboardRecoveryMode(process.env) !== "native")

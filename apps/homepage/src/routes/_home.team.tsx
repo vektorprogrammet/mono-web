@@ -20,6 +20,7 @@ export function loader(): TeamLoaderData {
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Team({ loaderData }: { loaderData: TeamLoaderData }) {
   const teamFaqs = getTeamFaqs();
+
   return (
     <div className="mx-auto mt-20 mb-20 flex w-full max-w-6xl flex-col items-center">
       <header className="mx-auto flex w-full flex-wrap justify-around">

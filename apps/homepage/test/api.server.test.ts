@@ -1,27 +1,31 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-const { createPromiseClient } = vi.hoisted(() => ({
-  createPromiseClient: vi.fn((url) => ({ url })),
-}));
-vi.mock("@vektorprogrammet/sdk", () => ({ createPromiseClient }));
-
 import { createHomepageApiClient } from "../src/lib/api.server";
 
-const originalApiUrl = process.env.API_URL;
 afterEach(() => {
-  createPromiseClient.mockClear();
-  if (originalApiUrl === undefined) delete process.env.API_URL;
-  else process.env.API_URL = originalApiUrl;
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("homepage server API origin", () => {
-  it("reads API_URL at request runtime", () => {
-    process.env.API_URL = "https://origin-api.vektor.phibkro.org";
-    createHomepageApiClient();
-    expect(createPromiseClient).toHaveBeenLastCalledWith("https://origin-api.vektor.phibkro.org");
+  it("sends each request to the current runtime API_URL", async () => {
+    const urls: string[] = [];
 
-    process.env.API_URL = "https://changed.example.invalid";
-    createHomepageApiClient();
-    expect(createPromiseClient).toHaveBeenLastCalledWith("https://changed.example.invalid");
+    const fetch: typeof globalThis.fetch = async (input) => {
+      urls.push(input instanceof Request ? input.url : String(input));
+
+      return Response.json({ status: "ok" }, {
+        headers: { "cache-control": "no-store", vary: "Origin" },
+      });
+    };
+
+    vi.stubGlobal("fetch", fetch);
+    vi.stubEnv("API_URL", "https://origin-api.vektor.phibkro.org");
+    await createHomepageApiClient().system.health();
+    vi.stubEnv("API_URL", "https://changed.example.invalid");
+    await createHomepageApiClient().system.health();
+    expect(urls).toEqual([
+      "https://origin-api.vektor.phibkro.org/health",
+      "https://changed.example.invalid/health",
+    ]);
   });
 });

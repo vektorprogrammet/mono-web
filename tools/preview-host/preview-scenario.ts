@@ -25,6 +25,8 @@
  */
 
 import assert from "node:assert/strict";
+import { Effect, Layer, Redacted, Schema, Predicate } from "effect";
+import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
 import { isDeepStrictEqual } from "node:util";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -34,7 +36,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseLive } from "../../packages/database/src/layers.js";
 import { databaseMigrationDefinitions } from "../../packages/database/src/migrations.js";
-import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import {type ClientOptions,  createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { IdempotencyKey, StrongETag } from "../../packages/http-api/src/http-semantics.js";
 import { DepartmentId, SemesterId } from "../../packages/domain/src/organization/schema.js";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
@@ -44,12 +46,14 @@ import { Organization } from "../../packages/domain/src/organization/service.js"
 import { contactDepartmentSlug } from "../../apps/homepage/src/lib/contact-message.js";
 import {
   CreateDepartmentCommandSchema,
+  OrganizationCommandId,
   CreateTeamCommandSchema,
   type CreateDepartmentCommand,
   type CreateTeamCommand,
 } from "../../packages/domain/src/organization/administration-schema.js";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
+
 export const devMainNativeIdentityEnvironment = {
   NATIVE_IDENTITY_DEPLOYMENT: "preview",
   NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://vektor.phibkro.org"]',
@@ -64,12 +68,14 @@ export const makePreviewScenarioEnvironment = (
   const sanitized = { ...environment };
   delete sanitized.BETTER_AUTH_URL;
   delete sanitized.BETTER_AUTH_TRUSTED_ORIGINS;
+
   return { ...sanitized, ...devMainNativeIdentityEnvironment };
 };
 
 const sleep = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, ms);
+
   return promise;
 };
 
@@ -90,15 +96,19 @@ const waitForHttp = async (url: string, child: ChildProcess) => {
   for (let attempt = 0; attempt < 120; attempt++) {
     try {
       const response = await fetch(url);
+
       if (response.ok) return;
     } catch {
       // backend not ready yet
     }
+
     if (child.exitCode !== null) {
       throw new Error(`backend exited with code ${child.exitCode}`);
     }
+
     await sleep(500);
   }
+
   throw new Error(`backend did not become ready at ${url}`);
 };
 
@@ -111,22 +121,26 @@ const signIn = async (backendOrigin: string, email: string, password: string) =>
     },
     body: JSON.stringify({ email, password }),
   });
+
   assert.ok(response.ok, `scenario sign-in failed: HTTP ${response.status}`);
   const setCookie = response.headers.get("set-cookie");
+
   if (setCookie === null) return null;
+
   return setCookie.split(";")[0] ?? null;
 };
 
 export const departmentEntityIdFor = (commandId: string): string => {
   const canonical = JSON.stringify({ commandId, entityKind: "Department" });
   const digest = createHash("sha256").update(canonical).digest("hex");
+
   return `department-${digest}`;
 };
 
 const databaseRequire = createRequire(
   new URL("../../packages/database/package.json", import.meta.url),
 );
-const { Effect, Layer, Redacted, Schema } = databaseRequire("effect");
+
 const { Pool } = databaseRequire("pg");
 
 export const assertDisposablePostgresUrl = (value: string): void => {
@@ -195,10 +209,15 @@ const persons = {
 } as const;
 
 const departmentId = DepartmentId.make("1");
+
 const semesterId = SemesterId.make("preview-0072-semester");
+
 const admissionPeriodCommandId = "preview-0072-period-command";
+
 const fieldOfStudyId = AdmissionFieldOfStudyId.make("preview-0072-fos-datateknologi");
+
 const recruitmentTeamCommandId = "preview-0092-team-rekruttering-command";
+
 export const nativePreviewDepartments = [
   {
     id: "preview-0092-dept-synthetic-cmd",
@@ -225,9 +244,8 @@ export const nativePreviewDepartments = [
 
 export const nativePreviewDepartmentCommands: ReadonlyArray<CreateDepartmentCommand> =
   nativePreviewDepartments.map(({ id, ...department }) =>
-    Schema.decodeUnknownSync(CreateDepartmentCommandSchema)({
-      _tag: "CreateDepartment",
-      commandId: id,
+    CreateDepartmentCommandSchema.make({
+      commandId: OrganizationCommandId.make(id),
       ...department,
       address: null,
       latitude: null,
@@ -235,12 +253,9 @@ export const nativePreviewDepartmentCommands: ReadonlyArray<CreateDepartmentComm
     }),
   );
 
-export const nativePreviewTeamCommand: CreateTeamCommand = Schema.decodeUnknownSync(
-  CreateTeamCommandSchema,
-)({
-  _tag: "CreateTeam",
-  commandId: recruitmentTeamCommandId,
-  departmentId: departmentEntityIdFor(nativePreviewDepartments[0].id),
+export const nativePreviewTeamCommand: CreateTeamCommand = CreateTeamCommandSchema.make({
+  commandId: OrganizationCommandId.make(recruitmentTeamCommandId),
+  departmentId: DepartmentId.make(departmentEntityIdFor(nativePreviewDepartments[0].id)),
   name: "Rekruttering",
   email: "rekruttering@example.invalid",
   description: "Rekruttering og intervju",
@@ -257,23 +272,28 @@ export const assertPreviewScenarioCompatibility = async (
   const tables = await pool.query(`SELECT
     to_regclass('public.organization_departments') IS NOT NULL AS departments,
     to_regclass('public.organization_command_receipts') IS NOT NULL AS receipts`);
+
   const previousDepartmentCommand = "preview-0072-dept-ntnu-cmd";
+
   if (tables.rows[0].departments) {
     const previous = await pool.query(
       `SELECT department_id FROM public.organization_departments WHERE department_id = $1`,
       [departmentEntityIdFor(previousDepartmentCommand)],
     );
+
     assert.equal(
       previous.rowCount,
       0,
       "incompatible pre-0092 preview scenario: department row; no mutation performed",
     );
   }
+
   if (tables.rows[0].receipts) {
     const previous = await pool.query(
       `SELECT command_id FROM public.organization_command_receipts WHERE command_id = ANY($1::text[])`,
       [[previousDepartmentCommand, "preview-0072-team-rekruttering-command"]],
     );
+
     assert.equal(
       previous.rowCount,
       0,
@@ -285,29 +305,47 @@ export const assertPreviewScenarioCompatibility = async (
 export const assertUniqueContactDepartmentSlugs = (
   departments: ReadonlyArray<{ readonly active: boolean; readonly shortName: string }>,
 ): void => {
-  const slugs = departments.filter((department) => department.active).map(contactDepartmentSlug);
+  const slugs = departments
+    .values()
+    .filter((department) => department.active)
+    .map(contactDepartmentSlug)
+    .toArray();
+
   assert.ok(
     slugs.every((slug) => slug.length > 0),
     "empty active contact department slug",
   );
   assert.equal(new Set(slugs).size, slugs.length, "duplicate active contact department slug");
 };
+
 const applicantEmail = "sofie.soker.preview.0072@example.invalid";
+
 const applicationCommandId = "preview-0072-application-command";
+
 const assignmentCommandId = "preview-0072-assignment-command";
+
 const interviewSchemaId = InterviewSchemaId.make("preview-0072-interview-schema");
+
 const receiptCommandId = "preview-0072-receipt-command";
+
 const draftCommandId = "preview-0072-draft-command";
+
 const publishCommandId = "preview-0072-publish-command";
+
 const snapshotId = "sha256:preview-0072-membership-snapshot";
 
 // Wide window brackets "now" so the period stays OPEN and memberships stay
 // ACTIVE across re-runs for years (real clock, no fixed-now requirement).
 const semesterStartAt = "2026-01-01T00:00:00.000Z";
+
 const semesterEndAt = "2037-01-01T00:00:00.000Z";
+
 const periodStartAt = "2026-08-01T00:00:00.000Z";
+
 const periodEndAt = "2036-12-31T23:59:59.999Z";
+
 const membershipStartAt = "2026-01-01T00:00:00.000Z";
+
 const receiptDate = "2026-08-20";
 
 export const previewScenarioManifest = {
@@ -329,6 +367,7 @@ export const previewScenarioManifest = {
     departments: nativePreviewDepartments.map((department) => department.id),
   },
 } as const;
+
 const receiptBytes = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
@@ -407,13 +446,27 @@ ON CONFLICT (interview_schema_id, question_id) DO NOTHING;
 COMMIT;
 `;
 
+export type PreviewRuntimeObservation = {
+  readonly postgres: string;
+  readonly bun?: string;
+};
+
+export type PreviewScenarioStep = Schema.JsonObject & {
+  readonly step: string;
+  readonly status: "ok" | "replayed" | "skip";
+};
+
 export interface PreviewScenarioEvidence {
   schemaRevision: string | null;
-  readonly steps: Array<Record<string, unknown>>;
-  readonly skips: Array<Record<string, unknown>>;
+  readonly steps: Array<PreviewScenarioStep>;
+  readonly skips: Array<Schema.JsonObject>;
   tableCountsBefore: Record<string, number>;
   tableCountsAfter: Record<string, number>;
-  replayCheck: Record<string, unknown> | null;
+  replayCheck: {
+    readonly countsUnchanged: boolean;
+    readonly before: Record<string, number>;
+    readonly after: Record<string, number>;
+  } | null;
   readonly legacyAlignment: Record<string, string>;
   readonly commandReceipts: Array<{ readonly kind: string; readonly identitySha256: string }>;
 }
@@ -449,11 +502,14 @@ const countTables = async (pool: InstanceType<typeof Pool>) => {
     "organization_teams",
     "organization_memberships",
   ];
+
   const counts: Record<string, number> = {};
+
   for (const table of tables) {
     const result = await pool.query(`SELECT COUNT(*)::int AS count FROM ${table}`);
     counts[table] = result.rows[0].count;
   }
+
   return counts;
 };
 
@@ -506,7 +562,17 @@ export const readPreviewScenarioPrerequisites = async (
       interviewSchemaId,
     ],
   );
-  return result.rows[0] as PreviewScenarioPrerequisiteStatus;
+
+  return Schema.decodeUnknownSync(
+    Schema.Struct({
+      globalAdministrator: Schema.Boolean,
+      admissionDepartment: Schema.Boolean,
+      admissionSemester: Schema.Boolean,
+      fieldOfStudy: Schema.Boolean,
+      paymentAuthority: Schema.Boolean,
+      interviewSchema: Schema.Boolean,
+    }),
+  )(result.rows[0]);
 };
 
 export const assertScenarioPrerequisites = async (
@@ -517,6 +583,7 @@ export const assertScenarioPrerequisites = async (
     Object.values(status).every((present) => present),
     `preview scenario prerequisites are incomplete: ${JSON.stringify(status)}`,
   );
+
   return status;
 };
 
@@ -524,7 +591,7 @@ const recordStep = (
   evidence: PreviewScenarioEvidence,
   step: string,
   status: "ok" | "replayed" | "skip",
-  detail: Record<string, unknown>,
+  detail: Schema.JsonObject,
 ) => {
   evidence.steps.push({ step, status, ...detail });
 };
@@ -540,6 +607,7 @@ const ensurePreviewScenarioCohort = async (
   evidence?: PreviewScenarioEvidence,
 ): Promise<PreviewScenarioCohortResult> => {
   await assertPreviewScenarioCompatibility(pool);
+
   const seed = spawnSync("bun", ["run", "identity:seed"], {
     cwd: join(repositoryRoot, "packages", "database"),
     env: {
@@ -549,24 +617,30 @@ const ensurePreviewScenarioCohort = async (
     },
     encoding: "utf8",
   });
+
   assert.equal(seed.status, 0, `identity:seed failed:\n${seed.stderr}`);
+
   const revisionRow = await pool.query(
     `SELECT migration_id::text || '_' || name AS revision
      FROM public.vektorprogrammet_schema_migrations
      ORDER BY migration_id DESC
      LIMIT 1`,
   );
-  const schemaRevision = revisionRow.rows[0]?.revision as string | undefined;
+
+  const schemaRevision = Schema.decodeUnknownSync(Schema.String)(revisionRow.rows[0]?.revision);
   assert.equal(
     schemaRevision,
     previewScenarioManifest.schemaRevision,
     "unexpected database schema revision",
   );
+
   const seedRows = await pool.query(
     `SELECT person_id FROM person_profiles WHERE person_id = ANY($1::text[])`,
     [Object.values(persons).map(({ personId }) => personId)],
   );
+
   assert.equal(seedRows.rowCount, Object.keys(persons).length, "identity seed read-back failed");
+
   if (evidence !== undefined) {
     evidence.schemaRevision = schemaRevision;
     recordStep(evidence, "identity-seed", "ok", { persons: Object.keys(persons).length });
@@ -597,6 +671,7 @@ const ensurePreviewScenarioCohort = async (
       },
     ],
     memberships: Object.values(persons)
+      .values()
       .filter((person) => person.personId !== persons.admin.personId)
       .map((person, index) => ({
         id: 7301 + index,
@@ -610,39 +685,49 @@ const ensurePreviewScenarioCohort = async (
         isLeader: person.personId === persons.leader.personId,
         isSuspended: false,
         isActive: true,
-      })),
+      }))
+      .toArray(),
   };
+
   const databaseLayer = DatabaseLive({
     url: Redacted.make(postgresUrl),
     applicationName: "preview-scenario-0072-import",
     maxConnections: 1,
   });
+
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+
   const importResult = await Effect.runPromise(
     Organization.use(({ importLegacyOrganization }) =>
       importLegacyOrganization(membershipSnapshot),
     ).pipe(Effect.provide(organizationLayer)),
   );
+
   assert.equal(importResult.quarantined.length, 0, "membership import quarantined rows");
   assert.equal(importResult.memberships.length, 5, "membership import did not accept all members");
+
   const membershipRows = await pool.query(
     `SELECT person_id FROM organization_memberships
      WHERE membership_id LIKE '73%'
      ORDER BY person_id`,
   );
+
   assert.equal(membershipRows.rowCount, 5, "membership import read-back failed");
+
   if (evidence !== undefined) {
     recordStep(evidence, "memberships-import", "ok", {
       memberships: importResult.memberships.length,
       boundary: "Organization.importLegacyOrganization",
     });
   }
+
   return { schemaRevision, membershipCount: importResult.memberships.length };
 };
 
 export const prepareDisposableScenarioTarget = async (postgresUrl: string): Promise<void> => {
   assertDisposablePostgresUrl(postgresUrl);
   const pool = new Pool({ connectionString: postgresUrl, max: 2 });
+
   try {
     await ensurePreviewScenarioCohort(pool, postgresUrl);
     await pool.query(prerequisitesSql);
@@ -728,6 +813,7 @@ export const runPreviewScenarioApplication = async (
 
     // 3) Compose the real backend (real Layers + real better-auth AuthLive)
     evidence.tableCountsBefore = await countTables(pool);
+
     const backendEnv: NodeJS.ProcessEnv = {
       ...makePreviewScenarioEnvironment(),
       BACKEND_HOST: "127.0.0.1",
@@ -742,6 +828,7 @@ export const runPreviewScenarioApplication = async (
       RECEIPT_STAGING_ROOT: join(options.receiptStorageRoot, "receipt-staging"),
       RECEIPT_COMMITTED_ROOT: join(options.receiptStorageRoot, "receipt-committed"),
     };
+
     backend = spawn("bun", ["apps/backend/src/main.ts"], {
       cwd: repositoryRoot,
       env: backendEnv,
@@ -761,29 +848,45 @@ export const runPreviewScenarioApplication = async (
       const before = await pool.query(
         `SELECT identity_sha256 FROM public.native_http_idempotency_receipts`,
       );
+
       const response = await execute();
+
       const after = await pool.query(
         `SELECT identity_sha256, body_bytes FROM public.native_http_idempotency_receipts WHERE state = 'Complete'`,
       );
+
       const body = JSON.parse(JSON.stringify(response.body));
+
       const matching = after.rows.filter((row: { body_bytes: Buffer }) =>
         isDeepStrictEqual(JSON.parse(row.body_bytes.toString()), body),
       );
+
       assert.equal(matching.length, 1, `${kind} response must identify one actual HTTP receipt`);
-      const identitySha256 = matching[0].identity_sha256 as string;
+      const identitySha256 = Schema.decodeUnknownSync(Schema.String)(matching[0].identity_sha256);
+
       const replayed = before.rows.some(
         (row: { identity_sha256: string }) => row.identity_sha256 === identitySha256,
       );
+
       evidence.commandReceipts.push({ kind, identitySha256 });
+
       return { response, replayed };
     };
+
     const idempotency = (key: string) => ({ "idempotency-key": IdempotencyKey.make(key) });
-    const clientFor = (cookie?: string) =>
-      createPromiseClient(backendOrigin, {
-        ...(cookie === undefined ? {} : { cookie }),
+
+    const clientFor = (cookie?: string) => {
+      const options: ClientOptions = {
         origin: devMainNativeIdentityEnvironment.OAUTH_CANONICAL_ORIGIN,
         fetch: (input, init) => fetch(input, { ...init, redirect: "error" }),
-      });
+      };
+
+      return createPromiseClient(
+        backendOrigin,
+        cookie === undefined ? options : { ...options, cookie },
+      );
+    };
+
     const adminCookie = await signIn(backendOrigin, persons.admin.email, persons.admin.password);
     assert.ok(adminCookie, "admin sign-in returned no session cookie");
     const admin = clientFor(adminCookie);
@@ -791,14 +894,18 @@ export const runPreviewScenarioApplication = async (
 
     let replayedDepartments = 0;
     let syntheticDepartmentId: DepartmentId | undefined;
+
     for (const { commandId, _tag, ...payload } of nativePreviewDepartmentCommands) {
       const created = await observeMutation("organization-department", () =>
         admin.organization.createDepartment({ headers: idempotency(commandId), payload }),
       );
+
       if (created.replayed) replayedDepartments += 1;
+
       if (commandId === nativePreviewDepartmentCommands[0]?.commandId)
         syntheticDepartmentId = created.response.body.departmentId;
     }
+
     assert.ok(syntheticDepartmentId, "native demo department response omitted identity");
     const contactDepartments = await admin.organization.listDepartments({ headers: {} });
     assert.ok(contactDepartments.body);
@@ -816,12 +923,14 @@ export const runPreviewScenarioApplication = async (
       departmentId: _priorDepartmentId,
       ...teamFields
     } = nativePreviewTeamCommand;
+
     const team = await observeMutation("organization-team", () =>
       admin.organization.createTeam({
         headers: idempotency(teamKey),
         payload: { ...teamFields, departmentId: syntheticDepartmentId },
       }),
     );
+
     recordStep(evidence, "native-team", team.replayed ? "replayed" : "ok", {
       teamId: team.response.body.teamId,
     });
@@ -832,7 +941,9 @@ export const runPreviewScenarioApplication = async (
         payload: { semesterId, startAt: periodStartAt, endAt: periodEndAt, departmentId },
       }),
     );
+
     recordStep(evidence, "admission-period", period.replayed ? "replayed" : "ok", { open: true });
+
     const application = await observeMutation("application", () =>
       clientFor().admissions.submitApplication({
         headers: idempotency(applicationCommandId),
@@ -848,6 +959,7 @@ export const runPreviewScenarioApplication = async (
         },
       }),
     );
+
     const applicationId = application.response.body.applicationId;
     recordStep(evidence, "public-application", application.replayed ? "replayed" : "ok", {
       applicationId,
@@ -858,15 +970,19 @@ export const runPreviewScenarioApplication = async (
     const leader = clientFor(leaderCookie);
     const board = await leader.recruitment.readAssignmentBoard({ query: { status: "all" } });
     const candidate = board.body.candidates.find((item) => item.applicationId === applicationId);
+
     const interviewer = board.body.interviewers.find(
       (item) => item.personId === persons.interviewer.personId,
     );
+
     const schema = board.body.interviewSchemas.find(
       (item) => item.interviewSchemaId === interviewSchemaId,
     );
+
     assert.ok(candidate, "assignment board omitted the scenario application");
     assert.ok(interviewer, "assignment board omitted the scenario interviewer");
     assert.ok(schema, "assignment board omitted the scenario interview schema");
+
     // Current assignment command replays directly even once the applicant leaves the new board.
     const assignment = await observeMutation("assignment", () =>
       leader.recruitment.createApplicationInterview({
@@ -878,6 +994,7 @@ export const runPreviewScenarioApplication = async (
         },
       }),
     );
+
     recordStep(evidence, "interview-assignment", assignment.replayed ? "replayed" : "ok", {
       interviewId: assignment.response.body.interviewId,
     });
@@ -887,12 +1004,14 @@ export const runPreviewScenarioApplication = async (
       persons.receiptOwner.email,
       persons.receiptOwner.password,
     );
+
     assert.ok(ownerCookie, "receipt owner sign-in returned no session cookie");
     const form = new FormData();
     form.set("description", "Kaffetraktere og grenuttak til stand");
     form.set("amountOre", "1108");
     form.set("receiptDate", receiptDate);
     form.set("file", new File([receiptBytes], "receipt.png", { type: "image/png" }));
+
     const receipt = await observeMutation("receipt", () =>
       clientFor(ownerCookie).receipts.submitReceipt({
         query: {},
@@ -900,15 +1019,20 @@ export const runPreviewScenarioApplication = async (
         payload: form,
       }),
     );
+
     const receiptId = receipt.response.body.receiptId;
+
     const storedReceipt = await pool.query(
       `SELECT status, file_object_key AS "objectKey", file_sha256 AS sha256 FROM public.economy_receipts WHERE receipt_id = $1`,
       [receiptId],
     );
+
     assert.equal(storedReceipt.rows[0]?.status, "Pending");
+
     const committedFile = await readFile(
       join(options.receiptStorageRoot, "receipt-committed", storedReceipt.rows[0].objectKey),
     );
+
     assert.equal(
       createHash("sha256").update(committedFile).digest("hex"),
       storedReceipt.rows[0].sha256,
@@ -921,6 +1045,7 @@ export const runPreviewScenarioApplication = async (
 
     const authorCookie = await signIn(backendOrigin, persons.author.email, persons.author.password);
     assert.ok(authorCookie, "article author sign-in returned no session cookie");
+
     const draft = await observeMutation("content-draft", () =>
       clientFor(authorCookie).content.createArticle({
         headers: idempotency(draftCommandId),
@@ -933,19 +1058,23 @@ export const runPreviewScenarioApplication = async (
         },
       }),
     );
+
     const articleId = draft.response.body.articleId;
+
     // ETags include the reading caller's authority. Persist the leader's original
     // observed precondition so replay submits the same request after publication.
     const publicationPreconditionPath = join(
       options.receiptStorageRoot,
       `${publishCommandId}-${articleId}.json`,
     );
+
     const savedPrecondition = await readFile(publicationPreconditionPath, "utf8").catch(
       (cause: unknown) => {
-        if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        if (Predicate.hasProperty(cause, "code") && cause.code === "ENOENT") return undefined;
         throw cause;
       },
     );
+
     const publicationRequestIdentity = {
       scenario: "0072",
       articleId,
@@ -953,12 +1082,15 @@ export const runPreviewScenarioApplication = async (
       operation: "content.publishArticle",
       idempotencyKey: publishCommandId,
     };
+
     let publicationPrecondition: StrongETag;
+
     if (savedPrecondition === undefined) {
       const priorPublications = await pool.query(
         `SELECT body_bytes FROM public.native_http_idempotency_receipts
          WHERE operation_id = 'content.publishArticle' AND state = 'Complete'`,
       );
+
       assert.ok(
         priorPublications.rows.every(
           (row: { body_bytes: Buffer }) =>
@@ -990,6 +1122,7 @@ export const runPreviewScenarioApplication = async (
       );
       publicationPrecondition = Schema.decodeUnknownSync(StrongETag)(etag);
     }
+
     const publication = await observeMutation("content-publish", () =>
       leader.content.publishArticle({
         params: { articleId },
@@ -997,6 +1130,7 @@ export const runPreviewScenarioApplication = async (
         payload: {},
       }),
     );
+
     assert.equal(publication.response.body.versionNumber, 1);
     await assert.rejects(
       leader.content.publishArticle({
@@ -1008,9 +1142,11 @@ export const runPreviewScenarioApplication = async (
         payload: {},
       }),
       (cause: unknown) => {
-        const problem = (cause as { body: { status: number; code: string } }).body;
+        assert.ok(Predicate.hasProperty(cause, "body"));
+        const problem = Schema.decodeUnknownSync(NativeProblem)(cause.body);
         assert.equal(problem.status, 412);
         assert.equal(problem.code, "precondition.failed");
+
         return true;
       },
     );
@@ -1033,6 +1169,7 @@ export const runPreviewScenarioApplication = async (
     };
 
     let evidencePath: string | null = null;
+
     if (options.emitEvidence !== false) {
       evidencePath = options.evidencePath ?? join(tempRoot, "preview-scenario-evidence.json");
       await writeFile(
@@ -1045,6 +1182,7 @@ export const runPreviewScenarioApplication = async (
       );
       process.stdout.write(`evidence written to ${evidencePath}\n`);
     }
+
     return { evidence, evidencePath };
   } finally {
     if (backend !== undefined) await stopPreviewScenarioBackend(backend);
@@ -1057,6 +1195,7 @@ export const runPreviewScenarioApplication = async (
 const main = async (): Promise<void> => {
   const postgresUrl =
     process.env.PREVIEW_SCENARIO_PG_URL ?? "postgres://postgres@127.0.0.1:5435/preview_scenario";
+
   assertDisposablePostgresUrl(postgresUrl);
   const receiptStorageRoot = process.env.PREVIEW_SCENARIO_STORAGE_ROOT;
   assert.ok(receiptStorageRoot, "PREVIEW_SCENARIO_STORAGE_ROOT is required");

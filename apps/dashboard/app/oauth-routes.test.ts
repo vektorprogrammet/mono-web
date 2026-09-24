@@ -1,195 +1,107 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nativeSessionResponse, routeArgs, sessionCookie } from "../test/native-http";
 
-const auth = vi.hoisted(() => ({
-  hasAuthenticatedSession: vi.fn(),
-  safeRedirect: vi.fn(() => "/"),
-  signInWithEmail: vi.fn(),
-}));
-const oauth = vi.hoisted(() => ({
-  guardOAuthContinuation: vi.fn(),
-  hasTrustedActionOrigin: vi.fn(),
-  inspectPendingOAuthRequest: vi.fn(),
-  loadOAuthConsent: vi.fn(),
-  oauthNoStoreHeaders: vi.fn((source?: Headers) => {
-    const headers = new Headers(source);
-    headers.set("Cache-Control", "no-store");
-    return headers;
-  }),
-  sessionCookieFromResponse: vi.fn(),
-  submitOAuthConsent: vi.fn(),
-}));
-
-vi.mock("./lib/auth.server", () => auth);
-vi.mock("./lib/oauth.server", () => oauth);
+vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
 import { action as loginAction, loader as loginLoader } from "./routes/login";
 import { action as consentAction, loader as consentLoader } from "./routes/oauth.consent";
 
-const pending = {
-  raw: "client_id=client&sig=opaque",
-  clientId: "client",
-  redirectUri: "http://127.0.0.1:5174/dashboard/oauth/callback",
-  redirectOrigin: "http://127.0.0.1:5174",
-  state: "s".repeat(43),
-  codeChallenge: "c".repeat(43),
-  scope: "native-api offline_access" as const,
-  resource: "urn:vektorprogrammet:native-api" as const,
-};
-const args = (request: Request) => ({ request, params: {}, context: {} }) as never;
+const origin = "http://127.0.0.1:5174";
+
+const state = "s".repeat(43);
+
+const pendingQuery = new URLSearchParams({
+  client_id: "client", redirect_uri: `${origin}/dashboard/oauth/callback`, response_type: "code",
+  state, code_challenge: "c".repeat(43), code_challenge_method: "S256",
+  resource: "urn:vektorprogrammet:native-api", scope: "native-api offline_access",
+  prompt: "consent", exp: "2000000000", ba_iat: "1900000000000", ba_param: "client_id", sig: "opaque",
+}).toString();
+
+const continuation = `${origin}/dashboard/oauth/consent?${pendingQuery}`;
+
+const requests: Request[] = [];
+
+let accepted = true;
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  auth.hasAuthenticatedSession.mockResolvedValue(false);
-  oauth.hasTrustedActionOrigin.mockReturnValue(true);
-  oauth.inspectPendingOAuthRequest.mockReturnValue({ _tag: "Pending", pending });
-  oauth.sessionCookieFromResponse.mockReturnValue("better-auth.session_token=session-value");
+  requests.length = 0;
+  accepted = true;
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    requests.push(request.clone());
+    const path = new URL(request.url).pathname;
+
+    if (path === "/api/session") return nativeSessionResponse();
+
+    if (path === "/api/auth/oauth2/public-client") return Response.json({ client_id: "client", client_name: "Dashboard OAuth proof", client_kind: "DelegatedPublic" });
+
+    if (path === "/api/auth/sign-in/email") return Response.json({ redirect: true, url: continuation }, { headers: { "set-cookie": `${sessionCookie}; Path=/; HttpOnly` } });
+
+    if (path === "/api/auth/oauth2/consent") {
+      const callback = new URL(`${origin}/dashboard/oauth/callback`);
+      callback.searchParams.set(accepted ? "code" : "error", accepted ? "k".repeat(43) : "access_denied");
+      callback.searchParams.set("state", state);
+      callback.searchParams.set("iss", "http://api.test/api/auth");
+
+      return Response.json({ redirect: true, url: callback.toString() });
+    }
+
+    throw new Error(`Unexpected native OAuth request: ${path}`);
+  }));
 });
 
-afterEach(() => {
-  vi.unstubAllGlobals();
+afterEach(() => vi.unstubAllGlobals());
+
+const consentRequest = (body?: string) => new Request(continuation, {
+  method: body === undefined ? "GET" : "POST",
+  headers: { cookie: sessionCookie, origin, "content-type": "application/x-www-form-urlencoded" }, body,
 });
 
 describe("OAuth dashboard routes", () => {
-  it("returns a no-store consent view from the live loader", async () => {
-    oauth.loadOAuthConsent.mockResolvedValue({
-      pending,
-      view: {
-        clientName: "Dashboard OAuth proof",
-        clientKind: "public",
-        redirectOrigin: "http://127.0.0.1:5174",
-        resourceName: "Vektorprogrammet native API",
-        scopes: ["native-api", "offline_access"],
-      },
-    });
-
-    const result = await consentLoader(
-      args(new Request("http://127.0.0.1:5174/dashboard/oauth/consent?opaque")),
-    );
-
-    expect(result.data).toMatchObject({ clientName: "Dashboard OAuth proof" });
+  it("returns the live consent view without caching it", async () => {
+    const result = await consentLoader(routeArgs(consentRequest(), {}));
+    expect(result.data).toMatchObject({ clientName: "Dashboard OAuth proof", scopes: ["native-api", "offline_access"] });
     expect(new Headers(result.init?.headers).get("Cache-Control")).toBe("no-store");
   });
-
-  it.each([
-    ["accept", true],
-    ["deny", false],
-  ] as const)("dispatches the separate %s action", async (decision, accepted) => {
-    const responseHeaders = new Headers({ "Cache-Control": "no-store" });
-    oauth.submitOAuthConsent.mockResolvedValue({
-      location: "http://127.0.0.1:5174/dashboard/oauth/callback?code=bounded",
-      headers: responseHeaders,
-    });
-    const request = new Request(
-      "http://127.0.0.1:5174/dashboard/oauth/consent?client_id=client&sig=opaque",
-      {
-        method: "POST",
-        headers: {
-          Origin: "http://127.0.0.1:5174",
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({ decision }),
-      },
-    );
-
-    const response = await consentAction(args(request));
-
-    expect(oauth.submitOAuthConsent).toHaveBeenCalledWith(request, accepted);
+  it.each(["accept", "deny"] as const)("dispatches a distinct %s decision and validates the provider continuation", async decision => {
+    accepted = decision === "accept";
+    const response = await consentAction(routeArgs(consentRequest(`decision=${decision}`), {}));
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/dashboard/oauth/callback?code=bounded");
+    const location = new URL(response.headers.get("Location")!);
+    expect(location.searchParams.get(accepted ? "code" : "error")).toBe(accepted ? "k".repeat(43) : "access_denied");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const request = requests.find(request => new URL(request.url).pathname === "/api/auth/oauth2/consent");
+    expect(await request!.json()).toMatchObject({ accept: accepted, oauth_query: pendingQuery });
   });
-
-  it("rejects an ambiguous consent decision", async () => {
-    const request = new Request("http://127.0.0.1:5174/dashboard/oauth/consent?opaque", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "decision=accept&decision=deny",
-    });
-
-    await expect(consentAction(args(request))).rejects.toMatchObject({ status: 400 });
-    expect(oauth.submitOAuthConsent).not.toHaveBeenCalled();
+  it("rejects ambiguous consent before backend dispatch", async () => {
+    await expect(consentAction(routeArgs(consentRequest("decision=accept&decision=deny"), {}))).rejects.toMatchObject({ status: 400 });
+    expect(requests).toEqual([]);
   });
-
-  it("forwards only opaque OAuth state through sign-in and ignores redirectTo", async () => {
-    const responseHeaders = new Headers({
-      "Set-Cookie": "better-auth.session_token=session-value; Path=/; HttpOnly",
+  it("forwards opaque OAuth state through sign-in but does not trust redirectTo", async () => {
+    const request = new Request(`${origin}/dashboard/login?${pendingQuery}`, {
+      method: "POST", headers: { origin, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ email: "oauth@example.invalid", password: "correct password", redirectTo: "https://untrusted.example/capture" }),
     });
-    auth.signInWithEmail.mockResolvedValue({
-      _tag: "Authenticated",
-      headers: responseHeaders,
-      continuation: "http://127.0.0.1:5174/dashboard/oauth/consent?provider=signed",
-    });
-    oauth.guardOAuthContinuation.mockResolvedValue(
-      "http://127.0.0.1:5174/dashboard/oauth/consent?provider=signed",
-    );
-    const request = new Request(
-      "http://127.0.0.1:5174/dashboard/login?client_id=client&sig=opaque",
-      {
-        method: "POST",
-        headers: {
-          Origin: "http://127.0.0.1:5174",
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          email: "oauth@example.invalid",
-          password: "correct password",
-          redirectTo: "https://untrusted.example/capture",
-        }),
-      },
-    );
 
-    const response = await loginAction(args(request));
-    expect(response).toBeInstanceOf(Response);
-    if (!(response instanceof Response)) throw new Error("expected redirect response");
+    const response = await loginAction(routeArgs(request, {}));
 
-    expect(auth.signInWithEmail).toHaveBeenCalledWith(
-      request,
-      "oauth@example.invalid",
-      "correct password",
-      pending.raw,
-    );
-    expect(auth.safeRedirect).not.toHaveBeenCalled();
-    expect(oauth.guardOAuthContinuation).toHaveBeenCalledWith(
-      request,
-      pending,
-      "http://127.0.0.1:5174/dashboard/oauth/consent?provider=signed",
-      "better-auth.session_token=session-value",
-    );
+    if (!(response instanceof Response)) throw new Error("Expected an OAuth redirect");
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/dashboard/oauth/consent");
-    expect(response.headers.get("Location")).not.toContain("untrusted.example");
+    expect(response.headers.get("Location")).toBe(continuation);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const signIn = requests.find(request => new URL(request.url).pathname === "/api/auth/sign-in/email");
+    expect(await signIn!.json()).toEqual({ email: "oauth@example.invalid", password: "correct password", oauth_query: pendingQuery });
   });
+  it("rejects invalid OAuth state before credential dispatch and does not cache the login page", async () => {
+    const request = new Request(`${origin}/dashboard/login?sig=tampered`, { method: "POST", headers: { origin, "content-type": "application/x-www-form-urlencoded" }, body: "email=oauth%40example.invalid&password=secret" });
+    const result = await loginAction(routeArgs(request, {}));
 
-  it("rejects invalid OAuth state before credential dispatch", async () => {
-    oauth.inspectPendingOAuthRequest.mockReturnValue({ _tag: "Invalid" });
-    const request = new Request("http://127.0.0.1:5174/dashboard/login?sig=tampered", {
-      method: "POST",
-      headers: {
-        Origin: "http://127.0.0.1:5174",
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({ email: "oauth@example.invalid", password: "password" }),
-    });
-
-    const result = await loginAction(args(request));
-    if (!("data" in result)) throw new Error("expected bounded OAuth error data");
-
-    expect(result.data).toMatchObject({ error: expect.stringContaining("ugyldig") });
+    if (!("data" in result)) throw new Error("Expected bounded OAuth error data");
     expect(result.init?.status).toBe(400);
     expect(new Headers(result.init?.headers).get("Cache-Control")).toBe("no-store");
-    expect(auth.signInWithEmail).not.toHaveBeenCalled();
-  });
-
-  it("marks an invalid OAuth login page no-store", async () => {
-    oauth.inspectPendingOAuthRequest.mockReturnValue({ _tag: "Invalid" });
-
-    const result = await loginLoader(
-      args(new Request("http://127.0.0.1:5174/dashboard/login?sig=tampered")),
-    );
-
-    expect(result.data).toEqual({ oauthError: true, oauth: true });
-    expect(result.init?.status).toBe(400);
-    expect(new Headers(result.init?.headers).get("Cache-Control")).toBe("no-store");
+    const page = await loginLoader(routeArgs(new Request(request.url), {}));
+    expect(page.data).toEqual({ oauthError: true, oauth: true });
+    expect(new Headers(page.init?.headers).get("Cache-Control")).toBe("no-store");
+    expect(requests).toEqual([]);
   });
 });

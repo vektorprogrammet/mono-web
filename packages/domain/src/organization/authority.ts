@@ -1,9 +1,16 @@
 import { Schema } from "effect";
-import type { AdmissionPeriodActor } from "../admission-period/schema.js";
+import {
+  type AdmissionPeriodActor,
+  AdmissionPeriodActorSchema,
+} from "../admission-period/schema.js";
 import { allow, deny, type Decision } from "../authz/decision.js";
 import type { RecruitmentActor } from "../recruitment/schema.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
-import type { OrganizationActor } from "./administration-schema.js";
+import {
+  OrganizationMemberSchema,
+  type OrganizationActor,
+  OrganizationAdministratorSchema,
+} from "./administration-schema.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(
@@ -13,15 +20,18 @@ const NonEmpty = Schema.String.pipe(
     }),
   ),
 );
+
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 export const OrganizationGlobalAdministratorGrantId = NonEmpty.pipe(
   Schema.brand("OrganizationGlobalAdministratorGrantId"),
 );
+
 export type OrganizationGlobalAdministratorGrantId =
   typeof OrganizationGlobalAdministratorGrantId.Type;
 
 export const OrganizationAuthorityInstantSchema = Rfc3339InstantSchema;
+
 export type OrganizationAuthorityInstant = typeof OrganizationAuthorityInstantSchema.Type;
 
 const OrganizationGlobalAdministratorGrantFields = Schema.Struct({
@@ -41,6 +51,7 @@ export const OrganizationGlobalAdministratorGrantSchema =
       ),
     ),
   );
+
 export type OrganizationGlobalAdministratorGrant =
   typeof OrganizationGlobalAdministratorGrantSchema.Type;
 
@@ -57,6 +68,7 @@ export const CreateOrganizationGlobalAdministratorGrantInputSchema = Schema.Stru
     ),
   ),
 );
+
 export type CreateOrganizationGlobalAdministratorGrantInput =
   typeof CreateOrganizationGlobalAdministratorGrantInputSchema.Type;
 
@@ -65,6 +77,7 @@ export const EndOrganizationGlobalAdministratorGrantInputSchema = Schema.Struct(
   endAt: OrganizationAuthorityInstantSchema,
   expectedRevision: Revision,
 });
+
 export type EndOrganizationGlobalAdministratorGrantInput =
   typeof EndOrganizationGlobalAdministratorGrantInputSchema.Type;
 
@@ -72,6 +85,7 @@ export const RemoveOrganizationGlobalAdministratorGrantInputSchema = Schema.Stru
   grantId: OrganizationGlobalAdministratorGrantId,
   expectedRevision: Revision,
 });
+
 export type RemoveOrganizationGlobalAdministratorGrantInput =
   typeof RemoveOrganizationGlobalAdministratorGrantInputSchema.Type;
 
@@ -80,6 +94,7 @@ export const OrganizationGlobalAdministratorStatusSchema = Schema.Literals([
   "Inactive",
   "Absent",
 ]);
+
 export type OrganizationGlobalAdministratorStatus =
   typeof OrganizationGlobalAdministratorStatusSchema.Type;
 
@@ -90,6 +105,7 @@ export const OrganizationAuthorityMembershipSchema = Schema.Struct({
   active: Schema.Boolean,
   teamLeader: Schema.Boolean,
 });
+
 export type OrganizationAuthorityMembership = typeof OrganizationAuthorityMembershipSchema.Type;
 
 export const OrganizationPersonAuthoritySchema = Schema.Struct({
@@ -98,6 +114,7 @@ export const OrganizationPersonAuthoritySchema = Schema.Struct({
   globalAdministrator: OrganizationGlobalAdministratorStatusSchema,
   memberships: Schema.Array(OrganizationAuthorityMembershipSchema),
 });
+
 export type OrganizationPersonAuthority = typeof OrganizationPersonAuthoritySchema.Type;
 
 export const ProfileRoleSchema = Schema.Literals([
@@ -105,6 +122,7 @@ export const ProfileRoleSchema = Schema.Literals([
   "ROLE_TEAM_LEADER",
   "ROLE_TEAM_MEMBER",
 ]);
+
 export type ProfileRole = typeof ProfileRoleSchema.Type;
 
 /** Maps one explicit department scope without selecting a primary membership. */
@@ -113,39 +131,48 @@ export const mapOrganizationAuthorityToAdmissionPeriodActor = (
   departmentId: DepartmentId,
 ): Decision<AdmissionPeriodActor> => {
   if (authority.globalAdministrator === "Active") {
-    return allow<AdmissionPeriodActor>({
-      _tag: "GlobalAdmin",
-      personId: authority.personId,
-      active: true,
-    });
+    return allow<AdmissionPeriodActor>(
+      AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
+        personId: authority.personId,
+        active: true,
+      }),
+    );
   }
+
   if (authority.globalAdministrator === "Inactive") {
     return deny<AdmissionPeriodActor>("AuthorityInactive");
   }
 
   let hasMembership = false;
   let hasActiveMembership = false;
+
   for (const membership of authority.memberships) {
     if (membership.departmentId !== departmentId) continue;
     hasMembership = true;
+
     if (membership.active && membership.teamLeader) {
-      return allow<AdmissionPeriodActor>({
-        _tag: "DepartmentLeader",
+      return allow<AdmissionPeriodActor>(
+        AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+          personId: authority.personId,
+          departmentId,
+          active: true,
+        }),
+      );
+    }
+
+    if (membership.active) hasActiveMembership = true;
+  }
+
+  if (hasActiveMembership) {
+    return allow<AdmissionPeriodActor>(
+      AdmissionPeriodActorSchema.cases.Member.make({
         personId: authority.personId,
         departmentId,
         active: true,
-      });
-    }
-    if (membership.active) hasActiveMembership = true;
+      }),
+    );
   }
-  if (hasActiveMembership) {
-    return allow<AdmissionPeriodActor>({
-      _tag: "Member",
-      personId: authority.personId,
-      departmentId,
-      active: true,
-    });
-  }
+
   return deny<AdmissionPeriodActor>(hasMembership ? "AuthorityInactive" : "NotInScope");
 };
 
@@ -160,8 +187,8 @@ export const mapOrganizationAuthorityToOrganizationActor = (
   authority: OrganizationPersonAuthority,
 ): OrganizationActor =>
   authority.globalAdministrator === "Active"
-    ? { _tag: "OrganizationAdministrator", personId: authority.personId }
-    : { _tag: "OrganizationMember", personId: authority.personId };
+    ? OrganizationAdministratorSchema.make({ personId: authority.personId })
+    : OrganizationMemberSchema.make({ personId: authority.personId });
 
 export const mapOrganizationAuthorityToProfileRole = (
   authority: OrganizationPersonAuthority,
@@ -169,12 +196,15 @@ export const mapOrganizationAuthorityToProfileRole = (
   if (authority.globalAdministrator === "Active") {
     return allow<ProfileRole>("ROLE_ADMIN");
   }
+
   if (authority.memberships.some((membership) => membership.active && membership.teamLeader)) {
     return allow<ProfileRole>("ROLE_TEAM_LEADER");
   }
+
   if (authority.memberships.some((membership) => membership.active)) {
     return allow<ProfileRole>("ROLE_TEAM_MEMBER");
   }
+
   return deny<ProfileRole>(
     authority.globalAdministrator === "Absent" && authority.memberships.length === 0
       ? "NotInScope"

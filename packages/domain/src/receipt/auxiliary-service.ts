@@ -17,7 +17,7 @@ export class ReceiptDeliveryUnavailable extends Schema.TaggedError<ReceiptDelive
   { effectId: Schema.String },
 ) {}
 
-export interface ReceiptAuxiliaryEffectsShape {
+export interface ReceiptAuxiliaryEffectsOperations {
   readonly apply: (
     request: ReceiptAuxiliaryRequest,
     claimId?: string,
@@ -26,7 +26,7 @@ export interface ReceiptAuxiliaryEffectsShape {
 
 export class ReceiptAuxiliaryEffects extends Context.Service<
   ReceiptAuxiliaryEffects,
-  ReceiptAuxiliaryEffectsShape
+  ReceiptAuxiliaryEffectsOperations
 >()("@vektorprogrammet/domain/ReceiptAuxiliaryEffects") {}
 
 export interface ReceiptAuxiliaryRecordingControl {
@@ -36,14 +36,17 @@ export interface ReceiptAuxiliaryRecordingControl {
 
 export const makeReceiptAuxiliaryRecording = (): ReceiptAuxiliaryRecordingControl => {
   const applied = new Map<string, string>();
+
   return {
     layer: Layer.succeed(ReceiptAuxiliaryEffects)({
       apply: (request) => {
         const digest = sha256Hex(canonicalJsonBytes(request));
         const previous = applied.get(request.effectId);
+
         if (previous !== undefined && previous !== digest) {
           return Effect.fail(new ReceiptAuxiliaryEffectConflict({ effectId: request.effectId }));
         }
+
         return Effect.sync(() => void applied.set(request.effectId, digest));
       },
     }),

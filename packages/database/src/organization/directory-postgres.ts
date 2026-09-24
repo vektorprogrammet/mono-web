@@ -21,12 +21,14 @@ const DirectoryMembershipRowSchema = Schema.Struct({
   departmentName: Schema.String,
   active: Schema.Boolean,
 });
+
 type DirectoryMembershipRow = typeof DirectoryMembershipRowSchema.Type;
 
 const DirectoryGrantRowSchema = Schema.Struct({
   personId: PersonId,
   globalAdministrator: OrganizationGlobalAdministratorStatusSchema,
 });
+
 type DirectoryGrantRow = typeof DirectoryGrantRowSchema.Type;
 
 /**
@@ -50,10 +52,13 @@ export const deriveOrganizationDirectoryFacts = (
 > =>
   Effect.gen(function* () {
     if (personIds.length === 0) return new Map();
+
     const evaluatedAt = yield* Schema.decodeUnknownEffect(OrganizationAuthorityInstantSchema)(
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization directory instant", cause)));
+
     const sql = yield* Database;
+
     const membershipRows = yield* sql<DirectoryMembershipRow>`
       SELECT DISTINCT
         membership.person_id AS "personId",
@@ -85,11 +90,13 @@ export const deriveOrganizationDirectoryFacts = (
         ),
       ),
     );
+
     const decodedMemberships = yield* Schema.decodeUnknownEffect(
       Schema.Array(DirectoryMembershipRowSchema),
     )(membershipRows, { onExcessProperty: "error" }).pipe(
       Effect.mapError((cause) => decodeError("decode Organization directory memberships", cause)),
     );
+
     const grantRows = yield* sql<DirectoryGrantRow>`
       SELECT
         g.person_id AS "personId",
@@ -117,10 +124,12 @@ export const deriveOrganizationDirectoryFacts = (
         ),
       ),
     );
+
     const decodedGrants = yield* Schema.decodeUnknownEffect(Schema.Array(DirectoryGrantRowSchema))(
       grantRows,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization directory grants", cause)));
+
     return accumulateOrganizationDirectoryFacts({
       personIds,
       instant: evaluatedAt,

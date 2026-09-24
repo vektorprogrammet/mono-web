@@ -27,16 +27,19 @@ const fieldDescription = (
 export function AdmissionPeriodRow({ period, failure, actionErrorId }: Props) {
   const relevantFailure =
     failure?.admissionPeriodId === period.id && failure.etag === period.etag ? failure : undefined;
+
   const [editing, setEditing] = useState(relevantFailure !== undefined);
   const [commandId, setCommandId] = useState(relevantFailure?.commandId ?? "");
   const fieldId = useId();
   const panelId = `${fieldId}-revision-panel`;
   const titleId = `${fieldId}-revision-title`;
   const navigation = useNavigation();
+
   const revising =
     navigation.state !== "idle" &&
     navigation.formData?.get("_intent") === "revise" &&
     navigation.formData?.get("admissionPeriodId") === period.id;
+
   const draft = relevantFailure?.draft;
 
   return (
@@ -78,6 +81,7 @@ export function AdmissionPeriodRow({ period, failure, actionErrorId }: Props) {
               if (!editing && commandId.length === 0) {
                 setCommandId(crypto.randomUUID());
               }
+
               setEditing((current) => !current);
             }}
           >

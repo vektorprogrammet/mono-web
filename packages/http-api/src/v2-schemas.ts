@@ -40,9 +40,6 @@ import { Multipart } from "effect/unstable/http";
 import { HttpApiSchema } from "effect/unstable/httpapi";
 import { StrongETag } from "./http-semantics.js";
 
-const atLeastOneField = Schema.makeFilter((value: object) => Object.keys(value).length > 0, {
-  message: "at least one changed field",
-});
 const receiptDescriptionPart = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.length > 0 && value !== "null", {
@@ -50,17 +47,20 @@ const receiptDescriptionPart = Schema.String.pipe(
     }),
   ),
 );
+
 const receiptAmountPart = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
       (value) => {
         const amount = Number(value);
+
         return value !== "null" && Number.isSafeInteger(amount) && amount > 0;
       },
       { message: "positive safe integer text" },
     ),
   ),
 );
+
 const receiptDatePart = Schema.String.pipe(
   Schema.check(Schema.makeFilter(isIsoDate, { message: "a valid YYYY-MM-DD date" })),
 );
@@ -74,12 +74,15 @@ export const EmptyJsonRequest = Schema.Struct({}).annotate({
 export const CancelInterviewRequest = EmptyJsonRequest.annotate({
   identifier: "CancelInterviewRequest",
 });
+
 export const WithdrawReceiptRequest = EmptyJsonRequest.annotate({
   identifier: "WithdrawReceiptRequest",
 });
+
 export const ApproveReceiptRequest = EmptyJsonRequest.annotate({
   identifier: "ApproveReceiptRequest",
 });
+
 export const RecordReceiptSettlementRequest = Schema.Struct({
   expectedRevision:
     ReceiptSettlementCommandRequestSchema.cases.RecordReceiptSettlement.fields.expectedRevision,
@@ -91,15 +94,19 @@ export const RecordReceiptSettlementRequest = Schema.Struct({
 }).annotate({
   identifier: "RecordReceiptSettlementRequest",
 });
+
 export const RejectReceiptRequest = EmptyJsonRequest.annotate({
   identifier: "RejectReceiptRequest",
 });
+
 export const ReopenReceiptRequest = EmptyJsonRequest.annotate({
   identifier: "ReopenReceiptRequest",
 });
+
 export const PublishArticleRequest = EmptyJsonRequest.annotate({
   identifier: "PublishArticleRequest",
 });
+
 export const UnpublishArticleRequest = EmptyJsonRequest.annotate({
   identifier: "UnpublishArticleRequest",
 });
@@ -107,19 +114,23 @@ export const UnpublishArticleRequest = EmptyJsonRequest.annotate({
 export const CreateDepartmentRequest = Schema.Struct({
   ...Department.jsonCreate.fields,
 }).annotate({ identifier: "CreateDepartmentRequest" });
+
 export type CreateDepartmentRequest = typeof CreateDepartmentRequest.Type;
 
 export const CreateTeamRequest = Schema.Struct({
   ...Team.jsonCreate.fields,
 }).annotate({ identifier: "CreateTeamRequest" });
+
 export type CreateTeamRequest = typeof CreateTeamRequest.Type;
 
 export const CreateFieldOfStudyRequest = Schema.Struct({
   ...FieldOfStudy.jsonCreate.fields,
 }).annotate({ identifier: "CreateFieldOfStudyRequest" });
+
 export type CreateFieldOfStudyRequest = typeof CreateFieldOfStudyRequest.Type;
 
 const applicationFields = PublicApplicationSubmitInputSchema.fields;
+
 export const SubmitApplicationRequest = Schema.Struct({
   departmentId: applicationFields.departmentId,
   firstName: applicationFields.firstName,
@@ -130,6 +141,7 @@ export const SubmitApplicationRequest = Schema.Struct({
   fieldOfStudyId: applicationFields.fieldOfStudyId,
   yearOfStudy: applicationFields.yearOfStudy,
 }).annotate({ identifier: "SubmitApplicationRequest" });
+
 export type SubmitApplicationRequest = typeof SubmitApplicationRequest.Type;
 
 export const CreateAdmissionPeriodRequest = Schema.Struct({
@@ -138,22 +150,27 @@ export const CreateAdmissionPeriodRequest = Schema.Struct({
   endAt: AdmissionPeriod.jsonCreate.fields.endAt,
   departmentId: AdmissionPeriod.jsonCreate.fields.departmentId,
 }).annotate({ identifier: "CreateAdmissionPeriodRequest" });
+
 export type CreateAdmissionPeriodRequest = typeof CreateAdmissionPeriodRequest.Type;
 
 export const AdmissionPeriodMergePatch = Schema.Struct({
   startAt: Schema.optional(Schema.NullOr(Rfc3339InstantSchema)),
   endAt: Schema.optional(Schema.NullOr(Rfc3339InstantSchema)),
 }).annotate({ identifier: "AdmissionPeriodMergePatch" });
+
 export type AdmissionPeriodMergePatch = typeof AdmissionPeriodMergePatch.Type;
 
 const assignmentFields = RecruitmentAssignmentCommandSchema.fields;
+
 export const CreateApplicationInterviewRequest = Schema.Struct({
   interviewerPersonId: assignmentFields.interviewerPersonId,
   interviewSchemaId: assignmentFields.interviewSchemaId,
 }).annotate({ identifier: "CreateApplicationInterviewRequest" });
+
 export type CreateApplicationInterviewRequest = typeof CreateApplicationInterviewRequest.Type;
 
 const scheduleFields = RecruitmentScheduleCommandSchema.fields;
+
 export const ScheduleInterviewRequest = Schema.Struct({
   scheduledAt: scheduleFields.scheduledAt,
   room: scheduleFields.room,
@@ -161,23 +178,28 @@ export const ScheduleInterviewRequest = Schema.Struct({
   mapLink: scheduleFields.mapLink,
   message: scheduleFields.message,
 }).annotate({ identifier: "ScheduleInterviewRequest" });
+
 export type ScheduleInterviewRequest = typeof ScheduleInterviewRequest.Type;
 
 const finalizeFields = FinalizeInterviewCommandSchema.fields;
+
 export const FinalizeInterviewRequest = Schema.Struct({
   answers: finalizeFields.answers,
   score: finalizeFields.score,
   recommendation: finalizeFields.recommendation,
 }).annotate({ identifier: "FinalizeInterviewRequest" });
+
 export type FinalizeInterviewRequest = typeof FinalizeInterviewRequest.Type;
 
 const correctionFields = CorrectInterviewAssessmentCommandSchema.fields;
+
 export const CorrectInterviewAssessmentRequest = Schema.Struct({
   expectedRevision: correctionFields.expectedRevision,
   answers: correctionFields.answers,
   score: correctionFields.score,
   recommendation: correctionFields.recommendation,
 }).annotate({ identifier: "CorrectInterviewAssessmentRequest" });
+
 export type CorrectInterviewAssessmentRequest = typeof CorrectInterviewAssessmentRequest.Type;
 
 export const SubmitReceiptMultipartV2 = Schema.Struct({
@@ -195,7 +217,14 @@ export const ReviseReceiptMultipartV2 = Schema.Struct({
   receiptDate: Schema.optional(receiptDatePart),
   file: Schema.optional(Multipart.PersistedFileSchema),
 })
-  .pipe(Schema.check(atLeastOneField), HttpApiSchema.asMultipart())
+  .pipe(
+    Schema.check(
+      Schema.makeFilter((value) => Object.keys(value).length > 0, {
+        message: "at least one changed field",
+      }),
+    ),
+    HttpApiSchema.asMultipart(),
+  )
   .annotate({ identifier: "ReviseReceiptMultipartV2" });
 
 export const CreateArticleRequest = Schema.Struct({
@@ -210,6 +239,7 @@ export const CreateArticleRequest = Schema.Struct({
   ),
   sticky: Schema.optional(ArticleDraft.jsonCreate.fields.sticky),
 }).annotate({ identifier: "CreateArticleRequest" });
+
 export type CreateArticleRequest = typeof CreateArticleRequest.Type;
 
 export const ArticleMergePatch = Schema.Struct({
@@ -228,6 +258,7 @@ export const ArticleMergePatch = Schema.Struct({
   ),
   sticky: Schema.optional(Schema.NullOr(ArticleDraft.jsonUpdate.fields.sticky)),
 }).annotate({ identifier: "ArticleMergePatch" });
+
 export type ArticleMergePatch = typeof ArticleMergePatch.Type;
 
 export const ProfileMergePatch = Schema.Struct({
@@ -236,6 +267,7 @@ export const ProfileMergePatch = Schema.Struct({
   email: Schema.optional(Schema.NullOr(OwnProfile.fields.email)),
   phone: Schema.optional(Schema.NullOr(OwnProfile.fields.phone)),
 }).annotate({ identifier: "ProfileMergePatch" });
+
 export type ProfileMergePatch = typeof ProfileMergePatch.Type;
 
 export const OpenAdmissionPeriod = Schema.Struct({
@@ -245,6 +277,7 @@ export const OpenAdmissionPeriod = Schema.Struct({
   startAt: AdmissionPeriod.json.fields.startAt,
   endAt: AdmissionPeriod.json.fields.endAt,
 }).annotate({ identifier: "OpenAdmissionPeriod" });
+
 export type OpenAdmissionPeriod = typeof OpenAdmissionPeriod.Type;
 
 export const OpenAdmissionPeriodListResponse = Schema.Struct({

@@ -15,5 +15,6 @@ export function action({ request, params, context }: Route.ActionArgs) {
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function KontaktDepartment() {
   const { departments, selectedDepartment } = useLoaderData<typeof loader>();
+
   return <ContactTabs department={selectedDepartment} departments={departments} />;
 }

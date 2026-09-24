@@ -18,7 +18,6 @@
     "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "verbatimModuleSyntax": true,
-    "baseUrl": ".",
     "rootDirs": [".", "./.react-router/types"],
     "paths": {
       "~/*": ["./src/*"],

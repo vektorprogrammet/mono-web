@@ -1,3 +1,4 @@
+import { Schema, Predicate } from "effect";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
@@ -13,11 +14,13 @@ async function findAdmissionForm(page: Page): Promise<Locator> {
     name: "BackgroundAdmissionCity",
     exact: true,
   });
+
   await expect(departmentTab).toBeVisible();
   await departmentTab.click();
 
   const form = page.locator(".tab-pane.active form");
   await expect(form).toBeVisible();
+
   return form;
 }
 
@@ -43,6 +46,7 @@ test.describe("Real Symfony background operations", () => {
 
   test("background-automation", async ({ page }) => {
     requireBackgroundMode();
+
     const loginResponse = await page.request.post(`${apiOrigin}/api/login`, {
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       data: {
@@ -50,16 +54,18 @@ test.describe("Real Symfony background operations", () => {
         password: "background-automation-password-0032",
       },
     });
+
     expect(loginResponse.status()).toBe(200);
-    const loginPayload = (await loginResponse.json()) as { token?: unknown };
-    expect(typeof loginPayload.token).toBe("string");
+    const loginPayload = Schema.decodeUnknownSync(Schema.Struct({ token: Schema.String }))((await loginResponse.json()));
+    expect(Predicate.isString(loginPayload.token)).toBe(true);
 
     const privilegedResponse = await page.request.get(`${apiOrigin}/api/admin/interview-schemas`, {
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${loginPayload.token as string}`,
+        Authorization: `Bearer ${loginPayload.token}`,
       },
     });
+
     expect(privilegedResponse.status()).toBe(200);
   });
 });
