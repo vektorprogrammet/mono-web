@@ -107,10 +107,7 @@ export const lockSubstituteApplication = SqlSchema.void({
 
 export const mutateSubstitute = (entry: SubstituteEntry, command: SubstituteCommand) =>
   Database.use((sql) => Effect.gen(function* () {
-    if (command.action === "activate" && entry.active)
-      return yield* Effect.fail(new SubstituteFailure({ code: "substitute.already-active", status: 400 }));
-    if (command.action !== "activate" && !entry.active)
-      return yield* Effect.fail(new SubstituteFailure({ code: "substitute.inactive", status: 400 }));
+
     if (command.action === "deactivate") {
       yield* sql`UPDATE public.admission_substitute_preferences SET active = false, revision = revision + 1 WHERE application_id = ${entry.applicationId}`;
     } else {

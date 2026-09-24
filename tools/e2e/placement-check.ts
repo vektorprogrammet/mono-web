@@ -367,7 +367,9 @@ try {
       if (request.method === "POST" && request.url?.startsWith("/observe/")) {
         try {
           assert.ok(checkpoint, "observer not ready");
-          const result = await checkpoint(request.url.slice("/observe/".length));
+          const step = request.url.slice("/observe/".length);
+          const result = await checkpoint(step);
+          if (step === "offer-failed") dispatchProviderFails = false;
           response.setHeader("content-type", "application/json");
           response.end(JSON.stringify(result));
         } catch (error) {
@@ -507,6 +509,7 @@ try {
         ...environment,
         IDENTITY_SEED_PG_URL: postgresUrl,
         IDENTITY_SEED_PERSONS: JSON.stringify([
+          substitute,
           {
             personId: leaderId,
             firstName: "Lina",
@@ -548,6 +551,13 @@ try {
       INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES
         (962,'Skole Beta','Kontakt','beta@example.invalid','synthetic','Norwegian',true,0);
       INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (962,'${departmentId}',0);
+      INSERT INTO admission_period_fields_of_study(field_of_study_id,department_id,name) VALUES('golden-field','${departmentId}','Matematikk');
+      INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES('golden-period','${departmentId}','${semesterId}','2024-01-01','2024-07-01','seed');
+      INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES('golden-applicant','${substitute.email}','${substitute.email}','Kari','Kandidat','90000111',0,'golden-field',3);
+      INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES('golden-application','golden-applicant','golden-period','${departmentId}','golden-field',3,'2024-02-01');
+      INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('golden-invitation','golden-application','golden-applicant','${"c".repeat(64)}','2027-01-01','Claimed','${leaderId}','2024-02-01');
+      INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('golden-applicant','${substitute.personId}','2024-02-01','golden-invitation');
+      INSERT INTO person_contact_profiles(person_id,email,phone) VALUES('${substitute.personId}','${substitute.email}','90000111');
     `);
     } else {
       run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
@@ -650,10 +660,13 @@ try {
         persons,
         serviceDate: "2024-03-11",
         golden: true,
+        candidateId: substitute.personId,
+        applicationId: "golden-application",
+        substituteServiceDate: "2024-03-18",
         fault,
         observerOrigin: "http://127.0.0.1:" + notificationPort,
       };
-      const observer = createGoldenObserver(pool, manifest, notificationRequests);
+      const observer = createGoldenObserver(pool, manifest, notificationRequests, dispatchNotificationRequests);
       observations = observer.observations;
       checkpoint = observer.observe;
       await checkpoint("initial");

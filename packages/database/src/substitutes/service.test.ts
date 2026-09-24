@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
@@ -24,10 +24,15 @@ beforeAll(() => runtime.runPromise(Database.use((sql) => Effect.gen(function* ()
   yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES(${applicationId},'substitutes-applicant','substitutes-period',${scope.departmentId},'substitutes-field',2,'2026-02-01')`;
 }))));
 
+beforeEach(() => runtime.runPromise(Database.use((sql) => sql.withTransaction(Effect.gen(function* () {
+  yield* sql`DELETE FROM admission_substitute_preferences WHERE application_id=${applicationId}`;
+  yield* sql`UPDATE admission_applications SET year_of_study=2,revision=0 WHERE application_id=${applicationId}`;
+  yield* command({ action: "activate", input });
+})))));
+
 describe("complete substitute commands in the caller transaction", () => {
   it("checks the fresh canonical entry before any mutation and preserves callback failure", async () => {
     const result = await runtime.runPromise(Database.use((sql) => sql.withTransaction(Effect.gen(function* () {
-      yield* command({ action: "activate", input });
       const substitutes = yield* Substitutes;
       const before = yield* substitutes.readEntry(applicationId);
       const failure = yield* Effect.flip(substitutes.execute(applicationId, { action: "edit", input: { ...input, yearOfStudy: 5 } }, (current) => Effect.fail({ code: "precondition.failed", current })));

@@ -2,6 +2,7 @@ import { Effect, Layer, Predicate } from "effect";
 import {
   Substitutes,
   SubstituteFailure,
+  substituteCommandFailure,
   SubstitutePersistenceError,
   type SubstituteCommand,
   type SubstituteEntry,
@@ -52,6 +53,8 @@ export const SubstitutesLive = Layer.effect(Substitutes, Effect.gen(function* ()
     yield* run(lockSubstituteApplication(applicationId));
     const current = yield* run(readSubstituteEntry(applicationId));
     yield* checkPrecondition(current);
+    const rejected = substituteCommandFailure(current, command);
+    if (rejected !== null) return yield* Effect.fail(rejected);
     return yield* run(mutateSubstitute(current, command));
   });
   return Substitutes.of({
