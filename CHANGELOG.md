@@ -1,5 +1,14 @@
 ## Unreleased
 
+### Requested interview rebooking
+
+- Permit a replacement only after the applicant requests a new time, through the existing scheduling contract and dashboard.
+- Preserve schedule and response history with a forward migration. Use the current invitation for operational reads and deny old links.
+- Preserve exact replay, current authority, atomic rollback, and notification claim fences across repeated replacements.
+- Retain drafts through transient failures and stale revisions. Prevent duplicate submissions while a command is pending.
+- Verify populated upgrades, real PostgreSQL overlaps, notification recovery, and staff and applicant browser journeys with synthetic data.
+- Reuse configurable loopback ports in the maintained applicant-response runner. External delivery and deployment remain unverified.
+
 ### Scoped mailing recipients
 
 - Derive assistant recipients from accepted historical service and active placements.

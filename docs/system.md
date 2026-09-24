@@ -167,6 +167,17 @@ Both maintenance workflows require a reason and the observed revision when updat
 State, immutable history, and command receipts commit together. Replays recheck current authority without repeating the change.
 Queued notifications retain their original content and recipients. Staffing changes do not bypass notification integrity or cancellation checks.
 
+After an applicant requests a new interview time, authorized staff can select a replacement through the scheduling board.
+Pending, accepted, rejected, completed, and cancelled interviews do not permit general rescheduling.
+
+A replacement creates a new schedule and invitation. It supersedes the previous invitation and resets the current response to Pending.
+Previous schedules, responses, messages, command receipts, audit records, and notification envelopes remain immutable. Old invitation links cannot access the replacement.
+Current boards, interview conduct, reports, and applicant progress use the current schedule without duplicate rows.
+
+Each replacement rechecks current authority and the observed revision in one transaction. Exact retries return the original outcome without repeating the change.
+Transient failures retain the draft and request identity. Conflicts retain the draft for explicit refresh without overwriting newer state.
+Superseded notification work cannot start another provider attempt. An existing attempt can finish, but its acknowledgement cannot change replacement facts.
+
 ### School administration
 
 Schools owns partner-school identities, contacts, language, active status, and department associations.

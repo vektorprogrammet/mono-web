@@ -115,6 +115,18 @@ Current authority and recipient facts share one snapshot. Infrastructure failure
 The dashboard retains department, semester, and cohort selections and exposes copyable addresses.
 This is a recipient read, not subscription administration, mail delivery, or provider synchronization.
 
+Requested interview rebooking passed local acceptance on 2026-09-24 at product revision `8fe59f3e`.
+Authorized staff can replace a schedule after the applicant requests a new time. Previous schedules and responses remain immutable.
+The populated PostgreSQL upgrade preserved existing records and added migration 63. Exact replay, rollback recovery, and repeated replacement cycles passed.
+
+Forced overlaps covered replacement, cancellation, staffing, applicant responses, and both notification claim paths. Superseded work started no new provider attempt.
+The browser covered draft recovery, keyboard submission, reload, old-link denial, fresh-link acceptance, and 390px layouts without horizontal overflow.
+Automated accessibility checks found no violations; the conflict dialog had one incomplete check. These checks do not establish full accessibility compliance.
+
+Focused regressions, maintained scheduling and response journeys, type checks, changed-file lint, and generated contract checks passed.
+Source-bound evidence is retained outside the repository at `/tmp/vektor-rebooking-acceptance-8fe59f3e/`.
+Notification acceptance used the local recording adapter. It does not establish external mail arrival or provider readiness.
+
 The Economy owner query uses shared schemas with `SqlSchema.findAll`.
 Settlement HTTP calls the complete `Economy.recordReceiptSettlement` operation.
 The service checks authority within the transaction. HTTP retains response receipts and revision preconditions.
@@ -192,12 +204,12 @@ and settlement references are still needed for the receipt migration.
 
 ## Next
 
-School administration, Organization lifecycle, recruitment maintenance, and scoped mailing recipients have local synthetic acceptance.
+School administration, Organization lifecycle, recruitment maintenance, scoped mailing recipients, and requested interview rebooking have local synthetic acceptance.
 The remaining journeys and policy boundaries appear below. No production activity or provider delivery was observed.
 
 | Priority | Work | Acceptance gate | Authority |
 | --- | --- | --- | --- |
-| 1 | Complete remaining operational journeys | Complete requested interview rebooking, expose coordinator identities, and settle the policy boundaries below. | Local implementation for defined contracts. Product decisions for unresolved policy. |
+| 1 | Complete remaining operational journeys | Expose coordinator identities and settle the policy boundaries below. | Local implementation for defined contracts. Product decisions for unresolved policy. |
 | 2 | Extend real-source migration coverage | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and disposition. | Local adapter work. Current production access requires authorization. |
 | 3 | Complete provider runtime ownership | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism. | Local implementation. |
 | 4 | Exercise the deployed development journey | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR previews separately. | Explicit provider and credential authority. |
@@ -211,7 +223,7 @@ The source review distinguishes missing native outcomes from undefined policy. N
 | --- | --- |
 | Mailing administration | Scoped recipient reads have local acceptance. Arbitrary list administration and Workspace synchronization need a separate operational requirement and contract. |
 | Standalone team recruitment | Legacy receives an independent team application, sends a receipt and team notification, and permits scoped review. Native team-interest reads do not replace it. Confirm active cases and the responsible owner. Intake, review, retention, and any handover need an explicit contract. Do not invent hiring states or appointments. |
-| Reminders and rebooking | Legacy defines applicant reminders, staff digests, and separate admission subscribers. Source does not establish production cadence. Native invitation retry is not a reminder. A requested new time is recorded, but scheduling rejects an already scheduled interview. Complete that journey separately. Reminder cadence, SMS, subscriber consent, and human follow-up ownership remain undecided. |
+| Reminders | Legacy defines applicant reminders, staff digests, and separate admission subscribers. Source does not establish production cadence. Native invitation retry and requested rebooking are not reminders. Reminder cadence, SMS, subscriber consent, and human follow-up ownership remain undecided. |
 | Interview no-show | Neither source establishes a distinct nonattendance outcome. `NO_CONTACT` means not yet contacted, not absent. Decide whether observed nonattendance needs its own evidence and rebooking contract or an explicit handover. Do not infer nonattendance from elapsed time. |
 | Service corrections | Ordinary placement edits exist. Frozen commitments and terminal evidence have no reversal or supersession command. Legacy history edit/delete is not a safe substitute. Define correction cases, authority, evidence, and downstream effects before adding reversal. |
 | Coordinator reads | Existing boards cover placement, demand exceptions, overdue service, coverage, and interview reports. Absence cards omit the absent Person. Terminal cards omit attendee identities and the deciding actor despite available API facts. Repair those presentations separately. Historical lookup, exports, and aggregate reports need a named operational consumer, not generic chart parity. |
