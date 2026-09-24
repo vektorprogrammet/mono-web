@@ -18,10 +18,12 @@ it("authenticates the ciphertext, custody key, and owning receipt", () => {
 
 it("uses fresh encryption while retaining key-bound source commitments", () => {
   const cipher = makePaymentAccountCipher({ keyId: "fixture", key: new Uint8Array(32).fill(7) });
+
   const changedKey = makePaymentAccountCipher({
     keyId: "fixture",
     key: new Uint8Array(32).fill(8),
   });
+
   const first = cipher.encrypt("12345678903", "receipt-one");
   const second = cipher.encrypt("12345678903", "receipt-one");
 

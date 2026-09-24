@@ -109,6 +109,7 @@ export const runReviewedReceiptImport = (
             const { row, entry, receiptId, provenance } = resolved;
             const reasons: ReceiptQuarantineReason[] = [];
             let ciphertext: string | null = null;
+
             const account =
               row.sourceUserId === null ? null : (accounts.get(row.sourceUserId) ?? null);
 
@@ -228,9 +229,11 @@ export const runReviewedReceiptImport = (
     if (Predicate.isTagged(cleanup, "Failure")) return yield* cleanup.failure;
 
     const report = imported.success;
+
     const entries = new Map(
       snapshot.review.entries.map((entry) => [entry.sourcePrimaryKey, entry]),
     );
+
     let reconciled = 0;
 
     for (const result of report.acceptedResults) {
