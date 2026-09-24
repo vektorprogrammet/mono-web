@@ -312,9 +312,9 @@ try {
         ('golden-leader','${leaderId}','golden-team',NULL,now()-interval '1 day',NULL,'teamleader',true,false,0),
         ('golden-wrong','${wrongId}','golden-wrong-team',NULL,now()-interval '1 day',NULL,'teamleader',true,false,0);
       INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES
-        ('${leaderId}','lina.leader@example.invalid','synthetic',0),
-        ('${volunteerId}','irene.intervjuer@example.invalid','synthetic',0),
-        ('${wrongId}','ida.intervjuer@example.invalid','synthetic',0);
+        ('${leaderId}','lina.leader@example.invalid','+47 900 00 049',0),
+        ('${volunteerId}','irene.intervjuer@example.invalid','+47 900 00 052',0),
+        ('${wrongId}','ida.intervjuer@example.invalid','+47 900 00 053',0);
       INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES
         (962,'Skole Beta','Kontakt','beta@example.invalid','synthetic','Norwegian',true,0);
       INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (962,'${departmentId}',0);

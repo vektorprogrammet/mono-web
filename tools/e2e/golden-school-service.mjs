@@ -35,8 +35,10 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         volunteerAuthority: await rows(`SELECT person_id FROM organization_memberships WHERE person_id='${volunteerId}' UNION ALL SELECT person_id FROM organization_global_administrator_grants WHERE person_id='${volunteerId}'`),
       };
       await connection.query("COMMIT");
-    } finally {
+    } catch (error) {
       await connection.query("ROLLBACK");
+      throw error;
+    } finally {
       connection.release();
     }
     assert.deepEqual(facts.volunteerAuthority, [], "affiliation must not confer coordinator authority");
