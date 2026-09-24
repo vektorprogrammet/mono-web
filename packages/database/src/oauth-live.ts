@@ -1614,6 +1614,13 @@ const refreshExchange = async (
       return invalidOAuthResponse(400, "invalid_grant");
     }
 
+    const usableSession = await pool.query(
+      'SELECT 1 FROM auth.usable_human_sessions WHERE id=$1 AND "userId"=$2',
+      [current.session_id, current.user_id],
+    );
+
+    if (usableSession.rowCount !== 1) return invalidOAuthResponse(400, "invalid_grant");
+
     const buffered = await boundedProviderResponse(await engine.handler(request));
 
     if (!buffered.response.ok) return buffered.response;
