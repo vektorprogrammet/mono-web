@@ -89,6 +89,7 @@ const uniqueNamedRows = (rows: ReadonlyArray<Schema.Json>) => {
     .filter(Option.isSome)
     .map((row) => row.value)
     .toArray();
+
   const counts = new Map<number, number>();
 
   for (const row of valid) counts.set(row.id, (counts.get(row.id) ?? 0) + 1);
@@ -101,21 +102,25 @@ export const organizationOccurrenceSourceDigest = (
   occurrence: OrganizationSourceOccurrence,
 ): string => {
   const row = rawObject(occurrence.row);
+
   const unit =
     (occurrence.sourceKind === "TeamMembership" ? snapshot.teams : snapshot.boards).find(
       (raw) =>
         String(rawObject(raw).id) ===
         String(occurrence.sourceKind === "TeamMembership" ? row.teamId : row.boardId),
     ) ?? null;
+
   const position =
     occurrence.sourceKind === "TeamMembership" && row.positionId != null
       ? (snapshot.positions.find((raw) => String(rawObject(raw).id) === String(row.positionId)) ??
         null)
       : null;
+
   const personMapping =
     snapshot.mappings.persons.find(
       (mapping) => mapping.sourceUserId === `legacy-user:${String(row.userId)}`,
     ) ?? null;
+
   const departmentMapping =
     snapshot.mappings.departments.find(
       (mapping) =>
@@ -184,7 +189,9 @@ export const classifyReviewedOrganization = (
   const reviews = new Map(
     snapshot.review.memberships.map((row) => [canonicalJson([row.sourceKind, row.sourceId]), row]),
   );
+
   const positions = new Map(uniqueNamedRows(snapshot.positions).map((row) => [row.id, row.name]));
+
   const boards = uniqueNamedRows(snapshot.boards).map((row) => ({
     ...row,
     boardId: reviewedOrganizationTargetId("Board", repo, String(row.id)),
@@ -226,12 +233,14 @@ export const classifyReviewedOrganization = (
   const memberships = new Map<string, Membership>(
     classified.memberships.map((row) => [row.membershipId, row]),
   );
+
   const outcomes: ReviewedOrganizationOccurrence[] = [];
   const appointments: ReviewedOrganizationAppointment[] = [];
 
   for (const item of projected) {
     const { occurrence, review, row } = item;
     const targetId = reviewedOrganizationTargetId(occurrence.sourceKind, repo, occurrence.sourceId);
+
     const reject = (reason: string) =>
       outcomes.push({
         occurrenceId: occurrence.occurrenceId,
@@ -280,6 +289,7 @@ export const classifyReviewedOrganization = (
           (entry) =>
             entry.sourceKind === "membership" && entry.sourcePrimaryKey === occurrence.sourceId,
         )?.reason;
+
         reject(
           reason === "DUPLICATE_MEMBERSHIP"
             ? "DuplicateTarget"
@@ -333,6 +343,7 @@ export const classifyReviewedOrganization = (
 
       boardId = board.boardId;
       positionName = decoded.value.positionName;
+
       const candidate = transitionAppointment(
         undefined,
         OrganizationLifecycleCommand.cases.Appoint.make({
@@ -383,6 +394,7 @@ export const classifyReviewedOrganization = (
   }
 
   const targets = new Map<string, number>();
+
   const semantic = (item: ReviewedOrganizationAppointment) =>
     canonicalJson([
       item.membership.personId,
@@ -397,6 +409,7 @@ export const classifyReviewedOrganization = (
 
   for (const item of appointments)
     targets.set(semantic(item), (targets.get(semantic(item)) ?? 0) + 1);
+
   const duplicates = new Set(
     appointments
       .values()
