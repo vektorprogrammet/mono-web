@@ -115,13 +115,15 @@ const coordinator = (model: Model, h: HtmlBuilder<Message>): Html => {
               : h.ul([h.Class("dated-service__attendees"), h.AriaLabel("Faktisk møtte")], c.decision.attendedPersonIds.map((personId) => {
                   const assignment = c.assignments.find((row) => row.personId === personId);
 
-                  const offer = assignment ? undefined : coverage.offers.find((row) =>
-                    row.candidatePersonId === personId && coverage.acknowledgements.some((acknowledgement) =>
-                      acknowledgement.offerId === row.offerId && acknowledgement.absenceId === row.absenceId &&
-                      acknowledgement.candidatePersonId === personId && coverage.absences.some((absence) =>
-                        absence.absenceId === row.absenceId && absence.commitmentId === c.commitmentId,
-                      ),
+                  const acknowledgement = assignment ? undefined : coverage.acknowledgements.find((row) =>
+                    row.candidatePersonId === personId && coverage.absences.some((absence) =>
+                      absence.absenceId === row.absenceId && absence.commitmentId === c.commitmentId,
                     ),
+                  );
+
+                  const offer = acknowledgement && coverage.offers.find((row) =>
+                    row.offerId === acknowledgement.offerId && row.absenceId === acknowledgement.absenceId &&
+                    row.candidatePersonId === personId,
                   );
 
                   const name = assignment
