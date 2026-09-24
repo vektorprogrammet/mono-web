@@ -295,6 +295,21 @@ State, revisions, command receipts, and attributable history commit together.
 An exact replay cannot duplicate history. A changed command identity payload or stale revision cannot leave a partial change.
 These commands do not administer external mail, Google Workspace, or service principals.
 
+### Mailing recipients
+
+A current department leader reads recipients within that department. A current global administrator reads recipients across departments.
+The dashboard selects a department, semester, and cohort, then shows copyable current contact addresses.
+The three cohorts are assistants, team members, and their union.
+
+Assistant recipients come from accepted historical service and active placements for the selected department and semester.
+Team recipients come from nonsuspended appointments that overlap the semester. An appointment that only touches a semester boundary does not qualify.
+The union removes duplicate people and duplicate contact addresses. Accounts, applications, recommendations, and bare affiliations do not establish assistant eligibility.
+
+An explicit semester must exist in the canonical catalogue. An omitted semester resolves to the unique current semester.
+Missing or ambiguous references fail without changes. A missing contact can be absent, but an infrastructure failure cannot produce an empty success.
+Current authority and recipient facts share one read snapshot. Revoked leadership does not retain access through an existing session.
+These reads do not administer subscriptions, send mail, or synchronize an external provider.
+
 ### School surveys
 
 A current department leader manages school surveys for that department. A global

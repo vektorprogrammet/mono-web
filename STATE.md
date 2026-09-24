@@ -109,7 +109,11 @@ Thirteen grouped checks covered current authority, replay, six overlapping trans
 The browser covered all question kinds, ordering, activation, staffing changes, history, stale drafts, keyboard retry, and pending controls.
 Both 390px views had no horizontal overflow or automated accessibility violations after corrections.
 Notification checks used the existing local recording adapter, not external delivery. These observations do not establish production or provider readiness.
-Mailing lists have derived reads, not complete maintenance or provider synchronization.
+Scoped mailing recipients passed local browser and HTTP/PostgreSQL acceptance on 2026-09-24.
+The read resolves canonical semesters, accepted historical service, active placements, overlapping team appointments, and current Profile contacts.
+Current authority and recipient facts share one snapshot. Infrastructure failures cannot become empty or partial success.
+The dashboard retains department, semester, and cohort selections and exposes copyable addresses.
+This is a recipient read, not subscription administration, mail delivery, or provider synchronization.
 
 The Economy owner query uses shared schemas with `SqlSchema.findAll`.
 Settlement HTTP calls the complete `Economy.recordReceiptSettlement` operation.
@@ -188,16 +192,31 @@ and settlement references are still needed for the receipt migration.
 
 ## Next
 
-School administration, Organization lifecycle, and recruitment maintenance now have local synthetic acceptance.
-Resolve the remaining active operational obligations, then continue real-source reconciliation and provider acceptance under their separate authority boundaries.
+School administration, Organization lifecycle, recruitment maintenance, and scoped mailing recipients have local synthetic acceptance.
+The remaining journeys and policy boundaries appear below. No production activity or provider delivery was observed.
 
-| Priority | Work                                             | Acceptance gate                                                                                                                                                                                                          | Authority                                                            |
-| -------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| 1        | Resolve remaining active operational obligations | Define necessary mailing-list controls, standalone team recruitment, reminders, no-show handling, service corrections, and coordinator reports. Implement each required outcome or obtain an explicit handover decision. | Product decisions where ownership is unresolved                      |
-| 2        | Extend real-source migration coverage            | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and its disposition.                                                                   | Local adapter work; current production access requires authorization |
-| 3        | Complete provider runtime ownership              | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism.                                                                                  | Local implementation                                                 |
-| 4        | Exercise the deployed development journey        | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR preview creation, update, probes, fork exclusion, and cleanup separately.       | Explicit provider and credential authority                           |
-| 5        | Rehearse and authorize cutover                   | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership.                                                                                                  | Separate production authority                                        |
+| Priority | Work | Acceptance gate | Authority |
+| --- | --- | --- | --- |
+| 1 | Complete remaining operational journeys | Complete requested interview rebooking, expose coordinator identities, and settle the policy boundaries below. | Local implementation for defined contracts. Product decisions for unresolved policy. |
+| 2 | Extend real-source migration coverage | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and disposition. | Local adapter work. Current production access requires authorization. |
+| 3 | Complete provider runtime ownership | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism. | Local implementation. |
+| 4 | Exercise the deployed development journey | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR previews separately. | Explicit provider and credential authority. |
+| 5 | Rehearse and authorize cutover | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership. | Separate production authority. |
+
+### Remaining operational obligations
+
+The source review distinguishes missing native outcomes from undefined policy. None of the unresolved obligations is waived.
+
+| Obligation | Source finding and next boundary |
+| --- | --- |
+| Mailing administration | Scoped recipient reads have local acceptance. Arbitrary list administration and Workspace synchronization need a separate operational requirement and contract. |
+| Standalone team recruitment | Legacy receives an independent team application, sends a receipt and team notification, and permits scoped review. Native team-interest reads do not replace it. Confirm active cases and the responsible owner. Intake, review, retention, and any handover need an explicit contract. Do not invent hiring states or appointments. |
+| Reminders and rebooking | Legacy defines applicant reminders, staff digests, and separate admission subscribers. Source does not establish production cadence. Native invitation retry is not a reminder. A requested new time is recorded, but scheduling rejects an already scheduled interview. Complete that journey separately. Reminder cadence, SMS, subscriber consent, and human follow-up ownership remain undecided. |
+| Interview no-show | Neither source establishes a distinct nonattendance outcome. `NO_CONTACT` means not yet contacted, not absent. Decide whether observed nonattendance needs its own evidence and rebooking contract or an explicit handover. Do not infer nonattendance from elapsed time. |
+| Service corrections | Ordinary placement edits exist. Frozen commitments and terminal evidence have no reversal or supersession command. Legacy history edit/delete is not a safe substitute. Define correction cases, authority, evidence, and downstream effects before adding reversal. |
+| Coordinator reads | Existing boards cover placement, demand exceptions, overdue service, coverage, and interview reports. Absence cards omit the absent Person. Terminal cards omit attendee identities and the deciding actor despite available API facts. Repair those presentations separately. Historical lookup, exports, and aggregate reports need a named operational consumer, not generic chart parity. |
+
+Current-source reconciliation must establish active cases, external schedules, and responsible humans. Source routes and historical backup counts cannot establish current workload.
 
 These priorities are not a requirement to serialize independent preparation:
 
@@ -289,6 +308,13 @@ The browser exercised questionnaire and staffing changes at `76a2dbbd` and `01c2
 The maintained assignment runner passed at `8485e6e3`; scheduling and conduct passed at `ed0246cb`.
 Thirty-nine focused tests, eleven affected type/build prerequisites, and generated API checks passed at `ed0246cb`.
 The record is `/tmp/vektor-recruitment-acceptance-79fd4e28/acceptance.json`. It distinguishes notification-adapter recording from external provider proof.
+Scoped mailing-recipient acceptance used committed source `b082e628`.
+The baseline reproduced missing assistant recipients, ignored semester filtering, and boundary-only appointment inclusion.
+Twenty-six mounted HTTP/PostgreSQL checks covered recipients, scope, current-session revocation, reference errors, and infrastructure failure recovery.
+Four maintained Chromium cases, seventeen focused tests, eleven affected type/build tasks, and generated API checks passed.
+The final browser covered a current leader with an ended administrator grant, keyboard submission, retained selection, scope denial, and clipboard copying.
+The 390px mailing surface had no horizontal overflow or automated accessibility violations.
+The record is `/tmp/vektor-mailing-acceptance-b082e628/acceptance.json`, with a checksummed archive of the accepted source.
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.
 

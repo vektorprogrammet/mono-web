@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Scoped mailing recipients
+
+- Derive assistant recipients from accepted historical service and active placements.
+- Resolve canonical semesters and exclude appointments that only touch a semester boundary.
+- Read current authority and recipient facts in one snapshot. Propagate infrastructure failures instead of returning empty or partial success.
+- Add department, semester, and cohort controls, retained selections, and copyable addresses to the dashboard.
+- Use public department choices without borrowing placement permissions. The recipient endpoint enforces current scope.
+
 ### Recruitment maintenance
 
 - Add global questionnaire authoring, ordered questions and alternatives, activation, and immutable history through the Foldkit dashboard.
