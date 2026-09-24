@@ -201,6 +201,7 @@ const rehearse = async () =>
         key,
       });
 
+      stage = "ReadCombinedSource";
       const source = await readLegacySourceSnapshot(sourceUrl, "Include", "Include");
 
       const evidenceFor = (snapshot: LegacySourceSnapshot) => ({
@@ -227,6 +228,7 @@ const rehearse = async () =>
       const referenceDigest = buildLegacyReferences(source).referenceDigest;
       const personSnapshotKey = digest([repository, candidateSnapshotId]);
 
+      stage = "BuildOrganizationReview";
       const organization = Schema.decodeUnknownSync(OrganizationReview)({
         sourceRevision: baseline.baseRevision,
         sourceWatermark: candidateWatermark,
@@ -278,6 +280,7 @@ const rehearse = async () =>
           })),
       });
 
+      stage = "BuildReceiptReview";
       const receiptReview = Schema.decodeUnknownSync(ReceiptReview)({
         sourceRepository: repository,
         sourceRevision: baseline.baseRevision,
@@ -809,6 +812,7 @@ const main = async (): Promise<void> => {
   const archive = join(evidenceDirectory, "tested-source.tar.gz");
   await runLocal(["git", "archive", "--format=tar.gz", `--output=${archive}`, "HEAD"]);
   await chmod(archive, 0o600);
+  stage = "CreateCandidateFixtures";
   const report = await rehearse();
   stage = "CleanTrackedSourceAfterRehearsal";
   await runLocal(["git", "diff", "--quiet", "HEAD", "--"]);
@@ -848,7 +852,16 @@ const main = async (): Promise<void> => {
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url))
-  await main().catch(() => {
-    console.error(`Synthetic combined candidate rehearsal failed at ${stage}; details redacted`);
+  await main().catch((cause) => {
+    const error = cause instanceof AggregateError ? cause.errors[0] : cause;
+    const location =
+      error instanceof Error
+        ? /(?:run-legacy-candidate-rehearsal|legacy-candidate-fixture)\.ts:(\d+):/.exec(
+            error.stack ?? "",
+          )?.[1]
+        : undefined;
+    console.error(
+      `Synthetic combined candidate rehearsal failed at ${stage}${location ? ` (line ${location})` : ""}; details redacted`,
+    );
     process.exitCode = 1;
   });
