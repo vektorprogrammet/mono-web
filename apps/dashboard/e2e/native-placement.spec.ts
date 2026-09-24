@@ -99,7 +99,7 @@ const readCoverageBoard = async (page: Page) => {
 test("0096 placement, 0110 school-service, and 0111 coverage journeys persist with explicit authority", async ({
   browser,
 }) => {
-  test.skip(!manifest, "Requires the isolated native placement driver");
+  test.skip(!manifest || manifest.golden, "Requires the isolated broad placement driver");
   test.setTimeout(180_000);
   const coordinator = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const volunteer = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -934,5 +934,154 @@ test("0096 placement, 0110 school-service, and 0111 coverage journeys persist wi
     );
   } finally {
     await Promise.all(contexts.map((context) => context.close()));
+  }
+});
+
+test("golden school-service continuous functional journey", async ({ browser }) => {
+  test.skip(!manifest?.golden && process.env.GOLDEN_SCHOOL_SERVICE_REQUIRED !== "1", "Requires the golden lifecycle driver");
+  expect(manifest?.golden).toBe(true);
+  test.setTimeout(120_000);
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext(), browser.newContext()]);
+  const [coordinator, volunteer, wrong, freshVolunteer] = contexts;
+  const page = await coordinator.newPage();
+  const self = await volunteer.newPage();
+  const outsider = await wrong.newPage();
+  const steps: string[] = [];
+  const http: { check: string; status: number; boundary: string }[] = [];
+  const network: { method: string; path: string; status: number }[] = [];
+  for (const context of contexts) {
+    context.setDefaultTimeout(10_000);
+    context.on("response", response => {
+      const url = new URL(response.url());
+      if (url.origin === manifest.dashboardOrigin || url.origin === manifest.backendOrigin)
+        network.push({ method: response.request().method(), path: url.pathname, status: response.status() });
+    });
+    await context.tracing.start({ screenshots: false, snapshots: false, sources: false });
+  }
+  const checkpoint = async (step: string) => {
+    const response = await fetch(`${manifest.observerOrigin}/observe/${step}`, { method: "POST" });
+    expect(response.status, await response.text()).toBe(200);
+    steps.push(step);
+  };
+  const submit = async (form: Locator, name: string) => {
+    const response = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/assistenter.data"));
+    await form.getByRole("button", { name, exact: true }).click();
+    expect((await response).status()).toBe(200);
+  };
+  const scope = new URLSearchParams({ departmentId: manifest.departmentId, semesterId: manifest.semesterId });
+  const forbiddenMutation = async (actor: Page, endpoint: string, etag: string, payload: unknown, check: string, expected: number) => {
+    const response = await actor.request.post(`${manifest.backendOrigin}/api/placements${endpoint}?${scope}`, {
+      headers: { origin: manifest.dashboardOrigin, "if-match": etag, "idempotency-key": crypto.randomUUID() }, data: payload,
+    });
+    expect(response.status(), await response.text()).toBe(expected);
+    http.push({ check, status: response.status(), boundary: "authenticated-http" });
+  };
+  let passed = false;
+  try {
+    await signIn(self, manifest.persons.volunteer);
+    await selectScope(self);
+    await expect(self.getByRole("form", { name: "Ny skoleplassering", exact: true })).toHaveCount(0);
+    const requested = self.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/assistenter.data"));
+    await self.getByRole("form", { name: "Min tilknytning", exact: true }).getByRole("button", { name: "Be om tilknytning" }).click();
+    expect((await requested).status()).toBe(200);
+    await self.reload();
+    await expect(self.getByText("Status: Venter på godkjenning", { exact: true })).toBeVisible();
+    await checkpoint("affiliation");
+
+    await signIn(page, manifest.persons.leader);
+    await selectScope(page);
+    await submit(page.getByRole("form", { name: /^Tilknytning \d+: Irene Intervjuer$/ }), "Godkjenn tilknytning");
+    await self.reload();
+    await expect(self.getByText("Status: Aktiv", { exact: true })).toBeVisible();
+    await checkpoint("approval");
+
+    await signIn(outsider, manifest.persons.wrongDepartment);
+    await selectScope(outsider);
+    await expect(outsider.getByRole("form", { name: "Ny skoleplassering", exact: true })).toHaveCount(0);
+    await forbiddenMutation(outsider, "", (await readBoard(page)).etag, { action: "Create", personId: manifest.volunteerId, schoolId: manifest.schoolId, day: "Monday", workdays: 4, block: "2" }, "out-of-scope placement denied", 403);
+    await checkpoint("forbidden");
+
+    const create = page.getByRole("form", { name: "Ny skoleplassering", exact: true });
+    await create.getByRole("combobox", { name: "Frivillig", exact: true }).selectOption(manifest.volunteerId);
+    await fillPlacement(create, "2");
+    await submit(create, "Opprett plassering");
+    await page.reload();
+    await expect(page.getByRole("form", { name: /^Plassering \d+: Irene Intervjuer, Skole Beta, bolk 2,/ }).getByLabel("Antall undervisningsdager")).toHaveValue("4");
+    await checkpoint("placement");
+
+    const demand = page.getByRole("form", { name: "Nytt skolebehov", exact: true });
+    await demand.getByRole("combobox", { name: "Skole", exact: true }).selectOption(String(manifest.schoolId));
+    await demand.getByRole("combobox", { name: "Ukedag", exact: true }).selectOption("Monday");
+    await demand.getByRole("combobox", { name: "Bolk", exact: true }).selectOption("2");
+    await demand.getByLabel("Frivillige som trengs").fill("1");
+    await submit(demand, "Legg til skolebehov");
+    await page.reload();
+    expect((await readBoard(page)).demands).toEqual([expect.objectContaining({ schoolId: manifest.schoolId, day: "Monday", block: "2", requiredVolunteers: 1 })]);
+    await checkpoint("demand");
+
+    await submit(page.getByRole("form", { name: "Lag nytt tjenesteforslag", exact: true }), "Lag forslag fra aktive plasseringer");
+    await page.reload();
+    const proposal = page.locator("[data-proposal-id]");
+    await expect(proposal).toContainText("Irene Intervjuer");
+    await expect(proposal).toContainText("Skole Beta");
+    await checkpoint("proposal");
+    await submit(page.getByRole("form", { name: "Bekreft tjenesteforslag", exact: true }), "Bekreft og send tjenesteplan");
+    await page.reload();
+    await expect(proposal).toContainText("bekreftet");
+    await checkpoint("confirmation");
+
+    const schedule = page.locator('form:has(input[name="action"][value="ScheduleService"])');
+    await schedule.getByLabel("Dato", { exact: true }).fill(manifest.serviceDate);
+    await schedule.getByLabel("Fra (lokal skoletid)", { exact: true }).fill("09:00");
+    await schedule.getByLabel("Til (lokal skoletid)", { exact: true }).fill("11:00");
+    await submit(schedule, "Planlegg denne datoen");
+    await page.reload();
+    const [commitment] = (await readBoard(page)).commitments;
+    expect(commitment).toMatchObject({ serviceDate: manifest.serviceDate, requiredVolunteers: 1, decision: null });
+    await self.reload();
+    await expect(self.getByRole("heading", { name: `Skole Beta, ${manifest.serviceDate} kl. 09:00–11:00, bolk 2`, exact: true })).toBeVisible();
+    await checkpoint("commitment");
+
+    await page.locator(`article[data-commitment-id="${commitment.commitmentId}"]`).getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
+    const decision = page.getByRole("form", { name: `Beslutning for Skole Beta, ${manifest.serviceDate} kl. 09:00–11:00, bolk 2`, exact: true });
+    await decision.getByLabel("Tjenesteutfall", { exact: true }).selectOption("CompleteService");
+    await decision.getByLabel("Kilde for dokumentasjonen", { exact: true }).fill(`Skole Beta kontakt, telefon ${manifest.serviceDate}`);
+    await expect(decision.getByRole("button", { name: "Lagre uforanderlig beslutning" })).toBeDisabled();
+    const staleEtag = (await readCoverageBoard(page)).etag;
+    const terminalCommand = { action: "CompleteService", commitmentId: commitment.commitmentId, attendedPersonIds: [manifest.volunteerId], evidenceSource: `Skole Beta kontakt, telefon ${manifest.serviceDate}` };
+    await forbiddenMutation(page, "/coverage", staleEtag, { ...terminalCommand, attendedPersonIds: [] }, "insufficient attendance cannot complete", 422);
+    await checkpoint("insufficient");
+
+    if (manifest.fault !== "omit-attendance") await decision.getByRole("checkbox", { name: "Irene Intervjuer", exact: true }).check();
+    await expect(decision.getByRole("button", { name: "Lagre uforanderlig beslutning" })).toBeEnabled();
+    await submit(decision, "Lagre uforanderlig beslutning");
+    await page.reload();
+    const completed = page.locator(`article[data-commitment-id="${commitment.commitmentId}"]`);
+    await expect(completed).toContainText("Gjennomført");
+    await expect(completed.getByRole("list", { name: "Faktisk møtte" })).toHaveText("Irene Intervjuer");
+    await checkpoint("completed");
+
+    await forbiddenMutation(page, "/coverage", staleEtag, { ...terminalCommand, action: "CancelService", reason: "must not overwrite accepted outcome" }, "stale terminal decision cannot overwrite", 412);
+    await checkpoint("stale");
+
+    const fresh = await freshVolunteer.newPage();
+    await signIn(fresh, manifest.persons.volunteer);
+    await selectScope(fresh);
+    await fresh.reload();
+    const service = fresh.getByRole("heading", { name: `Skole Beta, ${manifest.serviceDate} kl. 09:00–11:00, bolk 2`, exact: true }).locator("..");
+    await expect(service).toContainText("Gjennomført");
+    await expect(service).toContainText("Behov: 1 frivillige");
+    await expect(fresh.getByRole("form", { name: "Ny skoleplassering", exact: true })).toHaveCount(0);
+    await expect(fresh.getByRole("button", { name: "Registrer beslutning for denne datoen" })).toHaveCount(0);
+    await checkpoint("independent-read");
+    if (manifest.fault !== "absent-browser-evidence") await writeFile(join(manifest.artifacts, "browser-evidence.json"), JSON.stringify({ passed: true, revision: manifest.revision, journey: "golden-school-service", steps, http, network, nativeSessions: ["coordinator", "volunteer", "out-of-scope", "fresh-volunteer"], visualAcceptance: false }, null, 2));
+    passed = true;
+  } finally {
+    await writeFile(join(manifest.artifacts, "browser-network.json"), JSON.stringify({ steps, http, network, passed }, null, 2));
+    for (const [index, context] of contexts.entries()) {
+      if (!passed) await context.tracing.stop({ path: join(manifest.artifacts, `private-trace-${index}.zip`) });
+      else await context.tracing.stop();
+      await context.close();
+    }
   }
 });

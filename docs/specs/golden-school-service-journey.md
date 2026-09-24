@@ -103,7 +103,7 @@ The gate must also fail if browser evidence is absent, even when API checks pass
 
 ## Reuse and ownership
 
-Start from the [placement acceptance parent](../../tools/preview-host/placement-check.ts) and its [browser child](../../apps/dashboard/e2e/run-real-native-placement.mjs).
+Start from the [placement acceptance parent](../../tools/e2e/placement-check.ts) and its [browser child](../../apps/dashboard/e2e/run-real-native-placement.mjs).
 The parent already owns the database and backend. The child owns the dashboard and browser.
 Retain one lifecycle owner for each resource.
 Reuse the existing parity-compatible receipt format where it fits.

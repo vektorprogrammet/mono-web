@@ -19,8 +19,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
-import {type PreviewRuntimeObservation,  stopPreviewScenarioBackend } from "./preview-scenario.js";
+import {type PreviewRuntimeObservation,  stopPreviewScenarioBackend } from "../preview-host/preview-scenario.js";
 import { Predicate, Schema, Record as Rec } from "effect";
+import { createGoldenObserver, goldenSteps } from "./golden-school-service.mjs";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -49,8 +50,8 @@ const runAsync = async (command: string, args: string[], env = process.env, time
 const mode = process.argv[2];
 
 assert.ok(
-  process.argv.length === 3 && (mode === "--browser" || mode === "--api-only"),
-  "Usage: bun run tools/preview-host/placement-check.ts --browser | --api-only",
+  process.argv.length === 3 && ["--browser", "--api-only", "--golden-school-service"].includes(mode ?? ""),
+  "Usage: bun run tools/e2e/placement-check.ts --browser | --api-only | --golden-school-service",
 );
 
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
@@ -58,6 +59,15 @@ const revision = run("git", ["rev-parse", "HEAD"]).trim();
 assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
 
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-placements-0096-"));
+process.stdout.write("artifacts: " + artifacts + "\n");
+const safeEnvironment: NodeJS.ProcessEnv = Object.fromEntries(
+  ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TZ", "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "PLAYWRIGHT_NODE_EXECUTABLE", "PLAYWRIGHT_BROWSERS_PATH"].flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]!]]),
+);
+const fault = process.env.GOLDEN_SCHOOL_SERVICE_FAULT;
+assert.ok(fault === undefined || ["omit-attendance", "absent-browser-evidence"].includes(fault), "unknown test-driver fault");
+const secrets = ["journey-secret-0123456789abcdef", "synthetic-school-service-token", "synthetic-school-service-dispatch-token"];
+const sanitize = (value: string) => secrets.reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), value)
+  .replace(/(authorization|cookie|set-cookie)([\s"':=]+)[^\r\n,}]+/gi, "$1$2[REDACTED]");
 
 const children: ReturnType<typeof spawn>[] = [];
 
@@ -112,6 +122,30 @@ let evidence: Schema.JsonObject | undefined;
 let notificationServer: HttpServer | undefined;
 
 let dispatchProviderFails = true;
+let checkpoint: ((step: string) => Promise<unknown>) | undefined;
+let observations: unknown[] = [];
+let failure: unknown;
+let cleanupPromise: Promise<void> | undefined;
+const cleanup = () => cleanupPromise ??= (async () => {
+  for (const child of [...children].reverse()) await stopPreviewScenarioBackend(child);
+  if (pool) await pool.end();
+  if (notificationServer) {
+    notificationServer.closeAllConnections();
+    await new Promise<void>((resolve, reject) => notificationServer!.close(error => error ? reject(error) : resolve()));
+  }
+  await rm(join(artifacts, "postgres"), { recursive: true, force: true });
+  await rm(join(artifacts, "manifest.json"), { force: true });
+  const result = { ...(evidence ?? {}), passed: evidence?.passed === true && failure === undefined, revision, cleanSource: true, mode, fault: fault ?? null, failure: failure === undefined ? null : sanitize(String(failure)), observations,
+    cleanup: { processesExited: children.every(child => child.exitCode !== null || child.signalCode !== null), postgresRemoved: true, credentialManifestRemoved: true, receiverClosed: true },
+  };
+  await writeFile(join(artifacts, "evidence.json"), JSON.stringify(result, null, 2), { mode: 0o600 });
+  if (failure !== undefined) await writeFile(join(artifacts, "failure.log"), sanitize(outputs.join("").slice(-24000)), { mode: 0o600 });
+  process.stdout.write(artifacts + "/evidence.json\n");
+})();
+for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, () => {
+  failure = "Interrupted by " + signal;
+  void cleanup().then(() => process.exit(signal === "SIGINT" ? 130 : 143), () => process.exit(1));
+});
 
 type NotificationCapture<Payload> = {
   authorization?: string;
@@ -124,12 +158,25 @@ const notificationRequests: Array<NotificationCapture<typeof SchoolServiceNotifi
 const dispatchNotificationRequests: Array<NotificationCapture<typeof SchoolServiceDispatchNotificationRequest.Type>> = [];
 
 try {
+  journey: {
   const pgPort = await port();
   const backendPort = await port();
   const dashboardPort = await port();
   const notificationPort = await port();
 
   const server = createHttpServer(async (request, response) => {
+    if (request.method === "POST" && request.url?.startsWith("/observe/")) {
+      try {
+        assert.ok(checkpoint, "observer not ready");
+        const result = await checkpoint(request.url.slice("/observe/".length));
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify(result));
+      } catch (error) {
+        response.statusCode = 500;
+        response.end(sanitize(String(error)));
+      }
+      return;
+    }
     const chunks: Buffer[] = [];
 
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -193,7 +240,7 @@ try {
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
   const environment = {
-    ...process.env,
+    ...safeEnvironment,
     BACKEND_HOST: "127.0.0.1",
     BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
@@ -219,6 +266,8 @@ try {
     SCHOOL_SERVICE_DISPATCH_NOTIFICATION_TIMEOUT_MS: "2000",
   };
 
+  secrets.push(environment.BETTER_AUTH_SECRET);
+
   for (const key of Object.keys(environment))
     if (
       key.startsWith("CONTACT_") ||
@@ -234,12 +283,6 @@ try {
     password: "journey-secret-0123456789abcdef",
   };
 
-  run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
-  run("bun", ["run", "--cwd", "packages/database", "identity:seed"], {
-    ...environment,
-    IDENTITY_SEED_PG_URL: postgresUrl,
-    IDENTITY_SEED_PERSONS: JSON.stringify([substitute]),
-  });
   const departmentId = "department-native-journey-0049";
   const semesterId = "semester-historical-0096";
   const secondSemesterId = "semester-native-journey-0049";
@@ -247,6 +290,42 @@ try {
   const leaderId = "journey-rec-leader-0049";
   const volunteerId = "journey-rec-interviewer-a-0049";
   const wrongId = "journey-rec-interviewer-b-0049";
+
+  if (mode === "--golden-school-service") {
+    run("bun", ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
+      ...environment, IDENTITY_SEED_PG_URL: postgresUrl,
+      IDENTITY_SEED_PERSONS: JSON.stringify([
+        { personId: leaderId, firstName: "Lina", lastName: "Lagleder", email: "lina.leader@example.invalid", password: "journey-secret-0123456789abcdef" },
+        { personId: volunteerId, firstName: "Irene", lastName: "Intervjuer", email: "irene.intervjuer@example.invalid", password: "journey-secret-0123456789abcdef" },
+        { personId: wrongId, firstName: "Ida", lastName: "Intervjuer", email: "ida.intervjuer@example.invalid", password: "journey-secret-0123456789abcdef" },
+      ]),
+    });
+    await pool.query(`
+      INSERT INTO admission_period_departments(department_id,name) VALUES ('${departmentId}','Trondheim'),('${wrongDepartmentId}','Annen');
+      INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('${semesterId}','2024-01-01','2024-07-01');
+      INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES
+        ('${departmentId}','Vektorprogrammet Trondheim','Trondheim','trondheim@example.invalid','Trondheim',true,0),
+        ('${wrongDepartmentId}','Annen avdeling','Annen','wrong@example.invalid','Annen',true,0);
+      INSERT INTO organization_teams(team_id,department_id,name,active,revision) VALUES
+        ('golden-team','${departmentId}','Koordinator',true,0),('golden-wrong-team','${wrongDepartmentId}','Annet team',true,0);
+      INSERT INTO organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES
+        ('golden-leader','${leaderId}','golden-team',NULL,now()-interval '1 day',NULL,'teamleader',true,false,0),
+        ('golden-wrong','${wrongId}','golden-wrong-team',NULL,now()-interval '1 day',NULL,'teamleader',true,false,0);
+      INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES
+        ('${leaderId}','lina.leader@example.invalid','synthetic',0),
+        ('${volunteerId}','irene.intervjuer@example.invalid','synthetic',0),
+        ('${wrongId}','ida.intervjuer@example.invalid','synthetic',0);
+      INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES
+        (962,'Skole Beta','Kontakt','beta@example.invalid','synthetic','Norwegian',true,0);
+      INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (962,'${departmentId}',0);
+    `);
+  } else {
+  run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
+  run("bun", ["run", "--cwd", "packages/database", "identity:seed"], {
+    ...environment,
+    IDENTITY_SEED_PG_URL: postgresUrl,
+    IDENTITY_SEED_PERSONS: JSON.stringify([substitute]),
+  });
   await pool.query(`
     INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('${semesterId}','2024-01-01','2024-07-01');
     INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id) VALUES
@@ -275,6 +354,7 @@ try {
       (964,'Skole Inaktiv','Kontakt','inactive@example.invalid','synthetic','Norwegian',false,0);
     INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (961,'${departmentId}',0),(962,'${departmentId}',0),(963,'${wrongDepartmentId}',0),(964,'${departmentId}',0);
   `);
+  }
 
   const credentialSnapshot = async () =>
     createHash("sha256")
@@ -291,7 +371,7 @@ try {
 
   const credentialsBefore = await credentialSnapshot();
   const peopleBefore = (await pool.query("SELECT * FROM person_profiles ORDER BY person_id")).rows;
-  start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
+  start("bun", ["--no-env-file", "apps/backend/src/main.ts"], environment);
 
   for (let n = 0; ; n++) {
     try {
@@ -314,6 +394,33 @@ try {
     },
     candidate: { email: substitute.email, password: substitute.password },
   };
+
+  if (mode === "--golden-school-service") {
+    const manifest = { revision, backendOrigin, dashboardOrigin, artifacts, departmentId, semesterId,
+      volunteerId, leaderId, schoolId: 962, persons, serviceDate: "2024-03-11",
+      golden: true, fault, observerOrigin: "http://127.0.0.1:" + notificationPort };
+    const observer = createGoldenObserver(pool, manifest, notificationRequests);
+    observations = observer.observations;
+    checkpoint = observer.observe;
+    await checkpoint("initial");
+    const manifestPath = join(artifacts, "manifest.json");
+    await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+    const child = start("bun", ["--no-env-file", "apps/dashboard/e2e/run-real-native-placement.mjs"], { ...safeEnvironment, PLACEMENT_JOURNEY_MANIFEST: manifestPath });
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { child.kill("SIGTERM"); reject(Error("browser acceptance timed out")); }, 300_000);
+      child.once("error", reject);
+      child.once("exit", code => { clearTimeout(timer); code === 0 ? resolve() : reject(Error("browser child exited " + code)); });
+    });
+    const browserEvidence = JSON.parse(await readFile(join(artifacts, "browser-evidence.json"), "utf8"));
+    assert.equal(browserEvidence.passed, true, "required browser evidence absent or failed");
+    assert.equal(browserEvidence.revision, revision);
+    assert.deepEqual(browserEvidence.steps, goldenSteps.slice(1));
+    const facts = await observer.finish();
+    assert.equal(run("git", ["rev-parse", "HEAD"]).trim(), revision);
+    assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "source changed during acceptance");
+    evidence = { passed: true, browser: browserEvidence, ...facts };
+    break journey;
+  }
 
   const login = async (person: { email: string; password: string }) => {
     const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
@@ -2428,34 +2535,11 @@ try {
       "canonical Person and account credentials unchanged",
     ],
   };
-} catch (error) {
-  process.stderr.write(outputs.join("").slice(-12000));
-  throw error;
-} finally {
-  if (pool) await pool.end();
-  const ownedNotificationServer = notificationServer;
-
-  if (ownedNotificationServer)
-    await new Promise<void>((resolve, reject) =>
-      ownedNotificationServer.close((error) => (error ? reject(error) : resolve())),
-    );
-
-  for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
-  await rm(join(artifacts, "postgres"), { recursive: true, force: true });
-  await rm(join(artifacts, "manifest.json"), { force: true });
-
-  if (evidence) {
-    await writeFile(
-      join(artifacts, "evidence.json"),
-      JSON.stringify(
-        {
-          ...evidence,
-          cleanup: "owned processes exited; disposable PostgreSQL and credential manifest removed",
-        },
-        null,
-        2,
-      ),
-    );
-    process.stdout.write(`${artifacts}/evidence.json\n`);
   }
+} catch (error) {
+  failure = error;
+  process.stderr.write(sanitize(String(error)) + "\n");
+  process.exitCode = 1;
+} finally {
+  await cleanup();
 }
