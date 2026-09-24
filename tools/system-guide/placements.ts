@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { runDocumentationCommand } from "./placements-process.mjs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -35,24 +35,10 @@ const entryPoints = Object.entries(manifest.exports).map(([name, source]) => {
 });
 
 let interrupted = false;
-let child: ChildProcess | undefined;
-const run = async (script: string) => {
-  assert(!interrupted, "Documentation command interrupted");
-  const running = spawn(process.execPath, ["--no-env-file", "run", "--cwd", packageRoot, script], {
-    cwd: root, stdio: "inherit", detached: true,
-  });
-  child = running;
-  try {
-    const { promise, resolve: complete, reject } = Promise.withResolvers<number | string | null>();
-    running.once("error", reject);
-    running.once("exit", (code, signal) => complete(signal ?? code));
-    const code = await promise;
-    assert.equal(code, 0, script + " failed");
-    assert(!interrupted, "Documentation command interrupted");
-  } finally {
-    child = undefined;
-  }
-};
+const controller = new AbortController();
+const run = (script: string) => runDocumentationCommand(
+  process.execPath, ["--no-env-file", "run", "--cwd", packageRoot, script], root, controller.signal,
+);
 
 const render = async (directory: string) => {
   const app = await Application.bootstrap({
@@ -112,11 +98,7 @@ const render = async (directory: string) => {
 // TypeDoc has no cancellation API. Finish its current operation before cleanup.
 const interrupt = () => {
   interrupted = true;
-  if (child?.pid) {
-    try { process.kill(-child.pid, "SIGTERM"); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
-  }
+  controller.abort(new Error("Documentation command interrupted"));
 };
 process.on("SIGINT", interrupt);
 process.on("SIGTERM", interrupt);

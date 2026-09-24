@@ -6,6 +6,58 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { acceptArtifact, git, inventory, outsideOutput, publicFile, receiptName } from "./placements-artifact.mjs";
+import { runDocumentationCommand } from "./placements-process.mjs";
+import { setTimeout } from "node:timers/promises";
+
+async function waitForPid(path) {
+  const deadline = Date.now() + 3000;
+  do {
+    try { return Number(await readFile(path, "utf8")); } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    await setTimeout(20);
+  } while (Date.now() < deadline);
+  throw new Error("Documentation process fixture did not start");
+}
+
+test("interruption stops a subprocess that ignores TERM", async () => {
+  const temporary = await mkdtemp(resolve(tmpdir(), "placements-process-test-"));
+  const controller = new AbortController();
+  const pidFile = resolve(temporary, "pid");
+  const reason = new Error("requested interruption");
+  const program = `process.on("SIGTERM", () => {}); require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
+  let pid;
+  const running = runDocumentationCommand("node", ["-e", program], temporary, controller.signal);
+  const result = running.then(() => undefined, (error) => error);
+  try {
+    pid = await waitForPid(pidFile);
+    controller.abort(reason);
+    assert.equal(await result, reason);
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  } finally {
+    controller.abort(reason);
+    await result;
+    if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    await rm(temporary, { recursive: true, force: true });
+  }
+}, 8000);
+
+test("leader failure preserves its exit code and stops TERM-ignoring descendants", async () => {
+  const temporary = await mkdtemp(resolve(tmpdir(), "placements-process-test-"));
+  const pidFile = resolve(temporary, "pid");
+  const descendant = `process.on("SIGTERM", () => {}); require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
+  const leader = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], {stdio: "ignore"}).unref(); const timer = setInterval(() => { if(require("node:fs").existsSync(${JSON.stringify(pidFile)})) process.exit(7); }, 10);`;
+  let pid;
+  try {
+    const result = await runDocumentationCommand("node", ["-e", leader], temporary, new AbortController().signal).then(() => undefined, (error) => error);
+    assert.equal(result.actual, 7);
+    pid = await waitForPid(pidFile);
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  } finally {
+    if (pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    await rm(temporary, { recursive: true, force: true });
+  }
+}, 8000);
 
 async function fixture(run) {
   const temporary = await mkdtemp(resolve(tmpdir(), "placements-artifact-test-"));

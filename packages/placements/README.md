@@ -285,7 +285,10 @@ The [HTTP generator](../http-api/scripts/generate-openapi.ts) remains the owner 
 The examples release their embedded database on normal completion, failure, and requested interruption.
 The freshness command removes its own temporary render directory in a `finally` block.
 On SIGINT or SIGTERM, the documentation command finishes its current TypeDoc operation, fails, and removes its temporary output.
-SIGKILL cannot run this cleanup.
+The CI command stops each compiler or example process group, even after its leader exits.
+It allows one second after SIGTERM, then uses SIGKILL and checks removal for one more second.
+A cleanup failure cannot produce successful documentation or replace the original subprocess failure.
+SIGKILL of the documentation command itself cannot run this cleanup.
 After successful generation, the output directory belongs to the caller. The tools never replace a pre-existing directory.
 After review, remove only the generated directory that the command created for you.
 
