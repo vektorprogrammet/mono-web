@@ -52,6 +52,11 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         person_id: volunteerId, department_id: departmentId,
         status: index >= 2 ? "Active" : "Pending", revision: index >= 2 ? 2 : 1,
       });
+      for (const entry of facts.affiliationHistory) {
+        assert.equal(entry.person_id, volunteerId);
+        assert.equal(entry.department_id, departmentId);
+        assert.ok(entry.occurred_at);
+      }
       assert.deepEqual(facts.affiliationHistory.map(({ action, actor_person_id }) => [action, actor_person_id]),
         index >= 2 ? [["Request", volunteerId], ["Establish", leaderId]] : [["Request", volunteerId]]);
       assert.equal(facts.placements.length, index >= 4 ? 1 : 0);
@@ -60,6 +65,7 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         assert.deepEqual([placement.person_id, placement.department_id, placement.semester_id, Number(placement.school_id), placement.day, placement.block, placement.workdays, placement.active],
           [volunteerId, departmentId, semesterId, schoolId, "Monday", "2", 4, true]);
         assert.deepEqual(facts.placementHistory.map(({ action, actor_person_id, placement_id }) => [action, actor_person_id, placement_id]), [["Create", leaderId, placement.placement_id]]);
+        assert.deepEqual({ ...facts.placementHistory[0].snapshot, school_id: String(facts.placementHistory[0].snapshot.school_id) }, placement);
       }
       assert.equal(facts.demands.length, index >= 5 ? 1 : 0);
       if (index >= 5) {
@@ -82,6 +88,11 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
           assert.ok(proposal.confirmed_at);
           assert.equal(facts.notifications[0].proposal_id, proposal.proposal_id);
           assert.equal(facts.notifications[0].person_id, volunteerId);
+          assert.deepEqual(facts.notifications[0].payload_json, {
+            _tag: "NotifySchoolServiceRosterConfirmed", effectId: facts.notifications[0].effect_id,
+            proposalId: proposal.proposal_id, personId: volunteerId, departmentId, semesterId,
+            assignments: proposal.assignment_snapshot, confirmedAt: proposal.confirmed_at.toISOString(),
+          });
         }
       }
       assert.equal(facts.commitments.length, index >= 8 ? 1 : 0);
@@ -104,6 +115,17 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
       assert.deepEqual(facts.serviceHistory.map(({ action, actor_person_id }) => [action, actor_person_id]),
         ["SetDemand", "GenerateProposal", "ConfirmProposal", "ScheduleService"].slice(0, Math.max(0, Math.min(4, index - 4))).map(action => [action, leaderId]));
       assert.deepEqual(facts.outcomeHistory.map(({ action, actor_person_id }) => [action, actor_person_id]), index >= 10 ? [["CompleteService", leaderId]] : []);
+      for (const entry of [...facts.serviceHistory, ...facts.outcomeHistory]) {
+        assert.equal(entry.department_id, departmentId);
+        assert.equal(entry.semester_id, semesterId);
+        assert.ok(entry.occurred_at);
+      }
+      const snapshots = facts.serviceHistory.map(entry => entry.snapshot);
+      if (index >= 5) assert.deepEqual(snapshots[0], { action: "SetDemand", schoolId, day: "Monday", block: "2", requiredVolunteers: 1, revision: facts.demands[0].revision });
+      if (index >= 6) assert.deepEqual(snapshots[1], { proposalId: facts.proposals[0].proposal_id, exceptionIds: [] });
+      if (index >= 7) assert.deepEqual(snapshots[2], { action: "ConfirmProposal", proposalId: facts.proposals[0].proposal_id, reviewedExceptionIds: [] });
+      if (index >= 8) assert.deepEqual(snapshots[3], { action: "ScheduleService", proposalId: facts.proposals[0].proposal_id, schoolId, day: "Monday", block: "2", serviceDate, startTime: "09:00", endTime: "11:00", commitmentId: facts.commitments[0].commitment_id, requiredVolunteers: 1, assignments: facts.proposals[0].assignment_snapshot });
+      if (index >= 10) assert.deepEqual(facts.outcomeHistory[0].snapshot, { action: "CompleteService", commitmentId: facts.commitments[0].commitment_id, attendedPersonIds: [volunteerId], evidenceSource: facts.decisions[0].evidence_source, occurrenceId: facts.decisions[0].occurrence_id, outcome: "Completed" });
       if (["forbidden", "insufficient", "stale", "independent-read"].includes(step)) {
         assert.deepEqual(facts, previous, `${step} must preserve business facts, successful command receipts and notification work`);
       } else {
@@ -111,10 +133,32 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
         assert.equal(added.length, 1, `${step} must commit one successful command receipt with its decision`);
         assert.equal(added[0].state, "Complete");
         const body = JSON.parse(added[0].body);
-        assert.ok(body && typeof body === "object");
-        if (step === "completed") {
-          assert.ok(added[0].body.includes(facts.commitments[0].commitment_id));
-          assert.ok(added[0].body.includes('"Completed"'));
+        assert.equal(added[0].operation_id, step === "affiliation" ? "placements.commandOwnAffiliation" : step === "completed" ? "placements.commandCoverageBoard" : "placements.commandBoard");
+        assert.equal(body.departmentId, departmentId);
+        assert.match(body.etag, /^".+"$/);
+        if (step === "affiliation") {
+          assert.deepEqual([body.personId, body.status, body.revision], [volunteerId, "Pending", 1]);
+        } else {
+          assert.equal(body.semesterId, semesterId);
+          if (step !== "completed") {
+            assert.deepEqual(body.affiliations.map(({ personId, status, revision }) => [personId, status, revision]), [[volunteerId, "Active", 2]]);
+            assert.deepEqual(body.placements.map(({ placementId, personId, schoolId, day, block, workdays, active }) => [placementId, personId, schoolId, day, block, workdays, active]), facts.placements.map(p => [p.placement_id, p.person_id, Number(p.school_id), p.day, p.block, p.workdays, p.active]));
+            assert.deepEqual(body.demands.map(({ schoolId, day, block, requiredVolunteers }) => [schoolId, day, block, requiredVolunteers]), facts.demands.map(d => [Number(d.school_id), d.day, d.block, d.required_volunteers]));
+            if (facts.proposals.length) {
+              assert.equal(body.proposal.proposalId, facts.proposals[0].proposal_id);
+              assert.equal(body.proposal.status, facts.proposals[0].status);
+              assert.deepEqual(body.proposal.assignments, facts.proposals[0].assignment_snapshot);
+              assert.deepEqual(body.proposal.demands, facts.proposals[0].demand_snapshot);
+            } else assert.equal(body.proposal, null);
+          }
+          assert.equal(body.commitments.length, facts.commitments.length);
+          if (facts.commitments.length) {
+            const returned = body.commitments[0];
+            assert.deepEqual([returned.commitmentId, returned.proposalId, returned.schoolId, returned.serviceDate, returned.startTime, returned.endTime, returned.requiredVolunteers], [facts.commitments[0].commitment_id, facts.proposals[0].proposal_id, schoolId, serviceDate, "09:00", "11:00", 1]);
+            assert.deepEqual(returned.assignments, facts.proposals[0].assignment_snapshot);
+            if (step === "completed") assert.deepEqual([returned.decision.outcome, returned.decision.attendedPersonIds, returned.decision.evidenceSource, returned.decision.decidedBy, returned.decision.occurrenceId], ["Completed", [volunteerId], facts.decisions[0].evidence_source, leaderId, facts.decisions[0].occurrence_id]);
+            else assert.equal(returned.decision, null);
+          }
         }
       }
     }
@@ -139,7 +183,8 @@ export const createGoldenObserver = (pool, fixture, deliveries) => {
       await new Promise(resolve => setTimeout(resolve, 50));
     } while (Date.now() < deadline);
     assert.equal(notification?.status, "Delivered");
-    const captures = deliveries.filter(item => item.idempotencyKey === notification.effect_id);
+    const captures = deliveries;
+    assert.ok(captures.every(item => item.idempotencyKey === notification.effect_id && item.body.effectId === notification.effect_id), "no unintended logical provider effect is permitted");
     assert.ok(captures.length >= 1, "loopback receiver must observe delivery of committed logical effect");
     for (const capture of captures) {
       assert.equal(capture.authorization, "Bearer synthetic-school-service-token");

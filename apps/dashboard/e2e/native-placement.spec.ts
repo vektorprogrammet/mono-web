@@ -941,8 +941,8 @@ test("golden school-service continuous functional journey", async ({ browser }) 
   test.skip(!manifest?.golden && process.env.GOLDEN_SCHOOL_SERVICE_REQUIRED !== "1", "Requires the golden lifecycle driver");
   expect(manifest?.golden).toBe(true);
   test.setTimeout(120_000);
-  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext(), browser.newContext()]);
-  const [coordinator, volunteer, wrong, freshVolunteer] = contexts;
+  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext(), browser.newContext(), browser.newContext()]);
+  const [coordinator, volunteer, wrong, freshVolunteer, staleCoordinator] = contexts;
   const page = await coordinator.newPage();
   const self = await volunteer.newPage();
   const outsider = await wrong.newPage();
@@ -964,7 +964,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     steps.push(step);
   };
   const submit = async (form: Locator, name: string) => {
-    const response = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/assistenter.data"));
+    const response = page.waitForResponse(response => response.request().method() === "POST" && /\/assistenter(?:\.data)?$/.test(new URL(response.url()).pathname));
     await form.getByRole("button", { name, exact: true }).click();
     expect((await response).status()).toBe(200);
   };
@@ -987,6 +987,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await self.reload();
     await expect(self.getByText("Status: Venter på godkjenning", { exact: true })).toBeVisible();
     await checkpoint("affiliation");
+    await writeFile(join(manifest.artifacts, "browser-active.json"), JSON.stringify({ stage: "affiliation", browser: browser.version() }));
 
     await signIn(page, manifest.persons.leader);
     await selectScope(page);
@@ -1042,7 +1043,16 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await expect(self.getByRole("heading", { name: `Skole Beta, ${manifest.serviceDate} kl. 09:00–11:00, bolk 2`, exact: true })).toBeVisible();
     await checkpoint("commitment");
 
-    await page.locator(`article[data-commitment-id="${commitment.commitmentId}"]`).getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
+    const stalePage = await staleCoordinator.newPage();
+    await signIn(stalePage, manifest.persons.leader);
+    await selectScope(stalePage);
+    await stalePage.locator('article[data-commitment-id="' + commitment.commitmentId + '"]').getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
+    const staleDecision = stalePage.getByRole("form", { name: /^Beslutning for Skole Beta,/ });
+    await staleDecision.getByLabel("Tjenesteutfall", { exact: true }).selectOption("CancelService");
+    await staleDecision.getByLabel("Kilde for dokumentasjonen", { exact: true }).fill("Stale coordinator review");
+    await staleDecision.getByLabel("Begrunnelse", { exact: true }).fill("must not overwrite accepted outcome");
+
+    await page.locator('article[data-commitment-id="' + commitment.commitmentId + '"]').getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
     const decision = page.getByRole("form", { name: `Beslutning for Skole Beta, ${manifest.serviceDate} kl. 09:00–11:00, bolk 2`, exact: true });
     await decision.getByLabel("Tjenesteutfall", { exact: true }).selectOption("CompleteService");
     await decision.getByLabel("Kilde for dokumentasjonen", { exact: true }).fill(`Skole Beta kontakt, telefon ${manifest.serviceDate}`);
@@ -1061,7 +1071,11 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await expect(completed.getByRole("list", { name: "Faktisk møtte" })).toHaveText("Irene Intervjuer");
     await checkpoint("completed");
 
-    await forbiddenMutation(page, "/coverage", staleEtag, { ...terminalCommand, action: "CancelService", reason: "must not overwrite accepted outcome" }, "stale terminal decision cannot overwrite", 412);
+    await forbiddenMutation(page, "/coverage", staleEtag, { action: "CancelService", commitmentId: commitment.commitmentId, evidenceSource: terminalCommand.evidenceSource, reason: "must not overwrite accepted outcome" }, "stale terminal decision cannot overwrite", 412);
+    const rejected = stalePage.waitForResponse(response => response.request().method() === "POST" && /\/assistenter(?:\.data)?$/.test(new URL(response.url()).pathname));
+    await staleDecision.getByRole("button", { name: "Lagre uforanderlig beslutning" }).click();
+    expect((await rejected).status()).toBe(412);
+    await expect(stalePage.getByRole("alert")).toContainText("Oversikten er endret");
     await checkpoint("stale");
 
     const fresh = await freshVolunteer.newPage();

@@ -10,15 +10,15 @@ import {
 import { IdempotencyIfMatchHeaders } from "../../packages/http-api/src/http-semantics.js";
 /** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
 import assert from "node:assert/strict";
-import { execFile, execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { promisify } from "node:util";
+
 import {type PreviewRuntimeObservation,  stopPreviewScenarioBackend } from "../preview-host/preview-scenario.js";
 import { Predicate, Schema, Record as Rec } from "effect";
 import { createGoldenObserver, goldenSteps } from "./golden-school-service.mjs";
@@ -34,18 +34,19 @@ const { Pool } = requireDatabase("pg");
 const run = (command: string, args: string[], env = process.env, timeout = 60_000) =>
   execFileSync(command, args, { cwd: root, env, encoding: "utf8", timeout });
 
-const execFileAsync = promisify(execFile);
-
-const runAsync = async (command: string, args: string[], env = process.env, timeout = 60_000) =>
-  (
-    await execFileAsync(command, args, {
-      cwd: root,
-      env,
-      encoding: "utf8",
-      timeout,
-      maxBuffer: 10 * 1024 * 1024,
-    })
-  ).stdout;
+const runAsync = async (command: string, args: string[], env = process.env, timeout = 60_000) => {
+  const child = start(command, args, env);
+  let output = "";
+  child.stdout?.on("data", chunk => { output += String(chunk); });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      void stopPreviewScenarioBackend(child).then(() => reject(Error(command + " timed out")), reject);
+    }, timeout);
+    child.once("error", error => { clearTimeout(timer); reject(error); });
+    child.once("exit", code => { clearTimeout(timer); code === 0 ? resolve() : reject(Error(command + " exited " + code)); });
+  });
+  return output;
+};
 
 const mode = process.argv[2];
 
@@ -55,6 +56,7 @@ assert.ok(
 );
 
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
+const sourceTree = run("git", ["rev-parse", "HEAD^{tree}"]).trim();
 
 assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
 
@@ -123,24 +125,49 @@ let notificationServer: HttpServer | undefined;
 
 let dispatchProviderFails = true;
 let checkpoint: ((step: string) => Promise<unknown>) | undefined;
-let observations: unknown[] = [];
+let observations: Array<{ step: string }> = [];
+let ownedPorts: number[] = [];
 let failure: unknown;
 let cleanupPromise: Promise<void> | undefined;
 const cleanup = () => cleanupPromise ??= (async () => {
-  for (const child of [...children].reverse()) await stopPreviewScenarioBackend(child);
-  if (pool) await pool.end();
-  if (notificationServer) {
-    // close() owns the listener and idle connections; closeAllConnections() also closes the listener in Bun.
-    await new Promise<void>((resolve, reject) => notificationServer!.close(error => error ? reject(error) : resolve()));
+  const errors: string[] = [];
+  for (const child of [...children].reverse()) {
+    try { await stopPreviewScenarioBackend(child); } catch (error) { errors.push(sanitize(String(error))); }
   }
-  await rm(join(artifacts, "postgres"), { recursive: true, force: true });
-  await rm(join(artifacts, "manifest.json"), { force: true });
-  const result = { ...(evidence ?? {}), passed: evidence?.passed === true && failure === undefined, revision, cleanSource: true, mode, fault: fault ?? null, failure: failure === undefined ? null : sanitize(String(failure)), observations,
-    cleanup: { processesExited: children.every(child => child.exitCode !== null || child.signalCode !== null), postgresRemoved: true, credentialManifestRemoved: true, receiverClosed: true },
+  try { if (pool) await pool.end(); } catch (error) { errors.push(sanitize(String(error))); }
+  try {
+    if (notificationServer?.listening) await new Promise<void>((resolve, reject) => notificationServer!.close(error => error ? reject(error) : resolve()));
+  } catch (error) { errors.push(sanitize(String(error))); }
+  const removed: string[] = [];
+  for (const name of ["postgres", "manifest.json"]) {
+    try { await rm(join(artifacts, name), { recursive: true, force: true }); removed.push(name); }
+    catch (error) { errors.push(sanitize(String(error))); }
+  }
+  for (const number of ownedPorts) {
+    try { await port(number); } catch (error) { errors.push("owned port remains occupied: " + number); }
+  }
+  if (errors.length && failure === undefined) failure = "Resource cleanup failed";
+  const result = { ...(evidence ?? {}), passed: (evidence?.passed === true || evidence?.apiPassed === true) && failure === undefined, revision, sourceTree, cleanSource: true, mode, fault: fault ?? null, failure: failure === undefined ? null : sanitize(String(failure)), observations,
+    cleanup: { processes: children.map(child => ({ pid: child.pid, exited: child.exitCode !== null || child.signalCode !== null })), processesExited: children.every(child => child.exitCode !== null || child.signalCode !== null), ports: ownedPorts, portsReleased: errors.length === 0, postgresRemoved: removed.includes("postgres"), credentialManifestRemoved: removed.includes("manifest.json"), receiverClosed: !notificationServer?.listening, errors },
   };
-  await writeFile(join(artifacts, "evidence.json"), JSON.stringify(result, null, 2), { mode: 0o600 });
+  await writeFile(join(artifacts, "evidence.json"), sanitize(JSON.stringify(result, null, 2)), { mode: 0o600 });
   if (failure !== undefined) await writeFile(join(artifacts, "failure.log"), sanitize(outputs.join("").slice(-24000)), { mode: 0o600 });
-  process.stdout.write(artifacts + "/evidence.json\n");
+  const retained = [];
+  for (const name of (await readdir(artifacts)).sort()) {
+    if (!/^(?:evidence\.json|failure\.log|browser-(?:evidence|network|trace-sanitized|cleanup)\.json|playwright-evidence\.json|dashboard-(?:runtime|command-[0-9]+)\.log)$/.test(name)) continue;
+    const bytes = await readFile(join(artifacts, name));
+    retained.push({ path: name, sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length });
+  }
+  const runnerSources = await Promise.all(["tools/e2e/placement-check.ts", "tools/e2e/golden-school-service.mjs", "apps/dashboard/e2e/run-real-native-placement.mjs", "apps/dashboard/e2e/native-placement.spec.ts"].map(async path => ({ path, sha256: createHash("sha256").update(await readFile(join(root, path))).digest("hex") })));
+  const receipt = { schema_version: "native-functional-journey/v1", journey_ref_id: "intent://golden-school-service", mono_revision_ref_id: "rev-" + revision, source_tree: sourceTree, clean_source: true,
+    environment_kind: "local_disposable", result: result.passed ? "passed" : "failed", exit_code: result.passed ? 0 : 1, required_browser: mode !== "--api-only", step_ids: observations.map(item => item.step),
+    runner_sources: runnerSources, fixture_digest: "sha256:" + runnerSources[0]!.sha256,
+    artifact_digest: "sha256:" + createHash("sha256").update(JSON.stringify(retained)).digest("hex"), artifacts: retained,
+    runtime: { bun: process.versions.bun, postgres: run("postgres", ["--version"]).trim() },
+  };
+  await writeFile(join(artifacts, "receipt.json"), JSON.stringify(receipt, null, 2), { mode: 0o600 });
+  process.stdout.write(artifacts + "/receipt.json\n");
+  if (errors.length) throw Error(errors.join("; "));
 })();
 for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, () => {
   failure = "Interrupted by " + signal;
@@ -163,6 +190,7 @@ try {
   const backendPort = await port();
   const dashboardPort = await port();
   const notificationPort = await port();
+  ownedPorts = [pgPort, backendPort, dashboardPort, notificationPort];
 
   const server = createHttpServer(async (request, response) => {
     if (request.method === "POST" && request.url?.startsWith("/observe/")) {

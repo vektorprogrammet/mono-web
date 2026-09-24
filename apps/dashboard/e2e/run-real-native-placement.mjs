@@ -71,7 +71,8 @@ const run = (command, args, cwd) => new Promise((resolve, reject) => {
   });
 });
 const cleanup = () => cleanupPromise ??= (async () => {
-  await Promise.all([...children].map(stop));
+  const cleanupErrors = [];
+  for (const result of await Promise.allSettled([...children].map(stop))) if (result.status === "rejected") cleanupErrors.push(sanitize(result.reason));
   const traces = [];
   for (const name of await readdir(manifest.artifacts)) {
     if (!/^private-trace-\d+\.zip$/.test(name)) continue;
@@ -88,12 +89,14 @@ const cleanup = () => cleanupPromise ??= (async () => {
           path: request?.url ? new URL(request.url).pathname : undefined, status: response?.status,
           error: event.error ? sanitize(event.error.message ?? event.error.name ?? "browser action failed") : undefined });
       }
-    } finally { await rm(path, { force: true }); }
+    } catch (error) { cleanupErrors.push(sanitize(error)); }
+    finally { try { await rm(path, { force: true }); } catch (error) { cleanupErrors.push(sanitize(error)); } }
   }
   if (traces.length) await writeFile(join(manifest.artifacts, "browser-trace-sanitized.json"), JSON.stringify(traces, null, 2), { mode: 0o600 });
   await rm(join(manifest.artifacts, "playwright-private"), { recursive: true, force: true });
   await writeFile(join(manifest.artifacts, "dashboard-runtime.log"), sanitize(output), { mode: 0o600 });
-  await writeFile(join(manifest.artifacts, "browser-cleanup.json"), JSON.stringify({ processesExited: [...children].every(child => child.exitCode !== null || child.signalCode !== null), privateTracesRemoved: true, privateResultsRemoved: true, failure: failure ? sanitize(failure) : null }), { mode: 0o600 });
+  await writeFile(join(manifest.artifacts, "browser-cleanup.json"), JSON.stringify({ processesExited: [...children].every(child => child.exitCode !== null || child.signalCode !== null), processes: [...children].map(child => ({ pid: child.pid, exited: child.exitCode !== null || child.signalCode !== null })), privateTracesRemoved: !(await readdir(manifest.artifacts)).some(name => /^private-trace-/.test(name)), privateResultsRemoved: true, cleanupErrors, failure: failure ? sanitize(failure) : null }), { mode: 0o600 });
+  if (cleanupErrors.length) throw new Error(cleanupErrors.join("; "));
 })();
 for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
   failure = `Interrupted by ${signal}`;
