@@ -212,6 +212,7 @@ export const observeLegacyCandidateNativeJourney = async (
         password: identity.password,
       });
 
+      if (response.status !== 200) phase = `${phase}-status-${response.status}`;
       assert.equal(response.status, 200);
 
       const body = Schema.decodeUnknownSync(
