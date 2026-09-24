@@ -506,7 +506,7 @@ try {
   const dashboardEnvironment = {
     ...process.env,
     API_URL: upstreamOrigin,
-    VITE_API_URL: upstreamOrigin,
+    VITE_API_URL: dashboardOrigin,
     DASHBOARD_MOUNT: "/",
     DASHBOARD_ORIGIN: dashboardOrigin,
     HOST: "127.0.0.1",
@@ -524,15 +524,11 @@ try {
     env: dashboardEnvironment,
     label: "Schools dashboard production build",
   });
-  dashboard = start(
-    process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-    ["node_modules/@react-router/serve/dist/cli.js", "build/server/index.js"],
-    {
-      cwd: dashboardRoot,
-      env: dashboardEnvironment,
-      label: "Dashboard",
-    },
-  );
+  dashboard = start("bun", ["server.mjs"], {
+    cwd: dashboardRoot,
+    env: dashboardEnvironment,
+    label: "Dashboard",
+  });
   await waitForHttp(`${dashboardOrigin}/login`, "Dashboard startup");
 
   const browser = await runAsync(
@@ -679,7 +675,7 @@ try {
     seed: seedEvidence,
     browser: browserEvidence,
     requestLedger: {
-      bridgePath: "/schools",
+      browserPath: "/api/schools",
       backendPath: "/api/schools",
       schoolsRequests,
       forcedFailures: forcedFailures.length,

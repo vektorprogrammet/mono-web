@@ -4,7 +4,9 @@
  */
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import {
-  SchoolCommand, SchoolCommandResult, SchoolManagement,
+  SchoolCommand,
+  SchoolCommandResult,
+  SchoolManagement,
   SchoolDirectoryDepartmentSchema,
   SchoolDirectorySchema,
   SchoolId,
@@ -17,7 +19,13 @@ import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { operationAnnotations, PersonSecurity } from "./common.js";
 import { DirectoryListPeopleProblem, DirectoryListSchoolsProblem } from "./endpoint-problems.js";
-import { endpointProblemResponses, privateReadResponse, IdempotencyHeaders, entityMutationResponse, problemUnion } from "./http-semantics.js";
+import {
+  endpointProblemResponses,
+  privateReadResponse,
+  IdempotencyHeaders,
+  entityMutationResponse,
+  problemUnion,
+} from "./http-semantics.js";
 
 export { SchoolDirectoryDepartmentSchema, SchoolDirectorySchema, SchoolId };
 
@@ -158,26 +166,92 @@ export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/scho
  * @category Groups
  */
 export { SchoolCommand, SchoolCommandResult, SchoolManagement };
+
 const SchoolAdministrationProblem = problemUnion("SchoolAdministrationProblem", [
-  ["credential.missing",401], ["credential.invalid",401], ["authority.denied",403], ["origin.denied",403],
-  ["request.malformed",400], ["request.too-large",413], ["media-type.unsupported",415], ["header.malformed",400],
-  ["idempotency-key.invalid",400], ["idempotency.in-flight",409], ["idempotency.digest-conflict",409], ["idempotency.response-expired",409],
-  ["resource.not-found",404], ["precondition.failed",412], ["schools.invalid-command",422], ["schools.association-in-use",409],
-  ["schools.inactive",409], ["schools.capacity-exists",409], ["schools.unavailable",503], ["idempotency.unavailable",503], ["internal.error",500],
+  ["credential.missing", 401],
+  ["credential.invalid", 401],
+  ["authority.denied", 403],
+  ["origin.denied", 403],
+  ["request.malformed", 400],
+  ["request.too-large", 413],
+  ["media-type.unsupported", 415],
+  ["header.malformed", 400],
+  ["idempotency-key.invalid", 400],
+  ["idempotency.in-flight", 409],
+  ["idempotency.digest-conflict", 409],
+  ["idempotency.response-expired", 409],
+  ["resource.not-found", 404],
+  ["precondition.failed", 412],
+  ["schools.invalid-command", 422],
+  ["schools.association-in-use", 409],
+  ["schools.inactive", 409],
+  ["schools.capacity-exists", 409],
+  ["schools.unavailable", 503],
+  ["idempotency.unavailable", 503],
+  ["internal.error", 500],
 ]);
-export const ReadSchoolManagementEndpoint = HttpApiEndpoint.get("readSchoolManagement", "/api/schools/management", {
-  success: privateReadResponse(SchoolManagement), error: endpointProblemResponses(SchoolAdministrationProblem),
-}).middleware(PersonSecurity).pipe((endpoint) => annotateAccessSpec(endpoint, personNativeAccess({
-  capability: "schools.manage", canonicalScopeResolver: "schools.management", decisionTime: "SnapshotRead",
-}))).annotateMerge(operationAnnotations("Manage schools", "Returns authorized school facts, capacity plans, options, and history."));
-export const ExecuteSchoolCommandEndpoint = HttpApiEndpoint.post("executeSchoolCommand", "/api/schools/commands", {
-  headers: IdempotencyHeaders, payload: SchoolCommand, success: entityMutationResponse(SchoolCommandResult), error: endpointProblemResponses(SchoolAdministrationProblem),
-}).middleware(PersonSecurity).pipe((endpoint) => annotateAccessSpec(endpoint, personNativeAccess({
-  capability: "schools.manage", canonicalScopeResolver: "schools.management", decisionTime: "Transaction",
-}))).annotateMerge(operationAnnotations("Maintain schools", "Applies one scoped school or capacity command with an explicit observed revision and atomic history."));
+
+export const ReadSchoolManagementEndpoint = HttpApiEndpoint.get(
+  "readSchoolManagement",
+  "/api/schools/management",
+  {
+    success: privateReadResponse(SchoolManagement),
+    error: endpointProblemResponses(SchoolAdministrationProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "schools.manage",
+        canonicalScopeResolver: "schools.management",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Manage schools",
+      "Returns authorized school facts, capacity plans, options, and history.",
+    ),
+  );
+
+export const ExecuteSchoolCommandEndpoint = HttpApiEndpoint.post(
+  "executeSchoolCommand",
+  "/api/schools/commands",
+  {
+    headers: IdempotencyHeaders,
+    payload: SchoolCommand,
+    success: entityMutationResponse(SchoolCommandResult),
+    error: endpointProblemResponses(SchoolAdministrationProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "schools.manage",
+        canonicalScopeResolver: "schools.management",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Maintain schools",
+      "Applies one scoped school or capacity command with an explicit observed revision and atomic history.",
+    ),
+  );
 
 export class DirectoryApi extends HttpApiGroup.make("directory")
-  .add(ListPeopleEndpoint, ListSchoolsEndpoint, ReadSchoolManagementEndpoint, ExecuteSchoolCommandEndpoint)
+  .add(
+    ListPeopleEndpoint,
+    ListSchoolsEndpoint,
+    ReadSchoolManagementEndpoint,
+    ExecuteSchoolCommandEndpoint,
+  )
   .annotateMerge(
     OpenApi.annotations({
       title: "Directories",

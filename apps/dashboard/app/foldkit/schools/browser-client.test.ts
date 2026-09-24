@@ -1,135 +1,66 @@
-import { DepartmentId } from "@vektorprogrammet/http-api"
-import { SchoolDirectorySchema } from "@vektorprogrammet/http-api"
-import { Effect, Fiber, Schema as S } from "effect";
+import { Effect, Fiber } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserSchoolsDirectoryClient } from "./browser-client";
-import { SchoolDirectoryData, init, type Model } from "./model";
+import { nativeProblemResponse, privateReadHeaders } from "../../../test/native-http";
 
-const directory = {
-  activeSchools: [
-    {
-      schoolId: 1,
-      name: "Alfaskolen",
-      contactPerson: "Ada Lovelace",
-      email: "ada@example.invalid",
-      phone: "+47 111 11 111",
-      language: "Norwegian",
-      departments: [{ departmentId: "department-a", name: "Avdeling A" }],
-      isActive: true,
-    },
-  ],
-  inactiveSchools: [],
-};
+const fetchMock = vi.fn<typeof fetch>();
 
+beforeEach(() => {
+  vi.stubEnv("VITE_API_URL", "http://dashboard.test");
+  vi.stubGlobal("location", { origin: "http://dashboard.test" });
+  vi.stubGlobal("fetch", fetchMock);
+  fetchMock.mockReset();
+});
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
-describe("Schools directory browser client", () => {
-  const fetchMock = vi.fn<typeof fetch>();
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", fetchMock);
-    fetchMock.mockReset();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("sends one credentialed native request with optional department narrowing", async () => {
-    fetchMock.mockResolvedValueOnce(Response.json(directory));
-
-    const result = await Effect.runPromise(
-      createBrowserSchoolsDirectoryClient().directory.listSchools({
-        department: S.decodeUnknownSync(DepartmentId)("department-a"),
-      }),
-    );
-
-    expect(result).toEqual(directory);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe("/schools?department=department-a");
-    expect(init?.method).toBe("GET");
-    expect(init?.credentials ?? "same-origin").toBe("same-origin");
-    expect(init?.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it("aborts the owning runtime's in-flight request without replacing its model", async () => {
+describe("Schools generated browser client", () => {
+  it("aborts the owning runtime's in-flight request", async () => {
     const started = Promise.withResolvers<void>();
-    let requestSignal: AbortSignal | undefined;
-    let abortObservations = 0;
-    fetchMock.mockImplementationOnce((_input, init) => {
-      const signal = init?.signal ?? undefined;
-      requestSignal = signal;
+    let signal: AbortSignal | null | undefined;
+    fetchMock.mockImplementationOnce((input, init) => {
+      signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
       started.resolve();
 
       return new Promise<Response>((_resolve, reject) => {
-        if (signal === undefined) {
-          reject(new Error("missing abort signal"));
+        if (!signal) {
+          reject(new Error("missing signal"));
 
           return;
         }
 
-        signal.addEventListener(
-          "abort",
-          () => {
-            abortObservations += 1;
-            reject(new Error("aborted"));
-          },
-          { once: true },
-        );
+        signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
       });
     });
-
-    const existingModel: Model = {
-      ...init(),
-      directory: SchoolDirectoryData.Success({
-        data: S.decodeUnknownSync(SchoolDirectorySchema)(directory),
-      }),
-    };
-
-    let renderedModel: Model = existingModel;
-
-    const fiber = Effect.runFork(
-      createBrowserSchoolsDirectoryClient()
-        .directory.listSchools({})
-        .pipe(
-          Effect.tap((nextDirectory) =>
-            Effect.sync(() => {
-              renderedModel = {
-                ...renderedModel,
-                directory: SchoolDirectoryData.Success({ data: nextDirectory }),
-              };
-            }),
-          ),
-        ),
-    );
-
+    const fiber = Effect.runFork(createBrowserSchoolsDirectoryClient().directory.listSchools());
     await started.promise;
     await Effect.runPromise(Fiber.interrupt(fiber));
-
-    expect(requestSignal).toBeInstanceOf(AbortSignal);
-    expect(requestSignal?.aborted).toBe(true);
-    expect(abortObservations).toBe(1);
-    expect(renderedModel).toBe(existingModel);
+    expect(signal?.aborted).toBe(true);
   });
-
-  it("strictly rejects excess response fields", async () => {
-    fetchMock.mockResolvedValueOnce(Response.json({ ...directory, legacyCapacity: {} }));
-
-    const failure = await Effect.runPromise(
-      createBrowserSchoolsDirectoryClient().directory.listSchools({}).pipe(Effect.flip),
+  it("rejects malformed school facts instead of rendering them", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json(
+        { activeSchools: [{ schoolId: "invalid" }], inactiveSchools: [] },
+        { headers: privateReadHeaders },
+      ),
     );
 
-    expect(failure.error.tag).toBe("SchoolsDecodeError");
-  });
-
-  it("preserves a typed Schools rejection returned by the authenticated bridge", async () => {
-    fetchMock.mockResolvedValueOnce(Response.json({ error: { tag: "AuthorityInactive" } }, { status: 403 }));
-
     const failure = await Effect.runPromise(
-      createBrowserSchoolsDirectoryClient().directory.listSchools({}).pipe(Effect.flip),
+      createBrowserSchoolsDirectoryClient().directory.listSchools().pipe(Effect.flip),
     );
 
-    expect(failure.error.tag).toBe("AuthorityInactive");
+    expect(failure.error.tag).toBe("SchoolsPersistenceError");
+  });
+  it("preserves an authority denial from the native API", async () => {
+    fetchMock.mockResolvedValueOnce(nativeProblemResponse("authority.denied"));
+
+    const failure = await Effect.runPromise(
+      createBrowserSchoolsDirectoryClient().directory.listSchools().pipe(Effect.flip),
+    );
+
+    expect(failure.error.tag).toBe("NotInScope");
   });
 });

@@ -20,7 +20,10 @@ export const embedSchoolsDirectory = (
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => ({ model: initialModel, commands: [initialLoad(commands, initialModel)] }),
+    init: () => ({
+      model: initialModel,
+      commands: [initialLoad(commands, initialModel), commands.LoadManagement({ requestId: 1 })],
+    }),
     update: updateFor(commands),
     view,
     devTools: false,

@@ -9,6 +9,7 @@ import {
 } from "../organization/authority.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/schema.js";
 import { resolveSchoolsDirectoryScope } from "./authority.js";
+import { canManageSchoolDepartments } from "./administration.js";
 
 const authorizationInstant = OrganizationAuthorityInstantSchema.make("2032-01-01T00:00:00.000Z");
 
@@ -35,6 +36,27 @@ const authority = (
   evaluatedAt: authorizationInstant,
   globalAdministrator,
   memberships,
+});
+
+describe("Schools maintenance scope", () => {
+  it("requires global authority for an unassociated school", () => {
+    const leader = authority("Absent", [membership("a", "a", true, true)]);
+    expect(canManageSchoolDepartments(leader, [])).toBe(false);
+    expect(canManageSchoolDepartments(authority("Active", []), [])).toBe(true);
+  });
+  it("requires current leadership for every affected department", () => {
+    const leader = authority("Inactive", [
+      membership("a", "a", true, true),
+      membership("b", "b", true),
+      membership("c", "c", false, true),
+    ]);
+
+    expect(canManageSchoolDepartments(leader, [DepartmentId.make("a")])).toBe(true);
+    expect(
+      canManageSchoolDepartments(leader, [DepartmentId.make("a"), DepartmentId.make("b")]),
+    ).toBe(false);
+    expect(canManageSchoolDepartments(leader, [DepartmentId.make("c")])).toBe(false);
+  });
 });
 
 describe("Schools directory authority at one injected instant", () => {

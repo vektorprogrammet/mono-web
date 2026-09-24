@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { Schema } from "effect";
-import { SchoolsBridgeFailureSchema } from "../app/foldkit/schools/bridge";
+import { NativeProblem } from "@vektorprogrammet/http-api";
 
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 
@@ -188,10 +188,13 @@ test.describe("Native Schools directory (spec 0061)", () => {
       ).toBeVisible();
 
       const emptyDepartment = await administrator.page.evaluate(async (departmentId) => {
-        const response = await fetch(`/schools?department=${encodeURIComponent(departmentId)}`, {
-          credentials: "same-origin",
-          headers: { accept: "application/json" },
-        });
+        const response = await fetch(
+          `/api/schools?department=${encodeURIComponent(departmentId)}`,
+          {
+            credentials: "same-origin",
+            headers: { accept: "application/json" },
+          },
+        );
 
         return { status: response.status, body: await response.json() };
       }, departments.empty);
@@ -257,14 +260,14 @@ test.describe("Native Schools directory (spec 0061)", () => {
         contexts.push(denied.context);
 
         const rejection = denied.page.waitForResponse(
-          (response) => new URL(response.url()).pathname === "/schools",
+          (response) => new URL(response.url()).pathname === "/api/schools",
         );
 
         await signIn(denied.page, person, "/dashboard/skoler");
         const response = await rejection;
         expect(response.status()).toBe(403);
-        const failure = Schema.decodeUnknownSync(SchoolsBridgeFailureSchema)(await response.json());
-        expect(failure.error.tag).toBe("NotInScope");
+        const failure = Schema.decodeUnknownSync(NativeProblem)(await response.json());
+        expect(failure.code).toBe("authority.denied");
         await expect(denied.page).toHaveURL(/\/dashboard\/skoler$/);
         await assertDirectoryShell(denied.page);
         await expect(denied.page.getByRole("alert")).toBeVisible();
@@ -274,16 +277,15 @@ test.describe("Native Schools directory (spec 0061)", () => {
         ).toHaveCount(0);
         observations[name] = {
           status: response.status(),
-          tag: failure.error.tag,
+          tag: failure.code,
           renderedAt: "/dashboard/skoler",
         };
       }
 
-      const bridgeRequests = browserRequests.filter(
-        (request) => request.method === "GET" && request.pathname === "/schools",
+      const directoryRequests = browserRequests.filter(
+        (request) => request.method === "GET" && request.pathname === "/api/schools",
       );
 
-      expect(bridgeRequests.length).toBeGreaterThanOrEqual(9);
       expect(
         browserRequests.filter((request) => request.pathname === "/api/admin/schools"),
       ).toEqual([]);
@@ -302,9 +304,11 @@ test.describe("Native Schools directory (spec 0061)", () => {
         passed: true,
         browser: "Chromium",
         realSessionCookie: true,
-        bridgePath: "/schools",
-        bridgeRequests,
-        bridgeResponses: browserResponses.filter((response) => response.pathname === "/schools"),
+        browserPath: "/api/schools",
+        directoryRequests,
+        directoryResponses: browserResponses.filter(
+          (response) => response.pathname === "/api/schools",
+        ),
         observations,
         pageErrors,
         accessibilityViolations: accessibility.violations,

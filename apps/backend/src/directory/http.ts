@@ -20,7 +20,10 @@ import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js
 import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import { listSchools, schoolsErrorResponse, type SchoolsApiHttpOptions } from "../schools/http.js";
-import { readSchoolManagementHttp, executeSchoolCommandHttp } from "../schools/administration-http.js";
+import {
+  readSchoolManagementHttp,
+  executeSchoolCommandHttp,
+} from "../schools/administration-http.js";
 
 /**
  * GET /api/people — the native people directory.
@@ -211,8 +214,12 @@ export const DirectoryApiHandlers = (
   HttpApiBuilder.group(ExternalNativeApi, "directory", (handlers) =>
     Effect.succeed(
       handlers
-        .handleRaw("readSchoolManagement", ({ request }) => toHttpApiResponse(request, readSchoolManagementHttp, schoolsErrorResponse))
-        .handleRaw("executeSchoolCommand", ({ request }) => toHttpApiResponse(request, executeSchoolCommandHttp, schoolsErrorResponse))
+        .handleRaw("readSchoolManagement", ({ request }) =>
+          toHttpApiResponse(request, readSchoolManagementHttp, schoolsErrorResponse),
+        )
+        .handleRaw("executeSchoolCommand", ({ request }) =>
+          toHttpApiResponse(request, executeSchoolCommandHttp, schoolsErrorResponse),
+        )
         .handleRaw("listPeople", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => listPeople(webRequest, input), errorResponse),
         )

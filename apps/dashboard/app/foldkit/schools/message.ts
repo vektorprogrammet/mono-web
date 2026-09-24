@@ -1,5 +1,11 @@
-import { DepartmentId } from "@vektorprogrammet/http-api"
-import { SchoolDirectorySchema } from "@vektorprogrammet/http-api"
+import { DepartmentId } from "@vektorprogrammet/http-api";
+import {
+  SchoolDirectorySchema,
+  SchoolManagement,
+  SchoolCommand,
+  SchoolCommandResult,
+  SchoolId,
+} from "@vektorprogrammet/http-api";
 import { Tabs } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { taggedStruct } from "foldkit/schema";
@@ -29,7 +35,80 @@ export const FailedDirectory = taggedStruct("FailedDirectory", {
   failure: SchoolDirectoryFailure,
 });
 
+export const OpenedManagement = taggedStruct("OpenedManagement", {});
+
+export const RefreshedManagement = taggedStruct("RefreshedManagement", {});
+
+export const SelectedManagedSchool = taggedStruct("SelectedManagedSchool", {
+  schoolId: S.NullOr(SchoolId),
+});
+
+export const ChangedSchoolField = taggedStruct("ChangedSchoolField", {
+  field: S.Literals(["name", "contactPerson", "email", "phone", "language", "active", "reason"]),
+  value: S.String,
+});
+
+export const ToggledSchoolDepartment = taggedStruct("ToggledSchoolDepartment", {
+  departmentId: DepartmentId,
+});
+
+export const ChangedCapacityField = taggedStruct("ChangedCapacityField", {
+  field: S.Literals([
+    "departmentId",
+    "semesterId",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+  ]),
+  value: S.String,
+});
+
+export const SubmittedSchool = taggedStruct("SubmittedSchool", {
+  kind: S.Literals(["Facts", "Departments", "Capacity"]),
+});
+
+export const RetriedSchoolCommand = taggedStruct("RetriedSchoolCommand", {});
+
+export const DiscardedSchoolFailure = taggedStruct("DiscardedSchoolFailure", {});
+
+export const SucceededManagement = taggedStruct("SucceededManagement", {
+  requestId: S.Int,
+  data: SchoolManagement,
+  commandId: S.String,
+});
+
+export const FailedManagement = taggedStruct("FailedManagement", {
+  requestId: S.Int,
+  denied: S.Boolean,
+});
+
+export const SucceededSchoolCommand = taggedStruct("SucceededSchoolCommand", {
+  commandId: S.String,
+  result: SchoolCommandResult,
+});
+
+export const FailedSchoolCommand = taggedStruct("FailedSchoolCommand", {
+  command: SchoolCommand,
+  conflict: S.Boolean,
+  message: S.String,
+});
+
 export const Message = S.Union([
+  OpenedManagement,
+  RefreshedManagement,
+  SelectedManagedSchool,
+  ChangedSchoolField,
+  ToggledSchoolDepartment,
+  ChangedCapacityField,
+  SubmittedSchool,
+  RetriedSchoolCommand,
+  DiscardedSchoolFailure,
+  SucceededManagement,
+  FailedManagement,
+  SucceededSchoolCommand,
+  FailedSchoolCommand,
   RetriedDirectory,
   UpdatedSearch,
   SelectedDepartment,

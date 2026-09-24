@@ -1,6 +1,7 @@
 import { Predicate } from "effect";
-import { DepartmentId } from "@vektorprogrammet/http-api"
-import type { SchoolDirectory, SchoolDirectoryEntry } from "@vektorprogrammet/http-api"
+import { managementView } from "./management-view";
+import { DepartmentId } from "@vektorprogrammet/http-api";
+import type { SchoolDirectory, SchoolDirectoryEntry } from "@vektorprogrammet/http-api";
 import { Input, Select } from "@foldkit/ui";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -255,7 +256,11 @@ const directoryState = (model: Model, h: HtmlBuilder<Message>): Html =>
         [
           h.h2(
             [],
-            [Predicate.isTagged(failure, "Denied") ? "Ingen tilgang" : "Skoleoversikten kunne ikke hentes"],
+            [
+              Predicate.isTagged(failure, "Denied")
+                ? "Ingen tilgang"
+                : "Skoleoversikten kunne ikke hentes",
+            ],
           ),
           h.p([], [failure.message]),
           retryButton(h),
@@ -294,6 +299,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
           ),
         ],
       ),
+      managementView(model, h),
       directoryState(model, h),
     ],
   );

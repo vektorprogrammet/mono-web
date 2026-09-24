@@ -912,19 +912,27 @@ export const NativeProblemRegistry = {
     detail: "The selected department is not valid for the school directory.",
   },
   "schools.invalid-command": {
-    type: "urn:vektorprogrammet:problem:v0.2:schools.invalid-command", title: "Invalid school command", status: 422,
+    type: "urn:vektorprogrammet:problem:v0.2:schools.invalid-command",
+    title: "Invalid school command",
+    status: 422,
     detail: "The school command contains invalid values or references.",
   },
   "schools.association-in-use": {
-    type: "urn:vektorprogrammet:problem:v0.2:schools.association-in-use", title: "School association in use", status: 409,
+    type: "urn:vektorprogrammet:problem:v0.2:schools.association-in-use",
+    title: "School association in use",
+    status: 409,
     detail: "Dependent records still reference this school association.",
   },
   "schools.inactive": {
-    type: "urn:vektorprogrammet:problem:v0.2:schools.inactive", title: "Inactive school", status: 409,
+    type: "urn:vektorprogrammet:problem:v0.2:schools.inactive",
+    title: "Inactive school",
+    status: 409,
     detail: "Activate the school before you change capacity.",
   },
   "schools.capacity-exists": {
-    type: "urn:vektorprogrammet:problem:v0.2:schools.capacity-exists", title: "Capacity plan exists", status: 409,
+    type: "urn:vektorprogrammet:problem:v0.2:schools.capacity-exists",
+    title: "Capacity plan exists",
+    status: 409,
     detail: "A capacity plan already exists for this school, department, and semester.",
   },
   "schools.unavailable": {

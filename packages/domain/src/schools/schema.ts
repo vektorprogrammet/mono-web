@@ -14,7 +14,9 @@ const text = (maxLength: number) =>
 
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
-const Count = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(2147483647)));
+const Count = Schema.Int.pipe(
+  Schema.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(2147483647)),
+);
 
 export const SchoolId = Schema.Int.pipe(
   Schema.check(

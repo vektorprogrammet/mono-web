@@ -1,5 +1,5 @@
-import { DepartmentId } from "@vektorprogrammet/http-api"
-import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/http-api"
+import { DepartmentId } from "@vektorprogrammet/http-api";
+import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/http-api";
 import { Tabs } from "@foldkit/ui";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -43,6 +43,8 @@ const listInputs: Array<{ readonly department?: typeof DepartmentId.Type }> = []
 
 const client: SchoolsDirectoryClient = {
   directory: {
+    readManagement: () => Effect.die("unexpected management request"),
+    executeCommand: () => Effect.die("unexpected school command"),
     listSchools: (input) => {
       listInputs.push(input ?? {});
 
@@ -89,7 +91,11 @@ describe("Foldkit Schools directory transitions", () => {
       { departmentId: departmentB, name: "Avdeling B" },
     ]);
 
-    const { model: loading, commands: emitted = [] } = update(ready, SelectedDepartment({ department: departmentB }));
+    const { model: loading, commands: emitted = [] } = update(
+      ready,
+      SelectedDepartment({ department: departmentB }),
+    );
+
     expect(loading.department).toBe(departmentB);
     expect(loading.requestId).toBe(2);
     expect(loading.knownDepartments).toEqual(ready.knownDepartments);
@@ -105,13 +111,20 @@ describe("Foldkit Schools directory transitions", () => {
 
   it("owns search and tab selection without a remote command", () => {
     const initial = init();
-    const { model: searched, commands: searchCommands = [] } = update(initial, UpdatedSearch({ value: "alfa" }));
+
+    const { model: searched, commands: searchCommands = [] } = update(
+      initial,
+      UpdatedSearch({ value: "alfa" }),
+    );
+
     expect(searched.searchText).toBe("alfa");
     expect(searchCommands).toEqual([]);
 
     const { model: inactive, commands: tabCommands = [] } = update(
       searched,
-      GotDirectoryTabMessage({ message: Tabs.Message.SelectedTab({ index: 1, value: "Inactive" }) }),
+      GotDirectoryTabMessage({
+        message: Tabs.Message.SelectedTab({ index: 1, value: "Inactive" }),
+      }),
     );
 
     expect(inactive.selectedTab).toBe("Inactive");
