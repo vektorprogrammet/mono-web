@@ -42,7 +42,7 @@ export const ReceiptReviewEntry = Schema.Union([
   Schema.Struct({
     _tag: Schema.Literal("Import"),
     ...CommonEntry,
-    person: Schema.Struct({ occurrenceId: Id, sourceUserId: Id, personId: PersonId }),
+    person: Schema.NullOr(Schema.Struct({ occurrenceId: Id, sourceUserId: Id, personId: PersonId })),
     department: Schema.Struct({ sourceDepartmentId: Id, departmentId: DepartmentId }),
     // The classifier, not the envelope decoder, quarantines invalid dates.
     receiptDate: Schema.String.pipe(Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))),
@@ -131,7 +131,7 @@ export const decodeReviewedReceiptSnapshot = (input: unknown): ReviewedReceiptSn
       throw new ReceiptCohortFailure({ code: "InvalidReview" });
     if (entry._tag === "Excluded") continue;
     if (
-      (row.sourceUserId !== null && entry.person.sourceUserId !== row.sourceUserId) ||
+      (entry.person !== null && entry.person.sourceUserId !== row.sourceUserId) ||
       entry.payment.commitment !== row.accountCommitment ||
       (row.status === "refunded" && entry.approvedAt === null) ||
       ((row.status === "pending" || row.status === "rejected") && entry.approvedAt !== null)
