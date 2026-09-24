@@ -22,6 +22,10 @@ export const registerRecruitmentMaintenanceElements = (): void => {
         #dispose: (() => void) | undefined;
         connectedCallback(): void {
           if (this.#dispose !== undefined) return;
+          this.#container.id =
+            mode === "Questionnaires"
+              ? "foldkit-recruitment-questionnaires"
+              : "foldkit-recruitment-staffing";
           this.replaceChildren(this.#container);
 
           try {
