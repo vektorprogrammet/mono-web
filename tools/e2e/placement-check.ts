@@ -163,6 +163,7 @@ let checkpoint: ((step: string) => Promise<unknown>) | undefined;
 let observations: Array<{ step: string }> = [];
 let ownedPorts: number[] = [];
 let failure: unknown;
+let interruptedSignal: "SIGINT" | "SIGTERM" | undefined;
 let cleanupPromise: Promise<void> | undefined;
 const cleanup = () =>
   (cleanupPromise ??= (async () => {
@@ -290,7 +291,16 @@ const cleanup = () =>
       clean_source: true,
       environment_kind: "local_disposable",
       result: result.passed ? "passed" : "failed",
-      exit_code: result.passed ? 0 : 1,
+      exit_code: result.passed
+        ? 0
+        : errors.length
+          ? 1
+          : interruptedSignal === "SIGINT"
+            ? 130
+            : interruptedSignal === "SIGTERM"
+              ? 143
+              : 1,
+      termination_signal: interruptedSignal ?? null,
       required_browser: mode !== "--api-only",
       step_ids: observations.map((item) => item.step),
       runner_sources: runnerSources,
@@ -308,6 +318,8 @@ const cleanup = () =>
   })());
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () => {
+    interruptedSignal = signal;
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
     failure = "Interrupted by " + signal;
     void cleanup().then(
       () => process.exit(signal === "SIGINT" ? 130 : 143),
@@ -2793,9 +2805,11 @@ try {
     };
   }
 } catch (error) {
-  failure = error;
+  if (interruptedSignal === undefined) {
+    failure = error;
+    process.exitCode = 1;
+  }
   process.stderr.write(sanitize(String(error)) + "\n");
-  process.exitCode = 1;
 } finally {
   await cleanup();
 }
