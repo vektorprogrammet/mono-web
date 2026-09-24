@@ -1200,7 +1200,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     ).toBeDisabled();
     const staleEtag = (await readCoverageBoard(page)).etag;
 
-    const terminalCommand = {
+    const terminalCommand: CoverageCommand = {
       action: "CompleteService",
       commitmentId: commitment.commitmentId,
       attendedPersonIds: [manifest.volunteerId],
