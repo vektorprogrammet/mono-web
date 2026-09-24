@@ -11,23 +11,23 @@ import { createServer as createHttpServer } from "node:http";
 import { Pool } from "pg";
 import { Schema, flow, Predicate, Effect, Redacted } from "effect";
 import { databaseHealth } from "@vektorprogrammet/database";
-import { DatabaseLive } from "../src/layers.js";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
 import {
   NativeAuthEngine,
   NativeAuthEngineLive,
   AuthPoolLive,
   type AuthEngineConfig,
-} from "../src/auth-engine.js";
-import { DatabasePgPool } from "../src/pg-pool.js";
+} from "../../packages/database/src/auth-engine.js";
+import { DatabasePgPool } from "../../packages/database/src/pg-pool.js";
 import { ManagedRuntime, Layer } from "effect";
-import { PasswordRecovery, drainPasswordResetMail } from "../src/password-recovery.js";
-import { identityRequestContext } from "../../../apps/backend/src/session-security.js";
-import { mailDeliveryConfig, HttpMailLive } from "../../../apps/backend/src/mail/http.js";
-import { importIdentityCohort, IdentityCohortFailure } from "../src/identity-cohort.js";
-import { summarizeIdentityCohort } from "../src/identity-cohort-cli.js";
-import { importPersonCohort } from "../src/person-cohort.js";
-import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../src/password-codec.js";
-import { proveCredentialResetRace } from "../src/test-support/credential-race.js";
+import { PasswordRecovery, drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
+import { identityRequestContext } from "../../apps/backend/src/session-security.js";
+import { mailDeliveryConfig, HttpMailLive } from "../../apps/backend/src/mail/http.js";
+import { importIdentityCohort, IdentityCohortFailure } from "@vektorprogrammet/database/identity-cohort";
+import { summarizeIdentityCohort } from "../../packages/database/src/identity-cohort-cli.js";
+import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
+import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../../packages/database/src/password-codec.js";
+import { proveCredentialResetRace } from "./credential-race.js";
 
 declare const Bun: {
   version: string;
@@ -38,7 +38,7 @@ declare const Bun: {
   }): { stop(force?: boolean): void | Promise<void> };
 };
 
-const root = resolve(import.meta.dirname, "../../..");
+const root = resolve(import.meta.dirname, "../..");
 
 const command = (name: string, args: string[]) =>
   execFileSync(name, args, {

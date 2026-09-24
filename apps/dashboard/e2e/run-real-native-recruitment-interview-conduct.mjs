@@ -448,7 +448,7 @@ const main = async () => {
 
     const deliveryOutput = await run(
       "bun",
-      ["packages/database/src/completion-receipt-postgres-proof-main.ts"],
+      ["tools/verification/completion-receipt-postgres-proof-main.ts"],
       {
         cwd: repositoryRoot,
         env: { ...baseEnvironment, COMPLETION_RECEIPT_PG_URL: postgresOrigin },

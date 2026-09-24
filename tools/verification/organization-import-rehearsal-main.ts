@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import type * as GeneratedSdkModule from "../../sdk/src/effect-client.js";
-import { SessionResponse } from "../../http-api/src/system.js";
+import type * as GeneratedSdkModule from "../../packages/sdk/src/effect-client.js";
+import { SessionResponse } from "../../packages/http-api/src/system.js";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";
@@ -59,7 +59,8 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { makeReceiptAuxiliaryRecording } from "@vektorprogrammet/domain/receipt";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
-import { EconomyLive } from "@vektorprogrammet/database/receipt";
+import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
+import { PlacementsLive } from "@vektorprogrammet/placements/server";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
@@ -79,14 +80,14 @@ import {
   Schema,
 } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
-import { decodeBackendConfig, type BackendConfig } from "../../../apps/backend/src/config.js";
+import { decodeBackendConfig, type BackendConfig } from "../../apps/backend/src/config.js";
 import {
   backendHttpHandler,
   ExternalNativeApiRouterLive,
-} from "../../../apps/backend/src/router.js";
-import { DatabaseLive } from "../src/layers.js";
-import { IdentitySnapshot } from "../src/auth-live.js";
-import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
+} from "../../apps/backend/src/router.js";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { IdentitySnapshot } from "@vektorprogrammet/database/auth";
+import { databaseMigrationDefinitions, databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import {
   OrganizationImportRehearsalArtifactSchema,
   NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
@@ -104,7 +105,7 @@ import {
   organizationImportOutcomeMatrix,
   organizationImportProvenanceEvidence,
   type OrganizationImportBrowserFailedEvidence,
-} from "../src/test-support/organization-import-rehearsal.js";
+} from "./organization-import-rehearsal.js";
 import {
   compareStableByteSets,
   installOrganizationImportFailureTrigger,
@@ -112,7 +113,7 @@ import {
   removeOrganizationImportFailureTrigger,
   stableByteSetEvidence,
   type OrganizationImportStableState,
-} from "../src/test-support/organization-import-rehearsal-postgres.js";
+} from "./organization-import-rehearsal-postgres.js";
 
 type RehearsalArtifact = typeof OrganizationImportRehearsalArtifactSchema.Type;
 
@@ -172,7 +173,7 @@ interface BackendRequestObservation {
   readonly sessionCookieAuth: boolean;
 }
 
-const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 const dashboardRoot = join(repositoryRoot, "apps/dashboard");
 
@@ -1385,6 +1386,7 @@ const makeRehearsalRuntime = (
 
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(observedDatabaseLayer));
   const economyLayer = EconomyLive.pipe(Layer.provide(observedDatabaseLayer));
+  const placementsLayer = PlacementsLive.pipe(Layer.provide(observedDatabaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(observedDatabaseLayer));
 
   const returningAssistantsLayer = ReturningAssistantsLive.pipe(
@@ -1435,6 +1437,7 @@ const makeRehearsalRuntime = (
     observedDatabaseLayer,
     admissionsLayer,
     economyLayer,
+    placementsLayer,
     organizationLayer,
     profileLayer,
     schoolsLayer,
@@ -2161,7 +2164,7 @@ const runRehearsal = async (
 
     // The SDK output is built during this rehearsal, so it cannot be imported before the build.
     const sdk: typeof GeneratedSdkModule = await import(
-      new URL("../../sdk/dist/effect-client.js", import.meta.url).href
+      new URL("../../packages/sdk/dist/effect-client.js", import.meta.url).href
     );
 
     const client = sdk.createEffectClient(proxy.origin, {

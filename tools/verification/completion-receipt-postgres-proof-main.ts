@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { deliverJson } from "../../../apps/backend/src/delivery/http.js";
-import { AdmissionsLive } from "./admissions/postgres-layer.js";
-import { Database } from "./service.js";
+import { deliverJson } from "../../apps/backend/src/delivery/http.js";
+import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { Database } from "@vektorprogrammet/database";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
-import { OrganizationLive } from "./organization/postgres-layer.js";
-import { ProfileLive } from "./profile/postgres-layer.js";
+import { OrganizationLive } from "@vektorprogrammet/database/organization";
+import { ProfileLive } from "@vektorprogrammet/database/profile";
 import {
   RecruitmentNotificationDeliveryError,
   RecruitmentNotificationEvidenceSchema,
@@ -15,7 +15,7 @@ import {
   releaseRecruitmentInterviewCompletion,
 } from "@vektorprogrammet/database/recruitment";
 import { Schema, Predicate, Effect, Layer, Redacted } from "effect";
-import { DatabaseLive } from "./layers.js";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
 
 interface CapturedRequest {
   readonly idempotencyKey: string;

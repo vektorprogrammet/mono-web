@@ -24,7 +24,7 @@ import {
   type ReceiptAccessFacts,
 } from "@vektorprogrammet/domain/authz";
 import { reflectAccessSpec } from "../../../../packages/http-api/src/access.js";
-import { readOwnedReceiptFile } from "@vektorprogrammet/database/receipt";
+import { readOwnedReceiptFile } from "@vektorprogrammet/database/receipt/postgres";
 import { randomUUID } from "node:crypto";
 
 import { Database, IdentitySnapshot } from "@vektorprogrammet/database";

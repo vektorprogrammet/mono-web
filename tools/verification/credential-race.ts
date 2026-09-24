@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import type { Pool } from "pg";
 import { createLocalAccountIssuer } from "better-auth";
-import type { AuthEngine } from "../auth-engine.js";
-import { nativePasswordHash } from "../password-codec.js";
+import type { AuthEngine } from "../../packages/database/src/auth-engine.js";
+import { nativePasswordHash } from "../../packages/database/src/password-codec.js";
 
 /** Real engine/database regression: reset completes after verification but before session creation. */
 export const proveCredentialResetRace = async (input: {

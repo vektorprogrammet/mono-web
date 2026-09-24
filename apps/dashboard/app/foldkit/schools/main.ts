@@ -1,6 +1,6 @@
 import { Runtime } from "foldkit";
 import type { SchoolsDirectoryClient } from "./browser-client";
-import { initialLoad, commandsFor } from "./command";
+import { commandsFor } from "./command";
 import { Model, init } from "./model";
 import "./styles.css";
 import { updateFor } from "./update";
@@ -22,7 +22,13 @@ export const embedSchoolsDirectory = (
     container,
     init: () => ({
       model: initialModel,
-      commands: [initialLoad(commands, initialModel), commands.LoadManagement({ requestId: 1 })],
+      commands: [
+        commands.LoadDirectory({
+          requestId: initialModel.requestId,
+          department: initialModel.department,
+        }),
+        commands.LoadManagement({ requestId: 1 }),
+      ],
     }),
     update: updateFor(commands),
     view,

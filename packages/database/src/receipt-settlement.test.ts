@@ -7,7 +7,7 @@ import {
   ReceiptSettlementCommandRequestSchema,
   Economy,
 } from "@vektorprogrammet/domain/receipt";
-import { EconomyLive } from "@vektorprogrammet/database/receipt";
+import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { Predicate, Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";

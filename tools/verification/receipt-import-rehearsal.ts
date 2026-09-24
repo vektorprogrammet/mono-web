@@ -21,31 +21,34 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pool } from "pg";
 import { Schema, Cause, Predicate, Effect, Redacted } from "effect";
-import { DatabaseLive } from "../../../packages/database/src/layers.js";
-import { Database, databaseHealth } from "../src/service.js";
-import { storeReceiptImportResult, reconcileReceiptImport } from "../src/receipt/postgres.js";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { Database, databaseHealth } from "@vektorprogrammet/database";
+import {
+  storeReceiptImportResult,
+  reconcileReceiptImport,
+  deliverNextReceiptOutbox,
+} from "@vektorprogrammet/database/receipt/postgres";
 import {
   ReceiptAuxiliaryEffects,
   ReceiptAuxiliaryEffectConflict,
-} from "../../../packages/domain/src/receipt/auxiliary-service.js";
-import { ReceiptFileService } from "../../../packages/domain/src/receipt/file-service.js";
-import { deliverNextReceiptOutbox } from "../src/receipt/outbox.js";
-import type { ReceiptImportResult } from "../../../packages/domain/src/receipt/import.js";
-import { ReceiptId } from "../../../packages/domain/src/receipt/schema.js";
-import { createPromiseClient } from "../../../packages/sdk/src/promise.js";
-import { canonicalJson } from "../../../packages/domain/src/tutor/evidence.js";
+} from "@vektorprogrammet/domain/receipt";
+import { ReceiptFileService } from "@vektorprogrammet/domain/receipt";
+import type { ReceiptImportResult } from "@vektorprogrammet/domain/receipt";
+import { ReceiptId } from "@vektorprogrammet/domain/receipt";
+import { createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { canonicalJson } from "../../packages/domain/src/tutor/evidence.js";
 import {
   ReceiptFileStoreResource,
   ReceiptFileStoreLive,
-} from "../../../apps/backend/src/receipt/filesystem.js";
+} from "../../apps/backend/src/receipt/filesystem.js";
 import {
   decodeSnapshot,
   digest,
   rowDigest,
   prepareReceiptSnapshot,
-} from "../../../apps/backend/src/receipt/import-snapshot.js";
+} from "../../apps/backend/src/receipt/import-snapshot.js";
 
-const root = resolve(import.meta.dirname, "../../..");
+const root = resolve(import.meta.dirname, "../..");
 
 const command = (name: string, args: string[], env = process.env) =>
   execFileSync(name, args, {

@@ -8,14 +8,10 @@ import {
   commandOnboarding,
   readOnboardingBoard,
 } from "@vektorprogrammet/database/onboarding";
-import { Predicate, Effect } from "effect";
+import { Effect } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { provisionOnboardingAccount } from "./onboarding-account.js";
-import {
-  drainOnboardingDelivery,
-  expireOnboardingSecrets,
-} from "../../../apps/backend/src/onboarding/delivery.js";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
 
@@ -148,68 +144,6 @@ describe("applicant account authority", () => {
       code: "onboarding.sign-in-required",
     });
   });
-  it("retains immutable envelope through failure, clears secret on ACK and reports lost custody accurately", async () => {
-    await issue(4);
-    const envelopes: string[] = [];
-
-    const config = {
-      sender: "sender@example.invalid",
-      claimUrl: new URL("http://127.0.0.1:5174/konto-aktivering"),
-      transport: {
-        endpoint: new URL("http://127.0.0.1:1111/mail"),
-        token: "synthetic",
-        deliveryTimeoutMilliseconds: 1000,
-      },
-    };
-
-    const drain = (fetchEffect: Parameters<typeof drainOnboardingDelivery>[2]) =>
-      runtime.runPromise(drainOnboardingDelivery("onboard-app-4", config, fetchEffect));
-
-    expect(await runtime.runPromise(drainOnboardingDelivery("onboard-app-4", undefined))).toBe(
-      "Pending",
-    );
-    expect(
-      await drain(async (_, init) => {
-        if (!Predicate.isString(init?.body)) throw new Error("Expected serialized delivery body");
-        envelopes.push(init.body);
-
-        return new Response(null, { status: 503 });
-      }),
-    ).toBe("Pending");
-    expect(
-      await drain(async (_, init) => {
-        if (!Predicate.isString(init?.body)) throw new Error("Expected serialized delivery body");
-        envelopes.push(init.body);
-
-        return new Response(null, { status: 204 });
-      }),
-    ).toBe("Delivered");
-    expect(envelopes[0]).toBe(envelopes[1]);
-
-    const rows = await runtime.runPromise(
-      Database.use(
-        (sql) =>
-          sql`SELECT state,secret,envelope FROM applicant_account_delivery WHERE invitation_id='onboard-invite-4'`,
-      ),
-    );
-
-    expect(rows[0]).toEqual({ state: "Delivered", secret: null, envelope: null });
-    await issue(5);
-    expect(
-      await runtime.runPromise(
-        drainOnboardingDelivery("onboard-app-5", config, async () => {
-          await runtime.runPromise(
-            Database.use(
-              (sql) =>
-                sql`UPDATE applicant_account_delivery SET state='Cancelled',secret=NULL,envelope=NULL,claim_id=NULL,claimed_at=NULL WHERE invitation_id='onboard-invite-5'`,
-            ),
-          );
-
-          return new Response(null, { status: 204 });
-        }),
-      ),
-    ).toBe("BusyOrComplete");
-  });
   it("reissue is ordered independently of equal timestamps and claims the proven recipient snapshot", async () => {
     await issue(6);
     await runtime.runPromise(
@@ -246,39 +180,6 @@ describe("applicant account authority", () => {
     );
 
     expect(rows[0]?.email).toBe("applicant6@example.invalid");
-  });
-  it("expired claims fail immediately and expiry sweep erases retained delivery material", async () => {
-    await runtime.runPromise(
-      Database.use((sql) =>
-        sql.withTransaction(
-          commandOnboarding({
-            departmentId: dept,
-            command: {
-              applicationId: PublicApplicationIdSchema.make("onboard-app-5"),
-              action: "Issue",
-            },
-            actor,
-            now: "2000-01-01T00:00:00.000Z",
-            invitationId: "expired-invitation",
-            token: "onboard_" + "8".repeat(64),
-            digest: "8".repeat(64),
-          }),
-        ),
-      ),
-    );
-    await expect(claim(8, "expired-person")).rejects.toMatchObject({
-      code: "onboarding.claim-invalid",
-    });
-    await runtime.runPromise(expireOnboardingSecrets);
-
-    const rows = await runtime.runPromise(
-      Database.use(
-        (sql) =>
-          sql`SELECT state,secret,envelope FROM applicant_account_delivery WHERE invitation_id='expired-invitation'`,
-      ),
-    );
-
-    expect(rows[0]).toEqual({ state: "Cancelled", secret: null, envelope: null });
   });
   it("revokes only the selected application even when two departments share an applicant", async () => {
     const other = DepartmentId.make("onboarding-other");

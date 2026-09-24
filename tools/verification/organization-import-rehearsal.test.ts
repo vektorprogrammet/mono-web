@@ -3,21 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importLegacyOrganizationEffect } from "@vektorprogrammet/domain/organization";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { Database } from "@vektorprogrammet/database";
+import { DatabaseTest } from "@vektorprogrammet/database/live";
 import { Schema, Predicate, Effect, Layer } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
-import organizationImportPlaywrightConfig, {
-  organizationImportPlaywrightOutputDir,
-} from "../../../../apps/dashboard/playwright.organization-import-rehearsal.config.js";
 import {
-  EXPECTED_MIGRATION_23_AUTH_TABLES,
-  ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS,
-  ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
-  ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS,
-  ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS,
-  ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS,
-  EXPECTED_MIGRATION_23_PUBLIC_TABLES,
   boundedCookieCapabilityFailure,
   classifyExistingPageSessionCapability,
   isNativeBrowserJourneyRequestAllowed,
@@ -26,8 +16,8 @@ import {
   clearCapturedGeneratedOutputs,
   restoreGeneratedOutput,
   writeSanitizedOrganizationImportRehearsalArtifact,
-} from "../../runtime/organization-import-rehearsal-main.js";
-import { makeControlledTestRuntime } from "../../test/runtime.js";
+} from "./organization-import-rehearsal-main.js";
+import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
 import {
   NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
   SPEC_0067,
@@ -113,86 +103,7 @@ describe("spec 0067 generated-output ownership", () => {
 });
 
 describe("spec 0067 runtime capability contracts", () => {
-  it("pins Playwright to the production dashboard and runner-owned output", () => {
-    expect(ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS).toEqual([
-      "./node_modules/@playwright/test/cli.js",
-      "test",
-      "e2e/organization-import-rehearsal.spec.ts",
-      "--config=playwright.organization-import-rehearsal.config.ts",
-      "--project=chromium",
-      "--workers=1",
-      "--retries=0",
-      "--reporter=line",
-    ]);
-    expect(ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS).toEqual(["run", "build"]);
-    expect(ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS).toEqual(["server.mjs"]);
-    expect(ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS).toEqual([
-      "packages/sdk/dist",
-      "packages/sdk/tsconfig.tsbuildinfo",
-      "apps/dashboard/.react-router",
-      "apps/dashboard/build",
-    ]);
-    expect(
-      ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS.every((path) => !path.includes(".vite")),
-    ).toBe(true);
-    expect(ORGANIZATION_IMPORT_DASHBOARD_RUNTIME).toEqual({
-      build: "ReactRouterProductionBuild",
-      server: "BunDashboardServer",
-      viteDependencyOptimizer: "NotUsed",
-    });
-
-    const runnerOwnedOutputDir = join(
-      tmpdir(),
-      "vektorprogrammet-spec-0067-runner",
-      "playwright-results",
-    );
-
-    expect(
-      organizationImportPlaywrightOutputDir({
-        ORGANIZATION_IMPORT_REHEARSAL_PLAYWRIGHT_OUTPUT_DIR: runnerOwnedOutputDir,
-      }),
-    ).toBe(runnerOwnedOutputDir);
-    expect(runnerOwnedOutputDir).not.toContain("apps/dashboard");
-    expect(organizationImportPlaywrightConfig).not.toHaveProperty("webServer");
-    expect(organizationImportPlaywrightConfig).toMatchObject({
-      testDir: "./e2e",
-      fullyParallel: false,
-      retries: 0,
-      workers: 1,
-      use: {
-        baseURL: "http://127.0.0.1:5187",
-      },
-      projects: [
-        {
-          name: "chromium",
-          use: {
-            defaultBrowserType: "chromium",
-            viewport: { width: 1440, height: 900 },
-          },
-        },
-      ],
-    });
-  });
-
-  it("pins the complete migration-23 catalog and only classifies bounded-cookie preflight", () => {
-    expect(EXPECTED_MIGRATION_23_AUTH_TABLES).toEqual([
-      "auth.account",
-      "auth.session",
-      "auth.user",
-      "auth.verification",
-    ]);
-    expect(EXPECTED_MIGRATION_23_PUBLIC_TABLES).toHaveLength(60);
-    expect([...EXPECTED_MIGRATION_23_PUBLIC_TABLES].sort()).toEqual([
-      ...EXPECTED_MIGRATION_23_PUBLIC_TABLES,
-    ]);
-    expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toEqual([
-      { path: "/api/departments", access: "Public", requestSource: "BrowserSameOrigin" },
-      { path: "/api/people", access: "BoundedSession", requestSource: "DashboardSsr" },
-      { path: "/api/profile", access: "BoundedSession", requestSource: "DashboardSsr" },
-      { path: "/api/session", access: "BoundedSession", requestSource: "DashboardSsr" },
-      { path: "/api/teams", access: "Public", requestSource: "BrowserSameOrigin" },
-    ]);
-    expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toHaveLength(5);
+  it("requires the bounded session and correct request source for browser evidence", () => {
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",

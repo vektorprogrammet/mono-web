@@ -18,7 +18,7 @@ import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/c
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { PlacementsLive } from "@vektorprogrammet/placements/server";
-import { EconomyLive } from "@vektorprogrammet/database/receipt";
+import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";

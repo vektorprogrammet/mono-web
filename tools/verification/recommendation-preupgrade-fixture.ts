@@ -1,12 +1,13 @@
 /** A real previous-schema fixture: execute canonical migrations through0036, seed immutable history, then caller applies0037 normally. */
 import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Schema, Effect, Redacted } from "effect";
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Pool } from "pg";
-import { databaseMigrationDefinitions } from "../src/migrations.js";
+import { databaseMigrationDefinitions } from "@vektorprogrammet/database/migrations";
 
 const url = process.env.JOURNEY_SEED_PG_URL!;
 
@@ -47,6 +48,7 @@ try {
       ('journey-conduct-applicant-0063','Sofie','Gjennomfører',0)`,
   );
   execFileSync("bun", ["apps/dashboard/e2e/native-conduct-journey-seed.mjs"], {
+    cwd: resolve(import.meta.dirname, "../.."),
     env: { ...process.env, CONDUCT_SEED_SKIP_IDENTITY: "1" },
     stdio: "pipe",
   });

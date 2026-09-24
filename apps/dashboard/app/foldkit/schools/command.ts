@@ -14,7 +14,7 @@ import {
 } from "./message";
 import { SchoolCommand } from "@vektorprogrammet/http-api";
 import { nativeProblemFrom } from "../../lib/native-problem";
-import { type Model, SchoolDirectoryFailure, SchoolDirectoryRequestId } from "./model";
+import { SchoolDirectoryFailure, SchoolDirectoryRequestId } from "./model";
 
 export interface SchoolsDirectoryCommands {
   readonly LoadManagement: (args: { requestId: number }) => Command.Command<Message>;
@@ -136,9 +136,3 @@ export const commandsFor = (client: SchoolsDirectoryClient): SchoolsDirectoryCom
 
   return { LoadDirectory, LoadManagement, SaveSchool };
 };
-
-export const initialLoad = (
-  commands: SchoolsDirectoryCommands,
-  model: Pick<Model, "requestId" | "department">,
-): Command.Command<Message> =>
-  commands.LoadDirectory({ requestId: model.requestId, department: model.department });

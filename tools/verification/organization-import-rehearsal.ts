@@ -1,4 +1,4 @@
-import { observePostgresStatements } from "./observe-postgres.js";
+import { observePostgresStatements } from "../../packages/database/src/test-support/observe-postgres.js";
 import {
   LegacyDepartmentRowSchema,
   LegacyMembershipRowSchema,
@@ -7,7 +7,7 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { flow, Predicate, Data, Effect, Schema } from "effect";
-import type { DatabaseOperations } from "../service.js";
+import type { DatabaseOperations } from "@vektorprogrammet/database";
 
 export const SPEC_0067 = {
   contractRevision: "0067.0",

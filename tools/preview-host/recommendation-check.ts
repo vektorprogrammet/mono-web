@@ -515,7 +515,7 @@ try {
   assert.ok(env.BETTER_AUTH_SECRET);
   secrets.push(env.BETTER_AUTH_SECRET);
   recordGate("disposable PostgreSQL is ready");
-  run("bun", ["packages/database/runtime/recommendation-preupgrade-fixture.ts"], {
+  run("bun", ["tools/verification/recommendation-preupgrade-fixture.ts"], {
     ...env,
     RECOMMENDATION_PREUPGRADE_THROUGH_0038: "1",
   });

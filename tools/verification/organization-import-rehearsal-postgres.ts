@@ -1,4 +1,4 @@
-import type { DatabaseOperations } from "../service.js";
+import type { DatabaseOperations } from "@vektorprogrammet/database";
 import {
   canonicalJsonValue,
   canonicalJsonBytes,
