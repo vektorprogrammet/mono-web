@@ -258,13 +258,15 @@ Rules:
 configuration, PostgreSQL, identity, file storage, notification, and HTTP layers.
 It then runs the server and worker programs.
 
-`apps/backend/src/cloudflare-worker.ts` is the Cloudflare development composition
-root. It uses the same domain and HTTP contracts. Its Layers provide Hyperdrive
-PostgreSQL access, R2 private-file storage, provider email, identity, and Worker HTTP.
-Concrete Cloudflare imports stay in the application and infrastructure packages.
+`bun dev` selects the local Bun backend and both frontend development servers.
+The existing Turbo tasks own these processes; PostgreSQL remains a separately managed prerequisite.
+The launcher requires a dedicated loopback database and disables external delivery.
+See [local development](../README.md#local-native-development) for the executable configuration interface.
 
-The deployed development journey still requires acceptance.
-[STATE.md](../STATE.md#current) records the unresolved schema and scheduled-recovery ownership.
+`apps/backend/src/cloudflare-worker.ts` retains the superseded Cloudflare backend composition.
+Its Hyperdrive, R2, and email integration is not the selected backend target.
+The target is a portable Bun backend with PostgreSQL. Provider selection and provisioning remain deferred until cutover preparation.
+[STATE.md](../STATE.md#current) records the current authority and acceptance limits.
 A resource declaration or cron configuration does not prove a working delivery drain.
 
 The homepage and dashboard have separate Worker entry points. Pull-request previews

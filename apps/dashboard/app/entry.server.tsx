@@ -16,10 +16,14 @@ export default async function handleRequest(
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
 
-  if (pathname === "/dashboard/login" || pathname === "/dashboard/oauth/consent") {
+  if (
+    pathname === `${import.meta.env.BASE_URL}login` ||
+    pathname === `${import.meta.env.BASE_URL}oauth/consent`
+  ) {
     responseHeaders.set("Cache-Control", "no-store");
     responseHeaders.set("Pragma", "no-cache");
-    responseHeaders.set("Referrer-Policy", "no-referrer");
+    // Keep native form Origin intact without exposing OAuth paths or query strings.
+    responseHeaders.set("Referrer-Policy", "strict-origin");
   }
 
   if (request.method.toUpperCase() === "HEAD") {
@@ -62,7 +66,12 @@ export default async function handleRequest(
 /** Request errors may contain credential URLs; log only a bounded typed summary. */
 export const handleError = flow(nativeFailureFrom, (error) => {
   const status = error instanceof Response ? String(error.status) : "unknown";
-  const code = error instanceof Error || error instanceof Response ? "unknown" : error?.code ?? "unknown";
+
+  const code =
+    error instanceof Error || error instanceof Response ? "unknown" : (error?.code ?? "unknown");
+
   const kind = error instanceof Error ? error.name : "unknown";
-  console.error(`Dashboard request failed phase=handler kind=${kind} status=${status} code=${code}`);
+  console.error(
+    `Dashboard request failed phase=handler kind=${kind} status=${status} code=${code}`,
+  );
 });

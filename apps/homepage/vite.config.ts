@@ -52,7 +52,7 @@ export default defineConfig(({ command, isPreview }) => {
   if (dashboardOrigin) {
     const mount = dashboardMount(process.env);
     const loginUrl = new URL(`${mount}login`, dashboardOrigin);
-    loginUrl.searchParams.set("redirectTo", mount);
+    loginUrl.searchParams.set("redirectTo", "/");
     dashboardLoginUrl = loginUrl.href;
   }
 
@@ -61,7 +61,9 @@ export default defineConfig(({ command, isPreview }) => {
       "import.meta.env.HOMEPAGE_LOCAL_DEV": JSON.stringify(String(localDevelopment)),
       "import.meta.env.HOMEPAGE_DASHBOARD_LOGIN_URL": JSON.stringify(dashboardLoginUrl),
       __BUILD_COMMIT__: JSON.stringify(commit),
-      __BUILD_CONTENT_DIGEST__: JSON.stringify(computeContentDigest(DEV_CONTENT, inputs.assetManifest)),
+      __BUILD_CONTENT_DIGEST__: JSON.stringify(
+        computeContentDigest(DEV_CONTENT, inputs.assetManifest),
+      ),
       __BUILD_ROUTE_DIGEST__: JSON.stringify(computeRouteDigest(DEV_ROUTE_CENSUS, inputs)),
     },
     plugins: [...cloudflarePlugins, ...reactRouter(), tailwindcss()],

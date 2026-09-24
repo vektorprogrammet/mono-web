@@ -1,6 +1,11 @@
 # Cloudflare development provider boundary
 
-Status: frozen for local implementation on 2026-09-22. Production use is not authorized.
+Status: superseded by operator direction on 2026-09-24. Not accepted or authorized for deployment.
+
+The operator selected portable Bun hosting with PostgreSQL. Development remains local without paid infrastructure provisioning.
+Production infrastructure selection and provisioning are deferred until migration cutover preparation. Free managed plans remain optional evaluation candidates.
+The previous Worker, Hyperdrive, and Cloudflare-only composition requirements below are historical, not an active implementation mandate.
+The private-file and mail behaviors remain relevant. Their production providers are not selected by this document.
 
 ## Goal
 

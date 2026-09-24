@@ -65,7 +65,9 @@ if (
   database.hash !== "" ||
   (database.port !== "" && (Number(database.port) < 1 || Number(database.port) > 65_535))
 ) {
-  fail("BACKEND_PG_URL must name a loopback PostgreSQL database, without query parameters or fragments.");
+  fail(
+    "BACKEND_PG_URL must name a loopback PostgreSQL database, without query parameters or fragments.",
+  );
 }
 
 const secret = process.env.BETTER_AUTH_SECRET;
@@ -115,7 +117,17 @@ const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 // PostgreSQL overrides, preload hooks, or release/rehearsal configuration.
 const env: NodeJS.ProcessEnv = {};
 
-for (const key of ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TERM", "COLORTERM", "NO_COLOR", "FORCE_COLOR"]) {
+for (const key of [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "COLORTERM",
+  "NO_COLOR",
+  "FORCE_COLOR",
+]) {
   if (process.env[key] !== undefined) env[key] = process.env[key];
 }
 
@@ -140,7 +152,10 @@ Object.assign(env, {
   VITE_API_URL: dashboardOrigin,
   DASHBOARD_MOUNT: mount,
   RECEIPT_STAGING_ROOT: receiptRoot("RECEIPT_STAGING_ROOT", ".cache/local-dev/receipts/staging"),
-  RECEIPT_COMMITTED_ROOT: receiptRoot("RECEIPT_COMMITTED_ROOT", ".cache/local-dev/receipts/committed"),
+  RECEIPT_COMMITTED_ROOT: receiptRoot(
+    "RECEIPT_COMMITTED_ROOT",
+    ".cache/local-dev/receipts/committed",
+  ),
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
   SCHOOL_SERVICE_NOTIFICATION_MODE: "disabled",
   SCHOOL_SERVICE_DISPATCH_NOTIFICATION_MODE: "disabled",
@@ -166,12 +181,24 @@ try {
   fail("The installed Turbo binary is missing. Run bun install before bun dev.");
 }
 
-process.stdout.write(`Homepage: http://127.0.0.1:${homepagePort}\nDashboard: ${dashboardOrigin}${mount}\nBackend: ${backendOrigin}\nExternal delivery: disabled\n`);
+process.stdout.write(
+  `Homepage: http://127.0.0.1:${homepagePort}\nDashboard: ${dashboardOrigin}${mount}\nBackend: ${backendOrigin}\nExternal delivery: disabled\n`,
+);
 
-const child = spawn(turbo, [
-  "run", "dev", "--env-mode=loose", "--ui=stream", "--no-daemon",
-  "--filter=@vektorprogrammet/backend", "--filter=@monoweb/homepage", "--filter=@monoweb/dashboard",
-], { cwd: root, env, stdio: "inherit" });
+const child = spawn(
+  turbo,
+  [
+    "run",
+    "dev",
+    "--env-mode=loose",
+    "--ui=stream",
+    "--no-daemon",
+    "--filter=@vektorprogrammet/backend",
+    "--filter=@monoweb/homepage",
+    "--filter=@monoweb/dashboard",
+  ],
+  { cwd: root, env, stdio: "inherit" },
+);
 
 // Turbo owns task startup, failure cancellation, and descendant shutdown.
 let interrupted: NodeJS.Signals | undefined;

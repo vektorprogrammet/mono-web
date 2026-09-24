@@ -89,16 +89,42 @@ bun run --cwd packages/http-api generate:check
 Homepage builds require a clean committed source artifact. Do not weaken that provenance guard for a dirty operator tree.
 Use a separate source-matched committed snapshot for acceptance, as described in [AGENTS.md](AGENTS.md#verification-and-resources).
 
-For native development, configure the backend dependencies before starting these commands in separate terminals:
+### Local native development
+
+Use a dedicated local PostgreSQL database with synthetic data. Do not use a shared database or a production tunnel.
+The backend applies schema migrations and can write application data. The launcher does not create or reset PostgreSQL.
+
+Set `BACKEND_PG_URL` and `BETTER_AUTH_SECRET` in your shell or the ignored root `.env`.
+The URL must name a loopback PostgreSQL database without query parameters.
+Use a secret of at least 32 characters, and keep it stable across restarts.
 
 ```bash
-bun run --cwd apps/backend dev
-bun run dev
+bun dev --help
+bun dev
 ```
 
-The first command starts the native backend. The second starts only the homepage and dashboard.
-The retained Symfony application uses `bun run dev:server`. It is not the native backend.
-Package manifests define exact scripts. These commands do not authorize production or provider access.
+`bun dev` starts the homepage, dashboard, and native Bun backend through the existing Turbo tasks.
+Its help output defines the ports, dashboard mount, and private-file paths. All HTTP listeners use `127.0.0.1`.
+Database records and private files persist across restarts. Ctrl+C stops the owned application tasks, not existing services.
+
+For a new synthetic database, provision the native journey accounts separately before sign-in:
+If you use `.env`, export `BACKEND_PG_URL` in your shell before this seed command.
+
+```bash
+JOURNEY_PG_URL="$BACKEND_PG_URL" bun apps/dashboard/e2e/native-users-journey.seed.mjs
+```
+
+The seed creates synthetic profiles and authority facts. Its source defines the development account credentials.
+Open the homepage URL printed by the launcher, select **Logg inn**, and sign in to the dashboard.
+The **Brukere** page reads the native PostgreSQL directory.
+
+External mail and notification delivery remain disabled. Contact submission without trusted ingress fails closed.
+The launcher does not inherit provider configuration, and the backend does not load package `.env` files.
+These boundaries do not prevent database writes.
+
+The homepage development server accepts local edits and labels its provenance `working-tree`.
+Release builds still require clean committed source. The retained Symfony application uses `bun run dev:server`.
+No development command authorizes production access or cloud provisioning.
 
 ## Change rule
 

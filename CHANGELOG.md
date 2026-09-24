@@ -1,5 +1,14 @@
 ## Unreleased
 
+### Local native development
+
+- Start the homepage, dashboard, and native Bun backend with `bun dev`, using the existing Turbo tasks.
+- Require a dedicated local PostgreSQL URL and a stable authentication secret. Keep external delivery disabled.
+- Permit homepage development from local edits without weakening release-build provenance checks.
+- Fix absent router context in local rendering and route homepage sign-in to the configured dashboard.
+- Preserve the native form Origin before JavaScript hydration, without exposing sensitive URL paths or query strings.
+- Verify database-backed browser reads, restart persistence, both dashboard mounts, and application shutdown after interruption or startup failure.
+
 ### Coordinator card identities
 
 - Identify absent people separately from reporters and substitutes.

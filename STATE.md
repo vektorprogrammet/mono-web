@@ -7,11 +7,27 @@ Lifecycle: build
 Documentation reconciled against source and retained local evidence on 2026-09-24.
 Production still uses legacy PHP. Local implementation and acceptance do not authorize replacement.
 
-The [Cloudflare development contract](docs/specs/cloudflare-development-provider-boundary.md) remains open.
-Its schema ownership conflicts with the implementation: the contract requires Worker migrations through Hyperdrive.
-`DatabaseRuntimeLive` requires an existing schema and rejects migrations.
-Alchemy declares a cron, but the backend Worker exports only `fetch`.
-Schema initialization and scheduled delivery recovery need local implementation work before provider acceptance.
+The operator selected a portable Bun backend with PostgreSQL, not a Cloudflare Worker backend.
+Development remains local. Paid infrastructure provisioning is deferred until migration cutover preparation.
+DigitalOcean, Netlify, and other managed-database hosts remain candidates, not selected deployments.
+Free plans can be evaluated, but no cloud provisioning or source-data upload is authorized.
+The [previous Cloudflare development contract](docs/specs/cloudflare-development-provider-boundary.md) is superseded, not accepted.
+Its Hyperdrive transport conflicts with the PostgreSQL advisory locks that the native backend uses.
+The existing local Bun runtime remains the development path. Provider adapters and deployed acceptance remain unverified.
+Production cutover still requires provider proof, migration rehearsal, and rollback acceptance.
+
+The canonical `bun dev` command now starts both frontends and the native Bun backend.
+It requires an explicit local PostgreSQL URL and a stable authentication secret.
+The existing Turbo tasks own the application processes. PostgreSQL remains a separate prerequisite.
+External delivery is disabled; database records and local private files remain persistent.
+See [local development](README.md#local-native-development) for configuration and synthetic account provisioning.
+
+Local Chromium acceptance verified homepage rendering, native sign-in, and active and inactive PostgreSQL directory records.
+The session and records survived a stack restart. Interruption and a startup port conflict released the owned application listeners.
+A missing configuration failed before startup, and a dirty homepage release build remained blocked.
+Native form sign-in also passed without JavaScript at both supported dashboard mounts.
+The login documents preserve the form Origin without exposing URL paths or query strings in the Referer header.
+Acceptance used synthetic data in an isolated local PostgreSQL cluster, not production data or provider services.
 
 The [PR preview workflow](docs/specs/worker-pr-previews.md) implements exact-head frontend builds, deployment, probes, review comments, and cleanup.
 These provider actions remain unobserved. Frontend previews do not prove authenticated full-system operation.
@@ -217,26 +233,26 @@ and settlement references are still needed for the receipt migration.
 School administration, Organization lifecycle, recruitment maintenance, scoped mailing recipients, requested interview rebooking, and coordinator identity cards have local synthetic acceptance.
 The remaining journeys and policy boundaries appear below. No production activity or external provider delivery was observed.
 
-| Priority | Work | Acceptance gate | Authority |
-| --- | --- | --- | --- |
-| 1 | Complete remaining operational journeys | Resolve the policy boundaries below before implementing additional journeys. | Local implementation for defined contracts. Product decisions for unresolved policy. |
-| 2 | Extend real-source migration coverage | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and disposition. | Local adapter work. Current production access requires authorization. |
-| 3 | Complete provider runtime ownership | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism. | Local implementation. |
-| 4 | Exercise the deployed development journey | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR previews separately. | Explicit provider and credential authority. |
-| 5 | Rehearse and authorize cutover | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership. | Separate production authority. |
+| Priority | Work                                      | Acceptance gate                                                                                                                                               | Authority                                                                            |
+| -------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 1        | Complete remaining operational journeys   | Resolve the policy boundaries below before implementing additional journeys.                                                                                  | Local implementation for defined contracts. Product decisions for unresolved policy. |
+| 2        | Extend real-source migration coverage     | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and disposition.            | Local adapter work. Current production access requires authorization.                |
+| 3        | Complete provider runtime ownership       | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism.                       | Local implementation.                                                                |
+| 4        | Exercise the deployed development journey | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR previews separately. | Explicit provider and credential authority.                                          |
+| 5        | Rehearse and authorize cutover            | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership.                                       | Separate production authority.                                                       |
 
 ### Remaining operational obligations
 
 The source review distinguishes missing native outcomes from undefined policy. None of the unresolved obligations is waived.
 
-| Obligation | Source finding and next boundary |
-| --- | --- |
-| Mailing administration | Scoped recipient reads have local acceptance. Arbitrary list administration and Workspace synchronization need a separate operational requirement and contract. |
+| Obligation                  | Source finding and next boundary                                                                                                                                                                                                                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Mailing administration      | Scoped recipient reads have local acceptance. Arbitrary list administration and Workspace synchronization need a separate operational requirement and contract.                                                                                                                                                                      |
 | Standalone team recruitment | Legacy receives an independent team application, sends a receipt and team notification, and permits scoped review. Native team-interest reads do not replace it. Confirm active cases and the responsible owner. Intake, review, retention, and any handover need an explicit contract. Do not invent hiring states or appointments. |
-| Reminders | Legacy defines applicant reminders, staff digests, and separate admission subscribers. Source does not establish production cadence. Native invitation retry and requested rebooking are not reminders. Reminder cadence, SMS, subscriber consent, and human follow-up ownership remain undecided. |
-| Interview no-show | Neither source establishes a distinct nonattendance outcome. `NO_CONTACT` means not yet contacted, not absent. Decide whether observed nonattendance needs its own evidence and rebooking contract or an explicit handover. Do not infer nonattendance from elapsed time. |
-| Service corrections | Ordinary placement edits exist. Frozen commitments and terminal evidence have no reversal or supersession command. Legacy history edit/delete is not a safe substitute. Define correction cases, authority, evidence, and downstream effects before adding reversal. |
-| Coordinator reads | Identity cards have local acceptance. Historical lookup, exports, and aggregate reports need a named operational consumer and an explicit contract, not generic chart parity. |
+| Reminders                   | Legacy defines applicant reminders, staff digests, and separate admission subscribers. Source does not establish production cadence. Native invitation retry and requested rebooking are not reminders. Reminder cadence, SMS, subscriber consent, and human follow-up ownership remain undecided.                                   |
+| Interview no-show           | Neither source establishes a distinct nonattendance outcome. `NO_CONTACT` means not yet contacted, not absent. Decide whether observed nonattendance needs its own evidence and rebooking contract or an explicit handover. Do not infer nonattendance from elapsed time.                                                            |
+| Service corrections         | Ordinary placement edits exist. Frozen commitments and terminal evidence have no reversal or supersession command. Legacy history edit/delete is not a safe substitute. Define correction cases, authority, evidence, and downstream effects before adding reversal.                                                                 |
+| Coordinator reads           | Identity cards have local acceptance. Historical lookup, exports, and aggregate reports need a named operational consumer and an explicit contract, not generic chart parity.                                                                                                                                                        |
 
 Current-source reconciliation must establish active cases, external schedules, and responsible humans. Source routes and historical backup counts cannot establish current workload.
 
