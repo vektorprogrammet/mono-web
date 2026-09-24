@@ -285,40 +285,47 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
       goldenSteps[observations.length],
       "every required checkpoint must run in order",
     );
-    const connection = await pool.connect();
     let facts;
+    const deadline = Date.now() + 15000;
 
-    try {
-      await connection.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-      const rows = async (sql) => (await connection.query(sql)).rows;
-      facts = {
-        affiliations: await rows(
-          "SELECT * FROM organization_volunteer_affiliations ORDER BY person_id",
-        ),
-        affiliationHistory: await rows(
-          "SELECT * FROM organization_volunteer_affiliation_audit ORDER BY revision",
-        ),
-        placements: await rows("SELECT * FROM assistant_placements ORDER BY placement_id"),
-        placementHistory: await rows("SELECT * FROM assistant_placement_audit ORDER BY revision"),
-        demands: await rows("SELECT * FROM school_service_demand"),
-        proposals: await rows("SELECT * FROM school_service_proposals"),
-        commitments: await rows(
-          "SELECT *,service_date::text AS service_date,start_time::text AS start_time,end_time::text AS end_time FROM school_service_commitments",
-        ),
-        decisions: await rows("SELECT * FROM school_service_decisions"),
-        occurrences: await rows(
-          "SELECT *,occurred_on::text AS occurred_on FROM school_service_occurrences",
-        ),
-        serviceHistory: await rows("SELECT * FROM school_service_audit ORDER BY audit_id"),
-        outcomeHistory: await rows("SELECT * FROM school_service_coverage_audit ORDER BY audit_id"),
-        notifications: await rows(
-          "SELECT effect_id,proposal_id,person_id,payload_json FROM school_service_notification_outbox ORDER BY effect_id",
-        ),
-        dispatches: await rows("SELECT effect_id FROM school_service_dispatch_notification_outbox"),
-        pool: await rows(
-          "SELECT preferences.*, application.year_of_study, applicant.year_of_study AS applicant_year, period.department_id, period.semester_id, link.person_id FROM admission_substitute_preferences AS preferences JOIN admission_applications AS application USING(application_id) JOIN admission_periods AS period USING(admission_period_id) JOIN admission_applicants AS applicant USING(applicant_id) JOIN applicant_account_links AS link USING(applicant_id) ORDER BY application_id",
-        ),
-        eligible: await rows(`
+    for (;;) {
+      const connection = await pool.connect();
+
+      try {
+        await connection.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        const rows = async (sql) => (await connection.query(sql)).rows;
+        facts = {
+          affiliations: await rows(
+            "SELECT * FROM organization_volunteer_affiliations ORDER BY person_id",
+          ),
+          affiliationHistory: await rows(
+            "SELECT * FROM organization_volunteer_affiliation_audit ORDER BY revision",
+          ),
+          placements: await rows("SELECT * FROM assistant_placements ORDER BY placement_id"),
+          placementHistory: await rows("SELECT * FROM assistant_placement_audit ORDER BY revision"),
+          demands: await rows("SELECT * FROM school_service_demand"),
+          proposals: await rows("SELECT * FROM school_service_proposals"),
+          commitments: await rows(
+            "SELECT *,service_date::text AS service_date,start_time::text AS start_time,end_time::text AS end_time FROM school_service_commitments",
+          ),
+          decisions: await rows("SELECT * FROM school_service_decisions"),
+          occurrences: await rows(
+            "SELECT *,occurred_on::text AS occurred_on FROM school_service_occurrences",
+          ),
+          serviceHistory: await rows("SELECT * FROM school_service_audit ORDER BY audit_id"),
+          outcomeHistory: await rows(
+            "SELECT * FROM school_service_coverage_audit ORDER BY audit_id",
+          ),
+          notifications: await rows(
+            "SELECT effect_id,proposal_id,person_id,payload_json FROM school_service_notification_outbox ORDER BY effect_id",
+          ),
+          dispatches: await rows(
+            "SELECT effect_id FROM school_service_dispatch_notification_outbox",
+          ),
+          pool: await rows(
+            "SELECT preferences.*, application.year_of_study, applicant.year_of_study AS applicant_year, period.department_id, period.semester_id, link.person_id FROM admission_substitute_preferences AS preferences JOIN admission_applications AS application USING(application_id) JOIN admission_periods AS period USING(admission_period_id) JOIN admission_applicants AS applicant USING(applicant_id) JOIN applicant_account_links AS link USING(applicant_id) ORDER BY application_id",
+          ),
+          eligible: await rows(`
           SELECT DISTINCT ON (absence.absence_id, link.person_id)
             absence.absence_id, application.application_id, link.person_id
           FROM school_service_absences AS absence
@@ -337,34 +344,39 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
             AND NOT EXISTS (SELECT 1 FROM school_service_person_reservations AS reservation WHERE reservation.person_id=link.person_id AND reservation.service_interval && tsrange(commitment.service_date+commitment.start_time,commitment.service_date+commitment.end_time,'[)'))
           ORDER BY absence.absence_id,link.person_id,application.application_id
         `),
-        absences: await rows("SELECT * FROM school_service_absences ORDER BY absence_id"),
-        offers: await rows("SELECT * FROM school_service_substitute_offers ORDER BY offer_id"),
-        offerReservations: await rows(
-          "SELECT source_id,commitment_id,person_id FROM school_service_person_reservations WHERE source_kind='Offer' ORDER BY source_id",
-        ),
-        responses: await rows(
-          "SELECT * FROM school_service_substitute_offer_responses ORDER BY offer_id",
-        ),
-        acknowledgements: await rows(
-          "SELECT * FROM school_service_coverage_acknowledgements ORDER BY acknowledgement_id",
-        ),
-        closures: await rows("SELECT * FROM school_service_closures ORDER BY closure_id"),
-        dispatchDetails: await rows(
-          "SELECT effect_id,offer_id,person_id,status,attempts,last_failure_tag,payload_json FROM school_service_dispatch_notification_outbox ORDER BY effect_id",
-        ),
-        receipts: await rows(
-          "SELECT identity_sha256,operation_id,state,status,convert_from(body_bytes,'UTF8') AS body FROM native_http_idempotency_receipts WHERE status BETWEEN 200 AND 299 ORDER BY identity_sha256",
-        ),
-        volunteerAuthority: await rows(
-          `SELECT person_id FROM organization_memberships WHERE person_id='${volunteerId}' UNION ALL SELECT person_id FROM organization_global_administrator_grants WHERE person_id='${volunteerId}'`,
-        ),
-      };
-      await connection.query("COMMIT");
-    } catch (error) {
-      await connection.query("ROLLBACK");
-      throw error;
-    } finally {
-      connection.release();
+          absences: await rows("SELECT * FROM school_service_absences ORDER BY absence_id"),
+          offers: await rows("SELECT * FROM school_service_substitute_offers ORDER BY offer_id"),
+          offerReservations: await rows(
+            "SELECT source_id,commitment_id,person_id FROM school_service_person_reservations WHERE source_kind='Offer' ORDER BY source_id",
+          ),
+          responses: await rows(
+            "SELECT * FROM school_service_substitute_offer_responses ORDER BY offer_id",
+          ),
+          acknowledgements: await rows(
+            "SELECT * FROM school_service_coverage_acknowledgements ORDER BY acknowledgement_id",
+          ),
+          closures: await rows("SELECT * FROM school_service_closures ORDER BY closure_id"),
+          dispatchDetails: await rows(
+            "SELECT effect_id,offer_id,person_id,status,attempts,last_failure_tag,payload_json FROM school_service_dispatch_notification_outbox ORDER BY effect_id",
+          ),
+          receipts: await rows(
+            "SELECT identity_sha256,operation_id,state,status,convert_from(body_bytes,'UTF8') AS body FROM native_http_idempotency_receipts WHERE status BETWEEN 200 AND 299 ORDER BY identity_sha256",
+          ),
+          volunteerAuthority: await rows(
+            `SELECT person_id FROM organization_memberships WHERE person_id='${volunteerId}' UNION ALL SELECT person_id FROM organization_global_administrator_grants WHERE person_id='${volunteerId}'`,
+          ),
+        };
+        await connection.query("COMMIT");
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+
+      if (step !== "offer-failed" || facts.dispatchDetails[0]?.status === "Failed") break;
+      assert.ok(Date.now() < deadline, "independent failed delivery snapshot absent");
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
 
     assert.deepEqual(

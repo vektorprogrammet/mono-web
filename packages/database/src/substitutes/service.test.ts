@@ -75,10 +75,8 @@ describe("complete substitute commands in the caller transaction", () => {
             const before = yield* substitutes.readEntry(applicationId);
 
             const failure = yield* Effect.flip(
-              substitutes.execute(
-                applicationId,
-                { action: "edit", input: { ...input, yearOfStudy: 5 } },
-                (current) => Effect.fail({ code: "precondition.failed", current }),
+              substitutes.execute(applicationId, { action: "activate", input }, (current) =>
+                Effect.fail({ code: "precondition.failed", current }),
               ),
             );
 
