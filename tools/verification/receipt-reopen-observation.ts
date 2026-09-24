@@ -1,7 +1,7 @@
 /** 0102: extends the owned 0095/0097 runtime, sharing their local acknowledged transport. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -299,37 +299,71 @@ export async function observeReceiptReopening(options: {
   });
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
 
-  const dashboard = spawn("bun", ["server.mjs"], {
-    cwd: join(options.root, "apps/dashboard"),
-    env: {
-      ...process.env,
-      API_URL: origin,
-      VITE_API_URL: dashboardOrigin,
-      DASHBOARD_ORIGIN: dashboardOrigin,
-      DASHBOARD_MOUNT: "/",
-      HOST: "127.0.0.1",
-      PORT: new URL(dashboardOrigin).port,
-      NODE_ENV: "production",
-    },
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  const dashboardRoot = join(options.root, "apps/dashboard");
 
+  const environment = {
+    ...process.env,
+    API_URL: origin,
+    VITE_API_URL: dashboardOrigin,
+    DASHBOARD_ORIGIN: dashboardOrigin,
+    DASHBOARD_MOUNT: "/",
+    HOST: "127.0.0.1",
+    PORT: new URL(dashboardOrigin).port,
+    NODE_ENV: "production",
+  };
+
+  const children: ChildProcess[] = [];
   const startupDiagnostics: string[] = [];
-  dashboard.stderr?.on("data", (chunk) => {
+
+  const captureDiagnostics = (chunk: Buffer) => {
     startupDiagnostics.push(String(chunk));
 
     if (startupDiagnostics.length > 20) startupDiagnostics.shift();
-  });
+  };
+
   let browser: any;
   const errors: string[] = [];
   const mutations: Array<{ path: string; status: number }> = [];
 
   try {
+    for (const cwd of [join(options.root, "packages/sdk"), dashboardRoot]) {
+      const build = spawn("bun", ["run", "build"], {
+        cwd,
+        env: environment,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+
+      children.push(build);
+      build.stderr?.on("data", captureDiagnostics);
+      await new Promise<void>((resolve, reject) => {
+        build.once("error", reject);
+        build.once("exit", (code) => {
+          if (code === 0) resolve();
+          else
+            reject(
+              new Error(
+                `Production proof build failed in ${cwd}: exit=${code}; ${startupDiagnostics.join("").slice(-4000)}`,
+              ),
+            );
+        });
+      });
+    }
+
+    const dashboard = spawn("bun", ["server.mjs"], {
+      cwd: dashboardRoot,
+      env: environment,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+
+    children.push(dashboard);
+    dashboard.stderr?.on("data", captureDiagnostics);
     let ready = false;
 
     for (let n = 0; n < 100; n++) {
+      if (dashboard.exitCode !== null || dashboard.signalCode !== null) break;
+
       try {
-        if ((await fetch(`${dashboardOrigin}/logg-inn`)).status < 500) {
+        if ((await fetch(`${dashboardOrigin}/login`, { redirect: "manual" })).status === 200) {
           ready = true;
           break;
         }
@@ -518,10 +552,13 @@ export async function observeReceiptReopening(options: {
   } finally {
     if (browser) await browser.close();
 
-    if (dashboard.exitCode === null && dashboard.signalCode === null) {
-      const exited = new Promise((resolve) => dashboard.once("exit", resolve));
-      dashboard.kill("SIGTERM");
-      const timer = setTimeout(() => dashboard.kill("SIGKILL"), 5000);
+    for (const child of children) {
+      if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null)
+        continue;
+
+      const exited = new Promise((resolve) => child.once("exit", resolve));
+      child.kill("SIGTERM");
+      const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
 
       try {
         await exited;
