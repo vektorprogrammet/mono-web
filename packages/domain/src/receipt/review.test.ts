@@ -1,7 +1,7 @@
-import { Predicate } from "effect";
+import { Predicate, Schema } from "effect";
 import { expect, it } from "@effect/vitest";
 import { DepartmentId, PersonId } from "../organization/schema.js";
-import { importLegacyReceipt } from "./import.js";
+import { importLegacyReceipt, ReceiptQuarantineReason } from "./import.js";
 import {
   decodeReviewedReceiptSnapshot,
   receiptSourceRevision,
@@ -155,4 +155,42 @@ it("rejects undeclared private values instead of silently including them in evid
   expect(() => decodeReviewedReceiptSnapshot({
     ...snapshot, review: { ...snapshot.review, entries: [{ ...entry, payment: { ...entry.payment, plaintext: "12345678901" } }] },
   })).toThrow();
+});
+
+it("normalizes equivalent reviewed timestamps for native persistence and reconciliation", () => {
+  const provenance = {
+    sourceRepository: snapshot.review.sourceRepository, sourceRevision: snapshot.review.sourceRevision,
+    snapshotId: snapshot.review.snapshotId, sourceWatermark: snapshot.review.sourceWatermark,
+    transformationRevision: snapshot.review.transformationRevision,
+    sourceDigest: entry.sourceRowDigest, destinationIdentity: "receipt-12",
+  };
+
+  const source = {
+    ...row, ownerPersonId: entry.person!.personId, departmentId: entry.department.departmentId,
+    receiptDate: entry.receiptDate, status: "refunded",
+    paymentAccountCiphertext: "encrypted-account",
+    file: { ...entry.file, fileRef: "staged-12", objectKey: "private-12" },
+  };
+
+  const utc = importLegacyReceipt({
+    ...source, submittedAt: "2026-08-20T11:00:00Z", refundDate: "2026-08-25T12:00:00Z",
+  }, "receipt-12", provenance);
+
+  const offset = importLegacyReceipt({
+    ...source, submittedAt: "2026-08-20T13:00:00+02:00", refundDate: "2026-08-25T14:00:00+02:00",
+  }, "receipt-12", provenance);
+
+  if (!Predicate.isTagged(utc, "AcceptedReceiptImport") || !Predicate.isTagged(offset, "AcceptedReceiptImport"))
+    throw new Error("Accepted receipt required");
+  expect(offset.receipt).toEqual(utc.receipt);
+  expect(utc.receipt.submittedAt).toBe("2026-08-20T11:00:00.000Z");
+  expect(utc.receipt.approvedAt).toBe("2026-08-25T12:00:00.000Z");
+  expect(utc.provenance.sourceDigest).toBe(entry.sourceRowDigest);
+});
+
+it("rejects arbitrary private strings as quarantine reason evidence", () => {
+  const decodeReasons = Schema.decodeUnknownSync(Schema.Array(ReceiptQuarantineReason));
+
+  expect(decodeReasons(["UnresolvedOwner", "UnreadableFile"])).toEqual(["UnresolvedOwner", "UnreadableFile"]);
+  expect(() => decodeReasons(["UnresolvedOwner", "private/account/12345678901"])).toThrow();
 });

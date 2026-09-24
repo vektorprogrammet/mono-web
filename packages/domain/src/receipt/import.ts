@@ -1,4 +1,4 @@
-import { Data, Predicate } from "effect";
+import { Data, Predicate, Schema } from "effect";
 import {
   isIsoDate,
   isIsoInstant,
@@ -10,29 +10,32 @@ import {
   type ReceiptStatus,
 } from "./schema.js";
 
-export type ReceiptQuarantineReason =
-  | "InvalidSourceRow"
-  | "UnsafeFilePath"
-  | "FileDigestMismatch"
-  | "SourceDigestMismatch"
-  | "UnresolvedOwner"
-  | "UnresolvedDepartment"
-  | "MissingVisualId"
-  | "DuplicateVisualId"
-  | "SourceIdentityCollision"
-  | "InvalidDestinationIdentity"
-  | "DestinationIdentityCollision"
-  | "InvalidAmount"
-  | "UnsupportedFile"
-  | "InvalidFileIdentity"
-  | "UnreadableFile"
-  | "InvalidDescription"
-  | "InvalidReceiptDate"
-  | "InvalidSubmittedAt"
-  | "UnknownStatus"
-  | "RefundDateContradiction"
-  | "MissingPaymentAccount"
-  | "MissingFile";
+export const ReceiptQuarantineReason = Schema.Literals([
+  "InvalidSourceRow",
+  "UnsafeFilePath",
+  "FileDigestMismatch",
+  "SourceDigestMismatch",
+  "UnresolvedOwner",
+  "UnresolvedDepartment",
+  "MissingVisualId",
+  "DuplicateVisualId",
+  "SourceIdentityCollision",
+  "InvalidDestinationIdentity",
+  "DestinationIdentityCollision",
+  "InvalidAmount",
+  "UnsupportedFile",
+  "InvalidFileIdentity",
+  "UnreadableFile",
+  "InvalidDescription",
+  "InvalidReceiptDate",
+  "InvalidSubmittedAt",
+  "UnknownStatus",
+  "RefundDateContradiction",
+  "MissingPaymentAccount",
+  "MissingFile",
+]);
+
+export type ReceiptQuarantineReason = typeof ReceiptQuarantineReason.Type;
 
 export interface ReceiptImportProvenance {
   readonly sourceRepository: string;
@@ -211,9 +214,9 @@ export const importLegacyReceipt = (
       currency: "NOK",
       description: row.description,
       receiptDate: row.receiptDate,
-      submittedAt: row.submittedAt,
+      submittedAt: new Date(row.submittedAt).toISOString(),
       status: importedStatus,
-      approvedAt: importedStatus === "Approved" ? row.refundDate : null,
+      approvedAt: importedStatus === "Approved" ? new Date(row.refundDate!).toISOString() : null,
       paymentAccountCiphertext: row.paymentAccountCiphertext,
       file: row.file,
       revision: 0,

@@ -7,6 +7,7 @@ import {
   importLegacyReceipts,
   Receipt,
   ReceiptCohortFailure,
+  ReceiptQuarantineReason,
   receiptEvidenceDigest,
   type ReceiptImportProvenance,
   type ReceiptImportResult,
@@ -16,7 +17,7 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { Database, type DatabaseOperations } from "../service.js";
-import { storeReceiptImportResult } from "./postgres.js";
+import { lockReceiptImportSource, storeReceiptImportResult } from "./postgres.js";
 
 export { ReceiptCohortFailure } from "@vektorprogrammet/domain/receipt";
 
@@ -66,12 +67,10 @@ export interface ReviewedReceiptReport {
   readonly acceptedResults: readonly AcceptedResult[];
 }
 
-const AcceptedResultSchema = Schema.Struct({
-  _tag: Schema.Literal("AcceptedReceiptImport"),
+const ResultIdentityFields = {
   sourcePrimaryKey: Schema.String,
   sourceOccurrence: Schema.Literal(0),
   targetSemanticIdentity: Schema.String,
-  receipt: Receipt.insert,
   provenance: Schema.Struct({
     sourceRepository: Schema.String,
     sourceRevision: Schema.String,
@@ -81,13 +80,27 @@ const AcceptedResultSchema = Schema.Struct({
     sourceDigest: Schema.String,
     destinationIdentity: Schema.String,
   }),
+};
+
+const AcceptedResultSchema = Schema.TaggedStruct("AcceptedReceiptImport", {
+  ...ResultIdentityFields,
+  receipt: Receipt.insert,
   reconciliation: Schema.Literal("Pending"),
 });
+
+const PreparedResultSchema = Schema.Union([
+  AcceptedResultSchema,
+  Schema.TaggedStruct("QuarantinedReceiptImport", {
+    ...ResultIdentityFields,
+    reasons: Schema.Array(ReceiptQuarantineReason).pipe(Schema.check(Schema.isMinLength(1))),
+    reconciliation: Schema.Literal("NotApplicable"),
+  }),
+]);
 
 const OccurrenceSchema = Schema.Struct({
   sourcePrimaryKey: Schema.String,
   disposition: Schema.Literals(["Accepted", "Quarantined", "Excluded"]),
-  reasons: Schema.Array(Schema.String),
+  reasons: Schema.Array(Schema.Union([ReceiptQuarantineReason, Schema.Literal("ExcludedByReview")])),
   acceptedResult: Schema.NullOr(AcceptedResultSchema),
 });
 
@@ -144,7 +157,7 @@ const readLedger = Effect.fnUntraced(function* (
   ) return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
 
   const decoded = yield* Schema.decodeUnknownEffect(
-    Schema.Struct({ reasons: Schema.Array(Schema.String) }),
+    Schema.Struct({ reasons: Schema.Array(ReceiptQuarantineReason) }),
   )(stored.reasons_json).pipe(Effect.mapError(() => invalid("PersistedEvidenceConflict")));
 
   return { disposition: stored.result, reasons: decoded.reasons };
@@ -292,7 +305,10 @@ const validatePrepared = (
   resolved: readonly ResolvedReviewedReceipt[],
   input: readonly ReceiptImportResult[],
 ): readonly ReceiptImportResult[] => {
-  const results = immutable(structuredClone(input));
+  const results = immutable(Schema.decodeUnknownSync(Schema.Array(PreparedResultSchema))(
+    structuredClone(input), { onExcessProperty: "error" },
+  ));
+
   const bySource = new Map(results.map((result) => [result.sourcePrimaryKey, result]));
 
   if (results.length !== resolved.length || bySource.size !== resolved.length)
@@ -304,6 +320,10 @@ const validatePrepared = (
     if (!result || result.sourceOccurrence !== 0 || canonicalJson(result.provenance) !== canonicalJson(item.provenance))
       throw invalid("InvalidPreparedResults");
     const accepted = Predicate.isTagged(result, "AcceptedReceiptImport") ? decodeAccepted(result) : null;
+
+    if (Predicate.isTagged(result, "QuarantinedReceiptImport") &&
+      item.entry.payment.commitment === null && !result.reasons.includes("MissingPaymentAccount"))
+      throw invalid("InvalidPreparedResults");
 
     if (accepted !== null && (
       item.entry.payment.commitment === null ||
@@ -330,10 +350,15 @@ const validatePrepared = (
     const actual = bySource.get(expected.sourcePrimaryKey)!;
 
     if (actual.targetSemanticIdentity !== expected.targetSemanticIdentity ||
-      (Predicate.isTagged(actual, "AcceptedReceiptImport") && canonicalJson(actual) !== canonicalJson(expected)) ||
-      (Predicate.isTagged(actual, "QuarantinedReceiptImport") &&
-        (actual.reconciliation !== "NotApplicable" || actual.reasons.length === 0)) ||
-      (!Predicate.isTagged(actual, "AcceptedReceiptImport") && !Predicate.isTagged(actual, "QuarantinedReceiptImport")))
+      (Predicate.isTagged(actual, "AcceptedReceiptImport") && canonicalJson(actual) !== canonicalJson(expected)))
+      throw invalid("InvalidPreparedResults");
+
+    // A quarantine does not retain custody objects. Their absence here cannot
+    // erase intrinsic owner, amount, date, status, or batch-collision findings.
+    if (Predicate.isTagged(actual, "QuarantinedReceiptImport") &&
+      Predicate.isTagged(expected, "QuarantinedReceiptImport") &&
+      expected.reasons.some((reason) => reason !== "MissingFile" &&
+        reason !== "MissingPaymentAccount" && !actual.reasons.includes(reason)))
       throw invalid("InvalidPreparedResults");
   }
 
@@ -363,6 +388,10 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
 
   return yield* sql.withTransaction(Effect.gen(function* () {
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended('native-reviewed-receipt-import', 0))`;
+
+    const sourceKeys = snapshot.rows.map((row) => row.sourcePrimaryKey).sort();
+
+    for (const sourceKey of sourceKeys) yield* lockReceiptImportSource(sql, r.sourceRepository, sourceKey);
 
     const prior = yield* sql<{ readonly snapshot_digest: string }>`
       SELECT snapshot_digest FROM public.receipt_cohort_snapshots WHERE snapshot_key = ${snapshotKey}
@@ -419,6 +448,46 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
         return yield* Effect.fail(invalid("SourceConflict"));
       reused.set(entry.sourcePrimaryKey, accepted);
     }
+
+    // Never adopt an earlier native acceptance without its immutable original
+    // fact snapshot. Native edits make reconstructing that history unsound.
+    const nativeOwners = yield* sql<{
+      readonly source_primary_key: string;
+      readonly destination_identity: string;
+      readonly source_revision: string;
+      readonly snapshot_id: string;
+      readonly source_occurrence: number;
+      readonly transformation_revision: string;
+      readonly source_digest: string;
+      readonly source_watermark: string;
+      readonly target_semantic_identity: string;
+    }>`
+      SELECT source_primary_key, destination_identity, source_revision, snapshot_id,
+        source_occurrence, transformation_revision, source_digest, source_watermark, target_semantic_identity
+      FROM public.economy_receipt_import_ledger
+      WHERE source_repository = ${r.sourceRepository} AND result = 'Accepted'
+        AND ${sql.in("source_primary_key", sourceKeys)} FOR SHARE
+    `;
+
+    const ownedSources = new Set<string>();
+
+    for (const owner of nativeOwners) {
+      const accepted = reused.get(owner.source_primary_key);
+
+      if (!accepted || ownedSources.has(owner.source_primary_key) ||
+        owner.destination_identity !== accepted.provenance.destinationIdentity ||
+        owner.source_revision !== accepted.provenance.sourceRevision ||
+        owner.snapshot_id !== accepted.provenance.snapshotId ||
+        owner.source_occurrence !== accepted.sourceOccurrence ||
+        owner.transformation_revision !== accepted.provenance.transformationRevision ||
+        owner.source_digest !== accepted.provenance.sourceDigest ||
+        owner.source_watermark !== accepted.provenance.sourceWatermark ||
+        owner.target_semantic_identity !== accepted.targetSemanticIdentity)
+        return yield* Effect.fail(invalid("SourceConflict"));
+      ownedSources.add(owner.source_primary_key);
+    }
+
+    if (ownedSources.size !== reused.size) return yield* Effect.fail(invalid("SourceConflict"));
 
     // Persist the immutable review before invoking any filesystem-writing callback.
     yield* sql`

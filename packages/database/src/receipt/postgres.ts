@@ -298,6 +298,19 @@ const storeOutbox = (
     Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("insert outbox", cause))),
   );
 
+/** All native and reviewed importers serialize ownership of a legacy source receipt. */
+export const lockReceiptImportSource = (
+  sql: DatabaseOperations,
+  sourceRepository: string,
+  sourcePrimaryKey: string,
+): Effect.Effect<void, ReceiptPersistenceError> =>
+  sql`SELECT pg_advisory_xact_lock(hashtextextended(${`receipt-import-source:${canonicalJson([sourceRepository, sourcePrimaryKey])}`}, 0))`.pipe(
+    Effect.asVoid,
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("lock receipt source ownership", cause)),
+    ),
+  );
+
 export const storeReceiptImportResult = (
   result: ReceiptImportResult,
 ): Effect.Effect<void, ReceiptPersistenceError, Database> =>
@@ -338,6 +351,7 @@ export const storeReceiptImportResult = (
     yield* sql
       .withTransaction(
         Effect.gen(function* () {
+          yield* lockReceiptImportSource(sql, provenance.sourceRepository, result.sourcePrimaryKey);
           yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${importLockKey}, 0))`.pipe(
             Effect.asVoid,
             Effect.catchTag("SqlError", (cause) =>
@@ -377,6 +391,19 @@ export const storeReceiptImportResult = (
           }
 
           if (Predicate.isTagged(result, "AcceptedReceiptImport")) {
+            const sourceOwners = yield* sql<{ readonly destination_identity: string }>`
+              SELECT destination_identity FROM economy_receipt_import_ledger
+              WHERE source_repository = ${provenance.sourceRepository}
+                AND source_primary_key = ${result.sourcePrimaryKey} AND result = 'Accepted'
+              FOR SHARE
+            `.pipe(
+              Effect.catchTag("SqlError", (cause) =>
+                Effect.fail(persistenceError("read receipt source ownership", cause)),
+              ),
+            );
+
+            const sourceCollision = sourceOwners.some((row) => row.destination_identity !== result.receipt.receiptId);
+
             const destinationLockKeys = [
               `receipt:${result.receipt.receiptId}`,
               `visual:${result.receipt.visualId}`,
@@ -411,8 +438,10 @@ export const storeReceiptImportResult = (
               ),
             );
 
-            if (collisions.length > 0) {
+            if (sourceCollision || collisions.length > 0) {
               const collisionReasons: ReceiptQuarantineReason[] = [];
+
+              if (sourceCollision) collisionReasons.push("SourceIdentityCollision");
 
               if (collisions.some((row) => row.receipt_id === result.receipt.receiptId)) {
                 collisionReasons.push("DestinationIdentityCollision");
