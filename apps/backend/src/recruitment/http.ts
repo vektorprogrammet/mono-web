@@ -1187,21 +1187,21 @@ const scheduleInterview = <E, R>(
             input,
           );
 
-          const precondition = evaluateMutationPrecondition(
-            interviewETag(authorization.source),
-            ifMatch,
-          );
-
-          if (Predicate.isTagged(precondition, "Failed")) {
-            return yield* Effect.fail(
-              new HttpSemanticFailure(precondition.code, precondition.status),
-            );
-          }
-
           return {
             credentialSubject: `Person:${authorization.actor.personId}`,
             execute: (commandId: RecruitmentScheduleCommandId) =>
               Effect.gen(function* () {
+                const precondition = evaluateMutationPrecondition(
+                  interviewETag(authorization.source),
+                  ifMatch,
+                );
+
+                if (Predicate.isTagged(precondition, "Failed")) {
+                  return yield* Effect.fail(
+                    new HttpSemanticFailure(precondition.code, precondition.status),
+                  );
+                }
+
                 const result = yield* scheduleInterviewPostgres(
                   {
                     commandId,

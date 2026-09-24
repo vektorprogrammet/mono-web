@@ -516,6 +516,11 @@ export const databaseMigrationDefinitions = [
     name: "recruitment-maintenance",
     url: new URL("../migrations/0062-recruitment-maintenance.sql", import.meta.url),
   },
+  {
+    id: "63_requested-interview-rebooking",
+    name: "requested-interview-rebooking",
+    url: new URL("../migrations/0063-requested-interview-rebooking.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

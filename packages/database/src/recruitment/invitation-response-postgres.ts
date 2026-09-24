@@ -254,6 +254,13 @@ const recordInvitationResponse = (
   respondedAt: string,
 ): Effect.Effect<RecruitmentInvitationResponseResult, RecruitmentFailure> =>
   Effect.gen(function* () {
+    const candidate = yield* readInvitationRow(sql, capabilitySha256);
+
+    if (candidate === undefined) return yield* new RecruitmentInvitationNotFound({});
+    // Serialize the response with schedule, cancellation, and staffing writers before row locks.
+    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${candidate.interviewId}, 0))`.pipe(
+      Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("lock invitation interview", cause))),
+    );
     const row = yield* lockInvitationRow(sql, capabilitySha256);
 
     if (row === undefined) return yield* new RecruitmentInvitationNotFound({});

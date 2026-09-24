@@ -52,6 +52,7 @@ const ClaimedInvitationResponseRowSchema = Schema.Struct({
 
 interface CanonicalInvitationResponseRow {
   readonly envelopeSha256: string | null;
+  readonly superseded: boolean;
   readonly auditInvitationId: string;
   readonly auditInterviewId: string;
   readonly auditScheduleRevision: number;
@@ -72,6 +73,7 @@ interface CanonicalInvitationResponseRow {
 
 const CanonicalInvitationResponseRowSchema = Schema.Struct({
   envelopeSha256: Schema.NullOr(Schema.String),
+  superseded: Schema.Boolean,
   auditInvitationId: RecruitmentInvitationResponseOutboxRequestFieldSchemas.invitationId,
   auditInterviewId: RecruitmentInvitationResponseOutboxRequestFieldSchemas.interviewId,
   auditScheduleRevision: RecruitmentInvitationResponseOutboxRequestFieldSchemas.scheduleRevision,
@@ -235,6 +237,7 @@ const validateEnvelope = (
     const canonicalRows = yield* sql<CanonicalInvitationResponseRow>`
       SELECT
         audit.envelope_sha256 AS "envelopeSha256",
+        invitation.superseded_at IS NOT NULL AS superseded,
         audit.invitation_id AS "auditInvitationId",
         audit.interview_id AS "auditInterviewId",
         audit.schedule_revision AS "auditScheduleRevision",
@@ -288,6 +291,8 @@ const validateEnvelope = (
     if (canonicalRows.length !== 1) {
       return yield* reject("AuthorityEnvelopeMismatch");
     }
+
+    if (canonicalRows[0]?.superseded === true) return yield* reject("SupersededRecruitmentInvitation");
 
     const decodedCanonical = yield* decodeForClaim(CanonicalInvitationResponseRowSchema)(
       canonicalRows[0],
@@ -441,6 +446,8 @@ export const sealInterviewResponseEnvelopes = (interviewId: string) =>
     'legacy-seal'::text AS "claimId",outbox.attempts+1 AS attempts,outbox.payload_json AS "payloadJson"
     FROM public.recruitment_invitation_response_outbox outbox JOIN public.recruitment_invitation_response_audit audit ON audit.invitation_id=outbox.invitation_id
     WHERE outbox.interview_id=${interviewId} AND outbox.status IN ('Pending','Failed','Processing') AND audit.envelope_sha256 IS NULL
+      AND EXISTS (SELECT 1 FROM public.recruitment_invitations invitation
+        WHERE invitation.invitation_id=outbox.invitation_id AND invitation.superseded_at IS NULL)
     ORDER BY outbox.effect_id FOR UPDATE OF outbox`;
 
     for (const row of rows)

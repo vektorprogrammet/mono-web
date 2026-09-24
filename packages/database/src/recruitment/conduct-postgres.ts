@@ -195,7 +195,12 @@ const readSchedule = (sql: DatabaseOperations, interviewId: string, lock: boolea
       room, campus, map_link AS "mapLink", message, scheduled_by_person_id AS "scheduledByPersonId",
       to_char(committed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "committedAt",
       schedule_revision AS "scheduleRevision"
-    FROM recruitment_interview_schedules WHERE interview_id = ${interviewId}
+    FROM recruitment_interview_schedules AS schedule WHERE interview_id = ${interviewId}
+      AND EXISTS (
+        SELECT 1 FROM recruitment_invitations AS invitation
+        WHERE invitation.interview_id = schedule.interview_id
+          AND invitation.schedule_revision = schedule.schedule_revision AND invitation.superseded_at IS NULL
+      )
     ${lock ? sql`FOR UPDATE` : sql``}
   `.pipe(
     Effect.flatMap((rows) =>
@@ -548,6 +553,8 @@ const authorizeAndLoad = (
       RecruitmentInterviewId.make(interviewId),
       actorInput.personId,
     ).pipe(Effect.provideService(Database, sql));
+    // Keep schedule and invitation observations on the same generation across these reads.
+    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${interviewId}, 0))`;
     const interview = yield* readInterview(sql, interviewId, lock);
 
     if (interview === undefined)

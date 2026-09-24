@@ -381,7 +381,10 @@ const readBoardRows = (
     FROM admission_applications a
     INNER JOIN admission_applicants p ON p.applicant_id = a.applicant_id
     LEFT JOIN recruitment_interviews i ON i.application_id = a.application_id
-    LEFT JOIN recruitment_interview_schedules s ON s.interview_id = i.interview_id
+    LEFT JOIN recruitment_invitations invitation
+      ON invitation.interview_id = i.interview_id AND invitation.superseded_at IS NULL
+    LEFT JOIN recruitment_interview_schedules s
+      ON s.interview_id = invitation.interview_id AND s.schedule_revision = invitation.schedule_revision
     WHERE a.admission_period_id = ${periodId}
       AND a.department_id = ${departmentId}
     ORDER BY a.submitted_at ASC, a.application_id ASC

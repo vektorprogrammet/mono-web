@@ -51,6 +51,7 @@ const ClaimedInvitationRowSchema = Schema.Struct({
 
 interface CanonicalInvitationEnvelopeRow {
   readonly envelopeSha256: string | null;
+  readonly superseded: boolean;
   readonly staffingRevisionCount: number;
   readonly receiptCommandId: string;
   readonly receiptCommandSha256: string;
@@ -82,6 +83,7 @@ interface CanonicalInvitationEnvelopeRow {
 
 const CanonicalInvitationEnvelopeRowSchema = Schema.Struct({
   envelopeSha256: Schema.NullOr(Schema.String),
+  superseded: Schema.Boolean,
   staffingRevisionCount: Schema.Int,
   receiptCommandId: RecruitmentInvitationOutboxRequestSchema.fields.commandId,
   receiptCommandSha256: Schema.String,
@@ -290,6 +292,7 @@ const validateEnvelope = (
     const canonicalRows = yield* sql<CanonicalInvitationEnvelopeRow>`
       SELECT
         receipt.envelope_sha256 AS "envelopeSha256",
+        invitation.superseded_at IS NOT NULL AS superseded,
         (SELECT count(*)::integer FROM public.recruitment_staffing_history h WHERE h.interview_id=interview.interview_id AND h.revision > receipt.schedule_revision) AS "staffingRevisionCount",
         receipt.command_id AS "receiptCommandId",
         receipt.command_sha256 AS "receiptCommandSha256",
@@ -335,7 +338,7 @@ const validateEnvelope = (
       INNER JOIN recruitment_interviews AS interview
         ON interview.interview_id = outbox.interview_id
       INNER JOIN recruitment_interview_schedules AS schedule
-        ON schedule.interview_id = outbox.interview_id
+        ON schedule.interview_id = outbox.interview_id AND schedule.schedule_revision = outbox.schedule_revision
       INNER JOIN recruitment_invitations AS invitation
         ON invitation.invitation_id = outbox.invitation_id
       WHERE outbox.effect_id = ${row.effectId}
@@ -357,6 +360,8 @@ const validateEnvelope = (
     const decodedCommand = yield* decodeForClaim(RecruitmentScheduleCommandSchema)(
       canonicalRows[0]?.receiptCommandJson,
     );
+
+    if (canonicalRows[0]?.superseded === true) return yield* reject("SupersededRecruitmentInvitation");
 
     const decodedObservation = yield* decodeForClaim(RecruitmentScheduleObservationSchema)(
       canonicalRows[0]?.receiptObservationJson,
@@ -540,6 +545,8 @@ export const sealInterviewInvitationEnvelopes = (interviewId: string) =>
     'legacy-seal'::text AS "claimId",outbox.attempts+1 AS attempts,outbox.payload_json AS "payloadJson"
     FROM public.recruitment_invitation_outbox outbox JOIN public.recruitment_schedule_command_receipts receipt ON receipt.command_id=outbox.command_id
     WHERE outbox.interview_id=${interviewId} AND outbox.status IN ('Pending','Failed','Processing') AND receipt.envelope_sha256 IS NULL
+      AND EXISTS (SELECT 1 FROM public.recruitment_invitations invitation
+        WHERE invitation.invitation_id=outbox.invitation_id AND invitation.superseded_at IS NULL)
     ORDER BY outbox.effect_id FOR UPDATE OF outbox`;
 
     for (const row of rows)

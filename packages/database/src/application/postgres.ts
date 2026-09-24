@@ -948,11 +948,12 @@ export const readApplicantProgress = (
         ON department.department_id = application.department_id
       LEFT JOIN public.recruitment_interviews AS interview
         ON interview.application_id = application.application_id
-      LEFT JOIN public.recruitment_interview_schedules AS schedule
-        ON schedule.interview_id = interview.interview_id
       LEFT JOIN public.recruitment_invitations AS invitation
         ON invitation.interview_id = interview.interview_id
         AND invitation.superseded_at IS NULL
+      LEFT JOIN public.recruitment_interview_schedules AS schedule
+        ON schedule.interview_id = invitation.interview_id
+        AND schedule.schedule_revision = invitation.schedule_revision
       LEFT JOIN public.organization_volunteer_affiliations AS affiliation
         ON affiliation.person_id = link.person_id
         AND affiliation.department_id = application.department_id

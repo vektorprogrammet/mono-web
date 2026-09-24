@@ -23,14 +23,14 @@ import {
   RecruitmentApplicationNotFound,
   RecruitmentDecodeError,
   RecruitmentInactiveActor,
-  RecruitmentInterviewAlreadyScheduled,
+  validateInterviewScheduling,
+  RecruitmentInvitationResponseStateSchema,
   RecruitmentInterviewNotFound,
   RecruitmentInterviewStaleRevision,
   RecruitmentInvalidContext,
   RecruitmentPersistenceError,
   RecruitmentRoleDenied,
   RecruitmentScheduleCommandConflict,
-  RecruitmentScheduleInPast,
   RecruitmentScopeDenied,
 } from "@vektorprogrammet/domain/recruitment";
 import { type RecruitmentInvitationOutboxRequest } from "@vektorprogrammet/domain/recruitment";
@@ -243,12 +243,14 @@ const readSchedulingRows = (
       invitation.response_message AS "responseMessage",
       outbox.status AS "notificationState"
     FROM recruitment_interviews i
-    LEFT JOIN recruitment_interview_schedules s ON s.interview_id = i.interview_id
     LEFT JOIN recruitment_invitations invitation
-      ON invitation.interview_id = i.interview_id
-      AND invitation.superseded_at IS NULL
+      ON invitation.interview_id = i.interview_id AND invitation.superseded_at IS NULL
+    LEFT JOIN recruitment_interview_schedules s
+      ON s.interview_id = invitation.interview_id AND s.schedule_revision = invitation.schedule_revision
     LEFT JOIN recruitment_invitation_outbox outbox ON outbox.invitation_id = invitation.invitation_id
     WHERE i.department_id = ${actor.departmentId}
+      AND NOT EXISTS (SELECT 1 FROM recruitment_interview_cancellations cancellation
+        WHERE cancellation.interview_id = i.interview_id)
       AND (
         ${Predicate.isTagged(actor, "DepartmentLeader")}
         OR i.interviewer_person_id = ${actor.personId}
@@ -491,20 +493,49 @@ const readStoredScheduleReceipt = (
     ),
   );
 
-const interviewAlreadyScheduled = (
-  sql: DatabaseOperations,
-  interviewId: string,
-): Effect.Effect<boolean, RecruitmentFailure> =>
-  sql<{ readonly exists: boolean }>`
-    SELECT EXISTS (
-      SELECT 1 FROM recruitment_interview_schedules WHERE interview_id = ${interviewId}
-    ) AS "exists"
-  `.pipe(
-    Effect.map((rows) => rows[0]?.exists === true),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("read existing interview schedule", cause)),
-    ),
-  );
+const lockInterviewNotificationWork = (sql: DatabaseOperations, interviewId: string) =>
+  Effect.gen(function* () {
+    // Workers take outbox locks before interview and invitation row locks.
+    yield* sql`SELECT effect_id FROM recruitment_invitation_outbox
+      WHERE interview_id = ${interviewId} AND status IN ('Pending', 'Failed', 'Processing')
+      ORDER BY effect_id FOR UPDATE`;
+    yield* sql`SELECT effect_id FROM recruitment_invitation_response_outbox
+      WHERE interview_id = ${interviewId} AND status IN ('Pending', 'Failed', 'Processing')
+      ORDER BY effect_id FOR UPDATE`;
+  }).pipe(Effect.catchTag("SqlError", (cause) =>
+    Effect.fail(persistenceError("lock interview notification work", cause))));
+
+const CurrentSchedulingInvitationRowSchema = Schema.Struct({
+  invitationId: RecruitmentInvitationId,
+  responseState: RecruitmentInvitationResponseStateSchema,
+});
+
+const SchedulingLifecycleRowSchema = Schema.Struct({
+  scheduled: Schema.Boolean,
+  completed: Schema.Boolean,
+  cancelled: Schema.Boolean,
+});
+
+const readSchedulingState = (sql: DatabaseOperations, interviewId: string) =>
+  Effect.gen(function* () {
+    const invitations = yield* sql`SELECT invitation_id AS "invitationId", response_state AS "responseState"
+      FROM recruitment_invitations WHERE interview_id = ${interviewId} AND superseded_at IS NULL
+      FOR UPDATE`;
+
+    const current = invitations[0] === undefined
+      ? null
+      : yield* decode(CurrentSchedulingInvitationRowSchema, "current scheduling invitation")(invitations[0]);
+
+    const rows = yield* sql`SELECT
+      EXISTS (SELECT 1 FROM recruitment_interview_schedules WHERE interview_id = ${interviewId}) AS scheduled,
+      EXISTS (SELECT 1 FROM recruitment_interview_conducts WHERE interview_id = ${interviewId}) AS completed,
+      EXISTS (SELECT 1 FROM recruitment_interview_cancellations WHERE interview_id = ${interviewId}) AS cancelled`;
+
+    const lifecycle = yield* decode(SchedulingLifecycleRowSchema, "scheduling lifecycle")(rows[0]);
+
+    return { ...lifecycle, invitationId: current?.invitationId ?? null, responseState: current?.responseState ?? null };
+  }).pipe(Effect.catchTag("SqlError", (cause) =>
+    Effect.fail(persistenceError("read scheduling lifecycle", cause))));
 
 const capabilityIsValid = (value: string): boolean => /^[A-Za-z0-9_-]{43}$/u.test(value);
 
@@ -518,9 +549,19 @@ const writeScheduleRows = (
   interviewerEmail: string,
   interviewerPhone: string,
   digest: string,
+  previousInvitationId: string | null,
 ): Effect.Effect<RecruitmentScheduleObservation, RecruitmentFailure> =>
   Effect.gen(function* () {
     const scheduleRevision = interview.revision + 1;
+
+    if (previousInvitationId !== null) {
+      const superseded = yield* sql`UPDATE recruitment_invitations SET superseded_at = ${context.now}
+        WHERE invitation_id = ${previousInvitationId} AND superseded_at IS NULL
+          AND response_state = 'RequestedNewTime' RETURNING invitation_id`;
+
+      if (superseded.length !== 1) return yield* persistenceError("supersede requested invitation");
+      // Retain queued envelopes; claim validation fences superseded work before provider I/O.
+    }
 
     const updated = yield* sql<{ readonly revision: number }>`
       UPDATE recruitment_interviews
@@ -682,7 +723,8 @@ const writeScheduleRows = (
     );
 
     return observation;
-  });
+  }).pipe(Effect.catchTag("SqlError", (cause) =>
+    Effect.fail(persistenceError("write scheduled invitation generation", cause))));
 
 const scheduleInTransaction = (
   command: RecruitmentScheduleCommand,
@@ -706,6 +748,7 @@ const scheduleInTransaction = (
         Effect.fail(persistenceError("lock scheduled interview", cause)),
       ),
     );
+    yield* lockInterviewNotificationWork(sql, command.interviewId);
     const interview = yield* readSchedulingInterview(sql, command.interviewId);
 
     if (interview === undefined) {
@@ -765,13 +808,8 @@ const scheduleInTransaction = (
       });
     }
 
-    if (yield* interviewAlreadyScheduled(sql, command.interviewId)) {
-      return yield* new RecruitmentInterviewAlreadyScheduled({ interviewId: command.interviewId });
-    }
-
-    if (compareRfc3339Instants(command.scheduledAt, context.now) <= 0) {
-      return yield* new RecruitmentScheduleInPast({ interviewId: command.interviewId });
-    }
+    const current = yield* readSchedulingState(sql, command.interviewId);
+    yield* validateInterviewScheduling(command, current, context.now);
 
     const [applicantContact] = yield* readApplicantContacts(admissions, [
       PublicApplicationIdSchema.make(interview.applicationId),
@@ -803,6 +841,7 @@ const scheduleInTransaction = (
       interviewerContact.email,
       interviewerContact.phone,
       digest,
+      current.invitationId,
     );
 
     return yield* decode(

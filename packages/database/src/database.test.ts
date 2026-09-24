@@ -1028,6 +1028,80 @@ describe("DatabaseTest", () => {
     }
   });
 
+  it("rebooks requested times without reviving old capabilities or duplicating current reads", async () => {
+    const base = Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(Layer.provideMerge(DatabaseTest()));
+
+    const isolated = makeControlledTestRuntime(RecruitmentLive.pipe(
+      Layer.provideMerge(ProfileLive.pipe(Layer.provideMerge(base))),
+    ));
+
+    try {
+      const evidence = await isolated.runPromise(Effect.gen(function* () {
+        const sql = yield* Database;
+        const recruitment = yield* Recruitment;
+        const fixture = yield* seedSchedulingFixture("requested-rebooking");
+
+        const context = {
+          actor: fixture.actor, now: fixture.now,
+          invitationId: fixture.invitationId, responseCapability: fixture.responseCapability,
+        };
+
+        const first = yield* recruitment.scheduleInterview(fixture.command, context);
+        let capability = RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability);
+
+        for (const revision of [2, 3]) {
+          yield* recruitment.requestNewInvitationTime(capability, { message: "Please offer another afternoon." }, { now: fixture.now });
+          const responseCapability = `requested-rebooking-capability-${revision}`.padEnd(43, "_");
+          yield* recruitment.scheduleInterview({
+            ...fixture.command,
+            commandId: RecruitmentScheduleCommandId.make(`requested-rebooking-command-${revision}`),
+            expectedRevision: revision - 1,
+            scheduledAt: `2031-09-${20 + revision}T13:00:00.000Z`, room: `Room ${revision}`,
+          }, {
+            ...context, invitationId: RecruitmentInvitationId.make(`requested-rebooking-invitation-${revision}`),
+            responseCapability,
+          });
+          expect((yield* Effect.flip(recruitment.readInvitationResponse(capability)))._tag).toBe("RecruitmentInvitationNotFound");
+          expect((yield* Effect.flip(recruitment.confirmInvitation(capability, { now: fixture.now })))._tag).toBe("RecruitmentInvitationNotFound");
+          capability = RecruitmentInvitationCapabilitySchema.make(responseCapability);
+        }
+
+        const replay = yield* recruitment.scheduleInterview(fixture.command, context);
+        const board = yield* recruitment.readSchedulingBoard({ actor: fixture.actor, now: fixture.now });
+        const assignments = yield* recruitment.readAssignmentBoard({ status: "all" }, { actor: fixture.actor, now: fixture.now });
+        const current = yield* recruitment.readInvitationResponse(capability);
+
+        const attemptedRewrite = yield* Effect.result(sql`UPDATE recruitment_interview_schedules SET room = 'Overwrite'
+          WHERE interview_id = ${fixture.interviewId} AND schedule_revision = 1`);
+
+        const history = yield* sql<{ scheduleRevision: number; room: string }>`SELECT schedule_revision AS "scheduleRevision", room
+          FROM recruitment_interview_schedules WHERE interview_id = ${fixture.interviewId} ORDER BY schedule_revision`;
+
+        const responses = yield* sql<{ responseState: string; superseded: boolean }>`SELECT response_state AS "responseState", superseded_at IS NOT NULL AS superseded
+          FROM recruitment_invitations WHERE interview_id = ${fixture.interviewId} ORDER BY schedule_revision`;
+
+        return { first, replay, board, assignments, current, attemptedRewrite, history, responses };
+      }));
+
+      expect(evidence.replay).toEqual({ observation: evidence.first.observation, replayed: true });
+      expect(evidence.board.interviews.map((item) => [item.revision, item.schedule?.room, item.responseState])).toEqual([[3, "Room 3", "Pending"]]);
+      expect(evidence.assignments.candidates.map((item) => item.scheduledAt)).toEqual(["2031-09-23T13:00:00.000Z"]);
+      expect(evidence.current).toMatchObject({ room: "Room 3", responseState: "Pending", responseMessage: null });
+      expect(evidence.attemptedRewrite._tag).toBe("Failure");
+      expect(evidence.history).toEqual([
+        { scheduleRevision: 1, room: evidence.first.observation.schedule.room },
+        { scheduleRevision: 2, room: "Room 2" }, { scheduleRevision: 3, room: "Room 3" },
+      ]);
+      expect(evidence.responses).toEqual([
+        { responseState: "RequestedNewTime", superseded: true },
+        { responseState: "RequestedNewTime", superseded: true },
+        { responseState: "Pending", superseded: false },
+      ]);
+    } finally {
+      await isolated.dispose();
+    }
+  }, 30_000);
+
   it("projects and schedules Recruitment interviews atomically against PGlite", async () => {
     const fixtureId = "scheduling-main";
     const deliveredAt = "2031-09-15T12:05:00.000Z";
