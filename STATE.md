@@ -264,6 +264,25 @@ Existing PGlite database and socket fixtures are the basis for whole-system qual
 PGlite performance and full native composition remain unmeasured; PostgreSQL server retains concurrency and recovery acceptance.
 Local acceptance does not establish CI execution or real-provider readiness.
 
+### Developer documentation and parallel workstreams
+
+The [developer documentation roadmap](docs/module-developer-documentation.md) is accepted as a plan, not an implemented documentation system.
+It separates consumer contracts from implementation explanations and derives reference material and examples from their authoritative sources.
+Placements is the first documentation pilot. Tool compatibility, executable examples, and reader-task acceptance remain open.
+
+The next E2E and documentation slices use separate local branches and worktrees from a common accepted base.
+The existing golden journey remains integrated on `main`. No accepted history moves to either branch.
+
+| Workstream    | Local branch                           | Worktree relative to this repository | First bounded specification                                       |
+| ------------- | -------------------------------------- | ------------------------------------ | ----------------------------------------------------------------- |
+| E2E           | `test/golden-journey-ci-0924`          | `../mono-web-e2e`                    | `docs/specs/golden-school-service-ci.md` on that branch           |
+| Documentation | `docs/placements-developer-guide-0924` | `../mono-web-docs`                   | `docs/specs/placements-developer-documentation.md` on that branch |
+
+The [testing roadmap](docs/web-system-functional-testing.md#development-sequence) owns E2E sequencing. The documentation roadmap owns documentation sequencing.
+Each branch owns its bounded specification and implementation files. Shared manifests, lockfiles, CI entry points, navigation, and mission state require integration coordination.
+One heavy job runs at a time across both workstreams. The operator demonstration remains outside their resource ownership.
+This preparation does not claim implementation, CI execution, generator adoption, publication, or deployment.
+
 ### Remaining migration work
 
 | Workstream                      | Remaining deliverable                                                                                                                                                               | Completion gate                                                                                                                                                                 | Authority                                                                          |
