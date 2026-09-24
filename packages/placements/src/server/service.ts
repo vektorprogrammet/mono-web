@@ -59,6 +59,11 @@ const persistenceFailure = (cause: unknown) => {
   });
 };
 
+/**
+ * Supplies Placements from the caller-provided Database Layer.
+ * The caller owns database release, authorization, and command transactions.
+ * This Layer does not start notification workers.
+ */
 export const PlacementsLive = Layer.effect(
   Placements,
   Effect.gen(function* () {
