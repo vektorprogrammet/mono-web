@@ -203,20 +203,20 @@ The backup has zero assignments for 2024 Høst. Its 92 assignments for 2024 Vår
 were historical when the backup was made. It cannot prove current placements
 or eventual live contents. Changes since this backup need reconciliation.
 
-The [backup reader](tools/e2e/legacy-source-snapshot.ts) covers six tables:
+The [backup reader](tools/e2e/legacy-source-snapshot.ts) uses six tables when Organization is not selected:
 users, departments, semesters, schools, school-department links, and assistant history.
-The cutover imports references, People, history, and Accounts in one target transaction.
-The backup rehearsal explicitly selects historical-only import and leaves current assignments unimported.
+The cutover imports references, accepted People, selected Organization, historical service, reviewed assignments, and Accounts in one target transaction.
+The backup rehearsal explicitly leaves Organization and current assignments unimported.
 The [reviewed assignment adapter](tools/e2e/legacy-current-assignment-snapshot.ts) uses the supported Placements import boundary.
 It requires snapshot-bound review evidence, accepted Person mappings, and source reference provenance.
 The original synthetic assignment path remains restricted.
 The [receipt adapter](apps/backend/src/receipt/import-snapshot.ts) still requires synthetic source and payment-account evidence.
 Receipt migration needs a real-source reconciliation contract and adapter, not removal of its safety checks.
 
-Organization import also needs integration with accepted Person mappings.
-The [organization adapter](packages/domain/src/organization/import.ts) derives membership Person IDs from numeric legacy user IDs.
-The [real Person adapter](tools/e2e/legacy-person-snapshot.ts) creates `legacy-person-<id>` identities instead.
-Adding organization source tables without reconciling those identities cannot establish correct membership or authority.
+The [reviewed Organization importer](packages/database/src/organization/reviewed-cohort.ts) uses accepted Person mappings and department provenance.
+Every membership needs source-bound review evidence and an explicit interval or exclusion.
+Historical appointments and board membership never imply current department or global authority.
+Reviewed current leaders receive only native department scope. Exact replay preserves later native edits.
 
 Unsupported credentials, legacy aliases, current placements, receipts, private
 files, and settlement references remain. The local backup does not prove
@@ -245,7 +245,7 @@ A working local stack does not close these gates. No production activity or exte
 | Workstream                      | Remaining deliverable                                                                                                                                                               | Completion gate                                                                                                                                                              | Authority                                                                          |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Operational scope               | Resolve the obligations below. Implement required outcomes or define an explicit transition process.                                                                                | Each active core case has a supported journey and a responsible owner. Unresolved policy is not silently waived.                                                             | Product decisions for policy; local implementation for defined contracts.          |
-| Real-source import coverage     | Extend the six-table reader and import contracts for organization state, private files, and pending work.                                                                           | Each occurrence has an evidenced mapping and disposition. Assignment reviews need current source evidence. Receipts still need real-source integration.                      | Local implementation; current production reads need authorization.                 |
+| Real-source import coverage     | Extend real-source contracts for receipts, private files, and pending work.                                                                                                         | Each occurrence needs an evidenced mapping and disposition. Assignment and Organization reviews need current source evidence. Receipts still need real-source integration.   | Local implementation. Current production reads need authorization.                 |
 | Current-data reconciliation     | Obtain a consistent current snapshot, private file archive, and external-work inventory. Resolve identity, authority, quarantine, and payment evidence.                             | Rehearse the complete reconciled candidate, not only the historical backup. Verify identity-level accounting and retained private bytes.                                     | Authorized source access and human decisions for ambiguous facts.                  |
 | Portable deployment preparation | Select the Bun host, PostgreSQL service, private storage, mail, and required integrations. Configure ingress, secrets, migrations, worker supervision, backups, and failure alerts. | The exact candidate preserves PostgreSQL locking and private-file custody. Required delivery work has an explicit runner and recovery path.                                  | Local preparation now; provider selection and provisioning at cutover preparation. |
 | Provider acceptance             | Exercise real authentication, scoped access, private-file writes and reads, required delivery, restart, retry, revocation, and restore.                                             | Observe the actual selected providers. Verify deployment limits and operational recovery. Local capture adapters and frontend previews are not substitutes.                  | Explicit provider and credential authorization.                                    |
@@ -405,6 +405,13 @@ Snapshot-bound Person identity, valid cross-snapshot replay, per-row relationshi
 The original Person and synthetic assignment rehearsals passed at the same revision. Twenty-three focused tests and sixteen affected type-check tasks also passed.
 The record is `/tmp/vektor-reviewed-assignment-release-0924/acceptance.json`, with a checksummed source archive.
 The historical backup rehearsal was not rerun. No production source, provider, deployment, or cutover was exercised.
+Reviewed Organization acceptance used committed source `bd7cb37d` and schema migration 66.
+Real MariaDB and PostgreSQL exercised eleven source tables, the operator CLI, and the native authority resolver with synthetic records.
+Nineteen occurrences produced nine accepted appointments, nine quarantines, and one explicit exclusion. Fifteen refusal cases passed.
+Exact Person binding, reviewed intervals, department-only leadership, native edits, concurrent import, append-only evidence, and whole-cutover rollback passed.
+The existing reviewed-assignment and Person rehearsals passed at the same source revision. Sixteen affected type-check tasks passed.
+The record is `/tmp/vektor-org-release-0924/acceptance.json`, with a checksummed source archive.
+The historical backup and previous Organization browser rehearsal were not rerun. No production source, provider, deployment, or cutover was exercised.
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.
 

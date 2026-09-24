@@ -144,7 +144,7 @@ The reviewed-source journey also requires PostgreSQL tools on `PATH`. Its eviden
 It creates private, disposable MariaDB and PostgreSQL instances and uses synthetic legacy-shaped data.
 It removes those instances after the run and retains an owner-only `report.json`. It does not access production or external providers.
 
-The operator cutover command requires an explicit assignment choice. Its help output defines the connection and review-file arguments:
+The operator cutover command requires explicit assignment and Organization choices. Its help output defines the connection and review-file arguments:
 
 ```bash
 bun --no-env-file tools/e2e/run-legacy-service-cutover.ts --help
@@ -153,6 +153,20 @@ bun --no-env-file tools/e2e/run-legacy-service-cutover.ts --help
 `--current-assignments=none` leaves current assignments unimported. A private review file selects the reviewed-source path.
 The [review schema](packages/placements/src/current-assignment-contracts.ts) defines the required evidence.
 Current production data, human review, provider acceptance, and cutover authority remain separate gates.
+
+### Reviewed Organization migration
+
+Run the reviewed Organization journey:
+
+```bash
+nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-organization --evidence-dir=/tmp/vektor-organization-review
+```
+
+This journey requires PostgreSQL tools on `PATH` and a new evidence directory. It uses synthetic records and private, disposable databases.
+The cutover requires `--organization=none` or `--organization=PATH`. The first choice leaves Organization unchanged.
+The [review schema](packages/domain/src/organization/review.ts) defines the required source evidence, intervals, and exclusions.
+Organization resolves appointments through accepted Person mappings. Historical appointments and board membership do not imply current department or global authority.
+Current source data, human review, provider acceptance, and cutover authority remain separate gates.
 
 ## Change rule
 

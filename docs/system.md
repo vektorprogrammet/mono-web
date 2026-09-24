@@ -116,7 +116,7 @@ Every assignment in the selected semester needs one review entry that pins its r
 A combined-block assignment requires explicit evidence that one weekday applies to both blocks.
 A historical backup alone does not establish current assignments.
 
-The cutover imports references, accepted People, historical service, reviewed current assignments, and Accounts in one transaction.
+The cutover imports references, accepted People, selected Organization, historical service, reviewed current assignments, and Accounts in one transaction.
 Selected current rows do not enter historical service. An explicit historical-only choice leaves current assignments unchanged.
 The importer creates Active affiliations and placements at revision 1 only when canonical targets permit them.
 Several placements can share one importer-proven affiliation. Inactive and invalid rows do not compete for active slots.
@@ -124,6 +124,14 @@ Several placements can share one importer-proven affiliation. Inactive and inval
 Each occurrence receives an accepted or quarantined disposition. Import writes no human decisions, authority grants, attendance, or notification work.
 Exact replay preserves later native changes. Changed source identity, review, references, or snapshot content fails without partial writes.
 Supplied review evidence does not independently prove freshness, currentness, or production authority.
+
+Reviewed Organization reconciliation uses the [public Organization boundary](../packages/database/src/organization/reviewed-cohort.ts).
+It requires accepted Person evidence for the exact source snapshot and accepted department mappings. Numeric legacy user IDs never become Person IDs implicitly.
+Each team or board membership needs one review entry that binds its raw digest and supplies an interval or explicit exclusion.
+The review defines the authorization instant. Historical appointments, future appointments, suspended members, inactive units, and board membership cannot confer current department leadership.
+An eligible current team leader receives only the native department scope. Import never creates global grants, human lifecycle events, or notification work.
+Malformed or unresolved rows receive individual quarantine dispositions. Exact replay preserves later native changes. A requested cohort needs at least one accepted appointment.
+The source reader adds Organization tables only after explicit selection. Review evidence alone does not establish current production facts or authorize cutover.
 
 ## Core lifecycles
 

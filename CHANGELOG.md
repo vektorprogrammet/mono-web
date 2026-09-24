@@ -1,5 +1,14 @@
 ## Unreleased
 
+### Reviewed Organization migration
+
+- Require an explicit Organization choice in the cutover command. Import reviewed team and board appointments in the existing transaction.
+- Resolve every appointment through accepted Person mappings and department provenance. Remove the implicit numeric Person fallback.
+- Bind each source row to a reviewed interval or exclusion. Preserve titles, suspension, deleted-team history, and later native edits.
+- Keep historical appointments and board membership separate from current authority. Import creates no global grants, human lifecycle events, or notification work.
+- Quarantine malformed relationships per row. Preserve the original cutover failure if cleanup also fails.
+- Add a disposable MariaDB-to-PostgreSQL rehearsal through the real reader, operator CLI, and native authority resolver.
+
 ### Reviewed current-assignment migration
 
 - Add a snapshot-bound assignment review with explicit semester, effective date, active decisions, and combined-block evidence.
