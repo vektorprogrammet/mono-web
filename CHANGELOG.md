@@ -1,5 +1,12 @@
 ## Unreleased
 
+### Continuous functional journey gate
+
+- Add `bun run test:golden-school-service` for affiliation through Completed service and a fresh volunteer read.
+- Check committed facts, history, command receipts, and loopback notification delivery after real browser actions.
+- Reject missing attendance, missing browser evidence, and unauthorized or stale commands. Retain sanitized diagnostics and verify resource cleanup.
+- Move the shared placement driver to `tools/e2e` without a compatibility alias. Keep broader placement checks separate from the golden gate.
+
 ### Explicit backend configuration
 
 - Load root backend settings with Effect Config and an explicit ConfigProvider. The supplied record never falls back to ambient environment values.

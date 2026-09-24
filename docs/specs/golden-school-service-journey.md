@@ -1,8 +1,8 @@
 # Golden school-service journey
 
-Status: implemented for local acceptance with `bun run test:golden-school-service`.
-The linked plan documents prerequisites, failure checks, receipts, and cleanup.
-Retain this contract through independent integration acceptance; then retire it under the repository completion rule.
+Status: accepted locally and retired as an active implementation contract.
+The [functional testing plan](../web-system-functional-testing.md#local-school-service-gate) documents the executable gate.
+[STATE.md](../../STATE.md#functional-journey-automation) records the tested artifacts and acceptance limits.
 
 This is slice A of the [web-system functional testing plan](../web-system-functional-testing.md).
 Freeze this contract when its implementation PR opens. Record any later scope change explicitly.
@@ -130,5 +130,5 @@ The browser driver may change when the page structure changes.
 - Client design, visual regression baselines, and usability evaluation are not acceptance gates here.
 - Production data, provider credentials, deployment, and external notifications are not authorized by this specification.
 
-After acceptance, retain the business contract and executable evidence in their authoritative homes.
-Retire this active specification only when those sources cover its obligations.
+The business authority above and the executable gate remain current.
+This retired contract records the accepted slice boundary.

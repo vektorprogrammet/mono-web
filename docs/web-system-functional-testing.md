@@ -1,6 +1,6 @@
 # Web-system functional testing
 
-Status: the local school-service gate is implemented. CI execution and the other slices remain separate work.
+Status: implementation roadmap. [STATE.md](../STATE.md#functional-journey-automation) records acceptance and remaining work.
 
 ## Goal and scope
 
