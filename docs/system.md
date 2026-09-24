@@ -251,10 +251,16 @@ different scopes. A chair is not automatically a global administrator.
 Authorized appointment actions create, revise, end, suspend, or reinstate a responsibility.
 Every action checks current scope and preserves attributable history.
 Ending or suspending one appointment does not change another appointment, volunteer affiliation, or school placement.
+Current authority applies to each protected request, including requests from existing sessions.
+A leadership handover can appoint the successor before the predecessor leaves.
+The end of the last leadership appointment revokes only its scope.
 
 A global administrator can disable or re-enable native human account access through a separate command.
 Disabled access blocks native sessions, human OAuth access, and recovery.
-Re-enable requires fresh authentication and does not revive old sessions.
+Re-enable requires fresh authentication and does not revive old sessions, recovery tokens, or human OAuth credentials.
+Self-offboarding and removal of the last usable global administrator fail without changes, including during concurrent commands.
+State, revisions, command receipts, and attributable history commit together.
+An exact replay cannot duplicate history. A changed command identity payload or stale revision cannot leave a partial change.
 These commands do not administer external mail, Google Workspace, or service principals.
 
 ### School surveys
