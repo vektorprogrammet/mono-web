@@ -1,8 +1,9 @@
+import { Dialog } from "@foldkit/ui";
 import { Predicate } from "effect";
 import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
 import { IdempotencyKey, SchedulingBoard, StrongETag } from "@vektorprogrammet/http-api";
 import { Scene } from "foldkit/test";
-import { FieldValidation } from "foldkit";
+import { AsyncData, FieldValidation } from "foldkit";
 import { Schema as S } from "effect";
 import { describe, it } from "vitest";
 import { commandsFor } from "./command";
@@ -10,9 +11,9 @@ import { createBrowserRecruitmentClient } from "../recruitment/browser-client";
 import { ConductData, init, type ReadyModel, LoadedSchedulingInput } from "./model";
 import { updateFor } from "./update";
 import { view } from "./view";
+import { OpenedSchedule } from "./message";
 
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
-
 const schedule = {
   interviewId: "interview-conduct-view",
   scheduledAt: "2031-09-14T13:00:00.000Z",
@@ -166,6 +167,23 @@ const terminalModel = (
 const config = { update: updateFor(commandsFor(createBrowserRecruitmentClient())), view };
 
 describe("Foldkit scheduling conduct view", () => {
+  it("shows the requested-time context inside the replacement dialog without reusing the old time", () => {
+    const source = terminalModel("Completed");
+    const data = AsyncData.getData(source.board);
+    if (!Predicate.isTagged(data, "Some")) throw new Error("expected board");
+    const board = S.decodeUnknownSync(SchedulingBoard)({ ...data.value, interviews: data.value.interviews.map((interview) => ({
+      ...interview, responseState: "RequestedNewTime", responseMessage: "Etter klokken fire, takk.",
+    })) });
+    const initial = init(LoadedSchedulingInput.make({ board }), IdempotencyKey.make("replacement-view-test-command"));
+    const opened = config.update(initial, OpenedSchedule({ interviewId: board.interviews[0]!.interviewId })).model;
+    Scene.scene(config, Scene.given(opened),
+      Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
+      Scene.expect(Scene.selector('dialog .fs-details')).toContainText("Etter klokken fire, takk."),
+      Scene.expect(Scene.selector('dialog .fs-details')).toContainText(schedule.room),
+      Scene.expect(Scene.label("Tidspunkt")).toHaveValue(""),
+      Scene.expect(Scene.selector('dialog button[type="submit"]')).toBeEnabled(),
+    );
+  });
   it("permits correcting completed assessments while cancelled answers stay read-only", () => {
     Scene.scene(config, Scene.given(terminalModel("Completed")),
       Scene.expect(Scene.role("heading", {name: "Planlegg intervjuer"})).toBeVisible(),

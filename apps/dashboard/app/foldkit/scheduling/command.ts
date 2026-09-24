@@ -14,7 +14,6 @@ import {
   CorrectInterviewAssessmentInputSchema,
   ScheduleInterviewInputSchema,
   schedulingBoardFailureMessage,
-  schedulingFailureMessage,
   toRecruitmentBridgeFailure,
 } from "../recruitment/bridge";
 import {
@@ -91,15 +90,23 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
     messages: [SucceededSchedule, FailedSchedule],
     execute: ({ requestId, input }) =>
       client.recruitment.scheduleInterview(input).pipe(
-        Effect.flatMap(() => client.recruitment.readSchedulingBoard()),
-        Effect.map((board) => SucceededSchedule({ requestId, board })),
+        Effect.flatMap(() => client.recruitment.readSchedulingBoard().pipe(
+          Effect.map((board) => SucceededSchedule({ requestId, board })),
+          Effect.catch((error) => Effect.succeed(FailedSchedule({
+            requestId,
+            failure: toRecruitmentBridgeFailure(error),
+            retainAttempt: true,
+          }))),
+        )),
         Effect.catch((error) =>
-          Effect.succeed(
-            FailedSchedule({
+          Effect.sync(() => {
+            const failure = toRecruitmentBridgeFailure(error);
+            return FailedSchedule({
               requestId,
-              message: schedulingFailureMessage(toRecruitmentBridgeFailure(error)),
-            }),
-          ),
+              failure,
+              retainAttempt: failure._tag === "Network" || failure._tag === "RateLimited" || failure._tag === "Configuration",
+            });
+          }),
         ),
       ),
   });

@@ -9,6 +9,7 @@ import {
   FinalizeInterviewInputSchema,
   CorrectInterviewAssessmentInputSchema,
   ScheduleInterviewInputSchema,
+  schedulingFailureMessage,
 } from "../recruitment/bridge";
 
 import type { SchedulingCommands } from "./command";
@@ -136,6 +137,9 @@ const mapDialogCommands = (commands: ReadonlyArray<Command.Command<Dialog.Messag
 const clearSchedule = (model: ReadyModel): ReadyModel => ({
   ...model,
   selectedInterviewId: null,
+  scheduleInterview: null,
+  scheduleAttempt: null,
+  scheduleFailure: null,
   scheduledAt: emptyField(),
   room: emptyField(),
   campus: emptyField(),
@@ -174,45 +178,58 @@ export const updateFor =
   (model: Model, message: Message): Update.Return<Model, Message> => {
     if (!Predicate.isTagged(model, "Ready")) return ({ model: model, commands: [] });
 
+    const boardRefreshing = Predicate.isTagged(model.board, "Refreshing") || Predicate.isTagged(model.board, "Loading");
+    const draftLocked = model.isScheduling || model.scheduleAttempt !== null || boardRefreshing;
+    if (draftLocked && (message._tag === "UpdatedScheduledAt" || message._tag === "UpdatedRoom" || message._tag === "UpdatedCampus" || message._tag === "UpdatedMapLink" || message._tag === "UpdatedMessage")) {
+      return { model, commands: [] };
+    }
+
     return M.value(message).pipe(
       M.withReturnType<Update.Return<Model, Message>>(),
       M.tagsExhaustive({
         RequestedBoardRefresh: () => {
-          if (model.isScheduling) return ({ model: model, commands: [] });
+          if (model.isScheduling || boardRefreshing) return { model, commands: [] };
           const requestId = model.boardRequestId + 1;
-          const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.close(model.scheduleDialog);
-
-          return ({ model: 
-            {
-              ...clearSchedule(model),
-              selectedInterviewId: model.selectedInterviewId,
-              scheduleDialog,
-              board: SchedulingBoardData.Loading(),
-              boardRequestId: requestId,
-              feedback: null,
-              commandSequence: model.commandSequence + 1,
-            }, commands: [...mapDialogCommands(dialogCommands), LoadSchedulingBoard({ requestId })] });
+          const data = AsyncData.getData(model.board);
+          return { model: {
+            ...model,
+            board: Option.isSome(data) ? SchedulingBoardData.Refreshing({ data: data.value }) : SchedulingBoardData.Loading(),
+            boardRequestId: requestId,
+            feedback: null,
+          }, commands: [LoadSchedulingBoard({ requestId })] };
         },
-        SucceededLoadSchedulingBoard: ({ requestId, board }) =>
-          requestId !== model.boardRequestId
-            ? ({ model: model, commands: [] })
-            : ({ model: 
-                {
-                  ...model,
-                  board: SchedulingBoardData.Success({ data: board }),
-                  feedback: null,
-                }, commands: [] }),
-        FailedLoadSchedulingBoard: ({ requestId, message: failureMessage }) =>
-          requestId !== model.boardRequestId
-            ? ({ model: model, commands: [] })
-            : ({ model: 
-                {
-                  ...clearSchedule(model),
-                  board: SchedulingBoardData.Failure({ error: failureMessage }),
-                  feedback: null,
-                }, commands: [] }),
+        SucceededLoadSchedulingBoard: ({ requestId, board }) => {
+          if (requestId !== model.boardRequestId) return { model, commands: [] };
+          const recovering = model.scheduleAttempt === null && model.scheduleFailure?._tag === "Conflict";
+          const current = board.interviews.find((interview) => interview.interviewId === model.scheduleInterview?.interviewId);
+          return { model: {
+            ...model,
+            board: SchedulingBoardData.Success({ data: board }),
+            scheduleInterview: recovering && current !== undefined ? current : model.scheduleInterview,
+            scheduleFailure: recovering && current !== undefined ? null : model.scheduleFailure,
+            scheduleError: recovering
+              ? current !== undefined && (current.schedule === null || current.responseState === "RequestedNewTime")
+                ? "Oversikten er oppdatert. Kontroller utkastet før du lagrer på nytt."
+                : "Intervjuet kan ikke planlegges på nytt. Utkastet er beholdt."
+              : model.scheduleError,
+            commandSequence: recovering ? model.commandSequence + 1 : model.commandSequence,
+            feedback: null,
+          }, commands: [] };
+        },
+        FailedLoadSchedulingBoard: ({ requestId, message: failureMessage }) => {
+          if (requestId !== model.boardRequestId) return { model, commands: [] };
+          const data = AsyncData.getData(model.board);
+          return { model: {
+            ...model,
+            board: Option.isSome(data)
+              ? SchedulingBoardData.Stale({ data: data.value, error: failureMessage })
+              : SchedulingBoardData.Failure({ error: failureMessage }),
+            scheduleError: model.scheduleInterview === null ? model.scheduleError : failureMessage,
+            feedback: null,
+          }, commands: [] };
+        },
         OpenedSchedule: ({ interviewId }) => {
-          if (model.isScheduling) return ({ model: model, commands: [] });
+          if (model.isScheduling || model.isConducting || model.scheduleAttempt !== null || boardRefreshing) return ({ model: model, commands: [] });
           const board = AsyncData.getData(model.board);
 
           if (Option.isNone(board)) return ({ model: model, commands: [] });
@@ -221,7 +238,7 @@ export const updateFor =
             (candidate) => candidate.interviewId === interviewId,
           );
 
-          if (interview === undefined || interview.schedule !== null) return ({ model: model, commands: [] });
+          if (interview === undefined || (interview.schedule !== null && interview.responseState !== "RequestedNewTime")) return ({ model: model, commands: [] });
           const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.open(model.scheduleDialog);
 
           return ({ model: 
@@ -229,12 +246,13 @@ export const updateFor =
               ...clearSchedule(model),
               scheduleDialog,
               selectedInterviewId: interviewId,
+              scheduleInterview: interview,
               feedback: null,
               commandSequence: model.commandSequence + 1,
             }, commands: mapDialogCommands(dialogCommands) });
         },
         ClosedSchedule: () => {
-          if (model.isScheduling) return ({ model: model, commands: [] });
+          if (model.isScheduling || model.isConducting || model.scheduleAttempt !== null || boardRefreshing) return ({ model: model, commands: [] });
           const { model: scheduleDialog, commands: dialogCommands = [] } = Dialog.close(model.scheduleDialog);
 
           return ({ model: 
@@ -285,16 +303,16 @@ export const updateFor =
             commandSequence: model.commandSequence + 1,
           }, commands: [] }),
         SubmittedSchedule: () => {
-          if (model.isScheduling || model.selectedInterviewId === null) return ({ model: model, commands: [] });
-          const board = AsyncData.getData(model.board);
+          if (model.isScheduling || boardRefreshing || model.scheduleInterview === null) return { model, commands: [] };
+          const requestId = model.boardRequestId + 1;
+          if (model.scheduleAttempt !== null) {
+            return { model: { ...model, isScheduling: true, boardRequestId: requestId, scheduleError: null },
+              commands: [ScheduleInterview({ requestId, input: model.scheduleAttempt })] };
+          }
+          if (model.scheduleFailure?._tag === "Conflict") return { model, commands: [] };
+          const interview = model.scheduleInterview;
 
-          if (Option.isNone(board)) return ({ model: model, commands: [] });
-
-          const interview = board.value.interviews.find(
-            (candidate) => candidate.interviewId === model.selectedInterviewId,
-          );
-
-          if (interview === undefined || interview.schedule !== null) {
+          if (interview === undefined || (interview.schedule !== null && interview.responseState !== "RequestedNewTime")) {
             return ({ model: 
               {
                 ...model,
@@ -366,8 +384,6 @@ export const updateFor =
               }, commands: [] });
           }
 
-          const requestId = model.boardRequestId + 1;
-
           return ({ model: 
             {
               ...model,
@@ -377,6 +393,8 @@ export const updateFor =
               mapLink,
               message: scheduleMessage,
               isScheduling: true,
+              scheduleAttempt: input,
+              scheduleFailure: null,
               scheduleError: null,
               feedback: null,
               boardRequestId: requestId,
@@ -392,7 +410,7 @@ export const updateFor =
           if (
             scheduledInterview === undefined ||
             scheduledInterview.schedule === null ||
-            scheduledInterview.responseState !== "Pending" ||
+            scheduledInterview.schedule.scheduleRevision <= (model.scheduleInterview?.schedule?.scheduleRevision ?? 0) ||
             scheduledInterview.notificationState === null
           ) {
             return ({ model: 
@@ -417,18 +435,20 @@ export const updateFor =
               commandSequence: model.commandSequence + 1,
             }, commands: mapDialogCommands(dialogCommands) });
         },
-        FailedSchedule: ({ requestId, message: failureMessage }) =>
-          requestId !== model.boardRequestId
+        FailedSchedule: ({ requestId, failure, retainAttempt }) =>
+          requestId !== model.boardRequestId || !model.isScheduling
             ? ({ model: model, commands: [] })
             : ({ model: 
                 {
                   ...model,
                   isScheduling: false,
-                  scheduleError: failureMessage,
+                  scheduleAttempt: retainAttempt ? model.scheduleAttempt : null,
+                  scheduleFailure: failure,
+                  scheduleError: schedulingFailureMessage(failure),
                   feedback: null,
                 }, commands: [] }),
         OpenedConduct: ({ interviewId }) => {
-          if (model.isScheduling || model.isConducting) return ({ model: model, commands: [] });
+          if (model.isScheduling || model.isConducting || model.scheduleAttempt !== null) return ({ model: model, commands: [] });
           const board = AsyncData.getData(model.board);
 
           if (Option.isNone(board)) return ({ model: model, commands: [] });
@@ -990,7 +1010,7 @@ export const updateFor =
               : { ...model, conductDialog }, commands: conductDialogCommands(dialogCommands) });
         },
         GotScheduleDialogMessage: ({ message: dialogMessage }) => {
-          if (model.isScheduling && Predicate.isTagged(dialogMessage, "RequestedClose")) return ({ model: model, commands: [] });
+          if (draftLocked && Predicate.isTagged(dialogMessage, "RequestedClose")) return ({ model: model, commands: [] });
 
           const { model: scheduleDialog, commands: dialogCommands = [], outMessage: output } = Dialog.update(
             model.scheduleDialog,

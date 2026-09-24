@@ -225,7 +225,13 @@ const interviewCard = (
                 ),
               ],
             )
-          : h.empty
+          : interview.responseState === "RequestedNewTime"
+            ? h.div([h.Class("fs-card-actions")], [actionButton(
+                "Velg nytt tidspunkt", OpenedSchedule({ interviewId: interview.interviewId }),
+                model.isScheduling || model.isConducting || model.scheduleAttempt !== null,
+                "fs-button fs-button--primary fs-button--compact", h,
+              )])
+            : h.empty
         : h.div(
             [h.Class("fs-card-actions")],
             [
@@ -338,17 +344,14 @@ const boardView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
   });
 
 const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
-  const board = AsyncData.getData(model.board);
-
-  const interview =
-    Predicate.isTagged(board, "Some") && model.selectedInterviewId !== null
-      ? board.value.interviews.find(
-          (candidate) => candidate.interviewId === model.selectedInterviewId,
-        )
-      : undefined;
+  const interview = model.scheduleInterview;
+  const refreshing = Predicate.isTagged(model.board, "Refreshing") || Predicate.isTagged(model.board, "Loading");
+  const locked = model.isScheduling || model.scheduleAttempt !== null || refreshing;
+  const needsRefresh = model.scheduleFailure?._tag === "Conflict" && model.scheduleAttempt === null;
+  const canSchedule = interview !== null && (interview.schedule === null || interview.responseState === "RequestedNewTime");
 
   const applicantName =
-    interview === undefined
+    interview === null
       ? ""
       : `${interview.applicant.firstName} ${interview.applicant.lastName}`.trim();
 
@@ -362,7 +365,7 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
       toView: ({ dialog, backdrop, panel, title, description, isVisible }) =>
         h.dialog(
           [...dialog, h.Class("fs-dialog")],
-          isVisible && interview !== undefined && interview.schedule === null
+          isVisible && interview !== null
             ? [
                 h.div([...backdrop, h.Class("fs-dialog__backdrop")]),
                 h.div(
@@ -372,19 +375,26 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                       [h.Class("fs-dialog__heading")],
                       [
                         h.p([h.Class("fs-eyebrow")], ["Intervjuplan"]),
-                        h.h2([...title], [`Planlegg intervju med ${applicantName}`]),
+                        h.h2([...title], [`${interview.schedule === null ? "Planlegg intervju" : "Velg nytt tidspunkt"} med ${applicantName}`]),
                         h.p(
                           [...description],
                           ["Tid, sted og melding lagres før invitasjonen legges i kø."],
                         ),
                       ],
                     ),
+                    interview.schedule === null ? h.empty : scheduleDetails(interview, h),
                     model.scheduleError === null
                       ? h.empty
                       : h.p(
                           [h.Class("fs-error fs-error--inline"), h.Role("alert")],
                           [model.scheduleError],
                         ),
+                    model.scheduleAttempt !== null && !model.isScheduling
+                      ? h.p([h.Role("status")], ["Utfallet er ikke bekreftet. Utkastet er låst. Prøv samme forespørsel igjen før du endrer planen."])
+                      : h.empty,
+                    needsRefresh || model.scheduleError !== null
+                      ? actionButton(refreshing ? "Henter oversikten …" : "Hent oppdatert oversikt", RequestedBoardRefresh(), model.isScheduling || refreshing, "fs-button fs-button--secondary", h)
+                      : h.empty,
                     h.form(
                       [
                         h.Class("fs-dialog__form"),
@@ -398,10 +408,10 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                             label: "Tidspunkt",
                             value: model.scheduledAt.value,
                             field: model.scheduledAt,
-                            hint: "Påkrevd. Bruk RFC 3339 med tidssone.",
+                            hint: "Velg et nytt tidspunkt i fremtiden. Bruk RFC 3339 med tidssone.",
                             placeholder: "2026-09-14T15:00:00+02:00",
                             onInput: (value) => UpdatedScheduledAt({ value }),
-                            isDisabled: model.isScheduling,
+                            isDisabled: locked,
                           },
                           h,
                         ),
@@ -417,7 +427,7 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                                 hint: "Påkrevd.",
                                 placeholder: "Rom 2",
                                 onInput: (value) => UpdatedRoom({ value }),
-                                isDisabled: model.isScheduling,
+                                isDisabled: locked,
                               },
                               h,
                             ),
@@ -430,7 +440,7 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                                 hint: "Valgfritt.",
                                 placeholder: "Gløshaugen",
                                 onInput: (value) => UpdatedCampus({ value }),
-                                isDisabled: model.isScheduling,
+                                isDisabled: locked,
                               },
                               h,
                             ),
@@ -445,7 +455,7 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                             hint: "Valgfritt. Må bruke HTTPS.",
                             placeholder: "https://maps.example.com/…",
                             onInput: (value) => UpdatedMapLink({ value }),
-                            isDisabled: model.isScheduling,
+                            isDisabled: locked,
                           },
                           h,
                         ),
@@ -464,7 +474,7 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                             hint: "Påkrevd. Maksimalt 2000 tegn.",
                             placeholder: "Vi ser frem til å møte deg.",
                             onInput: (value) => UpdatedMessage({ value }),
-                            isDisabled: model.isScheduling,
+                            isDisabled: locked,
                           },
                           h,
                         ),
@@ -474,19 +484,18 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                             actionButton(
                               "Avbryt",
                               ClosedSchedule(),
-                              model.isScheduling,
+                              locked,
                               "fs-button fs-button--secondary",
                               h,
                             ),
-                            actionButton(
-                              model.isScheduling
-                                ? "Lagrer og henter ny oversikt …"
-                                : "Lagre og legg i kø",
-                              SubmittedSchedule(),
-                              model.isScheduling,
-                              "fs-button fs-button--primary",
-                              h,
-                            ),
+                            Button.view({
+                              type: "submit",
+                              isDisabled: model.isScheduling || refreshing || (model.scheduleAttempt === null && (needsRefresh || !canSchedule)),
+                              toView: ({ button }) => h.button([...button, h.Class("fs-button fs-button--primary")], [
+                                model.isScheduling ? "Lagrer og henter ny oversikt …"
+                                  : model.scheduleAttempt !== null ? "Prøv samme forespørsel igjen" : "Lagre og legg i kø",
+                              ]),
+                            }, h),
                           ],
                         ),
                       ],

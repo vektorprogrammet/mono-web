@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
 import { InterviewRecommendationSchema } from "@vektorprogrammet/http-api"
 import { RecruitmentInterviewId } from "@vektorprogrammet/http-api"
-import { IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
+import { IdempotencyKey, StrongETag, SchedulingInterview } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData, FieldValidation } from "foldkit";
@@ -9,6 +9,7 @@ import {
   RecruitmentBridgeFailure,
   RecruitmentInterviewConductObservationSchema,
   SchedulingBoard,
+  ScheduleInterviewInputSchema,
 } from "../recruitment/bridge";
 
 export const LoadedSchedulingInput = S.TaggedStruct("Loaded", {board: SchedulingBoard});
@@ -67,6 +68,9 @@ recommendation: S.NullOr(InterviewRecommendationSchema),
 conductValidationFeedback: S.NullOr(S.String),
 conductFeedback: S.NullOr(RecruitmentBridgeFailure),
 isConducting: S.Boolean,
+scheduleInterview: S.NullOr(SchedulingInterview),
+scheduleAttempt: S.NullOr(ScheduleInterviewInputSchema),
+scheduleFailure: S.NullOr(RecruitmentBridgeFailure),
 scheduleDialog: Dialog.Model,
 scheduledAt: StringField,
 room: StringField,
@@ -113,6 +117,9 @@ export const init = (
   },
   conductValidationFeedback: null,
   conductFeedback: null,
+  scheduleInterview: null,
+  scheduleAttempt: null,
+  scheduleFailure: null,
   isConducting: false,
   scheduleDialog: Dialog.init({ id: "recruitment-scheduling-dialog" }),
   scheduledAt: FieldValidation.NotValidated({ value: "" }),
