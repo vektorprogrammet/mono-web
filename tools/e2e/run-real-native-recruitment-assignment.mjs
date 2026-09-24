@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   databaseMigrationDefinitions,
   databaseSchemaRevision,
-} from "@vektorprogrammet/database";
+} from "@vektorprogrammet/database/migrations";
 import {
   emitRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
