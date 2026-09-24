@@ -25,14 +25,14 @@ return new Request("http://homepage.test/kontakt", {
 
 describe("homepage contact ingress authority", () => {
   it("rejects missing, wrong-hop and shared hop credentials", () => {
-    expect(authenticateContactIngress(request(), env)).toBeUndefined();
-    expect(authenticateContactIngress(request(env.CONTACT_BACKEND_TOKEN), env)).toBeUndefined();
+    expect(authenticateContactIngress(request(), env)).toBeNull();
+    expect(authenticateContactIngress(request(env.CONTACT_BACKEND_TOKEN), env)).toBeNull();
     expect(
       authenticateContactIngress(request(env.CONTACT_INGRESS_TOKEN), {
         ...env,
         CONTACT_BACKEND_TOKEN: env.CONTACT_INGRESS_TOKEN,
       }),
-    ).toBeUndefined();
+    ).toBeNull();
   });
   it("canonicalizes only the authenticated declared address and rejects invalid topology", () => {
     expect(authenticateContactIngress(request(env.CONTACT_INGRESS_TOKEN), env)?.visitorIp).toBe(
@@ -40,12 +40,12 @@ describe("homepage contact ingress authority", () => {
     );
     expect(
       authenticateContactIngress(request(env.CONTACT_INGRESS_TOKEN, "127.0.0.1/32"), env),
-    ).toBeUndefined();
+    ).toBeNull();
     expect(
       authenticateContactIngress(request(env.CONTACT_INGRESS_TOKEN), {
         ...env,
         API_URL: "http://127.0.0.1:9123/path",
       }),
-    ).toBeUndefined();
+    ).toBeNull();
   });
 });

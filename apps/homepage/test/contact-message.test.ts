@@ -1,3 +1,5 @@
+import { RouterContextProvider } from "react-router";
+import { contactIngressContext } from "../src/lib/contact-context.server";
 import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/http-api"
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +73,18 @@ afterEach(() => {
 });
 
 describe("homepage contact-message boundary", () => {
+  it("denies contact writes without a bound ingress context before fetching", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetch);
+    const context = new RouterContextProvider();
+    const request = new Request("http://127.0.0.1:8787/kontakt", { method: "POST" });
+
+    const result = await submitWithIngress(request, undefined, context.get(contactIngressContext));
+
+    expect(result.ok).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("maps the live department name to the stable route slug", () => {
     expect(contactDepartmentSlug(department)).toBe("aas");
   });

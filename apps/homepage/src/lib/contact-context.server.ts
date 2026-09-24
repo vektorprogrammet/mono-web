@@ -63,7 +63,7 @@ export type ContactIngress = {
   readonly backendToken: string;
 };
 
-export const contactIngressContext = createContext<ContactIngress | undefined>(undefined);
+export const contactIngressContext = createContext<ContactIngress | null>(null);
 
 export interface ContactWorkerBindings {
   readonly CONTACT_INGRESS_TOKEN?: string;
@@ -75,7 +75,7 @@ export interface ContactWorkerBindings {
 export const authenticateContactIngress = (
   request: Request,
   env: ContactWorkerBindings,
-): ContactIngress | undefined => {
+): ContactIngress | null => {
   const ingressToken = env.CONTACT_INGRESS_TOKEN;
   const backendToken = env.CONTACT_BACKEND_TOKEN;
 
@@ -87,7 +87,7 @@ export const authenticateContactIngress = (
     ingressToken === backendToken ||
     request.headers.get(CONTACT_INGRESS_HEADER) !== ingressToken
   )
-    return undefined;
+    return null;
 
   try {
     const origin = new URL(env.API_URL ?? "");
@@ -98,7 +98,7 @@ export const authenticateContactIngress = (
       origin.password ||
       !["http:", "https:"].includes(origin.protocol)
     )
-      return undefined;
+      return null;
 
     const visitorIp = Schema.decodeUnknownSync(ContactVisitorIpSchema)(
       canonicalContactIp(request.headers.get(CONTACT_IP_HEADER) ?? ""),
@@ -106,6 +106,6 @@ export const authenticateContactIngress = (
 
     return { backendOrigin: origin.origin, backendToken, visitorIp };
   } catch {
-    return undefined;
+    return null;
   }
 };

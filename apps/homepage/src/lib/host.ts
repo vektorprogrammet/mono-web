@@ -1,4 +1,4 @@
-import { createContext } from "react-router";
+import { createContext, type RouterContextProvider } from "react-router";
 
 export const LOCAL_ONLY_STAGE = "p000" as const;
 
@@ -25,7 +25,18 @@ export type HomepageRequest = {
   readonly host: string;
 };
 
-export const homepageRequestContext = createContext<HomepageRequest | undefined>(undefined);
+export const homepageRequestContext = createContext<HomepageRequest | null>(null);
+
+export function loadHomepageRequest({ request, context }: {
+  request: Request;
+  context: Readonly<RouterContextProvider>;
+}): HomepageRequest {
+  const resolved = context.get(homepageRequestContext);
+  if (resolved !== null) return resolved;
+  const host = request.headers.get("host");
+  if (!host) throw new Response("Missing Host", { status: 421 });
+  return resolveHomepageRequest(host);
+}
 
 export type HomepagePreviewHost = {
   readonly stage?: string;

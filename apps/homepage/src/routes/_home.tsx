@@ -7,7 +7,6 @@ import {
   Link,
   NavLink,
   Outlet,
-  type RouterContextProvider,
   type To,
   useLoaderData,
   useLocation,
@@ -24,25 +23,11 @@ import {
 } from "~/components/ui/drawer";
 import { BUILD_COMMIT, BUILD_CONTENT_DIGEST, BUILD_ROUTE_DIGEST } from "~/lib/build-provenance";
 import { DEV_CONTENT, DEV_CONTENT_SOURCE } from "~/lib/dev-content";
-import { homepageRequestContext, resolveHomepageRequest, type HomepageRequest } from "~/lib/host";
+import { loadHomepageRequest as loader, type HomepageRequest } from "~/lib/host";
 import "~/home.css";
 import { navRoutes } from "~/nav-routes";
 
-type HomeLoaderArgs = {
-  request: Request;
-  context: Readonly<RouterContextProvider>;
-};
-
-export function loader({ request, context }: HomeLoaderArgs): HomepageRequest {
-  const resolved = context.get(homepageRequestContext);
-
-  if (resolved !== undefined) return resolved;
-  const host = request.headers.get("host");
-
-  if (!host) throw new Response("Missing Host", { status: 421 });
-
-  return resolveHomepageRequest(host);
-}
+export { loader };
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Layout() {

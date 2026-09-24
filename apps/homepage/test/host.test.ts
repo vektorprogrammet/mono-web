@@ -1,3 +1,4 @@
+import { RouterContextProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEV_MAIN_STAGE,
@@ -5,6 +6,8 @@ import {
   WORKER_PREVIEW_STAGE,
   WORKERS_DEV_HOST_SUFFIX,
   homepageDomain,
+  homepageRequestContext,
+  loadHomepageRequest,
   resolveHomepageRequest,
   stageFromHost,
 } from "../src/lib/host";
@@ -12,6 +15,30 @@ import {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("homepage stage and host contract", () => {
+  it("resolves an unbound Node request and preserves explicit Worker context", () => {
+    vi.stubEnv("HOMEPAGE_LOCAL_DEV", "true");
+    const context = new RouterContextProvider();
+    const request = new Request("http://127.0.0.1:8787/", {
+      headers: { host: "127.0.0.1:8787" },
+    });
+
+    expect(loadHomepageRequest({ request, context })).toEqual({
+      stage: LOCAL_ONLY_STAGE,
+      host: "127.0.0.1",
+    });
+
+    vi.stubEnv("HOMEPAGE_LOCAL_DEV", "false");
+    expect(() => loadHomepageRequest({ request, context })).toThrow();
+    context.set(homepageRequestContext, {
+      stage: WORKER_PREVIEW_STAGE,
+      host: "preview.account.workers.dev",
+    });
+    expect(loadHomepageRequest({ request, context })).toEqual({
+      stage: WORKER_PREVIEW_STAGE,
+      host: "preview.account.workers.dev",
+    });
+  });
+
   it("maps the persistent development host exactly", () => {
     expect(stageFromHost("vektor.phibkro.org")).toBe(DEV_MAIN_STAGE);
     expect(homepageDomain(DEV_MAIN_STAGE)).toBe("vektor.phibkro.org");

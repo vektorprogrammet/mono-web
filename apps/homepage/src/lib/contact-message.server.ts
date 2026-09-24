@@ -82,9 +82,9 @@ const formValue = (formData: FormData, field: keyof ContactFormValues): string =
 export async function submitContactMessage(
   request: Request,
   departmentSlug?: string,
-  ingress?: ContactIngress,
+  ingress: ContactIngress | null = null,
 ): Promise<ContactActionData> {
-  if (ingress === undefined)
+  if (ingress === null)
     return { ok: false, message: "Meldingen kunne ikke sendes. Prøv igjen senere." };
   const page = await loadContactPage(departmentSlug, ingress.backendOrigin);
   let formData: FormData;
