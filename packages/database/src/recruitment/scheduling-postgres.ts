@@ -662,6 +662,8 @@ const writeScheduleRows = (
         ),
       );
 
+    yield* sql`UPDATE public.recruitment_schedule_command_receipts SET envelope_sha256=${sha256Hex(canonicalJsonBytes(request))} WHERE command_id=${command.commandId} AND envelope_sha256 IS NULL`.pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("record invitation envelope provenance",cause))));
+
     yield* sql`
       INSERT INTO recruitment_invitation_outbox (
         effect_id, effect_type, command_id, interview_id, invitation_id,

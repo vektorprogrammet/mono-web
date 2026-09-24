@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 97,
+    "externalOperations": 100,
     "internalOperations": 1,
-    "operations": 98
+    "operations": 101
   },
   "operations": [
     {
@@ -2709,6 +2709,48 @@
           "BetterAuthCookie",
           "OAuthUserBearer"
         ],
+        "canonicalScopeResolver": "recruitment.maintenance",
+        "capabilities": {
+          "one": "recruitment.maintain"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.maintainRecruitment",
+      "path": "/api/recruitment/maintenance/commands",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Maintain recruitment",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
         "canonicalScopeResolver": "recruitment.application-assignments",
         "capabilities": {
           "one": "reviewApplicants"
@@ -2836,6 +2878,48 @@
     {
       "access": {
         "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.maintenance",
+        "capabilities": {
+          "one": "recruitment.maintain"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readInterviewStaffing",
+      "path": "/api/recruitment/interview-staffing",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Read interview staffing",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
           "ObjectCapability"
         ],
         "canonicalScopeResolver": "recruitment.invitation-response-by-capability",
@@ -2873,6 +2957,48 @@
         "503"
       ],
       "summary": "Read invitation response",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "recruitment.maintenance",
+        "capabilities": {
+          "one": "recruitment.maintain"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readQuestionnaires",
+      "path": "/api/recruitment/questionnaires",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Read questionnaires",
       "visibility": "external"
     },
     {

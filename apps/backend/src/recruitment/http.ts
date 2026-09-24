@@ -1,3 +1,4 @@
+import { readRecruitmentMaintenanceHttp, maintainRecruitmentHttp, recruitmentMaintenanceErrorResponse } from "./maintenance-http.js";
 import { InterviewReportQuery, InterviewReport } from "@vektorprogrammet/domain/recruitment";
 import {
   readCompletedInterviewReport,
@@ -1642,6 +1643,9 @@ export const RecruitmentApiHandlers = <E, R>(input: RecruitmentApiHttpOptions<E,
   HttpApiBuilder.group(ExternalNativeApi, "recruitment", (handlers) =>
     Effect.succeed(
       handlers
+        .handleRaw("readQuestionnaires",({request}) => toHttpApiResponse(request,(webRequest) => readRecruitmentMaintenanceHttp(webRequest,"questionnaires"),recruitmentMaintenanceErrorResponse))
+        .handleRaw("readInterviewStaffing",({request}) => toHttpApiResponse(request,(webRequest) => readRecruitmentMaintenanceHttp(webRequest,"staffing"),recruitmentMaintenanceErrorResponse))
+        .handleRaw("maintainRecruitment",({request}) => toHttpApiResponse(request,maintainRecruitmentHttp,recruitmentMaintenanceErrorResponse))
         .handleRaw("readInterviewReport", ({ request }) =>
           toHttpApiResponse(
             request,

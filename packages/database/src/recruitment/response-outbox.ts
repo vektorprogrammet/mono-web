@@ -5,7 +5,7 @@ import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { flow, Data, Predicate, Effect, Schema } from "effect";
 import { RecruitmentPersistenceError } from "@vektorprogrammet/domain/recruitment";
 import {
@@ -51,6 +51,7 @@ const ClaimedInvitationResponseRowSchema = Schema.Struct({
 });
 
 interface CanonicalInvitationResponseRow {
+  readonly envelopeSha256: string | null;
   readonly auditInvitationId: string;
   readonly auditInterviewId: string;
   readonly auditScheduleRevision: number;
@@ -70,6 +71,7 @@ interface CanonicalInvitationResponseRow {
 }
 
 const CanonicalInvitationResponseRowSchema = Schema.Struct({
+  envelopeSha256: Schema.NullOr(Schema.String),
   auditInvitationId: RecruitmentInvitationResponseOutboxRequestFieldSchemas.invitationId,
   auditInterviewId: RecruitmentInvitationResponseOutboxRequestFieldSchemas.interviewId,
   auditScheduleRevision: RecruitmentInvitationResponseOutboxRequestFieldSchemas.scheduleRevision,
@@ -198,6 +200,166 @@ const canonicalEnvelopeMatches = (
   );
 };
 
+const validateEnvelope = (
+  sql: DatabaseOperations, admissions: AdmissionsOperations, profile: ProfileOperations,
+  rawRow: ClaimedInvitationResponseRow, claimId: string,
+  reject: (tag: string) => Effect.Effect<undefined, RecruitmentPersistenceError>,
+): Effect.Effect<ClaimedRecruitmentInvitationResponse | undefined, RecruitmentPersistenceError> =>
+  Effect.gen(function* () {
+    const decodedRow = yield* decodeForClaim(ClaimedInvitationResponseRowSchema)(rawRow);
+
+    if (!Predicate.isTagged(decodedRow, "Decoded")) {
+      return yield* reject("RecruitmentDecodeError");
+    }
+
+    const row = decodedRow.value;
+
+    if (row.claimId !== claimId) {
+      return yield* reject("AuthorityEnvelopeMismatch");
+    }
+
+    const decodedRequest = yield* decodeForClaim(RecruitmentInvitationResponseOutboxRequestSchema)(
+      row.payloadJson,
+    );
+
+    if (!Predicate.isTagged(decodedRequest, "Decoded")) {
+      return yield* reject("RecruitmentDecodeError");
+    }
+
+    const request = decodedRequest.value;
+
+    const canonicalRows = yield* sql<CanonicalInvitationResponseRow>`
+      SELECT
+        audit.envelope_sha256 AS "envelopeSha256",
+        audit.invitation_id AS "auditInvitationId",
+        audit.interview_id AS "auditInterviewId",
+        audit.schedule_revision AS "auditScheduleRevision",
+        audit.response_revision AS "auditResponseRevision",
+        audit.response_state AS "auditResponseState",
+        audit.response_message AS "auditResponseMessage",
+        to_char(
+          audit.responded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS "auditRespondedAt",
+        invitation.interview_id AS "invitationInterviewId",
+        invitation.schedule_revision AS "invitationScheduleRevision",
+        invitation.response_revision AS "invitationResponseRevision",
+        invitation.response_state AS "invitationResponseState",
+        invitation.response_message AS "invitationResponseMessage",
+        to_char(
+          invitation.responded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS "invitationRespondedAt",
+        interview.application_id AS "applicationId",
+        interview.interviewer_person_id AS "interviewerPersonId",
+        to_char(
+          schedule.scheduled_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS "scheduledAt"
+      FROM recruitment_invitation_response_outbox AS outbox
+      INNER JOIN recruitment_invitation_response_audit AS audit
+        ON audit.invitation_id = outbox.invitation_id
+        AND audit.interview_id = outbox.interview_id
+        AND audit.schedule_revision = outbox.schedule_revision
+        AND audit.response_revision = outbox.response_revision
+        AND audit.response_state = outbox.response_state
+      INNER JOIN recruitment_invitations AS invitation
+        ON invitation.invitation_id = audit.invitation_id
+        AND invitation.interview_id = audit.interview_id
+        AND invitation.schedule_revision = audit.schedule_revision
+        AND invitation.response_revision = audit.response_revision
+      INNER JOIN recruitment_interviews AS interview
+        ON interview.interview_id = audit.interview_id
+      INNER JOIN recruitment_interview_schedules AS schedule
+        ON schedule.interview_id = audit.interview_id
+        AND schedule.schedule_revision = audit.schedule_revision
+      WHERE outbox.effect_id = ${row.effectId}
+      FOR SHARE OF audit, invitation, interview, schedule
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read canonical invitation response envelope", cause)),
+      ),
+    );
+
+    if (canonicalRows.length !== 1) {
+      return yield* reject("AuthorityEnvelopeMismatch");
+    }
+
+    const decodedCanonical = yield* decodeForClaim(CanonicalInvitationResponseRowSchema)(
+      canonicalRows[0],
+    );
+
+    if (
+      !Predicate.isTagged(decodedCanonical, "Decoded") ||
+      !canonicalEnvelopeMatches(row, request, decodedCanonical.value)
+    ) {
+      return yield* reject("AuthorityEnvelopeMismatch");
+    }
+
+    const canonical = decodedCanonical.value;
+    const envelopeSha256 = sha256Hex(canonicalJsonBytes(request));
+    if (canonical.envelopeSha256 !== null) {
+      if (canonical.envelopeSha256 !== envelopeSha256) return yield* reject("AuthorityEnvelopeMismatch");
+      return { effectId: row.effectId, claimId: row.claimId, attempts: row.attempts, request };
+    }
+
+    const applicantRead = yield* admissions.readApplicantContacts([canonical.applicationId]).pipe(
+      Effect.map((contacts) => ({ _tag: "Read" as const, contacts })),
+      Effect.catch((failure) =>
+        Predicate.isTagged(failure, "PublicApplicationPersistenceError")
+          ? Effect.fail(persistenceError("read response applicant contact", failure))
+          : Effect.succeed({ _tag: "Missing" as const }),
+      ),
+    );
+
+    if (Predicate.isTagged(applicantRead, "Missing") || applicantRead.contacts.length !== 1) {
+      return yield* reject("AuthorityEnvelopeMismatch");
+    }
+
+    const applicant = applicantRead.contacts[0];
+
+    if (
+      applicant === undefined ||
+      applicant.applicationId !== canonical.applicationId ||
+      request.applicantDisplayName !== `${applicant.firstName} ${applicant.lastName}`
+    ) {
+      return yield* reject("AuthorityEnvelopeMismatch");
+    }
+
+    const interviewerRead = yield* profile.readContacts([canonical.interviewerPersonId]).pipe(
+      Effect.map((contacts) => ({ _tag: "Read" as const, contacts })),
+      Effect.catch((failure) =>
+        Predicate.isTagged(failure, "ProfilePersistenceError")
+          ? Effect.fail(persistenceError("read response interviewer contact", failure))
+          : Effect.succeed({ _tag: "Missing" as const }),
+      ),
+    );
+
+    if (Predicate.isTagged(interviewerRead, "Missing") || interviewerRead.contacts.length !== 1) {
+      return yield* reject("AuthorityEnvelopeMismatch");
+    }
+
+    const interviewer = interviewerRead.contacts[0];
+
+    if (
+      interviewer === undefined ||
+      interviewer.personId !== canonical.interviewerPersonId ||
+      request.interviewerEmail !== interviewer.email ||
+      request.interviewerPhone !== interviewer.phone
+    ) {
+      return yield* reject("AuthorityEnvelopeMismatch");
+    }
+
+    yield* sql`UPDATE public.recruitment_invitation_response_audit SET envelope_sha256=${envelopeSha256} WHERE invitation_id=${row.invitationId} AND envelope_sha256 IS NULL`.pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("seal delivery envelope",cause))));
+
+    return {
+      effectId: row.effectId,
+      claimId: row.claimId,
+      attempts: row.attempts,
+      request,
+    };
+  });
+
 const claimInTransaction = (
   sql: DatabaseOperations,
   admissions: AdmissionsOperations,
@@ -250,157 +412,23 @@ const claimInTransaction = (
     const rawRow = rows[0];
 
     if (rawRow === undefined) return undefined;
-    const decodedRow = yield* decodeForClaim(ClaimedInvitationResponseRowSchema)(rawRow);
-
-    if (!Predicate.isTagged(decodedRow, "Decoded")) {
-      return yield* quarantineAndSkip(
-        sql,
-        { effectId: rawRow.effectId, claimId },
-        "RecruitmentDecodeError",
-      );
-    }
-
-    const row = decodedRow.value;
-
-    if (row.claimId !== claimId) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
-    }
-
-    const decodedRequest = yield* decodeForClaim(RecruitmentInvitationResponseOutboxRequestSchema)(
-      row.payloadJson,
-    );
-
-    if (!Predicate.isTagged(decodedRequest, "Decoded")) {
-      return yield* quarantineAndSkip(sql, row, "RecruitmentDecodeError");
-    }
-
-    const request = decodedRequest.value;
-
-    const canonicalRows = yield* sql<CanonicalInvitationResponseRow>`
-      SELECT
-        audit.invitation_id AS "auditInvitationId",
-        audit.interview_id AS "auditInterviewId",
-        audit.schedule_revision AS "auditScheduleRevision",
-        audit.response_revision AS "auditResponseRevision",
-        audit.response_state AS "auditResponseState",
-        audit.response_message AS "auditResponseMessage",
-        to_char(
-          audit.responded_at AT TIME ZONE 'UTC',
-          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-        ) AS "auditRespondedAt",
-        invitation.interview_id AS "invitationInterviewId",
-        invitation.schedule_revision AS "invitationScheduleRevision",
-        invitation.response_revision AS "invitationResponseRevision",
-        invitation.response_state AS "invitationResponseState",
-        invitation.response_message AS "invitationResponseMessage",
-        to_char(
-          invitation.responded_at AT TIME ZONE 'UTC',
-          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-        ) AS "invitationRespondedAt",
-        interview.application_id AS "applicationId",
-        interview.interviewer_person_id AS "interviewerPersonId",
-        to_char(
-          schedule.scheduled_at AT TIME ZONE 'UTC',
-          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-        ) AS "scheduledAt"
-      FROM recruitment_invitation_response_outbox AS outbox
-      INNER JOIN recruitment_invitation_response_audit AS audit
-        ON audit.invitation_id = outbox.invitation_id
-        AND audit.interview_id = outbox.interview_id
-        AND audit.schedule_revision = outbox.schedule_revision
-        AND audit.response_revision = outbox.response_revision
-        AND audit.response_state = outbox.response_state
-      INNER JOIN recruitment_invitations AS invitation
-        ON invitation.invitation_id = audit.invitation_id
-        AND invitation.interview_id = audit.interview_id
-        AND invitation.schedule_revision = audit.schedule_revision
-        AND invitation.response_revision = audit.response_revision
-      INNER JOIN recruitment_interviews AS interview
-        ON interview.interview_id = audit.interview_id
-      INNER JOIN recruitment_interview_schedules AS schedule
-        ON schedule.interview_id = audit.interview_id
-        AND schedule.schedule_revision = audit.schedule_revision
-      WHERE outbox.effect_id = ${row.effectId}
-        AND outbox.status = 'Processing'
-        AND outbox.claim_id = ${row.claimId}
-      FOR SHARE OF audit, invitation, interview, schedule
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("read canonical invitation response envelope", cause)),
-      ),
-    );
-
-    if (canonicalRows.length !== 1) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
-    }
-
-    const decodedCanonical = yield* decodeForClaim(CanonicalInvitationResponseRowSchema)(
-      canonicalRows[0],
-    );
-
-    if (
-      !Predicate.isTagged(decodedCanonical, "Decoded") ||
-      !canonicalEnvelopeMatches(row, request, decodedCanonical.value)
-    ) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
-    }
-
-    const canonical = decodedCanonical.value;
-
-    const applicantRead = yield* admissions.readApplicantContacts([canonical.applicationId]).pipe(
-      Effect.map((contacts) => ({ _tag: "Read" as const, contacts })),
-      Effect.catch((failure) =>
-        Predicate.isTagged(failure, "PublicApplicationPersistenceError")
-          ? Effect.fail(persistenceError("read response applicant contact", failure))
-          : Effect.succeed({ _tag: "Missing" as const }),
-      ),
-    );
-
-    if (Predicate.isTagged(applicantRead, "Missing") || applicantRead.contacts.length !== 1) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
-    }
-
-    const applicant = applicantRead.contacts[0];
-
-    if (
-      applicant === undefined ||
-      applicant.applicationId !== canonical.applicationId ||
-      request.applicantDisplayName !== `${applicant.firstName} ${applicant.lastName}`
-    ) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
-    }
-
-    const interviewerRead = yield* profile.readContacts([canonical.interviewerPersonId]).pipe(
-      Effect.map((contacts) => ({ _tag: "Read" as const, contacts })),
-      Effect.catch((failure) =>
-        Predicate.isTagged(failure, "ProfilePersistenceError")
-          ? Effect.fail(persistenceError("read response interviewer contact", failure))
-          : Effect.succeed({ _tag: "Missing" as const }),
-      ),
-    );
-
-    if (Predicate.isTagged(interviewerRead, "Missing") || interviewerRead.contacts.length !== 1) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
-    }
-
-    const interviewer = interviewerRead.contacts[0];
-
-    if (
-      interviewer === undefined ||
-      interviewer.personId !== canonical.interviewerPersonId ||
-      request.interviewerEmail !== interviewer.email ||
-      request.interviewerPhone !== interviewer.phone
-    ) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
-    }
-
-    return {
-      effectId: row.effectId,
-      claimId: row.claimId,
-      attempts: row.attempts,
-      request,
-    };
+    return yield* validateEnvelope(sql, admissions, profile, rawRow, claimId,
+      (tag) => quarantineAndSkip(sql, rawRow, tag));
   });
+
+export const sealInterviewResponseEnvelopes = (interviewId: string) => Effect.gen(function* () {
+  const sql = yield* Database;
+  const admissions = yield* Admissions;
+  const profile = yield* Profile;
+  const rows = yield* sql<ClaimedInvitationResponseRow>`SELECT outbox.effect_id AS "effectId",outbox.effect_type AS "effectType",outbox.response_revision AS "responseRevision",outbox.response_state AS "responseState",outbox.response_message AS "responseMessage",
+    outbox.interview_id AS "interviewId",outbox.invitation_id AS "invitationId",outbox.schedule_revision AS "scheduleRevision",outbox.ordinal,
+    'legacy-seal'::text AS "claimId",outbox.attempts+1 AS attempts,outbox.payload_json AS "payloadJson"
+    FROM public.recruitment_invitation_response_outbox outbox JOIN public.recruitment_invitation_response_audit audit ON audit.invitation_id=outbox.invitation_id
+    WHERE outbox.interview_id=${interviewId} AND outbox.status IN ('Pending','Failed','Processing') AND audit.envelope_sha256 IS NULL
+    ORDER BY outbox.effect_id FOR UPDATE OF outbox`;
+  for (const row of rows) yield* validateEnvelope(sql,admissions,profile,row,"legacy-seal",
+    (tag) => Effect.fail(persistenceError("seal legacy response envelope: "+tag)));
+}).pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("seal legacy envelopes",cause))));
 
 export const claimNextRecruitmentInvitationResponse = (
   claimId: string,

@@ -50,6 +50,8 @@ const ClaimedInvitationRowSchema = Schema.Struct({
 });
 
 interface CanonicalInvitationEnvelopeRow {
+  readonly envelopeSha256: string | null;
+  readonly staffingRevisionCount: number;
   readonly receiptCommandId: string;
   readonly receiptCommandSha256: string;
   readonly receiptCommandJson: unknown;
@@ -79,6 +81,8 @@ interface CanonicalInvitationEnvelopeRow {
 }
 
 const CanonicalInvitationEnvelopeRowSchema = Schema.Struct({
+  envelopeSha256: Schema.NullOr(Schema.String),
+  staffingRevisionCount: Schema.Int,
   receiptCommandId: RecruitmentInvitationOutboxRequestSchema.fields.commandId,
   receiptCommandSha256: Schema.String,
   receiptCommandJson: Schema.Unknown,
@@ -204,7 +208,9 @@ const canonicalEnvelopeMatches = (
     canonical.receiptInterviewId === row.interviewId &&
     canonical.receiptScheduleRevision === row.scheduleRevision &&
     canonical.canonicalInterviewId === row.interviewId &&
-    canonical.interviewRevision === row.scheduleRevision &&
+    (canonical.envelopeSha256 === null
+      ? canonical.interviewRevision === row.scheduleRevision
+      : canonical.interviewRevision === row.scheduleRevision + canonical.staffingRevisionCount) &&
     canonical.scheduleInterviewId === row.interviewId &&
     canonical.canonicalScheduleRevision === row.scheduleRevision &&
     canonical.canonicalInvitationId === row.invitationId &&
@@ -249,65 +255,22 @@ const canonicalEnvelopeMatches = (
   );
 };
 
-const claimInTransaction = (
-  sql: DatabaseOperations,
-  admissions: AdmissionsOperations,
-  profile: ProfileOperations,
-  claimId: string,
-  claimedAt: string,
+const validateEnvelope = (
+  sql: DatabaseOperations, admissions: AdmissionsOperations, profile: ProfileOperations,
+  rawRow: ClaimedInvitationRow, claimId: string,
+  reject: (tag: string) => Effect.Effect<undefined, RecruitmentPersistenceError>,
 ): Effect.Effect<ClaimedRecruitmentInvitation | undefined, RecruitmentPersistenceError> =>
   Effect.gen(function* () {
-    const rows = yield* sql<ClaimedInvitationRow>`
-      WITH candidate AS (
-        SELECT outbox.effect_id
-        FROM recruitment_invitation_outbox AS outbox
-        INNER JOIN recruitment_schedule_command_receipts AS receipt
-          ON receipt.command_id = outbox.command_id
-        WHERE outbox.status IN ('Pending', 'Failed')
-        ORDER BY outbox.attempts ASC, receipt.committed_at ASC,
-          outbox.command_id ASC, outbox.ordinal ASC
-        FOR UPDATE OF outbox SKIP LOCKED
-        LIMIT 1
-      )
-      UPDATE recruitment_invitation_outbox AS outbox
-      SET status = 'Processing', claim_id = ${claimId}, claimed_at = ${claimedAt},
-        attempts = outbox.attempts + 1, last_failure_tag = NULL
-      FROM candidate
-      WHERE outbox.effect_id = candidate.effect_id
-      RETURNING
-        outbox.effect_id AS "effectId",
-        outbox.effect_type AS "effectType",
-        outbox.command_id AS "commandId",
-        outbox.interview_id AS "interviewId",
-        outbox.invitation_id AS "invitationId",
-        outbox.schedule_revision AS "scheduleRevision",
-        outbox.ordinal,
-        outbox.claim_id AS "claimId",
-        outbox.attempts,
-        outbox.payload_json AS "payloadJson"
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("claim invitation outbox", cause)),
-      ),
-    );
-
-    const rawRow = rows[0];
-
-    if (rawRow === undefined) return undefined;
     const decodedRow = yield* decodeForClaim(ClaimedInvitationRowSchema)(rawRow);
 
     if (!Predicate.isTagged(decodedRow, "Decoded")) {
-      return yield* quarantineAndSkip(
-        sql,
-        { effectId: rawRow.effectId, claimId },
-        "RecruitmentDecodeError",
-      );
+      return yield* reject("RecruitmentDecodeError");
     }
 
     const row = decodedRow.value;
 
     if (row.claimId !== claimId) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     const decodedRequest = yield* decodeForClaim(RecruitmentInvitationOutboxRequestSchema)(
@@ -315,13 +278,15 @@ const claimInTransaction = (
     );
 
     if (!Predicate.isTagged(decodedRequest, "Decoded")) {
-      return yield* quarantineAndSkip(sql, row, "RecruitmentDecodeError");
+      return yield* reject("RecruitmentDecodeError");
     }
 
     const request = decodedRequest.value;
 
     const canonicalRows = yield* sql<CanonicalInvitationEnvelopeRow>`
       SELECT
+        receipt.envelope_sha256 AS "envelopeSha256",
+        (SELECT count(*)::integer FROM public.recruitment_staffing_history h WHERE h.interview_id=interview.interview_id AND h.revision > receipt.schedule_revision) AS "staffingRevisionCount",
         receipt.command_id AS "receiptCommandId",
         receipt.command_sha256 AS "receiptCommandSha256",
         receipt.command_json AS "receiptCommandJson",
@@ -370,8 +335,6 @@ const claimInTransaction = (
       INNER JOIN recruitment_invitations AS invitation
         ON invitation.invitation_id = outbox.invitation_id
       WHERE outbox.effect_id = ${row.effectId}
-        AND outbox.status = 'Processing'
-        AND outbox.claim_id = ${row.claimId}
       FOR SHARE OF receipt, interview, schedule, invitation
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
@@ -380,7 +343,7 @@ const claimInTransaction = (
     );
 
     if (canonicalRows.length !== 1) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     const decodedCanonical = yield* decodeForClaim(CanonicalInvitationEnvelopeRowSchema)(
@@ -407,10 +370,15 @@ const claimInTransaction = (
         decodedObservation.value,
       )
     ) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     const canonical = decodedCanonical.value;
+    const envelopeSha256 = sha256Hex(canonicalJsonBytes(request));
+    if (canonical.envelopeSha256 !== null) {
+      if (canonical.envelopeSha256 !== envelopeSha256) return yield* reject("AuthorityEnvelopeMismatch");
+      return { effectId: row.effectId, claimId: row.claimId, attempts: row.attempts, request };
+    }
 
     const applicantRead = yield* admissions.readApplicantContacts([canonical.applicationId]).pipe(
       Effect.map((contacts) => ({ _tag: "Read" as const, contacts })),
@@ -422,13 +390,13 @@ const claimInTransaction = (
     );
 
     if (Predicate.isTagged(applicantRead, "Missing") || applicantRead.contacts.length !== 1) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     const applicant = applicantRead.contacts[0];
 
     if (applicant === undefined) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     const interviewerProfiles = yield* profile.readProfiles([canonical.interviewerPersonId]).pipe(
@@ -444,13 +412,13 @@ const claimInTransaction = (
       Predicate.isTagged(interviewerProfiles, "Missing") ||
       interviewerProfiles.profiles.length !== 1
     ) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     const interviewerProfile = interviewerProfiles.profiles[0];
 
     if (interviewerProfile === undefined) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     const interviewerContacts = yield* profile.readContacts([canonical.interviewerPersonId]).pipe(
@@ -466,13 +434,13 @@ const claimInTransaction = (
       Predicate.isTagged(interviewerContacts, "Missing") ||
       interviewerContacts.contacts.length !== 1
     ) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     const interviewerContact = interviewerContacts.contacts[0];
 
     if (interviewerContact === undefined) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
 
     if (
@@ -485,8 +453,10 @@ const claimInTransaction = (
       request.interviewerEmail !== interviewerContact.email ||
       request.interviewerPhone !== interviewerContact.phone
     ) {
-      return yield* quarantineAndSkip(sql, row, "AuthorityEnvelopeMismatch");
+      return yield* reject("AuthorityEnvelopeMismatch");
     }
+
+    yield* sql`UPDATE public.recruitment_schedule_command_receipts SET envelope_sha256=${envelopeSha256} WHERE command_id=${row.commandId} AND envelope_sha256 IS NULL`.pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("seal delivery envelope",cause))));
 
     return {
       effectId: row.effectId,
@@ -495,6 +465,69 @@ const claimInTransaction = (
       request,
     };
   });
+
+const claimInTransaction = (
+  sql: DatabaseOperations,
+  admissions: AdmissionsOperations,
+  profile: ProfileOperations,
+  claimId: string,
+  claimedAt: string,
+): Effect.Effect<ClaimedRecruitmentInvitation | undefined, RecruitmentPersistenceError> =>
+  Effect.gen(function* () {
+    const rows = yield* sql<ClaimedInvitationRow>`
+      WITH candidate AS (
+        SELECT outbox.effect_id
+        FROM recruitment_invitation_outbox AS outbox
+        INNER JOIN recruitment_schedule_command_receipts AS receipt
+          ON receipt.command_id = outbox.command_id
+        WHERE outbox.status IN ('Pending', 'Failed')
+        ORDER BY outbox.attempts ASC, receipt.committed_at ASC,
+          outbox.command_id ASC, outbox.ordinal ASC
+        FOR UPDATE OF outbox SKIP LOCKED
+        LIMIT 1
+      )
+      UPDATE recruitment_invitation_outbox AS outbox
+      SET status = 'Processing', claim_id = ${claimId}, claimed_at = ${claimedAt},
+        attempts = outbox.attempts + 1, last_failure_tag = NULL
+      FROM candidate
+      WHERE outbox.effect_id = candidate.effect_id
+      RETURNING
+        outbox.effect_id AS "effectId",
+        outbox.effect_type AS "effectType",
+        outbox.command_id AS "commandId",
+        outbox.interview_id AS "interviewId",
+        outbox.invitation_id AS "invitationId",
+        outbox.schedule_revision AS "scheduleRevision",
+        outbox.ordinal,
+        outbox.claim_id AS "claimId",
+        outbox.attempts,
+        outbox.payload_json AS "payloadJson"
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("claim invitation outbox", cause)),
+      ),
+    );
+
+    const rawRow = rows[0];
+
+    if (rawRow === undefined) return undefined;
+    return yield* validateEnvelope(sql, admissions, profile, rawRow, claimId,
+      (tag) => quarantineAndSkip(sql, rawRow, tag));
+  });
+
+export const sealInterviewInvitationEnvelopes = (interviewId: string) => Effect.gen(function* () {
+  const sql = yield* Database;
+  const admissions = yield* Admissions;
+  const profile = yield* Profile;
+  const rows = yield* sql<ClaimedInvitationRow>`SELECT outbox.effect_id AS "effectId",outbox.effect_type AS "effectType",outbox.command_id AS "commandId",
+    outbox.interview_id AS "interviewId",outbox.invitation_id AS "invitationId",outbox.schedule_revision AS "scheduleRevision",outbox.ordinal,
+    'legacy-seal'::text AS "claimId",outbox.attempts+1 AS attempts,outbox.payload_json AS "payloadJson"
+    FROM public.recruitment_invitation_outbox outbox JOIN public.recruitment_schedule_command_receipts receipt ON receipt.command_id=outbox.command_id
+    WHERE outbox.interview_id=${interviewId} AND outbox.status IN ('Pending','Failed','Processing') AND receipt.envelope_sha256 IS NULL
+    ORDER BY outbox.effect_id FOR UPDATE OF outbox`;
+  for (const row of rows) yield* validateEnvelope(sql,admissions,profile,row,"legacy-seal",
+    (tag) => Effect.fail(persistenceError("seal legacy invitation envelope: "+tag)));
+}).pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("seal legacy envelopes",cause))));
 
 export const claimNextRecruitmentInvitation = (
   claimId: string,

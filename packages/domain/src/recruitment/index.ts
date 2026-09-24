@@ -11,3 +11,4 @@ export * from "./conduct.js";
 export * from "./report.js";
 
 export * from "./applicant-identity.js";
+export * from "./maintenance.js";

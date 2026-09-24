@@ -4,6 +4,7 @@ import { Database } from "../service.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { assignApplicant, readAssignmentBoard } from "./postgres.js";
+import { readQuestionnaires, readInterviewStaffing, authorizeMaintenance, maintainRecruitment } from "./maintenance-postgres.js";
 import { readSchedulingBoard, scheduleInterview } from "./scheduling-postgres.js";
 import {
   readInterviewConduct,
@@ -29,6 +30,10 @@ export const RecruitmentLive = Layer.effect(
     const profile = yield* Profile;
 
     return Recruitment.of({
+      readQuestionnaires: (personId) => readQuestionnaires(personId).pipe(Effect.provideService(Database, database)),
+      readInterviewStaffing: (personId) => readInterviewStaffing(personId).pipe(Effect.provideService(Database, database)),
+      authorizeMaintenance: (command, personId) => authorizeMaintenance(command, personId).pipe(Effect.provideService(Database, database), Effect.provideService(Admissions, admissions), Effect.provideService(Profile, profile)),
+      maintainRecruitment: (command, personId) => maintainRecruitment(command, personId).pipe(Effect.provideService(Database, database), Effect.provideService(Admissions, admissions), Effect.provideService(Profile, profile)),
       readAssignmentBoard: (query, context) =>
         readAssignmentBoard(query, context).pipe(
           Effect.provideService(Database, database),

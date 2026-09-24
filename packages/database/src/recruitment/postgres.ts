@@ -85,6 +85,7 @@ interface ApplicationBoardRow {
   readonly assignedAt: string | null;
   readonly scheduledAt: string | null;
   readonly interviewRevision: number | null;
+  readonly snapshotQuestionCount: number;
 }
 
 interface InterviewSchemaRow {
@@ -145,6 +146,7 @@ const ApplicationBoardRowSchema = Schema.Struct({
   assignedAt: Schema.NullOr(Schema.String),
   scheduledAt: Schema.NullOr(Schema.String),
   interviewRevision: Schema.NullOr(Schema.Number),
+  snapshotQuestionCount: Schema.Number,
 });
 
 const InterviewSchemaRowSchema = Schema.Struct({
@@ -373,7 +375,8 @@ const readBoardRows = (
       CASE WHEN s.scheduled_at IS NULL THEN NULL
         ELSE to_char(s.scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
       END AS "scheduledAt",
-      i.revision AS "interviewRevision"
+      i.revision AS "interviewRevision",
+      (SELECT count(*)::integer FROM public.recruitment_interview_question_snapshots q WHERE q.interview_id=i.interview_id) AS "snapshotQuestionCount"
     FROM admission_applications a
     INNER JOIN admission_applicants p ON p.applicant_id = a.applicant_id
     LEFT JOIN recruitment_interviews i ON i.application_id = a.application_id
@@ -429,7 +432,7 @@ const candidateForRow = (
             ? "NoContact"
             : "Scheduled",
       interviewer,
-      interviewSchema,
+      interviewSchema: interviewSchema === null ? null : { ...interviewSchema, questionCount: decodedRow.snapshotQuestionCount },
       scheduledAt: decodedRow.scheduledAt,
     };
 
@@ -622,7 +625,7 @@ const readQuestionSource = (
   `.pipe(
     Effect.flatMap((rows) =>
       Effect.gen(function* () {
-        if (rows.length !== questionCount) {
+        if (rows.length === 0 || rows.length !== questionCount) {
           return yield* questionsUnavailable(
             interviewSchemaId,
             `expected ${questionCount} questions but found ${rows.length}`,
@@ -665,23 +668,6 @@ const readQuestionSource = (
     ),
     Effect.catchTag("SqlError", () =>
       Effect.fail(questionsUnavailable(interviewSchemaId, "question source unavailable")),
-    ),
-  );
-
-const readQuestionSnapshotCount = (
-  sql: DatabaseOperations,
-  interviewId: string,
-): Effect.Effect<number, RecruitmentFailure> =>
-  sql<{ readonly interviewId: string }>`
-    SELECT interview_id AS "interviewId"
-    FROM public.recruitment_interview_question_snapshots
-    WHERE interview_id = ${interviewId}
-    ORDER BY ordinal
-    FOR SHARE
-  `.pipe(
-    Effect.map((rows) => rows.length),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("read interview question snapshot count", cause)),
     ),
   );
 
@@ -937,6 +923,9 @@ const assignmentInTransaction = (
     }
 
     const existing = yield* readInterviewForApplication(sql, command.applicationId);
+    if (existing !== undefined) return yield* new RecruitmentApplicationAlreadyAssigned({
+      applicationId: command.applicationId, interviewId: RecruitmentInterviewId.make(existing.interviewId),
+    });
     const interviewSchema = yield* readInterviewSchema(sql, command.interviewSchemaId);
 
     if (interviewSchema === undefined) {
@@ -948,37 +937,6 @@ const assignmentInTransaction = (
     if (!interviewSchema.active) {
       return yield* new RecruitmentInterviewSchemaInactive({
         interviewSchemaId: command.interviewSchemaId,
-      });
-    }
-
-    if (existing !== undefined) {
-      const existingSchema = yield* readInterviewSchema(sql, existing.interviewSchemaId);
-
-      if (existingSchema === undefined) {
-        return yield* questionsUnavailable(
-          existing.interviewSchemaId,
-          "assigned interview references a missing schema",
-        );
-      }
-
-      const existingQuestions = yield* readQuestionSource(
-        sql,
-        existing.interviewSchemaId,
-        existingSchema.questionCount,
-      );
-
-      const snapshotCount = yield* readQuestionSnapshotCount(sql, existing.interviewId);
-
-      if (snapshotCount !== existingQuestions.length) {
-        return yield* questionsUnavailable(
-          existing.interviewSchemaId,
-          "assigned interview has no complete question snapshot",
-        );
-      }
-
-      return yield* new RecruitmentApplicationAlreadyAssigned({
-        applicationId: command.applicationId,
-        interviewId: RecruitmentInterviewId.make(existing.interviewId),
       });
     }
 

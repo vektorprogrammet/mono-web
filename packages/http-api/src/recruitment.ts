@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import { RecruitmentMaintenanceCommand, RecruitmentMaintenanceResult, QuestionnaireManagement, InterviewStaffingManagement } from "@vektorprogrammet/domain/recruitment";
 import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
 import { ApplicantIdSchema, PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
@@ -181,6 +182,7 @@ import {
   RecruitmentScheduleInterviewProblem,
 } from "./endpoint-problems.js";
 import {
+  problemUnion,
   ConditionalReadHeaders,
   createdMutationResponse,
   endpointProblemResponses,
@@ -645,6 +647,31 @@ export const CancelInterviewEndpoint = HttpApiEndpoint.post(
  * @since 0.1.0
  * @category Groups
  */
+
+const RecruitmentMaintenanceProblem = problemUnion("RecruitmentMaintenanceProblem", [
+  ["credential.missing",401],["credential.invalid",401],["authority.denied",403],["origin.denied",403],
+  ["request.malformed",400],["request.too-large",413],["media-type.unsupported",415],["header.malformed",400],
+  ["idempotency-key.invalid",400],["idempotency.in-flight",409],["idempotency.digest-conflict",409],["idempotency.response-expired",409],
+  ["resource.not-found",404],["precondition.failed",412],["recruitment.invalid-command",422],["recruitment.ineligible",422],
+  ["recruitment.empty-active-questionnaire",422],["recruitment.terminal",409],["recruitment.unavailable",503],["idempotency.unavailable",503],["internal.error",500],
+]);
+export const ReadQuestionnairesEndpoint = HttpApiEndpoint.get("readQuestionnaires","/api/recruitment/questionnaires",{
+  success: privateReadResponse(QuestionnaireManagement),error:endpointProblemResponses(RecruitmentMaintenanceProblem),
+}).middleware(PersonSecurity).pipe((endpoint) => annotateAccessSpec(endpoint,personNativeAccess({
+  capability:"recruitment.maintain",canonicalScopeResolver:"recruitment.maintenance",decisionTime:"SnapshotRead",
+}))).annotateMerge(operationAnnotations("Read questionnaires","Returns global questionnaire definitions and immutable maintenance history for a current global administrator."));
+export const ReadInterviewStaffingEndpoint = HttpApiEndpoint.get("readInterviewStaffing","/api/recruitment/interview-staffing",{
+  success: privateReadResponse(InterviewStaffingManagement),error:endpointProblemResponses(RecruitmentMaintenanceProblem),
+}).middleware(PersonSecurity).pipe((endpoint) => annotateAccessSpec(endpoint,personNativeAccess({
+  capability:"recruitment.maintain",canonicalScopeResolver:"recruitment.maintenance",decisionTime:"SnapshotRead",
+}))).annotateMerge(operationAnnotations("Read interview staffing","Returns interviews, eligible candidates, and staffing history in the current coordinator scope."));
+export const MaintainRecruitmentEndpoint = HttpApiEndpoint.post("maintainRecruitment","/api/recruitment/maintenance/commands",{
+  headers:IdempotencyHeaders,payload:RecruitmentMaintenanceCommand,success:entityMutationResponse(RecruitmentMaintenanceResult),error:endpointProblemResponses(RecruitmentMaintenanceProblem),
+}).middleware(PersonSecurity).pipe((endpoint) => annotateAccessSpec(endpoint,personNativeAccess({
+  capability:"recruitment.maintain",canonicalScopeResolver:"recruitment.maintenance",decisionTime:"Transaction",
+}))).annotateMerge(operationAnnotations("Maintain recruitment","Creates or revises a questionnaire, or replaces a nonterminal interview staffing pair with an observed revision and reason."));
+export { RecruitmentMaintenanceCommand, RecruitmentMaintenanceResult, QuestionnaireManagement, InterviewStaffingManagement };
+
 export class RecruitmentApi extends HttpApiGroup.make("recruitment")
   .add(
     ReadInvitationResponseEndpoint,
@@ -660,6 +687,9 @@ export class RecruitmentApi extends HttpApiGroup.make("recruitment")
     FinalizeInterviewEndpoint,
     CorrectInterviewAssessmentEndpoint,
     CancelInterviewEndpoint,
+    ReadQuestionnairesEndpoint,
+    ReadInterviewStaffingEndpoint,
+    MaintainRecruitmentEndpoint,
   )
   .annotateMerge(
     OpenApi.annotations({

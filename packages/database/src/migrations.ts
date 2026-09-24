@@ -511,6 +511,11 @@ export const databaseMigrationDefinitions = [
     name: "scoped-school-administration",
     url: new URL("../migrations/0061-scoped-school-administration.sql", import.meta.url),
   },
+  {
+    id: "62_recruitment-maintenance",
+    name: "recruitment-maintenance",
+    url: new URL("../migrations/0062-recruitment-maintenance.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

@@ -827,6 +827,30 @@ export const NativeProblemRegistry = {
     status: 422,
     detail: "The interview cannot be scheduled in the past.",
   },
+  "recruitment.invalid-command": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.invalid-command",
+    title: "Invalid recruitment command",
+    status: 422,
+    detail: "The recruitment command contains invalid values.",
+  },
+  "recruitment.ineligible": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.ineligible",
+    title: "Ineligible interviewer",
+    status: 422,
+    detail: "Select distinct current department members who are not the applicant.",
+  },
+  "recruitment.terminal": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.terminal",
+    title: "Interview is terminal",
+    status: 409,
+    detail: "Completed or cancelled interviews cannot change staffing.",
+  },
+  "recruitment.empty-active-questionnaire": {
+    type: "urn:vektorprogrammet:problem:v0.2:recruitment.empty-active-questionnaire",
+    title: "Questionnaire has no questions",
+    status: 422,
+    detail: "An active questionnaire must have at least one valid question.",
+  },
   "recruitment.unavailable": {
     type: "urn:vektorprogrammet:problem:v0.2:recruitment.unavailable",
     title: "Recruitment unavailable",

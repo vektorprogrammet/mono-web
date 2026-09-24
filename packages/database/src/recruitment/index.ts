@@ -19,3 +19,5 @@ export * from "./completion-outbox.js";
 export * from "./outbox.js";
 
 export * from "./response-outbox.js";
+
+export * from "./maintenance-postgres.js";

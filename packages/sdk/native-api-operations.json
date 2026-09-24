@@ -392,6 +392,12 @@
     },
     {
       "group": "recruitment",
+      "method": "POST",
+      "operationId": "recruitment.maintainRecruitment",
+      "path": "/api/recruitment/maintenance/commands"
+    },
+    {
+      "group": "recruitment",
       "method": "GET",
       "operationId": "recruitment.readAssignmentBoard",
       "path": "/api/recruitment/application-assignments"
@@ -411,8 +417,20 @@
     {
       "group": "recruitment",
       "method": "GET",
+      "operationId": "recruitment.readInterviewStaffing",
+      "path": "/api/recruitment/interview-staffing"
+    },
+    {
+      "group": "recruitment",
+      "method": "GET",
       "operationId": "recruitment.readInvitationResponse",
       "path": "/api/recruitment/invitation-response"
+    },
+    {
+      "group": "recruitment",
+      "method": "GET",
+      "operationId": "recruitment.readQuestionnaires",
+      "path": "/api/recruitment/questionnaires"
     },
     {
       "group": "recruitment",
