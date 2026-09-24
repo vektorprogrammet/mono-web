@@ -240,6 +240,12 @@ A terminal decision is immutable. Concurrent or repeated commands cannot create
 a second terminal outcome. A later correction needs a separate authorized
 reversal contract; it cannot silently rewrite the original evidence.
 
+Coordinator cards identify the absent person and the actor who recorded each terminal decision.
+Attendance lists contain only the people recorded as present, not everyone assigned to the service. Empty attendance is explicit.
+
+Names come from the matching assignment or acknowledged substitute offer. Missing names use stable person identifiers; the deciding actor uses its recorded identifier.
+The cards use existing authorized responses. They perform no separate identity lookup.
+
 ### Substitute coverage
 
 An affiliated volunteer can opt into the substitute pool. A scheduled volunteer or

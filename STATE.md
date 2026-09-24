@@ -127,6 +127,16 @@ Focused regressions, maintained scheduling and response journeys, type checks, c
 Source-bound evidence is retained outside the repository at `/tmp/vektor-rebooking-acceptance-8fe59f3e/`.
 Notification acceptance used the local recording adapter. It does not establish external mail arrival or provider readiness.
 
+Coordinator identity cards passed local acceptance on 2026-09-24 at product revision `de57e160`.
+Absence cards identify the absent person through the matching assignment, with a stable-ID fallback when no name exists.
+Terminal cards show the deciding actor identifier and actual attendees, not the planned roster. Empty attendance is explicit.
+
+The maintained PostgreSQL and browser journey passed. Independent browser checks covered five absence cards and seven terminal cards across all three outcomes.
+Reload, keyboard scope refresh, wrong-scope navigation, and 390px layouts passed. The accessibility scan reported zero violations and zero incomplete checks.
+
+Changed-file lint and dashboard type checks passed. Notification delivery used only an owned loopback capture server.
+Source-bound evidence is retained at `/tmp/vektor-coordinator-identities-acceptance-de57e160/`.
+
 The Economy owner query uses shared schemas with `SqlSchema.findAll`.
 Settlement HTTP calls the complete `Economy.recordReceiptSettlement` operation.
 The service checks authority within the transaction. HTTP retains response receipts and revision preconditions.
@@ -204,12 +214,12 @@ and settlement references are still needed for the receipt migration.
 
 ## Next
 
-School administration, Organization lifecycle, recruitment maintenance, scoped mailing recipients, and requested interview rebooking have local synthetic acceptance.
-The remaining journeys and policy boundaries appear below. No production activity or provider delivery was observed.
+School administration, Organization lifecycle, recruitment maintenance, scoped mailing recipients, requested interview rebooking, and coordinator identity cards have local synthetic acceptance.
+The remaining journeys and policy boundaries appear below. No production activity or external provider delivery was observed.
 
 | Priority | Work | Acceptance gate | Authority |
 | --- | --- | --- | --- |
-| 1 | Complete remaining operational journeys | Expose coordinator identities and settle the policy boundaries below. | Local implementation for defined contracts. Product decisions for unresolved policy. |
+| 1 | Complete remaining operational journeys | Resolve the policy boundaries below before implementing additional journeys. | Local implementation for defined contracts. Product decisions for unresolved policy. |
 | 2 | Extend real-source migration coverage | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and disposition. | Local adapter work. Current production access requires authorization. |
 | 3 | Complete provider runtime ownership | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism. | Local implementation. |
 | 4 | Exercise the deployed development journey | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR previews separately. | Explicit provider and credential authority. |
@@ -226,7 +236,7 @@ The source review distinguishes missing native outcomes from undefined policy. N
 | Reminders | Legacy defines applicant reminders, staff digests, and separate admission subscribers. Source does not establish production cadence. Native invitation retry and requested rebooking are not reminders. Reminder cadence, SMS, subscriber consent, and human follow-up ownership remain undecided. |
 | Interview no-show | Neither source establishes a distinct nonattendance outcome. `NO_CONTACT` means not yet contacted, not absent. Decide whether observed nonattendance needs its own evidence and rebooking contract or an explicit handover. Do not infer nonattendance from elapsed time. |
 | Service corrections | Ordinary placement edits exist. Frozen commitments and terminal evidence have no reversal or supersession command. Legacy history edit/delete is not a safe substitute. Define correction cases, authority, evidence, and downstream effects before adding reversal. |
-| Coordinator reads | Existing boards cover placement, demand exceptions, overdue service, coverage, and interview reports. Absence cards omit the absent Person. Terminal cards omit attendee identities and the deciding actor despite available API facts. Repair those presentations separately. Historical lookup, exports, and aggregate reports need a named operational consumer, not generic chart parity. |
+| Coordinator reads | Identity cards have local acceptance. Historical lookup, exports, and aggregate reports need a named operational consumer and an explicit contract, not generic chart parity. |
 
 Current-source reconciliation must establish active cases, external schedules, and responsible humans. Source routes and historical backup counts cannot establish current workload.
 

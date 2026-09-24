@@ -1,5 +1,12 @@
 ## Unreleased
 
+### Coordinator card identities
+
+- Identify absent people separately from reporters and substitutes.
+- Show actual attendee names and the deciding actor identifier on terminal service cards. State empty attendance explicitly.
+- Reuse authorized assignment and substitute-offer facts, with stable-ID fallbacks and wrapping for long identifiers.
+- Verify native PostgreSQL and browser journeys, all terminal outcomes, reload, scope isolation, keyboard controls, mobile layout, and accessibility.
+
 ### Requested interview rebooking
 
 - Permit a replacement only after the applicant requests a new time, through the existing scheduling contract and dashboard.
