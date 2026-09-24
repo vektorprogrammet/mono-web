@@ -148,3 +148,15 @@ it("can clear an operational title and denies national local-leader authority", 
     expect(observedTaggedValue).toMatchObject({ failure: { code: "Invalid" } });
   }
 });
+
+it("rejects a blank audit reason before a lifecycle command can execute", () => {
+  const decode = Schema.decodeUnknownSync(OrganizationLifecycleCommand);
+
+  const command = OrganizationLifecycleCommand.cases.CreateNationalBoard.make({
+    commandId: "board-command",
+    name: "National board",
+    reason: "Appoint national board",
+  });
+
+  expect(() => decode({ ...command, reason: " " })).toThrow();
+});

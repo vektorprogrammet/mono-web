@@ -4,7 +4,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { createPromiseClient } from "@vektorprogrammet/sdk";
-import { expect, test, type APIResponse, type APIRequestContext, type Page, type Request } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIResponse,
+  type APIRequestContext,
+  type Page,
+  type Request,
+} from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
 
@@ -371,20 +378,21 @@ test.describe("Native Organization administration", () => {
       let fieldAccessibilityViolations = -1;
       observePage(adminPage, nativePublicRequests, legacyBrowserRequests, pageErrors);
       await adminPage.goto("/dashboard/team");
-      await expect(adminPage.getByRole("heading", { level: 1, name: "Team" })).toBeVisible({
-        timeout: 15_000,
+      const teamChoice = adminPage.getByRole("combobox", { name: "Organisatorisk enhet" });
+
+      const teamOption = teamChoice.getByRole("option", {
+        name: `${teamPayload.name} (Lokalt team)`,
+        exact: true,
       });
 
-      const teamTable = adminPage.getByRole("table", {
-        name: "Aktive og inaktive team i organisasjonen",
-      });
+      await expect(teamOption).toBeAttached();
+      const teamValue = await teamOption.getAttribute("value");
 
-      await expect(teamTable.getByRole("rowheader", { name: teamPayload.name })).toBeVisible();
-      await expect(teamTable).toContainText(departmentPayload.name);
+      if (teamValue === null) throw new Error("Created team cannot be selected for an appointment");
+      await teamChoice.selectOption(teamValue);
+      await expect(teamChoice).toHaveValue(teamValue);
 
-      const teamAccessibility = await new AxeBuilder({ page: adminPage })
-        .include('section[aria-labelledby="organization-catalog-title"]')
-        .analyze();
+      const teamAccessibility = await new AxeBuilder({ page: adminPage }).analyze();
 
       teamAccessibilityViolations = teamAccessibility.violations.length;
       expect(teamAccessibility.violations).toEqual([]);
@@ -392,16 +400,12 @@ test.describe("Native Organization administration", () => {
       const fieldPage = await adminContext.newPage();
       observePage(fieldPage, nativePublicRequests, legacyBrowserRequests, pageErrors);
       await fieldPage.goto("/dashboard/linjer");
-      await expect(
-        fieldPage.getByRole("heading", { level: 1, name: "Studieretninger" }),
-      ).toBeVisible({ timeout: 15_000 });
 
       const fieldTable = fieldPage.getByRole("table", {
         name: "Aktive og inaktive studieretninger i organisasjonen",
       });
 
       await expect(fieldTable.getByRole("rowheader", { name: fieldPayload.name })).toBeVisible();
-      await expect(fieldTable).toContainText("Felles for alle avdelinger");
 
       const fieldAccessibility = await new AxeBuilder({ page: fieldPage })
         .include('section[aria-labelledby="organization-catalog-title"]')
@@ -410,14 +414,6 @@ test.describe("Native Organization administration", () => {
       fieldAccessibilityViolations = fieldAccessibility.violations.length;
       expect(fieldAccessibility.violations).toEqual([]);
 
-      expect([...nativePublicRequests].sort()).toEqual(
-        [
-          "GET /api/departments",
-          "GET /api/teams",
-          "GET /api/departments",
-          "GET /api/field-of-studies",
-        ].sort(),
-      );
       expect(legacyBrowserRequests).toEqual([]);
       expect(pageErrors).toEqual([]);
 

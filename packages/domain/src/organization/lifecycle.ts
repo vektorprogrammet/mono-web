@@ -3,7 +3,9 @@ import { AccountAccess } from "../identity/access.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import { PersonId } from "./schema.js";
 
-const Text = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250)));
+const Text = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(250), Schema.isPattern(/\S/)),
+);
 
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 

@@ -44,6 +44,7 @@ vektor-field-of-study-catalog {
 
   color: var(--organization-color-foreground);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--organization-space-6);
   inline-size: 100%;
   margin-inline: auto;
@@ -235,11 +236,51 @@ vektor-field-of-study-catalog {
     transition: none;
   }
 }
-.organization-management__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; margin-block: 1rem; }
-.organization-management__field { display: flex; flex-direction: column; gap: .4rem; margin-block: .75rem; }
-.organization-management input, .organization-management select { max-width: 100%; min-width: 0; padding: .6rem; border: 1px solid #667085; border-radius: .3rem; color: #101828; background: white; }
-.organization-management button { padding: .6rem .9rem; border: 1px solid #475467; border-radius: .3rem; background: #f2f4f7; color: #101828; cursor: pointer; }
-.organization-management button:disabled { opacity: .55; cursor: wait; }
-.organization-management__actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-block: 1rem; }
-.organization-management :focus-visible { outline: 3px solid #175cd3; outline-offset: 3px; }
-.organization-management li { overflow-wrap: anywhere; margin-block: .7rem; }
+.organization-management__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+  margin-block: 1rem;
+}
+.organization-management__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-block: 0.75rem;
+}
+.organization-management input,
+.organization-management select {
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.6rem;
+  border: 1px solid #667085;
+  border-radius: 0.3rem;
+  color: #101828;
+  background: white;
+}
+.organization-management button {
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #475467;
+  border-radius: 0.3rem;
+  background: #f2f4f7;
+  color: #101828;
+  cursor: pointer;
+}
+.organization-management button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.organization-management__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-block: 1rem;
+}
+.organization-management :focus-visible {
+  outline: 3px solid #175cd3;
+  outline-offset: 3px;
+}
+.organization-management li {
+  overflow-wrap: anywhere;
+  margin-block: 0.7rem;
+}

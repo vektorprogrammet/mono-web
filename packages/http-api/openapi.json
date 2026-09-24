@@ -41134,6 +41134,7 @@
                           "appointmentId": {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           "endAt": {
@@ -41157,6 +41158,7 @@
                               {
                                 "maxLength": 250,
                                 "minLength": 1,
+                                "pattern": "\\S",
                                 "type": "string"
                               },
                               {
@@ -41188,6 +41190,7 @@
                               "id": {
                                 "maxLength": 250,
                                 "minLength": 1,
+                                "pattern": "\\S",
                                 "type": "string"
                               },
                               "kind": {
@@ -41231,6 +41234,7 @@
                           "action": {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           "actorPersonId": {
@@ -41246,6 +41250,7 @@
                                       "appointmentId": {
                                         "maxLength": 250,
                                         "minLength": 1,
+                                        "pattern": "\\S",
                                         "type": "string"
                                       },
                                       "endAt": {
@@ -41269,6 +41274,7 @@
                                           {
                                             "maxLength": 250,
                                             "minLength": 1,
+                                            "pattern": "\\S",
                                             "type": "string"
                                           },
                                           {
@@ -41300,6 +41306,7 @@
                                           "id": {
                                             "maxLength": 250,
                                             "minLength": 1,
+                                            "pattern": "\\S",
                                             "type": "string"
                                           },
                                           "kind": {
@@ -41369,6 +41376,7 @@
                                       "appointmentId": {
                                         "maxLength": 250,
                                         "minLength": 1,
+                                        "pattern": "\\S",
                                         "type": "string"
                                       },
                                       "endAt": {
@@ -41392,6 +41400,7 @@
                                           {
                                             "maxLength": 250,
                                             "minLength": 1,
+                                            "pattern": "\\S",
                                             "type": "string"
                                           },
                                           {
@@ -41423,6 +41432,7 @@
                                           "id": {
                                             "maxLength": 250,
                                             "minLength": 1,
+                                            "pattern": "\\S",
                                             "type": "string"
                                           },
                                           "kind": {
@@ -41485,6 +41495,7 @@
                           "commandId": {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           "occurredAt": {
@@ -41493,11 +41504,13 @@
                           "reason": {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           "subjectId": {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           }
                         },
@@ -41522,6 +41535,7 @@
                           "name": {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           "personId": {
@@ -41545,6 +41559,7 @@
                               {
                                 "maxLength": 250,
                                 "minLength": 1,
+                                "pattern": "\\S",
                                 "type": "string"
                               },
                               {
@@ -41555,6 +41570,7 @@
                           "name": {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           "target": {
@@ -41563,6 +41579,7 @@
                               "id": {
                                 "maxLength": 250,
                                 "minLength": 1,
+                                "pattern": "\\S",
                                 "type": "string"
                               },
                               "kind": {
@@ -43013,6 +43030,7 @@
                       "commandId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "endAt": {
@@ -43036,6 +43054,7 @@
                           {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           {
@@ -43046,6 +43065,7 @@
                       "reason": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "startAt": {
@@ -43057,6 +43077,7 @@
                           "id": {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           "kind": {
@@ -43099,11 +43120,13 @@
                       "appointmentId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "commandId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "endAt": {
@@ -43128,6 +43151,7 @@
                           {
                             "maxLength": 250,
                             "minLength": 1,
+                            "pattern": "\\S",
                             "type": "string"
                           },
                           {
@@ -43138,6 +43162,7 @@
                       "reason": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "startAt": {
@@ -43169,11 +43194,13 @@
                       "appointmentId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "commandId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "endAt": {
@@ -43186,6 +43213,7 @@
                       "reason": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       }
                     },
@@ -43211,11 +43239,13 @@
                       "appointmentId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "commandId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "expectedRevision": {
@@ -43225,6 +43255,7 @@
                       "reason": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       }
                     },
@@ -43249,11 +43280,13 @@
                       "appointmentId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "commandId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "expectedRevision": {
@@ -43263,6 +43296,7 @@
                       "reason": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       }
                     },
@@ -43287,16 +43321,19 @@
                       "commandId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "name": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "reason": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       }
                     },
@@ -43320,6 +43357,7 @@
                       "commandId": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       },
                       "disabled": {
@@ -43335,6 +43373,7 @@
                       "reason": {
                         "maxLength": 250,
                         "minLength": 1,
+                        "pattern": "\\S",
                         "type": "string"
                       }
                     },
@@ -43364,6 +43403,7 @@
                     "commandId": {
                       "maxLength": 250,
                       "minLength": 1,
+                      "pattern": "\\S",
                       "type": "string"
                     },
                     "revision": {
@@ -43373,6 +43413,7 @@
                     "subjectId": {
                       "maxLength": 250,
                       "minLength": 1,
+                      "pattern": "\\S",
                       "type": "string"
                     }
                   },
