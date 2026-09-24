@@ -61,6 +61,7 @@ type RecordedResponseState = "Accepted" | "Rejected" | "RequestedNewTime";
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
   new RecruitmentPersistenceError({
     operation,
+    cause,
     message: cause instanceof Error ? cause.message : "recruitment response persistence failed",
   });
 

@@ -137,6 +137,7 @@ export const RecruitmentInvitationDeliveryResult =
 const persistenceError = (operation: string, cause?: unknown): RecruitmentPersistenceError =>
   new RecruitmentPersistenceError({
     operation,
+    cause,
     message: cause instanceof Error ? cause.message : "recruitment outbox persistence failed",
   });
 

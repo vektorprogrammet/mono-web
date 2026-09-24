@@ -87,7 +87,7 @@ const decodeError = (operation: string, cause: unknown) =>
   new RecruitmentDecodeError({ message: `${operation}: ${String(cause)}` });
 
 const persistenceError = (operation: string, cause: unknown) =>
-  new RecruitmentPersistenceError({ operation, message: String(cause) });
+  new RecruitmentPersistenceError({ operation, message: String(cause), cause });
 
 const capabilityDigest = (capability: RecruitmentInvitationCapability): string =>
   sha256Hex(new TextEncoder().encode(capability));
