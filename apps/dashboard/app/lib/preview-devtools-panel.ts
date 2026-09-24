@@ -85,7 +85,7 @@ export const mountPreviewDevtoolsPanel = (): void => {
     return;
   }
 
-  const panel = document.createElement("div");
+  const panel = document.createElement("aside");
   panel.id = PANEL_ELEMENT_ID;
   panel.style.cssText = [
     "position:fixed",
@@ -101,7 +101,9 @@ export const mountPreviewDevtoolsPanel = (): void => {
   ].join(";");
 
   const title = document.createElement("div");
+  title.id = `${PANEL_ELEMENT_ID}-title`;
   title.textContent = "Preview Devtools";
+  panel.setAttribute("aria-labelledby", title.id);
   title.style.cssText = "margin-bottom:6px;font-weight:bold;";
   panel.appendChild(title);
 

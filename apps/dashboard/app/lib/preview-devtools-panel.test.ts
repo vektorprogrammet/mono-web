@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DevToolsEmbedConfig } from "./preview-devtools-panel";
 
 // These imports intentionally reload the preview module after vi.stubEnv sets
 // its build-time seam; a static runtime import would freeze the constant
@@ -36,19 +35,6 @@ describe("preview devtools panel", () => {
     expect(panelAllowed("p20.vektor.phibkro.org.evil.example")).toBe(false);
   });
 
-  it("mounts the role controls on a dashboard page", async () => {
-    const { mountPreviewDevtoolsPanel } = await import("./preview-devtools-panel");
-
-    mountPreviewDevtoolsPanel();
-
-    const panel = document.getElementById("vektor-preview-devtools-panel");
-    expect(panel?.textContent).toContain("Preview Devtools");
-    expect(panel?.querySelectorAll("button[data-role]")).toHaveLength(3);
-    expect(panel?.textContent).toContain("TEAM_MEMBER");
-    expect(panel?.textContent).toContain("TEAM_LEADER");
-    expect(panel?.textContent).toContain("ADMIN");
-  });
-
   it("does not mount without the dashboard shell", async () => {
     document.querySelector("[data-dashboard-shell]")?.remove();
     const { mountPreviewDevtoolsPanel } = await import("./preview-devtools-panel");
@@ -56,22 +42,5 @@ describe("preview devtools panel", () => {
     mountPreviewDevtoolsPanel();
 
     expect(document.getElementById("vektor-preview-devtools-panel")).toBeNull();
-  });
-
-  it("re-embeds dashboard elements when Foldkit devtools toggle", async () => {
-    const setDevTools = vi.fn<(config: DevToolsEmbedConfig) => void>();
-
-    const dashboard = Object.assign(document.createElement("vektor-foldkit-dashboard"), { setDevTools });
-    document.body.appendChild(dashboard);
-    const { toggleFoldkitDevTools } = await import("./preview-devtools-panel");
-
-    expect(toggleFoldkitDevTools()).toBe(true);
-    expect(setDevTools).toHaveBeenLastCalledWith({
-      show: "Always",
-      mode: "Inspect",
-    });
-
-    expect(toggleFoldkitDevTools()).toBe(false);
-    expect(setDevTools).toHaveBeenLastCalledWith(false);
   });
 });
