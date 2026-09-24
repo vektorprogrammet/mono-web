@@ -30,7 +30,7 @@ const rawBuildRouteDigest =
 export const BUILD_COMMIT = requireBuildValue(
   "BUILD_COMMIT",
   rawBuildCommit,
-  /^[0-9a-f]{40}$/,
+  import.meta.env.HOMEPAGE_LOCAL_DEV === "true" ? /^working-tree$/ : /^[0-9a-f]{40}$/,
 );
 
 export const BUILD_CONTENT_DIGEST = requireBuildValue(

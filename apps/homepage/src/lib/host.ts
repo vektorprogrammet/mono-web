@@ -90,6 +90,13 @@ export function resolveHomepageRequest(
     return { stage: WORKER_PREVIEW_STAGE, host };
   }
 
+  if (
+    import.meta.env?.HOMEPAGE_LOCAL_DEV === "true" &&
+    (host === "localhost" || host === "127.0.0.1" || host === "[::1]")
+  ) {
+    return { stage: LOCAL_ONLY_STAGE, host };
+  }
+
   const stage = stageFromHost(host);
 
   return { stage, host };

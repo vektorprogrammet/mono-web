@@ -13,12 +13,7 @@ import {
 
 const projectRoot = fileURLToPath(new URL("./", import.meta.url));
 
-const cloudflarePlugins =
-  process.env.ALCHEMY_CLOUDFLARE_VITE_INJECTED === "1"
-    ? []
-    : cloudflare({ viteEnvironment: { name: "ssr" } });
-
-function buildIdentity() {
+function buildCommit() {
   const status = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
     cwd: projectRoot,
     encoding: "utf8",
@@ -37,42 +32,47 @@ function buildIdentity() {
     throw new Error("Homepage build requires a full verified git commit SHA");
   }
 
+  return commit;
+}
+
+export default defineConfig(({ command, isPreview }) => {
+  const localDevelopment = command === "serve" && !isPreview;
+  const commit = localDevelopment ? "working-tree" : buildCommit();
+  const cloudflarePlugins =
+    localDevelopment || process.env.ALCHEMY_CLOUDFLARE_VITE_INJECTED === "1"
+      ? []
+      : cloudflare({ viteEnvironment: { name: "ssr" } });
   const inputs = buildHomepageDigestInputs(projectRoot);
 
   return {
-    commit,
-    digest: computeContentDigest(DEV_CONTENT, inputs.assetManifest),
-    routeDigest: computeRouteDigest(DEV_ROUTE_CENSUS, inputs),
-  };
-}
-
-const identity = buildIdentity();
-
-export default defineConfig({
-  define: {
-    __BUILD_COMMIT__: JSON.stringify(identity.commit),
-    __BUILD_CONTENT_DIGEST__: JSON.stringify(identity.digest),
-    __BUILD_ROUTE_DIGEST__: JSON.stringify(identity.routeDigest),
-  },
-  plugins: [...cloudflarePlugins, ...reactRouter(), tailwindcss()],
-  build: {
-    outDir: "./build",
-  },
-  server: {
-    allowedHosts: ["p000.vektor.phibkro.org"],
-    strictPort: true,
-  },
-  preview: {
-    allowedHosts: ["p000.vektor.phibkro.org"],
-  },
-  resolve: {
-    alias: {
-      "~": "/src",
-      "@/components": "/src/components",
-      "@/hooks": "/src/hooks",
-      "@/lib": "/src/lib",
-      "@/ui": "/src/components/ui",
-      "@/api": "/src/api",
+    define: {
+      "import.meta.env.HOMEPAGE_LOCAL_DEV": JSON.stringify(String(localDevelopment)),
+      __BUILD_COMMIT__: JSON.stringify(commit),
+      __BUILD_CONTENT_DIGEST__: JSON.stringify(computeContentDigest(DEV_CONTENT, inputs.assetManifest)),
+      __BUILD_ROUTE_DIGEST__: JSON.stringify(computeRouteDigest(DEV_ROUTE_CENSUS, inputs)),
     },
-  },
+    plugins: [...cloudflarePlugins, ...reactRouter(), tailwindcss()],
+    build: {
+      outDir: "./build",
+    },
+    server: {
+      host: "127.0.0.1",
+      port: Number(process.env.LOCAL_HOMEPAGE_PORT ?? "8787"),
+      allowedHosts: ["p000.vektor.phibkro.org"],
+      strictPort: true,
+    },
+    preview: {
+      allowedHosts: ["p000.vektor.phibkro.org"],
+    },
+    resolve: {
+      alias: {
+        "~": "/src",
+        "@/components": "/src/components",
+        "@/hooks": "/src/hooks",
+        "@/lib": "/src/lib",
+        "@/ui": "/src/components/ui",
+        "@/api": "/src/api",
+      },
+    },
+  };
 });

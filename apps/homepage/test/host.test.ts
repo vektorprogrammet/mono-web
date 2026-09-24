@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEV_MAIN_STAGE,
   LOCAL_ONLY_STAGE,
@@ -8,6 +8,8 @@ import {
   resolveHomepageRequest,
   stageFromHost,
 } from "../src/lib/host";
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("homepage stage and host contract", () => {
   it("maps the persistent development host exactly", () => {
@@ -59,6 +61,28 @@ describe("homepage stage and host contract", () => {
       host: "p000.vektor.phibkro.org",
     });
     expect(() => homepageDomain(LOCAL_ONLY_STAGE)).toThrow("p000 is reserved for local-only proof");
+  });
+
+  it("allows loopback only in the local development runtime", () => {
+    const hosts = ["localhost:8787", "127.0.0.1:8787", "[::1]:8787"];
+    vi.stubEnv("HOMEPAGE_LOCAL_DEV", "false");
+
+    for (const host of hosts) {
+      expect(() => resolveHomepageRequest(host)).toThrow();
+    }
+
+    vi.stubEnv("HOMEPAGE_LOCAL_DEV", "true");
+
+    for (const host of hosts) {
+      expect(resolveHomepageRequest(host).stage).toBe(LOCAL_ONLY_STAGE);
+    }
+
+    expect(() => resolveHomepageRequest("localhost.attacker.example:8787")).toThrow();
+    expect(() => resolveHomepageRequest("192.168.1.1:8787")).toThrow();
+    expect(() => resolveHomepageRequest("localhost:8787", {
+      stage: WORKER_PREVIEW_STAGE,
+      hostSuffix: WORKERS_DEV_HOST_SUFFIX,
+    })).toThrow();
   });
 
   it("rejects invalid provider stages and hosts", () => {
