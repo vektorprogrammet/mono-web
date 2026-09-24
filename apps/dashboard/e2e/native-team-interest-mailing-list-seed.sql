@@ -28,6 +28,17 @@ FROM jsonb_to_recordset($1::jsonb) AS seed_row(
 WHERE TRUE
 ON CONFLICT (department_id) DO NOTHING;
 
+-- name: seed_semesters
+INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
+SELECT seed_row.semester_id, seed_row.start_at, seed_row.end_at
+FROM jsonb_to_recordset($1::jsonb) AS seed_row(
+  semester_id text,
+  start_at timestamptz,
+  end_at timestamptz
+)
+WHERE TRUE
+ON CONFLICT (semester_id) DO NOTHING;
+
 -- name: seed_teams
 INSERT INTO organization_teams (
   team_id,

@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 
-// Journey personas provisioned by e2e/native-team-interest-mailing-list-seed.mjs.
+// Personas and canonical semesters come from native-team-interest-mailing-list-seed.mjs.
 const password = "journey-secret-0123456789abcdef";
 
 const adminEmail = "admin.0059@example.invalid";
@@ -15,6 +15,22 @@ const memberEmail = "member.0059@example.invalid";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8790";
 
+const selectedSemester = "semester-0060-selected";
+
+const beforeAppointments = "semester-0060-before-appointments";
+
+const trondheim = "department-0059-trondheim";
+
+const bergen = "department-0059-bergen";
+
+const teamEmails = [
+  "astrid.admin@example.invalid",
+  "lars.leader@example.invalid",
+  "mona.member@example.invalid",
+  "tiril.team@example.invalid",
+  "torunn.team@example.invalid",
+];
+
 const signIn = async (page: Page, email: string) => {
   await page.goto("/login");
   await page.getByLabel("E-post").fill(email);
@@ -23,84 +39,100 @@ const signIn = async (page: Page, email: string) => {
   await page.waitForURL(/\/dashboard$/);
 };
 
-test.describe("Native mailing-lists journey (spec 0060)", () => {
-  test("admin reads team-type lists from the native projection", async ({ page }) => {
-    test.skip(!nativeIdentityMode, "requires the real native identity topology");
+test.describe("Native scoped mailing recipients", () => {
+  test.skip(!nativeIdentityMode, "requires the real native identity topology");
 
+  test("selection controls expose copyable recipients and retain filters after reload", async ({
+    page,
+  }) => {
     await signIn(page, adminEmail);
-    await page.goto("/dashboard/epostliste");
+    await page.goto(`/dashboard/epostliste?semester=${selectedSemester}`);
+    await page.getByLabel("Avdeling", { exact: true }).selectOption(trondheim);
+    await page.getByLabel("Semester", { exact: true }).selectOption(selectedSemester);
+    await page.getByLabel("Mottakere", { exact: true }).selectOption("team");
+    await page.getByRole("button", { name: "Vis e-postliste" }).click();
 
-    // The page flattens lists into (name, email) rows. The dashboard requests
-    // no type parameter, so the native default type=assistants applies; with
-    // no assistant facts seeded, every department still emits its list with
-    // zero emails — an empty-list rendering is a success value per spec 0060.
-    await expect(page.getByRole("heading", { name: "E-postliste" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "No results.", exact: true })).toBeVisible();
+    const recipients = page.getByRole("textbox", { name: "E-postadresser", exact: true });
 
-    // The native endpoint itself answers with seeded member emails under the
-    // expected list names for type=team and type=all (direct projection read).
-    const teamLists = await page.request.get(`${apiOrigin}/api/mailing-lists?type=team`);
+    await expect(recipients).toHaveValue(teamEmails.join(", "));
+    await expect(recipients).toHaveAttribute("readonly", "");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.get("department")).toBe(trondheim);
+    expect(new URL(page.url()).searchParams.get("semester")).toBe(selectedSemester);
+    expect(new URL(page.url()).searchParams.get("type")).toBe("team");
+    await page.reload();
+    await expect(page.getByLabel("Avdeling", { exact: true })).toHaveValue(trondheim);
+    await expect(page.getByLabel("Semester", { exact: true })).toHaveValue(selectedSemester);
+    await expect(page.getByLabel("Mottakere", { exact: true })).toHaveValue("team");
+    await expect(recipients).toHaveValue(teamEmails.join(", "));
 
-    expect(teamLists.status()).toBe(200);
-    const lists = Schema.decodeUnknownSync(MailingListResponse)(await teamLists.json());
-    // One list per department in the authorized scope, named {type}-{id}.
-    const trondheim = lists.find((list) => list.name === "team-department-0059-trondheim");
-    const bergen = lists.find((list) => list.name === "team-department-0059-bergen");
-    expect(trondheim?.emails).toEqual([
-      "astrid.admin@example.invalid",
-      "lars.leader@example.invalid",
-      "mona.member@example.invalid",
-      "tiril.team@example.invalid",
-      "torunn.team@example.invalid",
-    ]);
-    // Bergen's only team member (its leader) has no contact profile, so its
-    // list survives with zero emails — an empty list is a real success value.
-    expect(bergen?.emails).toEqual([]);
-  });
+    await page.getByLabel("Semester", { exact: true }).selectOption(beforeAppointments);
+    await page.getByRole("button", { name: "Vis e-postliste" }).click();
+    await expect(page).toHaveURL(new RegExp(`semester=${beforeAppointments}`));
+    await expect(recipients).toHaveCount(0);
+    await expect(page.getByRole("alert")).toHaveCount(0);
 
-  test("leader scope renders only own-department data", async ({ page }) => {
-    test.skip(!nativeIdentityMode, "requires the real native identity topology");
+    const response = await page.request.get(
+      `${apiOrigin}/api/mailing-lists?department=${trondheim}&semester=${beforeAppointments}&type=team`,
+    );
 
-    await signIn(page, leaderEmail);
-    const response = await page.request.get(`${apiOrigin}/api/mailing-lists?type=team`);
     expect(response.status()).toBe(200);
-    const lists = Schema.decodeUnknownSync(MailingListResponse)(await response.json());
-    expect(lists.map((list) => list.name)).toEqual(["team-department-0059-trondheim"]);
+    expect(Schema.decodeUnknownSync(MailingListResponse)(await response.json())).toEqual([
+      { name: `team-${trondheim}`, emails: [] },
+    ]);
 
-    // The page itself renders from the same scoped projection.
-    await page.goto("/dashboard/epostliste");
-    await expect(page.getByRole("heading", { name: "E-postliste" })).toBeVisible();
+    await page.goto(`/dashboard/epostliste?department=${trondheim}&semester=unknown&type=team`);
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(recipients).toHaveCount(0);
   });
 
-  test("plain member receives the typed denial without fixture fallback", async ({ page }) => {
-    test.skip(!nativeIdentityMode, "requires the real native identity topology");
+  test("public department choices never expand a leader's recipient authority", async ({
+    page,
+  }) => {
+    await signIn(page, leaderEmail);
+    await page.goto(
+      `/dashboard/epostliste?department=${trondheim}&semester=${selectedSemester}&type=team`,
+    );
+    await expect(page.getByRole("textbox", { name: "E-postadresser", exact: true })).toHaveValue(
+      teamEmails.join(", "),
+    );
+    await page.getByLabel("Avdeling", { exact: true }).selectOption(bergen);
+    await page.getByRole("button", { name: "Vis e-postliste" }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "E-postadresser", exact: true })).toHaveCount(0);
 
+    const response = await page.request.get(
+      `${apiOrigin}/api/mailing-lists?department=${bergen}&semester=${selectedSemester}&type=team`,
+    );
+
+    expect(response.status()).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "authority.denied" });
+  });
+
+  test("ordinary membership does not permit recipient reads", async ({ page }) => {
     await signIn(page, memberEmail);
-    await page.goto("/dashboard/epostliste");
+    await page.goto(`/dashboard/epostliste?semester=${selectedSemester}&type=team`);
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "E-postadresser", exact: true })).toHaveCount(0);
 
-    // Typed 403 surfaces as the route error boundary; no fixture list may leak.
-    await expect(page.getByRole("heading", { name: /Feil|\d{3}/ })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "first@example.invalid" })).toHaveCount(0);
+    const response = await page.request.get(
+      `${apiOrigin}/api/mailing-lists?semester=${selectedSemester}&type=team`,
+    );
+
+    expect(response.status()).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "authority.denied" });
   });
 
-  test("unknown type denies with 422 before any data leaves the store", async ({ page }) => {
-    test.skip(!nativeIdentityMode, "requires the real native identity topology");
-
+  test("anonymous access and an invalid cohort fail at their boundaries", async ({ page }) => {
     const anonymous = await page.request.get(`${apiOrigin}/api/mailing-lists`);
-    expect(anonymous.status()).toBe(401);
-    expect(await anonymous.json()).toMatchObject({
-      status: 401,
-      code: "credential.missing",
-      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
-    });
 
+    expect(anonymous.status()).toBe(401);
+    expect(await anonymous.json()).toMatchObject({ code: "credential.invalid" });
     await signIn(page, adminEmail);
+
     const invalidType = await page.request.get(`${apiOrigin}/api/mailing-lists?type=bogus`);
-    expect(invalidType.status()).toBe(422);
-    expect(await invalidType.json()).toMatchObject({
-      status: 422,
-      code: "organization.invalid-reference",
-      type: "urn:vektorprogrammet:problem:v0.2:organization.invalid-reference",
-    });
+
+    expect(invalidType.status()).toBe(400);
+    expect(await invalidType.json()).toMatchObject({ code: "request.malformed" });
   });
 });

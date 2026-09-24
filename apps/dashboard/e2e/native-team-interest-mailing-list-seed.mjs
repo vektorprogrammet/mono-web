@@ -72,6 +72,7 @@ export const registrationCounts = { total: 4, trondheim: 3, bergen: 1 };
 
 const seedStatementNames = Object.freeze([
   "seed_departments",
+  "seed_semesters",
   "seed_teams",
   "seed_person_profiles",
   "seed_person_contact_profiles",
@@ -165,6 +166,18 @@ async function main() {
         city: "Bergen",
         active: true,
         revision: 0,
+      },
+    ]);
+    await executeSeedRows(client, seedStatements, "seed_semesters", [
+      {
+        semester_id: "semester-0060-selected",
+        start_at: "2026-01-01T00:00:00Z",
+        end_at: "2026-08-01T00:00:00Z",
+      },
+      {
+        semester_id: "semester-0060-before-appointments",
+        start_at: "2025-08-01T00:00:00Z",
+        end_at: "2026-01-01T00:00:00Z",
       },
     ]);
     await executeSeedRows(client, seedStatements, "seed_teams", [
