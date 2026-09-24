@@ -101,6 +101,14 @@ Real HTTP and PostgreSQL checks cover replay, revocation, competing revisions, d
 The browser also covers stale edits, actual database failure, keyboard submission, pending controls, and retained capacity selection after refresh.
 The 390px view has no horizontal page overflow and no automated accessibility violations.
 Placement demand and roster commands remain separate and unchanged. These observations do not establish production migration or provider readiness.
+
+Recruitment maintenance passed local browser and HTTP/PostgreSQL acceptance with synthetic data on 2026-09-24.
+Global administrators author questionnaires. Scoped department leaders maintain primary and co-interviewers before completion or cancellation.
+Assigned questions, answers, schedules, invitations, responses, corrections, and onboarding retain their identities and evidence.
+Thirteen grouped checks covered current authority, replay, six overlapping transaction scenarios, and two forced commit failures with same-request recovery.
+The browser covered all question kinds, ordering, activation, staffing changes, history, stale drafts, keyboard retry, and pending controls.
+Both 390px views had no horizontal overflow or automated accessibility violations after corrections.
+Notification checks used the existing local recording adapter, not external delivery. These observations do not establish production or provider readiness.
 Mailing lists have derived reads, not complete maintenance or provider synchronization.
 
 The Economy owner query uses shared schemas with `SqlSchema.findAll`.
@@ -180,17 +188,16 @@ and settlement references are still needed for the receipt migration.
 
 ## Next
 
-Close recruitment maintenance next. School administration and Organization lifecycle acceptance are complete for their local synthetic journeys.
-Preserve existing recruitment conduct, reports, corrections, invitations, and onboarding.
+School administration, Organization lifecycle, and recruitment maintenance now have local synthetic acceptance.
+Resolve the remaining active operational obligations, then continue real-source reconciliation and provider acceptance under their separate authority boundaries.
 
 | Priority | Work                                             | Acceptance gate                                                                                                                                                                                                          | Authority                                                            |
 | -------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| 1        | Close recruitment maintenance                    | Questionnaire authoring and interviewer/co-interviewer changes. Preserve existing conduct, reports, corrections, invitations, and onboarding.                                                                            | Local implementation                                                 |
-| 2        | Resolve remaining active operational obligations | Define necessary mailing-list controls, standalone team recruitment, reminders, no-show handling, service corrections, and coordinator reports. Implement each required outcome or obtain an explicit handover decision. | Product decisions where ownership is unresolved                      |
-| 3        | Extend real-source migration coverage            | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and its disposition.                                                                   | Local adapter work; current production access requires authorization |
-| 4        | Complete provider runtime ownership              | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism.                                                                                  | Local implementation                                                 |
-| 5        | Exercise the deployed development journey        | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR preview creation, update, probes, fork exclusion, and cleanup separately.       | Explicit provider and credential authority                           |
-| 6        | Rehearse and authorize cutover                   | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership.                                                                                                  | Separate production authority                                        |
+| 1        | Resolve remaining active operational obligations | Define necessary mailing-list controls, standalone team recruitment, reminders, no-show handling, service corrections, and coordinator reports. Implement each required outcome or obtain an explicit handover decision. | Product decisions where ownership is unresolved                      |
+| 2        | Extend real-source migration coverage            | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and its disposition.                                                                   | Local adapter work; current production access requires authorization |
+| 3        | Complete provider runtime ownership              | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism.                                                                                  | Local implementation                                                 |
+| 4        | Exercise the deployed development journey        | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR preview creation, update, probes, fork exclusion, and cleanup separately.       | Explicit provider and credential authority                           |
+| 5        | Rehearse and authorize cutover                   | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership.                                                                                                  | Separate production authority                                        |
 
 These priorities are not a requirement to serialize independent preparation:
 
@@ -277,6 +284,11 @@ School administration used committed source `34d9109a`; the earlier full browser
 Fourteen grouped HTTP/PostgreSQL checks, the maintained Chromium/PostgreSQL runner, 24 focused tests, and 11 affected type/build prerequisites passed.
 The final browser run covered retained capacity selection, scoped controls, real database failure, and same-request recovery.
 The school record is `/tmp/vektor-school-acceptance-34d9109a/acceptance.json`, with a checksummed archive of the committed source.
+Recruitment maintenance HTTP/PostgreSQL acceptance used committed source `79fd4e28`.
+The browser exercised questionnaire and staffing changes at `76a2dbbd` and `01c23bdd`; final mutation and reload checks used `74b037e2`.
+The maintained assignment runner passed at `8485e6e3`; scheduling and conduct passed at `ed0246cb`.
+Thirty-nine focused tests, eleven affected type/build prerequisites, and generated API checks passed at `ed0246cb`.
+The record is `/tmp/vektor-recruitment-acceptance-79fd4e28/acceptance.json`. It distinguishes notification-adapter recording from external provider proof.
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.
 

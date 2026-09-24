@@ -153,6 +153,20 @@ and active school placement. Placement is the final visible state. Affiliation
 does not hide an earlier invitation or cancellation, and the projection does not
 invent a separate admission answer.
 
+Global administrators maintain reusable interview questionnaires. They can create, revise, activate, or deactivate a questionnaire.
+The question types are free text, dropdown, single choice, and multiple choice.
+Each assigned interview retains its saved questions and answers. Later questionnaire changes affect future assignments only.
+Unavailable historical questions remain unavailable; the system does not replace them with the current definition.
+
+Current department leaders maintain primary and optional co-interviewers within their department. Global administrators can maintain staffing across departments.
+Both interviewers must be eligible, distinct people. Neither can be the linked applicant.
+Staffing changes preserve schedules, invitation capabilities, responses, assessments, and onboarding facts. They send no new invitation.
+Completed or cancelled interviews reject staffing changes. Removed interviewers lose assignment-based access on the next authorized interaction.
+
+Both maintenance workflows require a reason and the observed revision when updating an existing record.
+State, immutable history, and command receipts commit together. Replays recheck current authority without repeating the change.
+Queued notifications retain their original content and recipients. Staffing changes do not bypass notification integrity or cancellation checks.
+
 ### School administration
 
 Schools owns partner-school identities, contacts, language, active status, and department associations.

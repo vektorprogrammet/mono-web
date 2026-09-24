@@ -1,5 +1,15 @@
 ## Unreleased
 
+### Recruitment maintenance
+
+- Add global questionnaire authoring, ordered questions and alternatives, activation, and immutable history through the Foldkit dashboard.
+- Add scoped primary and co-interviewer maintenance without replacing saved questions, schedules, invitations, assessments, or onboarding facts.
+- Preserve current authority, observed revisions, atomic receipts, and original notification envelopes across staffing changes.
+- Preserve SQL failure causes and retry complete transactions once for supported serialization conflicts.
+- Correct custom-element mounting and alternative-group semantics found during browser acceptance.
+- Complete thirteen grouped HTTP/PostgreSQL checks, browser acceptance, three maintained recruitment runners, and thirty-nine focused regressions.
+- Use canonical database exports and configurable loopback ports in the maintained recruitment runners.
+
 ### Scoped school administration
 
 - Add school, contact, activation, department-association, and weekday-capacity commands through the existing Schools service and Foldkit dashboard.
