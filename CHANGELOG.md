@@ -1,5 +1,12 @@
 ## Unreleased
 
+### Executable module documentation
+
+- Add a source-linked Placements guide for consumers and maintainers, discoverable from the repository README.
+- Derive the local API reference from public exports and declaration comments. Render executable examples from their original files.
+- Check examples with the application compiler. Keep the reference generator compiler isolated from application compilation.
+- Reject stale generated output and remove owned partial output after failure or interruption.
+
 ### Continuous functional journey gate
 
 - Add `bun run test:golden-school-service` for affiliation through Completed service and a fresh volunteer read.

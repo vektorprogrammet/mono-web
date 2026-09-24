@@ -266,22 +266,32 @@ Local acceptance does not establish CI execution or real-provider readiness.
 
 ### Developer documentation and parallel workstreams
 
-The [developer documentation roadmap](docs/module-developer-documentation.md) is accepted as a plan, not an implemented documentation system.
-It separates consumer contracts from implementation explanations and derives reference material and examples from their authoritative sources.
-Placements is the first documentation pilot. Tool compatibility, executable examples, and reader-task acceptance remain open.
+The [developer documentation roadmap](docs/module-developer-documentation.md) separates consumer contracts from implementation explanations.
+The [Placements guide](packages/placements/README.md) now implements its first pilot.
 
-The next E2E and documentation slices use separate local branches and worktrees from a common accepted base.
-The existing golden journey remains integrated on `main`. No accepted history moves to either branch.
+Documentation source `259c8d8128da705f37870f52c20bef1a814c3703` is integrated locally.
+Public-import examples passed the application compiler and exercised a pure transition and real PGlite composition.
+Generation and byte-for-byte freshness checks passed. Broken imports, examples, links, and stale output failed their respective checks.
+SIGINT and SIGTERM checks rejected interrupted generation and removed owned temporary output.
+The parent inspected the final guide and API navigation in Chromium.
+An independent agent reader completed the use and bounded-change tasks on predecessor `74081950`; later changes covered prose and generator cleanup.
+This is agent-reader evidence, not an unfamiliar-human usability study.
+The final branch render is `/tmp/placements-guide-259c8d81/index.html`.
+The [tool-choice record](packages/placements/README.md#tool-choice) explains the maintained generator and isolated documentation compiler.
+The completed pilot specification is retired; the guide, source declarations, examples, and executable checks retain its contract.
 
-| Workstream    | Local branch                           | Worktree relative to this repository | First bounded specification                                       |
-| ------------- | -------------------------------------- | ------------------------------------ | ----------------------------------------------------------------- |
-| E2E           | `test/golden-journey-ci-0924`          | `../mono-web-e2e`                    | `docs/specs/golden-school-service-ci.md` on that branch           |
-| Documentation | `docs/placements-developer-guide-0924` | `../mono-web-docs`                   | `docs/specs/placements-developer-documentation.md` on that branch |
+Both workstreams retain separate local branches and worktrees from the common planning base `c89a5512`.
+The accepted golden journey remains on `main`; accepted history was not moved between branches.
+
+| Workstream    | Local branch                           | Worktree relative to this repository | Contract or accepted guide                              |
+| ------------- | -------------------------------------- | ------------------------------------ | ------------------------------------------------------- |
+| E2E           | `test/golden-journey-ci-0924`          | `../mono-web-e2e`                    | `docs/specs/golden-school-service-ci.md` on that branch |
+| Documentation | `docs/placements-developer-guide-0924` | `../mono-web-docs`                   | [Placements guide](packages/placements/README.md)       |
 
 The [testing roadmap](docs/web-system-functional-testing.md#development-sequence) owns E2E sequencing. The documentation roadmap owns documentation sequencing.
-Each branch owns its bounded specification and implementation files. Shared manifests, lockfiles, CI entry points, navigation, and mission state require integration coordination.
+Each branch owns its bounded implementation files. Shared manifests, lockfiles, CI entry points, navigation, and mission state require integration coordination.
 One heavy job runs at a time across both workstreams. The operator demonstration remains outside their resource ownership.
-This preparation does not claim implementation, CI execution, generator adoption, publication, or deployment.
+No publication, hosted CI execution, repository-protection change, or deployment is claimed.
 
 ### Remaining migration work
 
