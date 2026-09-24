@@ -25,7 +25,7 @@ import {
 } from "./session-security.js";
 
 import { contactConfig, type ContactConfig } from "./contact/config.js";
-import { Predicate } from "effect";
+import { Config, ConfigProvider, Effect, Redacted, Schema, SchemaGetter } from "effect";
 
 export interface PublicApplicationEffectConfig {
   readonly endpoint: URL;
@@ -63,14 +63,7 @@ export interface BackendConfig {
   readonly schoolServiceDispatchNotifications?: SchoolServiceDispatchNotificationConfig;
 }
 
-const nonEmpty = (value: string | undefined, field: string): string => {
-  if (!Predicate.isString(value) || value.length === 0) throw new Error(`${field} is required`);
-
-  return value;
-};
-
-const exactOrigin = (raw: string | undefined, field: string): string => {
-  const value = nonEmpty(raw, field);
+const exactOrigin = (value: string, field: string): string => {
   let url: URL;
 
   try {
@@ -122,12 +115,19 @@ const internalSourceNetworks = (
   return values;
 };
 
-export const decodeOAuthBackendConfig = (
+const oauthSettings = Config.all({
+  canonicalOrigin: Config.NonEmptyString("OAUTH_CANONICAL_ORIGIN"),
+  dashboardOrigin: Config.NonEmptyString("OAUTH_DASHBOARD_ORIGIN"),
+});
+
+const oauthBackendConfig = (
   env: Readonly<Record<string, string | undefined>>,
   trustedOrigins: ReadonlyArray<string>,
+  provider: ConfigProvider.ConfigProvider,
 ): Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks"> => {
-  const canonicalOrigin = exactOrigin(env.OAUTH_CANONICAL_ORIGIN, "OAUTH_CANONICAL_ORIGIN");
-  const dashboardOrigin = exactOrigin(env.OAUTH_DASHBOARD_ORIGIN, "OAUTH_DASHBOARD_ORIGIN");
+  const settings = Effect.runSync(oauthSettings.parse(provider));
+  const canonicalOrigin = exactOrigin(settings.canonicalOrigin, "OAUTH_CANONICAL_ORIGIN");
+  const dashboardOrigin = exactOrigin(settings.dashboardOrigin, "OAUTH_DASHBOARD_ORIGIN");
 
   if (!trustedOrigins.includes(dashboardOrigin)) {
     throw new Error("OAUTH_DASHBOARD_ORIGIN must be a trusted first-party origin");
@@ -147,45 +147,58 @@ export const decodeOAuthBackendConfig = (
   };
 };
 
-const loopbackHost = (value: string | undefined): string => {
-  const host = value ?? "127.0.0.1";
+export const decodeOAuthBackendConfig = (
+  env: Readonly<Record<string, string | undefined>>,
+  trustedOrigins: ReadonlyArray<string>,
+): Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks"> =>
+  oauthBackendConfig(
+    env,
+    trustedOrigins,
+    ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true }),
+  );
 
-  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
-    throw new Error("BACKEND_HOST must be loopback");
-  }
+const PositiveInteger = Schema.String.check(Schema.isPattern(/^\d+$/u)).pipe(
+  Schema.decodeTo(Schema.Int.check(Schema.isGreaterThan(0)), {
+    decode: SchemaGetter.transform(Number),
+    encode: SchemaGetter.transform(String),
+  }),
+);
 
-  return host;
-};
+const listenerSettings = Config.all({
+  host: Config.Literals(["127.0.0.1", "localhost", "::1"], "BACKEND_HOST").pipe(
+    Config.withDefault("127.0.0.1"),
+  ),
+  port: Config.schema(
+    PositiveInteger.check(Schema.isLessThanOrEqualTo(65_535)),
+    "BACKEND_PORT",
+  ).pipe(Config.withDefault(8790)),
+});
 
-const parsePort = (value: string | undefined): number => {
-  const raw = value ?? "8790";
+const authSettings = Config.all({
+  postgresUrl: Config.schema(Schema.Redacted(Schema.NonEmptyString), "BACKEND_PG_URL"),
+  secret: Config.schema(
+    Schema.Redacted(Schema.String.check(Schema.isMinLength(32))),
+    "BETTER_AUTH_SECRET",
+  ),
+});
 
-  if (!/^\d+$/.test(raw)) throw new Error("BACKEND_PORT must be an integer");
-  const port = Number(raw);
+const publicApplicationSettings = Config.all({
+  endpoint: Config.URL("PUBLIC_APPLICATION_EFFECT_ENDPOINT"),
+  token: Config.schema(Schema.Redacted(Schema.NonEmptyString), "PUBLIC_APPLICATION_EFFECT_TOKEN"),
+  pollIntervalMilliseconds: Config.schema(
+    PositiveInteger,
+    "PUBLIC_APPLICATION_EFFECT_POLL_MS",
+  ).pipe(Config.withDefault(250)),
+  staleClaimMilliseconds: Config.schema(PositiveInteger, "PUBLIC_APPLICATION_EFFECT_STALE_MS").pipe(
+    Config.withDefault(60_000),
+  ),
+  deliveryTimeoutMilliseconds: Config.schema(
+    PositiveInteger,
+    "PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS",
+  ).pipe(Config.withDefault(10_000)),
+});
 
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-    throw new Error("BACKEND_PORT is outside the valid range");
-  }
-
-  return port;
-};
-
-const positiveInteger = (raw: string | undefined, fallback: number, field: string): number => {
-  const value = raw ?? String(fallback);
-
-  if (!/^\d+$/.test(value)) throw new Error(`${field} must be an integer`);
-  const parsed = Number(value);
-
-  if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    throw new Error(`${field} must be a positive safe integer`);
-  }
-
-  return parsed;
-};
-
-const providerEndpoint = (raw: string): URL => {
-  const endpoint = new URL(raw);
-
+const providerEndpoint = (endpoint: URL): URL => {
   const loopback =
     endpoint.hostname === "127.0.0.1" ||
     endpoint.hostname === "localhost" ||
@@ -204,6 +217,7 @@ const providerEndpoint = (raw: string): URL => {
 
 const publicApplicationEffectConfig = (
   env: Readonly<Record<string, string | undefined>>,
+  provider: ConfigProvider.ConfigProvider,
 ): PublicApplicationEffectConfig | undefined => {
   const mode = env.PUBLIC_APPLICATION_EFFECT_MODE;
   const endpoint = env.PUBLIC_APPLICATION_EFFECT_ENDPOINT;
@@ -223,59 +237,35 @@ const publicApplicationEffectConfig = (
     throw new Error("PUBLIC_APPLICATION_EFFECT_MODE must be disabled or http");
   }
 
-  if (endpoint === undefined || token === undefined || token.length === 0) {
-    throw new Error(
-      "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN are required in http mode",
-    );
-  }
-
-  const parsed = providerEndpoint(endpoint);
+  const settings = Effect.runSync(publicApplicationSettings.parse(provider));
 
   return {
-    endpoint: parsed,
-    token,
-    pollIntervalMilliseconds: positiveInteger(
-      env.PUBLIC_APPLICATION_EFFECT_POLL_MS,
-      250,
-      "PUBLIC_APPLICATION_EFFECT_POLL_MS",
-    ),
-    staleClaimMilliseconds: positiveInteger(
-      env.PUBLIC_APPLICATION_EFFECT_STALE_MS,
-      60_000,
-      "PUBLIC_APPLICATION_EFFECT_STALE_MS",
-    ),
-    deliveryTimeoutMilliseconds: positiveInteger(
-      env.PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS,
-      10_000,
-      "PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS",
-    ),
+    ...settings,
+    endpoint: providerEndpoint(settings.endpoint),
+    token: Redacted.value(settings.token),
   };
 };
 
 export const decodeBackendConfig = (
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>>,
 ): BackendConfig => {
+  const provider = ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true });
   const admission = decodeAdmissionApiConfig(env);
   const receipt = decodeReceiptApiConfig(env);
   const sessionBoundary = decodeNativeSessionBoundaryPolicy(env);
-  const effects = publicApplicationEffectConfig(env);
+  const effects = publicApplicationEffectConfig(env, provider);
   const schoolServiceNotifications = schoolServiceNotificationConfig(env);
   const schoolServiceDispatchNotifications = schoolServiceDispatchNotificationConfig(env);
-  const postgresUrl = nonEmpty(env.BACKEND_PG_URL, "BACKEND_PG_URL");
-  const secret = nonEmpty(env.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET");
-
-  if (secret.length < 32) {
-    throw new Error("BETTER_AUTH_SECRET must be at least 32 characters");
-  }
-
-  const oauth = decodeOAuthBackendConfig(env, sessionBoundary.trustedOrigins);
+  const credentials = Effect.runSync(authSettings.parse(provider));
+  const postgresUrl = Redacted.value(credentials.postgresUrl);
+  const secret = Redacted.value(credentials.secret);
+  const oauth = oauthBackendConfig(env, sessionBoundary.trustedOrigins, provider);
 
   const config: BackendConfig = {
     contact: contactConfig(env),
     onboarding: onboardingDeliveryConfig(env),
     recruitmentNotifications: recruitmentNotificationConfig(env),
-    host: loopbackHost(env.BACKEND_HOST),
-    port: parsePort(env.BACKEND_PORT),
+    ...Effect.runSync(listenerSettings.parse(provider)),
     postgresUrl,
     sessionBoundary,
     auth: {

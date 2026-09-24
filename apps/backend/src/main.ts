@@ -61,7 +61,7 @@ if (ingress !== "external" && ingress !== "internal") {
   throw new TypeError("BACKEND_INGRESS must be external or internal");
 }
 
-const config = decodeBackendConfig();
+const config = decodeBackendConfig(process.env);
 
 const databaseLayer = DatabaseLive({
   url: Redacted.make(config.postgresUrl),
@@ -72,6 +72,7 @@ const databaseLayer = DatabaseLive({
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 
 const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
+
 const placementsLayer = PlacementsLive.pipe(Layer.provide(databaseLayer));
 
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));

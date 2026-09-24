@@ -12,7 +12,7 @@ const sender = process.env.MAIL_SENDER;
 
 if (!sender) throw new Error("MAIL_SENDER is required");
 
-const config = decodeBackendConfig();
+const config = decodeBackendConfig(process.env);
 
 try {
   const result = await Effect.runPromise(

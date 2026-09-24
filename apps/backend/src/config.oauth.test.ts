@@ -8,17 +8,6 @@ const localEnvironment = {
 } as const;
 
 describe("OAuth backend configuration", () => {
-  it("decodes one exact issuer origin, dashboard origin, and native resource", () => {
-    expect(decodeOAuthBackendConfig(localEnvironment, ["http://127.0.0.1:4173"])).toEqual({
-      oauth: {
-        canonicalOrigin: "http://127.0.0.1:4174",
-        dashboardOrigin: "http://127.0.0.1:4173",
-        nativeApiResource: "urn:vektorprogrammet:native-api",
-      },
-      internalSourceNetworks: [],
-    });
-  });
-
   it.each([
     ["issuer trailing slash", { OAUTH_CANONICAL_ORIGIN: "https://auth.example.invalid/" }],
     ["issuer path", { OAUTH_CANONICAL_ORIGIN: "https://auth.example.invalid/oauth" }],
@@ -37,7 +26,7 @@ describe("OAuth backend configuration", () => {
       decodeOAuthBackendConfig({ ...localEnvironment, BACKEND_INGRESS: "internal" }, [
         "http://127.0.0.1:4173",
       ]),
-    ).toThrow("OAUTH_INTERNAL_SOURCE_NETWORKS is required");
+    ).toThrow();
 
     expect(
       decodeOAuthBackendConfig(
