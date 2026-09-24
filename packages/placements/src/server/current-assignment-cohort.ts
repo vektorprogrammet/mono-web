@@ -262,7 +262,7 @@ const ReferenceMappings = Schema.Struct({
 const validateReconciledProvenance = async (
   tx: PoolClient,
   snapshot: ReconciledCurrentAssignmentSnapshot,
-): Promise<void> => {
+): Promise<ReadonlySet<string>> => {
   const evidence = (
     await tx.query<{
       source_revision: string;
@@ -329,8 +329,7 @@ const validateReconciledProvenance = async (
       (mapping) =>
         departments.get(mapping.sourceDepartmentId) !== mapping.departmentId ||
         semesters.get(mapping.sourceSemesterId) !== mapping.semesterId ||
-        schools.get(mapping.sourceSchoolId) !== mapping.schoolId ||
-        !relationships.has(canonicalJson([mapping.sourceDepartmentId, mapping.sourceSchoolId])),
+        schools.get(mapping.sourceSchoolId) !== mapping.schoolId,
     )
   )
     throw new CurrentAssignmentFailure("ReferenceProvenanceConflict");
@@ -358,6 +357,8 @@ const validateReconciledProvenance = async (
   );
 
   if (!personSnapshot.rowCount) throw new CurrentAssignmentFailure("PersonSnapshotConflict");
+
+  return relationships;
 };
 
 const cohortReport = async (
@@ -421,14 +422,6 @@ const importAssignmentCohort = async (
 
   for (const occurrence of decoded) {
     increment(sourceCounts, sourceIdOf(occurrence.row));
-
-    if (!occurrence.value?.active || !rowDigestMatches(occurrence.value)) continue;
-    const mappings = mappingsBySource.get(occurrence.value.sourceAssignmentId) ?? [];
-
-    if (mappings.length !== 1 || !referencesMatch(occurrence.value, mappings[0]!)) continue;
-
-    for (const slot of targetSlots(mappings[0]!, occurrence.value.block))
-      increment(targetCounts, slot);
   }
 
   const tx = client ?? (await pool.connect());
@@ -448,7 +441,9 @@ const importAssignmentCohort = async (
     if (prior.rows[0] && prior.rows[0].snapshot_digest !== snapshotDigest)
       throw new CurrentAssignmentFailure("SnapshotConflict");
 
-    if (!snapshot.synthetic) await validateReconciledProvenance(tx, snapshot);
+    const sourceRelationships = snapshot.synthetic
+      ? undefined
+      : await validateReconciledProvenance(tx, snapshot);
 
     if (prior.rows[0]) {
       if (!snapshot.synthetic) {
@@ -474,6 +469,23 @@ const importAssignmentCohort = async (
       if (ownsTransaction) await tx.query("COMMIT");
 
       return result;
+    }
+
+    for (const occurrence of decoded) {
+      const row = occurrence.value;
+
+      if (!row?.active || !rowDigestMatches(row)) continue;
+      const mappings = mappingsBySource.get(row.sourceAssignmentId) ?? [];
+
+      if (mappings.length !== 1 || !referencesMatch(row, mappings[0]!)) continue;
+
+      if (
+        sourceRelationships &&
+        !sourceRelationships.has(canonicalJson([row.sourceDepartmentId, row.sourceSchoolId]))
+      )
+        continue;
+
+      for (const slot of targetSlots(mappings[0]!, row.block)) increment(targetCounts, slot);
     }
 
     // Share the canonical writer protocol before reading or writing any target state.
@@ -565,6 +577,11 @@ const importAssignmentCohort = async (
       else if (mappings.length === 0) reason = "MappingMissing";
       else if (mappings.length > 1) reason = "MappingAmbiguous";
       else if (!referencesMatch(row, mapping!)) reason = "SourceReferenceMismatch";
+      else if (
+        sourceRelationships &&
+        !sourceRelationships.has(canonicalJson([row.sourceDepartmentId, row.sourceSchoolId]))
+      )
+        reason = "SchoolDepartmentMismatch";
       else {
         sourceDigest = assignmentSourceDigest(snapshot, row, mapping!);
         placementId = currentAssignmentPlacementId(
@@ -576,11 +593,10 @@ const importAssignmentCohort = async (
         if (previous === sourceDigest) reason = "ExactReplay";
         else {
           const personEvidence = await tx.query(
-            `SELECT 1 FROM public.person_cohort_imports i
-              JOIN public.person_cohort_occurrences o
-                ON o.snapshot_key = COALESCE($4::text, i.snapshot_key)
-               AND o.occurrence_id = i.occurrence_id AND o.disposition = 'Accepted'
-              WHERE i.source_repository = $1 AND i.source_user_id = $2 AND i.person_id = $3
+            `SELECT 1 FROM public.person_cohort_accepted_mappings a
+              JOIN public.person_cohort_imports i USING (source_repository, source_user_id)
+              WHERE a.source_repository = $1 AND a.source_user_id = $2 AND i.person_id = $3
+                AND ($4::text IS NULL OR a.snapshot_key = $4)
               FOR SHARE`,
             [
               snapshot.sourceRepository,

@@ -198,6 +198,52 @@ const cohortReport = async (
   };
 };
 
+interface AcceptedPersonEvidence {
+  readonly snapshotKey: string;
+  readonly occurrenceId: string;
+  readonly sourceRepository: string;
+  readonly sourceUserId: string;
+  readonly personId: PersonId;
+  readonly sourceDigest: string;
+}
+
+const appendAcceptedPersonMapping = async (
+  tx: PoolClient,
+  evidence: AcceptedPersonEvidence,
+): Promise<void> => {
+  const values = [
+    evidence.snapshotKey,
+    evidence.occurrenceId,
+    evidence.sourceRepository,
+    evidence.sourceUserId,
+    evidence.personId,
+    evidence.sourceDigest,
+  ];
+
+  const inserted = await tx.query(
+    `INSERT INTO public.person_cohort_accepted_mappings
+       (snapshot_key, occurrence_id, source_repository, source_user_id)
+     SELECT $1, $2, source_repository, source_user_id
+       FROM public.person_cohort_imports
+      WHERE source_repository = $3 AND source_user_id = $4 AND person_id = $5 AND source_digest = $6
+     ON CONFLICT (snapshot_key, occurrence_id) DO NOTHING`,
+    values,
+  );
+
+  if (inserted.rowCount) return;
+
+  const existing = await tx.query(
+    `SELECT 1 FROM public.person_cohort_accepted_mappings a
+      JOIN public.person_cohort_imports i USING (source_repository, source_user_id)
+      WHERE a.snapshot_key = $1 AND a.occurrence_id = $2
+        AND a.source_repository = $3 AND a.source_user_id = $4
+        AND i.person_id = $5 AND i.source_digest = $6`,
+    values,
+  );
+
+  if (!existing.rowCount) throw new PersonCohortFailure("SourceIdentityConflict");
+};
+
 /** Person/profile writes and source evidence share the caller transaction when supplied. */
 export const importPersonCohort = async (
   pool: Pool,
@@ -258,6 +304,30 @@ export const importPersonCohort = async (
       if (prior.rows[0].snapshot_digest !== snapshotDigest)
         throw new PersonCohortFailure("SnapshotConflict");
       const result = await cohortReport(tx, snapshotKey, true);
+
+      const acceptedOccurrences = new Set(
+        result.occurrences
+          .filter(({ disposition }) => disposition === "Accepted")
+          .map(({ occurrenceId }) => occurrenceId),
+      );
+
+      // A matching supplied snapshot proves old replay identities; occurrence IDs alone do not.
+      for (const occurrence of decoded) {
+        if (!acceptedOccurrences.has(occurrence.occurrenceId)) continue;
+        const row = occurrence.value;
+        const mappings = row ? mappingsBySource.get(row.sourceUserId) : undefined;
+
+        if (!row || mappings?.length !== 1) throw new PersonCohortFailure("SourceIdentityConflict");
+        const mapping = mappings[0]!;
+        await appendAcceptedPersonMapping(tx, {
+          snapshotKey,
+          occurrenceId: occurrence.occurrenceId,
+          sourceRepository: snapshot.sourceRepository,
+          sourceUserId: row.sourceUserId,
+          personId: mapping.personId,
+          sourceDigest: digest({ row, mapping }),
+        });
+      }
 
       if (ownsTransaction) await tx.query("COMMIT");
 
@@ -428,6 +498,16 @@ export const importPersonCohort = async (
           ],
         );
       }
+
+      if (accepted && row && mapping && sourceDigest)
+        await appendAcceptedPersonMapping(tx, {
+          snapshotKey,
+          occurrenceId: occurrence.occurrenceId,
+          sourceRepository: snapshot.sourceRepository,
+          sourceUserId: row.sourceUserId,
+          personId: mapping.personId,
+          sourceDigest,
+        });
     }
 
     const result = await cohortReport(tx, snapshotKey, false);
