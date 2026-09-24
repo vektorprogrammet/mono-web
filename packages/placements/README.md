@@ -225,7 +225,42 @@ bun run test:golden-school-service
 
 That command exercises real browser, HTTP, PostgreSQL, and loopback notification boundaries.
 Its evidence does not establish real-provider acceptance or visual usability.
-Documentation commands do not require its CI integration and do not modify its runner.
+Documentation commands do not modify the golden runner.
+
+### CI and retained artifacts
+
+The Placements documentation job runs on main pushes and pull requests without provider credentials.
+It checks the public examples with the application compiler, runs them, and generates the reference once.
+TypeDoc checks guide links. The command also checks repository source paths, line numbers, and source URLs.
+Local generation uses `file:` source links. CI generation uses immutable GitHub URLs with the exact source revision.
+Inherited dependency signatures do not receive false repository source links.
+CI artifacts include only generated files and tracked public files copied by TypeDoc.
+Includes and copied media cannot traverse symlinks or read untracked or hidden paths.
+
+From a clean checkout, run the CI command:
+
+```bash
+export PLACEMENTS_DOCS_EXPECTED_REVISION="$(git rev-parse HEAD)"
+bun run --cwd packages/placements docs:ci /tmp/placements-ci-guide
+```
+
+Before you consume a retained CI artifact, check it against the expected checkout revision:
+
+```bash
+bun run --cwd packages/placements docs:accept /tmp/placements-ci-guide
+```
+
+Supply the expected revision from the checkout or trusted workflow, never from the artifact receipt.
+The receipt binds complete output to that clean revision and an exact SHA-256 file inventory, including copied media.
+The consumer rejects missing output, changed files, extra files, symlinks, incomplete receipts, dirty source, and revision drift.
+This check does not regenerate documentation. A changed guide, example, or source commit rejects an earlier artifact.
+The receipt is not a signature. Use artifacts from a trusted workflow; rewriting both files and receipt can defeat content hashes.
+
+Use `docs:check` for retained **local** output from `docs:generate`, including uncommitted documentation edits.
+It renders current source into a temporary directory and compares the full file inventory and content.
+Local and CI artifacts have different source links and are not interchangeable.
+Local checks do not prove hosted execution, artifact-service acceptance, branch-protection configuration, or remote URL availability.
+The job can serve as a required check, but repository administrators must configure that policy separately.
 
 ### Tool choice
 

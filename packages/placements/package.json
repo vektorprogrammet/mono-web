@@ -14,7 +14,9 @@
     "lint": "oxlint",
     "docs:examples": "bun --no-env-file examples/affiliation.ts && bun --no-env-file examples/read-scopes.ts",
     "docs:generate": "bun --no-env-file ../../tools/system-guide/placements.ts generate",
-    "docs:check": "bun --no-env-file ../../tools/system-guide/placements.ts check"
+    "docs:check": "bun --no-env-file ../../tools/system-guide/placements.ts check",
+    "docs:ci": "bun --no-env-file ../../tools/system-guide/placements.ts ci",
+    "docs:accept": "bun --no-env-file ../../tools/system-guide/placements.ts accept"
   },
   "dependencies": {
     "@vektorprogrammet/database": "workspace:*",
