@@ -45,7 +45,16 @@ const timeoutMs = 300_000;
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-const errorDetail = (error) => (error instanceof Error ? error.message : String(error));
+const errorDetail = (error, depth = 0) => {
+  const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+
+  if (!(error instanceof AggregateError) || depth >= 2) return message;
+
+  return `${message}: ${error.errors
+    .slice(0, 5)
+    .map((cause) => errorDetail(cause, depth + 1))
+    .join("; ")}`.slice(0, 4000);
+};
 
 const assertPortAvailable = (port) =>
   new Promise((resolve, reject) => {
@@ -131,11 +140,31 @@ const start = (command, args, env, cwd) => {
 };
 
 const stop = async (child) => {
-  if (child === undefined || child.exitCode !== null || child.pid === undefined) return;
-  process.kill(-child.pid, "SIGTERM");
-  await Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(5_000)]);
+  if (
+    child === undefined ||
+    child.pid === undefined ||
+    child.exitCode !== null ||
+    child.signalCode !== null
+  )
+    return;
 
-  if (child.exitCode === null) process.kill(-child.pid, "SIGKILL");
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  let timer;
+
+  try {
+    process.kill(-child.pid, "SIGTERM");
+    await Promise.race([
+      exited,
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, 5_000);
+      }),
+    ]);
+
+    if (child.exitCode === null && child.signalCode === null) process.kill(-child.pid, "SIGKILL");
+    await exited;
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 const waitForHttp = async (url, child, label) => {
