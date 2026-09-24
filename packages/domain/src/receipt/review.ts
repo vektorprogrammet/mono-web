@@ -1,13 +1,17 @@
-import { Data, Schema } from "effect";
+import { Data, Predicate, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,256}$/)));
+
 const Label = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(1024)));
+
 const Digest = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)));
+
 const ReviewedInstant = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/)),
 );
+
 const bounded = <S extends Schema.Constraint>(schema: S) =>
   Schema.Array(schema).pipe(Schema.check(Schema.isMaxLength(100000)));
 
@@ -25,6 +29,7 @@ export const ReceiptSourceRow = Schema.Struct({
   picturePath: Schema.NullOr(Schema.String),
   accountCommitment: Schema.NullOr(Label),
 });
+
 export type ReceiptSourceRow = typeof ReceiptSourceRow.Type;
 
 const CommonEntry = {
@@ -34,13 +39,11 @@ const CommonEntry = {
 };
 
 export const ReceiptReviewEntry = Schema.Union([
-  Schema.Struct({
-    _tag: Schema.Literal("Excluded"),
+  Schema.TaggedStruct("Excluded", {
     ...CommonEntry,
     reason: Label,
   }),
-  Schema.Struct({
-    _tag: Schema.Literal("Import"),
+  Schema.TaggedStruct("Import", {
     ...CommonEntry,
     person: Schema.NullOr(Schema.Struct({ occurrenceId: Id, sourceUserId: Id, personId: PersonId })),
     department: Schema.Struct({ sourceDepartmentId: Id, departmentId: DepartmentId }),
@@ -59,6 +62,7 @@ export const ReceiptReviewEntry = Schema.Union([
     payment: Schema.Struct({ commitment: Schema.NullOr(Label), evidenceRef: Label }),
   }),
 ]);
+
 export type ReceiptReviewEntry = typeof ReceiptReviewEntry.Type;
 
 export const ReceiptReview = Schema.Struct({
@@ -75,12 +79,14 @@ export const ReceiptReview = Schema.Struct({
   evidenceRef: Label,
   entries: bounded(ReceiptReviewEntry),
 });
+
 export type ReceiptReview = typeof ReceiptReview.Type;
 
 export const ReviewedReceiptSnapshot = Schema.Struct({
   review: ReceiptReview,
   rows: bounded(ReceiptSourceRow),
 });
+
 export type ReviewedReceiptSnapshot = typeof ReviewedReceiptSnapshot.Type;
 
 export class ReceiptCohortFailure extends Data.TaggedError("ReceiptCohortFailure")<{
@@ -105,8 +111,9 @@ export const receiptSourceRevision = (rows: readonly ReceiptSourceRow[]): string
     ),
   );
 
-export const decodeReviewedReceiptSnapshot = (input: unknown): ReviewedReceiptSnapshot => {
+export const decodeReviewedReceiptSnapshot = (input: Schema.Json): ReviewedReceiptSnapshot => {
   let snapshot: ReviewedReceiptSnapshot;
+
   try {
     snapshot = Schema.decodeUnknownSync(ReviewedReceiptSnapshot)(input, {
       onExcessProperty: "error",
@@ -117,6 +124,7 @@ export const decodeReviewedReceiptSnapshot = (input: unknown): ReviewedReceiptSn
 
   const entries = new Map(snapshot.review.entries.map((entry) => [entry.sourcePrimaryKey, entry]));
   const sourceIds = new Set(snapshot.rows.map((row) => row.sourcePrimaryKey));
+
   if (
     entries.size !== snapshot.review.entries.length ||
     sourceIds.size !== snapshot.rows.length ||
@@ -127,9 +135,12 @@ export const decodeReviewedReceiptSnapshot = (input: unknown): ReviewedReceiptSn
 
   for (const row of snapshot.rows) {
     const entry = entries.get(row.sourcePrimaryKey);
+
     if (!entry || entry.sourceRowDigest !== receiptSourceRowDigest(row))
       throw new ReceiptCohortFailure({ code: "InvalidReview" });
-    if (entry._tag === "Excluded") continue;
+
+    if (Predicate.isTagged(entry, "Excluded")) continue;
+
     if (
       (entry.person !== null && entry.person.sourceUserId !== row.sourceUserId) ||
       entry.payment.commitment !== row.accountCommitment ||
@@ -138,5 +149,6 @@ export const decodeReviewedReceiptSnapshot = (input: unknown): ReviewedReceiptSn
     )
       throw new ReceiptCohortFailure({ code: "InvalidReview" });
   }
+
   return snapshot;
 };
