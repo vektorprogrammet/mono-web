@@ -200,7 +200,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.div(
                 [h.Class("rm-alternatives")],
                 [
-                  h.h3([], ["Svaralternativer i rekkefølge"]),
+                  h.p([h.Class("rm-alternatives-label")], ["Svaralternativer i rekkefølge"]),
                   ...question.alternatives.map((value, alternative) =>
                     h.div(
                       [h.Class("rm-alternative")],
