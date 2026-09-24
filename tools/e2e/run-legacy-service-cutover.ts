@@ -26,6 +26,11 @@ import {
   importReconciledCurrentAssignmentCohort,
   type CurrentAssignmentReport,
 } from "@vektorprogrammet/placements/server";
+import { OrganizationReview } from "@vektorprogrammet/domain/organization";
+import {
+  importReviewedOrganizationCohort,
+  organizationImportSourceDigest,
+} from "@vektorprogrammet/database/organization";
 import { Pool, type PoolClient } from "pg";
 import { flow, Schema } from "effect";
 import {
@@ -37,6 +42,10 @@ import {
 } from "./legacy-cutover-references";
 import { buildLegacyPersonSnapshot } from "./legacy-person-snapshot";
 import { buildLegacyCurrentAssignmentSnapshot } from "./legacy-current-assignment-snapshot";
+import {
+  buildLegacyOrganizationSnapshot,
+  reviewLegacyOrganizationSource,
+} from "./legacy-organization-snapshot";
 import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-source-snapshot";
 
 const repository = "vektorprogrammet/vektorprogrammet";
@@ -61,6 +70,7 @@ export interface CutoverOptions {
   readonly attestedBy: string;
   readonly passwordlessPolicy: "ProvisionRecovery";
   readonly currentAssignments: "NotRequested" | CurrentAssignmentReview;
+  readonly organization: "NotRequested" | OrganizationReview;
 }
 
 type CutoverStage =
@@ -69,6 +79,8 @@ type CutoverStage =
   | "ReferenceSeed"
   | "PersonProjection"
   | "PersonImport"
+  | "OrganizationProjection"
+  | "OrganizationImport"
   | "CurrentAssignmentProjection"
   | "CurrentAssignmentImport"
   | "HistoricalProjection"
@@ -95,7 +107,7 @@ const inStage = async <A>(stage: CutoverStage, operation: () => Promise<A>): Pro
   } catch (error) {
     const detail =
       stage === "SourceRead" && error instanceof Error
-        ? /^Legacy source (Connection|Grants|DatabaseSelection|Transaction|Engines|Users|Credentials|Departments|Semesters|Schools|Relationships|History) failed; details redacted$/.exec(
+        ? /^Legacy source (Connection|Grants|DatabaseSelection|Transaction|Engines|Users|Credentials|Departments|Semesters|Schools|Relationships|History|Teams|Positions|TeamMemberships|ExecutiveBoards|ExecutiveBoardMemberships) failed; details redacted$/.exec(
             error.message,
           )?.[1]
         : undefined;
@@ -266,7 +278,7 @@ export const buildLegacyAccountSnapshot = (
   });
 };
 
-/** Imports references, People, reviewed assignments, historical service, and Accounts atomically. */
+/** Imports all selected cohorts in one caller-owned transaction. */
 export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   if (
     options.passwordlessPolicy !== "ProvisionRecovery" ||
@@ -282,6 +294,14 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
       ? undefined
       : await inStage("CurrentAssignmentProjection", async () =>
           Schema.decodeUnknownSync(CurrentAssignmentReview)(options.currentAssignments, {
+            onExcessProperty: "error",
+          }),
+        );
+  const organizationReview =
+    options.organization === "NotRequested"
+      ? undefined
+      : await inStage("OrganizationProjection", async () =>
+          Schema.decodeUnknownSync(OrganizationReview)(options.organization, {
             onExcessProperty: "error",
           }),
         );
@@ -322,16 +342,31 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   )
     throw new Error("Remote target requires a verified TLS CA and DNS identity");
   targetSelection.searchParams.delete("sslCaEnv");
-  const source = await inStage("SourceRead", () => readLegacySourceSnapshot(options.sourceUrl));
+  const source = await inStage("SourceRead", () =>
+    readLegacySourceSnapshot(
+      options.sourceUrl,
+      organizationReview === undefined ? "NotRequested" : "Include",
+    ),
+  );
   const { credentials, ...personAndServiceSource } = source;
   const sourceRevision = digest(personAndServiceSource);
 
-  if (source.history.length === 0)
-    throw new Error("Legacy service source is empty; target untouched");
+  if (
+    source.history.length === 0 &&
+    (organizationReview === undefined ||
+      (source.teamMemberships?.length ?? 0) + (source.executiveBoardMemberships?.length ?? 0) === 0)
+  )
+    throw new Error("Selected legacy source cohorts are empty; target untouched");
+
+  if (organizationReview !== undefined)
+    await inStage("OrganizationProjection", async () =>
+      reviewLegacyOrganizationSource(source, organizationReview),
+    );
 
   const transformationRevision = digest(
     await Promise.all([
       currentAssignmentImportSourceDigest(),
+      ...(organizationReview === undefined ? [] : [organizationImportSourceDigest()]),
       ...[
         fileURLToPath(import.meta.url),
         fileURLToPath(new URL("./legacy-source-snapshot.ts", import.meta.url)),
@@ -341,6 +376,9 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
         fileURLToPath(import.meta.resolve("@vektorprogrammet/database/person-cohort")),
         fileURLToPath(import.meta.resolve("@vektorprogrammet/database/historical-service-cohort")),
         fileURLToPath(import.meta.resolve("@vektorprogrammet/database/identity-cohort")),
+        ...(organizationReview === undefined
+          ? []
+          : [fileURLToPath(new URL("./legacy-organization-snapshot.ts", import.meta.url))]),
       ].map((path) => readFile(path, "utf8")),
     ]),
   ).slice(0, 32);
@@ -387,6 +425,26 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
     const person = await inStage("PersonImport", () =>
       importPersonCohort(pool, personSnapshot, client),
     );
+
+    const organizationSnapshot =
+      organizationReview === undefined
+        ? undefined
+        : await inStage("OrganizationProjection", async () =>
+            buildLegacyOrganizationSnapshot(source, person, personSnapshot, organizationReview, {
+              snapshotId: options.snapshotId,
+              transformationRevision,
+              referenceDigest: references.referenceDigest,
+            }),
+          );
+    const organization =
+      organizationSnapshot === undefined
+        ? undefined
+        : await inStage("OrganizationImport", () =>
+            importReviewedOrganizationCohort(pool, organizationSnapshot, client),
+          );
+
+    if (organization !== undefined && organization.accepted === 0)
+      throw new CutoverStageFailure("OrganizationImport", "NoAcceptedAppointments");
 
     const currentSnapshot =
       review === undefined
@@ -456,9 +514,25 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
 
     return {
       scope:
-        review === undefined
-          ? "PersonReferencesHistoricalServiceAndAccounts"
-          : "PersonReferencesHistoricalServiceCurrentAssignmentsAndAccounts",
+        organizationReview !== undefined
+          ? review === undefined
+            ? "PersonReferencesOrganizationHistoricalServiceAndAccounts"
+            : "PersonReferencesOrganizationHistoricalServiceCurrentAssignmentsAndAccounts"
+          : review === undefined
+            ? "PersonReferencesHistoricalServiceAndAccounts"
+            : "PersonReferencesHistoricalServiceCurrentAssignmentsAndAccounts",
+      organization:
+        organization === undefined || organizationReview === undefined
+          ? ("NotRequested" as const)
+          : {
+              stage: "Reconciled" as const,
+              asOf: organizationReview.asOf,
+              sourceWatermark: organizationReview.sourceWatermark,
+              input: organization.input,
+              accepted: organization.accepted,
+              quarantined: organization.quarantined,
+              reasons: reasons(organization.occurrences),
+            },
       currentAssignments:
         current === undefined || review === undefined
           ? ("NotImported" as const)
@@ -530,7 +604,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
 };
 
 const usage =
-  "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID --passwordless-policy=provision-recovery --current-assignments=none|PATH (remote PostgreSQL requires ?sslCaEnv=NAME; local target uses ?host=/absolute/socket; source remains SELECT-only)";
+  "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID --passwordless-policy=provision-recovery --current-assignments=none|PATH --organization=none|PATH (remote PostgreSQL requires ?sslCaEnv=NAME; local target uses ?host=/absolute/socket; source remains SELECT-only)";
 
 if (import.meta.main) {
   if (process.argv.length === 3 && process.argv[2] === "--help") {
@@ -555,6 +629,7 @@ if (import.meta.main) {
         "attested-by",
         "passwordless-policy",
         "current-assignments",
+        "organization",
       ];
 
       if (
@@ -586,6 +661,17 @@ if (import.meta.main) {
               ),
               { onExcessProperty: "error" },
             );
+      const organization =
+        argumentsByName["organization"] === "none"
+          ? ("NotRequested" as const)
+          : Schema.decodeUnknownSync(OrganizationReview)(
+              await readPrivateCohortJson(
+                argumentsByName["organization"],
+                () => new Error("InvalidSnapshot"),
+                16_777_216,
+              ),
+              { onExcessProperty: "error" },
+            );
 
       const result = await runLegacyServiceCutover({
         sourceUrl: process.env[sourceEnv]!,
@@ -595,6 +681,7 @@ if (import.meta.main) {
         attestedBy: argumentsByName["attested-by"]!,
         passwordlessPolicy: "ProvisionRecovery",
         currentAssignments,
+        organization,
       });
 
       console.log(JSON.stringify(result));

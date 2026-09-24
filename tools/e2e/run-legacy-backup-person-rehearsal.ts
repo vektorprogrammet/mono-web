@@ -1080,6 +1080,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       attestedBy: "legacy-backup-2024-08-22",
       passwordlessPolicy: "ProvisionRecovery" as const,
       currentAssignments: "NotRequested" as const,
+      organization: "NotRequested" as const,
     };
 
     cutoverPool = new Pool({ connectionString: cutoverTargetUrl, max: 2 });

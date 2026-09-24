@@ -69,6 +69,48 @@ export type LegacyCredential = typeof Credential.Type;
 
 export type LegacyHistory = typeof History.Type;
 
+const NullableSourceId = Schema.NullOr(SourceId);
+const NullableFlag = Schema.NullOr(Flag);
+
+const Team = Schema.Struct({
+  id: SourceId,
+  departmentId: NullableSourceId,
+  name: TextOrNull,
+  active: NullableFlag,
+});
+
+const Position = Schema.Struct({ id: SourceId, name: TextOrNull });
+
+const TeamMembership = Schema.Struct({
+  id: SourceId,
+  userId: NullableSourceId,
+  teamId: NullableSourceId,
+  positionId: NullableSourceId,
+  startSemesterId: NullableSourceId,
+  endSemesterId: NullableSourceId,
+  isTeamLeader: NullableFlag,
+  isSuspended: NullableFlag,
+  deletedTeamName: TextOrNull,
+});
+
+const ExecutiveBoard = Schema.Struct({ id: SourceId, name: TextOrNull });
+
+const ExecutiveBoardMembership = Schema.Struct({
+  id: SourceId,
+  userId: NullableSourceId,
+  boardId: NullableSourceId,
+  positionName: TextOrNull,
+  startSemesterId: NullableSourceId,
+  endSemesterId: NullableSourceId,
+});
+
+export type LegacyTeam = typeof Team.Type;
+export type LegacyPosition = typeof Position.Type;
+export type LegacyTeamMembership = typeof TeamMembership.Type;
+export type LegacyExecutiveBoard = typeof ExecutiveBoard.Type;
+export type LegacyExecutiveBoardMembership = typeof ExecutiveBoardMembership.Type;
+export type LegacyOrganizationSelection = "NotRequested" | "Include";
+
 export interface LegacySourceSnapshot {
   readonly users: ReadonlyArray<LegacyUserJson>;
   readonly credentials: ReadonlyArray<LegacyCredential>;
@@ -77,6 +119,11 @@ export interface LegacySourceSnapshot {
   readonly schools: ReadonlyArray<LegacySchool>;
   readonly relationships: ReadonlyArray<LegacyRelationship>;
   readonly history: ReadonlyArray<LegacyHistory>;
+  readonly teams?: ReadonlyArray<LegacyTeam>;
+  readonly positions?: ReadonlyArray<LegacyPosition>;
+  readonly teamMemberships?: ReadonlyArray<LegacyTeamMembership>;
+  readonly executiveBoards?: ReadonlyArray<LegacyExecutiveBoard>;
+  readonly executiveBoardMemberships?: ReadonlyArray<LegacyExecutiveBoardMembership>;
 }
 
 const sourceTables = [
@@ -86,6 +133,14 @@ const sourceTables = [
   "school",
   "department_school",
   "assistant_history",
+];
+
+const organizationTables = [
+  "team",
+  "position",
+  "team_membership",
+  "executive_board",
+  "executive_board_membership",
 ];
 
 const select = async <T extends RowDataPacket>(
@@ -121,10 +176,15 @@ export const assertSelectOnlyGrants = (grants: ReadonlyArray<string>, database: 
   }
 };
 
-/** Six InnoDB tables, including user credentials, share one read-only snapshot. */
+/** All selected InnoDB tables share one read-only snapshot. Omission retains the six-table shape. */
 export const readLegacySourceSnapshot = async (
   sourceUrl: string,
+  organization: LegacyOrganizationSelection = "NotRequested",
 ): Promise<LegacySourceSnapshot> => {
+  if (organization !== "NotRequested" && organization !== "Include")
+    throw new Error("Explicit organization source selection is invalid");
+  const selectedTables =
+    organization === "Include" ? [...sourceTables, ...organizationTables] : sourceTables;
   const url = (() => {
     try {
       return new URL(sourceUrl);
@@ -198,13 +258,13 @@ export const readLegacySourceSnapshot = async (
         `SELECT table_name AS tableName, engine
            FROM information_schema.tables
           WHERE table_schema = DATABASE()
-            AND table_name IN ('user','department','semester','school','department_school','assistant_history')`,
+            AND table_name IN (${selectedTables.map((table) => `'${table}'`).join(",")})`,
       );
 
       if (
-        engines.length !== sourceTables.length ||
+        engines.length !== selectedTables.length ||
         engines.some(
-          (row) => !sourceTables.includes(String(row.tableName)) || row.engine !== "InnoDB",
+          (row) => !selectedTables.includes(String(row.tableName)) || row.engine !== "InnoDB",
         )
       )
         throw new Error("Source tables must all use InnoDB");
@@ -282,9 +342,49 @@ export const readLegacySourceSnapshot = async (
         ),
       );
 
-      await connection.query("COMMIT");
+      const source = { users, credentials, departments, semesters, schools, relationships, history };
 
-      return { users, credentials, departments, semesters, schools, relationships, history };
+      if (organization === "NotRequested") {
+        await connection.query("COMMIT");
+        return source;
+      }
+
+      stage = "Teams";
+      const teams = Schema.decodeUnknownSync(Schema.Array(Team))(
+        await select<RowDataPacket>(
+          connection,
+          "SELECT id, department_id AS departmentId, name, active FROM team ORDER BY id",
+        ),
+      );
+      stage = "Positions";
+      const positions = Schema.decodeUnknownSync(Schema.Array(Position))(
+        await select<RowDataPacket>(connection, "SELECT id, name FROM position ORDER BY id"),
+      );
+      stage = "TeamMemberships";
+      const teamMemberships = Schema.decodeUnknownSync(Schema.Array(TeamMembership))(
+        await select<RowDataPacket>(
+          connection,
+          `SELECT id, user_id AS userId, team_id AS teamId, position_id AS positionId,
+                  startSemester_id AS startSemesterId, endSemester_id AS endSemesterId,
+                  isTeamLeader, isSuspended, deletedTeamName
+             FROM team_membership ORDER BY id`,
+        ),
+      );
+      stage = "ExecutiveBoards";
+      const executiveBoards = Schema.decodeUnknownSync(Schema.Array(ExecutiveBoard))(
+        await select<RowDataPacket>(connection, "SELECT id, name FROM executive_board ORDER BY id"),
+      );
+      stage = "ExecutiveBoardMemberships";
+      const executiveBoardMemberships = Schema.decodeUnknownSync(Schema.Array(ExecutiveBoardMembership))(
+        await select<RowDataPacket>(
+          connection,
+          `SELECT id, user_id AS userId, board_id AS boardId, positionName,
+                  startSemester_id AS startSemesterId, endSemester_id AS endSemesterId
+             FROM executive_board_membership ORDER BY id`,
+        ),
+      );
+      await connection.query("COMMIT");
+      return { ...source, teams, positions, teamMemberships, executiveBoards, executiveBoardMemberships };
     } catch {
       await connection.query("ROLLBACK");
       throw new Error("Legacy source " + stage + " failed; details redacted");
