@@ -41,9 +41,11 @@ apps/dashboard     authenticated React Router and Foldkit application
 apps/server        retained Symfony source for legacy behavior
 packages/domain    business values, transitions, failures, and authority
 packages/database  PostgreSQL migrations, persistence, locks, audit, and outbox
+packages/placements portable Placements contracts and private server implementation
 packages/http-api  transport schemas, middleware contracts, and OpenAPI
 packages/sdk       generated native API client
-tools              bounded development and migration tools
+tools/verification cross-application PostgreSQL proofs and migration rehearsals
+tools              other bounded development and migration tools
 docs               intended system, architecture, operations, and active specs
 ```
 
