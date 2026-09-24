@@ -70,7 +70,7 @@ CREATE TABLE department_school(department_id INT NOT NULL,school_id INT NOT NULL
 CREATE TABLE assistant_history(id INT PRIMARY KEY,user_id INT,department_id INT,semester_id INT,school_id INT,
  workdays VARCHAR(255),bolk VARCHAR(255),day VARCHAR(255)) ENGINE=InnoDB;
 CREATE TABLE team(id INT PRIMARY KEY,department_id INT,name VARCHAR(255),active TINYINT) ENGINE=InnoDB;
-CREATE TABLE position(id INT PRIMARY KEY,name VARCHAR(255)) ENGINE=InnoDB;
+CREATE TABLE position (id INT PRIMARY KEY,name VARCHAR(255)) ENGINE=InnoDB;
 CREATE TABLE team_membership(id INT PRIMARY KEY,user_id INT,team_id INT,position_id INT,startSemester_id INT,endSemester_id INT,
  isTeamLeader TINYINT,isSuspended TINYINT,deletedTeamName VARCHAR(255)) ENGINE=InnoDB;
 CREATE TABLE executive_board(id INT PRIMARY KEY,name VARCHAR(255)) ENGINE=InnoDB;
