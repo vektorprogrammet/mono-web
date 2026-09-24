@@ -1004,6 +1004,7 @@ const createApplicationInterview = <E, R>(
       identities: { applicationId },
       semanticRequest: { body },
       commandIdSchema: RecruitmentAssignmentCommandId,
+      retry: "serialization-once",
       prepare: () =>
         Effect.gen(function* () {
           const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
