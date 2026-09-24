@@ -10,6 +10,7 @@
     "run-legacy-current-assignment-rehearsal.ts",
     "run-legacy-organization-rehearsal.ts",
     "run-legacy-receipt-rehearsal.ts",
+    "run-legacy-candidate-rehearsal.ts",
     "run-legacy-receipt-import.ts"
   ]
 }

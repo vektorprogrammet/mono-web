@@ -17,6 +17,7 @@
     "rehearsal:legacy-current-assignment": "bun --no-env-file tools/e2e/run-legacy-current-assignment-rehearsal.ts",
     "rehearsal:legacy-organization": "bun --no-env-file tools/e2e/run-legacy-organization-rehearsal.ts",
     "rehearsal:legacy-receipt": "bun --no-env-file tools/e2e/run-legacy-receipt-rehearsal.ts",
+    "rehearsal:legacy-candidate": "bun --no-env-file tools/e2e/run-legacy-candidate-rehearsal.ts",
     "migration:legacy-receipt": "bun --no-env-file tools/e2e/run-legacy-receipt-import.ts",
     "fixture:recommendation-preupgrade": "bun run tools/verification/recommendation-preupgrade-fixture.ts",
     "proof:authorization-rules": "bun run packages/database/runtime/authorization-rules-postgres-proof-main.ts",
