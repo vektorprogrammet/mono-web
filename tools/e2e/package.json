@@ -11,6 +11,7 @@
     "rehearsal:legacy-organization": "bun --no-env-file run-legacy-organization-rehearsal.ts"
   },
   "dependencies": {
+    "@effect/platform-bun": "catalog:effect-v4",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
     "@vektorprogrammet/placements": "workspace:*",

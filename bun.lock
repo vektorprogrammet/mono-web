@@ -264,6 +264,7 @@
       "name": "@monoweb/e2e",
       "version": "0.1.0",
       "dependencies": {
+        "@effect/platform-bun": "catalog:effect-v4",
         "@vektorprogrammet/database": "workspace:*",
         "@vektorprogrammet/domain": "workspace:*",
         "@vektorprogrammet/placements": "workspace:*",
