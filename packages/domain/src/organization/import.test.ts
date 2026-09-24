@@ -8,7 +8,15 @@ const snapshot = (memberships: ReadonlyArray<Schema.Json>): LegacyOrganizationSn
     persons: { "7": "7", "8": "8", "9": "9", "10": "10" },
     departments: { "1": "1", "2": "2" },
     teams: { "1": "1", "10": "10", "11": "11" },
-    memberships: { "1": "1", "100": "100", "101": "101", "102": "102", "103": "103", "104": "104", "105": "105" },
+    memberships: {
+      "1": "1",
+      "100": "100",
+      "101": "101",
+      "102": "102",
+      "103": "103",
+      "104": "104",
+      "105": "105",
+    },
     positions: { "1": "1", "2": "2" },
   },
   sourceRepository: "legacy-db",
@@ -241,11 +249,19 @@ it("quarantines canonical records rejected by their Model", () => {
 });
 
 it("requires an explicit Person mapping and retains nonnumeric canonical identity", () => {
-  const input = snapshot([{ id: 100, userId: 7, teamId: 10, startAt: "2026-08-01T00:00:00Z", endAt: null }]);
-  const missing = importLegacyOrganization({ ...input, identities: { ...input.identities, persons: {} } });
+  const input = snapshot([
+    { id: 100, userId: 7, teamId: 10, startAt: "2026-08-01T00:00:00Z", endAt: null },
+  ]);
+  const missing = importLegacyOrganization({
+    ...input,
+    identities: { ...input.identities, persons: {} },
+  });
   expect(missing.memberships).toEqual([]);
-  expect(missing.quarantined.map(row => row.reason)).toEqual(["PERSON_UNRESOLVED"]);
-  const resolved = importLegacyOrganization({ ...input, identities: { ...input.identities, persons: { "7": "person-reviewed-nonnumeric" } } });
+  expect(missing.quarantined.map((row) => row.reason)).toEqual(["PERSON_UNRESOLVED"]);
+  const resolved = importLegacyOrganization({
+    ...input,
+    identities: { ...input.identities, persons: { "7": "person-reviewed-nonnumeric" } },
+  });
   expect(resolved.memberships[0]?.personId).toBe("person-reviewed-nonnumeric");
 });
 
@@ -255,7 +271,16 @@ it("rejects semantic duplicates after different source users resolve to one Pers
     { id: 101, userId: 8, teamId: 10, startAt: "2026-08-01T02:00:00+02:00", endAt: null },
   ]);
 
-  const result = importLegacyOrganization({ ...input, identities: { ...input.identities, persons: { "7": "person-canonical", "8": "person-canonical" } } });
+  const result = importLegacyOrganization({
+    ...input,
+    identities: {
+      ...input.identities,
+      persons: { "7": "person-canonical", "8": "person-canonical" },
+    },
+  });
   expect(result.memberships).toEqual([]);
-  expect(result.quarantined.map(row => row.reason)).toEqual(["DUPLICATE_MEMBERSHIP", "DUPLICATE_MEMBERSHIP"]);
+  expect(result.quarantined.map((row) => row.reason)).toEqual([
+    "DUPLICATE_MEMBERSHIP",
+    "DUPLICATE_MEMBERSHIP",
+  ]);
 });

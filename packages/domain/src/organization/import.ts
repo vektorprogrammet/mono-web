@@ -306,7 +306,10 @@ const accepted = (
   });
 };
 
-const departmentFromLegacy = (row: LegacyDepartmentRow, identities: OrganizationImportIdentities): Department | undefined => {
+const departmentFromLegacy = (
+  row: LegacyDepartmentRow,
+  identities: OrganizationImportIdentities,
+): Department | undefined => {
   if (
     !nonEmpty(row.name) ||
     !nonEmpty(row.shortName) ||
@@ -336,7 +339,11 @@ const departmentFromLegacy = (row: LegacyDepartmentRow, identities: Organization
   return decoded.ok ? decoded.value : undefined;
 };
 
-const teamFromLegacy = (row: LegacyTeamRow, departments: ReadonlySet<number>, identities: OrganizationImportIdentities) => {
+const teamFromLegacy = (
+  row: LegacyTeamRow,
+  departments: ReadonlySet<number>,
+  identities: OrganizationImportIdentities,
+) => {
   if (row.departmentId === null || !departments.has(row.departmentId) || !nonEmpty(row.name)) {
     return { reason: "MISSING_TEAM_FIELD" as const };
   }
@@ -364,14 +371,24 @@ const teamFromLegacy = (row: LegacyTeamRow, departments: ReadonlySet<number>, id
   return decoded.ok ? { team: decoded.value } : { reason: "MISSING_TEAM_FIELD" as const };
 };
 
-const membershipFromLegacy = (row: LegacyMembershipRow, teams: ReadonlySet<number>, identities: OrganizationImportIdentities) => {
+const membershipFromLegacy = (
+  row: LegacyMembershipRow,
+  teams: ReadonlySet<number>,
+  identities: OrganizationImportIdentities,
+) => {
   if (!identities.persons[sourceId(row.userId)]) return { reason: "PERSON_UNRESOLVED" as const };
 
   if (!identities.memberships[sourceId(row.id)]) return { reason: "IDENTITY_UNRESOLVED" as const };
 
-  if (row.positionId != null && !identities.positions[sourceId(row.positionId)]) return { reason: "POSITION_UNRESOLVED" as const };
+  if (row.positionId != null && !identities.positions[sourceId(row.positionId)])
+    return { reason: "POSITION_UNRESOLVED" as const };
 
-  if (row.isTeamLeader !== undefined && row.isLeader !== undefined && bool(row.isTeamLeader, false) !== bool(row.isLeader, false)) return { reason: "INVALID_AUTHORITY_FLAGS" as const };
+  if (
+    row.isTeamLeader !== undefined &&
+    row.isLeader !== undefined &&
+    bool(row.isTeamLeader, false) !== bool(row.isLeader, false)
+  )
+    return { reason: "INVALID_AUTHORITY_FLAGS" as const };
 
   if (row.startAt === undefined || row.startAt.length === 0) {
     return { reason: "MISSING_TEMPORAL_INTERVAL" as const };
@@ -385,7 +402,7 @@ const membershipFromLegacy = (row: LegacyMembershipRow, teams: ReadonlySet<numbe
   }
 
   const legacyTeamId = row.teamId;
-  const teamId = legacyTeamId === null ? null : identities.teams[sourceId(legacyTeamId)] ?? null;
+  const teamId = legacyTeamId === null ? null : (identities.teams[sourceId(legacyTeamId)] ?? null);
 
   if (legacyTeamId !== null && (!teams.has(legacyTeamId) || !teamId))
     return { reason: "TEAM_UNRESOLVED" as const };
@@ -487,7 +504,15 @@ export const importLegacyOrganization = (
     }
 
     if (!snapshot.identities.departments[sourcePrimaryKey]) {
-      quarantine(output, snapshot, "department", sourcePrimaryKey, target, "IDENTITY_UNRESOLVED", raw);
+      quarantine(
+        output,
+        snapshot,
+        "department",
+        sourcePrimaryKey,
+        target,
+        "IDENTITY_UNRESOLVED",
+        raw,
+      );
       continue;
     }
 
@@ -641,17 +666,27 @@ export const importLegacyOrganization = (
 
   const semanticIdentityOf = (row: LegacyMembershipRow): string => {
     const position =
-      row.positionId === null || row.positionId === undefined ? "null" : snapshot.identities.positions[sourceId(row.positionId)] ?? `unresolved:${row.positionId}`;
+      row.positionId === null || row.positionId === undefined
+        ? "null"
+        : (snapshot.identities.positions[sourceId(row.positionId)] ??
+          `unresolved:${row.positionId}`);
 
     const team =
-      row.teamId === null ? `historical:${row.deletedTeamName ?? "null"}` : snapshot.identities.teams[sourceId(row.teamId)] ?? `unresolved:${row.teamId}`;
+      row.teamId === null
+        ? `historical:${row.deletedTeamName ?? "null"}`
+        : (snapshot.identities.teams[sourceId(row.teamId)] ?? `unresolved:${row.teamId}`);
 
     const startAt =
       row.startAt === undefined || !isRfc3339(row.startAt)
         ? "missing"
         : canonicalInstant(row.startAt);
 
-    return canonicalJson([snapshot.identities.persons[sourceId(row.userId)] ?? `unresolved:${row.userId}`, team, startAt, position]);
+    return canonicalJson([
+      snapshot.identities.persons[sourceId(row.userId)] ?? `unresolved:${row.userId}`,
+      team,
+      startAt,
+      position,
+    ]);
   };
 
   for (const { row } of membershipRows) {

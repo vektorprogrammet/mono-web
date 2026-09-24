@@ -224,13 +224,18 @@ export const decodeFrozenOrganizationSnapshot = flow(
       transformationRevision === SPEC_0067.transformationRevision;
 
     return valid
-      ? Effect.succeed(deepFreeze({ ...decoded, identities: {
-          persons: { "6731": "6731", "6732": "6732", "6733": "6733" },
-          departments: { "6701": "6701", "6702": "6702" },
-          teams: { "6711": "6711", "6712": "6712" },
-          memberships: { "6721": "6721", "6722": "6722", "6723": "6723" },
-          positions: { "6741": "6741", "6742": "6742", "6743": "6743" },
-        } }))
+      ? Effect.succeed(
+          deepFreeze({
+            ...decoded,
+            identities: {
+              persons: { "6731": "6731", "6732": "6732", "6733": "6733" },
+              departments: { "6701": "6701", "6702": "6702" },
+              teams: { "6711": "6711", "6712": "6712" },
+              memberships: { "6721": "6721", "6722": "6722", "6723": "6723" },
+              positions: { "6741": "6741", "6742": "6742", "6743": "6743" },
+            },
+          }),
+        )
       : Effect.fail(
           new FrozenOrganizationFixtureDecodeError({
             message: "spec 0067 frozen snapshot reference or canonical hash mismatch",
@@ -321,7 +326,12 @@ export const expectedOrganizationImportOutcomeMatrix: ReadonlyArray<Organization
       result: "Quarantined",
       reason: "TEAM_UNRESOLVED",
       destinationIdentity: null,
-      targetSemanticIdentity: canonicalJson(["6733", "unresolved:6798", "2037-01-01T00:00:00.000Z", "null"]),
+      targetSemanticIdentity: canonicalJson([
+        "6733",
+        "unresolved:6798",
+        "2037-01-01T00:00:00.000Z",
+        "null",
+      ]),
     },
   ]);
 

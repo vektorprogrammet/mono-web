@@ -1027,63 +1027,99 @@ describe("DatabaseTest", () => {
   });
 
   it("rebooks requested times without reviving old capabilities or duplicating current reads", async () => {
-    const base = Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(Layer.provideMerge(DatabaseTest()));
+    const base = Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(
+      Layer.provideMerge(DatabaseTest()),
+    );
 
-    const isolated = makeControlledTestRuntime(RecruitmentLive.pipe(
-      Layer.provideMerge(ProfileLive.pipe(Layer.provideMerge(base))),
-    ));
+    const isolated = makeControlledTestRuntime(
+      RecruitmentLive.pipe(Layer.provideMerge(ProfileLive.pipe(Layer.provideMerge(base)))),
+    );
 
     try {
-      const evidence = await isolated.runPromise(Effect.gen(function* () {
-        const sql = yield* Database;
-        const recruitment = yield* Recruitment;
-        const fixture = yield* seedSchedulingFixture("requested-rebooking");
+      const evidence = await isolated.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* Database;
+          const recruitment = yield* Recruitment;
+          const fixture = yield* seedSchedulingFixture("requested-rebooking");
 
-        const context = {
-          actor: fixture.actor, now: fixture.now,
-          invitationId: fixture.invitationId, responseCapability: fixture.responseCapability,
-        };
+          const context = {
+            actor: fixture.actor,
+            now: fixture.now,
+            invitationId: fixture.invitationId,
+            responseCapability: fixture.responseCapability,
+          };
 
-        const first = yield* recruitment.scheduleInterview(fixture.command, context);
-        let capability = RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability);
+          const first = yield* recruitment.scheduleInterview(fixture.command, context);
+          let capability = RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability);
 
-        for (const revision of [2, 3]) {
-          yield* recruitment.requestNewInvitationTime(capability, { message: "Please offer another afternoon." }, { now: fixture.now });
-          const responseCapability = `requested-rebooking-capability-${revision}`.padEnd(43, "_");
-          yield* recruitment.scheduleInterview({
-            ...fixture.command,
-            commandId: RecruitmentScheduleCommandId.make(`requested-rebooking-command-${revision}`),
-            expectedRevision: revision - 1,
-            scheduledAt: `2031-09-${20 + revision}T13:00:00.000Z`, room: `Room ${revision}`,
-          }, {
-            ...context, invitationId: RecruitmentInvitationId.make(`requested-rebooking-invitation-${revision}`),
-            responseCapability,
+          for (const revision of [2, 3]) {
+            yield* recruitment.requestNewInvitationTime(
+              capability,
+              { message: "Please offer another afternoon." },
+              { now: fixture.now },
+            );
+            const responseCapability = `requested-rebooking-capability-${revision}`.padEnd(43, "_");
+            yield* recruitment.scheduleInterview(
+              {
+                ...fixture.command,
+                commandId: RecruitmentScheduleCommandId.make(
+                  `requested-rebooking-command-${revision}`,
+                ),
+                expectedRevision: revision - 1,
+                scheduledAt: `2031-09-${20 + revision}T13:00:00.000Z`,
+                room: `Room ${revision}`,
+              },
+              {
+                ...context,
+                invitationId: RecruitmentInvitationId.make(
+                  `requested-rebooking-invitation-${revision}`,
+                ),
+                responseCapability,
+              },
+            );
+            expect((yield* Effect.flip(recruitment.readInvitationResponse(capability)))._tag).toBe(
+              "RecruitmentInvitationNotFound",
+            );
+            expect(
+              (yield* Effect.flip(recruitment.confirmInvitation(capability, { now: fixture.now })))
+                ._tag,
+            ).toBe("RecruitmentInvitationNotFound");
+            capability = RecruitmentInvitationCapabilitySchema.make(responseCapability);
+          }
+
+          const replay = yield* recruitment.scheduleInterview(fixture.command, context);
+          const board = yield* recruitment.readSchedulingBoard({
+            actor: fixture.actor,
+            now: fixture.now,
           });
-          expect((yield* Effect.flip(recruitment.readInvitationResponse(capability)))._tag).toBe("RecruitmentInvitationNotFound");
-          expect((yield* Effect.flip(recruitment.confirmInvitation(capability, { now: fixture.now })))._tag).toBe("RecruitmentInvitationNotFound");
-          capability = RecruitmentInvitationCapabilitySchema.make(responseCapability);
-        }
+          const assignments = yield* recruitment.readAssignmentBoard(
+            { status: "all" },
+            { actor: fixture.actor, now: fixture.now },
+          );
+          const current = yield* recruitment.readInvitationResponse(capability);
 
-        const replay = yield* recruitment.scheduleInterview(fixture.command, context);
-        const board = yield* recruitment.readSchedulingBoard({ actor: fixture.actor, now: fixture.now });
-        const assignments = yield* recruitment.readAssignmentBoard({ status: "all" }, { actor: fixture.actor, now: fixture.now });
-        const current = yield* recruitment.readInvitationResponse(capability);
-
-        const attemptedRewrite = yield* Effect.result(sql`UPDATE recruitment_interview_schedules SET room = 'Overwrite'
+          const attemptedRewrite =
+            yield* Effect.result(sql`UPDATE recruitment_interview_schedules SET room = 'Overwrite'
           WHERE interview_id = ${fixture.interviewId} AND schedule_revision = 1`);
 
-        const history = yield* sql<{ scheduleRevision: number; room: string }>`SELECT schedule_revision AS "scheduleRevision", room
+          const history = yield* sql<{
+            scheduleRevision: number;
+            room: string;
+          }>`SELECT schedule_revision AS "scheduleRevision", room
           FROM recruitment_interview_schedules WHERE interview_id = ${fixture.interviewId} ORDER BY schedule_revision`;
 
-        const responses = yield* sql<{ responseState: string; superseded: boolean }>`SELECT response_state AS "responseState", superseded_at IS NOT NULL AS superseded
+          const responses = yield* sql<{
+            responseState: string;
+            superseded: boolean;
+          }>`SELECT response_state AS "responseState", superseded_at IS NOT NULL AS superseded
           FROM recruitment_invitations WHERE interview_id = ${fixture.interviewId} ORDER BY schedule_revision`;
 
-        yield* sql`UPDATE recruitment_invitation_outbox SET status = 'Failed'
+          yield* sql`UPDATE recruitment_invitation_outbox SET status = 'Failed'
           WHERE interview_id = ${fixture.interviewId} AND schedule_revision = 1`;
-        yield* sql`UPDATE recruitment_invitation_response_outbox SET status = 'Failed'
+          yield* sql`UPDATE recruitment_invitation_response_outbox SET status = 'Failed'
           WHERE interview_id = ${fixture.interviewId} AND schedule_revision = 1`;
 
-        const historicalWork = sql`
+          const historicalWork = sql`
           SELECT effect_id, to_jsonb(outbox)::text AS evidence FROM recruitment_invitation_outbox outbox
           WHERE interview_id = ${fixture.interviewId} AND schedule_revision < 3
           UNION ALL
@@ -1091,26 +1127,63 @@ describe("DatabaseTest", () => {
           WHERE interview_id = ${fixture.interviewId} AND schedule_revision < 3
           ORDER BY effect_id`;
 
-        const queuedBefore = yield* historicalWork;
-        const gateway = makeRecordingNotificationGateway("2031-09-15T12:05:00.000Z");
-        const delivery = yield* deliverNextRecruitmentInvitation("requested-rebooking-claim", fixture.now).pipe(Effect.provide(gateway.layer));
-        const responseDelivery = yield* deliverNextRecruitmentInvitationResponse("requested-rebooking-response-claim", fixture.now).pipe(Effect.provide(gateway.layer));
-        const queuedAfter = yield* historicalWork;
+          const queuedBefore = yield* historicalWork;
+          const gateway = makeRecordingNotificationGateway("2031-09-15T12:05:00.000Z");
+          const delivery = yield* deliverNextRecruitmentInvitation(
+            "requested-rebooking-claim",
+            fixture.now,
+          ).pipe(Effect.provide(gateway.layer));
+          const responseDelivery = yield* deliverNextRecruitmentInvitationResponse(
+            "requested-rebooking-response-claim",
+            fixture.now,
+          ).pipe(Effect.provide(gateway.layer));
+          const queuedAfter = yield* historicalWork;
 
-        return { first, replay, board, assignments, current, attemptedRewrite, history, responses, queuedBefore, queuedAfter, delivery, responseDelivery };
-      }));
+          return {
+            first,
+            replay,
+            board,
+            assignments,
+            current,
+            attemptedRewrite,
+            history,
+            responses,
+            queuedBefore,
+            queuedAfter,
+            delivery,
+            responseDelivery,
+          };
+        }),
+      );
 
       expect(evidence.replay).toEqual({ observation: evidence.first.observation, replayed: true });
-      expect(evidence.board.interviews.map((item) => [item.revision, item.schedule?.room, item.responseState])).toEqual([[3, "Room 3", "Pending"]]);
-      expect(evidence.assignments.candidates.map((item) => item.scheduledAt)).toEqual(["2031-09-23T13:00:00.000Z"]);
-      expect(evidence.current).toMatchObject({ room: "Room 3", responseState: "Pending", responseMessage: null });
+      expect(
+        evidence.board.interviews.map((item) => [
+          item.revision,
+          item.schedule?.room,
+          item.responseState,
+        ]),
+      ).toEqual([[3, "Room 3", "Pending"]]);
+      expect(evidence.assignments.candidates.map((item) => item.scheduledAt)).toEqual([
+        "2031-09-23T13:00:00.000Z",
+      ]);
+      expect(evidence.current).toMatchObject({
+        room: "Room 3",
+        responseState: "Pending",
+        responseMessage: null,
+      });
       expect(evidence.attemptedRewrite._tag).toBe("Failure");
-      expect(Predicate.isTagged(evidence.delivery, "Delivered") ? evidence.delivery.claim.request.scheduleRevision : null).toBe(3);
+      expect(
+        Predicate.isTagged(evidence.delivery, "Delivered")
+          ? evidence.delivery.claim.request.scheduleRevision
+          : null,
+      ).toBe(3);
       expect(evidence.responseDelivery._tag).toBe("Idle");
       expect(evidence.queuedAfter).toEqual(evidence.queuedBefore);
       expect(evidence.history).toEqual([
         { scheduleRevision: 1, room: evidence.first.observation.schedule.room },
-        { scheduleRevision: 2, room: "Room 2" }, { scheduleRevision: 3, room: "Room 3" },
+        { scheduleRevision: 2, room: "Room 2" },
+        { scheduleRevision: 3, room: "Room 3" },
       ]);
       expect(evidence.responses).toEqual([
         { responseState: "RequestedNewTime", superseded: true },
@@ -2832,7 +2905,13 @@ describe("DatabaseTest", () => {
         const open = yield* listOpenAdmissionPeriods("2035-02-15T00:00:00.000Z");
 
         const organizationSnapshot = {
-          identities: { persons: {}, departments: { "700": "700" }, teams: {}, memberships: {}, positions: {} },
+          identities: {
+            persons: {},
+            departments: { "700": "700" },
+            teams: {},
+            memberships: {},
+            positions: {},
+          },
           sourceRepository: "database-test",
           sourceRevision: "adapter-revision-1",
           snapshotId: "adapter-snapshot-1",

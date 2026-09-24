@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseLive } from "../../packages/database/src/layers.js";
 import { databaseMigrationDefinitions } from "../../packages/database/src/migrations.js";
-import {type ClientOptions,  createPromiseClient } from "../../packages/sdk/src/promise.js";
+import { type ClientOptions, createPromiseClient } from "../../packages/sdk/src/promise.js";
 import { IdempotencyKey, StrongETag } from "../../packages/http-api/src/http-semantics.js";
 import { DepartmentId, SemesterId } from "../../packages/domain/src/organization/schema.js";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
@@ -648,10 +648,17 @@ const ensurePreviewScenarioCohort = async (
 
   const membershipSnapshot = {
     identities: {
-      persons: Object.fromEntries(Object.values(persons).map(person => [person.personId, person.personId])),
-      departments: { "1": "1" }, teams: { "11": "11" },
-      memberships: Object.fromEntries(Object.values(persons).map((_, index) => [String(7301 + index), String(7301 + index)])),
-      positions: Object.fromEntries(Object.values(persons).map((_, index) => [String(index + 1), String(index + 1)])),
+      persons: Object.fromEntries(
+        Object.values(persons).map((person) => [person.personId, person.personId]),
+      ),
+      departments: { "1": "1" },
+      teams: { "11": "11" },
+      memberships: Object.fromEntries(
+        Object.values(persons).map((_, index) => [String(7301 + index), String(7301 + index)]),
+      ),
+      positions: Object.fromEntries(
+        Object.values(persons).map((_, index) => [String(index + 1), String(index + 1)]),
+      ),
     },
     sourceRepository: "preview-scenario-0072",
     sourceRevision: "1",
