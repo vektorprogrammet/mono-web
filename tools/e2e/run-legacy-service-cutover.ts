@@ -297,6 +297,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
             onExcessProperty: "error",
           }),
         );
+
   const organizationReview =
     options.organization === "NotRequested"
       ? undefined
@@ -342,12 +343,14 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   )
     throw new Error("Remote target requires a verified TLS CA and DNS identity");
   targetSelection.searchParams.delete("sslCaEnv");
+
   const source = await inStage("SourceRead", () =>
     readLegacySourceSnapshot(
       options.sourceUrl,
       organizationReview === undefined ? "NotRequested" : "Include",
     ),
   );
+
   const { credentials, ...personAndServiceSource } = source;
   const sourceRevision = digest(personAndServiceSource);
 
@@ -436,6 +439,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
               referenceDigest: references.referenceDigest,
             }),
           );
+
     const organization =
       organizationSnapshot === undefined
         ? undefined
@@ -661,6 +665,7 @@ if (import.meta.main) {
               ),
               { onExcessProperty: "error" },
             );
+
       const organization =
         argumentsByName["organization"] === "none"
           ? ("NotRequested" as const)

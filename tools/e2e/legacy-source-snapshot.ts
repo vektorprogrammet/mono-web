@@ -70,6 +70,7 @@ export type LegacyCredential = typeof Credential.Type;
 export type LegacyHistory = typeof History.Type;
 
 const NullableSourceId = Schema.NullOr(SourceId);
+
 const NullableFlag = Schema.NullOr(Flag);
 
 const Team = Schema.Struct({
@@ -105,10 +106,15 @@ const ExecutiveBoardMembership = Schema.Struct({
 });
 
 export type LegacyTeam = typeof Team.Type;
+
 export type LegacyPosition = typeof Position.Type;
+
 export type LegacyTeamMembership = typeof TeamMembership.Type;
+
 export type LegacyExecutiveBoard = typeof ExecutiveBoard.Type;
+
 export type LegacyExecutiveBoardMembership = typeof ExecutiveBoardMembership.Type;
+
 export type LegacyOrganizationSelection = "NotRequested" | "Include";
 
 export interface LegacySourceSnapshot {
@@ -183,8 +189,10 @@ export const readLegacySourceSnapshot = async (
 ): Promise<LegacySourceSnapshot> => {
   if (organization !== "NotRequested" && organization !== "Include")
     throw new Error("Explicit organization source selection is invalid");
+
   const selectedTables =
     organization === "Include" ? [...sourceTables, ...organizationTables] : sourceTables;
+
   const url = (() => {
     try {
       return new URL(sourceUrl);
@@ -342,25 +350,39 @@ export const readLegacySourceSnapshot = async (
         ),
       );
 
-      const source = { users, credentials, departments, semesters, schools, relationships, history };
+      const source = {
+        users,
+        credentials,
+        departments,
+        semesters,
+        schools,
+        relationships,
+        history,
+      };
 
       if (organization === "NotRequested") {
         await connection.query("COMMIT");
+
         return source;
       }
 
       stage = "Teams";
+
       const teams = Schema.decodeUnknownSync(Schema.Array(Team))(
         await select<RowDataPacket>(
           connection,
           "SELECT id, department_id AS departmentId, name, active FROM team ORDER BY id",
         ),
       );
+
       stage = "Positions";
+
       const positions = Schema.decodeUnknownSync(Schema.Array(Position))(
         await select<RowDataPacket>(connection, "SELECT id, name FROM position ORDER BY id"),
       );
+
       stage = "TeamMemberships";
+
       const teamMemberships = Schema.decodeUnknownSync(Schema.Array(TeamMembership))(
         await select<RowDataPacket>(
           connection,
@@ -370,12 +392,18 @@ export const readLegacySourceSnapshot = async (
              FROM team_membership ORDER BY id`,
         ),
       );
+
       stage = "ExecutiveBoards";
+
       const executiveBoards = Schema.decodeUnknownSync(Schema.Array(ExecutiveBoard))(
         await select<RowDataPacket>(connection, "SELECT id, name FROM executive_board ORDER BY id"),
       );
+
       stage = "ExecutiveBoardMemberships";
-      const executiveBoardMemberships = Schema.decodeUnknownSync(Schema.Array(ExecutiveBoardMembership))(
+
+      const executiveBoardMemberships = Schema.decodeUnknownSync(
+        Schema.Array(ExecutiveBoardMembership),
+      )(
         await select<RowDataPacket>(
           connection,
           `SELECT id, user_id AS userId, board_id AS boardId, positionName,
@@ -383,8 +411,17 @@ export const readLegacySourceSnapshot = async (
              FROM executive_board_membership ORDER BY id`,
         ),
       );
+
       await connection.query("COMMIT");
-      return { ...source, teams, positions, teamMemberships, executiveBoards, executiveBoardMemberships };
+
+      return {
+        ...source,
+        teams,
+        positions,
+        teamMemberships,
+        executiveBoards,
+        executiveBoardMemberships,
+      };
     } catch {
       await connection.query("ROLLBACK");
       throw new Error("Legacy source " + stage + " failed; details redacted");

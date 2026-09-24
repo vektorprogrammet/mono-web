@@ -16,7 +16,9 @@ import { buildLegacyReferences } from "./legacy-cutover-references";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
 
 const repository = "vektorprogrammet/vektorprogrammet";
+
 const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+
 const personSourceId = Schema.decodeUnknownSync(Schema.Struct({ sourceUserId: Schema.String }));
 
 /** Bind the complete raw selection before the cutover opens its target transaction. */
@@ -35,6 +37,7 @@ export const reviewLegacyOrganizationSource = (
 
   const { credentials: _credentials, ...selectedSource } = source;
   const sourceRevision = digest(selectedSource);
+
   const occurrences = [
     ...source.teamMemberships.map((row) => ({
       occurrenceId: `legacy-team-membership-row-${String(row.id)}`,
@@ -51,9 +54,12 @@ export const reviewLegacyOrganizationSource = (
       row,
     })),
   ];
+
   const review = validateOrganizationReview(reviewInput, occurrences);
+
   if (review.sourceRevision !== sourceRevision)
     throw new Error("Organization review does not match the source snapshot");
+
   if (occurrences.length === 0)
     throw new Error("Requested organization source has no appointments");
 
@@ -83,6 +89,7 @@ export const buildLegacyOrganizationSnapshot = (
 ): ReviewedOrganizationSnapshot => {
   const reviewed = reviewLegacyOrganizationSource(source, reviewInput);
   const references = buildLegacyReferences(source);
+
   if (identity.referenceDigest !== references.referenceDigest)
     throw new Error("Organization projection requires the matching reference snapshot");
 
@@ -100,11 +107,13 @@ export const buildLegacyOrganizationSnapshot = (
       .filter(({ disposition }) => disposition === "Accepted")
       .map(({ occurrenceId }) => occurrenceId),
   );
+
   const acceptedUsers = new Set(
     personSnapshot.occurrences
       .filter(({ occurrenceId }) => acceptedOccurrences.has(occurrenceId))
       .map(({ row }) => personSourceId(row).sourceUserId),
   );
+
   const persons = personSnapshot.mappings
     .filter(({ sourceUserId }) => acceptedUsers.has(sourceUserId))
     .map(({ sourceUserId, personId }) => ({ sourceUserId, personId }));
