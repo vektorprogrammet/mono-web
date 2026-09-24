@@ -16,7 +16,6 @@ import {
 } from "../../apps/dashboard/e2e/runtime-evidence-receipt.mjs";
 import { Predicate } from "effect";
 
-
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../../apps/dashboard/", import.meta.url));
@@ -426,12 +425,10 @@ const startRecordingProxy = async (targetOrigin) => {
       jwtCookieAuth: hasNamedCookie(request.headers.cookie, new Set(["jwt_token"])),
       authorizationHeaderPresent: request.headers.authorization !== undefined,
       requestJson,
-      idempotencyKey:
-        Predicate.isString(request.headers["idempotency-key"])
-          ? request.headers["idempotency-key"]
-          : null,
-      ifMatch:
-        Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
+      idempotencyKey: Predicate.isString(request.headers["idempotency-key"])
+        ? request.headers["idempotency-key"]
+        : null,
+      ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
       responseJson: null,
       responseEtag: null,
     };
@@ -993,8 +990,7 @@ const main = async () => {
       jwtCookieAuth: false,
       idempotencyKeyPresent: method === "POST",
       ifMatchPresent: false,
-      requestBodyKeys:
-        method === "POST" ? ["interviewSchemaId", "interviewerPersonId"] : [],
+      requestBodyKeys: method === "POST" ? ["interviewSchemaId", "interviewerPersonId"] : [],
     }));
 
     assertEqual(
