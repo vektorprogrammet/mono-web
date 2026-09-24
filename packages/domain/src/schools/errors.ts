@@ -14,6 +14,7 @@ export class SchoolsPersistenceError extends Schema.TaggedError<SchoolsPersisten
   {
     operation: Schema.String,
     message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 

@@ -14,7 +14,7 @@ const text = (maxLength: number) =>
 
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
-const Count = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+const Count = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(2147483647)));
 
 export const SchoolId = Schema.Int.pipe(
   Schema.check(
@@ -149,7 +149,7 @@ export type SchoolDepartmentJsonCreate = typeof SchoolDepartment.jsonCreate.Type
 
 export type SchoolDepartmentJsonUpdate = typeof SchoolDepartment.jsonUpdate.Type;
 
-/** Frozen canonical capacity shape for a later capacity journey. */
+/** Department-owned weekday capacity, independent of placement demand. */
 export class SchoolCapacityPlan extends Model.Class<SchoolCapacityPlan>(
   "Schools.SchoolCapacityPlan",
 )({

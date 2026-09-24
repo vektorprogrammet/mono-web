@@ -123,6 +123,7 @@ const client = await pool.connect();
 
 try {
   await client.query("BEGIN");
+  await client.query("DELETE FROM schools_directory_departments");
   await client.query("DELETE FROM schools_directory_schools");
   await client.query("DELETE FROM organization_memberships WHERE membership_id = ANY($1::text[])", [
     membershipIds,

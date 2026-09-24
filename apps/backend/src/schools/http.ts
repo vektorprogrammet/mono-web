@@ -4,6 +4,7 @@ import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
+  SchoolCommandFailure,
   SchoolDirectoryQuerySchema,
   SchoolDirectorySchema,
   SchoolsDecodeError,
@@ -51,6 +52,19 @@ export const schoolsErrorResponse = (cause: unknown): Response => {
     return nativeProblemResponse(cause.code, cause.status);
   }
 
+  if (cause instanceof SchoolCommandFailure) {
+    switch (cause.code) {
+      case "Denied": return nativeProblemResponse("authority.denied",403);
+      case "NotFound": return nativeProblemResponse("resource.not-found",404);
+      case "Stale": return nativeProblemResponse("precondition.failed",412);
+      case "Conflict": return nativeProblemResponse("idempotency.digest-conflict",409);
+      case "AssociationInUse": return nativeProblemResponse("schools.association-in-use",409);
+      case "InactiveSchool": return nativeProblemResponse("schools.inactive",409);
+      case "CapacityExists": return nativeProblemResponse("schools.capacity-exists",409);
+      case "InvalidReference":
+      case "Invalid": return nativeProblemResponse("schools.invalid-command",422);
+    }
+  }
   const tag =
     (cause === null || Predicate.isObjectOrArray(cause)) && cause !== null && "_tag" in cause
       ? String(cause._tag)

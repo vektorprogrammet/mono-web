@@ -124,7 +124,11 @@ const makeServices = (
     readDepartment,
   };
 
-  const schools = Schools.of({ listDirectory });
+  const schools = Schools.of({ listDirectory,
+    readManagement: () => Effect.die("unexpected school management read"),
+    authorizeCommand: () => Effect.die("unexpected school command authorization"),
+    executeCommand: () => Effect.die("unexpected school command"),
+  });
 
   return Layer.mergeAll(
     makeDatabase().layer,

@@ -116,6 +116,12 @@
     },
     {
       "group": "directory",
+      "method": "POST",
+      "operationId": "directory.executeSchoolCommand",
+      "path": "/api/schools/commands"
+    },
+    {
+      "group": "directory",
       "method": "GET",
       "operationId": "directory.listPeople",
       "path": "/api/people"
@@ -125,6 +131,12 @@
       "method": "GET",
       "operationId": "directory.listSchools",
       "path": "/api/schools"
+    },
+    {
+      "group": "directory",
+      "method": "GET",
+      "operationId": "directory.readSchoolManagement",
+      "path": "/api/schools/management"
     },
     {
       "group": "onboarding",

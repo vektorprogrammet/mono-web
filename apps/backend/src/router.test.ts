@@ -149,6 +149,9 @@ const organization = {
 } satisfies Partial<OrganizationOperations>;
 
 const schools = Schools.of({
+  readManagement: () => Effect.die("unexpected school management read"),
+  authorizeCommand: () => Effect.die("unexpected school command authorization"),
+  executeCommand: () => Effect.die("unexpected school command"),
   listDirectory: () => Effect.succeed({ activeSchools: [], inactiveSchools: [] }),
 });
 

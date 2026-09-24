@@ -506,6 +506,11 @@ export const databaseMigrationDefinitions = [
     name: "organization-access-lifecycle",
     url: new URL("../migrations/0060-organization-access-lifecycle.sql", import.meta.url),
   },
+  {
+    id: "61_scoped-school-administration",
+    name: "scoped-school-administration",
+    url: new URL("../migrations/0061-scoped-school-administration.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

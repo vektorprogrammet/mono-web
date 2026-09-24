@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 95,
+    "externalOperations": 97,
     "internalOperations": 1,
-    "operations": 96
+    "operations": 98
   },
   "operations": [
     {
@@ -758,6 +758,48 @@
           "BetterAuthCookie",
           "OAuthUserBearer"
         ],
+        "canonicalScopeResolver": "schools.management",
+        "capabilities": {
+          "one": "schools.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "directory",
+      "method": "POST",
+      "operationId": "directory.executeSchoolCommand",
+      "path": "/api/schools/commands",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Maintain schools",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
         "canonicalScopeResolver": "profile.people-directory",
         "capabilities": {
           "one": "profile.read-directory"
@@ -824,6 +866,48 @@
         "503"
       ],
       "summary": "List schools",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "schools.management",
+        "capabilities": {
+          "one": "schools.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "directory",
+      "method": "GET",
+      "operationId": "directory.readSchoolManagement",
+      "path": "/api/schools/management",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Manage schools",
       "visibility": "external"
     },
     {

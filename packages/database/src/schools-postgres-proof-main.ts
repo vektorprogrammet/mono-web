@@ -63,6 +63,9 @@ const makeProofLayer = (databaseUrl: Redacted.Redacted<string>) => {
 const cleanupCohort = (sql: DatabaseOperations) =>
   Effect.gen(function* () {
     yield* sql`
+      DELETE FROM public.schools_directory_departments WHERE school_id IN (SELECT school_id FROM public.schools_directory_schools WHERE email = ${proofCohort.schoolEmail})
+    `;
+    yield* sql`
       DELETE FROM public.schools_directory_schools AS school
       WHERE school.email = ${proofCohort.schoolEmail}
     `;
@@ -186,6 +189,7 @@ export const program = Effect.scoped(
       let readerConnectionId = -1;
 
       const pausingSchools = Schools.of({
+        ...schools,
         listDirectory: (input: SchoolDirectoryListInput) => {
           if (intercepted) return schools.listDirectory(input);
           intercepted = true;

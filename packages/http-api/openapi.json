@@ -116276,6 +116276,3794 @@
         }
       }
     },
+    "/api/schools/commands": {
+      "post": {
+        "description": "Applies one scoped school or capacity command with an explicit observed revision and atomic history.",
+        "operationId": "directory.executeSchoolCommand",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "_tag": {
+                        "enum": [
+                          "CreateSchool"
+                        ],
+                        "type": "string"
+                      },
+                      "active": {
+                        "type": "boolean"
+                      },
+                      "commandId": {
+                        "pattern": "^[A-Za-z0-9_-]{22,128}$",
+                        "type": "string"
+                      },
+                      "contactPerson": {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      "departmentIds": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "email": {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      "language": {
+                        "enum": [
+                          "Norwegian",
+                          "International"
+                        ],
+                        "type": "string"
+                      },
+                      "name": {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      "phone": {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      "reason": {
+                        "maxLength": 2000,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "_tag",
+                      "commandId",
+                      "reason",
+                      "name",
+                      "contactPerson",
+                      "email",
+                      "phone",
+                      "language",
+                      "active",
+                      "departmentIds"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "_tag": {
+                        "enum": [
+                          "ReviseSchool"
+                        ],
+                        "type": "string"
+                      },
+                      "active": {
+                        "type": "boolean"
+                      },
+                      "commandId": {
+                        "pattern": "^[A-Za-z0-9_-]{22,128}$",
+                        "type": "string"
+                      },
+                      "contactPerson": {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      "email": {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      "expectedRevision": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "language": {
+                        "enum": [
+                          "Norwegian",
+                          "International"
+                        ],
+                        "type": "string"
+                      },
+                      "name": {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      "phone": {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      "reason": {
+                        "maxLength": 2000,
+                        "type": "string"
+                      },
+                      "schoolId": {
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "_tag",
+                      "commandId",
+                      "reason",
+                      "name",
+                      "contactPerson",
+                      "email",
+                      "phone",
+                      "language",
+                      "active",
+                      "schoolId",
+                      "expectedRevision"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "_tag": {
+                        "enum": [
+                          "ReplaceSchoolDepartments"
+                        ],
+                        "type": "string"
+                      },
+                      "commandId": {
+                        "pattern": "^[A-Za-z0-9_-]{22,128}$",
+                        "type": "string"
+                      },
+                      "departmentIds": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "expectedRevision": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "reason": {
+                        "maxLength": 2000,
+                        "type": "string"
+                      },
+                      "schoolId": {
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "_tag",
+                      "commandId",
+                      "reason",
+                      "schoolId",
+                      "expectedRevision",
+                      "departmentIds"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "_tag": {
+                        "enum": [
+                          "CreateCapacity"
+                        ],
+                        "type": "string"
+                      },
+                      "commandId": {
+                        "pattern": "^[A-Za-z0-9_-]{22,128}$",
+                        "type": "string"
+                      },
+                      "departmentId": {
+                        "type": "string"
+                      },
+                      "expectedSchoolRevision": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "friday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "monday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "reason": {
+                        "maxLength": 2000,
+                        "type": "string"
+                      },
+                      "schoolId": {
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      },
+                      "semesterId": {
+                        "type": "string"
+                      },
+                      "thursday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "tuesday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "wednesday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "_tag",
+                      "commandId",
+                      "reason",
+                      "monday",
+                      "tuesday",
+                      "wednesday",
+                      "thursday",
+                      "friday",
+                      "schoolId",
+                      "departmentId",
+                      "semesterId",
+                      "expectedSchoolRevision"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "_tag": {
+                        "enum": [
+                          "ReviseCapacity"
+                        ],
+                        "type": "string"
+                      },
+                      "commandId": {
+                        "pattern": "^[A-Za-z0-9_-]{22,128}$",
+                        "type": "string"
+                      },
+                      "departmentId": {
+                        "type": "string"
+                      },
+                      "expectedRevision": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "expectedSchoolRevision": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "friday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "monday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "reason": {
+                        "maxLength": 2000,
+                        "type": "string"
+                      },
+                      "schoolId": {
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      },
+                      "semesterId": {
+                        "type": "string"
+                      },
+                      "thursday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "tuesday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "wednesday": {
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "_tag",
+                      "commandId",
+                      "reason",
+                      "monday",
+                      "tuesday",
+                      "wednesday",
+                      "thursday",
+                      "friday",
+                      "schoolId",
+                      "departmentId",
+                      "semesterId",
+                      "expectedSchoolRevision",
+                      "expectedRevision"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capacityId": {
+                      "anyOf": [
+                        {
+                          "exclusiveMinimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "revision": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "schoolId": {
+                      "exclusiveMinimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "schoolId",
+                    "capacityId",
+                    "revision"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "etag": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency-key.invalid"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The Idempotency-Key header is invalid."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Invalid idempotency key"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency-key.invalid"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.missing"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "A credential is required for this operation."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Credential required"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.missing"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "authority.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The authenticated principal is not permitted to perform this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Authority denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:authority.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "origin.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The browser origin is not trusted for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Origin denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:origin.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "resource.not-found"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The requested resource was not found."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            404
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Resource not found"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.in-flight"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request with this idempotency identity is still in progress."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotent request in progress"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.digest-conflict"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "This idempotency key identifies a different semantic request."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotency conflict"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.response-expired"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The stored response for this idempotency identity has expired."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotent response expired"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.response-expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.association-in-use"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "Dependent records still reference this school association."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "School association in use"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.association-in-use"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.inactive"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "Activate the school before you change capacity."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Inactive school"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.inactive"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.capacity-exists"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A capacity plan already exists for this school, department, and semester."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Capacity plan exists"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.capacity-exists"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "precondition.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The selected representation changed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            412
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Precondition failed"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:precondition.failed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.too-large"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request body exceeds the permitted size."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            413
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Request too large"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.too-large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "media-type.unsupported"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request media type is not supported for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            415
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Unsupported media type"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:media-type.unsupported"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.invalid-command"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The school command contains invalid values or references."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            422
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Invalid school command"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.invalid-command"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal.error"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The server encountered an unexpected error."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            500
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Internal error"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:internal.error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The school directory is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Schools unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The idempotency receipt store is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotency unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Maintain schools",
+        "tags": [
+          "Directories"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "schools.management",
+          "capabilities": {
+            "one": "schools.manage"
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "Transaction",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/schools/management": {
+      "get": {
+        "description": "Returns authorized school facts, capacity plans, options, and history.",
+        "operationId": "directory.readSchoolManagement",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "departments": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "departmentId": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "departmentId",
+                          "name"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "history": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "action": {
+                            "enum": [
+                              "CreateSchool",
+                              "ReviseSchool",
+                              "ReplaceSchoolDepartments",
+                              "CreateCapacity",
+                              "ReviseCapacity"
+                            ],
+                            "type": "string"
+                          },
+                          "actorPersonId": {
+                            "type": "string"
+                          },
+                          "capacityId": {
+                            "anyOf": [
+                              {
+                                "exclusiveMinimum": 0,
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "commandId": {
+                            "pattern": "^[A-Za-z0-9_-]{22,128}$",
+                            "type": "string"
+                          },
+                          "departmentId": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "reason": {
+                            "maxLength": 2000,
+                            "type": "string"
+                          },
+                          "recordedAt": {
+                            "type": "string"
+                          },
+                          "revision": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "schoolId": {
+                            "exclusiveMinimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "commandId",
+                          "schoolId",
+                          "capacityId",
+                          "departmentId",
+                          "actorPersonId",
+                          "action",
+                          "reason",
+                          "recordedAt",
+                          "revision"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "schools": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "canEditShared": {
+                            "type": "boolean"
+                          },
+                          "capacities": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "capacityId": {
+                                  "exclusiveMinimum": 0,
+                                  "type": "integer"
+                                },
+                                "departmentId": {
+                                  "type": "string"
+                                },
+                                "friday": {
+                                  "maximum": 2147483647,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "monday": {
+                                  "maximum": 2147483647,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "revision": {
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "schoolId": {
+                                  "exclusiveMinimum": 0,
+                                  "type": "integer"
+                                },
+                                "semesterId": {
+                                  "type": "string"
+                                },
+                                "thursday": {
+                                  "maximum": 2147483647,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "tuesday": {
+                                  "maximum": 2147483647,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "wednesday": {
+                                  "maximum": 2147483647,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "capacityId",
+                                "schoolId",
+                                "departmentId",
+                                "semesterId",
+                                "monday",
+                                "tuesday",
+                                "wednesday",
+                                "thursday",
+                                "friday",
+                                "revision"
+                              ],
+                              "title": "Schools.SchoolCapacityPlan.json",
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "capacityDepartmentIds": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "departmentIds": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "school": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "active": {
+                                "type": "boolean"
+                              },
+                              "contactPerson": {
+                                "maxLength": 255,
+                                "type": "string"
+                              },
+                              "email": {
+                                "maxLength": 255,
+                                "type": "string"
+                              },
+                              "language": {
+                                "enum": [
+                                  "Norwegian",
+                                  "International"
+                                ],
+                                "type": "string"
+                              },
+                              "name": {
+                                "maxLength": 255,
+                                "type": "string"
+                              },
+                              "phone": {
+                                "maxLength": 255,
+                                "type": "string"
+                              },
+                              "revision": {
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "schoolId": {
+                                "exclusiveMinimum": 0,
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "schoolId",
+                              "name",
+                              "contactPerson",
+                              "email",
+                              "phone",
+                              "language",
+                              "active",
+                              "revision"
+                            ],
+                            "title": "Schools.School.json",
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "school",
+                          "departmentIds",
+                          "canEditShared",
+                          "capacityDepartmentIds",
+                          "capacities"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "semesters": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "semesterId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "semesterId",
+                          "name"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "departments",
+                    "semesters",
+                    "schools",
+                    "history"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "private, no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed request"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "header.malformed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request header is malformed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Malformed header"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:header.malformed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency-key.invalid"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The Idempotency-Key header is invalid."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            400
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Invalid idempotency key"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency-key.invalid"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.missing"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "A credential is required for this operation."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Credential required"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.missing"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "credential.invalid"
+                              ],
+                              "type": "string"
+                            },
+                            "detail": {
+                              "enum": [
+                                "The supplied credential is invalid."
+                              ],
+                              "type": "string"
+                            },
+                            "instance": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "status": {
+                              "enum": [
+                                401
+                              ],
+                              "type": "number"
+                            },
+                            "title": {
+                              "enum": [
+                                "Invalid credential"
+                              ],
+                              "type": "string"
+                            },
+                            "type": {
+                              "enum": [
+                                "urn:vektorprogrammet:problem:v0.2:credential.invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "title",
+                            "status",
+                            "code",
+                            "detail"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionUnauthorizedProblem"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Closed RFC 9457 error union for SessionUnauthorizedProblem.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              },
+              "www-authenticate": {
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "authority.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The authenticated principal is not permitted to perform this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Authority denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:authority.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "origin.denied"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The browser origin is not trusted for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            403
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Origin denied"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:origin.denied"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "resource.not-found"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The requested resource was not found."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            404
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Resource not found"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:resource.not-found"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.in-flight"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A request with this idempotency identity is still in progress."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotent request in progress"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.digest-conflict"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "This idempotency key identifies a different semantic request."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotency conflict"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.response-expired"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The stored response for this idempotency identity has expired."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotent response expired"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.response-expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.association-in-use"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "Dependent records still reference this school association."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "School association in use"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.association-in-use"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.inactive"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "Activate the school before you change capacity."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Inactive school"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.inactive"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.capacity-exists"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "A capacity plan already exists for this school, department, and semester."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            409
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Capacity plan exists"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.capacity-exists"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "required": false,
+                "schema": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "1"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "precondition.failed"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The selected representation changed."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            412
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Precondition failed"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:precondition.failed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.too-large"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request body exceeds the permitted size."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            413
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Request too large"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:request.too-large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "media-type.unsupported"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The request media type is not supported for this operation."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            415
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Unsupported media type"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:media-type.unsupported"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.invalid-command"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The school command contains invalid values or references."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            422
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Invalid school command"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.invalid-command"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal.error"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The server encountered an unexpected error."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            500
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Internal error"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:internal.error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "schools.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The school directory is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Schools unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:schools.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "idempotency.unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "detail": {
+                          "enum": [
+                            "The idempotency receipt store is temporarily unavailable."
+                          ],
+                          "type": "string"
+                        },
+                        "instance": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            503
+                          ],
+                          "type": "number"
+                        },
+                        "title": {
+                          "enum": [
+                            "Idempotency unavailable"
+                          ],
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "urn:vektorprogrammet:problem:v0.2:idempotency.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "title",
+                        "status",
+                        "code",
+                        "detail"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Error",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "5"
+                  ],
+                  "type": "string"
+                }
+              },
+              "vary": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "Origin"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          },
+          {
+            "oauthUserBearer": []
+          }
+        ],
+        "summary": "Manage schools",
+        "tags": [
+          "Directories"
+        ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "BetterAuthCookie",
+            "OAuthUserBearer"
+          ],
+          "canonicalScopeResolver": "schools.management",
+          "capabilities": {
+            "one": "schools.manage"
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Person"
+          ],
+          "requirements": []
+        },
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
     "/api/session": {
       "delete": {
         "description": "Revokes the authoritative current session.",
