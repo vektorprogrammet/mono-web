@@ -323,7 +323,8 @@ An active core obligation cannot disappear under that exclusion. Retained data s
 ### Architecture work
 
 Close remaining service boundaries through a concrete operational journey, not a repository-wide framework rewrite.
-Placements and Substitutes still expose direct database calls from the backend.
+Placements now exposes complete commands and queries through its service contract.
+Substitutes still exposes direct database calls from the backend.
 Use the [Economy boundary](docs/architecture.md#domain-services) as the precedent for a complete command and schema-derived query.
 No XState, EventLog, or PersistedQueue adoption follows from dependency compatibility.
 Keep acceptance obligations for a replacement in [AGENTS.md](AGENTS.md#boundary-practices).

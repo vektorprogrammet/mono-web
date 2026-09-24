@@ -282,6 +282,7 @@ export default defineConfig({
   ignorePatterns: [
     "apps/server/**",
     "tools/oxlint/anti-slop/**",
+    "tools/system-guide/vendor/**",
     "**/build/**",
     "**/dist/**",
     "**/node_modules/**",

@@ -137,10 +137,12 @@ capability groups:
 - Notification delivery
 
 A service contract uses domain commands, facts, failures, and observations. It does
-not expose database rows or transport objects. Not every group has a service yet:
-Placements and Substitutes currently export schemas and policy, while the backend
-also calls PostgreSQL functions directly. Keep the domain decision separate from
-its SQL implementation when closing those server-to-database contracts.
+not expose database rows or transport objects.
+The [Placements service](../packages/placements/src/service.ts) owns complete commands
+and queries. Its server implementation holds the department lock across the
+precondition, transition, audit, history, and outbox writes in the caller transaction.
+Substitutes still exposes schemas and policy alongside direct PostgreSQL calls
+from the backend. Keep its domain decision separate from SQL when closing that boundary.
 
 Economy uses its [service contract](../packages/domain/src/receipt/service.ts) for
 receipt queries and settlement commands. The [owner query](../packages/database/src/receipt/projections.ts)

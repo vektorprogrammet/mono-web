@@ -1,0 +1,431 @@
+# How Vektorprogrammet works
+
+Vektorprogrammet connects volunteer university students with schools that need mathematics tutoring.
+The software helps people recruit volunteers, organize teams, plan school service, and record what actually happened.
+
+This guide starts with those human needs. Each layer then explains the machinery underneath them.
+You do not need to understand Effect or PostgreSQL before you start.
+
+> **Three different states:** Legacy PHP still runs production. The native replacement has local operational and migration acceptance. Production cutover remains a separate, unauthorized step.
+>
+> This guide describes the native replacement, not a claim about a deployed replacement. [STATE.md](../STATE.md#current) owns current status.
+
+## 1. The whole system in one picture
+
+There are two web applications and one modular native backend. PostgreSQL stores the durable business facts.
+Private receipt files have separate storage.
+
+<GraphFlow
+  title="From a screen to durable facts"
+  rows={[
+    {
+      nodes: [
+        { label: "Homepage / dashboard" },
+        { label: "SDK + HTTP contract" },
+        { label: "Bun backend", tone: "accent" },
+        { label: "PostgreSQL + files" },
+      ],
+    },
+  ]}
+/>
+
+Read the arrows as responsibility boundaries, not four separate network calls.
+An SDK is client code, not another running service. Frontend server loaders can call the backend too.
+
+- **Homepage:** public information and entry points, including recruitment.
+- **Dashboard:** authenticated work for volunteers, coordinators, organizational leaders, and finance roles.
+- **Backend:** current authority, business decisions, persistence, and delivery programs.
+- **Storage:** durable records, history, queued work, and private file bytes.
+
+“Modular” means that different parts own different decisions. It does not mean that each part needs its own server.
+Organization owns appointments. Placements owns school assignments and service workflows. Economy owns reimbursement claims.
+
+**The central rule:** one fact has one owner. Other parts use that owner's contract rather than maintain competing copies.
+
+Sources: [product shape](architecture.md#product-shape), [ownership](architecture.md#ownership), [backend composition](../apps/backend/src/main.ts).
+
+## 2. People, relationships, and promises
+
+### One person can have several relationships
+
+A student can be an assistant, team member, coordinator, and receipt owner at the same time.
+These are separate relationships, not a single role field that changes meaning between screens.
+
+| Fact                      | What it means                                                     | What it does not prove                      |
+| ------------------------- | ----------------------------------------------------------------- | ------------------------------------------- |
+| Person                    | The stable identity of a human                                    | A password or permission                    |
+| Account                   | Credentials and access to authentication                          | Current organizational authority            |
+| Profile                   | Contact and personal information                                  | A grant of access                           |
+| Appointment               | A position in an organizational unit during an effective interval | Assistant affiliation or global authority   |
+| Volunteer affiliation     | The person's assistant relationship with a chapter                | A school assignment                         |
+| Placement                 | A recurring school assignment for a semester                      | Attendance on a particular date             |
+| School-service commitment | A dated interval, required demand, and scheduled assistants       | That the promised service actually happened |
+
+These distinctions prevent shortcuts that corrupt meaning.
+An imported historical leader does not automatically receive current leadership authority.
+A roster with two names does not prove that two assistants attended a visit.
+
+### Recruitment creates separate decisions
+
+An application starts a recruitment process. It does not create a school assignment.
+Interview scheduling, the applicant's response, assessment, and an onboarding invitation retain their own states and evidence.
+
+Account claim or linking establishes access to the person's identity.
+Volunteer affiliation establishes the chapter relationship. Placement establishes the school assignment.
+A returning volunteer still needs the relevant affiliation and placement decisions.
+
+The system therefore does not use one vague “accepted” flag to imply all later steps.
+
+### Planning is not completion
+
+A coordinator records school demand and reviews an assignment proposal.
+Roster confirmation freezes the plan and queues notifications. It does not record attendance.
+
+A dated commitment then names a school, a service interval, the required number of assistants, and their scheduled assignments.
+An absence or acknowledged substitute changes the dated situation without rewriting the original semester plan.
+
+The terminal outcomes have different meanings:
+
+- **Completed:** attendance evidence meets the required demand for the service interval.
+- **Cancelled:** an authorized cancellation closes the commitment with its evidence.
+- **Unfulfilled:** the outcome records unmet demand rather than invent success.
+
+An elapsed end time proves none of these outcomes.
+
+### The supporting workflows remain distinct
+
+Organization manages departments, teams, and appointments.
+Schools manages the school records that planning uses.
+Economy records reimbursement claims, review decisions, and separate settlement evidence.
+Communication uses authorized recipient projections and delivery processes.
+
+Content, events, and surveys have their own contracts. They are not one large “school visit” object.
+They are also not default migration gates merely because the legacy site contains them.
+An active operational obligation still needs an explicit disposition.
+
+Sources: [business model](system.md#purpose), [recruitment](system.md#recruitment-and-affiliation), [planning](system.md#school-demand-and-placement), [dated service](system.md#dated-school-service), [remaining scope](../STATE.md#remaining-migration-work).
+
+## 3. The screens collect intent
+
+The browser presents facts and collects a person's intended action.
+It does not own the authoritative state of an appointment, placement, or claim.
+
+The current applications use React Router. The dashboard also embeds Foldkit applications for stateful operational workflows.
+React Router still owns routing and server rendering. This is not a completed, repository-wide Foldkit rewrite.
+
+Within a Foldkit workflow:
+
+1. A **Model** holds the screen state, including drafts and pending requests.
+2. The **view** renders that model.
+3. A **Message** describes an event, such as a button press or server response.
+4. **update** chooses the next model and any commands.
+5. A **command** performs an effect and returns a result as another message.
+
+This makes a failed save, stale data, and a pending request explicit.
+The dashboard's custom elements mount and dispose independent Foldkit runtimes. They do not share one hidden React workflow state.
+
+For example, “save in progress” is a screen fact. “The roster is confirmed” is a server fact.
+A spinner cannot prove that a command succeeded. A stale screen cannot preserve authority that the server revoked.
+
+> **A hidden button is not a security boundary.** A forged request must still fail on the server.
+
+Sources: [frontend state](architecture.md#frontend-state), [dashboard entry](../apps/dashboard/app/entry.client.tsx), [school workflow](../apps/dashboard/app/foldkit/schools/main.ts), [custom element lifecycle](../apps/dashboard/app/foldkit/schools/elements.ts).
+
+## 4. The HTTP contract separates the browser from the server
+
+A screen sends an operation, not an arbitrary database edit.
+The operation has input schemas, response schemas, known failures, and protocol rules.
+
+The canonical application contract lives in `packages/http-api`.
+OpenAPI and consumer artifacts derive from that contract.
+The SDK creates typed operations from the external API definition and decodes responses.
+It is not a second place to define business meaning.
+
+| Boundary                       | What crosses it                                                          | What stays hidden                                    |
+| ------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------- |
+| Human browser to server        | Action, credentials, inputs, revision, and retry identity where required | Database tables and internal implementation          |
+| Machine to server              | Service identity, capability, scope, and supported credentials           | Provider-specific authentication plumbing            |
+| HTTP adapter to domain service | Business command or query, actor, domain values, and explicit failures   | HTTP parsing and response encoding                   |
+| Domain service to persistence  | Reads, constraints, locks, and transactional writes                      | Public UI layout and transport details               |
+| Delivery program to provider   | A committed effect and its delivery identity                             | Authority to invent the underlying business decision |
+
+Effect Schema decodes values at external and durable boundaries.
+TypeScript types alone cannot establish that incoming JSON or a stored value is valid.
+
+Two protocol concepts solve different problems:
+
+- **Revision precondition:** “Apply this edit only if the fact still has the version I observed.”
+- **Idempotency identity:** “This request is a retry of the same intended command, not a new decision.”
+
+A stale edit must not overwrite newer work.
+A repeated command must not produce a second business effect.
+Reuse of the same retry identity for a different request is a conflict.
+
+Better Auth owns separate credential routes under `/api/auth/*`.
+The application has separate external and internal API roots. The public OpenAPI excludes the internal root.
+An internal URL alone grants no authority.
+
+Sources: [API root](../packages/http-api/src/api.ts), [SDK construction](../packages/sdk/src/effect-client.ts), [interface contracts](architecture.md#interface-contracts), [encoding](architecture.md#boundary-encoding).
+
+## 5. Identity answers who; authority answers what
+
+**Authentication** establishes who presents a credential.
+Better Auth manages human credentials and sessions. Native account identity connects to the canonical Person.
+New passwords use Argon2id. Supported legacy credentials can upgrade after successful sign-in.
+
+**Authorization** decides whether that actor can perform this operation on this resource now.
+The decision uses current relationships, capabilities, ownership, scope, and time.
+
+A department leader does not automatically control another department.
+A historical appointment is evidence of the past, not a current grant.
+Import of an account does not prove current ownership of its email inbox.
+
+For protected commands, the backend resolves current authority inside the command transaction.
+In the shared native command path, authorization precedes retry lookup.
+Therefore, a previously successful retry identity does not preserve access after revocation.
+
+Machine access has a separate principal and credential policy.
+For example, the receipt approval-queue read supports a service bearer token with current scoped grants.
+That does not grant machines blanket access to all operations.
+An internal receipt-evidence operation still uses its specified Person credential policy.
+
+Network isolation adds a restriction. It does not replace business authorization.
+
+Sources: [identity and authority](architecture.md#identity-and-authority), [authentication engine](../packages/database/src/auth-engine.ts), [password policy](../packages/database/src/password-codec.ts), [receipt HTTP operations](../apps/backend/src/receipt/http.ts).
+
+## 6. Business services own the decisions
+
+A domain command expresses intent: confirm a roster, record an absence, or attach settlement evidence.
+It is not permission to edit any column in a database row.
+
+Portable contracts define the business values, states, rules, failures, and observations.
+Concrete implementations read current facts and apply the transition inside the transaction.
+
+Two Effect concepts explain the structure:
+
+| Concept | Plain meaning                                                                | Example                         |
+| ------- | ---------------------------------------------------------------------------- | ------------------------------- |
+| Service | A typed dependency: what this part of the program can ask another part to do | Execute a Placements command    |
+| Layer   | An implementation of that dependency and its lifecycle                       | Placements backed by PostgreSQL |
+
+The program's dependencies and possible failures remain visible in its types.
+A pure local calculation remains a function. It does not need a service wrapper merely to follow a pattern.
+
+Most portable contracts live in `packages/domain`.
+Placements has separate contracts and server exports in `packages/placements`.
+Its service owns complete commands and queries; it is not only a schema collection.
+
+The Placements HTTP adapter handles transport concerns and calls the service inside the native command transaction.
+The service holds the department lock across its precondition, transition, audit, history, and outbox writes.
+
+This boundary permits changes to SQL or internal structure without changing what a caller's operation means.
+It does not imply that every older module already has the same boundary. Substitutes still has direct backend-to-database calls.
+
+Sources: [domain services](architecture.md#domain-services), [Placements service](../packages/placements/src/service.ts), [Placements HTTP adapter](../apps/backend/src/placements/http.ts), [package exports](../packages/placements/package.json).
+
+## 7. Transactions protect facts; workers deliver effects
+
+### One database decision
+
+PostgreSQL stores native business facts.
+A command transaction can commit the changed state, history, audit, retry receipt, and queued external work together.
+
+Database constraints protect invariants that PostgreSQL can express.
+Locks protect decisions that depend on several current rows.
+Revision checks reject stale changes.
+A failed transaction leaves no partial business decision.
+
+The shared native HTTP command path uses a serializable transaction and a transaction advisory lock.
+It can replay a retained response or execute and retain one new response atomically.
+This guarantee belongs to that command path, not automatically to every piece of code in the repository.
+
+### A separate delivery attempt
+
+A database transaction cannot atomically commit an email provider's behavior.
+The system therefore retains delivery work with the business decision, then attempts delivery separately.
+
+<GraphFlow
+  title="The durable outbox"
+  rows={[
+    {
+      nodes: [
+        { label: "Decision + envelope", tone: "accent" },
+        { label: "Committed outbox" },
+        { label: "Worker attempt" },
+        { label: "Recorded result" },
+      ],
+    },
+  ]}
+/>
+
+The envelope describes the committed work. A worker claims it and calls the configured provider.
+An acknowledgement or recoverable failure records the attempt's outcome.
+A delivery retry must not repeat the original business decision.
+
+Provider acknowledgement does not prove that a human read an email.
+A local capture endpoint does not prove delivery through the future production provider.
+
+The Bun composition starts configured workers.
+Recruitment has a supervised worker with stale-claim recovery.
+Other paths, including password recovery and receipt reconciliation, have explicit drain programs.
+The existence of these programs does not prove unattended production operation.
+
+### Private bytes have their own custody
+
+For receipts, PostgreSQL holds metadata and references. Private storage holds the file bytes.
+The system checks authorized access, safe paths, and file custody. Knowledge of a path is not authority.
+
+SQL and file storage do not share one transaction.
+Failed file promotion remains visible as pending reconciliation rather than a false success.
+Payment-account fields use authenticated encryption with receipt-specific context.
+
+A claim, an approval, and a settlement are separate facts.
+Settlement requires separate evidence and authority. A legacy “refunded” flag cannot establish native payment evidence.
+
+Sources: [command transaction](../apps/backend/src/http-api/receipt-transaction.ts), [persistence](architecture.md#persistence-and-concurrency), [delivery](architecture.md#delivery-and-providers), [recruitment worker](../apps/backend/src/recruitment/worker.ts), [reimbursement](system.md#expense-reimbursement).
+
+## 8. The runtime connects the implementations
+
+`apps/backend/src/main.ts` is the native backend's composition root.
+It connects the HTTP process, database, authentication, business services, file storage, and configured delivery programs.
+
+The selected backend is portable Bun with PostgreSQL.
+The retained Cloudflare Worker composition is not the selected backend target.
+Its Hyperdrive transport conflicts with the PostgreSQL advisory-lock requirements of the native system.
+Provider selection and deployed acceptance remain separate work.
+
+Local `bun dev` starts the backend and both frontend development servers through the existing workspace tasks.
+It requires a separate, dedicated loopback PostgreSQL database and a stable authentication secret.
+The launcher disables external delivery.
+
+| Tool                   | Its responsibility                                           | What success does not prove                                                    |
+| ---------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| devenv / Nix           | Supply the declared development executables                  | Application authority or deployment approval                                   |
+| Bun / Turbo            | Run commands and coordinate workspace tasks                  | Correct operational behavior                                                   |
+| Lefthook               | Run checks that a hook configuration actually declares       | That installing its binary defines those checks                                |
+| Oxfmt / Oxlint / types | Check formatting, selected source rules, and type contracts  | Real-provider delivery or complete migration                                   |
+| Rehearsal commands     | Exercise bounded import, application, and recovery scenarios | Current production data or operational readiness beyond the exercised scenario |
+
+A complete restore needs the database, private files, and required secrets.
+The combined local rehearsal exposed why the authentication secret must remain stable across restore.
+Restoring database rows alone is not a complete application restore.
+
+Sources: [composition root](../apps/backend/src/main.ts), [local launcher](../scripts/dev.ts), [development setup](../README.md#local-native-development), [runtime composition](architecture.md#runtime-composition).
+
+## 9. Migration preserves meaning, not PHP structure
+
+The replacement must uphold core operational behavior.
+It does not need a one-to-one copy of legacy controllers, tables, or peripheral features.
+
+The live legacy baseline and `apps/server` are not interchangeable.
+The latter retains a separate Symfony modernization attempt, not an exact production snapshot.
+
+The combined migration candidate uses the existing import boundaries:
+
+1. **Bind the source and review evidence.** The SELECT-only source reader produces revisions and row digests. Reviews must describe that same source.
+2. **Resolve identities and references.** Accepted Person mappings anchor Accounts, Organization, historical service, and current assignments.
+3. **Commit the selected SQL cohorts.** The cutover command imports its selected cohorts in one transaction. A failure rolls back that SQL import.
+4. **Reconcile reviewed receipts separately.** Receipt import requires ownership, department, account, and file evidence. Private-file promotion has its own recovery state.
+5. **Use the imported candidate.** Imported users sign in and read permitted records through native boundaries. Recovery scenarios challenge the same candidate.
+
+A historical relationship cannot establish current authority by inference.
+Missing receipt bytes cannot disappear behind a successful SQL import.
+Every selected occurrence needs a disposition: accepted, quarantined, or explicitly excluded.
+Conflicts with native edits remain visible.
+
+### What the local rehearsal establishes
+
+The combined synthetic rehearsal exercised real MariaDB, PostgreSQL, import commands, authentication, and private files.
+It used one source and one target with shared Person identities.
+
+Replay preserved a native password change and a receipt edit.
+Interrupted phases and failed file promotion recovered without an invented transaction across SQL and the filesystem.
+Logical restore retained the database, private bytes, and authentication secret.
+
+These are local observations. They are not production-provider acceptance or a power-loss simulation.
+The separate historical-backup rehearsal establishes only what that older backup contains.
+It cannot establish today's workload, current mailbox ownership, or current leadership.
+
+### What remains before cutover
+
+- An authorized, consistent current source snapshot.
+- Reviewed current authority and assignment mappings.
+- Private receipt files with ownership and payment-account evidence.
+- An inventory and disposition of pending operational work.
+- Acceptance of the selected hosting, mail, storage, recovery, and supervision paths.
+- A fenced legacy writer and an accounted final delta.
+- Rollback that preserves native-only writes and pending effects.
+- Explicit operator authority to transfer production responsibility.
+
+Exact replay is not incremental synchronization.
+A changed source snapshot needs an explicit reconciliation strategy, not an unqualified rerun of the original importer.
+Restarting PHP after native writes is not automatically a safe rollback.
+
+Sources: [combined rehearsal](../README.md#combined-migration-candidate), [executable runner](../tools/e2e/run-legacy-candidate-rehearsal.ts), [historical evidence](../STATE.md#historical-backup-rehearsal), [remaining migration work](../STATE.md#remaining-migration-work), [production gates](../STATE.md#production-gates).
+
+## 10. Follow one visit through all the layers
+
+Consider an illustrative school visit. These are not a live school's records.
+
+1. **Plan.** A coordinator records demand and confirms a reviewed roster. The server retains the plan and queues notifications.
+2. **Make a dated commitment.** The coordinator selects the school, interval, and required demand. Scheduled assistants come from the confirmed roster.
+3. **Handle an absence.** A scheduled volunteer reports an absence. A coordinator offers coverage to an eligible substitute. Acceptance and acknowledgement remain separate facts.
+4. **Record attendance.** After the visit, the coordinator records evidence. The dashboard submits a typed command with its revision and command identity.
+5. **Check authority.** The backend authenticates the person and resolves current scope inside the transaction.
+6. **Apply the business rule.** The service checks the requested outcome against attendance and demand.
+7. **Commit and show the result.** The transaction retains the outcome and evidence. The dashboard displays the server result.
+
+The full chain is human intent, typed request, current authority, legal transition, durable evidence, and an updated screen.
+
+<details>
+<summary>What if two coordinators act at once?</summary>
+
+Transactions, locking, and revision checks prevent conflicting terminal decisions.
+A stale client must refresh rather than overwrite the accepted outcome.
+
+</details>
+
+<details>
+<summary>What if the provider fails after the decision commits?</summary>
+
+The business fact remains. Delivery failure stays visible and recoverable.
+The worker retries the retained effect rather than repeat the original decision.
+
+</details>
+
+<details>
+<summary>What if too few assistants attended?</summary>
+
+The system cannot label the commitment Completed without sufficient attendance evidence.
+Unfulfilled records unmet demand and actual attendance instead of inventing success.
+
+</details>
+
+<details>
+<summary>What if an imported former leader signs in?</summary>
+
+Authentication can succeed without current coordinator authority.
+Historical leadership alone cannot authorize the command.
+
+</details>
+
+Sources: [planning](system.md#school-demand-and-placement), [coverage](system.md#substitute-coverage), [outcomes](system.md#dated-school-service).
+
+## 11. Where to go deeper
+
+| Question                                        | Authoritative starting point                                                 |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- |
+| What do the business facts mean?                | [System model](system.md)                                                    |
+| Which module owns a decision?                   | [Architecture](architecture.md)                                              |
+| What is accepted, and what remains?             | [Current state](../STATE.md)                                                 |
+| How do I run the system or a rehearsal?         | [Developer guide](../README.md)                                              |
+| What can an API consumer request?               | [HTTP contract source](../packages/http-api/src/api.ts)                      |
+| What did the combined runner actually exercise? | [Migration rehearsal source](../tools/e2e/run-legacy-candidate-rehearsal.ts) |
+
+This is a reading guide, not another specification or readiness certificate.
+Its explanation follows the repository's business and architecture documents.
+Current status belongs in `STATE.md`; dependency versions belong in manifests and lockfiles.
+
+The two figures use [MDXCN](https://www.mdxcn.dev/)'s `GraphFlow` component.
+The [MDX source](system-walkthrough.mdx) generates this standalone HTML file.
+Edit the source, then run `bun run docs:system`. The rendered guide needs no server, JavaScript, or external assets.

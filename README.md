@@ -11,15 +11,16 @@ cutover.
 
 The durable documentation set is:
 
-| File                                                                             | Authority                                                              |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| [README.md](README.md)                                                           | Repository map and local commands                                      |
-| [AGENTS.md](AGENTS.md)                                                           | Project development, verification, resource, and cleanup practices     |
-| [STATE.md](STATE.md)                                                             | Current migration state, evidence limits, and next work                |
-| [docs/system.md](docs/system.md)                                                 | Intended product, domain, ownership, authority, and journeys           |
-| [docs/architecture.md](docs/architecture.md)                                     | Runtime, dependencies, persistence, delivery, and interface boundaries |
-| [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, and replacement contracts          |
-| [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the system documents              |
+| File                                                                             | Authority                                                                |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [README.md](README.md)                                                           | Repository map and local commands                                        |
+| [AGENTS.md](AGENTS.md)                                                           | Project development, verification, resource, and cleanup practices       |
+| [STATE.md](STATE.md)                                                             | Current migration state, evidence limits, and next work                  |
+| [docs/system.md](docs/system.md)                                                 | Intended product, domain, ownership, authority, and journeys             |
+| [docs/architecture.md](docs/architecture.md)                                     | Runtime, dependencies, persistence, delivery, and interface boundaries   |
+| [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, and replacement contracts            |
+| [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the system documents                |
+| [docs/system-walkthrough.mdx](docs/system-walkthrough.mdx)                       | Layered reading guide with MDXCN figures; source for the standalone HTML |
 
 Create one file in `docs/specs/` only while a non-trivial journey is active.
 Remove the completed specification after its durable intent is present in the
@@ -59,6 +60,15 @@ The application uses Bun, TypeScript, Effect, PostgreSQL, React Router, Foldkit,
 The PostgreSQL adapter pin preserves the pool shared by Database and Better Auth.
 See [development practices](AGENTS.md#building-reference) before changing it.
 
+The pinned project shell provides Lefthook:
+
+```bash
+devenv shell -- lefthook --version
+```
+
+This adds the executable, not a hook policy. The existing Git hook has no matching
+Lefthook configuration. No hooks are installed or replaced by this shell.
+
 The root manifest declares a type-only Effect patch. It preserves union-command
 requests and callable Fetch inputs across runtimes. SDK type checks cover both
 contracts, including Bun types. Remove the patch when upstream declarations pass
@@ -93,6 +103,20 @@ bun run --cwd packages/http-api generate:check
 
 Homepage builds require a clean committed source artifact. Do not weaken that provenance guard for a dirty operator tree.
 Use a separate source-matched committed snapshot for acceptance, as described in [AGENTS.md](AGENTS.md#verification-and-resources).
+
+### Layered system walkthrough
+
+Open [the standalone guide](docs/system-walkthrough.html) in a browser.
+Edit [its MDX source](docs/system-walkthrough.mdx), then regenerate it:
+
+```bash
+bun install --frozen-lockfile
+bun run docs:system
+```
+
+The build uses the vendored MIT MDXCN component and embeds all styles.
+The resulting HTML needs no server, JavaScript, or external assets.
+The renderer records upstream provenance in [its manifest](tools/system-guide/vendor/mdxcn/provenance.json).
 
 ### Local native development
 

@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --no-env-file scripts/dev.ts",
+    "docs:system": "bun --no-env-file tools/system-guide/build.ts",
     "proof:completion-receipt": "bun run tools/verification/completion-receipt-postgres-proof-main.ts",
     "rehearsal:organization-import": "bun run tools/verification/organization-import-rehearsal-main.ts",
     "rehearsal:receipt-import": "bun run tools/verification/receipt-import-rehearsal.ts",

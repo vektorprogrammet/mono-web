@@ -1,5 +1,12 @@
 ## Unreleased
 
+### Layered system guide and development shell
+
+- Add a source-linked MDX walkthrough from human workflows to authority, persistence, delivery, and migration.
+- Render two vendored MIT MDXCN figures into standalone HTML from one editable MDX source. The page works offline without JavaScript.
+- Add a pinned project-local devenv shell for Lefthook. Hook configuration remains separate.
+- Correct stale documentation about the complete Placements service boundary.
+
 ### Combined migration candidate
 
 - Add one synthetic candidate across the existing cutover and reviewed receipt commands. Share source evidence, accepted Person identities, and one PostgreSQL target.
