@@ -24,7 +24,7 @@ No cloud account, provider credential, legacy server, or deployment is required.
 
 ## Acceptance
 
-Run the canonical command against a new synthetic database on the existing local PostgreSQL service.
+Run the canonical command against a new synthetic database in an isolated local PostgreSQL cluster.
 Reuse the native identity seed and existing synthetic authority setup.
 Verify homepage rendering, dashboard sign-in, and an authorized database-backed dashboard page in Chromium.
 Verify restart persistence, a missing-configuration failure, and release-build rejection of a dirty source tree.
