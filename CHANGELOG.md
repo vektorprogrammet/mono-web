@@ -1,5 +1,15 @@
 ## Unreleased
 
+### Native command ownership
+
+- Move Placements and Recruitment mutation sequencing behind complete Effect service commands while retaining atomic HTTP response receipts.
+- Co-locate Placements contracts and PostgreSQL implementation behind separate portable and server exports.
+- Move cross-application proofs into `tools/verification`; narrow Recruitment and receipt adapter exports.
+- Supervise recruitment notification delivery in the Bun root. Keep local delivery disabled and preserve claims through interruption and recovery.
+- Enforce selected browser, product, and private-module import boundaries. Correct duplicate workflow environment keys.
+- Preserve service-decision input focus when the selected outcome changes. Keep the native browser regression.
+- Make affected browser proofs use the canonical dashboard server, explicit origins, current contracts, and their own compiled artifacts.
+
 ### Local native development
 
 - Start the homepage, dashboard, and native Bun backend with `bun dev`, using the existing Turbo tasks.
