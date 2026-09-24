@@ -17,3 +17,16 @@ export {
   type ClaimedSchoolServiceDispatchNotification,
   type SchoolServiceDispatchNotificationInterpreter,
 } from "./dispatch-outbox.js";
+
+export {
+  CurrentAssignmentFailure,
+  currentAssignmentPlacementId,
+  currentAssignmentImportSourceDigest,
+  decodeCurrentAssignmentSnapshot,
+  decodeReconciledCurrentAssignmentSnapshot,
+  importCurrentAssignmentCohort,
+  importReconciledCurrentAssignmentCohort,
+  type CurrentAssignmentReason,
+  type CurrentAssignmentOccurrence,
+  type CurrentAssignmentReport,
+} from "./current-assignment-cohort.js";

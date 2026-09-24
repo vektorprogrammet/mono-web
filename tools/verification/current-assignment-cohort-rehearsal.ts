@@ -8,19 +8,19 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Schema, flow, Match, Predicate, Effect, Redacted } from "effect";
 import { Pool } from "pg";
+import { CurrentAssignmentSnapshot } from "@vektorprogrammet/placements/contracts";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { canonicalJsonValue, canonicalJson } from "@vektorprogrammet/domain/evidence";
 import {
-  CurrentAssignmentSnapshot,
   CurrentAssignmentFailure,
   currentAssignmentPlacementId,
   importCurrentAssignmentCohort,
-} from "../src/current-assignment-cohort.js";
-import { currentAssignmentForbiddenAmbientConfigurationKeys } from "../src/current-assignment-cohort-cli.js";
-import { DatabaseLive } from "../src/layers.js";
-import { importPersonCohort } from "../src/person-cohort.js";
+} from "@vektorprogrammet/placements/server";
+import { currentAssignmentForbiddenAmbientConfigurationKeys } from "./current-assignment-cohort-cli.js";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
 
-const root = resolve(import.meta.dirname, "../../..");
+const root = resolve(import.meta.dirname, "../..");
 
 const command = (name: string, args: ReadonlyArray<string>) =>
   execFileSync(name, args, {
@@ -436,7 +436,7 @@ try {
     Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
       execFileSync(
         process.execPath,
-        ["run", "packages/database/runtime/current-assignment-cohort-main.ts"],
+        ["run", "tools/verification/current-assignment-cohort-main.ts"],
         {
           cwd: root,
           encoding: "utf8",

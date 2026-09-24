@@ -1,13 +1,16 @@
 import { Effect, Redacted } from "effect";
 import { Pool } from "pg";
-import { parseDisposableCohortDatabaseUrl, readPrivateCohortJson } from "./cohort-cli.js";
+import {
+  parseDisposableCohortDatabaseUrl,
+  readPrivateCohortJson,
+} from "@vektorprogrammet/database/cohort-cli";
 import {
   CurrentAssignmentFailure,
   decodeCurrentAssignmentSnapshot,
   importCurrentAssignmentCohort,
-} from "./current-assignment-cohort.js";
-import { DatabaseLive } from "./layers.js";
-import { databaseHealth } from "./service.js";
+} from "@vektorprogrammet/placements/server";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { databaseHealth } from "@vektorprogrammet/database";
 
 const invalidSnapshot = () => new CurrentAssignmentFailure("InvalidSnapshot");
 
@@ -54,6 +57,7 @@ export const disposableCurrentAssignmentDatabaseUrl = (value: string | undefined
 
 export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
   if (
+    process.argv.length !== 2 ||
     process.env.CURRENT_ASSIGNMENT_MODE !== "synthetic" ||
     process.env.NATIVE_IDENTITY_DEPLOYMENT !== "local"
   )

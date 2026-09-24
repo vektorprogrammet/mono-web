@@ -1,16 +1,25 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { flow, Option, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
+import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 
-const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
+import {
+  CurrentAssignmentSnapshot,
+  ReconciledCurrentAssignmentSnapshot,
+} from "../current-assignment-contracts.js";
 
-const Label = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1)),
-  Schema.check(Schema.isMaxLength(256)),
-);
+export const currentAssignmentImportSourceDigest = async (): Promise<string> =>
+  digest(
+    await Promise.all([
+      readFile(new URL("./current-assignment-cohort.ts", import.meta.url), "utf8"),
+      readFile(new URL("../current-assignment-contracts.ts", import.meta.url), "utf8"),
+    ]),
+  );
+
+const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
 
 const Digest = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)));
 
@@ -36,38 +45,11 @@ const LegacyAssignmentRow = Schema.Struct({
   active: Schema.Boolean,
 });
 
-const CurrentAssignmentMapping = Schema.Struct({
-  sourceAssignmentId: Id,
-  sourceUserId: Id,
-  sourceDepartmentId: Id,
-  sourceSemesterId: Id,
-  sourceSchoolId: Id,
-  personId: PersonId,
-  departmentId: DepartmentId,
-  semesterId: SemesterId,
-  schoolId: SchoolId,
-});
+type AssignmentSnapshot = CurrentAssignmentSnapshot | ReconciledCurrentAssignmentSnapshot;
 
-export const CurrentAssignmentSnapshot = Schema.Struct({
-  sourceRepository: Label,
-  sourceRevision: Id,
-  snapshotId: Id,
-  sourceWatermark: Id,
-  snapshotDigest: Digest,
-  transformationRevision: Id,
-  synthetic: Schema.Literal(true),
-  occurrences: Schema.Array(Schema.Struct({ occurrenceId: Id, row: Schema.Unknown })).pipe(
-    Schema.check(Schema.isMinLength(1)),
-    Schema.check(Schema.isMaxLength(1000)),
-  ),
-  mappings: Schema.Array(CurrentAssignmentMapping).pipe(Schema.check(Schema.isMaxLength(1000))),
-});
-
-export type CurrentAssignmentSnapshot = typeof CurrentAssignmentSnapshot.Type;
+type CurrentAssignmentMapping = CurrentAssignmentSnapshot["mappings"][number];
 
 type LegacyAssignmentRow = typeof LegacyAssignmentRow.Type;
-
-type CurrentAssignmentMapping = typeof CurrentAssignmentMapping.Type;
 
 type NativeBlock = "1" | "2" | "Both";
 
@@ -77,6 +59,9 @@ export class CurrentAssignmentFailure extends Error {
       | "InvalidSnapshot"
       | "SnapshotConflict"
       | "SourceIdentityConflict"
+      | "ReferenceProvenanceMissing"
+      | "ReferenceProvenanceConflict"
+      | "PersonSnapshotConflict"
       | "PersistenceFailure",
   ) {
     super(code);
@@ -118,7 +103,7 @@ export interface CurrentAssignmentReport {
 
 const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
 
-const declaredSnapshotDigest = (snapshot: CurrentAssignmentSnapshot): string => {
+const declaredSnapshotDigest = (snapshot: AssignmentSnapshot): string => {
   const { snapshotDigest: _snapshotDigest, ...unsignedSnapshot } = snapshot;
 
   return digest(unsignedSnapshot);
@@ -179,6 +164,202 @@ export const decodeCurrentAssignmentSnapshot = flow(
   },
 );
 
+const ReviewedAssignmentEnvelope = Schema.Struct({
+  sourceAssignmentId: Id,
+  sourceSemesterId: Id,
+  sourceRowDigest: Digest,
+  active: Schema.Boolean,
+  affiliationEvidenceRef: Id,
+  placementEvidenceRef: Id,
+  block: Schema.Unknown,
+});
+
+export const decodeReconciledCurrentAssignmentSnapshot = flow(
+  Schema.decodeUnknownOption(ReconciledCurrentAssignmentSnapshot, { onExcessProperty: "error" }),
+  Option.getOrThrowWith(() => new CurrentAssignmentFailure("InvalidSnapshot")),
+  (snapshot) => {
+    try {
+      const review = snapshot.review;
+      const entries = new Map(review.assignments.map((entry) => [entry.sourceAssignmentId, entry]));
+      const sourceIds = new Set<string>();
+
+      if (
+        snapshot.snapshotDigest !== declaredSnapshotDigest(snapshot) ||
+        review.sourceRevision !== snapshot.sourceRevision ||
+        review.sourceWatermark !== snapshot.sourceWatermark ||
+        review.assignments.length !== snapshot.occurrences.length ||
+        new Set(snapshot.occurrences.map(({ occurrenceId }) => occurrenceId)).size !==
+          snapshot.occurrences.length
+      )
+        throw new Error();
+
+      for (const occurrence of snapshot.occurrences) {
+        // Invalid operational values remain available for quarantine, but review identity cannot vary.
+        const row = Schema.decodeUnknownSync(ReviewedAssignmentEnvelope)(occurrence.row);
+        const entry = entries.get(row.sourceAssignmentId);
+
+        if (
+          sourceIds.has(row.sourceAssignmentId) ||
+          !entry ||
+          row.sourceSemesterId !== review.sourceSemesterId ||
+          row.active !== entry.active ||
+          row.affiliationEvidenceRef !== entry.affiliationEvidenceRef ||
+          row.placementEvidenceRef !== entry.placementEvidenceRef ||
+          (row.active && row.block === "Both" && entry.bothBlocksShareDay !== true)
+        )
+          throw new Error();
+        sourceIds.add(row.sourceAssignmentId);
+      }
+
+      if (
+        snapshot.mappings.some(
+          (mapping) =>
+            !sourceIds.has(mapping.sourceAssignmentId) ||
+            mapping.sourceSemesterId !== review.sourceSemesterId,
+        )
+      )
+        throw new Error();
+
+      return snapshot;
+    } catch {
+      throw new CurrentAssignmentFailure("InvalidSnapshot");
+    }
+  },
+);
+
+const rowDigestMatches = (row: LegacyAssignmentRow): boolean =>
+  row.sourceRowDigest === sourceRowDigest(row);
+
+const assignmentSourceDigest = (
+  snapshot: AssignmentSnapshot,
+  row: LegacyAssignmentRow,
+  mapping: CurrentAssignmentMapping,
+): string =>
+  snapshot.synthetic
+    ? digest({ row, mapping })
+    : digest({
+        row,
+        mapping,
+        review: snapshot.review,
+        referenceDigest: snapshot.referenceDigest,
+        personSnapshotKey: snapshot.personSnapshotKey,
+      });
+
+const ReferenceMappings = Schema.Struct({
+  departments: Schema.Array(Schema.Struct({ sourceDepartmentId: Id, departmentId: DepartmentId })),
+  semesters: Schema.Array(Schema.Struct({ sourceSemesterId: Id, semesterId: SemesterId })),
+  schools: Schema.Array(Schema.Struct({ sourceSchoolId: Id, schoolId: SchoolId })),
+  relationships: Schema.Array(
+    Schema.Struct({
+      sourceDepartmentId: Id,
+      sourceSchoolId: Id,
+      departmentId: DepartmentId,
+      schoolId: SchoolId,
+    }),
+  ),
+});
+
+const validateReconciledProvenance = async (
+  tx: PoolClient,
+  snapshot: ReconciledCurrentAssignmentSnapshot,
+): Promise<void> => {
+  const evidence = (
+    await tx.query<{
+      source_revision: string;
+      reference_digest: string;
+      source_id_mappings: unknown;
+    }>(
+      `SELECT source_revision, reference_digest, source_id_mappings
+       FROM public.historical_service_reference_provenance
+      WHERE source_repository = $1 AND snapshot_id = $2 FOR SHARE`,
+      [snapshot.sourceRepository, snapshot.snapshotId],
+    )
+  ).rows[0];
+
+  if (!evidence) throw new CurrentAssignmentFailure("ReferenceProvenanceMissing");
+
+  if (
+    evidence.source_revision !== snapshot.sourceRevision ||
+    evidence.reference_digest !== snapshot.referenceDigest
+  )
+    throw new CurrentAssignmentFailure("ReferenceProvenanceConflict");
+
+  const parsed = Schema.decodeUnknownOption(ReferenceMappings)(evidence.source_id_mappings, {
+    onExcessProperty: "error",
+  });
+
+  if (Option.isNone(parsed)) throw new CurrentAssignmentFailure("ReferenceProvenanceConflict");
+  const references = parsed.value;
+
+  const departments = new Map(
+    references.departments.map(({ sourceDepartmentId, departmentId }) => [
+      sourceDepartmentId,
+      departmentId,
+    ]),
+  );
+
+  const semesters = new Map(
+    references.semesters.map(({ sourceSemesterId, semesterId }) => [sourceSemesterId, semesterId]),
+  );
+
+  const schools = new Map(
+    references.schools.map(({ sourceSchoolId, schoolId }) => [sourceSchoolId, schoolId]),
+  );
+
+  const relationships = new Set(
+    references.relationships.map(({ sourceDepartmentId, sourceSchoolId }) =>
+      canonicalJson([sourceDepartmentId, sourceSchoolId]),
+    ),
+  );
+
+  const semesterId = semesters.get(snapshot.review.sourceSemesterId);
+
+  if (
+    departments.size !== references.departments.length ||
+    semesters.size !== references.semesters.length ||
+    schools.size !== references.schools.length ||
+    relationships.size !== references.relationships.length ||
+    !semesterId ||
+    references.relationships.some(
+      ({ sourceDepartmentId, sourceSchoolId, departmentId, schoolId }) =>
+        departments.get(sourceDepartmentId) !== departmentId ||
+        schools.get(sourceSchoolId) !== schoolId,
+    ) ||
+    snapshot.mappings.some(
+      (mapping) =>
+        departments.get(mapping.sourceDepartmentId) !== mapping.departmentId ||
+        semesters.get(mapping.sourceSemesterId) !== mapping.semesterId ||
+        schools.get(mapping.sourceSchoolId) !== mapping.schoolId ||
+        !relationships.has(canonicalJson([mapping.sourceDepartmentId, mapping.sourceSchoolId])),
+    )
+  )
+    throw new CurrentAssignmentFailure("ReferenceProvenanceConflict");
+
+  const semester = await tx.query(
+    `SELECT 1 FROM public.admission_period_semesters
+      WHERE semester_id = $1
+        AND $2::date BETWEEN (start_at AT TIME ZONE 'UTC')::date AND (end_at AT TIME ZONE 'UTC')::date
+      FOR SHARE`,
+    [semesterId, snapshot.review.asOf],
+  );
+
+  if (!semester.rowCount) throw new CurrentAssignmentFailure("InvalidSnapshot");
+
+  const personSnapshot = await tx.query(
+    `SELECT 1 FROM public.person_cohort_snapshots
+      WHERE snapshot_key = $1 AND source_repository = $2 AND source_revision = $3 AND snapshot_id = $4
+      FOR SHARE`,
+    [
+      snapshot.personSnapshotKey,
+      snapshot.sourceRepository,
+      snapshot.sourceRevision,
+      snapshot.snapshotId,
+    ],
+  );
+
+  if (!personSnapshot.rowCount) throw new CurrentAssignmentFailure("PersonSnapshotConflict");
+};
+
 const cohortReport = async (
   tx: PoolClient,
   snapshotKey: string,
@@ -205,11 +386,11 @@ const cohortReport = async (
 };
 
 /** One serialized transaction establishes canonical current facts and immutable import provenance. */
-export const importCurrentAssignmentCohort = async (
+const importAssignmentCohort = async (
   pool: Pool,
-  input: typeof CurrentAssignmentSnapshot.Encoded,
+  snapshot: AssignmentSnapshot,
+  client?: PoolClient,
 ): Promise<CurrentAssignmentReport> => {
-  const snapshot = decodeCurrentAssignmentSnapshot(input);
   const snapshotKey = digest([snapshot.sourceRepository, snapshot.snapshotId]);
   const snapshotDigest = snapshot.snapshotDigest;
 
@@ -241,7 +422,7 @@ export const importCurrentAssignmentCohort = async (
   for (const occurrence of decoded) {
     increment(sourceCounts, sourceIdOf(occurrence.row));
 
-    if (!occurrence.value) continue;
+    if (!occurrence.value?.active || !rowDigestMatches(occurrence.value)) continue;
     const mappings = mappingsBySource.get(occurrence.value.sourceAssignmentId) ?? [];
 
     if (mappings.length !== 1 || !referencesMatch(occurrence.value, mappings[0]!)) continue;
@@ -250,10 +431,11 @@ export const importCurrentAssignmentCohort = async (
       increment(targetCounts, slot);
   }
 
-  const tx = await pool.connect();
+  const tx = client ?? (await pool.connect());
+  const ownsTransaction = client === undefined;
 
   try {
-    await tx.query("BEGIN");
+    if (ownsTransaction) await tx.query("BEGIN");
     await tx.query(
       "SELECT pg_advisory_xact_lock(hashtextextended('native-current-assignment-import', 0))",
     );
@@ -263,14 +445,43 @@ export const importCurrentAssignmentCohort = async (
       [snapshotKey],
     );
 
+    if (prior.rows[0] && prior.rows[0].snapshot_digest !== snapshotDigest)
+      throw new CurrentAssignmentFailure("SnapshotConflict");
+
+    if (!snapshot.synthetic) await validateReconciledProvenance(tx, snapshot);
+
     if (prior.rows[0]) {
-      if (prior.rows[0].snapshot_digest !== snapshotDigest)
-        throw new CurrentAssignmentFailure("SnapshotConflict");
+      if (!snapshot.synthetic) {
+        const review = await tx.query(
+          `SELECT 1 FROM public.current_assignment_reviews
+            WHERE snapshot_key = $1 AND reference_digest = $2 AND person_snapshot_key = $3
+              AND source_semester_id = $4 AND as_of = $5::date AND review = $6::jsonb`,
+          [
+            snapshotKey,
+            snapshot.referenceDigest,
+            snapshot.personSnapshotKey,
+            snapshot.review.sourceSemesterId,
+            snapshot.review.asOf,
+            JSON.stringify(snapshot.review),
+          ],
+        );
+
+        if (!review.rowCount) throw new CurrentAssignmentFailure("SnapshotConflict");
+      }
+
       const result = await cohortReport(tx, snapshotKey);
-      await tx.query("COMMIT");
+
+      if (ownsTransaction) await tx.query("COMMIT");
 
       return result;
     }
+
+    // Share the canonical writer protocol before reading or writing any target state.
+    await tx.query(
+      `SELECT department_id FROM public.organization_departments
+        WHERE department_id = ANY($1::text[]) ORDER BY department_id FOR UPDATE`,
+      [[...new Set(snapshot.mappings.map(({ departmentId }) => departmentId))].sort()],
+    );
 
     const acceptedImports = await tx.query<{
       source_assignment_id: string;
@@ -301,8 +512,8 @@ export const importCurrentAssignmentCohort = async (
         !occurrence.value ||
         !mapping ||
         !referencesMatch(occurrence.value, mapping) ||
-        occurrence.value.sourceRowDigest !== sourceRowDigest(occurrence.value) ||
-        previousDigest !== digest({ row: occurrence.value, mapping })
+        !rowDigestMatches(occurrence.value) ||
+        previousDigest !== assignmentSourceDigest(snapshot, occurrence.value, mapping)
       )
         throw new CurrentAssignmentFailure("SourceIdentityConflict");
     }
@@ -324,6 +535,21 @@ export const importCurrentAssignmentCohort = async (
       ],
     );
 
+    if (!snapshot.synthetic)
+      await tx.query(
+        `INSERT INTO public.current_assignment_reviews
+           (snapshot_key, source_kind, reference_digest, person_snapshot_key, source_semester_id, as_of, review)
+         VALUES ($1,'ReviewedLegacy',$2,$3,$4,$5::date,$6::jsonb)`,
+        [
+          snapshotKey,
+          snapshot.referenceDigest,
+          snapshot.personSnapshotKey,
+          snapshot.review.sourceSemesterId,
+          snapshot.review.asOf,
+          JSON.stringify(snapshot.review),
+        ],
+      );
+
     for (const occurrence of decoded) {
       const row = occurrence.value;
       const mappings = row ? (mappingsBySource.get(row.sourceAssignmentId) ?? []) : [];
@@ -333,14 +559,14 @@ export const importCurrentAssignmentCohort = async (
       let placementId: string | undefined;
       let createAffiliation = false;
 
-      if (!row || row.sourceRowDigest !== sourceRowDigest(row)) reason = "InvalidRow";
+      if (!row || !rowDigestMatches(row)) reason = "InvalidRow";
       else if (!row.active) reason = "Inactive";
       else if ((sourceCounts.get(row.sourceAssignmentId) ?? 0) > 1) reason = "DuplicateSource";
       else if (mappings.length === 0) reason = "MappingMissing";
       else if (mappings.length > 1) reason = "MappingAmbiguous";
       else if (!referencesMatch(row, mapping!)) reason = "SourceReferenceMismatch";
       else {
-        sourceDigest = digest({ row, mapping });
+        sourceDigest = assignmentSourceDigest(snapshot, row, mapping!);
         placementId = currentAssignmentPlacementId(
           snapshot.sourceRepository,
           row.sourceAssignmentId,
@@ -350,10 +576,18 @@ export const importCurrentAssignmentCohort = async (
         if (previous === sourceDigest) reason = "ExactReplay";
         else {
           const personEvidence = await tx.query(
-            `SELECT 1 FROM public.person_cohort_imports
-              WHERE source_repository = $1 AND source_user_id = $2 AND person_id = $3
+            `SELECT 1 FROM public.person_cohort_imports i
+              JOIN public.person_cohort_occurrences o
+                ON o.snapshot_key = COALESCE($4::text, i.snapshot_key)
+               AND o.occurrence_id = i.occurrence_id AND o.disposition = 'Accepted'
+              WHERE i.source_repository = $1 AND i.source_user_id = $2 AND i.person_id = $3
               FOR SHARE`,
-            [snapshot.sourceRepository, row.sourceUserId, mapping!.personId],
+            [
+              snapshot.sourceRepository,
+              row.sourceUserId,
+              mapping!.personId,
+              snapshot.synthetic ? null : snapshot.personSnapshotKey,
+            ],
           );
 
           if (!personEvidence.rowCount) reason = "PersonReconciliationMissing";
@@ -532,15 +766,29 @@ export const importCurrentAssignmentCohort = async (
 
     if (result.input !== snapshot.occurrences.length)
       throw new CurrentAssignmentFailure("PersistenceFailure");
-    await tx.query("COMMIT");
+
+    if (ownsTransaction) await tx.query("COMMIT");
 
     return result;
   } catch (cause) {
-    await tx.query("ROLLBACK");
+    if (ownsTransaction) await tx.query("ROLLBACK");
     throw cause instanceof CurrentAssignmentFailure
       ? cause
       : new CurrentAssignmentFailure("PersistenceFailure");
   } finally {
-    tx.release();
+    if (ownsTransaction) tx.release();
   }
 };
+
+export const importCurrentAssignmentCohort = async (
+  pool: Pool,
+  input: typeof CurrentAssignmentSnapshot.Encoded,
+): Promise<CurrentAssignmentReport> =>
+  importAssignmentCohort(pool, decodeCurrentAssignmentSnapshot(input));
+
+export const importReconciledCurrentAssignmentCohort = async (
+  pool: Pool,
+  input: typeof ReconciledCurrentAssignmentSnapshot.Encoded,
+  client?: PoolClient,
+): Promise<CurrentAssignmentReport> =>
+  importAssignmentCohort(pool, decodeReconciledCurrentAssignmentSnapshot(input), client);
