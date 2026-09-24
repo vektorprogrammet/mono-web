@@ -38,10 +38,12 @@ function buildCommit() {
 export default defineConfig(({ command, isPreview }) => {
   const localDevelopment = command === "serve" && !isPreview;
   const commit = localDevelopment ? "working-tree" : buildCommit();
+
   const cloudflarePlugins =
     localDevelopment || process.env.ALCHEMY_CLOUDFLARE_VITE_INJECTED === "1"
       ? []
       : cloudflare({ viteEnvironment: { name: "ssr" } });
+
   const inputs = buildHomepageDigestInputs(projectRoot);
 
   return {

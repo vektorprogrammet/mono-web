@@ -32,9 +32,12 @@ export function loadHomepageRequest({ request, context }: {
   context: Readonly<RouterContextProvider>;
 }): HomepageRequest {
   const resolved = context.get(homepageRequestContext);
+
   if (resolved !== null) return resolved;
   const host = request.headers.get("host");
+
   if (!host) throw new Response("Missing Host", { status: 421 });
+
   return resolveHomepageRequest(host);
 }
 

@@ -18,6 +18,7 @@ describe("homepage stage and host contract", () => {
   it("resolves an unbound Node request and preserves explicit Worker context", () => {
     vi.stubEnv("HOMEPAGE_LOCAL_DEV", "true");
     const context = new RouterContextProvider();
+
     const request = new Request("http://127.0.0.1:8787/", {
       headers: { host: "127.0.0.1:8787" },
     });
