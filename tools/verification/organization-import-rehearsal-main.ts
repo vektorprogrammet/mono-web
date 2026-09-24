@@ -81,13 +81,13 @@ import {
 } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
 import { decodeBackendConfig, type BackendConfig } from "../../apps/backend/src/config.js";
-import {
-  backendHttpHandler,
-  ExternalNativeApiRouterLive,
-} from "../../apps/backend/src/router.js";
+import { backendHttpHandler, ExternalNativeApiRouterLive } from "../../apps/backend/src/router.js";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { IdentitySnapshot } from "@vektorprogrammet/database/auth";
-import { databaseMigrationDefinitions, databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
+import {
+  databaseMigrationDefinitions,
+  databaseSchemaRevision,
+} from "@vektorprogrammet/database/migrations";
 import {
   OrganizationImportRehearsalArtifactSchema,
   NATIVE_BROWSER_JOURNEY_REQUIREMENTS,

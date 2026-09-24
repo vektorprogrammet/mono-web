@@ -20,13 +20,22 @@ import {
 } from "../../packages/database/src/auth-engine.js";
 import { DatabasePgPool } from "../../packages/database/src/pg-pool.js";
 import { ManagedRuntime, Layer } from "effect";
-import { PasswordRecovery, drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
+import {
+  PasswordRecovery,
+  drainPasswordResetMail,
+} from "../../packages/database/src/password-recovery.js";
 import { identityRequestContext } from "../../apps/backend/src/session-security.js";
 import { mailDeliveryConfig, HttpMailLive } from "../../apps/backend/src/mail/http.js";
-import { importIdentityCohort, IdentityCohortFailure } from "@vektorprogrammet/database/identity-cohort";
+import {
+  importIdentityCohort,
+  IdentityCohortFailure,
+} from "@vektorprogrammet/database/identity-cohort";
 import { summarizeIdentityCohort } from "../../packages/database/src/identity-cohort-cli.js";
 import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
-import { isNativePasswordHash, verifyNativeOrLegacyPassword } from "../../packages/database/src/password-codec.js";
+import {
+  isNativePasswordHash,
+  verifyNativeOrLegacyPassword,
+} from "../../packages/database/src/password-codec.js";
 import { proveCredentialResetRace } from "./credential-race.js";
 
 declare const Bun: {

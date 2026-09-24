@@ -2,10 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Database } from "@vektorprogrammet/database";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import {
-  claimOnboarding,
-  commandOnboarding,
-} from "@vektorprogrammet/database/onboarding";
+import { claimOnboarding, commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { Predicate, Effect } from "effect";
 import { DatabaseTest } from "@vektorprogrammet/database/live";
 import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";

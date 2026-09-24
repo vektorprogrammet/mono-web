@@ -1,6 +1,10 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Deferred, Effect, Fiber } from "effect";
-import { ApplicantIdSchema, PublicApplicationIdSchema, type PublicApplicationOutboxRequest } from "@vektorprogrammet/domain/application";
+import {
+  ApplicantIdSchema,
+  PublicApplicationIdSchema,
+  type PublicApplicationOutboxRequest,
+} from "@vektorprogrammet/domain/application";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseTest } from "@vektorprogrammet/database/live";
 import { executePublicApplicationCommand } from "@vektorprogrammet/database/application";
@@ -157,5 +161,4 @@ describe("public application delivery worker", () => {
     });
     expect({ starts, stops }).toEqual({ starts: 1, stops: 1 });
   });
-
 });
