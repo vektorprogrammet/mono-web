@@ -130,7 +130,7 @@ const cleanup = () => cleanupPromise ??= (async () => {
   for (const child of [...children].reverse()) await stopPreviewScenarioBackend(child);
   if (pool) await pool.end();
   if (notificationServer) {
-    notificationServer.closeAllConnections();
+    // close() owns the listener and idle connections; closeAllConnections() also closes the listener in Bun.
     await new Promise<void>((resolve, reject) => notificationServer!.close(error => error ? reject(error) : resolve()));
   }
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });

@@ -117,7 +117,7 @@ try {
   }
   const report = await run(environment.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", [
     "node_modules/@playwright/test/cli.js", "test", "e2e/native-placement.spec.ts", "--project=chromium", "--workers=1", "--retries=0", "--reporter=json",
-    "--grep", manifest.golden ? "^golden school-service continuous functional journey$" : "^0096 placement,",
+    "--grep", manifest.golden ? "golden school-service continuous functional journey$" : "0096 placement,",
     "--output", join(manifest.artifacts, "playwright-private"),
   ], dashboardRoot);
   const sanitized = sanitizePlaywrightArtifact(Buffer.from(report));
