@@ -535,6 +535,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
               input: organization.input,
               accepted: organization.accepted,
               quarantined: organization.quarantined,
+              excluded: organization.excluded,
               reasons: reasons(organization.occurrences),
             },
       currentAssignments:
