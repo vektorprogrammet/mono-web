@@ -36,6 +36,16 @@ const summary = {
   acceptance_error: null,
 };
 let temporaryRoot;
+let stopCommand;
+const onSignal = (signal) => {
+  summary.interruption ??= signal;
+  summary.passed = false;
+  stopCommand?.(signal);
+};
+const interrupt = () => onSignal("SIGINT");
+const terminate = () => onSignal("SIGTERM");
+process.on("SIGINT", interrupt);
+process.on("SIGTERM", terminate);
 let phase = "source and toolchain preflight";
 try {
   summary.revision = git("rev-parse", "HEAD");
@@ -76,6 +86,9 @@ try {
     ].flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]]])),
   );
   environment.TMPDIR = temporaryRoot;
+  environment.GOLDEN_PROCESS_GROUPS_PATH = join(temporaryRoot, "process-groups");
+  await writeFile(environment.GOLDEN_PROCESS_GROUPS_PATH, "", { mode: 0o600, flag: "wx" });
+  assert.ok(summary.interruption === null, "interrupted before command start");
   phase = "golden command";
   const child = spawn("bun", ["run", "test:golden-school-service"], {
     cwd: root,
@@ -83,6 +96,38 @@ try {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  summary.process_groups_drained = false;
+  const liveGroups = async () => {
+    const ids = new Set([
+      child.pid,
+      ...(await readFile(environment.GOLDEN_PROCESS_GROUPS_PATH, "utf8"))
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map(Number),
+    ]);
+    const live = [];
+    for (const id of ids) {
+      if (id === undefined) continue;
+      assert.ok(Number.isSafeInteger(id) && id > 1, "invalid owned process group");
+      try {
+        process.kill(-id, 0);
+        live.push(id);
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+    return live;
+  };
+  const signalGroups = async (signal) => {
+    for (const id of await liveGroups()) {
+      try {
+        process.kill(-id, signal);
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+  };
   let runnerPid;
   let artifacts;
   let pending = "";
@@ -95,17 +140,12 @@ try {
       if (error.code !== "ESRCH") throw error;
     }
     forceTimer ??= setTimeout(() => {
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch (error) {
-        if (error.code !== "ESRCH") throw error;
-      }
+      void signalGroups("SIGKILL").catch(() => {
+        summary.process_groups_drained = false;
+      });
     }, 60_000);
   };
-  const interrupt = () => stop("SIGINT", "SIGINT");
-  const terminate = () => stop("SIGTERM", "SIGTERM");
-  process.once("SIGINT", interrupt);
-  process.once("SIGTERM", terminate);
+  stopCommand = (signal) => stop(signal, signal);
   const timer = setTimeout(() => stop("SIGTERM", "15-minute command timeout"), 15 * 60_000);
   child.stdout.on("data", (chunk) => {
     pending += String(chunk);
@@ -143,8 +183,18 @@ try {
   } finally {
     clearTimeout(timer);
     clearTimeout(forceTimer);
-    process.removeListener("SIGINT", interrupt);
-    process.removeListener("SIGTERM", terminate);
+    stopCommand = undefined;
+    try {
+      await signalGroups("SIGTERM");
+      for (let attempt = 0; attempt < 50 && (await liveGroups()).length; attempt++)
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      await signalGroups("SIGKILL");
+      for (let attempt = 0; attempt < 50 && (await liveGroups()).length; attempt++)
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      summary.process_groups_drained = (await liveGroups()).length === 0;
+    } catch {
+      summary.process_groups_drained = false;
+    }
   }
   phase = "receipt integrity and safe staging";
   assert.ok(artifacts, "runner did not report an evidence directory");
@@ -161,6 +211,7 @@ try {
   await stageGoldenEvidence(evidence, destination);
   phase = "required journey result";
   requireGoldenSuccess(evidence);
+  assert.ok(summary.process_groups_drained === true, "owned process groups remain");
   assert.ok(
     summary.command_exit_code === 0 &&
       summary.command_signal === null &&
@@ -177,7 +228,11 @@ try {
         : "Required evidence unavailable or malformed",
   };
 } finally {
-  if (temporaryRoot) {
+  if (summary.process_groups_drained === false) {
+    summary.passed = false;
+    summary.cleanup_error = "Owned process groups remain. Private temporary state retained.";
+  }
+  if (temporaryRoot && summary.process_groups_drained !== false) {
     try {
       await rm(temporaryRoot, { recursive: true, force: true });
       summary.temporary_root_removed = true;
@@ -191,6 +246,8 @@ try {
     flag: "wx",
   });
   process.stdout.write(JSON.stringify({ ...summary, evidence_directory: destination }) + "\n");
+  process.removeListener("SIGINT", interrupt);
+  process.removeListener("SIGTERM", terminate);
 }
 process.exitCode = summary.passed
   ? 0

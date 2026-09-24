@@ -31,6 +31,11 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Install private PostgreSQL and diagnostic tools
         run: |
+          key="$RUNNER_TEMP/golden-postgresql.asc"
+          curl --fail --silent --show-error --location https://www.postgresql.org/media/keys/ACCC4CF8.asc --output "$key"
+          gpg --batch --show-keys --with-colons "$key" | grep -Fx "fpr:::::::::B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8:"
+          sudo install -m 644 "$key" /usr/share/keyrings/golden-postgresql.asc
+          echo "deb [signed-by=/usr/share/keyrings/golden-postgresql.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/golden-pgdg.list
           sudo apt-get update
           sudo apt-get install --yes postgresql-17 postgresql-contrib-17 unzip
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"

@@ -60,8 +60,25 @@ const safeBytes = (bytes) => {
     ),
     "private diagnostic rejected",
   );
+  for (const match of text.matchAll(
+    /(?:^|\s)(?:[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET)|AUTHORIZATION|COOKIE|SET-COOKIE)\s*[:=]\s*([^\r\n]*)/gim,
+  ))
+    assert.ok(match[1].trim() === "[REDACTED]", "credential diagnostic rejected");
 };
 
+const safeJson = (value) => {
+  if (typeof value === "string") {
+    safeBytes(Buffer.from(value));
+  } else if (Array.isArray(value)) {
+    for (const item of value) safeJson(item);
+  } else if (value !== null && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      if (/^(?:authorization|cookie|set-cookie)$|(?:password|token|secret)$/i.test(key))
+        assert.ok(item === "[REDACTED]" || item === null, "credential diagnostic rejected");
+      safeJson(item);
+    }
+  }
+};
 // Only receipt-bound, allowlisted regular files can enter the upload directory.
 // Errors deliberately omit artifact contents and supplied values.
 export const inspectGoldenEvidence = async ({ directory, root, revision, sourceTree }) => {
@@ -73,6 +90,7 @@ export const inspectGoldenEvidence = async ({ directory, root, revision, sourceT
     assert.ok(info.size <= 16 * 1024 * 1024, "diagnostic exceeds size limit");
     const bytes = await readFile(join(directory, name));
     safeBytes(bytes);
+    if (name.endsWith(".json")) safeJson(JSON.parse(bytes));
     return bytes;
   };
   const receiptBytes = await read("receipt.json");

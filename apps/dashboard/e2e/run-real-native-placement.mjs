@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { readFile, writeFile, readdir, rm } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -74,6 +75,8 @@ const start = (command, args, cwd) => {
     stdio: ["ignore", "pipe", "pipe"],
   });
   children.add(child);
+  if (child.pid && process.env.GOLDEN_PROCESS_GROUPS_PATH)
+    appendFileSync(process.env.GOLDEN_PROCESS_GROUPS_PATH, `${child.pid}\n`, { mode: 0o600 });
   return child;
 };
 const stop = async (child) => {
@@ -278,7 +281,7 @@ try {
   assert.equal(evidence.passed, true, "browser evidence is required even after API success");
   assert.equal(evidence.revision, manifest.revision);
 } catch (cause) {
-  failure = cause;
+  failure ??= cause;
 } finally {
   await cleanup();
 }

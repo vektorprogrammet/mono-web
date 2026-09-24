@@ -89,6 +89,7 @@ const safeEnvironment: NodeJS.ProcessEnv = Object.fromEntries(
     "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
     "PLAYWRIGHT_NODE_EXECUTABLE",
     "PLAYWRIGHT_BROWSERS_PATH",
+    "GOLDEN_PROCESS_GROUPS_PATH",
   ].flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]!]])),
 );
 const fault = process.env.GOLDEN_SCHOOL_SERVICE_FAULT;
