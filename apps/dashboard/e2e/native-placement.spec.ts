@@ -1410,10 +1410,6 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     ).toBeVisible();
     expect((await readCoverageBoard(page)).candidates).toEqual([expectedCandidate]);
     await checkpoint("pool-reactivated");
-    await page.screenshot({
-      path: join(manifest.artifacts, "golden-substitute-pool.png"),
-      fullPage: true,
-    });
 
     await page.goto(manifest.dashboardOrigin + scopePath());
     await create
@@ -1497,10 +1493,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await candidatePage.reload();
     await expect(candidatePage.getByText("Endelig svar: Akseptert", { exact: true })).toBeVisible();
     await checkpoint("offer-accepted");
-    await candidatePage.screenshot({
-      path: join(manifest.artifacts, "golden-substitute-accepted-mobile.png"),
-      fullPage: true,
-    });
+
     await page.reload();
     await submit(
       page.getByRole("form", { name: "Dekningstilbud: Kari Kandidat, " + offerTitle, exact: true }),
@@ -1542,10 +1535,7 @@ test("golden school-service continuous functional journey", async ({ browser }) 
       "Kari Kandidat",
     );
     await checkpoint("substitute-completed");
-    await page.screenshot({
-      path: join(manifest.artifacts, "golden-substitute-completed.png"),
-      fullPage: true,
-    });
+
     await candidatePage.reload();
 
     const candidateService = candidatePage
