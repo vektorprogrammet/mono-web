@@ -14,21 +14,24 @@ import { buildLegacyReferences } from "./legacy-cutover-references";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
 
 const repository = "vektorprogrammet/vektorprogrammet";
+
 const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+
 const personSourceId = Schema.decodeUnknownSync(Schema.Struct({ sourceUserId: Schema.String }));
 
-const days: Readonly<Record<string, string>> = {
-  Mandag: "Monday",
-  Tirsdag: "Tuesday",
-  Onsdag: "Wednesday",
-  Torsdag: "Thursday",
-  Fredag: "Friday",
-};
-const blocks: Readonly<Record<string, string>> = {
-  "Bolk 1": "1",
-  "Bolk 2": "2",
-  "Bolk 1, Bolk 2": "Both",
-};
+const days = new Map([
+  ["Mandag", "Monday"],
+  ["Tirsdag", "Tuesday"],
+  ["Onsdag", "Wednesday"],
+  ["Torsdag", "Thursday"],
+  ["Fredag", "Friday"],
+]);
+
+const blocks = new Map([
+  ["Bolk 1", "1"],
+  ["Bolk 2", "2"],
+  ["Bolk 1, Bolk 2", "Both"],
+]);
 
 /** Reviewed source rows become candidates. Placements owns acceptance and quarantine. */
 export const buildLegacyCurrentAssignmentSnapshot = (
@@ -45,6 +48,7 @@ export const buildLegacyCurrentAssignmentSnapshot = (
   const review = Schema.decodeUnknownSync(CurrentAssignmentReview)(reviewInput, {
     onExcessProperty: "error",
   });
+
   const { credentials: _credentials, ...personAndServiceSource } = source;
   const sourceRevision = digest(personAndServiceSource);
   const references = buildLegacyReferences(source);
@@ -58,9 +62,11 @@ export const buildLegacyCurrentAssignmentSnapshot = (
   const semesterMapping = references.mappings.semesters.find(
     ({ sourceSemesterId }) => sourceSemesterId === review.sourceSemesterId,
   );
+
   const semester = references.rows.semesters.find(
     ({ semester_id }) => semester_id === semesterMapping?.semesterId,
   );
+
   const asOf = new Date(`${review.asOf}T00:00:00.000Z`);
 
   if (
@@ -77,6 +83,7 @@ export const buildLegacyCurrentAssignmentSnapshot = (
     ({ semesterId }) =>
       semesterId !== null && `legacy-semester:${String(semesterId)}` === review.sourceSemesterId,
   );
+
   const selectedIds = new Set(selected.map(({ id }) => `legacy-history:${String(id)}`));
   const entries = new Map(review.assignments.map((entry) => [entry.sourceAssignmentId, entry]));
 
@@ -102,28 +109,33 @@ export const buildLegacyCurrentAssignmentSnapshot = (
       .filter(({ disposition }) => disposition === "Accepted")
       .map(({ occurrenceId }) => occurrenceId),
   );
+
   const acceptedUsers = new Set(
     personSnapshot.occurrences
       .filter(({ occurrenceId }) => acceptedOccurrences.has(occurrenceId))
       .map(({ row }) => personSourceId(row).sourceUserId),
   );
+
   const people = new Map(
     personSnapshot.mappings
       .filter(({ sourceUserId }) => acceptedUsers.has(sourceUserId))
       .map(({ sourceUserId, personId }) => [sourceUserId, personId]),
   );
+
   const departments = new Map(
     references.mappings.departments.map(({ sourceDepartmentId, departmentId }) => [
       sourceDepartmentId,
       departmentId,
     ]),
   );
+
   const semesters = new Map(
     references.mappings.semesters.map(({ sourceSemesterId, semesterId }) => [
       sourceSemesterId,
       semesterId,
     ]),
   );
+
   const schools = new Map(
     references.mappings.schools.map(({ sourceSchoolId, schoolId }) => [sourceSchoolId, schoolId]),
   );
@@ -135,6 +147,7 @@ export const buildLegacyCurrentAssignmentSnapshot = (
 
     if (entry.sourceRowDigest !== sourceRowDigest)
       throw new Error("Assignment review contains a changed source row");
+
     if (entry.active && sourceRow.bolk === "Bolk 1, Bolk 2" && entry.bothBlocksShareDay !== true)
       throw new Error("An active combined-block assignment requires explicit weekday confirmation");
 
@@ -142,7 +155,9 @@ export const buildLegacyCurrentAssignmentSnapshot = (
       sourceAssignmentId,
       sourceUserId: sourceRow.userId === null ? null : `legacy-user:${String(sourceRow.userId)}`,
       sourceDepartmentId:
-        sourceRow.departmentId === null ? null : `legacy-department:${String(sourceRow.departmentId)}`,
+        sourceRow.departmentId === null
+          ? null
+          : `legacy-department:${String(sourceRow.departmentId)}`,
       sourceSemesterId: review.sourceSemesterId,
       sourceSchoolId:
         sourceRow.schoolId === null ? null : `legacy-school:${String(sourceRow.schoolId)}`,
@@ -150,8 +165,8 @@ export const buildLegacyCurrentAssignmentSnapshot = (
       affiliationEvidenceRef: entry.affiliationEvidenceRef,
       placementEvidenceRef: entry.placementEvidenceRef,
       // Unknown values stay invalid. Only the importer can quarantine them.
-      day: sourceRow.day !== null && Object.hasOwn(days, sourceRow.day) ? days[sourceRow.day] : null,
-      block: sourceRow.bolk !== null && Object.hasOwn(blocks, sourceRow.bolk) ? blocks[sourceRow.bolk] : null,
+      day: sourceRow.day === null ? null : (days.get(sourceRow.day) ?? null),
+      block: sourceRow.bolk === null ? null : (blocks.get(sourceRow.bolk) ?? null),
       workdays:
         sourceRow.workdays !== null && /^[1-8]$/.test(sourceRow.workdays)
           ? Number(sourceRow.workdays)
@@ -172,20 +187,27 @@ export const buildLegacyCurrentAssignmentSnapshot = (
     const semesterId = semesters.get(row.sourceSemesterId);
     const schoolId = schools.get(row.sourceSchoolId);
 
-    if (personId === undefined || departmentId === undefined || semesterId === undefined || schoolId === undefined)
+    if (
+      personId === undefined ||
+      departmentId === undefined ||
+      semesterId === undefined ||
+      schoolId === undefined
+    )
       return [];
 
-    return [{
-      sourceAssignmentId: row.sourceAssignmentId,
-      sourceUserId: row.sourceUserId,
-      sourceDepartmentId: row.sourceDepartmentId,
-      sourceSemesterId: row.sourceSemesterId,
-      sourceSchoolId: row.sourceSchoolId,
-      personId,
-      departmentId,
-      semesterId,
-      schoolId,
-    }];
+    return [
+      {
+        sourceAssignmentId: row.sourceAssignmentId,
+        sourceUserId: row.sourceUserId,
+        sourceDepartmentId: row.sourceDepartmentId,
+        sourceSemesterId: row.sourceSemesterId,
+        sourceSchoolId: row.sourceSchoolId,
+        personId,
+        departmentId,
+        semesterId,
+        schoolId,
+      },
+    ];
   });
 
   const snapshot = {
@@ -202,5 +224,8 @@ export const buildLegacyCurrentAssignmentSnapshot = (
     mappings,
   };
 
-  return decodeReconciledCurrentAssignmentSnapshot({ ...snapshot, snapshotDigest: digest(snapshot) });
+  return decodeReconciledCurrentAssignmentSnapshot({
+    ...snapshot,
+    snapshotDigest: digest(snapshot),
+  });
 };
