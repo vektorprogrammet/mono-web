@@ -1,6 +1,6 @@
 # Web-system functional testing
 
-Status: planned development. This document does not claim implementation or CI acceptance.
+Status: the local school-service gate is implemented. CI execution and the other slices remain separate work.
 
 ## Goal and scope
 
@@ -72,6 +72,53 @@ Reuse these sources before adding another runner or abstraction:
 Existing scenarios often start from separate seeded stages.
 Passing those scenarios does not establish continuity across their stages.
 The first new contract joins a complete workflow without reseeding intermediate outcomes.
+
+## Local school-service gate
+
+From a clean committed tree, run:
+
+```bash
+bun run test:golden-school-service
+```
+
+Use the versions in the root manifest and lockfile. Install dependencies with `bun install --frozen-lockfile`.
+The command requires Node, PostgreSQL server binaries with `btree_gist`, Chromium, and `unzip` for failure-trace processing.
+Use Playwright's installed Chromium or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to a compatible local executable.
+The project shell supplies Lefthook; it does not supply the complete acceptance toolchain.
+
+The [parent](../tools/e2e/placement-check.ts) owns PostgreSQL, the native backend, and the loopback notification receiver.
+The existing [browser child](../apps/dashboard/e2e/run-real-native-placement.mjs) builds and owns the dashboard and browser.
+The golden scenario in [native-placement.spec.ts](../apps/dashboard/e2e/native-placement.spec.ts) uses separate native sign-in sessions.
+It creates no business outcome through fixtures or direct success commands.
+
+The controls establish affiliation, approval, placement, demand, proposal, confirmation, a dated commitment, and actual attendance with Completed.
+A fresh volunteer session reads the resulting service without coordinator controls.
+The test also checks an out-of-scope HTTP denial, insufficient-attendance prevention and HTTP denial, and a stale terminal denial through controls and HTTP.
+A read-only PostgreSQL observer checks each transition and rejection through an independent connection.
+It binds history, successful command receipts, roster snapshots, and notification work to those decisions.
+The receiver checks the committed logical effect. It does not establish real-provider acceptance.
+
+The command prints its parent PID, artifact directory, and final `receipt.json` path.
+The receipt records the commit, source tree, runner and fixture digests, artifact hashes, result, and executed steps.
+It uses the existing parity field conventions without requiring a legacy revision or external authority files.
+Only listed sanitized artifacts form the retained evidence: browser and HTTP observations, database checkpoints, loopback delivery, logs, and trace summaries.
+Raw traces, browser result directories, credential manifests, PostgreSQL files, and owned processes do not remain after cleanup.
+The receipt fails when browser evidence is absent, a required step fails, or cleanup fails.
+Screenshots, accessibility audits, and visual preferences do not determine this gate.
+The parent's separate `--browser` and `--api-only` modes retain the existing broader placement coverage.
+Neither mode substitutes for the required golden browser command.
+
+These test-driver faults establish that missing work cannot pass:
+
+```bash
+GOLDEN_SCHOOL_SERVICE_FAULT=omit-attendance bun run test:golden-school-service
+GOLDEN_SCHOOL_SERVICE_FAULT=absent-browser-evidence bun run test:golden-school-service
+```
+
+Both commands must exit unsuccessfully. They change only the test driver, not production behavior.
+For an interruption check, wait for `browser-active.json` in the printed directory, then send SIGINT to the printed parent PID.
+The failed receipt and cleanup observations must show that all owned resources stopped.
+Do not use the operator's demonstration ports or database for this command.
 
 ## Journey inventory
 

@@ -1,6 +1,8 @@
 # Golden school-service journey
 
-Status: planned. Implementation and acceptance are not complete.
+Status: implemented for local acceptance with `bun run test:golden-school-service`.
+The linked plan documents prerequisites, failure checks, receipts, and cleanup.
+Retain this contract through independent integration acceptance; then retire it under the repository completion rule.
 
 This is slice A of the [web-system functional testing plan](../web-system-functional-testing.md).
 Freeze this contract when its implementation PR opens. Record any later scope change explicitly.
