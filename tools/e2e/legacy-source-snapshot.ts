@@ -69,7 +69,8 @@ export type LegacyCredential = typeof Credential.Type;
 
 export type LegacyHistory = typeof History.Type;
 
-const NullableSourceId = Schema.NullOr(SourceId);
+// Malformed foreign keys belong to row disposition, not whole-source decoding.
+const NullableSourceId = Schema.NullOr(Schema.Union([Schema.Int, Schema.String]));
 
 const NullableFlag = Schema.NullOr(Flag);
 

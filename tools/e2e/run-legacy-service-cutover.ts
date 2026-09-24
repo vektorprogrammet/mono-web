@@ -32,7 +32,7 @@ import {
   organizationImportSourceDigest,
 } from "@vektorprogrammet/database/organization";
 import { Pool, type PoolClient } from "pg";
-import { flow, Schema } from "effect";
+import { flow, Predicate, Schema } from "effect";
 import {
   buildLegacyReferences,
   departmentId,
@@ -398,7 +398,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
 
   let tx: PoolClient | undefined;
 
-  try {
+  const outcome = await (async () => {
     tx = await inStage("TargetConnect", () => pool.connect());
     const client = tx;
     await inStage("TargetConnect", async () => {
@@ -595,17 +595,39 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
         dispositionFingerprint: digest(accountsReport.occurrences),
       },
     };
-  } catch (error) {
-    if (tx) {
-      const client = tx;
-      await inStage("TargetRollback", () => client.query("ROLLBACK"));
-    }
+  })().then(
+    (report) => ({ _tag: "Success" as const, report }),
+    (error) => ({ _tag: "Failure" as const, error }),
+  );
 
-    throw error;
-  } finally {
-    tx?.release();
-    await inStage("TargetClose", () => pool.end());
+  const cleanupErrors: unknown[] = [];
+
+  if (Predicate.isTagged(outcome, "Failure") && tx) {
+    const client = tx;
+    await inStage("TargetRollback", () => client.query("ROLLBACK")).catch((cleanupError) => {
+      cleanupErrors.push(cleanupError);
+    });
   }
+
+  await inStage("TargetClose", async () => tx?.release()).catch((cleanupError) => {
+    cleanupErrors.push(cleanupError);
+  });
+  await inStage("TargetClose", () => pool.end()).catch((cleanupError) => {
+    cleanupErrors.push(cleanupError);
+  });
+
+  if (Predicate.isTagged(outcome, "Failure")) {
+    if (cleanupErrors.length === 0) throw outcome.error;
+    throw new AggregateError(
+      [outcome.error, ...cleanupErrors],
+      "Legacy cutover and cleanup failed; details redacted",
+    );
+  }
+
+  if (cleanupErrors.length > 0)
+    throw new AggregateError(cleanupErrors, "Legacy cutover cleanup failed; details redacted");
+
+  return outcome.report;
 };
 
 const usage =
