@@ -1,4 +1,5 @@
 import { dlopen, FFIType } from "bun:ffi";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import {
   execFileSync,
   spawnSync,
@@ -859,5 +860,6 @@ export const NodeRuntimeLayer = Layer.mergeAll(
   NodeCommandExecutorLayer,
   NodeExecutionEnvironmentLayer,
   NodeFileSystemLayer,
+  BunServices.layer,
   NodeTerminalLayer,
 );

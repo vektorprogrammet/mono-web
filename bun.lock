@@ -283,6 +283,7 @@
       "name": "@monoweb/parity-inventory",
       "version": "0.1.0",
       "dependencies": {
+        "@effect/platform-bun": "catalog:effect-v4",
         "@noble/hashes": "2.3.0",
         "ajv": "8.17.1",
         "effect": "catalog:effect-v4",
