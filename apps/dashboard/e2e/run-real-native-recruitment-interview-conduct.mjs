@@ -396,8 +396,12 @@ const main = async () => {
     const dashboardEnvironment = {
       ...baseEnvironment,
       API_URL: proxy.origin,
-      VITE_API_URL: proxy.origin,
+      VITE_API_URL: dashboardOrigin,
       DASHBOARD_ORIGIN: dashboardOrigin,
+      DASHBOARD_MOUNT: "/",
+      HOST: "127.0.0.1",
+      PORT: String(dashboardPort),
+      NODE_ENV: "production",
       REAL_NATIVE_CONDUCT_E2E: "1",
       CONDUCT_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
       CONDUCT_E2E_SCREENSHOT_DIRECTORY: screenshotDirectory,
@@ -409,19 +413,12 @@ const main = async () => {
       CONDUCT_E2E_APPLICANT_PASSWORD: "journey-conduct-applicant-secret-0123456789",
     };
 
-    dashboard = start(
-      "node",
-      [
-        "node_modules/@react-router/dev/dist/cli/index.js",
-        "dev",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(dashboardPort),
-      ],
-      dashboardEnvironment,
-      dashboardRoot,
-    );
+    await run("bun", ["run", "build"], {
+      cwd: dashboardRoot,
+      env: dashboardEnvironment,
+      label: "native conduct dashboard build",
+    });
+    dashboard = start("bun", ["server.mjs"], dashboardEnvironment, dashboardRoot);
     await waitForHttp(`${dashboardOrigin}/login`, dashboard, "dashboard");
     await run(
       "node",
