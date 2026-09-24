@@ -35,6 +35,7 @@ import {
   RecruitmentApplicationHttpAccessSchema,
   RecruitmentAuthorityHttpSourceSchema,
   RecruitmentInterviewHttpSourceSchema,
+  type RecruitmentInvitationHttpSource,
   type RecruitmentInvitationHttpSnapshot,
   type RecruitmentApplicationHttpAccess,
   type RecruitmentAuthorityHttpSource,
