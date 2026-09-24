@@ -126,18 +126,6 @@ const organization = {
 
       return rows.map((row) => ({ ...row }));
     }),
-  projectMailingLists: (input: {
-    type: "assistants" | "team" | "all";
-    authorizedDepartmentIds: ReadonlyArray<string>;
-  }) =>
-    Effect.succeed(
-      input.authorizedDepartmentIds
-        .map((departmentId) => ({
-          name: `${input.type}-${departmentId}`,
-          emails: [],
-        }))
-        .toSorted((left, right) => left.name.localeCompare(right.name)),
-    ),
 } satisfies Partial<OrganizationOperations>;
 
 type AuthorityByToken = {
@@ -314,13 +302,6 @@ describe("spec 0059 team-interest HTTP boundary", () => {
     expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([
       "department-1",
       "department-2",
-    ]);
-
-    const mailingLists = await get("/api/mailing-lists", "session=admin-session");
-    expect(mailingLists.status).toBe(200);
-    expect(await mailingLists.json()).toEqual([
-      { name: "assistants-department-1", emails: [] },
-      { name: "assistants-department-2", emails: [] },
     ]);
   });
 

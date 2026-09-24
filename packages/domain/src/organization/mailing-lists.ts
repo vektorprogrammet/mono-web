@@ -1,11 +1,7 @@
-import type { DepartmentId, PersonId, SemesterId } from "./schema.js";
+import type { DepartmentId, PersonId } from "./schema.js";
 import { compareRfc3339Instants } from "../time.js";
 
-/**
- * Spec 0060: the native mailing-list projection. Pure derivation over injected
- * member rows and Profile contacts — zero persistence, no ambient lookups,
- * one authorizationInstant already applied by whoever produced the inputs.
- */
+/** Pure rendering of scoped recipient facts and canonical Profile contacts. */
 
 export type MailingListType = "assistants" | "team" | "all";
 
@@ -19,10 +15,9 @@ export interface MailingListsProjectInput {
   readonly type: MailingListType;
   readonly authorizedDepartmentIds: ReadonlyArray<DepartmentId>;
   readonly departmentId?: DepartmentId;
-  readonly semesterId?: SemesterId;
   /** Team members active across the requested semester, grouped by department. */
   readonly membersByDepartment: ReadonlyMap<DepartmentId, ReadonlyArray<PersonId>>;
-  /** Assistant-history facts grouped by department (Admissions-owned source seam). */
+  /** Accepted historical service and active placements grouped by department. */
   readonly assistantsByDepartment: ReadonlyMap<DepartmentId, ReadonlyArray<PersonId>>;
   readonly contacts: ReadonlyMap<PersonId, MailingListContact>;
 }
@@ -32,16 +27,13 @@ export interface MailingList {
   readonly emails: ReadonlyArray<string>;
 }
 
-/**
- * A half-open membership interval covers a semester when it started at or
- * before the semester's end and has not ended before the semester's start.
- */
+/** Half-open intervals overlap only when both starts precede the other end. */
 export const membershipCoversSemester = (
   membership: { readonly startAt: string; readonly endAt: string | null },
   semester: { readonly startAt: string; readonly endAt: string },
 ): boolean =>
-  compareRfc3339Instants(membership.startAt, semester.endAt) <= 0 &&
-  (membership.endAt === null || compareRfc3339Instants(semester.startAt, membership.endAt) <= 0);
+  compareRfc3339Instants(membership.startAt, semester.endAt) < 0 &&
+  (membership.endAt === null || compareRfc3339Instants(semester.startAt, membership.endAt) < 0);
 
 const mergeFirstSeen = (
   assistants: ReadonlyArray<PersonId>,

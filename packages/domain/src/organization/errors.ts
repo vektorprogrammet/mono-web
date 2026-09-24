@@ -28,13 +28,13 @@ export class OrganizationRoleDenied extends Schema.TaggedError<OrganizationRoleD
   "OrganizationRoleDenied",
   {
     actorPersonId: PersonId,
-    requiredRole: Schema.Literals(["OrganizationAdministrator"]),
+    requiredRole: Schema.Literals(["OrganizationAdministrator", "DepartmentLeader"]),
   },
 ) {}
 
 export class OrganizationInvalidReference extends Schema.TaggedError<OrganizationInvalidReference>()(
   "OrganizationInvalidReference",
-  { referenceKind: Schema.Literals(["Department"]) },
+  { referenceKind: Schema.Literals(["Department", "Semester", "CurrentSemester"]) },
 ) {}
 
 export class OrganizationCommandConflict extends Schema.TaggedError<OrganizationCommandConflict>()(

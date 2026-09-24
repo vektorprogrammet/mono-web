@@ -31,6 +31,7 @@ export {
   OwnCoverageCommand,
   PlacementCommand,
   PlacementScope,
+  PlacementScopes,
 };
 
 export const OwnAffiliationResource = Schema.Struct({

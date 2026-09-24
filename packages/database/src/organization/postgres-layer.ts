@@ -11,6 +11,7 @@ import {
   resolveOrganizationPersonAuthorityForRead,
 } from "./authority-postgres.js";
 import { deriveOrganizationDirectoryFacts } from "./directory-postgres.js";
+import { readOrganizationMailingLists } from "./mailing-lists-postgres.js";
 import { Effect, Layer } from "effect";
 import {
   importOrganizationSnapshot,
@@ -24,19 +25,6 @@ import {
   readOrganizationTeam,
 } from "./postgres.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
-import type {
-  OrganizationDecodeError,
-  OrganizationPersistenceError,
-} from "@vektorprogrammet/domain/organization";
-import type { ProfileFailure } from "@vektorprogrammet/domain/profile";
-import {
-  membershipCoversSemester,
-  projectOrganizationMailingLists,
-  type MailingList,
-} from "@vektorprogrammet/domain/organization";
-import { PROFILE_READ_LIMIT } from "../profile/postgres.js";
-import { Profile } from "@vektorprogrammet/domain/profile";
-import { type DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 
 export const OrganizationLive = Layer.effect(
   Organization,
@@ -83,96 +71,8 @@ export const OrganizationLive = Layer.effect(
         listOrganizationTeamInterestRegistrations(filter).pipe(
           Effect.provideService(Database, database),
         ),
-      projectMailingLists: (
-        input,
-      ): Effect.Effect<
-        ReadonlyArray<MailingList>,
-        OrganizationDecodeError | OrganizationPersistenceError | ProfileFailure,
-        Profile
-      > =>
-        Effect.gen(function* () {
-          const profile = yield* Profile;
-          const semesterWindow = input.semesterWindow;
-          const membersByDepartment = new Map<DepartmentId, ReadonlyArray<PersonId>>();
-
-          for (const departmentId of input.authorizedDepartmentIds) {
-            if (input.departmentId !== undefined && input.departmentId !== departmentId) continue;
-
-            const teams = yield* listOrganizationTeams(departmentId).pipe(
-              Effect.provideService(Database, database),
-            );
-
-            const persons: Array<string> = [];
-
-            for (const team of teams) {
-              const memberships = yield* listOrganizationMembershipsForTeam(team.teamId).pipe(
-                Effect.provideService(Database, database),
-              );
-
-              for (const membership of memberships) {
-                if (!membership.isSuspended && membership.teamId !== null) {
-                  const covers =
-                    semesterWindow === undefined ||
-                    membershipCoversSemester(membership, semesterWindow);
-
-                  if (covers) persons.push(String(membership.personId));
-                }
-              }
-            }
-
-            membersByDepartment.set(
-              departmentId,
-              [...new Set(persons)].map((value) => PersonId.make(value)),
-            );
-          }
-
-          const wantedPersonIds = new Set<string>();
-
-          for (const persons of membersByDepartment.values()) {
-            for (const person of persons) wantedPersonIds.add(person);
-          }
-
-          for (const persons of input.assistantsByDepartment?.values() ?? []) {
-            for (const person of persons) wantedPersonIds.add(String(person));
-          }
-
-          const contactByPerson = new Map();
-          const uniquePersonIds = [...wantedPersonIds].map((value) => PersonId.make(value));
-
-          for (let offset = 0; offset < uniquePersonIds.length; offset += PROFILE_READ_LIMIT) {
-            const batch = uniquePersonIds.slice(offset, offset + PROFILE_READ_LIMIT);
-
-            // Missing contacts shrink the list silently (spec 0060 law 4):
-            // readContacts fails on any missing row, so probe one by one.
-            const contacts = yield* Effect.forEach(
-              batch,
-              (personId) =>
-                profile.readContacts([personId]).pipe(
-                  Effect.map((rows) => rows[0]),
-                  Effect.catch(() => Effect.succeed(undefined)),
-                ),
-              { concurrency: 1 },
-            );
-
-            for (const contact of contacts) {
-              if (contact === undefined) continue;
-              contactByPerson.set(String(contact.personId), {
-                name: String(contact.personId),
-                email: contact.email,
-              });
-            }
-          }
-
-          return projectOrganizationMailingLists({
-            type: input.type,
-            authorizedDepartmentIds: input.authorizedDepartmentIds,
-            departmentId: input.departmentId,
-            semesterId: input.semesterId,
-            membersByDepartment,
-            assistantsByDepartment: new Map(input.assistantsByDepartment ?? []),
-            contacts: contactByPerson,
-          });
-        }),
+      projectMailingLists: (input) =>
+        readOrganizationMailingLists(input).pipe(Effect.provideService(Database, database)),
       resolvePersonAuthority: (personId, authorizationInstant) =>
         resolveOrganizationPersonAuthority(personId, authorizationInstant).pipe(
           Effect.provideService(Database, database),

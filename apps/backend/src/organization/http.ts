@@ -958,12 +958,17 @@ const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =
     const lists = yield* Organization.use(({ projectMailingLists }) =>
       projectMailingLists({
         type: decodedType,
-        authorizedDepartmentIds: authorized,
+        actorPersonId: authority.personId,
+        authorizationInstant: authority.evaluatedAt,
+        departmentId: requested,
         semesterId,
       }),
     );
 
-    return yield* strictJsonResponse(MailingListResponse)(lists);
+    const response = yield* strictJsonResponse(MailingListResponse)(lists);
+    response.headers.set("cache-control", "private, no-store");
+
+    return response;
   });
 
 /** Native HttpApi implementations for organization endpoints. */

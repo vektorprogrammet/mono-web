@@ -32,6 +32,8 @@ import type {
   OrganizationImportError,
   OrganizationPersistenceError,
   OrganizationCommandFailure,
+  OrganizationInvalidReference,
+  OrganizationRoleDenied,
   TeamNotFound,
 } from "./errors.js";
 import type {
@@ -104,21 +106,20 @@ export interface OrganizationOperations {
     OrganizationDecodeError | OrganizationPersistenceError
   >;
 
-  /**
-   * Spec 0060: pure mailing-list projection over injected member/contact
-   * sources. The adapter supplies team members and assistant facts; Profile
-   * supplies contacts. Zero persistence, stable ordering.
-   */
+  /** Read canonical recipients under current authority and the selected semester. */
   readonly projectMailingLists: (input: {
+    readonly actorPersonId: PersonId;
+    readonly authorizationInstant: OrganizationAuthorityInstant;
     readonly type: MailingListType;
-    readonly authorizedDepartmentIds: ReadonlyArray<DepartmentId>;
     readonly departmentId?: DepartmentId;
     readonly semesterId?: SemesterId;
-    readonly assistantsByDepartment?: ReadonlyMap<DepartmentId, ReadonlyArray<PersonId>>;
-    readonly semesterWindow?: { readonly startAt: string; readonly endAt: string };
   }) => Effect.Effect<
     ReadonlyArray<MailingList>,
-    OrganizationDecodeError | OrganizationPersistenceError | ProfileFailure,
+    | OrganizationDecodeError
+    | OrganizationPersistenceError
+    | OrganizationInvalidReference
+    | OrganizationRoleDenied
+    | ProfileFailure,
     Profile
   >;
 

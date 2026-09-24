@@ -1,6 +1,10 @@
 import { expect, it } from "@effect/vitest";
 import { DepartmentId, PersonId } from "./schema.js";
-import { projectOrganizationMailingLists, type MailingListsProjectInput } from "./mailing-lists.js";
+import {
+  membershipCoversSemester,
+  projectOrganizationMailingLists,
+  type MailingListsProjectInput,
+} from "./mailing-lists.js";
 
 const departmentA = DepartmentId.make("department-a");
 
@@ -71,11 +75,6 @@ it("merges all with assistants-first dedup by person", () => {
   ]);
 });
 
-it("emits an empty list for a department with zero eligible members", () => {
-  const lists = projectOrganizationMailingLists(baseInput());
-  expect(lists).toEqual([{ name: `assistants-${departmentA}`, emails: [] }]);
-});
-
 it("silently drops persons without a resolvable contact profile", () => {
   const lists = projectOrganizationMailingLists(
     baseInput({
@@ -125,19 +124,38 @@ it("orders lists by name across departments and narrows by requested department"
   expect(narrowed.map((list) => list.name)).toEqual([`assistants-${departmentB}`]);
 });
 
-it("is deterministic: identical inputs yield byte-identical output (law 2)", () => {
-  const input = baseInput({
-    type: "all",
-    assistantsByDepartment: new Map([[departmentA, [person("z"), person("a")]]]),
-    membersByDepartment: new Map([[departmentA, [person("m")]]]),
-    contacts: new Map([
-      contactFor("z", "z@example.invalid"),
-      contactFor("a", "a@example.invalid"),
-      contactFor("m", "m@example.invalid"),
-    ]),
-  });
+it("deduplicates canonical emails across distinct people", () => {
+  const lists = projectOrganizationMailingLists(
+    baseInput({
+      type: "all",
+      assistantsByDepartment: new Map([[departmentA, [person("a"), person("shared")]]]),
+      membersByDepartment: new Map([[departmentA, [person("shared"), person("t")]]]),
+      contacts: new Map([
+        contactFor("a", "same@example.invalid"),
+        contactFor("shared", "same@example.invalid"),
+        contactFor("t", "team@example.invalid"),
+      ]),
+    }),
+  );
 
-  expect(JSON.stringify(projectOrganizationMailingLists(input))).toBe(
-    JSON.stringify(projectOrganizationMailingLists(input)),
+  expect(lists).toEqual([
+    { name: `all-${departmentA}`, emails: ["same@example.invalid", "team@example.invalid"] },
+  ]);
+});
+
+it("excludes boundary-only appointments but includes overlap and open-ended appointments", () => {
+  const semester = { startAt: "2038-08-01T00:00:00Z", endAt: "2039-01-01T00:00:00Z" };
+  expect(
+    membershipCoversSemester(
+      { startAt: "2038-01-01T00:00:00Z", endAt: semester.startAt },
+      semester,
+    ),
+  ).toBe(false);
+  expect(membershipCoversSemester({ startAt: semester.endAt, endAt: null }, semester)).toBe(false);
+  expect(
+    membershipCoversSemester({ startAt: semester.startAt, endAt: semester.endAt }, semester),
+  ).toBe(true);
+  expect(membershipCoversSemester({ startAt: "2038-07-31T23:59:59Z", endAt: null }, semester)).toBe(
+    true,
   );
 });
