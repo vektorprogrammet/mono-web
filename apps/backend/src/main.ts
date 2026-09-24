@@ -18,6 +18,7 @@ import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/c
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { PlacementsLive } from "@vektorprogrammet/placements/server";
+import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
@@ -74,6 +75,7 @@ const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
 
 const placementsLayer = PlacementsLive.pipe(Layer.provide(databaseLayer));
+const substitutesLayer = SubstitutesLive.pipe(Layer.provide(databaseLayer));
 
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
 
@@ -97,20 +99,16 @@ const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(databaseLayer));
 
 const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(databaseLayer));
 
-const capabilityLayers = Layer.mergeAll(
-  returningAssistantsLayer,
-  admissionsLayer,
-  economyLayer,
-  placementsLayer,
-  organizationLayer,
-  profileLayer,
-  schoolsLayer,
-  recruitmentLayer,
-  contentManagementLayer,
-  contentLayer,
-  socialEventsLayer,
-  schoolSurveysLayer,
-);
+const capabilityLayers = Layer.mergeAll(returningAssistantsLayer,
+admissionsLayer,
+economyLayer, placementsLayer, substitutesLayer, organizationLayer,
+profileLayer,
+schoolsLayer,
+recruitmentLayer,
+contentManagementLayer,
+contentLayer,
+socialEventsLayer,
+schoolSurveysLayer,);
 
 const receiptDeliveryLayer = ReceiptDeliveryLive(receiptDeliveryConfig(process.env)).pipe(
   Layer.provide(databaseLayer),

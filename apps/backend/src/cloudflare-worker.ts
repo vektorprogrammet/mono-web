@@ -6,6 +6,7 @@ import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/c
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { PlacementsLive } from "@vektorprogrammet/placements/server";
+import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
@@ -121,6 +122,7 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
   const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
   const placementsLayer = PlacementsLive.pipe(Layer.provide(databaseLayer));
+  const substitutesLayer = SubstitutesLive.pipe(Layer.provide(databaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
   const returningAssistantsLayer = ReturningAssistantsLive.pipe(Layer.provide(databaseLayer));
 
@@ -153,24 +155,20 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
     deliveryTimeoutMilliseconds: timeout,
   });
 
-  const services = Layer.mergeAll(
-    databaseLayer,
-    admissionsLayer,
-    economyLayer,
-    placementsLayer,
-    organizationLayer,
-    returningAssistantsLayer,
-    profileLayer,
-    schoolsLayer,
-    contentManagementLayer,
-    contentLayer,
-    recruitmentLayer,
-    socialEventsLayer,
-    schoolSurveysLayer,
-    authLayer,
-    receiptDeliveryLayer,
-    mailLayer,
-  );
+  const services = Layer.mergeAll(databaseLayer,
+  admissionsLayer,
+  economyLayer, placementsLayer, substitutesLayer, organizationLayer,
+  returningAssistantsLayer,
+  profileLayer,
+  schoolsLayer,
+  contentManagementLayer,
+  contentLayer,
+  recruitmentLayer,
+  socialEventsLayer,
+  schoolSurveysLayer,
+  authLayer,
+  receiptDeliveryLayer,
+  mailLayer,);
 
   const httpLayer = Layer.merge(
     HttpServer.layerServices,
