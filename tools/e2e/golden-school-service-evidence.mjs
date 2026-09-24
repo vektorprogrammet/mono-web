@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { goldenSteps } from "./golden-school-service.mjs";
 
 export const goldenArtifactName =
-  /^(?:evidence\.json|failure\.log|browser-(?:evidence|network|trace-sanitized|cleanup|active|build)\.json|playwright-evidence\.json|dashboard-(?:runtime|command-[1-3])\.log)$/;
+  /^(?:evidence\.json|failure\.log|browser-(?:evidence|network|trace-sanitized|cleanup|active|build)\.json|playwright-evidence\.json|dashboard-(?:runtime|command-[0-9]+)\.log)$/;
 export const goldenRunnerPaths = [
   "tools/e2e/placement-check.ts",
   "tools/e2e/golden-school-service.mjs",

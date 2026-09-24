@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { isAbsolute, join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -20,7 +21,9 @@ assert.ok(
   relative(root, destination).startsWith("../"),
   "upload directory must be outside checkout",
 );
+assert.ok(!/[\r\n]/.test(destination), "upload directory contains a newline");
 await mkdir(destination, { mode: 0o700 });
+const uploadPaths = [join(destination, "ci-summary.json")];
 const git = (...args) => {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
   assert.equal(result.status, 0, "git identity unavailable");
@@ -209,6 +212,7 @@ try {
     sourceTree: summary.source_tree,
   });
   await stageGoldenEvidence(evidence, destination);
+  for (const name of evidence.files.keys()) uploadPaths.push(join(destination, name));
   phase = "required journey result";
   requireGoldenSuccess(evidence);
   assert.ok(summary.process_groups_drained === true, "owned process groups remain");
@@ -239,6 +243,18 @@ try {
     } catch {
       summary.passed = false;
       summary.cleanup_error = "CI temporary root removal failed";
+    }
+  }
+  if (process.env.GITHUB_OUTPUT) {
+    try {
+      const delimiter = randomUUID();
+      await appendFile(
+        process.env.GITHUB_OUTPUT,
+        `artifact_paths<<${delimiter}\n${uploadPaths.join("\n")}\n${delimiter}\n`,
+      );
+    } catch {
+      summary.passed = false;
+      summary.artifact_output_error = "Could not publish the validated artifact paths";
     }
   }
   let persisted;

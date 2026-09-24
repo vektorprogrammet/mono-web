@@ -52,6 +52,7 @@ jobs:
         working-directory: apps/dashboard
         run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
       - name: Run required golden journey and accept exact-source evidence
+        id: golden
         timeout-minutes: 17
         env:
           GOLDEN_EXPECTED_REVISION: ${{ github.sha }}
@@ -66,22 +67,7 @@ jobs:
           name: golden-school-service-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           retention-days: 1
           if-no-files-found: error
-          path: |
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/ci-summary.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/evidence.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-evidence.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-network.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-build.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-cleanup.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-active.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-trace-sanitized.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/playwright-evidence.json
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/failure.log
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/dashboard-runtime.log
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/dashboard-command-1.log
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/dashboard-command-2.log
-            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/dashboard-command-3.log
+          path: ${{ steps.golden.outputs.artifact_paths }}
 
   ts:
     name: TypeScript (lint, build, test)
