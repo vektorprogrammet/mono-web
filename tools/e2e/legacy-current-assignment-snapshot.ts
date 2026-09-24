@@ -49,7 +49,7 @@ export const buildLegacyCurrentAssignmentSnapshot = (
     onExcessProperty: "error",
   });
 
-  const { credentials: _credentials, ...personAndServiceSource } = source;
+  const { credentials: _credentials, receipts: _receipts, paymentAccounts: _paymentAccounts, ...personAndServiceSource } = source
   const sourceRevision = digest(personAndServiceSource);
   const references = buildLegacyReferences(source);
 

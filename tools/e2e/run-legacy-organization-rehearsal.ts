@@ -121,7 +121,7 @@ GRANT SELECT ON vektor.* TO 'legacy_organization_reader'@'localhost';
 `;
 
 const sourceRevision = (source: LegacySourceSnapshot): string => {
-  const { credentials: _credentials, ...selected } = source;
+  const { credentials: _credentials, receipts: _receipts, paymentAccounts: _paymentAccounts, ...selected } = source
 
   return digest(selected);
 };
@@ -314,8 +314,8 @@ const appendOnly = async (pool: Pool): Promise<void> => {
 const rehearse = async () =>
   withOrganizationDatabases(fixtureSql, async ({ sourceUrl, mysql, target, temporaryRoot }) => {
     stage = "ActualElevenTableReader";
-    const source = await readLegacySourceSnapshot(sourceUrl, "Include");
-    const omittedSource = await readLegacySourceSnapshot(sourceUrl, "NotRequested");
+    const source = await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested");
+    const omittedSource = await readLegacySourceSnapshot(sourceUrl, "NotRequested", "NotRequested");
     assert.equal(source.teamMemberships?.length, 18);
     assert.deepEqual(
       source.teamMemberships?.find((row) => String(row.id) === "119"),
@@ -336,13 +336,13 @@ const rehearse = async () =>
     assert.notEqual(sourceRevision(omittedSource), sourceRevision(source));
     const review = reviewFor(source);
     await mysql("UPDATE vektor.user SET password='synthetic-credential-change' WHERE id=1");
-    const changedCredential = await readLegacySourceSnapshot(sourceUrl, "Include");
+    const changedCredential = await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested");
     assert.notEqual(digest(source.credentials), digest(changedCredential.credentials));
     assert.equal(sourceRevision(changedCredential), review.sourceRevision);
     await mysql("UPDATE vektor.user SET password=NULL WHERE id=1");
     const writer = new URL(sourceUrl);
     writer.username = "root";
-    await assert.rejects(readLegacySourceSnapshot(writer.toString(), "Include"), /Grants/);
+    await assert.rejects(readLegacySourceSnapshot(writer.toString(), "Include", "NotRequested"), /Grants/);
 
     const primary = await target("organization_reviewed");
 
@@ -734,7 +734,7 @@ const rehearse = async () =>
     await mysql(
       "INSERT INTO vektor.team_membership SELECT 120,user_id,team_id,position_id,startSemester_id,endSemester_id,isTeamLeader,isSuspended,deletedTeamName FROM vektor.team_membership WHERE id=101",
     );
-    const duplicateReview = reviewFor(await readLegacySourceSnapshot(sourceUrl, "Include"));
+    const duplicateReview = reviewFor(await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested"));
     const duplicated = await target("organization_duplicate_target");
 
     const duplicateResult = await runLegacyServiceCutover({
@@ -752,7 +752,7 @@ const rehearse = async () =>
 
     stage = "ImmutableSourceAndTransformation";
     await mysql("UPDATE vektor.team_membership SET user_id=2 WHERE id=101");
-    const repointedSource = await readLegacySourceSnapshot(sourceUrl, "Include");
+    const repointedSource = await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested");
     const repointed = reviewFor(repointedSource);
     await assert.rejects(runLegacyServiceCutover({ ...options, organization: repointed }));
     await assert.rejects(
@@ -846,7 +846,7 @@ const rehearse = async () =>
 
     stage = "OrganizationWithoutHistoricalService";
     await mysql("DELETE FROM vektor.assistant_history");
-    const organizationOnlySource = await readLegacySourceSnapshot(sourceUrl, "Include");
+    const organizationOnlySource = await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested");
     assert.equal(organizationOnlySource.history.length, 0);
     const organizationOnly = await target("organization_without_history");
 
@@ -874,7 +874,7 @@ const rehearse = async () =>
     await mysql(
       "INSERT INTO vektor.assistant_history VALUES (301,1,1,1,1,'8','Bolk 1','Mandag'); DELETE FROM vektor.team_membership; DELETE FROM vektor.executive_board_membership",
     );
-    const emptyOrganization = await readLegacySourceSnapshot(sourceUrl, "Include");
+    const emptyOrganization = await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested");
     const beforeEmpty = await targetFingerprint(organizationOnly.pool);
     await assert.rejects(
       runLegacyServiceCutover({

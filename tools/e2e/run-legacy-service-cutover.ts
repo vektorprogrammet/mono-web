@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isIP } from "node:net";
+import { selectLegacyTargetTransport } from "./legacy-database-transport";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
@@ -307,51 +307,16 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
           }),
         );
 
-  const targetSelection = (() => {
-    try {
-      return new URL(options.targetUrl);
-    } catch {
-      throw new Error("Target connection selection is invalid");
-    }
-  })();
-
-  if (
-    !["postgres:", "postgresql:"].includes(targetSelection.protocol) ||
-    decodeURIComponent(targetSelection.pathname.slice(1)) !== options.targetDatabase
-  )
-    throw new Error("Target database selection differs from connection URL");
-
-  const socketPath = targetSelection.searchParams.get("host");
-  const caEnv = targetSelection.searchParams.get("sslCaEnv");
-
-  if (
-    [...targetSelection.searchParams.keys()].some(
-      (key) => !["host", "port", "sslCaEnv"].includes(key),
-    )
-  )
-    throw new Error("Target transport options are not permitted");
-
-  if (socketPath !== null) {
-    if (!socketPath.startsWith("/") || caEnv !== null || targetSelection.hostname !== "localhost")
-      throw new Error("Local target socket selection is invalid");
-  } else if (
-    !caEnv ||
-    !/^[A-Z][A-Z0-9_]*$/.test(caEnv) ||
-    !process.env[caEnv] ||
-    !targetSelection.hostname ||
-    isIP(targetSelection.hostname) !== 0
-  )
-    throw new Error("Remote target requires a verified TLS CA and DNS identity");
-  targetSelection.searchParams.delete("sslCaEnv");
-
-  const source = await inStage("SourceRead", () =>
-    readLegacySourceSnapshot(
-      options.sourceUrl,
-      organizationReview === undefined ? "NotRequested" : "Include",
-    ),
+  const { targetSelection, socketPath, caEnv } = selectLegacyTargetTransport(
+    options.targetUrl,
+    options.targetDatabase,
   );
 
-  const { credentials, ...personAndServiceSource } = source;
+  const source = await inStage("SourceRead", () =>
+    readLegacySourceSnapshot(options.sourceUrl, organizationReview === undefined ? "NotRequested" : "Include", "NotRequested"),
+  );
+
+  const { credentials, receipts: _receipts, paymentAccounts: _paymentAccounts, ...personAndServiceSource } = source
   const sourceRevision = digest(personAndServiceSource);
 
   if (

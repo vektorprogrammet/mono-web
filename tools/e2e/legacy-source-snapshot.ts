@@ -118,6 +118,27 @@ export type LegacyExecutiveBoardMembership = typeof ExecutiveBoardMembership.Typ
 
 export type LegacyOrganizationSelection = "NotRequested" | "Include";
 
+export type LegacyFinanceSelection = "NotRequested" | "Include";
+
+const Receipt = Schema.Struct({
+  id: SourceId,
+  userId: NullableSourceId,
+  visualId: TextOrNull,
+  amountDecimal: Schema.String,
+  description: Schema.String,
+  receiptDate: Schema.String,
+  submittedAt: TextOrNull,
+  status: Schema.String,
+  refundDate: TextOrNull,
+  picturePath: TextOrNull,
+});
+
+const PaymentAccount = Schema.Struct({ id: SourceId, accountNumber: TextOrNull });
+
+export type LegacyReceipt = typeof Receipt.Type;
+
+export type LegacyPaymentAccount = typeof PaymentAccount.Type;
+
 export interface LegacySourceSnapshot {
   readonly users: ReadonlyArray<LegacyUserJson>;
   readonly credentials: ReadonlyArray<LegacyCredential>;
@@ -131,6 +152,8 @@ export interface LegacySourceSnapshot {
   readonly teamMemberships?: ReadonlyArray<LegacyTeamMembership>;
   readonly executiveBoards?: ReadonlyArray<LegacyExecutiveBoard>;
   readonly executiveBoardMemberships?: ReadonlyArray<LegacyExecutiveBoardMembership>;
+  readonly receipts?: ReadonlyArray<LegacyReceipt>;
+  readonly paymentAccounts?: ReadonlyArray<LegacyPaymentAccount>;
 }
 
 const sourceTables = [
@@ -187,12 +210,19 @@ export const assertSelectOnlyGrants = (grants: ReadonlyArray<string>, database: 
 export const readLegacySourceSnapshot = async (
   sourceUrl: string,
   organization: LegacyOrganizationSelection,
+  finance: LegacyFinanceSelection,
 ): Promise<LegacySourceSnapshot> => {
   if (organization !== "NotRequested" && organization !== "Include")
     throw new Error("Explicit organization source selection is invalid");
 
-  const selectedTables =
-    organization === "Include" ? [...sourceTables, ...organizationTables] : sourceTables;
+  if (finance !== "NotRequested" && finance !== "Include")
+    throw new Error("Explicit finance source selection is invalid");
+
+  const selectedTables = [
+    ...sourceTables,
+    ...(organization === "Include" ? organizationTables : []),
+    ...(finance === "Include" ? ["receipt"] : []),
+  ];
 
   const url = (() => {
     try {
@@ -351,6 +381,29 @@ export const readLegacySourceSnapshot = async (
         ),
       );
 
+      const financeSource: Pick<LegacySourceSnapshot, "receipts" | "paymentAccounts"> = {};
+
+      if (finance === "Include") {
+        stage = "Receipts";
+
+        const receipts = Schema.decodeUnknownSync(Schema.Array(Receipt))(
+          await select<RowDataPacket>(connection,
+            `SELECT id, user_id AS userId, visual_id AS visualId,
+                    CAST(receipt.sum AS CHAR) AS amountDecimal, description,
+                    receiptDate, submitDate AS submittedAt, status, refundDate,
+                    picture_path AS picturePath FROM receipt ORDER BY id`),
+        );
+
+        stage = "PaymentAccounts";
+
+        const paymentAccounts = Schema.decodeUnknownSync(Schema.Array(PaymentAccount))(
+          await select<RowDataPacket>(connection,
+            "SELECT id, accountNumber FROM user ORDER BY id"),
+        );
+
+        Object.assign(financeSource, { receipts, paymentAccounts });
+      }
+
       const source = {
         users,
         credentials,
@@ -359,6 +412,7 @@ export const readLegacySourceSnapshot = async (
         schools,
         relationships,
         history,
+        ...financeSource,
       };
 
       if (organization === "NotRequested") {
