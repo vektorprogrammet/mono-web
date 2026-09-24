@@ -731,7 +731,7 @@ try {
 
   for (const table of authorityTables) assert.equal(current[table], baseline[table]);
   console.log("0095 replay and tamper observations passed");
-  let deliveryObservation: unknown;
+  let deliveryObservation: Awaited<ReturnType<typeof observeReceiptDelivery>> | null = null;
 
   if (process.env.RECEIPT_DELIVERY_REHEARSAL === "1") {
     deliveryObservation = await observeReceiptDelivery({
@@ -827,7 +827,7 @@ try {
       backupSha256: digest(await readFile(join(artifacts, "baseline.dump"))),
     },
     scope:
-      deliveryObservation === undefined
+      deliveryObservation === null
         ? "synthetic historical import; zero notification attempts; no password migration, production or cutover claim"
         : "synthetic historical import with zero notification attempts, followed by 0097 loopback transport acceptance; no real provider, human receipt, password migration, production or cutover claim",
   });

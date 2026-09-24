@@ -203,15 +203,18 @@ The backup has zero assignments for 2024 Høst. Its 92 assignments for 2024 Vår
 were historical when the backup was made. It cannot prove current placements
 or eventual live contents. Changes since this backup need reconciliation.
 
-The [backup reader](tools/e2e/legacy-source-snapshot.ts) uses six tables when Organization is not selected:
+The [backup reader](tools/e2e/legacy-source-snapshot.ts) uses six tables when Organization and receipts are not selected:
 users, departments, semesters, schools, school-department links, and assistant history.
 The cutover imports references, accepted People, selected Organization, historical service, reviewed assignments, and Accounts in one target transaction.
 The backup rehearsal explicitly leaves Organization and current assignments unimported.
 The [reviewed assignment adapter](tools/e2e/legacy-current-assignment-snapshot.ts) uses the supported Placements import boundary.
 It requires snapshot-bound review evidence, accepted Person mappings, and source reference provenance.
 The original synthetic assignment path remains restricted.
-The [receipt adapter](apps/backend/src/receipt/import-snapshot.ts) still requires synthetic source and payment-account evidence.
-Receipt migration needs a real-source reconciliation contract and adapter, not removal of its safety checks.
+The original [synthetic receipt adapter](apps/backend/src/receipt/import-snapshot.ts) retains its source and payment-account restrictions.
+The [reviewed receipt importer](apps/backend/src/receipt/reviewed-import.ts) runs separately after accepted Person and reference reconciliation.
+It binds explicit owner, department, date, account, and private-file evidence through an immutable cohort ledger.
+Accounts use authenticated encryption. Replay preserves native edits and original ciphertext, then observes private bytes again.
+File promotion failure remains pending and recoverable. Imports create no authority, human audit events, notification work, or settlement evidence.
 
 The [reviewed Organization importer](packages/database/src/organization/reviewed-cohort.ts) uses accepted Person mappings and department provenance.
 Every membership needs source-bound review evidence and an explicit interval or exclusion.

@@ -1,5 +1,15 @@
 ## Unreleased
 
+### Reviewed receipt migration
+
+- Add a separate reviewed receipt command after accepted Person and reference reconciliation. Keep finance selection explicit in the source reader.
+- Require source-bound ownership, department, date, account, and private-file evidence. Account for accepted, quarantined, and excluded occurrences.
+- Encrypt payment accounts with authenticated encryption and receipt-specific context. Keep plaintext and unkeyed account hashes out of reviews and reports.
+- Preserve source ownership across native and reviewed imports. Keep native edits, ciphertext, and prior dispositions on replay.
+- Observe file custody on every replay. Recover missing bytes and incomplete promotion without claiming a shared SQL and filesystem transaction.
+- Keep approval separate from settlement. Import creates no grants, human audit events, notification work, or payment transfers.
+- Add real disposable-database, CLI, encryption, rollback, and private-file recovery acceptance.
+
 ### Reviewed Organization migration
 
 - Require an explicit Organization choice in the cutover command. Import reviewed team and board appointments in the existing transaction.

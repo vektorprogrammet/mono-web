@@ -306,6 +306,16 @@ Claim state, file custody, approval authority, settlement authority, delivery
 attempts, and settlement history are separate facts. A file path, approval grant,
 or team label does not grant settlement access.
 
+Reviewed receipt migration runs after accepted Person and reference reconciliation.
+The [review contract](../packages/domain/src/receipt/review.ts) binds each source receipt to ownership, department, date, account, and private-file evidence.
+Every occurrence receives an accepted, quarantined, or excluded disposition. Source ownership remains unique across native and reviewed importers.
+Imports create no grants, human audit events, notifications, or settlement evidence. A reviewed legacy refund becomes approval, not proof of payment.
+
+Payment accounts use authenticated encryption with receipt-specific context. Keyed commitments bind source accounts without plaintext in reviews or reports.
+Exact replay preserves native edits and the original ciphertext. It observes private bytes again instead of trusting a previous success.
+SQL and file storage do not share a transaction. Failed promotion remains pending and can resume after process restart or database and file restore.
+Native edits that differ from the retained import facts also remain pending. Replay never overwrites them.
+
 ### Organization administration
 
 Authorized people manage local departments, national units, teams, boards,

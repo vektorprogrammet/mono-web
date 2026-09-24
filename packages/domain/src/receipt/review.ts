@@ -9,7 +9,9 @@ const Label = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMa
 const Digest = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-f0-9]{64}$/)));
 
 const ReviewedInstant = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/)),
+  Schema.check(
+    Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/),
+  ),
 );
 
 const bounded = <S extends Schema.Constraint>(schema: S) =>
@@ -45,7 +47,9 @@ export const ReceiptReviewEntry = Schema.Union([
   }),
   Schema.TaggedStruct("Import", {
     ...CommonEntry,
-    person: Schema.NullOr(Schema.Struct({ occurrenceId: Id, sourceUserId: Id, personId: PersonId })),
+    person: Schema.NullOr(
+      Schema.Struct({ occurrenceId: Id, sourceUserId: Id, personId: PersonId }),
+    ),
     department: Schema.Struct({ sourceDepartmentId: Id, departmentId: DepartmentId }),
     // The classifier, not the envelope decoder, quarantines invalid dates.
     receiptDate: Schema.String.pipe(Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))),
@@ -96,8 +100,7 @@ export class ReceiptCohortFailure extends Data.TaggedError("ReceiptCohortFailure
 export const receiptEvidenceDigest = (value: Schema.Json): string =>
   sha256Hex(canonicalJsonBytes(value));
 
-export const receiptSourceRowDigest = (row: ReceiptSourceRow): string =>
-  receiptEvidenceDigest(row);
+export const receiptSourceRowDigest = (row: ReceiptSourceRow): string => receiptEvidenceDigest(row);
 
 /** Row order is not evidence; every source identity and raw value is. */
 export const receiptSourceRevision = (rows: readonly ReceiptSourceRow[]): string =>

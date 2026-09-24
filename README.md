@@ -169,6 +169,29 @@ The [review schema](packages/domain/src/organization/review.ts) defines the requ
 Organization resolves appointments through accepted Person mappings. Historical appointments and board membership do not imply current department or global authority.
 Current source data, human review, provider acceptance, and cutover authority remain separate gates.
 
+### Reviewed receipt migration
+
+Run the reviewed receipt journey:
+
+```bash
+nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
+```
+
+This journey requires PostgreSQL tools on `PATH`, a clean committed tree, and a new evidence directory.
+It uses invented records, private file bytes, and disposable databases. It does not access production or external providers.
+
+The receipt command runs separately, after accepted Person and reference reconciliation:
+
+```bash
+bun run migration:legacy-receipt --help
+```
+
+The [review schema](packages/domain/src/receipt/review.ts) defines the required source, ownership, department, date, account, and file evidence.
+The command requires explicit connections, target identity, review, archive, custody roots, and payment key.
+It requires an existing database schema and owner-only review, key, and custody paths.
+SQL acceptance and file reconciliation remain separate. Exit status `2` means accepted receipts still need reconciliation.
+Legacy refunded status never creates settlement evidence. Historical import still requires the missing file archive and reviewed ownership evidence.
+
 ## Change rule
 
 Implement one complete operational journey at a time:

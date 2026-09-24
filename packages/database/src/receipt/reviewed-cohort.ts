@@ -100,7 +100,9 @@ const PreparedResultSchema = Schema.Union([
 const OccurrenceSchema = Schema.Struct({
   sourcePrimaryKey: Schema.String,
   disposition: Schema.Literals(["Accepted", "Quarantined", "Excluded"]),
-  reasons: Schema.Array(Schema.Union([ReceiptQuarantineReason, Schema.Literal("ExcludedByReview")])),
+  reasons: Schema.Array(
+    Schema.Union([ReceiptQuarantineReason, Schema.Literal("ExcludedByReview")]),
+  ),
   acceptedResult: Schema.NullOr(AcceptedResultSchema),
 });
 
@@ -121,7 +123,9 @@ const immutable = <T>(value: T): T => {
 
 const invalid = (code: string) => new ReceiptCohortFailure({ code });
 
-const decodeAccepted = Schema.decodeUnknownSync(AcceptedResultSchema, { onExcessProperty: "error" });
+const decodeAccepted = Schema.decodeUnknownSync(AcceptedResultSchema, {
+  onExcessProperty: "error",
+});
 
 const readLedger = Effect.fnUntraced(function* (
   sql: DatabaseOperations,
@@ -150,11 +154,14 @@ const readLedger = Effect.fnUntraced(function* (
   const stored = ledger[0];
 
   if (
-    ledger.length !== 1 || !stored || stored.source_digest !== p.sourceDigest ||
+    ledger.length !== 1 ||
+    !stored ||
+    stored.source_digest !== p.sourceDigest ||
     stored.destination_identity !== p.destinationIdentity ||
     stored.target_semantic_identity !== result.targetSemanticIdentity ||
     stored.source_watermark !== p.sourceWatermark
-  ) return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
+  )
+    return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
 
   const decoded = yield* Schema.decodeUnknownEffect(
     Schema.Struct({ reasons: Schema.Array(ReceiptQuarantineReason) }),
@@ -189,7 +196,10 @@ const readReport = Effect.fnUntraced(function* (
     counts[row.disposition] += 1;
 
     if (row.disposition === "Accepted") {
-      if (row.acceptedResult === null || row.acceptedResult.sourcePrimaryKey !== row.sourcePrimaryKey)
+      if (
+        row.acceptedResult === null ||
+        row.acceptedResult.sourcePrimaryKey !== row.sourcePrimaryKey
+      )
         return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
       const persisted = yield* readLedger(sql, row.acceptedResult);
 
@@ -202,8 +212,12 @@ const readReport = Effect.fnUntraced(function* (
   }
 
   return {
-    snapshotKey, replay, input: decoded.length,
-    accepted: counts.Accepted, quarantined: counts.Quarantined, excluded: counts.Excluded,
+    snapshotKey,
+    replay,
+    input: decoded.length,
+    accepted: counts.Accepted,
+    quarantined: counts.Quarantined,
+    excluded: counts.Excluded,
     occurrences: decoded.map(({ acceptedResult: _acceptedResult, ...row }) => row),
     acceptedResults,
   };
@@ -221,8 +235,7 @@ const resolveEvidence = Effect.fnUntraced(function* (
       AND source_revision = ${r.sourceRevision} FOR SHARE
   `;
 
-  if (personSnapshots.length !== 1)
-    return yield* Effect.fail(invalid("PersonSnapshotConflict"));
+  if (personSnapshots.length !== 1) return yield* Effect.fail(invalid("PersonSnapshotConflict"));
 
   const references = yield* sql<{
     readonly source_revision: string;
@@ -237,14 +250,20 @@ const resolveEvidence = Effect.fnUntraced(function* (
 
   const reference = references[0];
 
-  if (!reference || reference.source_revision !== r.sourceRevision || reference.reference_digest !== r.referenceDigest)
+  if (
+    !reference ||
+    reference.source_revision !== r.sourceRevision ||
+    reference.reference_digest !== r.referenceDigest
+  )
     return yield* Effect.fail(invalid("ReferenceProvenanceConflict"));
 
   const mappings = yield* Schema.decodeUnknownEffect(References)(reference.source_id_mappings).pipe(
     Effect.mapError(() => invalid("ReferenceProvenanceConflict")),
   );
 
-  const departments = new Map(mappings.departments.map((row) => [row.sourceDepartmentId, row.departmentId]));
+  const departments = new Map(
+    mappings.departments.map((row) => [row.sourceDepartmentId, row.departmentId]),
+  );
 
   if (departments.size !== mappings.departments.length)
     return yield* Effect.fail(invalid("ReferenceProvenanceConflict"));
@@ -276,23 +295,39 @@ const resolveEvidence = Effect.fnUntraced(function* (
   for (const entry of r.entries) {
     if (!Predicate.isTagged(entry, "Import")) continue;
     const row = rows.get(entry.sourcePrimaryKey)!;
-    const person = entry.person === null ? undefined : acceptedPeople.get(entry.person.occurrenceId);
+    const person =
+      entry.person === null ? undefined : acceptedPeople.get(entry.person.occurrenceId);
 
-    const ownerPersonId = person !== undefined && entry.person !== null &&
-      person.source_user_id === row.sourceUserId && person.source_user_id === entry.person.sourceUserId &&
-      person.person_id === entry.person.personId ? PersonId.make(person.person_id) : null;
+    const ownerPersonId =
+      person !== undefined &&
+      entry.person !== null &&
+      person.source_user_id === row.sourceUserId &&
+      person.source_user_id === entry.person.sourceUserId &&
+      person.person_id === entry.person.personId
+        ? PersonId.make(person.person_id)
+        : null;
 
-    const departmentId = departments.get(entry.department.sourceDepartmentId) === entry.department.departmentId &&
-      nativeDepartmentIds.has(entry.department.departmentId) ? entry.department.departmentId : null;
+    const departmentId =
+      departments.get(entry.department.sourceDepartmentId) === entry.department.departmentId &&
+      nativeDepartmentIds.has(entry.department.departmentId)
+        ? entry.department.departmentId
+        : null;
 
     const receiptId = `receipt-${receiptEvidenceDigest([r.sourceRepository, row.sourcePrimaryKey])}`;
     resolved.push({
-      row, entry, receiptId, ownerPersonId, departmentId,
+      row,
+      entry,
+      receiptId,
+      ownerPersonId,
+      departmentId,
       provenance: {
-        sourceRepository: r.sourceRepository, sourceRevision: r.sourceRevision,
-        snapshotId: r.snapshotId, sourceWatermark: r.sourceWatermark,
+        sourceRepository: r.sourceRepository,
+        sourceRevision: r.sourceRevision,
+        snapshotId: r.snapshotId,
+        sourceWatermark: r.sourceWatermark,
         transformationRevision: r.transformationRevision,
-        sourceDigest: entry.sourceRowDigest, destinationIdentity: receiptId,
+        sourceDigest: entry.sourceRowDigest,
+        destinationIdentity: receiptId,
       },
     });
   }
@@ -305,60 +340,90 @@ const validatePrepared = (
   resolved: readonly ResolvedReviewedReceipt[],
   input: readonly ReceiptImportResult[],
 ): readonly ReceiptImportResult[] => {
-  const results = immutable(Schema.decodeUnknownSync(Schema.Array(PreparedResultSchema))(
-    structuredClone(input), { onExcessProperty: "error" },
-  ));
+  const results = immutable(
+    Schema.decodeUnknownSync(Schema.Array(PreparedResultSchema))(structuredClone(input), {
+      onExcessProperty: "error",
+    }),
+  );
 
   const bySource = new Map(results.map((result) => [result.sourcePrimaryKey, result]));
 
   if (results.length !== resolved.length || bySource.size !== resolved.length)
     throw invalid("InvalidPreparedResults");
 
-  const classified = importLegacyReceipts(resolved.map((item) => {
-    const result = bySource.get(item.row.sourcePrimaryKey);
+  const classified = importLegacyReceipts(
+    resolved.map((item) => {
+      const result = bySource.get(item.row.sourcePrimaryKey);
 
-    if (!result || result.sourceOccurrence !== 0 || canonicalJson(result.provenance) !== canonicalJson(item.provenance))
-      throw invalid("InvalidPreparedResults");
-    const accepted = Predicate.isTagged(result, "AcceptedReceiptImport") ? decodeAccepted(result) : null;
+      if (
+        !result ||
+        result.sourceOccurrence !== 0 ||
+        canonicalJson(result.provenance) !== canonicalJson(item.provenance)
+      )
+        throw invalid("InvalidPreparedResults");
+      const accepted = Predicate.isTagged(result, "AcceptedReceiptImport")
+        ? decodeAccepted(result)
+        : null;
 
-    if (Predicate.isTagged(result, "QuarantinedReceiptImport") &&
-      item.entry.payment.commitment === null && !result.reasons.includes("MissingPaymentAccount"))
-      throw invalid("InvalidPreparedResults");
+      if (
+        Predicate.isTagged(result, "QuarantinedReceiptImport") &&
+        item.entry.payment.commitment === null &&
+        !result.reasons.includes("MissingPaymentAccount")
+      )
+        throw invalid("InvalidPreparedResults");
 
-    if (accepted !== null && (
-      item.entry.payment.commitment === null ||
-      accepted.receipt.file.sha256 !== item.entry.file.sha256 ||
-      accepted.receipt.file.byteLength !== item.entry.file.byteLength ||
-      accepted.receipt.file.contentType !== item.entry.file.contentType
-    )) throw invalid("InvalidPreparedResults");
+      if (
+        accepted !== null &&
+        (item.entry.payment.commitment === null ||
+          accepted.receipt.file.sha256 !== item.entry.file.sha256 ||
+          accepted.receipt.file.byteLength !== item.entry.file.byteLength ||
+          accepted.receipt.file.contentType !== item.entry.file.contentType)
+      )
+        throw invalid("InvalidPreparedResults");
 
-    return {
-      receiptId: item.receiptId, provenance: item.provenance,
-      row: {
-        sourcePrimaryKey: item.row.sourcePrimaryKey, ownerPersonId: item.ownerPersonId,
-        departmentId: item.departmentId, visualId: item.row.visualId,
-        amountDecimal: item.row.amountDecimal, description: item.row.description,
-        receiptDate: item.entry.receiptDate, submittedAt: item.entry.submittedAt,
-        status: item.row.status, refundDate: item.entry.approvedAt,
-        paymentAccountCiphertext: accepted?.receipt.paymentAccountCiphertext ?? null,
-        file: accepted?.receipt.file ?? null,
-      },
-    };
-  }));
+      return {
+        receiptId: item.receiptId,
+        provenance: item.provenance,
+        row: {
+          sourcePrimaryKey: item.row.sourcePrimaryKey,
+          ownerPersonId: item.ownerPersonId,
+          departmentId: item.departmentId,
+          visualId: item.row.visualId,
+          amountDecimal: item.row.amountDecimal,
+          description: item.row.description,
+          receiptDate: item.entry.receiptDate,
+          submittedAt: item.entry.submittedAt,
+          status: item.row.status,
+          refundDate: item.entry.approvedAt,
+          paymentAccountCiphertext: accepted?.receipt.paymentAccountCiphertext ?? null,
+          file: accepted?.receipt.file ?? null,
+        },
+      };
+    }),
+  );
 
   for (const expected of classified) {
     const actual = bySource.get(expected.sourcePrimaryKey)!;
 
-    if (actual.targetSemanticIdentity !== expected.targetSemanticIdentity ||
-      (Predicate.isTagged(actual, "AcceptedReceiptImport") && canonicalJson(actual) !== canonicalJson(expected)))
+    if (
+      actual.targetSemanticIdentity !== expected.targetSemanticIdentity ||
+      (Predicate.isTagged(actual, "AcceptedReceiptImport") &&
+        canonicalJson(actual) !== canonicalJson(expected))
+    )
       throw invalid("InvalidPreparedResults");
 
     // A quarantine does not retain custody objects. Their absence here cannot
     // erase intrinsic owner, amount, date, status, or batch-collision findings.
-    if (Predicate.isTagged(actual, "QuarantinedReceiptImport") &&
+    if (
+      Predicate.isTagged(actual, "QuarantinedReceiptImport") &&
       Predicate.isTagged(expected, "QuarantinedReceiptImport") &&
-      expected.reasons.some((reason) => reason !== "MissingFile" &&
-        reason !== "MissingPaymentAccount" && !actual.reasons.includes(reason)))
+      expected.reasons.some(
+        (reason) =>
+          reason !== "MissingFile" &&
+          reason !== "MissingPaymentAccount" &&
+          !actual.reasons.includes(reason),
+      )
+    )
       throw invalid("InvalidPreparedResults");
   }
 
@@ -367,18 +432,22 @@ const validatePrepared = (
 
 const entryReviewDigest = (snapshot: ReviewedReceiptSnapshot, entry: ReceiptReviewEntry) =>
   receiptEvidenceDigest({
-    entry, attestedBy: snapshot.review.attestedBy, evidenceRef: snapshot.review.evidenceRef,
+    entry,
+    attestedBy: snapshot.review.attestedBy,
+    evidenceRef: snapshot.review.evidenceRef,
     referenceDigest: snapshot.review.referenceDigest,
   });
 
 /** SQL owns the cohort; private staging runs only after immutable provenance preflight. */
 export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohort")(function* (
   input: ReviewedReceiptSnapshot,
-  prepare: (rows: readonly ResolvedReviewedReceipt[]) => Effect.Effect<readonly ReceiptImportResult[], ReceiptCohortFailure>,
+  prepare: (
+    rows: readonly ResolvedReviewedReceipt[],
+  ) => Effect.Effect<readonly ReceiptImportResult[], ReceiptCohortFailure>,
 ): Effect.fn.Return<ReviewedReceiptReport, ReceiptCohortFailure, Database> {
   const snapshot = yield* Effect.try({
     try: () => immutable(decodeReviewedReceiptSnapshot(structuredClone(input))),
-    catch: (error) => error instanceof ReceiptCohortFailure ? error : invalid("InvalidSnapshot"),
+    catch: (error) => (error instanceof ReceiptCohortFailure ? error : invalid("InvalidSnapshot")),
   });
 
   const r = snapshot.review;
@@ -386,34 +455,37 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
   const snapshotDigest = receiptEvidenceDigest(snapshot);
   const sql = yield* Database;
 
-  return yield* sql.withTransaction(Effect.gen(function* () {
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended('native-reviewed-receipt-import', 0))`;
+  return yield* sql
+    .withTransaction(
+      Effect.gen(function* () {
+        yield* sql`SELECT pg_advisory_xact_lock(hashtextextended('native-reviewed-receipt-import', 0))`;
 
-    const sourceKeys = snapshot.rows.map((row) => row.sourcePrimaryKey).sort();
+        const sourceKeys = snapshot.rows.map((row) => row.sourcePrimaryKey).sort();
 
-    for (const sourceKey of sourceKeys) yield* lockReceiptImportSource(sql, r.sourceRepository, sourceKey);
+        for (const sourceKey of sourceKeys)
+          yield* lockReceiptImportSource(sql, r.sourceRepository, sourceKey);
 
-    const prior = yield* sql<{ readonly snapshot_digest: string }>`
+        const prior = yield* sql<{ readonly snapshot_digest: string }>`
       SELECT snapshot_digest FROM public.receipt_cohort_snapshots WHERE snapshot_key = ${snapshotKey}
     `;
 
-    if (prior[0]) {
-      if (prior[0].snapshot_digest !== snapshotDigest)
-        return yield* Effect.fail(invalid("SnapshotConflict"));
+        if (prior[0]) {
+          if (prior[0].snapshot_digest !== snapshotDigest)
+            return yield* Effect.fail(invalid("SnapshotConflict"));
 
-      return yield* readReport(sql, snapshotKey, true, snapshot.rows.length);
-    }
+          return yield* readReport(sql, snapshotKey, true, snapshot.rows.length);
+        }
 
-    const resolved = yield* resolveEvidence(sql, snapshot);
-    const resolvedBySource = new Map(resolved.map((row) => [row.row.sourcePrimaryKey, row]));
+        const resolved = yield* resolveEvidence(sql, snapshot);
+        const resolvedBySource = new Map(resolved.map((row) => [row.row.sourcePrimaryKey, row]));
 
-    const bindings = yield* sql<{
-      readonly source_primary_key: string;
-      readonly source_digest: string;
-      readonly review_digest: string;
-      readonly transformation_revision: string;
-      readonly accepted_result_json: Schema.Json;
-    }>`
+        const bindings = yield* sql<{
+          readonly source_primary_key: string;
+          readonly source_digest: string;
+          readonly review_digest: string;
+          readonly transformation_revision: string;
+          readonly accepted_result_json: Schema.Json;
+        }>`
       SELECT b.source_primary_key, b.source_digest, b.review_digest, b.transformation_revision,
         o.accepted_result_json
       FROM public.receipt_cohort_source_bindings b
@@ -421,47 +493,52 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
       WHERE b.source_repository = ${r.sourceRepository} FOR SHARE OF b, o
     `;
 
-    const boundSources = new Map(bindings.map((row) => [row.source_primary_key, row]));
-    const reused = new Map<string, AcceptedResult>();
+        const boundSources = new Map(bindings.map((row) => [row.source_primary_key, row]));
+        const reused = new Map<string, AcceptedResult>();
 
-    for (const entry of r.entries) {
-      const binding = boundSources.get(entry.sourcePrimaryKey);
+        for (const entry of r.entries) {
+          const binding = boundSources.get(entry.sourcePrimaryKey);
 
-      if (!binding) continue;
+          if (!binding) continue;
 
-      if (binding.source_digest !== entry.sourceRowDigest ||
-        binding.review_digest !== entryReviewDigest(snapshot, entry) ||
-        binding.transformation_revision !== r.transformationRevision)
-        return yield* Effect.fail(invalid("SourceConflict"));
+          if (
+            binding.source_digest !== entry.sourceRowDigest ||
+            binding.review_digest !== entryReviewDigest(snapshot, entry) ||
+            binding.transformation_revision !== r.transformationRevision
+          )
+            return yield* Effect.fail(invalid("SourceConflict"));
 
-      const accepted = yield* Effect.try({
-        try: () => decodeAccepted(binding.accepted_result_json),
-        catch: () => invalid("PersistedEvidenceConflict"),
-      });
+          const accepted = yield* Effect.try({
+            try: () => decodeAccepted(binding.accepted_result_json),
+            catch: () => invalid("PersistedEvidenceConflict"),
+          });
 
-      const current = resolvedBySource.get(entry.sourcePrimaryKey);
+          const current = resolvedBySource.get(entry.sourcePrimaryKey);
 
-      if (!current || current.ownerPersonId !== accepted.receipt.ownerPersonId ||
-        current.departmentId !== accepted.receipt.departmentId ||
-        current.receiptId !== accepted.receipt.receiptId ||
-        accepted.sourcePrimaryKey !== entry.sourcePrimaryKey)
-        return yield* Effect.fail(invalid("SourceConflict"));
-      reused.set(entry.sourcePrimaryKey, accepted);
-    }
+          if (
+            !current ||
+            current.ownerPersonId !== accepted.receipt.ownerPersonId ||
+            current.departmentId !== accepted.receipt.departmentId ||
+            current.receiptId !== accepted.receipt.receiptId ||
+            accepted.sourcePrimaryKey !== entry.sourcePrimaryKey
+          )
+            return yield* Effect.fail(invalid("SourceConflict"));
+          reused.set(entry.sourcePrimaryKey, accepted);
+        }
 
-    // Never adopt an earlier native acceptance without its immutable original
-    // fact snapshot. Native edits make reconstructing that history unsound.
-    const nativeOwners = yield* sql<{
-      readonly source_primary_key: string;
-      readonly destination_identity: string;
-      readonly source_revision: string;
-      readonly snapshot_id: string;
-      readonly source_occurrence: number;
-      readonly transformation_revision: string;
-      readonly source_digest: string;
-      readonly source_watermark: string;
-      readonly target_semantic_identity: string;
-    }>`
+        // Never adopt an earlier native acceptance without its immutable original
+        // fact snapshot. Native edits make reconstructing that history unsound.
+        const nativeOwners = yield* sql<{
+          readonly source_primary_key: string;
+          readonly destination_identity: string;
+          readonly source_revision: string;
+          readonly snapshot_id: string;
+          readonly source_occurrence: number;
+          readonly transformation_revision: string;
+          readonly source_digest: string;
+          readonly source_watermark: string;
+          readonly target_semantic_identity: string;
+        }>`
       SELECT source_primary_key, destination_identity, source_revision, snapshot_id,
         source_occurrence, transformation_revision, source_digest, source_watermark, target_semantic_identity
       FROM public.economy_receipt_import_ledger
@@ -469,28 +546,31 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
         AND ${sql.in("source_primary_key", sourceKeys)} FOR SHARE
     `;
 
-    const ownedSources = new Set<string>();
+        const ownedSources = new Set<string>();
 
-    for (const owner of nativeOwners) {
-      const accepted = reused.get(owner.source_primary_key);
+        for (const owner of nativeOwners) {
+          const accepted = reused.get(owner.source_primary_key);
 
-      if (!accepted || ownedSources.has(owner.source_primary_key) ||
-        owner.destination_identity !== accepted.provenance.destinationIdentity ||
-        owner.source_revision !== accepted.provenance.sourceRevision ||
-        owner.snapshot_id !== accepted.provenance.snapshotId ||
-        owner.source_occurrence !== accepted.sourceOccurrence ||
-        owner.transformation_revision !== accepted.provenance.transformationRevision ||
-        owner.source_digest !== accepted.provenance.sourceDigest ||
-        owner.source_watermark !== accepted.provenance.sourceWatermark ||
-        owner.target_semantic_identity !== accepted.targetSemanticIdentity)
-        return yield* Effect.fail(invalid("SourceConflict"));
-      ownedSources.add(owner.source_primary_key);
-    }
+          if (
+            !accepted ||
+            ownedSources.has(owner.source_primary_key) ||
+            owner.destination_identity !== accepted.provenance.destinationIdentity ||
+            owner.source_revision !== accepted.provenance.sourceRevision ||
+            owner.snapshot_id !== accepted.provenance.snapshotId ||
+            owner.source_occurrence !== accepted.sourceOccurrence ||
+            owner.transformation_revision !== accepted.provenance.transformationRevision ||
+            owner.source_digest !== accepted.provenance.sourceDigest ||
+            owner.source_watermark !== accepted.provenance.sourceWatermark ||
+            owner.target_semantic_identity !== accepted.targetSemanticIdentity
+          )
+            return yield* Effect.fail(invalid("SourceConflict"));
+          ownedSources.add(owner.source_primary_key);
+        }
 
-    if (ownedSources.size !== reused.size) return yield* Effect.fail(invalid("SourceConflict"));
+        if (ownedSources.size !== reused.size) return yield* Effect.fail(invalid("SourceConflict"));
 
-    // Persist the immutable review before invoking any filesystem-writing callback.
-    yield* sql`
+        // Persist the immutable review before invoking any filesystem-writing callback.
+        yield* sql`
       INSERT INTO public.receipt_cohort_snapshots (
         snapshot_key, source_repository, snapshot_id, source_revision, receipt_source_revision,
         source_watermark, transformation_revision, person_snapshot_key, reference_snapshot_id,
@@ -501,37 +581,40 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
         ${r.referenceDigest}, ${snapshotDigest}, ${sql.json(r)}, ${snapshot.rows.length}
       )
     `;
-    const fresh = immutable(resolved.filter((row) => !reused.has(row.row.sourcePrimaryKey)));
-    const prepared = fresh.length === 0 ? [] : yield* prepare(fresh);
+        const fresh = immutable(resolved.filter((row) => !reused.has(row.row.sourcePrimaryKey)));
+        const prepared = fresh.length === 0 ? [] : yield* prepare(fresh);
 
-    const checked = yield* Effect.try({
-      try: () => validatePrepared(fresh, prepared),
-      catch: () => invalid("InvalidPreparedResults"),
-    });
+        const checked = yield* Effect.try({
+          try: () => validatePrepared(fresh, prepared),
+          catch: () => invalid("InvalidPreparedResults"),
+        });
 
-    const results = new Map(checked.map((result) => [result.sourcePrimaryKey, result]));
+        const results = new Map(checked.map((result) => [result.sourcePrimaryKey, result]));
 
-    for (const entry of r.entries) {
-      let disposition: "Accepted" | "Quarantined" | "Excluded" = "Excluded";
-      let reasons: readonly string[] = Predicate.isTagged(entry, "Excluded") ? ["ExcludedByReview"] : [];
-      let accepted: AcceptedResult | null = null;
+        for (const entry of r.entries) {
+          let disposition: "Accepted" | "Quarantined" | "Excluded" = "Excluded";
+          let reasons: readonly string[] = Predicate.isTagged(entry, "Excluded")
+            ? ["ExcludedByReview"]
+            : [];
+          let accepted: AcceptedResult | null = null;
 
-      if (Predicate.isTagged(entry, "Import")) {
-        const result = reused.get(entry.sourcePrimaryKey) ?? results.get(entry.sourcePrimaryKey)!;
+          if (Predicate.isTagged(entry, "Import")) {
+            const result =
+              reused.get(entry.sourcePrimaryKey) ?? results.get(entry.sourcePrimaryKey)!;
 
-        if (!reused.has(entry.sourcePrimaryKey)) yield* storeReceiptImportResult(result);
-        const persisted = yield* readLedger(sql, result);
-        disposition = persisted.disposition;
-        reasons = persisted.reasons;
+            if (!reused.has(entry.sourcePrimaryKey)) yield* storeReceiptImportResult(result);
+            const persisted = yield* readLedger(sql, result);
+            disposition = persisted.disposition;
+            reasons = persisted.reasons;
 
-        if (disposition === "Accepted") {
-          if (!Predicate.isTagged(result, "AcceptedReceiptImport"))
-            return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
-          accepted = result;
-        }
-      }
+            if (disposition === "Accepted") {
+              if (!Predicate.isTagged(result, "AcceptedReceiptImport"))
+                return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
+              accepted = result;
+            }
+          }
 
-      yield* sql`
+          yield* sql`
         INSERT INTO public.receipt_cohort_occurrences (
           snapshot_key, source_primary_key, source_row_digest, disposition, reasons_json, accepted_result_json
         ) VALUES (
@@ -540,7 +623,8 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
         )
       `;
 
-      if (accepted !== null && !reused.has(entry.sourcePrimaryKey)) yield* sql`
+          if (accepted !== null && !reused.has(entry.sourcePrimaryKey))
+            yield* sql`
         INSERT INTO public.receipt_cohort_source_bindings (
           source_repository, source_primary_key, source_digest, review_digest,
           transformation_revision, destination_identity, snapshot_key
@@ -550,11 +634,15 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
           ${accepted.receipt.receiptId}, ${snapshotKey}
         )
       `;
-    }
+        }
 
-    return yield* readReport(sql, snapshotKey, false, snapshot.rows.length);
-  })).pipe(
-    Effect.mapError((error) => error instanceof ReceiptCohortFailure ? error : invalid("PersistenceFailure")),
-    Effect.catchDefect(() => Effect.fail(invalid("PersistenceFailure"))),
-  );
+        return yield* readReport(sql, snapshotKey, false, snapshot.rows.length);
+      }),
+    )
+    .pipe(
+      Effect.mapError((error) =>
+        error instanceof ReceiptCohortFailure ? error : invalid("PersistenceFailure"),
+      ),
+      Effect.catchDefect(() => Effect.fail(invalid("PersistenceFailure"))),
+    );
 });
