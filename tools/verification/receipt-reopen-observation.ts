@@ -14,6 +14,7 @@ import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 export async function observeReceiptReopening(options: {
   pool: Pool;
   origin: string;
+  dashboardOrigin: string;
   cookie: string;
   approverCookie: string;
   root: string;
@@ -22,8 +23,7 @@ export async function observeReceiptReopening(options: {
   accepted: () => number;
   setDeliveryAvailable: (available: boolean) => void;
 }) {
-  const { pool, origin, cookie, approverCookie } = options;
-  const dashboardOrigin = "http://127.0.0.1:5174";
+  const { pool, origin, dashboardOrigin, cookie, approverCookie } = options;
   const client = createPromiseClient(origin, { cookie: approverCookie, origin: dashboardOrigin });
 
   const headers = (session: string, etag?: string, key: string = randomUUID()) => {
@@ -295,7 +295,7 @@ export async function observeReceiptReopening(options: {
   const reservation = createServer();
   await new Promise<void>((resolve, reject) => {
     reservation.once("error", reject);
-    reservation.listen(5174, "127.0.0.1", resolve);
+    reservation.listen(Number(new URL(dashboardOrigin).port), "127.0.0.1", resolve);
   });
   await new Promise<void>((resolve) => reservation.close(() => resolve()));
 
@@ -304,11 +304,11 @@ export async function observeReceiptReopening(options: {
     env: {
       ...process.env,
       API_URL: origin,
-      VITE_API_URL: origin,
+      VITE_API_URL: dashboardOrigin,
       DASHBOARD_ORIGIN: dashboardOrigin,
       DASHBOARD_MOUNT: "/",
       HOST: "127.0.0.1",
-      PORT: "5174",
+      PORT: new URL(dashboardOrigin).port,
       NODE_ENV: "production",
     },
     stdio: ["ignore", "ignore", "pipe"],

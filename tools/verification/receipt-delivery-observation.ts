@@ -11,6 +11,7 @@ export const observeReceiptDelivery = async (options: {
   pool: Pool;
   env: NodeJS.ProcessEnv;
   origin: string;
+  dashboardOrigin: string;
   cookie: string;
   approverCookie: string;
   root: string;
@@ -18,7 +19,7 @@ export const observeReceiptDelivery = async (options: {
   registerSecret: (secret: string) => void;
   restart: (env: NodeJS.ProcessEnv) => Promise<void>;
 }) => {
-  const { pool, origin, cookie, approverCookie } = options;
+  const { pool, origin, dashboardOrigin, cookie, approverCookie } = options;
   const token = randomBytes(24).toString("hex");
   options.registerSecret(token);
   let mode: "accept" | "reject" | "ambiguous" | "redirect" = "accept";
@@ -139,7 +140,7 @@ export const observeReceiptDelivery = async (options: {
   const headers = (session: string, key: string, etag?: string) => {
     const result = new Headers({
       cookie: session,
-      origin: "http://127.0.0.1:5174",
+      origin: dashboardOrigin,
       "idempotency-key": identity(key),
     });
 
@@ -307,6 +308,7 @@ export const observeReceiptDelivery = async (options: {
         ? await observeReceiptReopening({
             pool,
             origin,
+            dashboardOrigin,
             cookie,
             approverCookie,
             root: options.root,

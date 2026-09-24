@@ -162,7 +162,10 @@ let cleanupOkay = false;
 
 try {
   const pgPort = await freePort(),
-    backendPort = await freePort();
+    backendPort = await freePort(),
+    dashboardPort = await freePort();
+
+  const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
   command("initdb", [
     "-D",
@@ -221,9 +224,9 @@ try {
     BACKEND_PG_URL: pgUrl,
     BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
     NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["http://127.0.0.1:5174"]),
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
     OAUTH_CANONICAL_ORIGIN: backendOrigin,
-    OAUTH_DASHBOARD_ORIGIN: "http://127.0.0.1:5174",
+    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     RECEIPT_STAGING_ROOT: join(storage, "staging"),
@@ -545,7 +548,7 @@ try {
   const signIn = async (email: string) => {
     const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: "http://127.0.0.1:5174" },
+      headers: { "content-type": "application/json", origin: dashboardOrigin },
       body: JSON.stringify({ email, password }),
     });
 
@@ -566,7 +569,7 @@ try {
     foreign,
     ...[cookie, foreign].map((value) => value.slice(value.indexOf("=") + 1)),
   );
-  const client = createPromiseClient(backendOrigin, { cookie, origin: "http://127.0.0.1:5174" });
+  const client = createPromiseClient(backendOrigin, { cookie, origin: dashboardOrigin });
 
   const reconciliationDiagnostics: Array<{
     sourcePrimaryKey: string;
@@ -735,6 +738,7 @@ try {
       pool,
       env,
       origin: backendOrigin,
+      dashboardOrigin,
       cookie,
       approverCookie: foreign,
       root,
