@@ -7,7 +7,8 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 /** Spec 0095: bounded synthetic snapshot adapter, using the Receipt importer. */
 import { createHash } from "node:crypto";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Match, Predicate, Schema } from "effect";
 import { canonicalJson } from "../../../../packages/domain/src/tutor/evidence.js";
@@ -88,18 +89,32 @@ export const readSnapshotFile = async (
 
   if (within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within))
     throw new Error("UnsafeFilePath");
-  const metadata = await stat(path);
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let bytes: Buffer;
 
-  if (!metadata.isFile() || metadata.size > 10 * 1024 * 1024 || metadata.size !== file.byteLength)
-    throw new Error("FileDigestMismatch");
-  const bytes = await readFile(path);
+  try {
+    const metadata = await handle.stat();
 
-  if (
-    bytes.byteLength > 10 * 1024 * 1024 ||
-    bytes.byteLength !== file.byteLength ||
-    digest(bytes) !== file.sha256
-  )
-    throw new Error("FileDigestMismatch");
+    if (!metadata.isFile() || metadata.size > 10 * 1024 * 1024 || metadata.size !== file.byteLength)
+      throw new Error("FileDigestMismatch");
+    const bounded = Buffer.alloc(file.byteLength + 1);
+    let length = 0;
+
+    while (length < bounded.byteLength) {
+      const result = await handle.read(bounded, length, bounded.byteLength - length, null);
+
+      if (result.bytesRead === 0) break;
+      length += result.bytesRead;
+    }
+
+    bytes = bounded.subarray(0, length);
+
+    if (length !== file.byteLength || digest(bytes) !== file.sha256)
+      throw new Error("FileDigestMismatch");
+  } finally {
+    await handle.close();
+  }
+
   const signature = Buffer.from(bytes.subarray(0, 8));
 
   const valid = Match.value(file.contentType).pipe(

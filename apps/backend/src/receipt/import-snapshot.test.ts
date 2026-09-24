@@ -88,6 +88,33 @@ it("downloads only matching committed bytes, rejecting tampering", async () => {
   await expect(store.readCommitted(staged.file, 1024)).rejects.toThrow();
 });
 
+it("restores missing committed bytes when the same promotion is replayed", async () => {
+  const f = await fixture();
+
+  const store = makeReceiptFileStore({
+    stagingRoot: join(f.root, "staging"),
+    committedRoot: join(f.root, "committed"),
+  });
+
+  const stage = () =>
+    store.stageBytes(new File([f.bytes], "receipt.pdf"), "restore-owner", "application/pdf", 1024);
+
+  const original = await stage();
+
+  const request = ReceiptOutboxRequestSchema.cases.PromoteReceiptFile.make({
+    commandId: "restore-owner",
+    effectId: "restore-promotion",
+    receiptId: "restore-receipt",
+    file: original.file,
+  });
+
+  await Effect.runPromise(store.service.apply(request));
+  await rm(join(f.root, "committed", original.file.objectKey));
+  await stage();
+  await Effect.runPromise(store.service.apply(request));
+  expect(Buffer.from(await store.readCommitted(original.file, 1024))).toEqual(f.bytes);
+});
+
 it("accounts for malformed occurrences and rejects a collision with a decoded row", async () => {
   const f = await fixture();
 
