@@ -123,7 +123,7 @@ export const observeReceiptDelivery = async (options: {
   const outbox = async (id: string) =>
     (
       await pool.query(
-        "SELECT effect_id,status,attempts,delivery_envelope FROM economy_receipt_outbox WHERE receipt_id=$1 ORDER BY ordinal",
+        "SELECT effect_id,status,attempts,delivery_envelope,payload_json FROM economy_receipt_outbox WHERE receipt_id=$1 ORDER BY ordinal",
         [id],
       )
     ).rows;
@@ -236,31 +236,35 @@ export const observeReceiptDelivery = async (options: {
         first.deliveryId,
       ]),
     );
-    // Refund uses owner contact, then freezes it across ambiguous acceptance and restart.
+    // Approval uses owner contact, then freezes it across ambiguous acceptance and restart.
     mode = "ambiguous";
 
-    const refund = await fetch(`${origin}/api/receipts/${failed.id}:refund`, {
+    const approval = await fetch(`${origin}/api/receipts/${failed.id}:approve`, {
       method: "POST",
-      headers: headers(approverCookie, "receipt0097-refund", failed.etag),
+      headers: headers(approverCookie, "receipt0097-approve", failed.etag),
       body: "{}",
     });
 
-    assert.equal(refund.status, 200, await refund.clone().text());
+    assert.equal(approval.status, 200, await approval.clone().text());
     assert.ok((await outbox(failed.id)).some((r) => r.status === "Failed"));
-    const refundEnvelope = attempts.at(-1)!;
-    assert.equal(refundEnvelope.to, "owner0095@example.invalid");
-    assert.match(refundEnvelope.subject, /markert som refundert/);
-    assert.match(refundEnvelope.text, /5.00 NOK/);
-    assert.match(refundEnvelope.text, /Synthetic acknowledged delivery/);
-    assert.match(refundEnvelope.text, /2026-09-06/);
+    const approvalEnvelope = attempts.at(-1)!;
+    assert.equal(approvalEnvelope.to, "owner0095@example.invalid");
+    assert.equal(
+      (await outbox(failed.id)).find((row) => row.effect_id === approvalEnvelope.deliveryId)
+        ?.payload_json._tag,
+      "NotifyReceiptApproved",
+    );
+    assert.match(approvalEnvelope.text, /5.00 NOK/);
+    assert.match(approvalEnvelope.text, /Synthetic acknowledged delivery/);
+    assert.match(approvalEnvelope.text, /2026-09-06/);
     await pool.query(
       "UPDATE person_contact_profiles SET email='changed-owner@example.invalid' WHERE person_id='receipt-owner-0095'",
     );
     mode = "accept";
     await options.restart(env);
     assert.equal(await operatorDrain(failed.id), 0);
-    assert.deepEqual(attempts.at(-1), refundEnvelope);
-    assert.equal([...accepted.keys()].filter((id) => id === refundEnvelope.deliveryId).length, 1);
+    assert.deepEqual(attempts.at(-1), approvalEnvelope);
+    assert.equal([...accepted.keys()].filter((id) => id === approvalEnvelope.deliveryId).length, 1);
     // Concurrent bounded drains converge without repeating the underlying receipt mutation.
     mode = "reject";
     const concurrent = await submit("receipt0097-concurrent");
@@ -345,7 +349,7 @@ export const observeReceiptDelivery = async (options: {
       transportAttempts: attempts.length,
       distinctAccepted: accepted.size,
       submissionEconomyRecipient: true,
-      refundOwnerRecipient: true,
+      approvalOwnerRecipient: true,
       rejectionOwnerRecipient: true,
       missingConfigurationPending: true,
       forcedRejectionRetry: true,

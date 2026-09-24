@@ -248,9 +248,9 @@ export async function observeReceiptReopening(options: {
     ),
     1,
   );
-  assert.equal((await request(race.id, "refund", race.etag)).status, 412);
+  assert.equal((await request(race.id, "approve", race.etag)).status, 412);
 
-  for (const action of ["refund", "withdraw"]) {
+  for (const action of ["approve", "withdraw"]) {
     const receipt = await submit();
 
     const closed = await request(
