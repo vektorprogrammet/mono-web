@@ -1048,13 +1048,13 @@ test("golden school-service continuous functional journey", async ({ browser }) 
     await selectScope(stalePage);
     await stalePage.locator('article[data-commitment-id="' + commitment.commitmentId + '"]').getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
     const staleDecision = stalePage.getByRole("form", { name: /^Beslutning for Skole Beta,/ });
-    await staleDecision.getByLabel("Tjenesteutfall", { exact: true }).selectOption("CancelService");
+    await staleDecision.getByLabel("Tjenesteutfall").selectOption("CancelService");
     await staleDecision.getByLabel("Kilde for dokumentasjonen", { exact: true }).fill("Stale coordinator review");
     await staleDecision.getByLabel("Begrunnelse", { exact: true }).fill("must not overwrite accepted outcome");
 
     await page.locator('article[data-commitment-id="' + commitment.commitmentId + '"]').getByRole("button", { name: "Registrer beslutning for denne datoen" }).click();
     const decision = page.getByRole("form", { name: `Beslutning for Skole Beta, ${manifest.serviceDate} kl. 09:00–11:00, bolk 2`, exact: true });
-    await decision.getByLabel("Tjenesteutfall", { exact: true }).selectOption("CompleteService");
+    await decision.getByLabel("Tjenesteutfall").selectOption("CompleteService");
     await decision.getByLabel("Kilde for dokumentasjonen", { exact: true }).fill(`Skole Beta kontakt, telefon ${manifest.serviceDate}`);
     await expect(decision.getByRole("button", { name: "Lagre uforanderlig beslutning" })).toBeDisabled();
     const staleEtag = (await readCoverageBoard(page)).etag;
