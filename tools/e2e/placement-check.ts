@@ -231,6 +231,28 @@ const cleanup = () =>
       fault: fault ?? null,
       failure: failure === undefined ? null : sanitize(String(failure)),
       observations,
+      transport: outputs
+        .join("")
+        .split("\n")
+        .flatMap((line) => {
+          if (!line.startsWith('{"diagnostic":"golden-http"')) return [];
+          try {
+            const { pid, sequence, method, path, event, elapsed_ms, status } = JSON.parse(line);
+            return [
+              {
+                pid,
+                sequence,
+                method,
+                path,
+                event,
+                elapsed_ms,
+                ...(status === undefined ? {} : { status }),
+              },
+            ];
+          } catch {
+            return [];
+          }
+        }),
       cleanup: {
         processes: children.map((child) => ({
           pid: child.pid,
