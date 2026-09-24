@@ -13,6 +13,8 @@
     "rehearsal:organization-import": "bun run tools/verification/organization-import-rehearsal-main.ts",
     "rehearsal:receipt-import": "bun run tools/verification/receipt-import-rehearsal.ts",
     "rehearsal:account-cohort": "bun run tools/verification/identity-cohort-rehearsal.ts",
+    "rehearsal:current-assignment": "bun --no-env-file tools/verification/current-assignment-cohort-rehearsal.ts",
+    "rehearsal:legacy-current-assignment": "bun --no-env-file tools/e2e/run-legacy-current-assignment-rehearsal.ts",
     "fixture:recommendation-preupgrade": "bun run tools/verification/recommendation-preupgrade-fixture.ts",
     "proof:authorization-rules": "bun run packages/database/runtime/authorization-rules-postgres-proof-main.ts",
     "trace:rule-reconciliation": "bun run packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts",

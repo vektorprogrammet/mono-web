@@ -11,6 +11,7 @@
     "./auth": "./src/auth-live.ts",
     "./authz": "./src/authz/index.ts",
     "./contact": "./src/contact/index.ts",
+    "./cohort-cli": "./src/cohort-cli.ts",
     "./content": "./src/content/index.ts",
     "./historical-service-cohort": "./src/historical-service-cohort.ts",
     "./identity-cohort": "./src/identity-cohort.ts",
@@ -50,8 +51,7 @@
     "build": "tsc --noEmit",
     "lint": "oxlint",
     "rehearsal:person-cohort": "bun run runtime/person-cohort-rehearsal.ts",
-    "rehearsal:historical-service": "bun run runtime/historical-service-cohort-rehearsal.ts",
-    "rehearsal:current-assignment": "bun run runtime/current-assignment-cohort-rehearsal.ts"
+    "rehearsal:historical-service": "bun run runtime/historical-service-cohort-rehearsal.ts"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.1",

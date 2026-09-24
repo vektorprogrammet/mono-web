@@ -31,7 +31,7 @@ export const readPrivateCohortJson = async (
   invalid: () => Error,
   maxBytes = 1_048_576,
 ): Promise<Schema.Json> => {
-  if (!path || process.argv.length !== 2) throw invalid();
+  if (!path) throw invalid();
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 
   try {

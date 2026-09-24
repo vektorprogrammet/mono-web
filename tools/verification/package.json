@@ -10,6 +10,7 @@
     "rehearsal:organization-import": "bun run organization-import-rehearsal-main.ts",
     "rehearsal:receipt-import": "bun run receipt-import-rehearsal.ts",
     "rehearsal:account-cohort": "bun run identity-cohort-rehearsal.ts",
+    "rehearsal:current-assignment": "bun --no-env-file current-assignment-cohort-rehearsal.ts",
     "fixture:recommendation-preupgrade": "bun run recommendation-preupgrade-fixture.ts"
   },
   "dependencies": {

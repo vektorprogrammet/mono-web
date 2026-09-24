@@ -12,6 +12,7 @@ export const disposablePersonCohortDatabaseUrl = (value: string | undefined): st
 
 export const runPersonCohortCli = async (): Promise<void> => {
   if (
+    process.argv.length !== 2 ||
     process.env.PERSON_COHORT_MODE !== "synthetic" ||
     process.env.NATIVE_IDENTITY_DEPLOYMENT !== "local"
   )

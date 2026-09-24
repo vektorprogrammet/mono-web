@@ -43,6 +43,7 @@ export const disposableCohortDatabaseUrl = (value: string | undefined): string =
 
 export const runIdentityCohortCli = async () => {
   if (
+    process.argv.length !== 2 ||
     process.env.IDENTITY_COHORT_MODE !== "synthetic" ||
     process.env.NATIVE_IDENTITY_DEPLOYMENT !== "local"
   )

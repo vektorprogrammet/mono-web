@@ -18,6 +18,7 @@ export const runHistoricalServiceCohortCli = async (): Promise<void> => {
   const mode = process.env.HISTORICAL_SERVICE_MODE;
 
   if (
+    process.argv.length !== 2 ||
     (mode !== "synthetic" && mode !== "legacy-backup") ||
     process.env.NATIVE_IDENTITY_DEPLOYMENT !== "local"
   )
