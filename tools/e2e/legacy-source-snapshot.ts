@@ -176,10 +176,10 @@ export const assertSelectOnlyGrants = (grants: ReadonlyArray<string>, database: 
   }
 };
 
-/** All selected InnoDB tables share one read-only snapshot. Omission retains the six-table shape. */
+/** All selected InnoDB tables share one read-only snapshot. NotRequested retains the six-table shape. */
 export const readLegacySourceSnapshot = async (
   sourceUrl: string,
-  organization: LegacyOrganizationSelection = "NotRequested",
+  organization: LegacyOrganizationSelection,
 ): Promise<LegacySourceSnapshot> => {
   if (organization !== "NotRequested" && organization !== "Include")
     throw new Error("Explicit organization source selection is invalid");
