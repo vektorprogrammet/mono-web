@@ -85,7 +85,10 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: ["apps/dashboard/app/lib/preview-*.test.ts"],
+      files: [
+        "apps/dashboard/app/lib/preview-*.test.ts",
+        "apps/dashboard/app/foldkit/dated-school-service/view.test.ts",
+      ],
       role: "test",
       platform: "browser",
       strictness: "recommended",
