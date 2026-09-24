@@ -1,4 +1,5 @@
 import { Predicate, Data } from "effect";
+import type { SubstituteCommand, SubstituteEntry } from "./schema.js";
 import {
   mapOrganizationAuthorityToAdmissionPeriodActor,
   type OrganizationPersonAuthority,
@@ -14,6 +15,20 @@ export class SubstituteFailure extends Data.TaggedError("SubstituteFailure")<{
     | "scope.invalid";
   readonly status: 400 | 403 | 404 | 422;
 }> {}
+
+/** Returns the existing lifecycle rejection, or null when the command is legal. */
+export const substituteCommandFailure = (
+  entry: SubstituteEntry,
+  command: SubstituteCommand,
+): SubstituteFailure | null => {
+  if (command.action === "activate" && entry.active)
+    return new SubstituteFailure({ code: "substitute.already-active", status: 400 });
+
+  if (command.action !== "activate" && !entry.active)
+    return new SubstituteFailure({ code: "substitute.inactive", status: 400 });
+
+  return null;
+};
 
 /** Uses the canonical mapper, including inactive administrator and multi-membership semantics. */
 export const substitutePermission = (

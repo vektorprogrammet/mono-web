@@ -7,16 +7,11 @@ import {
   SubstituteScope,
   SubstituteScopes,
   substitutePermission,
+  Substitutes,
+  SubstitutePersistenceError,
   type SubstituteEntry,
 } from "@vektorprogrammet/domain/substitutes";
-import {
-  lockSubstituteApplication,
-  mutateSubstitute,
-  readSubstituteEntries,
-  readSubstituteEntry,
-  readSubstitutePeriod,
-  readSubstituteScopes,
-} from "@vektorprogrammet/database/substitutes";
+
 import {
   ExternalNativeApi,
   SubstituteBoard,
@@ -153,7 +148,11 @@ const authorize = (
   });
 
 const errorResponse = (cause: unknown) => {
-  if (cause instanceof HttpSemanticFailure || cause instanceof SubstituteFailure)
+  if (
+    cause instanceof HttpSemanticFailure ||
+    cause instanceof SubstituteFailure ||
+    cause instanceof SubstitutePersistenceError
+  )
     return nativeProblemResponse(cause.code, cause.status);
 
   const tag =
@@ -177,7 +176,11 @@ const errorResponse = (cause: unknown) => {
 };
 
 export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
-  const read = (request: Request, mode: "scopes" | "pool" | "entry", applicationId?: string) =>
+  const read = (
+    request: Request,
+    mode: "scopes" | "pool" | "entry",
+    applicationId?: SubstituteEntry["applicationId"],
+  ) =>
     Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
@@ -193,7 +196,9 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               now: input.now,
             });
 
-            const scopes = yield* readSubstituteScopes(auth.authority);
+            const scopes = yield* Substitutes.use((substitutes) =>
+              substitutes.listScopes(auth.authority),
+            );
 
             for (const department of scopes.departments)
               yield* authorize(
@@ -235,8 +240,10 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               input.now,
             );
 
-            const admissionPeriodId = yield* readSubstitutePeriod(scope);
-            const rows = admissionPeriodId === null ? [] : yield* readSubstituteEntries(scope);
+            const { admissionPeriodId, entries: rows } = yield* Substitutes.use((substitutes) =>
+              substitutes.readPool(scope),
+            );
+
             const entries = rows.flatMap((row) => (row.active ? [substituteResource(row)] : []));
 
             return json(
@@ -257,7 +264,10 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
           }
 
           yield* noQuery(request);
-          const entry = yield* readSubstituteEntry(applicationId!);
+
+          const entry = yield* Substitutes.use((substitutes) =>
+            substitutes.readEntry(applicationId!),
+          );
 
           const auth = yield* authorize(
             request,
@@ -278,7 +288,7 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
 
   const mutation = (
     request: Request,
-    applicationId: string,
+    applicationId: SubstituteEntry["applicationId"],
     action: "activate" | "edit" | "deactivate",
   ) =>
     Effect.gen(function* () {
@@ -308,7 +318,10 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
 
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
-          const selected = yield* readSubstituteEntry(applicationId);
+          const selected = yield* Substitutes.use((substitutes) =>
+            substitutes.readEntry(applicationId),
+          );
+
           const auth = yield* authorize(request, endpoint, selected.departmentId, true, input.now);
 
           const identity = yield* semantic(() =>
@@ -329,19 +342,18 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
               operationId,
             },
             execute: Effect.gen(function* () {
-              yield* lockSubstituteApplication(applicationId);
-              const current = yield* readSubstituteEntry(applicationId);
+              const changed = yield* Substitutes.use((substitutes) =>
+                substitutes.execute(applicationId, command, (current) => {
+                  const precondition = evaluateMutationPrecondition(
+                    substituteResource(current).etag,
+                    ifMatch,
+                  );
 
-              const precondition = evaluateMutationPrecondition(
-                substituteResource(current).etag,
-                ifMatch,
+                  return Predicate.isTagged(precondition, "Failed")
+                    ? Effect.fail(new HttpSemanticFailure(precondition.code, precondition.status))
+                    : Effect.void;
+                }),
               );
-
-              if (Predicate.isTagged(precondition, "Failed"))
-                return yield* Effect.fail(
-                  new HttpSemanticFailure(precondition.code, precondition.status),
-                );
-              const changed = yield* mutateSubstitute(current, command);
 
               const resource = yield* Schema.decodeUnknownEffect(SubstituteResource)(
                 substituteResource(changed),

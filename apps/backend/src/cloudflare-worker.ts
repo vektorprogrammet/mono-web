@@ -6,6 +6,7 @@ import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/c
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { PlacementsLive } from "@vektorprogrammet/placements/server";
+import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
@@ -121,6 +122,7 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
   const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
   const placementsLayer = PlacementsLive.pipe(Layer.provide(databaseLayer));
+  const substitutesLayer = SubstitutesLive.pipe(Layer.provide(databaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
   const returningAssistantsLayer = ReturningAssistantsLive.pipe(Layer.provide(databaseLayer));
 
@@ -158,6 +160,7 @@ export const makeCloudflareBackend = async (env: CloudflareBackendEnv): Promise<
     admissionsLayer,
     economyLayer,
     placementsLayer,
+    substitutesLayer,
     organizationLayer,
     returningAssistantsLayer,
     profileLayer,

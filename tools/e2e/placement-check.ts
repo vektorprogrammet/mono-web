@@ -51,15 +51,19 @@ const runAsync = async (command: string, args: string[], env = process.env, time
         reject,
       );
     }, timeout);
+
     child.once("error", (error) => {
       clearTimeout(timer);
       reject(error);
     });
     child.once("exit", (code) => {
       clearTimeout(timer);
-      code === 0 ? resolve() : reject(Error(command + " exited " + code));
+
+      if (code === 0) resolve();
+      else reject(Error(command + " exited " + code));
     });
   });
+
   return output;
 };
 
@@ -72,12 +76,15 @@ assert.ok(
 );
 
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
+
 const sourceTree = run("git", ["rev-parse", "HEAD^{tree}"]).trim();
 
 assert.equal(run("git", ["status", "--porcelain"]).trim(), "", "requires committed clean artifact");
 
 const artifacts = await mkdtemp(join(tmpdir(), "vektor-placements-0096-"));
+
 process.stdout.write("artifacts: " + artifacts + "\nrunner-pid: " + process.pid + "\n");
+
 const safeEnvironment: NodeJS.ProcessEnv = Object.fromEntries(
   [
     "PATH",
@@ -92,22 +99,27 @@ const safeEnvironment: NodeJS.ProcessEnv = Object.fromEntries(
     "GOLDEN_PROCESS_GROUPS_PATH",
   ].flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]!]])),
 );
+
 const fault = process.env.GOLDEN_SCHOOL_SERVICE_FAULT;
+
 assert.ok(
   fault === undefined || ["omit-attendance", "absent-browser-evidence"].includes(fault),
   "unknown test-driver fault",
 );
+
 const secrets = [
   "journey-secret-0123456789abcdef",
   "synthetic-school-service-token",
   "synthetic-school-service-dispatch-token",
 ];
+
 const sanitize = (value: string) =>
   secrets
     .reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), value)
     .replace(/(authorization|cookie|set-cookie)([\s"':=]+)[^\r\n,}]+/gi, "$1$2[REDACTED]");
 
 const children: ChildProcess[] = [];
+
 let postgresProcess: ChildProcess | undefined;
 
 const outputs: string[] = [];
@@ -161,28 +173,39 @@ let evidence: Schema.JsonObject | undefined;
 let notificationServer: HttpServer | undefined;
 
 let dispatchProviderFails = true;
-let checkpoint: ((step: string) => Promise<unknown>) | undefined;
+
+let checkpoint: ReturnType<typeof createGoldenObserver>["observe"] | undefined;
+
 let observations: Array<{ step: string }> = [];
+
 let ownedPorts: number[] = [];
-let failure: unknown;
+
+let failure: string | undefined;
+
 let interruptedSignal: "SIGINT" | "SIGTERM" | undefined;
+
 let cleanupPromise: Promise<void> | undefined;
+
 const cleanup = () =>
   (cleanupPromise ??= (async () => {
     const errors: string[] = [];
+
     for (const child of [...children].reverse()) {
       if (child === postgresProcess) continue;
+
       try {
         await stopPreviewScenarioBackend(child);
       } catch (error) {
         errors.push(sanitize(String(error)));
       }
     }
+
     try {
       if (pool) await pool.end();
     } catch (error) {
       errors.push(sanitize(String(error)));
     }
+
     try {
       if (postgresProcess) {
         postgresProcess.kill("SIGINT");
@@ -191,6 +214,7 @@ const cleanup = () =>
     } catch (error) {
       errors.push(sanitize(String(error)));
     }
+
     try {
       if (notificationServer?.listening)
         await new Promise<void>((resolve, reject) =>
@@ -199,7 +223,9 @@ const cleanup = () =>
     } catch (error) {
       errors.push(sanitize(String(error)));
     }
+
     const removed: string[] = [];
+
     for (const name of [
       "postgres",
       "manifest.json",
@@ -213,16 +239,19 @@ const cleanup = () =>
         errors.push(sanitize(String(error)));
       }
     }
+
     for (const number of ownedPorts) {
       try {
         await port(number);
-      } catch (error) {
+      } catch {
         errors.push("owned port remains occupied: " + number);
       }
     }
+
     if (errors.length && failure === undefined) failure = "Resource cleanup failed";
+
     const result = {
-      ...(evidence ?? {}),
+      ...evidence,
       passed: (evidence?.passed === true || evidence?.apiPassed === true) && failure === undefined,
       revision,
       sourceTree,
@@ -236,19 +265,13 @@ const cleanup = () =>
         .split("\n")
         .flatMap((line) => {
           if (!line.startsWith('{"diagnostic":"golden-http"')) return [];
+
           try {
             const { pid, sequence, method, path, event, elapsed_ms, status } = JSON.parse(line);
-            return [
-              {
-                pid,
-                sequence,
-                method,
-                path,
-                event,
-                elapsed_ms,
-                ...(status === undefined ? {} : { status }),
-              },
-            ];
+
+            return status === undefined
+              ? [{ pid, sequence, method, path, event, elapsed_ms }]
+              : [{ pid, sequence, method, path, event, elapsed_ms, status }];
           } catch {
             return [];
           }
@@ -269,14 +292,17 @@ const cleanup = () =>
         errors,
       },
     };
+
     await writeFile(join(artifacts, "evidence.json"), sanitize(JSON.stringify(result, null, 2)), {
       mode: 0o600,
     });
+
     if (failure !== undefined)
       await writeFile(join(artifacts, "failure.log"), sanitize(outputs.join("").slice(-24000)), {
         mode: 0o600,
       });
     const retained = [];
+
     for (const name of (await readdir(artifacts)).sort()) {
       if (!goldenArtifactName.test(name)) continue;
       const bytes = await readFile(join(artifacts, name));
@@ -286,6 +312,7 @@ const cleanup = () =>
         bytes: bytes.length,
       });
     }
+
     const runnerSources = await Promise.all(
       goldenRunnerPaths.map(async (path) => ({
         path,
@@ -294,6 +321,7 @@ const cleanup = () =>
           .digest("hex"),
       })),
     );
+
     const receipt = {
       schema_version: "native-functional-journey/v1",
       journey_ref_id:
@@ -324,12 +352,15 @@ const cleanup = () =>
       artifacts: retained,
       runtime: { bun: process.versions.bun, postgres: run("postgres", ["--version"]).trim() },
     };
+
     await writeFile(join(artifacts, "receipt.json"), JSON.stringify(receipt, null, 2), {
       mode: 0o600,
     });
     process.stdout.write(artifacts + "/receipt.json\n");
+
     if (errors.length) throw Error(errors.join("; "));
   })());
+
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () => {
     interruptedSignal = signal;
@@ -367,15 +398,20 @@ try {
       if (request.method === "POST" && request.url?.startsWith("/observe/")) {
         try {
           assert.ok(checkpoint, "observer not ready");
-          const result = await checkpoint(request.url.slice("/observe/".length));
+          const step = request.url.slice("/observe/".length);
+          const result = await checkpoint(step);
+
+          if (step === "offer-failed") dispatchProviderFails = false;
           response.setHeader("content-type", "application/json");
           response.end(JSON.stringify(result));
         } catch (error) {
           response.statusCode = 500;
           response.end(sanitize(String(error)));
         }
+
         return;
       }
+
       const chunks: Buffer[] = [];
 
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
@@ -507,6 +543,7 @@ try {
         ...environment,
         IDENTITY_SEED_PG_URL: postgresUrl,
         IDENTITY_SEED_PERSONS: JSON.stringify([
+          substitute,
           {
             personId: leaderId,
             firstName: "Lina",
@@ -548,6 +585,13 @@ try {
       INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES
         (962,'Skole Beta','Kontakt','beta@example.invalid','synthetic','Norwegian',true,0);
       INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (962,'${departmentId}',0);
+      INSERT INTO admission_period_fields_of_study(field_of_study_id,department_id,name) VALUES('golden-field','${departmentId}','Matematikk');
+      INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES('golden-period','${departmentId}','${semesterId}','2024-01-01','2024-07-01','seed');
+      INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES('golden-applicant','${substitute.email}','${substitute.email}','Kari','Kandidat','90000111',0,'golden-field',3);
+      INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES('golden-application','golden-applicant','golden-period','${departmentId}','golden-field',3,'2024-02-01');
+      INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('golden-invitation','golden-application','golden-applicant','${"c".repeat(64)}','2027-01-01','Claimed','${leaderId}','2024-02-01');
+      INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('golden-applicant','${substitute.personId}','2024-02-01','golden-invitation');
+      INSERT INTO person_contact_profiles(person_id,email,phone) VALUES('${substitute.personId}','${substitute.email}','90000111');
     `);
     } else {
       run("bun", ["apps/dashboard/e2e/native-recruitment-journey-seed.mjs"], environment);
@@ -600,8 +644,10 @@ try {
         .digest("hex");
 
     const credentialsBefore = await credentialSnapshot();
+
     const peopleBefore = (await pool.query("SELECT * FROM person_profiles ORDER BY person_id"))
       .rows;
+
     start(
       "bun",
       [
@@ -650,34 +696,51 @@ try {
         persons,
         serviceDate: "2024-03-11",
         golden: true,
+        candidateId: substitute.personId,
+        applicationId: "golden-application",
+        substituteServiceDate: "2024-03-18",
         fault,
         observerOrigin: "http://127.0.0.1:" + notificationPort,
       };
-      const observer = createGoldenObserver(pool, manifest, notificationRequests);
+
+      const observer = createGoldenObserver(
+        pool,
+        manifest,
+        notificationRequests,
+        dispatchNotificationRequests,
+      );
+
       observations = observer.observations;
       checkpoint = observer.observe;
       await checkpoint("initial");
       const manifestPath = join(artifacts, "manifest.json");
       await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+
       const child = start(
         "bun",
         ["--no-env-file", "apps/dashboard/e2e/run-real-native-placement.mjs"],
         { ...safeEnvironment, PLACEMENT_JOURNEY_MANIFEST: manifestPath },
       );
+
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           child.kill("SIGTERM");
           reject(Error("browser acceptance timed out"));
         }, 300_000);
+
         child.once("error", reject);
         child.once("exit", (code) => {
           clearTimeout(timer);
-          code === 0 ? resolve() : reject(Error("browser child exited " + code));
+
+          if (code === 0) resolve();
+          else reject(Error("browser child exited " + code));
         });
       });
+
       const browserEvidence = JSON.parse(
         await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
       );
+
       assert.equal(browserEvidence.passed, true, "required browser evidence absent or failed");
       assert.equal(browserEvidence.revision, revision);
       assert.deepEqual(browserEvidence.steps, goldenSteps.slice(1));
@@ -2830,9 +2893,10 @@ try {
   }
 } catch (error) {
   if (interruptedSignal === undefined) {
-    failure = error;
+    failure = sanitize(String(error));
     process.exitCode = 1;
   }
+
   process.stderr.write(sanitize(String(error)) + "\n");
 } finally {
   await cleanup();

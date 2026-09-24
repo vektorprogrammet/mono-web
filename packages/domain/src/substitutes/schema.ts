@@ -27,6 +27,13 @@ export const SubstituteMutation = Schema.Struct({
 
 export type SubstituteMutation = typeof SubstituteMutation.Type;
 
+export const SubstituteCommand = Schema.Union([
+  Schema.Struct({ action: Schema.Literal("deactivate") }),
+  Schema.Struct({ action: Schema.Literals(["activate", "edit"]), input: SubstituteMutation }),
+]);
+
+export type SubstituteCommand = typeof SubstituteCommand.Type;
+
 export const SubstituteEntryFields = {
   applicationId: PublicApplicationIdSchema,
   admissionPeriodId: AdmissionPeriodId,
@@ -61,6 +68,13 @@ export const SubstituteScope = Schema.Struct({
 });
 
 export type SubstituteScope = typeof SubstituteScope.Type;
+
+export const SubstitutePool = Schema.Struct({
+  admissionPeriodId: Schema.NullOr(AdmissionPeriodId),
+  entries: Schema.Array(SubstituteEntry),
+});
+
+export type SubstitutePool = typeof SubstitutePool.Type;
 
 export const SubstituteScopes = Schema.Struct({
   departments: Schema.Array(Schema.Struct({ departmentId: DepartmentId, name: Schema.String })),
