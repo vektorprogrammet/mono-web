@@ -690,79 +690,6 @@ describe("DatabaseTest", () => {
           WHERE interview_schema_id = 'recruitment-schema'
         `;
 
-        const assigned = yield* recruitment.assignApplicant(command, {
-          actor,
-          now,
-          interviewId: RecruitmentInterviewId.make("recruitment-interview"),
-        });
-
-        const snapshotMutation = {
-          update: yield* Effect.result(database`
-            UPDATE public.recruitment_interview_question_snapshots
-            SET prompt = 'Mutated'
-            WHERE interview_id = 'recruitment-interview' AND ordinal = 0
-          `),
-          delete: yield* Effect.result(database`
-            DELETE FROM public.recruitment_interview_question_snapshots
-            WHERE interview_id = 'recruitment-interview' AND ordinal = 0
-          `),
-        };
-
-        const replayed = yield* recruitment.assignApplicant(command, {
-          actor,
-          now,
-          interviewId: RecruitmentInterviewId.make("ignored-replay-interview"),
-        });
-
-        const conflictingReplay = yield* Effect.flip(
-          recruitment.assignApplicant(
-            {
-              ...command,
-              interviewerPersonId: PersonId.make("recruitment-leader"),
-            },
-            {
-              actor,
-              now,
-              interviewId: RecruitmentInterviewId.make("conflicting-replay-interview"),
-            },
-          ),
-        );
-
-        const duplicateAssignment = yield* Effect.flip(
-          recruitment.assignApplicant(
-            {
-              ...command,
-              commandId: RecruitmentAssignmentCommandId.make("duplicate-assignment-command"),
-            },
-            {
-              actor,
-              now,
-              interviewId: RecruitmentInterviewId.make("duplicate-assignment-interview"),
-            },
-          ),
-        );
-
-        const closedPeriodReplay = yield* Effect.flip(
-          recruitment.assignApplicant(command, {
-            actor,
-            now: "2031-10-02T12:00:00.000Z",
-            interviewId: RecruitmentInterviewId.make("closed-period-replay-interview"),
-          }),
-        );
-
-        const after = yield* recruitment.readAssignmentBoard({ status: "new" }, { actor, now });
-
-        const persistence = yield* database<{
-          readonly receipts: string;
-          readonly audits: string;
-          readonly interviews: string;
-        }>`
-          SELECT
-            (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
-            (SELECT count(*)::text FROM recruitment_assignment_audit) AS audits,
-            (SELECT count(*)::text FROM recruitment_interviews) AS interviews
-        `;
-
         const sourceBefore = yield* database<{
           readonly interviews: string;
           readonly receipts: string;
@@ -855,6 +782,79 @@ describe("DatabaseTest", () => {
             (SELECT count(*)::text FROM recruitment_interviews) AS interviews,
             (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
             (SELECT count(*)::text FROM public.recruitment_interview_question_snapshots) AS snapshots
+        `;
+
+        const assigned = yield* recruitment.assignApplicant(command, {
+          actor,
+          now,
+          interviewId: RecruitmentInterviewId.make("recruitment-interview"),
+        });
+
+        const snapshotMutation = {
+          update: yield* Effect.result(database`
+            UPDATE public.recruitment_interview_question_snapshots
+            SET prompt = 'Mutated'
+            WHERE interview_id = 'recruitment-interview' AND ordinal = 0
+          `),
+          delete: yield* Effect.result(database`
+            DELETE FROM public.recruitment_interview_question_snapshots
+            WHERE interview_id = 'recruitment-interview' AND ordinal = 0
+          `),
+        };
+
+        const replayed = yield* recruitment.assignApplicant(command, {
+          actor,
+          now,
+          interviewId: RecruitmentInterviewId.make("ignored-replay-interview"),
+        });
+
+        const conflictingReplay = yield* Effect.flip(
+          recruitment.assignApplicant(
+            {
+              ...command,
+              interviewerPersonId: PersonId.make("recruitment-leader"),
+            },
+            {
+              actor,
+              now,
+              interviewId: RecruitmentInterviewId.make("conflicting-replay-interview"),
+            },
+          ),
+        );
+
+        const duplicateAssignment = yield* Effect.flip(
+          recruitment.assignApplicant(
+            {
+              ...command,
+              commandId: RecruitmentAssignmentCommandId.make("duplicate-assignment-command"),
+            },
+            {
+              actor,
+              now,
+              interviewId: RecruitmentInterviewId.make("duplicate-assignment-interview"),
+            },
+          ),
+        );
+
+        const closedPeriodReplay = yield* Effect.flip(
+          recruitment.assignApplicant(command, {
+            actor,
+            now: "2031-10-02T12:00:00.000Z",
+            interviewId: RecruitmentInterviewId.make("closed-period-replay-interview"),
+          }),
+        );
+
+        const after = yield* recruitment.readAssignmentBoard({ status: "new" }, { actor, now });
+
+        const persistence = yield* database<{
+          readonly receipts: string;
+          readonly audits: string;
+          readonly interviews: string;
+        }>`
+          SELECT
+            (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
+            (SELECT count(*)::text FROM recruitment_assignment_audit) AS audits,
+            (SELECT count(*)::text FROM recruitment_interviews) AS interviews
         `;
 
         const applicationScopeResult = yield* Effect.result(
@@ -1088,14 +1088,17 @@ describe("DatabaseTest", () => {
           }
 
           const replay = yield* recruitment.scheduleInterview(fixture.command, context);
+
           const board = yield* recruitment.readSchedulingBoard({
             actor: fixture.actor,
             now: fixture.now,
           });
+
           const assignments = yield* recruitment.readAssignmentBoard(
             { status: "all" },
             { actor: fixture.actor, now: fixture.now },
           );
+
           const current = yield* recruitment.readInvitationResponse(capability);
 
           const attemptedRewrite =
@@ -1129,14 +1132,17 @@ describe("DatabaseTest", () => {
 
           const queuedBefore = yield* historicalWork;
           const gateway = makeRecordingNotificationGateway("2031-09-15T12:05:00.000Z");
+
           const delivery = yield* deliverNextRecruitmentInvitation(
             "requested-rebooking-claim",
             fixture.now,
           ).pipe(Effect.provide(gateway.layer));
+
           const responseDelivery = yield* deliverNextRecruitmentInvitationResponse(
             "requested-rebooking-response-claim",
             fixture.now,
           ).pipe(Effect.provide(gateway.layer));
+
           const queuedAfter = yield* historicalWork;
 
           return {
