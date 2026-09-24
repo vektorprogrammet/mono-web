@@ -1080,7 +1080,26 @@ describe("DatabaseTest", () => {
         const responses = yield* sql<{ responseState: string; superseded: boolean }>`SELECT response_state AS "responseState", superseded_at IS NOT NULL AS superseded
           FROM recruitment_invitations WHERE interview_id = ${fixture.interviewId} ORDER BY schedule_revision`;
 
-        return { first, replay, board, assignments, current, attemptedRewrite, history, responses };
+        yield* sql`UPDATE recruitment_invitation_outbox SET status = 'Failed'
+          WHERE interview_id = ${fixture.interviewId} AND schedule_revision = 1`;
+        yield* sql`UPDATE recruitment_invitation_response_outbox SET status = 'Failed'
+          WHERE interview_id = ${fixture.interviewId} AND schedule_revision = 1`;
+
+        const historicalWork = sql`
+          SELECT effect_id, to_jsonb(outbox)::text AS evidence FROM recruitment_invitation_outbox outbox
+          WHERE interview_id = ${fixture.interviewId} AND schedule_revision < 3
+          UNION ALL
+          SELECT effect_id, to_jsonb(outbox)::text AS evidence FROM recruitment_invitation_response_outbox outbox
+          WHERE interview_id = ${fixture.interviewId} AND schedule_revision < 3
+          ORDER BY effect_id`;
+
+        const queuedBefore = yield* historicalWork;
+        const gateway = makeRecordingNotificationGateway("2031-09-15T12:05:00.000Z");
+        const delivery = yield* deliverNextRecruitmentInvitation("requested-rebooking-claim", fixture.now).pipe(Effect.provide(gateway.layer));
+        const responseDelivery = yield* deliverNextRecruitmentInvitationResponse("requested-rebooking-response-claim", fixture.now).pipe(Effect.provide(gateway.layer));
+        const queuedAfter = yield* historicalWork;
+
+        return { first, replay, board, assignments, current, attemptedRewrite, history, responses, queuedBefore, queuedAfter, delivery, responseDelivery };
       }));
 
       expect(evidence.replay).toEqual({ observation: evidence.first.observation, replayed: true });
@@ -1088,6 +1107,9 @@ describe("DatabaseTest", () => {
       expect(evidence.assignments.candidates.map((item) => item.scheduledAt)).toEqual(["2031-09-23T13:00:00.000Z"]);
       expect(evidence.current).toMatchObject({ room: "Room 3", responseState: "Pending", responseMessage: null });
       expect(evidence.attemptedRewrite._tag).toBe("Failure");
+      expect(Predicate.isTagged(evidence.delivery, "Delivered") ? evidence.delivery.claim.request.scheduleRevision : null).toBe(3);
+      expect(evidence.responseDelivery._tag).toBe("Idle");
+      expect(evidence.queuedAfter).toEqual(evidence.queuedBefore);
       expect(evidence.history).toEqual([
         { scheduleRevision: 1, room: evidence.first.observation.schedule.room },
         { scheduleRevision: 2, room: "Room 2" }, { scheduleRevision: 3, room: "Room 3" },

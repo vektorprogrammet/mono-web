@@ -391,6 +391,11 @@ const claimInTransaction = (
         INNER JOIN recruitment_invitation_response_audit AS audit
           ON audit.invitation_id = outbox.invitation_id
         WHERE outbox.status IN ('Pending', 'Failed')
+          AND EXISTS (
+            SELECT 1 FROM recruitment_invitations AS invitation
+            WHERE invitation.invitation_id = outbox.invitation_id
+              AND invitation.superseded_at IS NULL
+          )
         ORDER BY outbox.attempts ASC,
           audit.responded_at ASC,
           outbox.invitation_id ASC,

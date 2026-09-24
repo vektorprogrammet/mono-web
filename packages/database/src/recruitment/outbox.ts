@@ -497,6 +497,11 @@ const claimInTransaction = (
         INNER JOIN recruitment_schedule_command_receipts AS receipt
           ON receipt.command_id = outbox.command_id
         WHERE outbox.status IN ('Pending', 'Failed')
+          AND EXISTS (
+            SELECT 1 FROM recruitment_invitations AS invitation
+            WHERE invitation.invitation_id = outbox.invitation_id
+              AND invitation.superseded_at IS NULL
+          )
         ORDER BY outbox.attempts ASC, receipt.committed_at ASC,
           outbox.command_id ASC, outbox.ordinal ASC
         FOR UPDATE OF outbox SKIP LOCKED
