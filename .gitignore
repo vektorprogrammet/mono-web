@@ -56,3 +56,8 @@ coverage
 .cache
 tmp
 temppnpm-lock.yaml
+
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
