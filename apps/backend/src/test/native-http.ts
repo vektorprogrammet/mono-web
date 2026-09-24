@@ -1,4 +1,5 @@
 import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import { Placements } from "@vektorprogrammet/placements/contracts";
 import {
   Admissions,
   ReturningAssistants,
@@ -139,6 +140,7 @@ type BackendTestServices =
   | Profile
   | Schools
   | Recruitment
+  | Placements
   | Content
   | ContentManagement
   | SocialEvents
@@ -186,6 +188,7 @@ const unimplementedServices = Layer.mergeAll(
   Layer.mock(Profile, {}),
   Layer.mock(Schools, {}),
   Layer.mock(Recruitment, {}),
+  Layer.mock(Placements, {}),
   Layer.mock(Content, {}),
   Layer.mock(ContentManagement, {}),
   Layer.mock(SocialEvents, {}),
