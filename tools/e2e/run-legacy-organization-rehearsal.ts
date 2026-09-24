@@ -113,7 +113,8 @@ INSERT INTO team_membership VALUES
  (115,15,1,2,2,NULL,1,2,NULL),
  (116,16,2,2,2,NULL,1,0,NULL),
  (117,NULL,1,2,2,NULL,1,0,NULL),
- (118,18,4,2,2,NULL,1,0,NULL);
+ (118,18,4,2,2,NULL,1,0,NULL),
+ (119,0,1,-1,2,NULL,1,0,NULL);
 INSERT INTO executive_board_membership VALUES (201,7,1,'Global administrator',2,NULL);
 CREATE USER 'legacy_organization_reader'@'localhost';
 GRANT SELECT ON vektor.* TO 'legacy_organization_reader'@'localhost';
@@ -214,8 +215,8 @@ const assertCanonical = async (pool: Pool): Promise<void> => {
     (
       await pool.query(`
     SELECT person_id,is_team_leader,is_suspended,position_name,
-      to_char(start_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS start_day,
-      to_char(end_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS end_day,
+      to_char(start_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS start_at,
+      to_char(end_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS end_at,
       deleted_team_name
     FROM public.organization_memberships ORDER BY person_id
   `)
@@ -235,8 +236,8 @@ const assertCanonical = async (pool: Pool): Promise<void> => {
       is_team_leader: leadership,
       is_suspended: suspended,
       position_name: position,
-      start_day: start,
-      end_day: end,
+      start_at: `${start}T00:00:00.000000Z`,
+      end_at: end === null ? null : `${end}T00:00:00.000000Z`,
       deleted_team_name: deleted,
     })),
   );
@@ -315,7 +316,21 @@ const rehearse = async () =>
     stage = "ActualElevenTableReader";
     const source = await readLegacySourceSnapshot(sourceUrl, "Include");
     const omittedSource = await readLegacySourceSnapshot(sourceUrl, "NotRequested");
-    assert.equal(source.teamMemberships?.length, 17);
+    assert.equal(source.teamMemberships?.length, 18);
+    assert.deepEqual(
+      source.teamMemberships?.find((row) => String(row.id) === "119"),
+      {
+        id: 119,
+        userId: 0,
+        teamId: 1,
+        positionId: -1,
+        startSemesterId: 2,
+        endSemesterId: null,
+        isTeamLeader: 1,
+        isSuspended: 0,
+        deletedTeamName: null,
+      },
+    );
     assert.equal(source.executiveBoardMemberships?.length, 1);
     assert.equal("teams" in omittedSource, false);
     assert.notEqual(sourceRevision(omittedSource), sourceRevision(source));
@@ -345,9 +360,16 @@ const rehearse = async () =>
     const pristine = await targetFingerprint(primary.pool);
     const refusals: string[] = [];
 
-    const refuseReview = async (name: string, candidate: OrganizationReview) => {
+    const refuseReview = async (
+      name: string,
+      candidate: OrganizationReview,
+      expectedStage: "OrganizationProjection" | "OrganizationImport" = "OrganizationProjection",
+    ) => {
       stage = name;
-      await assert.rejects(runLegacyServiceCutover({ ...options, organization: candidate }));
+      await assert.rejects(
+        runLegacyServiceCutover({ ...options, organization: candidate }),
+        (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === expectedStage,
+      );
       assert.equal(await targetFingerprint(primary.pool), pristine, `${name} left partial facts`);
       refusals.push(name);
     };
@@ -385,16 +407,20 @@ const rehearse = async () =>
         index === 0 ? { ...entry, endAt: "2025-01-01T00:00:00Z" } : entry,
       ),
     });
-    await refuseReview("no-accepted-appointments", {
-      ...review,
-      memberships: review.memberships.map((entry) => ({
-        sourceKind: entry.sourceKind,
-        sourceId: entry.sourceId,
-        sourceRowDigest: entry.sourceRowDigest,
-        decision: "Excluded",
-        evidenceRef: entry.evidenceRef,
-      })),
-    });
+    await refuseReview(
+      "no-accepted-appointments",
+      {
+        ...review,
+        memberships: review.memberships.map((entry) => ({
+          sourceKind: entry.sourceKind,
+          sourceId: entry.sourceId,
+          sourceRowDigest: entry.sourceRowDigest,
+          decision: "Excluded",
+          evidenceRef: entry.evidenceRef,
+        })),
+      },
+      "OrganizationImport",
+    );
     await mysql("UPDATE vektor.team_membership SET isSuspended=1 WHERE id=101");
     await refuseReview("changed-selected-source", review);
     await mysql("UPDATE vektor.team_membership SET isSuspended=0 WHERE id=101");
@@ -470,8 +496,8 @@ const rehearse = async () =>
     assert.equal(cliReport.source.revision, review.sourceRevision);
     assert.deepEqual(cliReport.organization, {
       accepted: 9,
-      quarantined: 8,
-      input: 18,
+      quarantined: 9,
+      input: 19,
       excluded: 1,
     });
 
@@ -483,6 +509,14 @@ const rehearse = async () =>
     stage = "CanonicalTitlesIntervalsAndNativeAuthority";
     const first = await runLegacyServiceCutover(options);
     assert.ok(first.organization !== "NotRequested");
+    assert.deepEqual(
+      (
+        await primary.pool.query(
+          "SELECT result,reason,target_id FROM public.organization_cohort_occurrences WHERE source_kind='TeamMembership' AND source_id='119'",
+        )
+      ).rows,
+      [{ result: "Quarantined", reason: "InvalidRow", target_id: null }],
+    );
     assert.equal(first.person.accepted, 16);
     assert.equal(first.historicalService.accepted, 1);
     await assertCanonical(primary.pool);
@@ -696,7 +730,7 @@ const rehearse = async () =>
     );
 
     await mysql(
-      "INSERT INTO vektor.team_membership SELECT 119,user_id,team_id,position_id,startSemester_id,endSemester_id,isTeamLeader,isSuspended,deletedTeamName FROM vektor.team_membership WHERE id=101",
+      "INSERT INTO vektor.team_membership SELECT 120,user_id,team_id,position_id,startSemester_id,endSemester_id,isTeamLeader,isSuspended,deletedTeamName FROM vektor.team_membership WHERE id=101",
     );
     const duplicateReview = reviewFor(await readLegacySourceSnapshot(sourceUrl, "Include"));
     const duplicated = await target("organization_duplicate_target");
@@ -712,7 +746,7 @@ const rehearse = async () =>
     assert.equal(duplicateResult.organization.accepted, 8);
     assert.equal(duplicateResult.organization.reasons.DuplicateTarget, 2);
     await assertAuthority(duplicated, false);
-    await mysql("DELETE FROM vektor.team_membership WHERE id=119");
+    await mysql("DELETE FROM vektor.team_membership WHERE id=120");
 
     stage = "ImmutableSourceAndTransformation";
     await mysql("UPDATE vektor.team_membership SET user_id=2 WHERE id=101");
@@ -807,6 +841,49 @@ const rehearse = async () =>
     await assertAuthority(omitted, false);
     await forbiddenFacts(omitted.pool);
 
+    stage = "OrganizationWithoutHistoricalService";
+    await mysql("DELETE FROM vektor.assistant_history");
+    const organizationOnlySource = await readLegacySourceSnapshot(sourceUrl, "Include");
+    assert.equal(organizationOnlySource.history.length, 0);
+    const organizationOnly = await target("organization_without_history");
+
+    const organizationOnlyOptions = {
+      ...options,
+      targetUrl: organizationOnly.url,
+      targetDatabase: organizationOnly.database,
+    };
+
+    const organizationOnlyReport = await runLegacyServiceCutover({
+      ...organizationOnlyOptions,
+      organization: reviewFor(organizationOnlySource),
+    });
+
+    assert.ok(organizationOnlyReport.organization !== "NotRequested");
+    assert.equal(organizationOnlyReport.organization.accepted, 9);
+    assert.equal(organizationOnlyReport.historicalService.stage, "NotImported");
+    await assertCanonical(organizationOnly.pool);
+    await assertAuthority(organizationOnly);
+    await forbiddenFacts(organizationOnly.pool);
+
+    stage = "EmptyRequestedOrganization";
+    // Keep another selected cohort present, so this proves the Organization guard, not
+    // merely the existing all-source-cohorts-empty guard.
+    await mysql(
+      "INSERT INTO vektor.assistant_history VALUES (301,1,1,1,1,'8','Bolk 1','Mandag'); DELETE FROM vektor.team_membership; DELETE FROM vektor.executive_board_membership",
+    );
+    const emptyOrganization = await readLegacySourceSnapshot(sourceUrl, "Include");
+    const beforeEmpty = await targetFingerprint(organizationOnly.pool);
+    await assert.rejects(
+      runLegacyServiceCutover({
+        ...organizationOnlyOptions,
+        organization: reviewFor(emptyOrganization),
+      }),
+      (cause: unknown) =>
+        cause instanceof CutoverStageFailure && cause.stage === "OrganizationProjection",
+    );
+    assert.equal(await targetFingerprint(organizationOnly.pool), beforeEmpty);
+    refusals.push("empty-requested-organization");
+
     return {
       scope: "FaithfulSyntheticElevenTableMariaDBToDisposablePostgreSQL",
       establishesProductionParity: false,
@@ -851,6 +928,9 @@ const rehearse = async () =>
         wholeCutoverRollbackAfterOrganization: true,
         appendOnlyEvidence: true,
         explicitOmission: true,
+        malformedForeignKeyQuarantined: true,
+        organizationWithoutHistoricalService: true,
+        emptyRequestedOrganizationRefused: true,
       },
       privacy: {
         forbiddenFacts: noFabricatedFacts,
