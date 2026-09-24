@@ -61,12 +61,22 @@ export const recruitmentNotificationConfig = (
     return value;
   };
 
+  const staleClaimMilliseconds = positiveInteger("RECRUITMENT_NOTIFICATION_STALE_MS", 60_000);
+  const deliveryTimeoutMilliseconds = positiveInteger(
+    "RECRUITMENT_NOTIFICATION_TIMEOUT_MS",
+    10_000,
+  );
+
+  if (staleClaimMilliseconds <= deliveryTimeoutMilliseconds) {
+    throw new Error("Recruitment claim interval must exceed the delivery timeout");
+  }
+
   return {
     endpoint,
     token,
     pollIntervalMilliseconds: positiveInteger("RECRUITMENT_NOTIFICATION_POLL_MS", 250),
-    staleClaimMilliseconds: positiveInteger("RECRUITMENT_NOTIFICATION_STALE_MS", 60_000),
-    deliveryTimeoutMilliseconds: positiveInteger("RECRUITMENT_NOTIFICATION_TIMEOUT_MS", 10_000),
+    staleClaimMilliseconds,
+    deliveryTimeoutMilliseconds,
   };
 };
 

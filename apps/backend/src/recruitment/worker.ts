@@ -45,14 +45,17 @@ export const runRecruitmentInvitationWorker = (
     yield* recoverStaleRecruitmentInvitations(claimedBefore);
     yield* recoverStaleRecruitmentInvitationResponses(claimedBefore);
     yield* recoverStaleRecruitmentInterviewCompletions(claimedBefore);
-    yield* deliverNextRecruitmentInvitation(`${options.workerId}:${claimSequence++}`, now);
+    yield* deliverNextRecruitmentInvitation(
+      `${options.workerId}:${claimSequence++}`,
+      options.now(),
+    );
     yield* deliverNextRecruitmentInvitationResponse(
       `${options.workerId}:response:${claimSequence++}`,
-      now,
+      options.now(),
     );
     yield* deliverNextRecruitmentInterviewCompletion(
       `${options.workerId}:completion:${claimSequence++}`,
-      now,
+      options.now(),
     );
     yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
   });

@@ -28,7 +28,10 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: ["packages/database/src/**/!(*.test|*.spec|*-main|*-cli).ts"],
+      files: [
+        "packages/database/src/**/!(*.test|*.spec|*-main|*-cli).ts",
+        "packages/placements/src/server/**/!(*.test|*.spec).ts",
+      ],
       role: "runtime-adapter",
       platform: "node",
       strictness: "recommended",
@@ -49,6 +52,12 @@ const effectConfig = {
       files: ["tools/parity/src/**/*.ts"],
       role: "application",
       platform: "node",
+      strictness: "recommended",
+    }),
+    group({
+      files: ["packages/placements/src/!(*.test|*.spec).ts"],
+      role: "effect-library",
+      platform: "portable",
       strictness: "recommended",
     }),
     group({
@@ -91,7 +100,8 @@ const effectConfig = {
       files: [
         "apps/backend/src/main.ts",
         "apps/backend/src/**/*-main.ts",
-        "packages/database/src/**/*-main.ts",
+        "packages/database/runtime/**/*-main.ts",
+        "tools/verification/**/!(*.test).ts",
         "packages/database/src/**/*-cli.ts",
       ],
       role: "composition-root",
@@ -119,7 +129,7 @@ const placementPublicImportPatterns = [
 const browserImportPatterns = [
   {
     regex:
-      "(^|/)(database|pg|postgres)(/|$)|^@vektorprogrammet/placements/server($|/)|(^|/)placements/(src/)?server(/|$)",
+      "(^|/)(database|pg|postgres)(/|$)|^@effect/sql-pg($|/)|^effect/unstable/sql($|/)|^@vektorprogrammet/placements/server($|/)|(^|/)placements/(src/)?server(/|$)",
     message: "Browser-safe modules must not import PostgreSQL adapters.",
   },
 ];
