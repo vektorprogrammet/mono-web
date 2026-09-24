@@ -29,6 +29,9 @@ Code and generated contracts are authoritative for current implementation.
 Do not keep generated code reference, runtime evidence, screenshots, logs, or
 dated migration reports in the repository.
 
+See [remaining migration work](STATE.md#remaining-migration-work) for the authoritative roadmap and [production gates](STATE.md#production-gates) for cutover requirements.
+The local development instructions below do not establish migration completion.
+
 ## Repository map
 
 ```text

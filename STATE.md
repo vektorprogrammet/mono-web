@@ -48,11 +48,10 @@ Independent PHP 8.4.25 fixtures verified bcrypt byte semantics and Argon2id
 compatibility. Raw PHP compatibility is broader than the legacy Symfony login
 encoder, which rejects passwords longer than 72 bytes.
 
-The codec passed on Node 24.20.0 and local workerd, including concurrent requests
-and explicit overload. Local workerd used compatibility date 2026-09-21; the
-product selects 2026-09-22. Worker-plus-PostgreSQL authentication was not exercised.
-Measured process memory and CPU do not prove Cloudflare isolate resource limits.
-Provider resource qualification remains required before production use.
+The codec passed on Node 24.20.0 and local workerd, including concurrent requests and explicit overload.
+The workerd observation belongs to the superseded Worker investigation, not the selected Bun deployment target.
+It did not exercise Worker-plus-PostgreSQL authentication or establish Cloudflare isolate limits.
+The selected production host still needs credential, connection, memory, and CPU qualification under the real workload.
 
 The native replacement has substantial local functionality. Production still
 runs the legacy PHP application.
@@ -212,6 +211,11 @@ The [assignment cohort](packages/database/src/current-assignment-cohort.ts) requ
 The [receipt adapter](apps/backend/src/receipt/import-snapshot.ts) also requires synthetic source and payment-account evidence.
 Both need real-source reconciliation contracts and adapters, not removal of their safety checks.
 
+Organization import also needs integration with accepted Person mappings.
+The [organization adapter](packages/domain/src/organization/import.ts) derives membership Person IDs from numeric legacy user IDs.
+The [real Person adapter](tools/e2e/legacy-person-snapshot.ts) creates `legacy-person-<id>` identities instead.
+Adding organization source tables without reconciling those identities cannot establish correct membership or authority.
+
 Unsupported credentials, legacy aliases, current placements, receipts, private
 files, and settlement references remain. The local backup does not prove
 current mailbox ownership or current production identity. Synthetic
@@ -230,16 +234,35 @@ and settlement references are still needed for the receipt migration.
 
 ## Next
 
-School administration, Organization lifecycle, recruitment maintenance, scoped mailing recipients, requested interview rebooking, and coordinator identity cards have local synthetic acceptance.
-The remaining journeys and policy boundaries appear below. No production activity or external provider delivery was observed.
+Most defined core journeys have local synthetic acceptance. The canonical local development journey is also accepted.
+Full migration still requires implementation, operational decisions, current-data reconciliation, provider acceptance, and an authorized cutover.
+A working local stack does not close these gates. No production activity or external provider delivery was observed.
 
-| Priority | Work                                      | Acceptance gate                                                                                                                                               | Authority                                                                            |
-| -------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| 1        | Complete remaining operational journeys   | Resolve the policy boundaries below before implementing additional journeys.                                                                                  | Local implementation for defined contracts. Product decisions for unresolved policy. |
-| 2        | Extend real-source migration coverage     | Reconcile current assignments, appointments, recruitment, demand, claims, files, and pending effects. Record each source identity and disposition.            | Local adapter work. Current production access requires authorization.                |
-| 3        | Complete provider runtime ownership       | Resolve schema ownership against the frozen contract. Wire delivery drains and recovery. Preserve one transaction and outbox mechanism.                       | Local implementation.                                                                |
-| 4        | Exercise the deployed development journey | Verify Worker, Hyperdrive, PostgreSQL, R2, mail acknowledgement, restart, retry, revocation, and credential resource limits. Exercise PR previews separately. | Explicit provider and credential authority.                                          |
-| 5        | Rehearse and authorize cutover            | Reconcile the final delta, fence writers, verify restoration and rollback after native writes, then transfer ownership.                                       | Separate production authority.                                                       |
+### Remaining migration work
+
+| Workstream                      | Remaining deliverable                                                                                                                                                               | Completion gate                                                                                                                                                              | Authority                                                                          |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Operational scope               | Resolve the obligations below. Implement required outcomes or define an explicit transition process.                                                                                | Each active core case has a supported journey and a responsible owner. Unresolved policy is not silently waived.                                                             | Product decisions for policy; local implementation for defined contracts.          |
+| Real-source import coverage     | Extend the six-table reader and import contracts for required current state, private files, and pending work.                                                                       | Each source occurrence has an evidenced mapping and disposition. Synthetic-only assignment and receipt adapters do not qualify.                                              | Local implementation; current production reads need authorization.                 |
+| Current-data reconciliation     | Obtain a consistent current snapshot, private file archive, and external-work inventory. Resolve identity, authority, quarantine, and payment evidence.                             | Rehearse the complete reconciled candidate, not only the historical backup. Verify identity-level accounting and retained private bytes.                                     | Authorized source access and human decisions for ambiguous facts.                  |
+| Portable deployment preparation | Select the Bun host, PostgreSQL service, private storage, mail, and required integrations. Configure ingress, secrets, migrations, worker supervision, backups, and failure alerts. | The exact candidate preserves PostgreSQL locking and private-file custody. Required delivery work has an explicit runner and recovery path.                                  | Local preparation now; provider selection and provisioning at cutover preparation. |
+| Provider acceptance             | Exercise real authentication, scoped access, private-file writes and reads, required delivery, restart, retry, revocation, and restore.                                             | Observe the actual selected providers. Verify deployment limits and operational recovery. Local capture adapters and frontend previews are not substitutes.                  | Explicit provider and credential authorization.                                    |
+| Cutover and retirement          | Reconcile the final delta, fence legacy writers, verify rollback after native writes, and transfer ownership. Retain required archives and retire legacy dependencies.              | One authoritative writer; no unexplained delta, lost pending effect, missing required file, or unresolved active case. Required readers and writers no longer depend on PHP. | Separate production authority for transfer, rollback, and retirement.              |
+
+The Bun composition already applies database migrations and starts configured background workers.
+The obsolete Worker migration and scheduled-handler mismatch is not a requirement to rebuild that runtime.
+Deployment acceptance must verify the selected composition and every required delivery path.
+PR preview acceptance remains separate tooling work; it does not establish production readiness.
+
+Concrete delivery integration remains:
+
+- The [recruitment worker](apps/backend/src/recruitment/worker.ts) implements invitation, response, and interview-completion delivery and recovery. The native Bun composition does not start it. Compose its notification dependency and supervised lifecycle before provider acceptance.
+- [Password-reset mail](apps/backend/src/password-recovery/drain-main.ts) has a one-shot drain command. Its production execution and recovery need explicit ownership.
+- Receipt commands already attempt post-commit delivery and stale-claim recovery. The [receipt drain](apps/backend/src/receipt/drain-main.ts) adds explicit retry. Verify unattended recovery after failure and restart; do not assume an HTTP request or manual command will arrive.
+
+The recommended next local slice is real-source current-assignment reconciliation, with explicit mappings and provenance.
+The historical backup can exercise rejection and accounting, but it cannot supply current assignments.
+Broader reader coverage must not turn historical membership into current authority or remove synthetic-only safety checks.
 
 ### Remaining operational obligations
 
@@ -259,14 +282,14 @@ Current-source reconciliation must establish active cases, external schedules, a
 These priorities are not a requirement to serialize independent preparation:
 
 ```text
-Operational acceptance and maintenance ----+
-Real-source adapters -> authorized data ---+--> reconciled candidate
-Provider fixes -> authorized provider run -+        |
-                                                  v
-                                      fence, final delta, rollback rehearsal
-                                                  |
-                                                  v
-                                      separately authorized writer transfer
+Defined operational outcomes ---------------+
+Real-source adapters -> authorized data ----+--> reconciled candidate
+Portable hosting -> authorized provider run +        |
+                                                    v
+                                  writer fence + final delta + rollback proof
+                                                    |
+                                                    v
+                                  authorized transfer -> verified retirement
 ```
 
 ### Reconciliation prerequisites
@@ -307,14 +330,18 @@ Production replacement is not authorized or rehearsed.
 
 Before cutover:
 
-- reconcile current Account credentials and recovery, legacy aliases, unsupported
-  credentials, historical affiliations, placements, receipts, and private files;
-- prove required mail and private-file delivery, retained SMS or external-account
-  integrations, and separately authorized settlement evidence;
-- run the final data import against an authorized production snapshot;
-- fence legacy writers before native ownership starts;
-- prove backup, restore, rollback, delivery recovery, and reconciliation;
-- obtain explicit operator authority for each external or destructive action.
+- close required operational outcomes or obtain an approved, owned transition process;
+- reconcile identities, credentials, authority, recruitment, placements, claims, private files, and pending effects against the current source;
+- resolve or explicitly disposition each quarantine, unsupported credential, alias, and missing evidence item;
+- verify the selected Bun deployment, PostgreSQL locks, required delivery providers, private storage, and separately authorized settlement evidence;
+- qualify sustained operation, worker supervision, failure alerts, backup, restore, and credential resource limits;
+- choose and rehearse a final-delta method; exact replay of the initial importer is not incremental migration;
+- fence legacy writers and external schedules before native ownership starts;
+- verify rollback after native writes, including native-only facts and pending external effects;
+- obtain explicit operator authority for production transfer and each external or destructive action.
+
+After transfer, verify that all required readers and writers use the native system.
+Retire PHP and obsolete provider composition only after those dependencies and required archives have an accepted disposition.
 
 Team membership must never stand in for volunteer affiliation. A recommendation
 must never stand in for an explicit coordinator outcome.
@@ -353,6 +380,12 @@ Four maintained Chromium cases, seventeen focused tests, eleven affected type/bu
 The final browser covered a current leader with an ended administrator grant, keyboard submission, retained selection, scope denial, and clipboard copying.
 The 390px mailing surface had no horizontal overflow or automated accessibility violations.
 The record is `/tmp/vektor-mailing-acceptance-b082e628/acceptance.json`, with a checksummed archive of the accepted source.
+Local native development acceptance used committed source `47305540`.
+The final Chromium journey followed the homepage login link, submitted the native form without JavaScript, and read the PostgreSQL directory.
+The retained record also covers both dashboard mounts, restart persistence, missing configuration, port-conflict cleanup, and dirty release-build rejection.
+Nineteen focused homepage tests passed. The affected type-check graph completed twelve tasks, including ten cached results.
+The record is `/tmp/vektor-local-dev-acceptance-eRSdyG/acceptance.json`.
+No provider, production data, or external delivery was exercised. Owned runtime resources and integrated worktrees were removed.
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.
 
