@@ -5,6 +5,10 @@ import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
+import {
+  dashboardBuildInventory,
+  sha256,
+} from "../../../tools/e2e/golden-school-service-evidence.mjs";
 
 // The parent owns PostgreSQL, fixture, backend and credentials; this child owns dashboard and browser.
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -194,7 +198,7 @@ const cleanup = () =>
   })());
 for (const signal of ["SIGTERM", "SIGINT"])
   process.once(signal, () => {
-    failure = `Interrupted by ${signal}`;
+    failure ??= `Interrupted by ${signal}`;
     void cleanup().then(
       () => process.exit(signal === "SIGTERM" ? 143 : 130),
       () => process.exit(1),
@@ -209,6 +213,26 @@ try {
   await new Promise((resolve) => reservation.close(resolve));
   await run("bun", ["--no-env-file", "run", "build"], join(root, "packages/sdk"));
   await run("bun", ["--no-env-file", "run", "build"], dashboardRoot);
+  const sourceTree = spawnSync("git", ["rev-parse", "HEAD^{tree}"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.equal(sourceTree.status, 0);
+  const files = await dashboardBuildInventory(root);
+  await writeFile(
+    join(manifest.artifacts, "browser-build.json"),
+    JSON.stringify(
+      {
+        revision: manifest.revision,
+        sourceTree: sourceTree.stdout.trim(),
+        digest: "sha256:" + sha256(JSON.stringify(files)),
+        files,
+      },
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  );
   const dashboard = start("bun", ["--no-env-file", "server.mjs"], dashboardRoot);
   dashboard.stdout.on("data", (value) => {
     output += value;

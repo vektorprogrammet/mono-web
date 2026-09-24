@@ -25,6 +25,7 @@ import {
 } from "../preview-host/preview-scenario.js";
 import { Predicate, Schema, Record as Rec } from "effect";
 import { createGoldenObserver, goldenSteps } from "./golden-school-service.mjs";
+import { goldenArtifactName, goldenRunnerPaths } from "./golden-school-service-evidence.mjs";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -254,12 +255,7 @@ const cleanup = () =>
       });
     const retained = [];
     for (const name of (await readdir(artifacts)).sort()) {
-      if (
-        !/^(?:evidence\.json|failure\.log|browser-(?:evidence|network|trace-sanitized|cleanup|active)\.json|playwright-evidence\.json|dashboard-(?:runtime|command-[0-9]+)\.log)$/.test(
-          name,
-        )
-      )
-        continue;
+      if (!goldenArtifactName.test(name)) continue;
       const bytes = await readFile(join(artifacts, name));
       retained.push({
         path: name,
@@ -268,12 +264,7 @@ const cleanup = () =>
       });
     }
     const runnerSources = await Promise.all(
-      [
-        "tools/e2e/placement-check.ts",
-        "tools/e2e/golden-school-service.mjs",
-        "apps/dashboard/e2e/run-real-native-placement.mjs",
-        "apps/dashboard/e2e/native-placement.spec.ts",
-      ].map(async (path) => ({
+      goldenRunnerPaths.map(async (path) => ({
         path,
         sha256: createHash("sha256")
           .update(await readFile(join(root, path)))
@@ -320,7 +311,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () => {
     interruptedSignal = signal;
     process.exitCode = signal === "SIGINT" ? 130 : 143;
-    failure = "Interrupted by " + signal;
+    failure ??= "Interrupted by " + signal;
     void cleanup().then(
       () => process.exit(signal === "SIGINT" ? 130 : 143),
       () => process.exit(1),

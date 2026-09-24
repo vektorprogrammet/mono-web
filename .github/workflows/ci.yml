@@ -11,6 +11,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  golden-school-service:
+    name: Golden school-service (required functional gate)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+      - name: Install private PostgreSQL and diagnostic tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-17 postgresql-contrib-17 unzip
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Install isolated Chromium
+        working-directory: apps/dashboard
+        run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Run required golden journey and accept exact-source evidence
+        env:
+          GOLDEN_EXPECTED_REVISION: ${{ github.sha }}
+        run: >-
+          bun --no-env-file tools/e2e/golden-school-service-ci.mjs
+          "${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}"
+      - name: Upload only sanitized golden evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: golden-school-service-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/ci-summary.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/receipt.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/evidence.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-evidence.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-network.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-build.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-cleanup.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-active.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/browser-trace-sanitized.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/playwright-evidence.json
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/failure.log
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/dashboard-runtime.log
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/dashboard-command-1.log
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/dashboard-command-2.log
+            ${{ runner.temp }}/golden-school-service-${{ github.run_id }}-${{ github.run_attempt }}/dashboard-command-3.log
+
   ts:
     name: TypeScript (lint, build, test)
     runs-on: ubuntu-latest
