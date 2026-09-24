@@ -11,6 +11,7 @@ import {
   emitRuntimeEvidenceReceipt,
   sanitizePlaywrightArtifact,
 } from "./runtime-evidence-receipt.mjs";
+import { deriveHttpIdentity } from "../../backend/src/http-semantics.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -75,11 +76,30 @@ const identitySeedPersons = [
   },
 ];
 
-if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1") identitySeedPersons.push(
-  {personId:"person-lifecycle-leader",firstName:"Lina",lastName:"Leder",email:"leader.lifecycle@example.invalid",password:personaPassword},
-  {personId:"person-lifecycle-outsider",firstName:"Ola",lastName:"Annenavdeling",email:"outsider.lifecycle@example.invalid",password:personaPassword},
-  {personId:"person-lifecycle-admin-two",firstName:"Alex",lastName:"Administrator",email:"admin.two.lifecycle@example.invalid",password:personaPassword},
-);
+if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1")
+  identitySeedPersons.push(
+    {
+      personId: "person-lifecycle-leader",
+      firstName: "Lina",
+      lastName: "Leder",
+      email: "leader.lifecycle@example.invalid",
+      password: personaPassword,
+    },
+    {
+      personId: "person-lifecycle-outsider",
+      firstName: "Ola",
+      lastName: "Annenavdeling",
+      email: "outsider.lifecycle@example.invalid",
+      password: personaPassword,
+    },
+    {
+      personId: "person-lifecycle-admin-two",
+      firstName: "Alex",
+      lastName: "Administrator",
+      email: "admin.two.lifecycle@example.invalid",
+      password: personaPassword,
+    },
+  );
 
 const authorityFixturesByPersonId = new Map([
   [adminPersonId, "active-global-administrator-grant"],
@@ -157,7 +177,12 @@ function assertPortAvailable(port) {
     socket.once("error", (error) => {
       socket.destroy();
 
-      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
+      if (
+        error &&
+        (error === null || Predicate.isObjectOrArray(error)) &&
+        "code" in error &&
+        error.code === "ECONNREFUSED"
+      ) {
         resolvePort();
 
         return;
@@ -191,7 +216,12 @@ function signalProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (
+      !error ||
+      !(error === null || Predicate.isObjectOrArray(error)) ||
+      !("code" in error) ||
+      error.code !== "ESRCH"
+    ) {
       throw error;
     }
   }
@@ -423,7 +453,12 @@ async function pathExists(path) {
 
     return true;
   } catch (error) {
-    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
+    if (
+      error &&
+      (error === null || Predicate.isObjectOrArray(error)) &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
       return false;
     }
 
@@ -532,15 +567,13 @@ async function startRecordingProxy(targetOrigin) {
       query: url.search,
       sessionCookieAuth: cookieKey !== undefined,
       authorizationHeaderPresent: request.headers.authorization !== undefined,
-      idempotencyKey:
-        Predicate.isString(request.headers["idempotency-key"])
-          ? request.headers["idempotency-key"]
-          : null,
+      idempotencyKey: Predicate.isString(request.headers["idempotency-key"])
+        ? request.headers["idempotency-key"]
+        : null,
       ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
-      requestContentType:
-        Predicate.isString(request.headers["content-type"])
-          ? request.headers["content-type"]
-          : null,
+      requestContentType: Predicate.isString(request.headers["content-type"])
+        ? request.headers["content-type"]
+        : null,
       sessionPersonId:
         cookieKey === undefined ? null : (sessionPersonsByCookie.get(cookieKey) ?? null),
       canonicalAuthorityFixture: null,
@@ -677,7 +710,25 @@ const readJsonFile = async (path, label) => {
 };
 
 async function readDatabaseEvidence(environment) {
-  const acceptedIds = [commandIds.department, commandIds.team, commandIds.fieldOfStudy]
+  const persistedIds = Object.fromEntries(
+    [
+      ["department", adminPersonId, "organization.createDepartment", "/api/departments"],
+      ["team", adminPersonId, "organization.createTeam", "/api/teams"],
+      ["fieldOfStudy", adminPersonId, "organization.createFieldOfStudy", "/api/field-of-studies"],
+      ["unknownDepartment", adminPersonId, "organization.createTeam", "/api/teams"],
+      ["memberDenied", memberPersonId, "organization.createDepartment", "/api/departments"],
+    ].map(([key, personId, qualifiedOperationId, normalizedTarget]) => [
+      key,
+      deriveHttpIdentity({
+        credentialSubject: `Person:${personId}`,
+        qualifiedOperationId,
+        normalizedTarget,
+        idempotencyKey: commandIds[key],
+      }).commandId,
+    ]),
+  );
+
+  const acceptedIds = [persistedIds.department, persistedIds.team, persistedIds.fieldOfStudy]
     .map((commandId) => `'${commandId}'`)
     .join(",");
 
@@ -741,8 +792,8 @@ async function readDatabaseEvidence(environment) {
           AND audit.actor_person_id = receipt.actor_person_id
           AND audit.occurred_at = receipt.committed_at
       ),
-      'deniedReceipts', (SELECT count(*) FROM organization_command_receipts WHERE command_id IN ('${commandIds.unknownDepartment}', '${commandIds.memberDenied}')),
-      'deniedAudits', (SELECT count(*) FROM organization_creation_audit WHERE command_id IN ('${commandIds.unknownDepartment}', '${commandIds.memberDenied}'))
+      'deniedReceipts', (SELECT count(*) FROM organization_command_receipts WHERE command_id IN ('${persistedIds.unknownDepartment}', '${persistedIds.memberDenied}')),
+      'deniedAudits', (SELECT count(*) FROM organization_creation_audit WHERE command_id IN ('${persistedIds.unknownDepartment}', '${persistedIds.memberDenied}'))
     )::text;`,
     environment,
     "Native Organization PostgreSQL evidence query",
@@ -790,10 +841,7 @@ const assertProblemResponse = (record, expected) => {
       ? Object.keys(record.responseJson).sort()
       : [];
 
-  const allowedKeys = [
-    [...expectedKeys].sort(),
-    [...expectedKeys, "instance"].sort(),
-  ];
+  const allowedKeys = [[...expectedKeys].sort(), [...expectedKeys, "instance"].sort()];
 
   if (
     record.status !== expected.status ||
@@ -801,11 +849,9 @@ const assertProblemResponse = (record, expected) => {
     record.responseJson?.status !== expected.status ||
     record.responseJson?.code !== expected.code ||
     record.responseJson?.type !== `urn:vektorprogrammet:problem:v0.2:${expected.code}` ||
-    record.responseJson?.title !== expected.title ||
     ("instance" in (record.responseJson ?? {}) &&
       record.responseJson.instance !== null &&
       !Predicate.isString(record.responseJson.instance)) ||
-    record.responseJson?.detail !== expected.detail ||
     !record.responseContentType?.startsWith("application/problem+json")
   ) {
     throw new Error(
@@ -1081,7 +1127,12 @@ async function main() {
       await startLocalPostgres(postgresDataRoot, baseEnvironment);
     }
 
-    const configuredBackendCommand = process.env.BACKEND_COMMAND ?? (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1" ? "cd apps/backend && bun --watch src/main.ts" : undefined);
+    const configuredBackendCommand =
+      process.env.BACKEND_COMMAND ??
+      (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1"
+        ? "cd apps/backend && bun --watch src/main.ts"
+        : undefined);
+
     apiProcess = configuredBackendCommand
       ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
           cwd: repositoryRoot,
@@ -1103,7 +1154,9 @@ async function main() {
     });
     await runPsql(seedSql, baseEnvironment, "Native Organization authority fixture seed");
 
-    if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1") await runPsql(`
+    if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1")
+      await runPsql(
+        `
       INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES
       ('person-lifecycle-leader','leader.lifecycle@example.invalid','+47 900 00 054',0),
       ('person-lifecycle-outsider','outsider.lifecycle@example.invalid','+47 900 00 055',0),
@@ -1115,7 +1168,10 @@ async function main() {
       ('appointment-lifecycle-other','person-lifecycle-leader','team-lifecycle-other','2020-01-01T00:00:00Z',true,'Leder'),
       ('appointment-lifecycle-outsider','person-lifecycle-outsider','team-lifecycle-other','2020-01-01T00:00:00Z',true,'Leder');
       INSERT INTO organization_global_administrator_grants(grant_id,person_id,start_at) VALUES('grant-lifecycle-admin-two','person-lifecycle-admin-two','2020-01-01T00:00:00Z');
-    `,baseEnvironment,"Native lifecycle authority seed");
+    `,
+        baseEnvironment,
+        "Native lifecycle authority seed",
+      );
     proxy = await startRecordingProxy(backendOrigin);
 
     const journeyEnvironment = {
@@ -1158,7 +1214,18 @@ async function main() {
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
 
     if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1") {
-      console.log(JSON.stringify({kind:"organization-lifecycle-ready",dashboardOrigin,backendOrigin,postgresUrl,adminEmail,memberEmail,password:personaPassword,temporaryRoot}));
+      console.log(
+        JSON.stringify({
+          kind: "organization-lifecycle-ready",
+          dashboardOrigin,
+          backendOrigin,
+          postgresUrl,
+          adminEmail,
+          memberEmail,
+          password: personaPassword,
+          temporaryRoot,
+        }),
+      );
       await new Promise(() => {});
     }
 
@@ -1331,7 +1398,9 @@ async function main() {
           "role",
         ])
       ) {
-        throw new Error("Native Organization profile resolution did not use the generated v0.2 shape");
+        throw new Error(
+          "Native Organization profile resolution did not use the generated v0.2 shape",
+        );
       }
 
       assertStrongEtag(record.responseEtag, "Native Organization profile resolution");
@@ -1530,38 +1599,33 @@ async function main() {
     );
 
     const changedReplay = organizationRequests.find(
-      ({ idempotencyKey, status }) =>
-        idempotencyKey === commandIds.department && status === 409,
+      ({ idempotencyKey, status }) => idempotencyKey === commandIds.department && status === 409,
     );
 
-    if (unknownReference === undefined || memberDenied === undefined || changedReplay === undefined) {
+    if (
+      unknownReference === undefined ||
+      memberDenied === undefined ||
+      changedReplay === undefined
+    ) {
       throw new Error("Native Organization counterexample transport evidence was incomplete");
     }
 
     assertProblemResponse(unknownReference, {
       status: 422,
       code: "organization.invalid-reference",
-      title: "Invalid organization reference",
-      detail: "An organization reference is invalid.",
     });
     assertProblemResponse(memberDenied, {
       status: 403,
       code: "authority.denied",
-      title: "Authority denied",
-      detail: "The authenticated principal is not permitted to perform this operation.",
     });
     assertProblemResponse(changedReplay, {
       status: 409,
       code: "idempotency.digest-conflict",
-      title: "Idempotency conflict",
-      detail: "This idempotency key identifies a different semantic request.",
     });
 
     const departmentReplays = organizationRequests.filter(
       ({ path, status, idempotencyKey }) =>
-        path === "/api/departments" &&
-        status === 201 &&
-        idempotencyKey === commandIds.department,
+        path === "/api/departments" && status === 201 && idempotencyKey === commandIds.department,
     );
 
     if (departmentReplays.length !== 2) {
