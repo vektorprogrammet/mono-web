@@ -127,9 +127,9 @@ const expectedMigrationEvidence = {
   recruitmentAssignment: recruitmentAssignmentMigration,
 };
 
-const postgresPort = 55446;
+const postgresPort = configuredLoopbackPort("RECRUITMENT_E2E_POSTGRES_PORT", 55446);
 
-const backendPort = 8800;
+const backendPort = configuredLoopbackPort("RECRUITMENT_E2E_BACKEND_PORT", 8800);
 
 function configuredLoopbackPort(name, fallback) {
   const value = process.env[name] ?? String(fallback);

@@ -38,9 +38,9 @@ function configuredLoopbackPort(name, fallback) {
 
 const dashboardPort = configuredLoopbackPort("RECRUITMENT_E2E_DASHBOARD_PORT", 5174);
 
-const backendPort = 8796;
+const backendPort = configuredLoopbackPort("RECRUITMENT_E2E_BACKEND_PORT", 8796);
 
-const postgresPort = 55432;
+const postgresPort = configuredLoopbackPort("RECRUITMENT_E2E_POSTGRES_PORT", 55432);
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -1042,7 +1042,7 @@ async function main() {
     },
   ];
 
-  const baseEnvironment = { ...process.env };
+  const baseEnvironment = { ...process.env, RECEIPT_APPROVAL_PG_PORT: String(postgresPort) };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;

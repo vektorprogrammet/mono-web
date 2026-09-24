@@ -15,9 +15,9 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const postgresPort = 55445;
+const postgresPort = configuredLoopbackPort("RECRUITMENT_E2E_POSTGRES_PORT", 55445);
 
-const backendPort = 8799;
+const backendPort = configuredLoopbackPort("RECRUITMENT_E2E_BACKEND_PORT", 8799);
 
 function configuredLoopbackPort(name, fallback) {
   const value = process.env[name] ?? String(fallback);
