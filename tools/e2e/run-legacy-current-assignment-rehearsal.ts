@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
-import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
+import { decodePersonCohort, importPersonCohort } from "@vektorprogrammet/database/person-cohort";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import {
   CurrentAssignmentReview,
@@ -543,7 +543,28 @@ const runRehearsal = async (temporaryRoot: string) => {
     await refuseReview("changed-source-row", review);
     await mysql("UPDATE vektor.assistant_history SET day = 'Mandag' WHERE id = 101");
 
+    stage = "AllInactiveAssignments";
+    await assert.rejects(
+      runLegacyServiceCutover({
+        ...options,
+        currentAssignments: {
+          ...review,
+          assignments: review.assignments.map((entry) => ({ ...entry, active: false })),
+        },
+      }),
+      (cause: unknown) =>
+        cause instanceof CutoverStageFailure &&
+        cause.stage === "CurrentAssignmentImport" &&
+        cause.detail === "NoAcceptedAssignments",
+    );
+    assert.equal(
+      await targetFingerprint(primary.pool),
+      untouched,
+      "All-inactive review left partial cutover facts",
+    );
+    refusals.push("all-inactive-no-accepted-assignments");
     stage = "WholeCutoverRollback";
+
     // A last-stage account failure must roll back references, People, history AND current assignments.
     await primary.pool.query(`
       CREATE FUNCTION auth.fail_assignment_rehearsal() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -568,22 +589,38 @@ const runRehearsal = async (temporaryRoot: string) => {
     const reviewFile = join(temporaryRoot, "assignment review.json");
     await writeFile(reviewFile, JSON.stringify(review), { mode: 0o600, flag: "wx" });
 
-    const cliOutput = await run(
-      [
-        process.execPath,
-        "--no-env-file",
-        join(repositoryRoot, "tools/e2e/run-legacy-service-cutover.ts"),
-        "--source-url-env=REHEARSAL_SOURCE_URL",
-        "--target-url-env=REHEARSAL_TARGET_URL",
-        `--target-database=${primary.database}`,
-        `--snapshot-id=${options.snapshotId}`,
-        `--attested-by=${options.attestedBy}`,
-        "--passwordless-policy=provision-recovery",
-        `--current-assignments=${reviewFile}`,
-      ],
-      undefined,
-      { REHEARSAL_SOURCE_URL: options.sourceUrl, REHEARSAL_TARGET_URL: options.targetUrl },
+    const cliCommand = [
+      process.execPath,
+      "--no-env-file",
+      join(repositoryRoot, "tools/e2e/run-legacy-service-cutover.ts"),
+      "--source-url-env=REHEARSAL_SOURCE_URL",
+      "--target-url-env=REHEARSAL_TARGET_URL",
+      `--target-database=${primary.database}`,
+      `--snapshot-id=${options.snapshotId}`,
+      `--attested-by=${options.attestedBy}`,
+      "--passwordless-policy=provision-recovery",
+      `--current-assignments=${reviewFile}`,
+    ];
+
+    const cliEnvironment = {
+      REHEARSAL_SOURCE_URL: options.sourceUrl,
+      REHEARSAL_TARGET_URL: options.targetUrl,
+    };
+
+    await assert.rejects(run(cliCommand.slice(0, -1), undefined, cliEnvironment));
+    assert.equal(
+      await targetFingerprint(primary.pool),
+      untouched,
+      "Missing CLI assignment choice changed target",
     );
+    await assert.rejects(run([...cliCommand, cliCommand.at(-1)!], undefined, cliEnvironment));
+    assert.equal(
+      await targetFingerprint(primary.pool),
+      untouched,
+      "Duplicate CLI assignment choice changed target",
+    );
+    refusals.push("missing-cli-assignment-choice", "duplicate-cli-assignment-choice");
+    const cliOutput = await run(cliCommand, undefined, cliEnvironment);
 
     const cliReport = Schema.decodeUnknownSync(
       Schema.Struct({
@@ -808,6 +845,143 @@ const runRehearsal = async (temporaryRoot: string) => {
     }
 
     assert.equal(await targetFingerprint(provenance.pool), provenanceBefore);
+    stage = "PersonOccurrenceIdentityCollision";
+    const collision = await target("assignment_person_collision");
+    await seedLegacyReferences(collision.pool, provenanceIdentity, references);
+
+    const priorPerson = decodePersonCohort({
+      ...personSnapshot,
+      snapshotId: "before-person-occurrence-collision",
+      occurrences: personSnapshot.occurrences.filter(
+        (row) => row.occurrenceId === "legacy-user-row-1",
+      ),
+      mappings: personSnapshot.mappings.filter(
+        (mapping) => mapping.sourceUserId === "legacy-user:1",
+      ),
+    });
+
+    assert.equal((await importPersonCohort(collision.pool, priorPerson)).accepted, 1);
+
+    // Occurrence IDs are snapshot-local labels, not portable evidence of a source-user identity.
+    const collidingPerson = decodePersonCohort({
+      ...personSnapshot,
+      occurrences: personSnapshot.occurrences
+        .filter((row) => row.occurrenceId === "legacy-user-row-2")
+        .map((row) => ({ ...row, occurrenceId: "legacy-user-row-1" })),
+      mappings: personSnapshot.mappings.filter(
+        (mapping) => mapping.sourceUserId === "legacy-user:2",
+      ),
+    });
+
+    const collidingPersonReport = await importPersonCohort(collision.pool, collidingPerson);
+    assert.equal(collidingPersonReport.accepted, 1);
+
+    const collidingAssignments = buildLegacyCurrentAssignmentSnapshot(
+      source,
+      collidingPersonReport,
+      collidingPerson,
+      review,
+      {
+        snapshotId: options.snapshotId,
+        transformationRevision: first.source.transformationRevision,
+        referenceDigest: references.referenceDigest,
+      },
+    );
+
+    const staleMapping = projected.mappings.find(
+      (mapping) => mapping.sourceAssignmentId === "legacy-history:101",
+    )!;
+
+    const collisionReport = await importReconciledCurrentAssignmentCohort(
+      collision.pool,
+      rehash({
+        ...collidingAssignments,
+        mappings: [...collidingAssignments.mappings, staleMapping],
+      }),
+    );
+
+    assert.equal(collisionReport.accepted, 1);
+    assert.equal(
+      collisionReport.occurrences.find((row) => row.occurrenceId === "legacy-history-row-101")
+        ?.reason,
+      "PersonReconciliationMissing",
+    );
+    assert.deepEqual(await canonicalPlacements(collision.pool), [
+      {
+        person_id: "legacy-person-2",
+        day: "Wednesday",
+        workdays: 6,
+        block: "Both",
+        active: true,
+        revision: 1,
+      },
+    ]);
+    assert.deepEqual(
+      (
+        await collision.pool.query(
+          "SELECT person_id FROM public.organization_volunteer_affiliations ORDER BY person_id",
+        )
+      ).rows,
+      [{ person_id: "legacy-person-2" }],
+    );
+    refusals.push("snapshot-local-person-occurrence-collision");
+
+    stage = "PersonCrossSnapshotExactReplay";
+    const personReplay = await target("assignment_person_replay");
+    await seedLegacyReferences(personReplay.pool, provenanceIdentity, references);
+
+    const earlierPeople = decodePersonCohort({
+      ...personSnapshot,
+      snapshotId: "before-person-exact-replay",
+    });
+
+    assert.equal((await importPersonCohort(personReplay.pool, earlierPeople)).accepted, 5);
+
+    const laterPeople = decodePersonCohort({
+      ...personSnapshot,
+      occurrences: personSnapshot.occurrences.map((row) => ({
+        ...row,
+        occurrenceId: "later:" + row.occurrenceId,
+      })),
+    });
+
+    const laterPeopleReport = await importPersonCohort(personReplay.pool, laterPeople);
+    assert.equal(laterPeopleReport.accepted, 5);
+    assert.deepEqual(
+      laterPeopleReport.occurrences
+        .filter((row) => row.disposition === "Accepted")
+        .map((row) => row.reason),
+      Array(5).fill("ExactReplay"),
+    );
+
+    const laterAssignments = buildLegacyCurrentAssignmentSnapshot(
+      source,
+      laterPeopleReport,
+      laterPeople,
+      review,
+      {
+        snapshotId: options.snapshotId,
+        transformationRevision: first.source.transformationRevision,
+        referenceDigest: references.referenceDigest,
+      },
+    );
+
+    const laterAssignmentReport = await importReconciledCurrentAssignmentCohort(
+      personReplay.pool,
+      laterAssignments,
+    );
+
+    assert.equal(laterAssignmentReport.accepted, 3);
+    await assertCanonical(personReplay.pool);
+    const replayedPeopleState = await targetFingerprint(personReplay.pool);
+    await importPersonCohort(personReplay.pool, laterPeople);
+    await importReconciledCurrentAssignmentCohort(personReplay.pool, laterAssignments);
+    assert.equal(
+      await targetFingerprint(personReplay.pool),
+      replayedPeopleState,
+      "Cross-snapshot accepted Person replay changed canonical facts",
+    );
+
     // A fresh, self-consistent review still cannot repoint an already imported source identity.
     await mysql("UPDATE vektor.assistant_history SET user_id = 2 WHERE id = 101");
     const repointed = reviewFor(await readLegacySourceSnapshot(sourceUrl.toString()));
@@ -889,6 +1063,66 @@ const runRehearsal = async (temporaryRoot: string) => {
       { placements: "0", affiliations: "0", snapshots: "0", reviews: "0" },
     );
     await forbiddenFacts(historicalOnly.pool);
+    stage = "MissingSourceSchoolDepartmentAssociation";
+    await mysql(`
+      INSERT INTO vektor.school VALUES
+        (2,'Synthetic unassociated school','Synthetic contact','unassociated@example.invalid','12345678',0,1);
+      UPDATE vektor.assistant_history SET school_id = 2 WHERE id IN (101,109);
+    `);
+    const unassociatedSource = await readLegacySourceSnapshot(sourceUrl.toString());
+    const unassociatedReview = reviewFor(unassociatedSource);
+    const unassociated = await target("assignment_missing_association");
+
+    const unassociatedResult = await runLegacyServiceCutover({
+      ...options,
+      targetUrl: unassociated.url,
+      targetDatabase: unassociated.database,
+      currentAssignments: unassociatedReview,
+    });
+
+    assert.ok(unassociatedResult.currentAssignments !== "NotImported");
+    assert.deepEqual(
+      {
+        accepted: unassociatedResult.currentAssignments.accepted,
+        quarantined: unassociatedResult.currentAssignments.quarantined,
+      },
+      { accepted: 2, quarantined: 7 },
+    );
+    assert.deepEqual(
+      (
+        await unassociated.pool.query(`
+      SELECT occurrence_id,reason FROM public.current_assignment_occurrences
+      WHERE occurrence_id IN ('legacy-history-row-101','legacy-history-row-109') ORDER BY occurrence_id
+    `)
+      ).rows,
+      [
+        { occurrence_id: "legacy-history-row-101", reason: "SchoolDepartmentMismatch" },
+        { occurrence_id: "legacy-history-row-109", reason: "Inactive" },
+      ],
+    );
+    assert.deepEqual(await canonicalPlacements(unassociated.pool), [
+      {
+        person_id: "legacy-person-1",
+        day: "Tuesday",
+        workdays: 4,
+        block: "2",
+        active: true,
+        revision: 1,
+      },
+      {
+        person_id: "legacy-person-2",
+        day: "Wednesday",
+        workdays: 6,
+        block: "Both",
+        active: true,
+        revision: 1,
+      },
+    ]);
+    await forbiddenFacts(unassociated.pool);
+    await mysql(`
+      UPDATE vektor.assistant_history SET school_id = 1 WHERE id IN (101,109);
+      DELETE FROM vektor.school WHERE id = 2;
+    `);
 
     stage = "CurrentOnlySource";
     await mysql("DELETE FROM vektor.assistant_history WHERE id = 201");
@@ -937,6 +1171,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         watermark: review.sourceWatermark,
         credentialsExcludedFromRevision: true,
         selectOnlyReader: true,
+        missingAssociationRevision: unassociatedReview.sourceRevision,
       },
       target: {
         schemaRevision: databaseSchemaRevision,
@@ -954,6 +1189,11 @@ const runRehearsal = async (temporaryRoot: string) => {
         bothBlocksExplicitlyConfirmed: true,
         acceptedPersonDependence: true,
         exactPersonMappingRequired: true,
+        personOccurrenceCollisionRejected: true,
+        crossSnapshotPersonReplayAccepted: true,
+        missingAssociationQuarantinedPerRow: true,
+        allInactiveCutoverRolledBack: true,
+        requiredUniqueCLIAssignmentChoice: true,
         nativeExistenceInsufficient: true,
         inactiveDoesNotCompete: true,
         sameSnapshotProvenance: true,
