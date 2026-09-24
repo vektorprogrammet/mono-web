@@ -11,7 +11,7 @@ export class OrganizationDecodeError extends Schema.TaggedError<OrganizationDeco
 
 export class OrganizationPersistenceError extends Schema.TaggedError<OrganizationPersistenceError>()(
   "OrganizationPersistenceError",
-  { operation: NonEmpty, message: NonEmpty },
+  { operation: NonEmpty, message: NonEmpty, cause: Schema.optional(Schema.Unknown) },
 ) {}
 
 export class OrganizationAuthorityRecordNotFound extends Schema.TaggedError<OrganizationAuthorityRecordNotFound>()(

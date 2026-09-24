@@ -105,6 +105,7 @@ export const lockPersonAuthorization = (
         new OrganizationPersistenceError({
           operation: "lock person authorization",
           message: String(cause),
+          cause,
         }),
       ),
     ),
@@ -478,6 +479,7 @@ export const resolveOrganizationPersonAuthorityWithSql = (
           new OrganizationPersistenceError({
             operation: "resolve Organization person authority",
             message: String(cause),
+            cause,
           }),
         ),
       ),
