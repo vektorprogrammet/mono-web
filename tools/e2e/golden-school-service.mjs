@@ -111,15 +111,8 @@ const assertSubstituteFacts = (step, facts, previous, fixture, deliveries) => {
     );
   }
 
-  const eligible = [
-    "pool-activated",
-    "pool-reactivated",
-    "assignment-released",
-    "offer-failed",
-    "offer-delivered",
-    "wrong-recipient",
-    "offer-accepted",
-  ].includes(step);
+  // Dispatch reserves the interval immediately; delivery or acceptance does not release it.
+  const eligible = ["pool-activated", "pool-reactivated", "assignment-released"].includes(step);
 
   assert.deepEqual(
     facts.eligible,
@@ -135,6 +128,13 @@ const assertSubstituteFacts = (step, facts, previous, fixture, deliveries) => {
   const offer = facts.offers[0];
 
   if (offer) {
+    assert.deepEqual(facts.offerReservations, [
+      {
+        source_id: offer.offer_id,
+        commitment_id: commitment.commitment_id,
+        person_id: candidateId,
+      },
+    ]);
     assert.equal(offer.absence_id, absence.absence_id);
     assert.equal(offer.candidate_person_id, candidateId);
     assert.equal(offer.dispatcher_person_id, leaderId);
@@ -339,6 +339,9 @@ export const createGoldenObserver = (pool, fixture, deliveries, dispatchDeliveri
         `),
         absences: await rows("SELECT * FROM school_service_absences ORDER BY absence_id"),
         offers: await rows("SELECT * FROM school_service_substitute_offers ORDER BY offer_id"),
+        offerReservations: await rows(
+          "SELECT source_id,commitment_id,person_id FROM school_service_person_reservations WHERE source_kind='Offer' ORDER BY source_id",
+        ),
         responses: await rows(
           "SELECT * FROM school_service_substitute_offer_responses ORDER BY offer_id",
         ),
