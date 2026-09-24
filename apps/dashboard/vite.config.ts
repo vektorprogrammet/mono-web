@@ -45,7 +45,11 @@ export default defineConfig(({ command }) => {
 
   if (rehearsalSdk !== undefined) alias["@vektorprogrammet/sdk/effect"] = rehearsalSdk;
 
-  const server: ServerOptions = { strictPort: true };
+  const server: ServerOptions = {
+    host: "127.0.0.1",
+    port: Number(process.env.LOCAL_DASHBOARD_PORT ?? 5173),
+    strictPort: true,
+  };
 
   if (process.env.API_URL) server.proxy = { "/api": { target: process.env.API_URL } };
 
