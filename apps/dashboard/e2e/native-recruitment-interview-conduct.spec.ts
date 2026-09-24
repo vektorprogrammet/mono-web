@@ -1,3 +1,4 @@
+import { CancelInterviewResponse, ConductObservation, SchedulingBoard } from "@vektorprogrammet/http-api";
 import { RecruitmentBridgeFailure } from "../app/foldkit/recruitment/bridge";
 import { Schema, Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
@@ -391,18 +392,36 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       ]);
 
       expect(cancelResponse.status()).toBe(200);
+      const cancellation = Schema.decodeUnknownSync(CancelInterviewResponse)(await cancelResponse.json());
       expect(cancelledConductResponse.status()).toBe(200);
       expect(cancelledBoardResponse.status()).toBe(200);
       await expect(independentPage.getByText("Intervjuet er avlyst.")).toBeVisible();
       await expect(independentPage.locator(".fs-conduct .fs-status")).toHaveText("Avlyst");
 
-      // A real reload starts from the native session and reads the persisted cancellation again.
+      // Cancellation leaves the active board, but its authorized conduct history remains readable.
+      const reloadedBoard = responseFor(independentPage, "readSchedulingBoard");
       await independentPage.reload();
+      const reloadedBoardResponse = await reloadedBoard;
+      expect(reloadedBoardResponse.status()).toBe(200);
+      const board = Schema.decodeUnknownSync(SchedulingBoard)(await reloadedBoardResponse.json());
+      expect(board.interviews.some(interview => interview.interviewId === cancellation.interviewId)).toBe(false);
       await expect(
         independentPage.getByRole("heading", { level: 1, name: "Planlegg intervjuer" }),
       ).toBeVisible();
-      await openConduct(independentPage, applicantB);
-      await expect(independentPage.locator(".fs-conduct .fs-status")).toHaveText("Avlyst");
+      await expect(cardFor(independentPage, applicantB)).toHaveCount(0);
+
+      const retainedConductResponse = await independentContext.request.get(
+        `${apiOrigin}/api/recruitment/interviews/${cancellation.interviewId}`,
+        { headers: { origin: dashboardOrigin } },
+      );
+
+      expect(retainedConductResponse.status()).toBe(200);
+      const retainedConduct = Schema.decodeUnknownSync(ConductObservation)(await retainedConductResponse.json());
+      expect(retainedConduct.interviewId).toBe(cancellation.interviewId);
+      expect(retainedConduct.cancellationState).toBe("Cancelled");
+      expect(retainedConduct.cancelledAt).toBe(cancellation.cancelledAt);
+      expect(retainedConduct.canCancel).toBe(false);
+      expect(retainedConduct.canFinalize).toBe(false);
       await expect(independentPage.locator("body")).not.toContainText("responseCapability");
       await expect(independentPage.locator("body")).not.toContainText("responseCode");
       await expect(independentPage.locator("body")).not.toContainText(
