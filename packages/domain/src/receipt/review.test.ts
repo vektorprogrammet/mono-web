@@ -117,6 +117,7 @@ it("binds raw stale refund dates and account commitments without interpreting ei
 
 it("allows an explicitly unresolved owner, never an invented source ownership mapping", () => {
   const ownerless = { ...row, sourceUserId: null, accountCommitment: null };
+
   const decision = {
     ...entry,
     person: null,
@@ -200,6 +201,7 @@ it("requires explicit timezone shape but leaves impossible calendars to native q
 it("does not infer approval from a legacy refund date", () => {
   const refunded = { ...row, status: "refunded" };
   const reviewed = { ...entry, sourceRowDigest: receiptSourceRowDigest(refunded) };
+
   const input = {
     rows: [refunded],
     review: {
@@ -208,6 +210,7 @@ it("does not infer approval from a legacy refund date", () => {
       entries: [reviewed],
     },
   };
+
   expect(() => decodeReviewedReceiptSnapshot(input)).toThrow();
   expect(
     decodeReviewedReceiptSnapshot({

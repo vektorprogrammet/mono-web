@@ -106,6 +106,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
     const options = Schema.decodeUnknownSync(LegacyReceiptImportOptions)(input, {
       onExcessProperty: "error",
     });
+
     const sourceUrl = process.env[options.sourceEnv];
     const targetUrl = process.env[options.targetEnv];
 
@@ -123,6 +124,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
       new Set(roots.map((path) => resolve(path))).size !== roots.length
     )
       throw new LegacyReceiptImportFailure(stage, "InvalidFileRoots");
+
     const { targetSelection, socketPath, caEnv } = selectLegacyTargetTransport(
       targetUrl,
       options.targetDatabase,
@@ -165,6 +167,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
       Effect.gen(function* () {
         const database = yield* Database;
         const files = yield* ReceiptFileStoreResource;
+
         const selected = yield* database<{
           readonly name: string;
         }>`SELECT current_database() AS name`;
@@ -175,6 +178,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
         if (database.schemaRevision !== databaseSchemaRevision)
           return yield* new ReceiptCohortFailure({ code: "TargetSchemaMismatch" });
         stage = "ReceiptImport";
+
         const report = yield* runReviewedReceiptImport(
           snapshot,
           accounts,
@@ -251,6 +255,7 @@ if (import.meta.main) {
         "target-database",
         "organization-source",
       ];
+
       const argumentsByName: Record<string, string> = {};
 
       for (const argument of process.argv.slice(2)) {

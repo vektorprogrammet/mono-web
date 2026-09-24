@@ -313,10 +313,20 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   );
 
   const source = await inStage("SourceRead", () =>
-    readLegacySourceSnapshot(options.sourceUrl, organizationReview === undefined ? "NotRequested" : "Include", "NotRequested"),
+    readLegacySourceSnapshot(
+      options.sourceUrl,
+      organizationReview === undefined ? "NotRequested" : "Include",
+      "NotRequested",
+    ),
   );
 
-  const { credentials, receipts: _receipts, paymentAccounts: _paymentAccounts, ...personAndServiceSource } = source
+  const {
+    credentials,
+    receipts: _receipts,
+    paymentAccounts: _paymentAccounts,
+    ...personAndServiceSource
+  } = source;
+
   const sourceRevision = digest(personAndServiceSource);
 
   if (

@@ -354,14 +354,17 @@ const rehearse = async () =>
     const checks: string[] = [];
     const checked = (name: string) => checks.push(name);
     const key = randomBytes(32);
+
     const cipher = PaymentCustody.makePaymentAccountCipher({
       keyId: "synthetic-receipt-key-v1",
       key,
     });
+
     const wrongCipher = PaymentCustody.makePaymentAccountCipher({
       keyId: cipher.keyId,
       key: randomBytes(32),
     });
+
     const keyPath = join(temporaryRoot, "payment-key.json");
     await privateJson(keyPath, { keyId: cipher.keyId, keyBase64: key.toString("base64") });
 
@@ -447,6 +450,7 @@ const rehearse = async () =>
     const rootsFor = async (name: string): Promise<Roots> => {
       const root = join(temporaryRoot, name);
       await mkdir(root, { mode: 0o700 });
+
       const roots = {
         archive: join(root, "archive"),
         staging: join(root, "staging"),
@@ -457,12 +461,14 @@ const rehearse = async () =>
 
       for (const row of receiptFixtures) {
         if (row.id === 4 || row.id === 13 || row.id === 14 || row.id === 15) continue;
+
         const bytes = Match.value(row.id).pipe(
           Match.when(2, () => png),
           Match.when(3, () => jpeg),
           Match.when(18, () => Buffer.from("not-a-PDF-document")),
           Match.orElse(() => pdf),
         );
+
         await writeFile(join(roots.archive, row.path ?? `row-${row.id}.pdf`), bytes, {
           mode: 0o600,
         });
@@ -480,6 +486,7 @@ const rehearse = async () =>
     const metadataFor = async (row: ReceiptSourceRow) => {
       const id = Number(row.sourcePrimaryKey);
       const path = row.picturePath!;
+
       const bytes = await Match.value(id).pipe(
         Match.when(19, () => readFile(join(roots.archive, path))),
         Match.when(2, () => png),
@@ -503,6 +510,7 @@ const rehearse = async () =>
     const entries = await Promise.all(
       sourceRows.map(async (row) => {
         const id = Number(row.sourcePrimaryKey);
+
         const common = {
           sourcePrimaryKey: row.sourcePrimaryKey,
           sourceRowDigest: receiptSourceRowDigest(row),
@@ -704,11 +712,13 @@ const rehearse = async () =>
     await refusal("wrong-transformation", { ...review, transformationRevision: "0".repeat(64) });
     const invalidPath = join(temporaryRoot, "invalid-shape.json");
     await privateJson(invalidPath, { entries: [] });
+
     const unavailable = {
       archive: join(temporaryRoot, "absent-archive"),
       staging: join(temporaryRoot, "absent-stage"),
       committed: join(temporaryRoot, "absent-committed"),
     };
+
     safeFailure(
       await invoke(primary, unavailable, invalidPath, {
         RECEIPT_REHEARSAL_SOURCE: "mysql://user:secret@127.0.0.1:1/no_source",
@@ -816,10 +826,12 @@ const rehearse = async () =>
     );
     const ciphertext = encrypted.payment_account_ciphertext;
     const tamperIndex = ciphertext.length - 4;
+
     const tampered =
       ciphertext.slice(0, tamperIndex) +
       (ciphertext[tamperIndex] === "A" ? "B" : "A") +
       ciphertext.slice(tamperIndex + 1);
+
     assert.throws(() => cipher.decrypt(tampered, encrypted.receipt_id));
     const additional = cipher.encrypt(account, encrypted.receipt_id);
     assert.notEqual(additional, ciphertext);
@@ -843,17 +855,20 @@ const rehearse = async () =>
     );
 
     stage = "UnchangedAcceptedSourceAcrossSnapshots";
+
     const bindingsBeforeReuse = (
       await primary.pool.query(
         "SELECT * FROM receipt_cohort_source_bindings ORDER BY source_primary_key",
       )
     ).rows;
+
     const acceptedBeforeReuse = (
       await primary.pool.query(
         "SELECT accepted_result_json FROM receipt_cohort_occurrences WHERE snapshot_key=$1 AND disposition='Accepted' ORDER BY source_primary_key",
         [first.snapshotKey],
       )
     ).rows;
+
     const committedBeforeReuse = await tree(roots.committed);
     const laterReviewPath = join(temporaryRoot, "unchanged-source-later-snapshot.json");
     await privateJson(laterReviewPath, {
@@ -967,10 +982,12 @@ const rehearse = async () =>
       "SourceConflict",
     );
     await mysql(`UPDATE vektor.receipt SET description='${description}-changed' WHERE id=1`);
+
     const changedRows = legacyReceiptRows(
       await readLegacySourceSnapshot(sourceUrl, "NotRequested", "Include"),
       cipher,
     );
+
     await conflict(
       "changed-accepted-source",
       {
@@ -996,17 +1013,21 @@ const rehearse = async () =>
     stage = "NativeLedgerOwnershipWithoutReviewedBinding";
     const nativeOwnership = await freshTarget("receipt_native_ownership");
     const nativeRoots = await rootsFor("native-ownership-files");
+
     const nativeFiles = FileCustody.makeReceiptFileStore({
       stagingRoot: nativeRoots.staging,
       committedRoot: nativeRoots.committed,
     });
+
     const nativeIdentity = "prior-native-receipt";
+
     const nativeFile = await nativeFiles.stageBytes(
       new File([pdf], "native.pdf"),
       nativeIdentity,
       "application/pdf",
       10 * 1024 * 1024,
     );
+
     const nativeEntry = review.entries.find((entry) => entry.sourcePrimaryKey === "1");
     assert.ok(nativeEntry?._tag === "Import" && nativeEntry.person !== null);
 
@@ -1097,11 +1118,13 @@ const rehearse = async () =>
 
     assert.equal(reverseImport._tag, "AcceptedReceiptImport");
     const receiptsBeforeNativeAttempt = await receipts(primary.pool);
+
     const reviewedBindingsBeforeNativeAttempt = (
       await primary.pool.query(
         "SELECT * FROM receipt_cohort_source_bindings ORDER BY source_primary_key",
       )
     ).rows;
+
     await Effect.runPromise(
       storeReceiptImportResult(reverseImport).pipe(
         Effect.provide(
@@ -1140,6 +1163,7 @@ const rehearse = async () =>
     stage = "ConcurrentActualCLIImports";
     const concurrent = await freshTarget("receipt_concurrent");
     const concurrentRoots = await rootsFor("concurrent-files");
+
     const concurrentReports = await Promise.all([
       success(concurrent, concurrentRoots),
       success(concurrent, concurrentRoots),
@@ -1250,11 +1274,13 @@ const rehearse = async () =>
         sha256(await readFile(join(pendingRoots.staging, receipt.file_ref))),
         receipt.file_sha256,
       );
+
     const durablePending = (
       await pending.pool.query(
         "SELECT reconciliation_result,count(*)::int AS count FROM economy_receipt_import_ledger WHERE result='Accepted' GROUP BY reconciliation_result",
       )
     ).rows;
+
     assert.deepEqual(durablePending, [{ reconciliation_result: "Pending", count: 3 }]);
     checked(
       "actual filesystem promotion failure commits explicit Pending metadata and retains staged bytes",
@@ -1277,11 +1303,13 @@ const rehearse = async () =>
     ]);
     const restoredRoot = join(temporaryRoot, "restored-files");
     await mkdir(restoredRoot, { mode: 0o700 });
+
     const restoredRoots = {
       archive: join(restoredRoot, "archive"),
       staging: join(restoredRoot, "staging"),
       committed: join(restoredRoot, "private"),
     };
+
     await cp(pendingRoots.archive, restoredRoots.archive, { recursive: true, dereference: false });
     await cp(pendingRoots.staging, restoredRoots.staging, { recursive: true });
     await mkdir(restoredRoots.committed, { mode: 0o700 });
@@ -1311,6 +1339,7 @@ const rehearse = async () =>
     );
 
     stage = "SyntheticAdapterCompatibility";
+
     const syntheticFiles = FileCustody.makeReceiptFileStore({
       stagingRoot: join(temporaryRoot, "synthetic-stage"),
       committedRoot: join(temporaryRoot, "synthetic-committed"),
@@ -1370,6 +1399,7 @@ const rehearse = async () =>
       roots.archive,
       syntheticFiles,
     );
+
     assert.equal(synthetic.results[0]?._tag, "AcceptedReceiptImport");
     assert.throws(() =>
       decodeSnapshot({

@@ -295,6 +295,7 @@ const resolveEvidence = Effect.fnUntraced(function* (
   for (const entry of r.entries) {
     if (!Predicate.isTagged(entry, "Import")) continue;
     const row = rows.get(entry.sourcePrimaryKey)!;
+
     const person =
       entry.person === null ? undefined : acceptedPeople.get(entry.person.occurrenceId);
 
@@ -361,6 +362,7 @@ const validatePrepared = (
         canonicalJson(result.provenance) !== canonicalJson(item.provenance)
       )
         throw invalid("InvalidPreparedResults");
+
       const accepted = Predicate.isTagged(result, "AcceptedReceiptImport")
         ? decodeAccepted(result)
         : null;
@@ -593,9 +595,11 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
 
         for (const entry of r.entries) {
           let disposition: "Accepted" | "Quarantined" | "Excluded" = "Excluded";
+
           let reasons: readonly string[] = Predicate.isTagged(entry, "Excluded")
             ? ["ExcludedByReview"]
             : [];
+
           let accepted: AcceptedResult | null = null;
 
           if (Predicate.isTagged(entry, "Import")) {

@@ -387,18 +387,19 @@ export const readLegacySourceSnapshot = async (
         stage = "Receipts";
 
         const receipts = Schema.decodeUnknownSync(Schema.Array(Receipt))(
-          await select<RowDataPacket>(connection,
+          await select<RowDataPacket>(
+            connection,
             `SELECT id, user_id AS userId, visual_id AS visualId,
                     CAST(receipt.sum AS CHAR) AS amountDecimal, description,
                     receiptDate, submitDate AS submittedAt, status, refundDate,
-                    picture_path AS picturePath FROM receipt ORDER BY id`),
+                    picture_path AS picturePath FROM receipt ORDER BY id`,
+          ),
         );
 
         stage = "PaymentAccounts";
 
         const paymentAccounts = Schema.decodeUnknownSync(Schema.Array(PaymentAccount))(
-          await select<RowDataPacket>(connection,
-            "SELECT id, accountNumber FROM user ORDER BY id"),
+          await select<RowDataPacket>(connection, "SELECT id, accountNumber FROM user ORDER BY id"),
         );
 
         Object.assign(financeSource, { receipts, paymentAccounts });

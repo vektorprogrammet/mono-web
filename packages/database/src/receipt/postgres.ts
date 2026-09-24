@@ -402,7 +402,9 @@ export const storeReceiptImportResult = (
               ),
             );
 
-            const sourceCollision = sourceOwners.some((row) => row.destination_identity !== result.receipt.receiptId);
+            const sourceCollision = sourceOwners.some(
+              (row) => row.destination_identity !== result.receipt.receiptId,
+            );
 
             const destinationLockKeys = [
               `receipt:${result.receipt.receiptId}`,

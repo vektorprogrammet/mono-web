@@ -35,7 +35,13 @@ export const reviewLegacyOrganizationSource = (
   )
     throw new Error("Organization projection requires all five selected source tables");
 
-  const { credentials: _credentials, receipts: _receipts, paymentAccounts: _paymentAccounts, ...selectedSource } = source
+  const {
+    credentials: _credentials,
+    receipts: _receipts,
+    paymentAccounts: _paymentAccounts,
+    ...selectedSource
+  } = source;
+
   const sourceRevision = digest(selectedSource);
 
   const occurrences = [

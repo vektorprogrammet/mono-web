@@ -121,7 +121,12 @@ GRANT SELECT ON vektor.* TO 'legacy_organization_reader'@'localhost';
 `;
 
 const sourceRevision = (source: LegacySourceSnapshot): string => {
-  const { credentials: _credentials, receipts: _receipts, paymentAccounts: _paymentAccounts, ...selected } = source
+  const {
+    credentials: _credentials,
+    receipts: _receipts,
+    paymentAccounts: _paymentAccounts,
+    ...selected
+  } = source;
 
   return digest(selected);
 };
@@ -342,7 +347,10 @@ const rehearse = async () =>
     await mysql("UPDATE vektor.user SET password=NULL WHERE id=1");
     const writer = new URL(sourceUrl);
     writer.username = "root";
-    await assert.rejects(readLegacySourceSnapshot(writer.toString(), "Include", "NotRequested"), /Grants/);
+    await assert.rejects(
+      readLegacySourceSnapshot(writer.toString(), "Include", "NotRequested"),
+      /Grants/,
+    );
 
     const primary = await target("organization_reviewed");
 
@@ -734,7 +742,11 @@ const rehearse = async () =>
     await mysql(
       "INSERT INTO vektor.team_membership SELECT 120,user_id,team_id,position_id,startSemester_id,endSemester_id,isTeamLeader,isSuspended,deletedTeamName FROM vektor.team_membership WHERE id=101",
     );
-    const duplicateReview = reviewFor(await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested"));
+
+    const duplicateReview = reviewFor(
+      await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested"),
+    );
+
     const duplicated = await target("organization_duplicate_target");
 
     const duplicateResult = await runLegacyServiceCutover({
@@ -846,7 +858,13 @@ const rehearse = async () =>
 
     stage = "OrganizationWithoutHistoricalService";
     await mysql("DELETE FROM vektor.assistant_history");
-    const organizationOnlySource = await readLegacySourceSnapshot(sourceUrl, "Include", "NotRequested");
+
+    const organizationOnlySource = await readLegacySourceSnapshot(
+      sourceUrl,
+      "Include",
+      "NotRequested",
+    );
+
     assert.equal(organizationOnlySource.history.length, 0);
     const organizationOnly = await target("organization_without_history");
 

@@ -171,7 +171,12 @@ const waitFor = async (probe: () => Promise<void>): Promise<void> => {
 };
 
 const sourceRevision = (source: LegacySourceSnapshot): string => {
-  const { credentials: _credentials, receipts: _receipts, paymentAccounts: _paymentAccounts, ...nonCredentialSource } = source
+  const {
+    credentials: _credentials,
+    receipts: _receipts,
+    paymentAccounts: _paymentAccounts,
+    ...nonCredentialSource
+  } = source;
 
   return digest(nonCredentialSource);
 };
@@ -463,20 +468,35 @@ const runRehearsal = async (temporaryRoot: string) => {
     const sourceUrl = new URL("mysql://legacy_assignment_reader@localhost/vektor");
     sourceUrl.searchParams.set("socketPath", mysqlSocket);
     stage = "SourceReaderAndRevision";
-    const source = await readLegacySourceSnapshot(sourceUrl.toString(), "NotRequested", "NotRequested");
+
+    const source = await readLegacySourceSnapshot(
+      sourceUrl.toString(),
+      "NotRequested",
+      "NotRequested",
+    );
+
     assert.equal(source.history.length, 10);
     assert.equal(source.users.length, 7);
     const review = reviewFor(source);
     assert.equal(review.assignments.length, 9);
     // Exercise the actual source reader before comparing revisions; credential bytes never enter evidence.
     await mysql("UPDATE vektor.user SET password = 'synthetic-credential-change' WHERE id = 1");
-    const credentialChanged = await readLegacySourceSnapshot(sourceUrl.toString(), "NotRequested", "NotRequested");
+
+    const credentialChanged = await readLegacySourceSnapshot(
+      sourceUrl.toString(),
+      "NotRequested",
+      "NotRequested",
+    );
+
     assert.notEqual(digest(source.credentials), digest(credentialChanged.credentials));
     assert.equal(sourceRevision(credentialChanged), review.sourceRevision);
     await mysql("UPDATE vektor.user SET password = NULL WHERE id = 1");
     const writerUrl = new URL(sourceUrl);
     writerUrl.username = "root";
-    await assert.rejects(readLegacySourceSnapshot(writerUrl.toString(), "NotRequested", "NotRequested"), /Grants/);
+    await assert.rejects(
+      readLegacySourceSnapshot(writerUrl.toString(), "NotRequested", "NotRequested"),
+      /Grants/,
+    );
 
     const primary = await target("assignment_reviewed");
 
@@ -1075,7 +1095,13 @@ const runRehearsal = async (temporaryRoot: string) => {
         (2,'Synthetic unassociated school','Synthetic contact','unassociated@example.invalid','12345678',0,1);
       UPDATE vektor.assistant_history SET school_id = 2 WHERE id IN (101,109);
     `);
-    const unassociatedSource = await readLegacySourceSnapshot(sourceUrl.toString(), "NotRequested", "NotRequested");
+
+    const unassociatedSource = await readLegacySourceSnapshot(
+      sourceUrl.toString(),
+      "NotRequested",
+      "NotRequested",
+    );
+
     const unassociatedReview = reviewFor(unassociatedSource);
     const unassociated = await target("assignment_missing_association");
 
@@ -1132,7 +1158,13 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     stage = "CurrentOnlySource";
     await mysql("DELETE FROM vektor.assistant_history WHERE id = 201");
-    const currentOnlySource = await readLegacySourceSnapshot(sourceUrl.toString(), "NotRequested", "NotRequested");
+
+    const currentOnlySource = await readLegacySourceSnapshot(
+      sourceUrl.toString(),
+      "NotRequested",
+      "NotRequested",
+    );
+
     const currentOnlyReview = reviewFor(currentOnlySource);
     assert.notEqual(currentOnlyReview.sourceRevision, review.sourceRevision);
     const currentOnly = await target("assignment_current_only");
