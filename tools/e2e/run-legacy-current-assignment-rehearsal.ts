@@ -865,6 +865,31 @@ const runRehearsal = async (temporaryRoot: string) => {
     );
     await forbiddenFacts(concurrent.pool);
 
+    stage = "ExplicitHistoricalOnly";
+    const historicalOnly = await target("assignment_historical_only");
+
+    const historicalOnlyResult = await runLegacyServiceCutover({
+      ...options,
+      targetUrl: historicalOnly.url,
+      targetDatabase: historicalOnly.database,
+      currentAssignments: "NotRequested",
+    });
+
+    assert.equal(historicalOnlyResult.currentAssignments, "NotImported");
+    assert.equal(historicalOnlyResult.historicalService.input, source.history.length);
+    assert.deepEqual(
+      (
+        await historicalOnly.pool.query(`SELECT
+        (SELECT count(*) FROM public.assistant_placements)::text AS placements,
+        (SELECT count(*) FROM public.organization_volunteer_affiliations)::text AS affiliations,
+        (SELECT count(*) FROM public.current_assignment_snapshots)::text AS snapshots,
+        (SELECT count(*) FROM public.current_assignment_reviews)::text AS reviews
+      `)
+      ).rows[0],
+      { placements: "0", affiliations: "0", snapshots: "0", reviews: "0" },
+    );
+    await forbiddenFacts(historicalOnly.pool);
+
     stage = "CurrentOnlySource";
     await mysql("DELETE FROM vektor.assistant_history WHERE id = 201");
     const currentOnlySource = await readLegacySourceSnapshot(sourceUrl.toString());
@@ -902,6 +927,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       source: {
         revision: review.sourceRevision,
         currentOnlyRevision: currentOnlyReview.sourceRevision,
+        transformationRevision: first.source.transformationRevision,
         tables: 6,
         users: 7,
         selectedAssignments: 9,
@@ -936,6 +962,7 @@ const runRehearsal = async (temporaryRoot: string) => {
         concurrentFirstImport: true,
         concurrentReplay: true,
         currentOnlySource: true,
+        explicitHistoricalOnly: true,
         appendOnlyReviewAndProvenance: true,
       },
       privacy: {
