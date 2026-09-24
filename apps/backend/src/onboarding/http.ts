@@ -1,7 +1,7 @@
 import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
-import { canManagePlacements } from "@vektorprogrammet/domain/placements";
+import { canManagePlacements } from "@vektorprogrammet/placements/contracts";
 import {
   OnboardingClaim,
   OnboardingCommand,

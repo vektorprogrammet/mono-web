@@ -8,6 +8,8 @@ import {
   OwnCoverageCommand,
   PlacementCommand,
   PlacementFailure,
+  PlacementPersistenceError,
+  Placements,
   PlacementScope,
   PlacementScopes,
   canManagePlacements,
@@ -15,19 +17,7 @@ import {
   type OwnAffiliationCommand as OwnAffiliationCommandType,
   type OwnCoverageCommand as OwnCoverageCommandType,
   type PlacementCommand as PlacementCommandType,
-} from "@vektorprogrammet/domain/placements";
-import {
-  lockPlacementDepartment,
-  mutateAffiliation,
-  mutateCoverageBoard,
-  mutateOwnCoverage,
-  mutatePlacementBoard,
-  readCoverageBoard,
-  readOwnAffiliation,
-  readOwnCoverage,
-  readPlacementBoard,
-  readPlacementScopes,
-} from "@vektorprogrammet/database/placements";
+} from "@vektorprogrammet/placements/contracts";
 import {
   CommandCoverageBoardEndpoint,
   CommandOwnAffiliationEndpoint,
@@ -46,7 +36,7 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { DomainId } from "@vektorprogrammet/domain/authz";
-import { flow, Match, Predicate, Effect, Option, Schema } from "effect";
+import { flow, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
@@ -186,7 +176,11 @@ const sqlField = (cause: unknown, field: "code" | "constraint", depth = 0): stri
 };
 
 const errorResponse = (cause: unknown): Response => {
-  if (cause instanceof HttpSemanticFailure || cause instanceof PlacementFailure) {
+  if (
+    cause instanceof HttpSemanticFailure ||
+    cause instanceof PlacementFailure ||
+    cause instanceof PlacementPersistenceError
+  ) {
     return nativeProblemResponse(cause.code, cause.status);
   }
 
@@ -199,26 +193,7 @@ const errorResponse = (cause: unknown): Response => {
     return nativeProblemResponse("credential.invalid", 401);
   }
 
-  if (sqlField(cause, "code") === "23505") {
-    switch (sqlField(cause, "constraint")) {
-      case "school_service_absence_target_unique":
-        return nativeProblemResponse("absence.duplicate", 409);
-      case "school_service_substitute_offer_active_partial_unique":
-      case "school_service_substitute_offer_accepted_partial_unique":
-        return nativeProblemResponse("offer.unresolved", 409);
-      case "school_service_commitment_slot_unique":
-        return nativeProblemResponse("commitment.duplicate", 409);
-    }
-  }
-
   const sqlCode = sqlField(cause, "code");
-
-  if (
-    sqlCode === "23P01" &&
-    sqlField(cause, "constraint") === "school_service_person_reservation_no_overlap"
-  ) {
-    return nativeProblemResponse("transaction.conflict", 409);
-  }
 
   if (sqlCode === "40001" || sqlCode === "40P01") {
     return nativeProblemResponse("transaction.conflict", 409);
@@ -320,6 +295,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
     Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
+          const placements = yield* Placements;
           yield* Database.use(
             (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
           );
@@ -339,7 +315,9 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
               input.now,
             );
 
-            return json(yield* decode(PlacementScopes)(yield* readPlacementScopes(auth.authority)));
+            return json(
+              yield* decode(PlacementScopes)(yield* placements.listScopes(auth.authority)),
+            );
           }
 
           if (mode === "own") {
@@ -355,7 +333,9 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
 
             return json(
               yield* decode(OwnAffiliationResource)(
-                resource(yield* readOwnAffiliation(auth.authority.personId, scope.departmentId)),
+                resource(
+                  yield* placements.readOwnAffiliation(auth.authority.personId, scope.departmentId),
+                ),
               ),
             );
           }
@@ -372,7 +352,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* decode(PlacementBoardResource)(resource(yield* readPlacementBoard(scope))),
+              yield* decode(PlacementBoardResource)(resource(yield* placements.readBoard(scope))),
             );
           }
 
@@ -387,7 +367,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
 
             return json(
               yield* decode(OwnCoverageResource)(
-                resource(yield* readOwnCoverage(scope, auth.authority.personId)),
+                resource(yield* placements.readOwnCoverage(scope, auth.authority.personId)),
               ),
             );
           }
@@ -395,7 +375,9 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
           yield* authorize(request, ReadCoverageBoardEndpoint, scope.departmentId, true, input.now);
 
           return json(
-            yield* decode(CoverageBoardResource)(resource(yield* readCoverageBoard(scope))),
+            yield* decode(CoverageBoardResource)(
+              resource(yield* placements.readCoverageBoard(scope)),
+            ),
           );
         }),
       ),
@@ -438,118 +420,28 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
               operationId: selected.operationId,
             },
             execute: Effect.gen(function* () {
-              yield* lockPlacementDepartment(selected.scope.departmentId);
+              const placements = yield* Placements;
 
-              const current = yield* Match.value(selected).pipe(
-                Match.when({ mode: "affiliation" }, (selected) =>
-                  Effect.gen(function* () {
-                    return resource(
-                      yield* readOwnAffiliation(
-                        auth.authority.personId,
-                        selected.scope.departmentId,
-                      ),
-                    );
-                  }),
-                ),
-                Match.when({ mode: "board" }, (selected) =>
-                  Effect.gen(function* () {
-                    return resource(yield* readPlacementBoard(selected.scope));
-                  }),
-                ),
-                Match.when({ mode: "ownCoverage" }, (selected) =>
-                  Effect.gen(function* () {
-                    return resource(
-                      yield* readOwnCoverage(selected.scope, auth.authority.personId),
-                    );
-                  }),
-                ),
-                Match.when({ mode: "coverage" }, (selected) =>
-                  Effect.gen(function* () {
-                    return resource(yield* readCoverageBoard(selected.scope));
-                  }),
-                ),
-                Match.exhaustive,
-              );
+              const changed = resource(
+                yield* placements.execute(
+                  {
+                    mutation: selected,
+                    actor: auth.authority.personId,
+                    now: auth.authorizationInstant,
+                    commandId: identity.identitySha256,
+                  },
+                  (current) =>
+                    semantic(() => {
+                      const precondition = evaluateMutationPrecondition(
+                        resource(current).etag,
+                        ifMatch,
+                      );
 
-              const precondition = evaluateMutationPrecondition(current.etag, ifMatch);
-
-              if (Predicate.isTagged(precondition, "Failed")) {
-                return yield* Effect.fail(
-                  new HttpSemanticFailure(precondition.code, precondition.status),
-                );
-              }
-
-              const changed = yield* Match.value(selected).pipe(
-                Match.when({ mode: "affiliation" }, (selected) =>
-                  Effect.gen(function* () {
-                    return resource(
-                      yield* mutateAffiliation(
-                        yield* readOwnAffiliation(
-                          auth.authority.personId,
-                          selected.scope.departmentId,
-                        ),
-                        selected.command.action,
-                        auth.authority.personId,
-                        auth.authorizationInstant,
-                      ),
-                    );
-                  }),
+                      if (Predicate.isTagged(precondition, "Failed")) {
+                        throw new HttpSemanticFailure(precondition.code, precondition.status);
+                      }
+                    }),
                 ),
-                Match.when({ mode: "board" }, (selected) =>
-                  Effect.gen(function* () {
-                    return resource(
-                      yield* mutatePlacementBoard(
-                        selected.scope,
-                        selected.command,
-                        auth.authority.personId,
-                        auth.authorizationInstant,
-                        Match.value(selected.command.action).pipe(
-                          Match.when(
-                            "GenerateProposal",
-                            () => `school-service-proposal-${identity.identitySha256}`,
-                          ),
-                          Match.when(
-                            "ScheduleService",
-                            () => `school-service-commitment-${identity.identitySha256}`,
-                          ),
-                          Match.orElse(() => `placement-${identity.identitySha256}`),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-                Match.when({ mode: "ownCoverage" }, (selected) =>
-                  Effect.gen(function* () {
-                    return resource(
-                      yield* mutateOwnCoverage(
-                        selected.scope,
-                        selected.command,
-                        auth.authority.personId,
-                        auth.authorizationInstant,
-                        `school-service-absence-${identity.identitySha256}`,
-                      ),
-                    );
-                  }),
-                ),
-                Match.when({ mode: "coverage" }, (selected) =>
-                  Effect.gen(function* () {
-                    return resource(
-                      yield* mutateCoverageBoard(
-                        selected.scope,
-                        selected.command,
-                        auth.authority.personId,
-                        auth.authorizationInstant,
-                        {
-                          absenceId: `school-service-absence-${identity.identitySha256}`,
-                          offerId: `school-service-substitute-offer-${identity.identitySha256}`,
-                          acknowledgementId: `school-service-coverage-acknowledgement-${identity.identitySha256}`,
-                          occurrenceId: `school-service-occurrence-${identity.identitySha256}`,
-                        },
-                      ),
-                    );
-                  }),
-                ),
-                Match.exhaustive,
               );
 
               return yield* Effect.tryPromise({

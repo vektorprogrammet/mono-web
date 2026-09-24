@@ -1,8 +1,8 @@
-import { SchoolServiceNotificationDeliveryResult } from "./placements/outbox.js";
+import { SchoolServiceNotificationDeliveryResult } from "./outbox.js";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { afterAll, describe, expect, it } from "vitest";
-import { Database } from "./service.js";
+import { Database } from "@vektorprogrammet/database";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import {
   SchoolServiceAbsenceId,
@@ -12,26 +12,27 @@ import {
   SchoolServiceOccurrenceId,
   SchoolServiceProposalId,
   SchoolServiceSubstituteOfferId,
-} from "@vektorprogrammet/domain/placements";
+} from "@vektorprogrammet/placements/contracts";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import {
-  deliverNextSchoolServiceDispatchNotification,
-  deliverNextSchoolServiceNotification,
   lockPlacementDepartment,
   mutateAffiliation,
+  mutatePlacementBoard,
+  readOwnAffiliation,
+  readPlacementBoard,
+} from "./postgres.js";
+import { deliverNextSchoolServiceDispatchNotification } from "./dispatch-outbox.js";
+import { deliverNextSchoolServiceNotification } from "./outbox.js";
+import {
   mutateCoverageBoard,
   mutateOwnCoverage,
-  mutatePlacementBoard,
   readCoverageBoard,
-  readOwnAffiliation,
   readOwnCoverage,
-  readPlacementBoard,
-} from "@vektorprogrammet/database/placements";
-import { Effect } from "effect";
-import { DatabaseTest } from "./layers.js";
-import { makeControlledTestRuntime } from "../test/runtime.js";
+} from "./coverage.js";
+import { Effect, ManagedRuntime } from "effect";
+import { DatabaseTest } from "@vektorprogrammet/database/live";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = ManagedRuntime.make(DatabaseTest());
 
 afterAll(() => runtime.dispose());
 
@@ -1224,7 +1225,7 @@ describe("placement schema ownership", () => {
     const pglite = new PGlite({ extensions: { btree_gist } });
     await pglite.waitReady;
     await pglite.exec("SET search_path TO auth,public");
-    const isolated = makeControlledTestRuntime(DatabaseTest({ liveClient: pglite }));
+    const isolated = ManagedRuntime.make(DatabaseTest({ liveClient: pglite }));
 
     try {
       const rows = await isolated.runPromise(

@@ -34,7 +34,6 @@
     "./time": "./src/time.ts",
     "./contact": "./src/contact/index.ts",
     "./substitutes": "./src/substitutes/index.ts",
-    "./placements": "./src/placements/index.ts",
     "./onboarding": "./src/onboarding/index.ts"
   },
   "scripts": {

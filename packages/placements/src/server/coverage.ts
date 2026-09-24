@@ -1,6 +1,6 @@
 import { Match, Effect, Schema } from "effect";
 import type * as Statement from "effect/unstable/sql/Statement";
-import { Database, type DatabaseOperations } from "../service.js";
+import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import {
   CoverageBoard,
   CoverageRosterAssignment,
@@ -20,7 +20,7 @@ import {
   type OwnCoverageCommand,
   type PlacementScope,
   type SchoolServiceAbsence as SchoolServiceAbsenceType,
-} from "@vektorprogrammet/domain/placements";
+} from "@vektorprogrammet/placements/contracts";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 
 const fail = (code: PlacementFailure["code"], status: PlacementFailure["status"] = 422) =>

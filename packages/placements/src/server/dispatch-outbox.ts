@@ -3,10 +3,10 @@ import {
   SchoolServiceDispatchNotificationOutboxError,
   SchoolServiceDispatchNotificationRequest,
   type SchoolServiceDispatchNotificationRequest as SchoolServiceDispatchNotificationRequestType,
-} from "@vektorprogrammet/domain/placements";
+} from "@vektorprogrammet/placements/contracts";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { flow, Data, Predicate, Effect, Schema } from "effect";
-import { Database, type DatabaseOperations } from "../service.js";
+import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 
 const ClaimedRow = Schema.Struct({
   effectId: Schema.String,

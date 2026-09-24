@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { readSchoolServiceCommitments } from "./coverage.js";
-import { Database, type DatabaseOperations } from "../service.js";
+import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import type { OrganizationPersonAuthority } from "@vektorprogrammet/domain/organization";
 import type { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -17,7 +17,7 @@ import {
   type PlacementScope,
   type PlacementCommand,
   type OwnAffiliationCommand,
-} from "@vektorprogrammet/domain/placements";
+} from "@vektorprogrammet/placements/contracts";
 
 const fail = (code: PlacementFailure["code"], status: PlacementFailure["status"] = 422) =>
   Effect.fail(new PlacementFailure({ code, status }));

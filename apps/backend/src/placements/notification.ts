@@ -2,11 +2,11 @@ import {
   deliverNextSchoolServiceNotification,
   recoverStaleSchoolServiceNotifications,
   type SchoolServiceNotificationInterpreter,
-} from "@vektorprogrammet/database/placements";
+} from "@vektorprogrammet/placements/server";
 import {
   SchoolServiceNotificationDeliveryError,
   type SchoolServiceNotificationRequest,
-} from "@vektorprogrammet/domain/placements";
+} from "@vektorprogrammet/placements/contracts";
 import { Predicate, Duration, Effect } from "effect";
 import { deliverJson, type DeliveryFetch } from "../delivery/http.js";
 

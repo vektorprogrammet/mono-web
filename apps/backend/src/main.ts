@@ -17,6 +17,7 @@ import { ReturningAssistantsLive } from "@vektorprogrammet/database/application"
 import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
+import { PlacementsLive } from "@vektorprogrammet/placements/server";
 import { EconomyLive } from "@vektorprogrammet/database/receipt";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
@@ -71,6 +72,7 @@ const databaseLayer = DatabaseLive({
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 
 const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
+const placementsLayer = PlacementsLive.pipe(Layer.provide(databaseLayer));
 
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
 
@@ -98,6 +100,7 @@ const capabilityLayers = Layer.mergeAll(
   returningAssistantsLayer,
   admissionsLayer,
   economyLayer,
+  placementsLayer,
   organizationLayer,
   profileLayer,
   schoolsLayer,

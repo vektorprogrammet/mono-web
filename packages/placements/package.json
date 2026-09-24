@@ -1,28 +1,25 @@
 {
-  "name": "@vektorprogrammet/backend",
+  "name": "@vektorprogrammet/placements",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    "./contracts": "./src/contracts.ts",
+    "./server": "./src/server/index.ts"
   },
   "scripts": {
-    "start": "bun run src/main.ts",
-    "dev": "bun run --watch src/main.ts",
+    "test": "vitest run --no-file-parallelism --maxWorkers=1",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
-    "lint": "oxlint",
-    "test": "vitest run"
+    "lint": "oxlint"
   },
   "dependencies": {
-    "@effect/platform-bun": "catalog:effect-v4",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
-    "@vektorprogrammet/http-api": "workspace:*",
-    "@vektorprogrammet/placements": "workspace:*",
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.6",
     "@types/node": "^22",
     "oxlint": "^1.41.0",
     "typescript": "7.0.2",

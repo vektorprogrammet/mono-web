@@ -16,7 +16,6 @@
     "./identity-cohort": "./src/identity-cohort.ts",
     "./onboarding": "./src/onboarding/index.ts",
     "./organization": "./src/organization/index.ts",
-    "./placements": "./src/placements/index.ts",
     "./live": "./src/layers.ts",
     "./migrations": "./src/migrations.ts",
     "./person-cohort": "./src/person-cohort.ts",

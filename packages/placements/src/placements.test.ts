@@ -17,9 +17,9 @@ import {
   SchoolServiceProposalId,
   SchoolServiceSubstituteOfferId,
 } from "./schema.js";
-import { OrganizationPersonAuthoritySchema } from "../organization/authority.js";
-import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
-import { SchoolId } from "../schools/schema.js";
+import { OrganizationPersonAuthoritySchema } from "@vektorprogrammet/domain/organization";
+import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
+import { SchoolId } from "@vektorprogrammet/domain/schools";
 
 describe("volunteer affiliation authority and lifecycle", () => {
   it("requires self nomination before coordinator establishment and permits resubmission after rejection", () => {

@@ -1,7 +1,7 @@
 import { Schema } from "effect";
-import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
-import { SchoolId } from "../schools/schema.js";
-import { isIsoDate } from "../receipt/schema.js";
+import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
+import { SchoolId } from "@vektorprogrammet/domain/schools";
+import { isIsoDate } from "@vektorprogrammet/domain/receipt";
 
 export const PlacementScope = Schema.Struct({ departmentId: DepartmentId, semesterId: SemesterId });
 
