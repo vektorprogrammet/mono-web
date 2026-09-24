@@ -163,7 +163,7 @@ export const executeSchoolCommand = (input: SchoolCommand, personId: PersonId) =
               AND (demand_snapshot @> ${sql.json([{ schoolId }])}::jsonb OR assignment_snapshot @> ${sql.json([{ schoolId }])}::jsonb) LIMIT 1`;
             if (proposalReferences.length > 0) return yield* fail("AssociationInUse");
             yield* sql`DELETE FROM schools_directory_departments WHERE school_id=${schoolId} AND department_id=${removed}`.pipe(Effect.mapError((cause) =>
-              Predicate.isTagged(cause.reason, "ForeignKeyViolation") ? fail("AssociationInUse") : cause));
+              Predicate.isTagged(cause.reason, "ConstraintError") && Predicate.hasProperty(cause.reason.cause, "code") && cause.reason.cause.code === "23503" ? fail("AssociationInUse") : cause));
           }
           for (const added of command.departmentIds.filter((id) => !authorized.departments.includes(id))) yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${added})`;
           yield* sql`UPDATE schools_directory_schools SET revision=${revision} WHERE school_id=${schoolId}`;
