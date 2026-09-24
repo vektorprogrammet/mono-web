@@ -105,12 +105,12 @@ All requirements apply to future implementation. None of these acceptance checks
 
 | Requirement     | Executable or observed acceptance                                                                                                 |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Discovery       | The repository documentation entry point links the guide; local links and source references resolve.                              |
+| Discovery       | The repository documentation entry point links the guide. Local links and source references resolve.                              |
 | Public imports  | The example compiler check resolves only supported package entry points, including dependencies.                                  |
 | Use example     | The declared command runs the exact rendered source and checks its success and meaningful rejection outcomes.                     |
 | API reference   | Generation derives the public entry points, declarations, and their API comments from current source.                             |
-| Freshness       | Generation is deterministic; a read-only check rejects edited output and output from changed source.                              |
-| Negative checks | Disposable changes break a public import, invalidate an example, and stale an output; each relevant check exits nonzero.          |
+| Freshness       | Generation is deterministic. A read-only check rejects edited output and output from changed source.                              |
+| Negative checks | Disposable changes break a public import, invalidate an example, and stale an output. Each relevant check exits nonzero.          |
 | Explanation     | Source review connects authority, transaction, outbox, retry, interruption, and resource claims to their actual owners.           |
 | Reader use      | An independent developer or agent finds the guide and completes the use task without private implementation coaching.             |
 | Reader change   | The same reader makes a disposable, bounded comment or example change and runs the documented affected checks.                    |

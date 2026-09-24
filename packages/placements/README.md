@@ -21,7 +21,7 @@ The [package manifest](package.json) owns supported imports:
 - `@vektorprogrammet/placements/server`: database-backed composition, delivery operations, and cohort import.
 
 There is no supported package-root import.
-Private source links explain implementation; they do not authorize private imports or direct table integration.
+Private source links explain implementation. They do not authorize private imports or direct table integration.
 
 ## Use it
 
@@ -48,12 +48,12 @@ They need no credentials, external provider, PostgreSQL server, browser, or E2E 
 
 The first example prints `Absent -> Pending; repeated Request rejected; Withdraw -> Inactive`.
 It checks a legal transition, a rejected repeat, and recovery through withdrawal.
-The helper returns `null` for a rejected transition; it does not write state or grant authority.
+The helper returns `null` for a rejected transition. It does not write state or grant authority.
 
 The second example prints `Empty scopes read; unknown department rejected with scope.invalid (422)`.
 It composes the real Placements Layer with an empty, disposable PGlite database.
 It checks a successful scope read and a typed failure for an unknown department.
-A caller must select an existing scope before another attempt; repeating the same missing scope does not recover it.
+A caller must select an existing scope before another attempt. Another attempt with the same missing scope does not recover it.
 
 The following inclusions render the exact executable files.
 In a Markdown source viewer, open [affiliation.ts](examples/affiliation.ts) and [read-scopes.ts](examples/read-scopes.ts).
@@ -88,7 +88,7 @@ Generation refuses an existing output directory.
 The freshness check renders into a temporary directory and compares every generated file without changing the supplied output.
 A stale or missing output causes a nonzero exit.
 After a source change, generate into another new directory.
-Generated output is local and untracked; no hosted documentation website is necessary.
+Generated output is local and untracked. No hosted documentation website is necessary.
 
 ## Contract
 
@@ -122,7 +122,7 @@ A read preflight or a successful pure policy calculation does not replace this b
 The executable read example shows the minimum server Layer composition through public imports.
 `DatabaseTest` owns its in-memory database, canonical migrations, and release finalizer.
 `Effect.provide` scopes that Layer to the program.
-The signal handler requests interruption; the `finally` block removes only the example's signal listeners.
+The signal handler requests interruption. The `finally` block removes only the example's signal listeners.
 No database directory, port, child process, credential, or provider request belongs to these examples.
 Abrupt process termination, such as `SIGKILL`, does not run JavaScript finalizers.
 
@@ -176,7 +176,7 @@ A caller must not invent a new command identity merely because the first respons
 They fence acknowledgement updates with the claim identity.
 The worker can recover stale claims after interruption or process loss.
 An interpreter can succeed before acknowledgement persists, so a later delivery attempt can repeat the external effect.
-The provider boundary must handle the stable logical effect identity; these functions do not promise exactly-once external delivery.
+The provider boundary must handle the stable logical effect identity. These functions do not promise exactly-once external delivery.
 
 A committed command means durable business state and required queued work.
 An interpreter success means that interpreter returned successfully, not that a real provider satisfied a separate acceptance contract.
@@ -198,10 +198,10 @@ For a bounded change, use a disposable copy or a clean branch:
 
 1. Add a sentence to the public `readOwnAffiliation` comment that clarifies its missing-department failure.
 2. Run `check-types` and `docs:examples` with the commands above.
-3. Run `docs:check` against the earlier output; expect a nonzero stale-output result.
-4. Generate into a new directory and run `docs:check` against it; expect success.
+3. Run `docs:check` against the earlier output. Expect a nonzero stale-output result.
+4. Generate into a new directory. Then run `docs:check` against it. Expect success.
 5. Read the rendered comment beside the generated signature.
-6. Restore the disposable source change and remove only the directories from this exercise.
+6. Restore the disposable source change. Remove only the directories from this exercise.
 
 This exercise changes documentation, not the public API or business rules.
 An agent reader is useful evidence for command completeness, but it does not prove comprehension by an unfamiliar human developer.
@@ -248,7 +248,7 @@ The [HTTP generator](../http-api/scripts/generate-openapi.ts) remains the owner 
 
 The examples release their embedded database on normal completion, failure, and requested interruption.
 The freshness command removes its own temporary render directory in a `finally` block.
-The generated directory belongs to the caller; the tools do not delete or overwrite an existing directory.
+The generated directory belongs to the caller. The tools do not delete or overwrite an existing directory.
 After review, remove only the generated directory that the command created for you.
 
 Acceptance records belong outside tracked source.
