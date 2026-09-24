@@ -47,7 +47,7 @@ export const SucceededSchedule = taggedStruct("SucceededSchedule", {
 export const FailedSchedule = taggedStruct("FailedSchedule", {
   requestId: SchedulingRequestId,
   failure: RecruitmentBridgeFailure,
-  retainAttempt: S.Boolean,
+  outcome: S.Literals(["Rejected", "Unknown", "Committed"]),
 });
 
 export const GotScheduleDialogMessage = taggedStruct("GotScheduleDialogMessage", {

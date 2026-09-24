@@ -167,6 +167,26 @@ const terminalModel = (
 const config = { update: updateFor(commandsFor(createBrowserRecruitmentClient())), view };
 
 describe("Foldkit scheduling conduct view", () => {
+  it("keeps a confirmed draft read-only while allowing explicit exit", () => {
+    const source = terminalModel("Completed");
+    const data = AsyncData.getData(source.board);
+    if (!Predicate.isTagged(data, "Some")) throw new Error("expected board");
+    const committed: ReadyModel = {
+      ...source,
+      conduct: ConductData.Idle(),
+      scheduleInterview: data.value.interviews[0]!,
+      scheduleCommitted: true,
+      scheduleDialog: Dialog.open(source.scheduleDialog).model,
+      room: FieldValidation.NotValidated({ value: "Retained replacement room" }),
+    };
+    Scene.scene(config, Scene.given(committed),
+      Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
+      Scene.expect(Scene.label("Rom")).toHaveValue("Retained replacement room"),
+      Scene.expect(Scene.label("Rom")).toBeDisabled(),
+      Scene.expect(Scene.selector('dialog button[type="submit"]')).toBeDisabled(),
+      Scene.expect(Scene.role("button", { name: "Lukk og forkast utkast" })).toBeEnabled(),
+    );
+  });
   it("shows the requested-time context inside the replacement dialog without reusing the old time", () => {
     const source = terminalModel("Completed");
     const data = AsyncData.getData(source.board);

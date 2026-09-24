@@ -95,7 +95,7 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
           Effect.catch((error) => Effect.succeed(FailedSchedule({
             requestId,
             failure: toRecruitmentBridgeFailure(error),
-            retainAttempt: true,
+            outcome: "Committed",
           }))),
         )),
         Effect.catch((error) =>
@@ -104,7 +104,7 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
             return FailedSchedule({
               requestId,
               failure,
-              retainAttempt: failure._tag === "Network" || failure._tag === "RateLimited" || failure._tag === "Configuration",
+              outcome: failure._tag === "Network" || failure._tag === "RateLimited" || failure._tag === "Configuration" ? "Unknown" : "Rejected",
             });
           }),
         ),

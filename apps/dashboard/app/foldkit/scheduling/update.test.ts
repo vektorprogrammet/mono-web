@@ -1,3 +1,4 @@
+import { Dialog } from "@foldkit/ui";
 import { RecruitmentBridgeFailure } from "../recruitment/bridge";
 import { Predicate } from "effect";
 import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/http-api"
@@ -15,6 +16,8 @@ import type { RecruitmentClient } from "../recruitment/browser-client";
 import { commandsFor } from "./command";
 import {
   ChangedAnswer,
+  ClosedSchedule,
+  GotScheduleDialogMessage,
   ChangedRecommendation,
   ChangedScore,
   FailedFinalize,
@@ -35,7 +38,6 @@ import {
 } from "./message";
 import { ConductData, init, type Model, type ReadyModel, LoadedSchedulingInput } from "./model";
 import { updateFor } from "./update";
-
 const decodeBoard = S.decodeUnknownSync(SchedulingBoard, { onExcessProperty: "error" });
 
 const decodeResult = S.decodeUnknownSync(ScheduleInterviewResponse);
@@ -234,6 +236,31 @@ const responseBoard = decodeBoard({
 });
 
 describe("Foldkit scheduling transitions", () => {
+  it("retains a committed draft when cancellation hides its row and permits deliberate exit without another POST", async () => {
+    let postCalls = 0;
+    const hiddenBoard = decodeBoard({ departmentId: rawInterview.departmentId, interviews: [] });
+    const client: RecruitmentClient = { recruitment: { ...inertClient.recruitment,
+      scheduleInterview: () => Effect.sync(() => {
+        postCalls += 1;
+        return decodeResult({ interviewId: rawInterview.interviewId, schedule: freshSchedule, responseState: "Pending", notificationState: "Pending" });
+      }),
+      readSchedulingBoard: () => Effect.succeed(hiddenBoard),
+    } };
+    const transition = updateFor(commandsFor(client));
+    const draft = validDraft(transition);
+    const submitted = transition(draft, SubmittedSchedule());
+    const committed = advance(transition, submitted.model, await Effect.runPromise(submitted.commands![0]!.effect));
+    expect(committed.room.value).toBe(draft.room.value);
+    expect(committed.scheduleDialog.isOpen).toBe(true);
+    expect(transition(committed, SubmittedSchedule()).commands).toEqual([]);
+    const refresh = transition(committed, RequestedBoardRefresh());
+    const observed = advance(transition, refresh.model, await Effect.runPromise(refresh.commands![0]!.effect));
+    expect(observed.room.value).toBe(draft.room.value);
+    expect(transition(observed, SubmittedSchedule()).commands).toEqual([]);
+    expect(postCalls).toBe(1);
+    expect(advance(transition, observed, ClosedSchedule()).scheduleDialog.isOpen).toBe(false);
+    expect(advance(transition, observed, GotScheduleDialogMessage({ message: Dialog.Message.RequestedClose() })).scheduleDialog.isOpen).toBe(false);
+  });
   it("opens replacement only for RequestedNewTime and requires a fresh time selection", () => {
     for (const interview of responseBoard.interviews) {
       const board = decodeBoard({ ...responseBoard, interviews: [interview] });
@@ -274,7 +301,7 @@ describe("Foldkit scheduling transitions", () => {
     expect(transition(retry.model, SubmittedSchedule()).commands).toEqual([]);
   });
 
-  it("retains a committed attempt when its follow-up read fails with a conflict", async () => {
+  it("recovers a confirmed commit by reading without repeating the POST after a follow-up read conflict", async () => {
     const client: RecruitmentClient = { recruitment: { ...inertClient.recruitment,
       scheduleInterview: () => Effect.succeed(decodeResult({ interviewId: rawInterview.interviewId, schedule: freshSchedule, responseState: "Pending", notificationState: "Pending" })),
       readSchedulingBoard: () => Effect.fail(RecruitmentBridgeFailure.cases.Conflict.make({ message: "read failed" })),
@@ -284,8 +311,11 @@ describe("Foldkit scheduling transitions", () => {
     const failed = advance(transition, submitted.model, await Effect.runPromise(submitted.commands![0]!.effect));
     const refresh = advance(transition, failed, RequestedBoardRefresh());
     const observed = advance(transition, refresh, SucceededLoadSchedulingBoard({ requestId: refresh.boardRequestId, board: freshBoard }));
-    expect(observed.scheduleAttempt).toEqual(ready(submitted.model).scheduleAttempt);
-    expect(transition(observed, SubmittedSchedule()).commands).toHaveLength(1);
+    expect(failed.room.value).toBe(ready(submitted.model).room.value);
+    expect(transition(failed, SubmittedSchedule()).commands).toEqual([]);
+    expect(observed.scheduleDialog.isOpen).toBe(false);
+    expect(observed.scheduleInterview).toBeNull();
+    expect(transition(observed, SubmittedSchedule()).commands).toEqual([]);
   });
 
   it("keeps a stale replacement draft through failed refresh and adopts a new precondition only on explicit recovery", () => {
@@ -296,7 +326,7 @@ describe("Foldkit scheduling transitions", () => {
     draft = advance(update, draft, UpdatedRoom({ value: "Replacement room" }));
     draft = advance(update, draft, UpdatedMessage({ value: "Replacement invitation" }));
     const submitted = advance(update, draft, SubmittedSchedule());
-    const conflict = advance(update, submitted, FailedSchedule({ requestId: submitted.boardRequestId, failure: RecruitmentBridgeFailure.cases.Conflict.make({ message: "stale" }), retainAttempt: false }));
+    const conflict = advance(update, submitted, FailedSchedule({ requestId: submitted.boardRequestId, failure: RecruitmentBridgeFailure.cases.Conflict.make({ message: "stale" }), outcome: "Rejected" }));
     expect(update(conflict, SubmittedSchedule()).commands).toEqual([]);
     const refreshing = advance(update, conflict, RequestedBoardRefresh());
     const failedRefresh = advance(update, refreshing, FailedLoadSchedulingBoard({ requestId: refreshing.boardRequestId, message: "offline" }));
@@ -313,6 +343,12 @@ describe("Foldkit scheduling transitions", () => {
     const noLongerEligible = advance(update, refresh, SucceededLoadSchedulingBoard({ requestId: refresh.boardRequestId, board: freshBoard }));
     expect(noLongerEligible.room.value).toBe("Replacement room");
     expect(update(noLongerEligible, SubmittedSchedule()).commands).toEqual([]);
+    const secondRefresh = advance(update, noLongerEligible, RequestedBoardRefresh());
+    const nowEligible = advance(update, secondRefresh, SucceededLoadSchedulingBoard({ requestId: secondRefresh.boardRequestId, board: newer }));
+    const nextCycle = advance(update, nowEligible, SubmittedSchedule());
+    expect(nextCycle.scheduleAttempt?.headers["if-match"]).toBe(newEtag);
+    expect(nextCycle.scheduleAttempt?.headers["idempotency-key"]).not.toBe(submitted.scheduleAttempt?.headers["idempotency-key"]);
+    expect(nextCycle.scheduleAttempt?.payload.room).toBe("Replacement room");
   });
   it("rejects capability and response-notification payload fields from board observations", () => {
     expect(() =>
@@ -520,7 +556,7 @@ describe("Foldkit scheduling transitions", () => {
       SucceededLoadSchedulingBoard({ requestId: staleRequestId, board: freshBoard }),
       FailedLoadSchedulingBoard({ requestId: staleRequestId, message: "stale load" }),
       SucceededSchedule({ requestId: staleRequestId, board: freshBoard }),
-      FailedSchedule({ requestId: staleRequestId, failure: RecruitmentBridgeFailure.cases.Network.make({ message: "stale" }), retainAttempt: true }),
+      FailedSchedule({ requestId: staleRequestId, failure: RecruitmentBridgeFailure.cases.Network.make({ message: "stale" }), outcome: "Unknown" }),
     ];
 
     for (const message of staleMessages) {

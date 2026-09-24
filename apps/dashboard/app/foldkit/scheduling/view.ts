@@ -346,7 +346,8 @@ const boardView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
 const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
   const interview = model.scheduleInterview;
   const refreshing = Predicate.isTagged(model.board, "Refreshing") || Predicate.isTagged(model.board, "Loading");
-  const locked = model.isScheduling || model.scheduleAttempt !== null || refreshing;
+  const busy = model.isScheduling || model.scheduleAttempt !== null || refreshing;
+  const locked = busy || model.scheduleCommitted;
   const needsRefresh = model.scheduleFailure?._tag === "Conflict" && model.scheduleAttempt === null;
   const canSchedule = interview !== null && (interview.schedule === null || interview.responseState === "RequestedNewTime");
 
@@ -392,7 +393,10 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                     model.scheduleAttempt !== null && !model.isScheduling
                       ? h.p([h.Role("status")], ["Utfallet er ikke bekreftet. Utkastet er låst. Prøv samme forespørsel igjen før du endrer planen."])
                       : h.empty,
-                    needsRefresh || model.scheduleError !== null
+                    model.scheduleCommitted
+                      ? h.p([h.Role("status")], ["Lagringen er bekreftet. Hent oversikten på nytt, eller lukk og forkast det beholdte utkastet. Ingen ny forespørsel blir sendt."])
+                      : h.empty,
+                    model.scheduleCommitted || needsRefresh || model.scheduleError !== null
                       ? actionButton(refreshing ? "Henter oversikten …" : "Hent oppdatert oversikt", RequestedBoardRefresh(), model.isScheduling || refreshing, "fs-button fs-button--secondary", h)
                       : h.empty,
                     h.form(
@@ -482,15 +486,15 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                           [h.Class("fs-dialog__actions")],
                           [
                             actionButton(
-                              "Avbryt",
+                              model.scheduleCommitted ? "Lukk og forkast utkast" : "Avbryt",
                               ClosedSchedule(),
-                              locked,
+                              busy,
                               "fs-button fs-button--secondary",
                               h,
                             ),
                             Button.view({
                               type: "submit",
-                              isDisabled: model.isScheduling || refreshing || (model.scheduleAttempt === null && (needsRefresh || !canSchedule)),
+                              isDisabled: model.scheduleCommitted || model.isScheduling || refreshing || (model.scheduleAttempt === null && (needsRefresh || !canSchedule)),
                               toView: ({ button }) => h.button([...button, h.Class("fs-button fs-button--primary")], [
                                 model.isScheduling ? "Lagrer og henter ny oversikt …"
                                   : model.scheduleAttempt !== null ? "Prøv samme forespørsel igjen" : "Lagre og legg i kø",
