@@ -1,11 +1,17 @@
-import { DepartmentId } from "@vektorprogrammet/http-api";
+import { DepartmentId, SchoolManagement, SchoolCommandResult } from "@vektorprogrammet/http-api";
 import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/http-api";
 import { Tabs } from "@foldkit/ui";
-import { Effect } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { SchoolsDirectoryClient } from "./browser-client";
 import { commandsFor } from "./command";
 import {
+  ChangedCapacityField,
+  ChangedSchoolField,
+  SelectedManagedSchool,
+  SubmittedSchool,
+  SucceededManagement,
+  SucceededSchoolCommand,
   FailedDirectory,
   GotDirectoryTabMessage,
   RetriedDirectory,
@@ -58,6 +64,109 @@ const commands = commandsFor(client);
 const update = updateFor(commands);
 
 describe("Foldkit Schools directory transitions", () => {
+  it("keeps the selected capacity tuple after saving and refreshes its counts and revision", () => {
+    const data = Schema.decodeUnknownSync(SchoolManagement)({
+      departments: [
+        { departmentId: departmentA, name: "A" },
+        { departmentId: departmentB, name: "B" },
+      ],
+      semesters: [
+        { semesterId: "semester-a", name: "A" },
+        { semesterId: "semester-b", name: "B" },
+      ],
+      schools: [
+        {
+          school: {
+            schoolId: 1,
+            name: "Alfaskolen",
+            contactPerson: "Ada",
+            email: "ada@example.invalid",
+            phone: "12345678",
+            language: "Norwegian",
+            active: true,
+            revision: 0,
+          },
+          departmentIds: [departmentA, departmentB],
+          canEditShared: true,
+          capacityDepartmentIds: [departmentA, departmentB],
+          capacities: [
+            {
+              capacityId: 7,
+              schoolId: 1,
+              departmentId: departmentB,
+              semesterId: "semester-b",
+              monday: 3,
+              tuesday: 0,
+              wednesday: 0,
+              thursday: 0,
+              friday: 0,
+              revision: 2,
+            },
+          ],
+        },
+      ],
+      history: [],
+    });
+
+    const commandId = "school-capacity-refresh-command";
+    let model = update(init(), SucceededManagement({ requestId: 1, data, commandId })).model;
+    model = update(model, SelectedManagedSchool({ schoolId: SchoolId.make(1) })).model;
+    model = update(
+      model,
+      ChangedCapacityField({ field: "departmentId", value: departmentB }),
+    ).model;
+    model = update(model, ChangedCapacityField({ field: "semesterId", value: "semester-b" })).model;
+    model = update(model, ChangedCapacityField({ field: "monday", value: "4" })).model;
+    model = update(model, ChangedSchoolField({ field: "reason", value: "Oppdatert avtale" })).model;
+    model = update(model, SubmittedSchool({ kind: "Capacity" })).model;
+    model = update(
+      model,
+      SucceededSchoolCommand({
+        commandId,
+        result: Schema.decodeUnknownSync(SchoolCommandResult)({
+          schoolId: 1,
+          capacityId: 7,
+          revision: 3,
+        }),
+      }),
+    ).model;
+
+    const refreshed = {
+      ...data,
+      schools: data.schools.map((school) => ({
+        ...school,
+        capacities: school.capacities.map((capacity) => ({ ...capacity, monday: 4, revision: 3 })),
+      })),
+    };
+
+    model = update(
+      model,
+      SucceededManagement({
+        requestId: model.managementRequestId,
+        data: refreshed,
+        commandId: "school-capacity-next-command",
+      }),
+    ).model;
+    expect(model.capacityForm).toMatchObject({
+      departmentId: departmentB,
+      semesterId: "semester-b",
+      monday: "4",
+    });
+    model = update(model, ChangedSchoolField({ field: "reason", value: "Ny avtale" })).model;
+    model = update(model, ChangedCapacityField({ field: "monday", value: "5" })).model;
+    model = update(model, SubmittedSchool({ kind: "Capacity" })).model;
+
+    if (!Predicate.isTagged(model.mutation, "Pending"))
+      throw new Error("Expected a pending capacity command");
+    expect(model.mutation.command._tag).toBe("ReviseCapacity");
+    expect(model.mutation.command).toMatchObject({
+      departmentId: departmentB,
+      semesterId: "semester-b",
+      monday: 5,
+      expectedRevision: 3,
+    });
+  });
+
   it("starts a retry with one new request and ignores a stale result", () => {
     const initial = init();
     const { model: loading, commands: emitted = [] } = update(initial, RetriedDirectory());

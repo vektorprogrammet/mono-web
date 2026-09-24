@@ -46,6 +46,7 @@ const knownDepartmentsFrom = (
 const selectedForms = (
   data: SchoolManagement | null,
   schoolId: Model["selectedSchool"],
+  capacitySelection?: Pick<Model["capacityForm"], "departmentId" | "semesterId">,
 ): Pick<Model, "schoolForm" | "capacityForm"> => {
   const selected = data?.schools.find((row) => row.school.schoolId === schoolId);
 
@@ -65,8 +66,16 @@ const selectedForms = (
     },
     capacityForm: {
       ...emptyCapacityForm(),
-      departmentId: selected.capacityDepartmentIds[0] ?? "",
-      semesterId: data?.semesters[0]?.semesterId ?? "",
+      departmentId:
+        capacitySelection &&
+        selected.capacityDepartmentIds.some((id) => id === capacitySelection.departmentId)
+          ? capacitySelection.departmentId
+          : (selected.capacityDepartmentIds[0] ?? ""),
+      semesterId:
+        capacitySelection &&
+        data?.semesters.some((semester) => semester.semesterId === capacitySelection.semesterId)
+          ? capacitySelection.semesterId
+          : (data?.semesters[0]?.semesterId ?? ""),
     },
   };
 };
@@ -197,7 +206,7 @@ export const updateFor =
             management: data,
             managementStatus: "Ready",
             commandId,
-            ...selectedForms(data, model.selectedSchool),
+            ...selectedForms(data, model.selectedSchool, model.capacityForm),
           };
 
           return {
