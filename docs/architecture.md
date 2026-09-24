@@ -141,8 +141,10 @@ not expose database rows or transport objects.
 The [Placements service](../packages/placements/src/service.ts) owns complete commands
 and queries. Its server implementation holds the department lock across the
 precondition, transition, audit, history, and outbox writes in the caller transaction.
-Substitutes still exposes schemas and policy alongside direct PostgreSQL calls
-from the backend. Keep its domain decision separate from SQL when closing that boundary.
+The [Substitutes contract](../packages/domain/src/substitutes/service.ts) exposes complete pool queries and commands.
+Its [database Layer](../packages/database/src/substitutes/service.ts) holds the application lock across the fresh read, transport precondition, domain decision, and writes.
+The caller owns current authorization, the transaction, and response receipts.
+The [Substitutes guide](../packages/domain/src/substitutes/README.md) records composition and failure guarantees. Placements retains the separate coverage lifecycle.
 
 Economy uses its [service contract](../packages/domain/src/receipt/service.ts) for
 receipt queries and settlement commands. The [owner query](../packages/database/src/receipt/projections.ts)

@@ -280,6 +280,19 @@ UI accessibility and usability programs remain separate from this functional gat
 This scope does not require removal of existing accessibility checks.
 Screenshots do not create pixel-baseline obligations for the golden suite.
 
+### Continuous substitute coverage
+
+The existing golden command continues through the [Substitutes boundary](../packages/domain/src/substitutes/README.md).
+The [source-owned checkpoints](../tools/e2e/golden-school-service.mjs) preserve the original journey and add the pool-to-attendance sequence.
+The browser changes pool availability through supported controls. Independent PostgreSQL reads identify eligible application and Person pairs.
+Weekday edits, deactivation, and conflicting assignments remove eligibility. Reactivation and assignment release restore it.
+Dispatch reserves the dated interval before acceptance. Notification failure and loopback recovery do not repeat the business decision.
+
+The same journey checks the addressed response, coordinator acknowledgement, actual substitute attendance, and occurrence-linked absence closure.
+Wrong-recipient and stale commands remain rejected. The observer waits for asynchronous delivery state through bounded read-only snapshots.
+It does not retry commands or ignore failed invariants. Golden output remains within the existing sanitized artifact contract.
+These synthetic local observations do not establish real-provider delivery or current production-data parity.
+
 ### Golden CI implementation
 
 The [CI workflow](../.github/workflows/ci.yml) runs the existing journey through the [CI wrapper](../tools/e2e/golden-school-service-ci.mjs).

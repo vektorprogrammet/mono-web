@@ -125,6 +125,16 @@ It preserves the distinction between illustrative examples and real PostgreSQL a
 The pilot does not redesign Placements, expand exports, or change business rules to simplify documentation.
 It does not duplicate the golden runner or introduce a second acceptance implementation.
 
+## Adopted extensions
+
+The [Placements CI gate](../packages/placements/README.md#ci-and-retained-artifacts) implements the required-check slice locally.
+It checks examples, generates one reference, and binds retained output to its clean source revision and file hashes.
+Hosted execution and repository protection remain separate acceptance gates.
+
+The [Substitutes guide](../packages/domain/src/substitutes/README.md) applies the same consumer and maintainer structure to the next operational boundary.
+It links to an executable public-import example and the continuous coverage journey.
+The generated API reference remains scoped to Placements. No second generator or documentation website is introduced.
+
 ## Acceptance
 
 The pilot is complete only when all conditions hold:

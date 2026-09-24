@@ -276,33 +276,51 @@ PGlite performance and full native composition remain unmeasured. PostgreSQL ser
 
 ### Developer documentation and parallel workstreams
 
-The [developer documentation roadmap](docs/module-developer-documentation.md) separates consumer contracts from implementation explanations.
-The [Placements guide](packages/placements/README.md) now implements its first pilot.
+The [documentation roadmap](docs/module-developer-documentation.md) separates consumer contracts from implementation explanations.
+The [Placements guide](packages/placements/README.md) retains the accepted pilot and its tool-choice record.
+The pilot included an independent agent-reader exercise, not an unfamiliar-human usability study.
 
-Documentation source `259c8d8128da705f37870f52c20bef1a814c3703` is integrated locally.
-Public-import examples passed the application compiler and exercised a pure transition and real PGlite composition.
-Generation and byte-for-byte freshness checks passed. Broken imports, examples, links, and stale output failed their respective checks.
-SIGINT and SIGTERM checks rejected interrupted generation and removed owned temporary output.
-The parent inspected the final guide and API navigation in Chromium.
-An independent agent reader completed the use and bounded-change tasks on predecessor `74081950`; later changes covered prose and generator cleanup.
-This is agent-reader evidence, not an unfamiliar-human usability study.
-The integrated render is `/tmp/vektor-placements-guide-combined-1790289436003/index.html`.
-Generation, freshness, and Chromium inspection passed on the combined source.
-The [tool-choice record](packages/placements/README.md#tool-choice) explains the maintained generator and isolated documentation compiler.
-The completed pilot specification is retired. The guide, source declarations, examples, and executable checks retain its contract.
+The [documentation CI gate](packages/placements/README.md#ci-and-retained-artifacts) is integrated locally.
+It checks public examples, generates the reference once, and binds output to a clean source revision and exact file inventory.
+Retained-artifact acceptance does not regenerate the reference.
+Source links identify real repository paths. Hosted URL availability remains unobserved.
+Branch revision `3cad903ae076c4dc4a9f6b0f978ddf7d71e2414f` passed generation and retained-artifact acceptance.
+Seven regressions passed, including source links, artifact rejection, ignored SIGTERM, and descendants that outlive their leader.
+The completed documentation specifications are retired. The guide, source declarations, examples, and executable checks retain their contracts.
 
-Both workstreams are integrated into local `main`. Their separate branches and worktrees remain available from the common planning base `c89a5512`.
-The accepted golden journey remains on `main`; accepted history was not moved between branches.
+The earlier E2E and documentation branches remain available from planning base `c89a5512`.
+The Substitutes and documentation-CI branches start from `2804f9d4`. All four branches are integrated locally.
 
-| Workstream    | Local branch                           | Worktree relative to this repository | Contract or accepted guide                                   |
-| ------------- | -------------------------------------- | ------------------------------------ | ------------------------------------------------------------ |
-| E2E           | `test/golden-journey-ci-0924`          | `../mono-web-e2e`                    | [Golden CI contract](docs/specs/golden-school-service-ci.md) |
-| Documentation | `docs/placements-developer-guide-0924` | `../mono-web-docs`                   | [Placements guide](packages/placements/README.md)            |
+| Workstream       | Local branch                           | Worktree relative to this repository | Accepted guide or contract                                                    |
+| ---------------- | -------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
+| E2E              | `test/golden-journey-ci-0924`          | `../mono-web-e2e`                    | [Golden CI contract](docs/specs/golden-school-service-ci.md)                  |
+| Documentation    | `docs/placements-developer-guide-0924` | `../mono-web-docs`                   | [Placements guide](packages/placements/README.md)                             |
+| Substitutes      | `feat/substitutes-journey-0925`        | `../mono-web-substitutes-0925`       | [Substitutes guide](packages/domain/src/substitutes/README.md)                |
+| Documentation CI | `docs/placements-ci-0925`              | `../mono-web-docs-ci-0925`           | [Retained artifacts](packages/placements/README.md#ci-and-retained-artifacts) |
 
-The [testing roadmap](docs/web-system-functional-testing.md#development-sequence) owns E2E sequencing. The documentation roadmap owns documentation sequencing.
-Each branch owns its bounded implementation files. Shared manifests, lockfiles, CI entry points, navigation, and mission state require integration coordination.
-One heavy job runs at a time across both workstreams. The operator demonstration remains outside their resource ownership.
+The [testing roadmap](docs/web-system-functional-testing.md#development-sequence) owns journey sequencing.
+The documentation roadmap owns documentation sequencing. Shared paths require an integration handoff.
+One heavy job runs at a time. Operator demonstration resources remain outside these workstreams.
 No publication, hosted CI execution, repository-protection change, or deployment is claimed.
+
+### Substitutes operational journey
+
+The [Substitutes guide](packages/domain/src/substitutes/README.md) documents the complete service boundary and executable example.
+Substitutes owns pool preferences and the canonical application year. Placements retains coverage and actual service outcomes.
+The caller retains current authority, transaction ownership, transport preconditions, and response receipts.
+
+Combined revision `29be0ffed4f6d11eac4547e6e0ebb4b39d966414` passed the CI wrapper and all 31 ordered checkpoints.
+The retained evidence is `/tmp/vektor-substitutes-final-ci-1790293716196`.
+Independent PostgreSQL observations connect pool changes to the eligible application and Person, including assignment conflicts and offer reservations.
+The journey distinguishes notification delivery, offer acceptance, coordinator acknowledgement, actual attendance, and occurrence-linked absence closure.
+Wrong-recipient and stale commands fail without changing business facts. Failed delivery recovers through the loopback provider.
+
+The parent checked all artifact hashes, the exact 13-file upload inventory, seven stopped processes, and four released ports.
+The first combined run rejected unlisted screenshots. The producer no longer writes them into golden evidence; the artifact guard remains unchanged.
+The original failure summary remains at `/tmp/vektor-substitutes-combined-ci-1790293430378/ci-summary.json`.
+Three isolated service regressions and the public-import example passed. The former test-order failure was reproduced before correction.
+Type checks passed for the affected domain, database, backend, dashboard, E2E, and verification packages.
+The completed operational specification is retired. This local proof does not establish current-data parity or real-provider acceptance.
 
 ### Remaining migration work
 
@@ -385,7 +403,7 @@ An active core obligation cannot disappear under that exclusion. Retained data s
 
 Close remaining service boundaries through a concrete operational journey, not a repository-wide framework rewrite.
 Placements now exposes complete commands and queries through its service contract.
-Substitutes still exposes direct database calls from the backend.
+Substitutes now exposes complete commands and pool queries through its [service boundary](packages/domain/src/substitutes/README.md).
 Use the [Economy boundary](docs/architecture.md#domain-services) as the precedent for a complete command and schema-derived query.
 No XState, EventLog, or PersistedQueue adoption follows from dependency compatibility.
 Keep acceptance obligations for a replacement in [AGENTS.md](AGENTS.md#boundary-practices).

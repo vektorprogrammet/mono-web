@@ -1,5 +1,19 @@
 ## Unreleased
 
+### Substitutes operational boundary
+
+- Expose complete pool queries and commands through the portable Substitutes service. Keep SQL helpers private.
+- Preserve caller authority, transaction ownership, response receipts, and precondition priority. Keep legal transition decisions outside SQL.
+- Extend the continuous golden journey through pool eligibility, absence, delivery recovery, acceptance, acknowledgement, actual attendance, and occurrence-linked closure.
+- Add a consumer and maintainer guide with an executable public-import example.
+
+### Source-bound documentation CI
+
+- Check public examples and generate the Placements reference once in credential-free CI.
+- Bind retained documentation to its clean source revision and exact file inventory without regeneration.
+- Correct generated source paths and reject broken links, stale artifacts, unsafe paths, and partial output.
+- Stop compiler and example process groups before cleanup, including descendants that outlive their leader.
+
 ### Credential-free golden CI
 
 - Run the existing golden school-service journey in a separate CI job without provider credentials.
