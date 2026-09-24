@@ -22,6 +22,7 @@ import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-so
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
 let stage = "Options";
 
 const digest = (value: unknown): string =>
@@ -97,15 +98,18 @@ const run = async (command: ReadonlyArray<string>, stdin?: string, env?: Record<
     env: { ...process.env, ...env },
     stdio: ["pipe", "pipe", "pipe"],
   });
+
   const chunks: Buffer[] = [];
   child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
   child.stderr.resume();
   child.stdin.on("error", () => undefined);
   child.stdin.end(stdin);
+
   const code = await new Promise<number>((resolveExit, reject) => {
     child.once("error", () => reject(new Error("Local command unavailable; details redacted")));
     child.once("close", (status) => resolveExit(status ?? 1));
   });
+
   assert.equal(code, 0, "Local command failed; details redacted");
 
   return Buffer.concat(chunks).toString("utf8").trim();
@@ -114,6 +118,7 @@ const run = async (command: ReadonlyArray<string>, stdin?: string, env?: Record<
 const waitForProcessExit = async (child: ChildProcess, timeoutMs: number): Promise<boolean> =>
   await new Promise<boolean>((resolveExit) => {
     let settled = false;
+
     const finish = (exited: boolean) => {
       if (settled) return;
       settled = true;
@@ -121,36 +126,44 @@ const waitForProcessExit = async (child: ChildProcess, timeoutMs: number): Promi
       child.removeListener("exit", onExit);
       resolveExit(exited);
     };
+
     const onExit = () => finish(true);
     const timeout = setTimeout(() => finish(false), timeoutMs);
     child.once("exit", onExit);
+
     if (child.exitCode !== null || child.signalCode !== null) finish(true);
   });
 
 const stopProcess = async (child: ChildProcess): Promise<void> => {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill("SIGTERM");
+
   if (await waitForProcessExit(child, 5_000)) return;
   child.kill("SIGKILL");
+
   if (await waitForProcessExit(child, 5_000)) return;
   throw new Error("Disposable service did not terminate; details redacted");
 };
 
 const waitFor = async (probe: () => Promise<void>): Promise<void> => {
   const deadline = Date.now() + 30_000;
+
   while (Date.now() < deadline) {
     try {
       await probe();
+
       return;
     } catch {
       await delay(100);
     }
   }
+
   throw new Error("Disposable database did not become ready; details redacted");
 };
 
 const sourceRevision = (source: LegacySourceSnapshot): string => {
   const { credentials: _credentials, ...nonCredentialSource } = source;
+
   return digest(nonCredentialSource);
 };
 
@@ -180,14 +193,18 @@ const targetFingerprint = async (pool: Pool): Promise<string> => {
     SELECT format('%I.%I', schemaname, tablename) AS table_name FROM pg_tables
     WHERE schemaname IN ('public','auth') ORDER BY schemaname, tablename
   `)).rows;
+
   const facts: Record<string, Schema.Json> = {};
+
   for (const { table_name: table } of tables) {
     const result = await pool.query<{ rows: unknown }>(`
       SELECT COALESCE(jsonb_agg(to_jsonb(value) ORDER BY to_jsonb(value)::text), '[]'::jsonb) AS rows
       FROM ${table} value
     `);
+
     facts[table] = Schema.decodeUnknownSync(Schema.Json)(result.rows[0]!.rows);
   }
+
   return digest(facts);
 };
 
@@ -202,15 +219,19 @@ const forbiddenFacts = async (pool: Pool): Promise<Record<string, number>> => {
       AND NOT (schemaname = 'auth' AND tablename = 'identity_security_audit')
     ORDER BY schemaname, tablename
   `)).rows;
+
   const counts: Record<string, number> = {};
+
   for (const { table_name: table } of tables) {
     counts[table] = Number((await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${table}`)).rows[0]!.count);
     assert.equal(counts[table], 0, `Import fabricated facts in ${table}`);
   }
+
   // Account import security evidence is expected; it is not a human placement decision.
   assert.equal((await pool.query<{ count: string }>(`
     SELECT count(*)::text AS count FROM auth.identity_security_audit
   `)).rows[0]!.count, "5");
+
   return counts;
 };
 
@@ -248,12 +269,15 @@ const assertAppendOnly = async (pool: Pool): Promise<void> => {
     current_assignment_affiliation_imports: "source_assignment_id",
     current_assignment_reviews: "review",
   };
+
   const before = await targetFingerprint(pool);
+
   for (const [table, column] of Object.entries(columns)) {
     await assert.rejects(pool.query(`UPDATE public.${table} SET ${column} = ${column}`), /append-only/);
     await assert.rejects(pool.query(`DELETE FROM public.${table}`), /append-only/);
     await assert.rejects(pool.query(`TRUNCATE public.${table} CASCADE`), /append-only/);
   }
+
   assert.equal(await targetFingerprint(pool), before, "Append-only refusal changed target facts");
 };
 
@@ -266,9 +290,11 @@ const runRehearsal = async (temporaryRoot: string) => {
   let postgresStarted = false;
   let processesStopped = true;
   const pools: Pool[] = [];
+
   const mysql = (sql: string) => run([
     "mariadb", "--no-defaults", "--batch", "--raw", "--skip-column-names", "--socket", mysqlSocket, "-uroot",
   ], sql);
+
   const target = async (database: string) => {
     await run(["createdb", "-h", postgresRoot, "-p", "5432", "-U", "postgres", database]);
     const selection = new URL(`postgresql://postgres@localhost/${database}`);
@@ -280,6 +306,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     }))));
     const pool = new Pool({ connectionString: url, max: 3 });
     pools.push(pool);
+
     return { pool, url, database };
   };
 
@@ -322,19 +349,23 @@ const runRehearsal = async (temporaryRoot: string) => {
     await assert.rejects(readLegacySourceSnapshot(writerUrl.toString()), /Grants/);
 
     const primary = await target("assignment_reviewed");
+
     const options = {
       sourceUrl: sourceUrl.toString(), targetUrl: primary.url, targetDatabase: primary.database,
       snapshotId: "synthetic-current-assignment-2026", attestedBy: "synthetic-rehearsal-reviewer",
       passwordlessPolicy: "ProvisionRecovery" as const, currentAssignments: review,
     };
+
     const untouched = await targetFingerprint(primary.pool);
     const refusals: string[] = [];
+
     const refuseReview = async (name: string, altered: CurrentAssignmentReview) => {
       stage = name;
       await assert.rejects(runLegacyServiceCutover({ ...options, currentAssignments: altered }));
       assert.equal(await targetFingerprint(primary.pool), untouched, `${name} changed target facts`);
       refusals.push(name);
     };
+
     await refuseReview("missing-entry", { ...review, assignments: review.assignments.slice(1) });
     await refuseReview("duplicate-entry", { ...review, assignments: [...review.assignments, review.assignments[0]!] });
     await refuseReview("unknown-entry", { ...review, assignments: [
@@ -349,6 +380,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     await refuseReview("invalid-calendar-date", { ...review, asOf: "2026-09-31" });
     await refuseReview("missing-combined-day-confirmation", { ...review, assignments: review.assignments.map((entry) => {
       const { bothBlocksShareDay: _confirmation, ...unconfirmed } = entry;
+
       return unconfirmed;
     }) });
     await mysql("UPDATE vektor.assistant_history SET day = 'Tirsdag' WHERE id = 101");
@@ -373,6 +405,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     stage = "CutoverCLI";
     const reviewFile = join(temporaryRoot, "assignment review.json");
     await writeFile(reviewFile, JSON.stringify(review), { mode: 0o600, flag: "wx" });
+
     const cliOutput = await run([
       process.execPath, "--no-env-file", join(repositoryRoot, "tools/e2e/run-legacy-service-cutover.ts"),
       "--source-url-env=REHEARSAL_SOURCE_URL", "--target-url-env=REHEARSAL_TARGET_URL",
@@ -380,12 +413,15 @@ const runRehearsal = async (temporaryRoot: string) => {
       `--attested-by=${options.attestedBy}`, "--passwordless-policy=provision-recovery",
       `--current-assignments=${reviewFile}`,
     ], undefined, { REHEARSAL_SOURCE_URL: options.sourceUrl, REHEARSAL_TARGET_URL: options.targetUrl });
+
     const cliReport = Schema.decodeUnknownSync(Schema.Struct({
       source: Schema.Struct({ revision: Schema.String }),
       currentAssignments: Schema.Struct({ accepted: Schema.Int, quarantined: Schema.Int }),
     }))(JSON.parse(cliOutput));
+
     assert.deepEqual(cliReport, { source: { revision: review.sourceRevision },
       currentAssignments: { accepted: 3, quarantined: 6 } });
+
     for (const value of source.users.flatMap((user) => [user.email, user.firstName, user.phone]))
       if (typeof value === "string" && value.length > 0)
         assert.equal(cliOutput.includes(value), false, "CLI report contains a personal field");
@@ -399,19 +435,24 @@ const runRehearsal = async (temporaryRoot: string) => {
     assert.deepEqual({ input: first.currentAssignments.input, accepted: first.currentAssignments.accepted,
       quarantined: first.currentAssignments.quarantined }, { input: 9, accepted: 3, quarantined: 6 });
     await assertCanonical(primary.pool);
+
     const dispositions = (await primary.pool.query<{ occurrence_id: string; disposition: string; reason: string }>(`
       SELECT occurrence_id,disposition,reason FROM public.current_assignment_occurrences ORDER BY occurrence_id
     `)).rows;
+
     assert.deepEqual(dispositions.filter((row) => row.reason === "Imported").map((row) => row.occurrence_id),
       ["legacy-history-row-101", "legacy-history-row-102", "legacy-history-row-103"]);
     assert.equal(dispositions.filter((row) => row.reason === "InvalidRow").length, 3);
     assert.equal(dispositions.find((row) => row.occurrence_id === "legacy-history-row-109")?.reason, "Inactive");
+
     for (const id of [104, 108]) {
       assert.equal(dispositions.find((row) => row.occurrence_id === `legacy-history-row-${id}`)?.disposition, "Quarantined");
     }
+
     const ledger = (await primary.pool.query<{ review: unknown; source_kind: string; source_semester_id: string; as_of: string }>(`
       SELECT review,source_kind,source_semester_id,as_of::text FROM public.current_assignment_reviews
     `)).rows;
+
     assert.deepEqual(ledger, [{ review, source_kind: "ReviewedLegacy", source_semester_id: review.sourceSemesterId, as_of: review.asOf }]);
     assert.equal((await primary.pool.query(`
       SELECT count(*)::text AS count FROM public.current_assignment_reviews r
@@ -433,25 +474,34 @@ const runRehearsal = async (temporaryRoot: string) => {
     stage = "ReferenceAndPersonProvenance";
     const provenance = await target("assignment_provenance");
     const references = buildLegacyReferences(source);
+
     const provenanceIdentity = {
       sourceRepository: "vektorprogrammet/vektorprogrammet", sourceRevision: review.sourceRevision,
       snapshotId: options.snapshotId,
     };
+
     await seedLegacyReferences(provenance.pool, provenanceIdentity, references);
+
     const personSnapshot = buildLegacyPersonSnapshot(source.users, {
       sourceRevision: review.sourceRevision, snapshotId: options.snapshotId,
       transformationRevision: first.source.transformationRevision, attestedBy: options.attestedBy,
     });
+
     const personReport = await importPersonCohort(provenance.pool, personSnapshot);
+
     const projected = buildLegacyCurrentAssignmentSnapshot(source, personReport, personSnapshot, review, {
       snapshotId: options.snapshotId, transformationRevision: first.source.transformationRevision,
       referenceDigest: references.referenceDigest,
     });
+
     const rehash = (snapshot: ReconciledCurrentAssignmentSnapshot) => {
       const { snapshotDigest: _snapshotDigest, ...unsigned } = snapshot;
+
       return decodeReconciledCurrentAssignmentSnapshot({ ...unsigned, snapshotDigest: digest(unsigned) });
     };
+
     const provenanceBefore = await targetFingerprint(provenance.pool);
+
     for (const [name, candidate] of [
       ["wrong-reference-digest", { ...projected, referenceDigest: "0".repeat(64) }],
       ["wrong-person-snapshot", { ...projected, personSnapshotKey: "0".repeat(64) }],
@@ -462,11 +512,15 @@ const runRehearsal = async (temporaryRoot: string) => {
       assert.equal(await targetFingerprint(provenance.pool), provenanceBefore, name);
       refusals.push(name);
     }
+
     // A different accepted native Person is not the accepted mapping for this source user.
     const otherPerson = personSnapshot.mappings.find((mapping) => mapping.sourceUserId === "legacy-user:4")!;
+
     const wrongPersonMapping = rehash({ ...projected, mappings: projected.mappings.map((mapping) =>
       mapping.sourceAssignmentId === "legacy-history:101" ? { ...mapping, personId: otherPerson.personId } : mapping) });
+
     const client = await provenance.pool.connect();
+
     try {
       await client.query("BEGIN");
       const mismapped = await importReconciledCurrentAssignmentCohort(provenance.pool, wrongPersonMapping, client);
@@ -480,6 +534,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       await client.query("ROLLBACK");
       client.release();
     }
+
     assert.equal(await targetFingerprint(provenance.pool), provenanceBefore);
     // A fresh, self-consistent review still cannot repoint an already imported source identity.
     await mysql("UPDATE vektor.assistant_history SET user_id = 2 WHERE id = 101");
@@ -505,9 +560,11 @@ const runRehearsal = async (temporaryRoot: string) => {
     stage = "ConcurrentFirstImport";
     const concurrent = await target("assignment_concurrent");
     const concurrentOptions = { ...options, targetUrl: concurrent.url, targetDatabase: concurrent.database };
+
     const concurrentReports = await Promise.all([
       runLegacyServiceCutover(concurrentOptions), runLegacyServiceCutover(concurrentOptions),
     ]);
+
     assert.deepEqual(concurrentReports[0]!.currentAssignments, concurrentReports[1]!.currentAssignments);
     await assertCanonical(concurrent.pool);
     assert.deepEqual((await concurrent.pool.query(`SELECT
@@ -524,9 +581,11 @@ const runRehearsal = async (temporaryRoot: string) => {
     const currentOnlyReview = reviewFor(currentOnlySource);
     assert.notEqual(currentOnlyReview.sourceRevision, review.sourceRevision);
     const currentOnly = await target("assignment_current_only");
+
     const currentOnlyResult = await runLegacyServiceCutover({ ...options,
       targetUrl: currentOnly.url, targetDatabase: currentOnly.database, currentAssignments: currentOnlyReview,
     });
+
     assert.equal(currentOnlyResult.historicalService.stage, "NotImported");
     assert.equal(currentOnlyResult.historicalService.input, 0);
     await assertCanonical(currentOnly.pool);
@@ -559,31 +618,41 @@ const runRehearsal = async (temporaryRoot: string) => {
     };
   } finally {
     let cleanupFailed = false;
+
     for (const pool of pools) await pool.end().catch(() => { cleanupFailed = true; });
+
     if (postgresStarted) {
       await run(["pg_ctl", "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"])
         .catch(() => { cleanupFailed = true; });
+
       if (await lstat(join(postgresRoot, "postmaster.pid")).then(() => true, () => false)) {
         cleanupFailed = true;
         processesStopped = false;
       }
     }
+
     if (mysqlProcess) await stopProcess(mysqlProcess).catch(() => {
       cleanupFailed = true;
       processesStopped = false;
     });
+
     if (processesStopped) await rm(temporaryRoot, { recursive: true, force: true });
+
     if (cleanupFailed) throw new Error("Disposable database cleanup failed; details redacted");
   }
 };
 
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
+
   if (args.length === 1 && args[0] === "--help") {
     console.log("Usage: bun --no-env-file tools/e2e/run-legacy-current-assignment-rehearsal.ts --evidence-dir=<new-directory>\nRuns synthetic, private socket-only MariaDB/PostgreSQL. No backup, production, or provider access.");
+
     return;
   }
+
   const output = args.length === 1 ? /^--evidence-dir=(.+)$/.exec(args[0]!)?.[1] : undefined;
+
   if (!output) throw new Error("Use --help or --evidence-dir=<new-directory>");
   const evidenceDirectory = resolve(output);
   // Refuse existing paths, including symlinks; never overwrite another run's evidence.
@@ -594,12 +663,14 @@ const main = async (): Promise<void> => {
   const report = await runRehearsal(temporaryRoot);
   const evidenceFile = join(evidenceDirectory, "report.json");
   await writeFile(evidenceFile, JSON.stringify({ ...report, ownedDatabasesCleaned: true }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+
   for (const [path, mode] of [[evidenceDirectory, 0o700], [evidenceFile, 0o600]] as const) {
     const metadata = await lstat(path);
     assert.equal(metadata.isSymbolicLink(), false);
     assert.equal(metadata.uid, process.getuid?.());
     assert.equal(metadata.mode & 0o777, mode);
   }
+
   console.log(JSON.stringify({ scope: report.scope, sourceRevision: report.source.revision,
     acceptedAssignments: report.target.placements, quarantinedAssignments: report.target.quarantinedAssignments,
     evidence: "owner-only-report.json", ownedDatabasesCleaned: true }, null, 2));
