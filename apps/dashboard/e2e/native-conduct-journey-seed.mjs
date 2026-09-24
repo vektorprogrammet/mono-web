@@ -137,7 +137,7 @@ INSERT INTO recruitment_interview_schedules (interview_id, scheduled_at, room, c
 VALUES
  ('${interviewA}', '${scheduleA}', 'K-0063A', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-a', 'Velkommen til intervjuet.', '${persons.leader.personId}', '2026-09-12T09:10:00.000Z', 1),
  ('${interviewB}', '${scheduleB}', 'K-0063B', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-b', 'Velkommen til intervjuet.', '${persons.leader.personId}', '2026-09-12T09:11:00.000Z', 1)
-ON CONFLICT (interview_id) DO NOTHING;
+ON CONFLICT (interview_id, schedule_revision) DO NOTHING;
 INSERT INTO recruitment_invitations (invitation_id, interview_id, schedule_revision, capability_sha256, response_state, created_at, response_message, responded_at, response_revision, superseded_at)
 VALUES
  ('${invitationA}', '${interviewA}', 1, repeat('a', 64), 'Accepted', '2026-09-12T09:10:00.000Z', NULL, '2026-09-13T10:00:00.000Z', 1, NULL),
