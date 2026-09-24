@@ -20,11 +20,11 @@
     "@vektorprogrammet/http-api": "workspace:*",
     "@vektorprogrammet/placements": "workspace:*",
     "@vektorprogrammet/sdk": "workspace:*",
+    "better-auth": "1.7.1",
     "effect": "catalog:effect-v4",
     "pg": "8"
   },
   "devDependencies": {
-    "@types/bun": "1.3.10",
     "@types/node": "^22",
     "@types/pg": "^8.23.1",
     "typescript": "7.0.2",
