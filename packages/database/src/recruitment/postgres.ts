@@ -196,6 +196,7 @@ const persistenceError = (operation: string, cause?: unknown): RecruitmentPersis
   new RecruitmentPersistenceError({
     operation,
     message: cause instanceof Error ? cause.message : "recruitment persistence failed",
+    cause,
   });
 
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, operation: string) =>
