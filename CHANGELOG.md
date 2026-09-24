@@ -1,5 +1,11 @@
 ## Unreleased
 
+### Explicit backend configuration
+
+- Load root backend settings with Effect Config and an explicit ConfigProvider. The supplied record never falls back to ambient environment values.
+- Preserve strict numeric input, missing-versus-empty behavior, delivery modes, and existing authority policies. Keep sensitive inputs out of decoder errors.
+- Pass the process environment explicitly from the Bun server and password-reset drain entry points.
+
 ### Effect CLI boundary
 
 - Declare RAT options and generated help with Effect CLI. Preserve machine-readable reports, exit codes, mode restrictions, and last-value option selection.
