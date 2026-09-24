@@ -1022,11 +1022,22 @@ function CoordinatorCoveragePanel({
           const closure = closuresByAbsenceId.get(absence.absenceId);
           const absenceId = absence.absenceId;
 
+          const assignment = absence.commitmentId === null
+            ? coverage.rosterAssignments.find((row) =>
+                row.proposalId === absence.proposalId && row.personId === absence.personId &&
+                row.schoolId === absence.schoolId && row.day === absence.day && row.block === absence.block,
+              )
+            : coverage.commitments.find((commitment) => commitment.commitmentId === absence.commitmentId)
+                ?.assignments.find((row) => row.personId === absence.personId);
+
+          const absentName = assignment ? `${assignment.firstName} ${assignment.lastName}`.trim() : "";
+
           return (
             <article key={absenceId} className="min-w-0 space-y-3 rounded-md border p-4">
               <h4 className="break-words font-medium">
                 {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
               </h4>
+              <p className="[overflow-wrap:anywhere]">Fraværende: {absentName || absence.personId}</p>
               {closure ? (
                 <p>Fraværsutfall: {closureOutcomeLabel[closure.outcome]} (gjelder denne plassen, ikke hele tjenesten).</p>
               ) : activeOffer ? (

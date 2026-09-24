@@ -108,7 +108,28 @@ const coordinator = (model: Model, h: HtmlBuilder<Message>): Html => {
         ? h.p([h.Role("status")], [c.overdue ? "Forfalt – krever en dokumentert beslutning, ikke automatisk fullføring." : "Åpen – ingen tjenestebeslutning ennå."])
         : h.div([], [
             h.p([], [`Tjenesteutfall: ${outcomeLabel(c.decision.outcome)}. Besluttet ${c.decision.decidedAt}.`]),
+            h.p([], [`Registrert av: ${c.decision.decidedBy}`]),
             h.p([], [`Kilde: ${c.decision.evidenceSource}. Faktisk møtte: ${c.decision.attendedPersonIds.length}.`]),
+            c.decision.attendedPersonIds.length === 0
+              ? h.p([], ["Ingen personer er registrert møtt."])
+              : h.ul([h.Class("dated-service__attendees"), h.AriaLabel("Faktisk møtte")], c.decision.attendedPersonIds.map((personId) => {
+                  const assignment = c.assignments.find((row) => row.personId === personId);
+
+                  const offer = assignment ? undefined : coverage.offers.find((row) =>
+                    row.candidatePersonId === personId && coverage.acknowledgements.some((acknowledgement) =>
+                      acknowledgement.offerId === row.offerId && acknowledgement.absenceId === row.absenceId &&
+                      acknowledgement.candidatePersonId === personId && coverage.absences.some((absence) =>
+                        absence.absenceId === row.absenceId && absence.commitmentId === c.commitmentId,
+                      ),
+                    ),
+                  );
+
+                  const name = assignment
+                    ? `${assignment.firstName} ${assignment.lastName}`.trim()
+                    : offer ? `${offer.candidateFirstName} ${offer.candidateLastName}`.trim() : "";
+
+                  return h.li([], [name || personId]);
+                })),
             c.decision.reason ? h.p([], [`Begrunnelse: ${c.decision.reason}`]) : h.empty,
           ]),
       c.decision === null ? h.button([h.Type("button"), h.OnClick(SelectedCommitment({ commitmentId: c.commitmentId }))], ["Registrer beslutning for denne datoen"]) : h.empty,
