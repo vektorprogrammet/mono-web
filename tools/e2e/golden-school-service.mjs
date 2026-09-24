@@ -54,7 +54,7 @@ const assertSubstituteFacts = (step, facts, previous, fixture, deliveries) => {
   if (absence) {
     assert.equal(absence.commitment_id, commitment.commitment_id);
     assert.equal(absence.person_id, volunteerId);
-    assert.equal(absence.reported_by_person_id, volunteerId);
+    assert.equal(absence.reporter_person_id, volunteerId);
   }
   assert.equal(facts.pool.length, reached("pool-activated") ? 1 : 0);
   if (facts.pool.length) {
