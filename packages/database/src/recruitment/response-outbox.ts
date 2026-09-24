@@ -384,9 +384,8 @@ const claimInTransaction = (
   claimedAt: string,
 ): Effect.Effect<ClaimedRecruitmentInvitationResponse | undefined, RecruitmentPersistenceError> =>
   Effect.gen(function* () {
-    const rows = yield* sql<ClaimedInvitationResponseRow>`
-      WITH candidate AS (
-        SELECT outbox.effect_id
+    const candidates = yield* sql<{ readonly effectId: string }>`
+        SELECT outbox.effect_id AS "effectId"
         FROM recruitment_invitation_response_outbox AS outbox
         INNER JOIN recruitment_invitation_response_audit AS audit
           ON audit.invitation_id = outbox.invitation_id
@@ -402,15 +401,30 @@ const claimInTransaction = (
           outbox.ordinal ASC
         FOR UPDATE OF outbox SKIP LOCKED
         LIMIT 1
-      )
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("lock invitation response outbox candidate", cause)),
+      ),
+    );
+
+    const candidate = candidates[0];
+
+    if (candidate === undefined) return undefined;
+
+    // Recheck with a fresh snapshot after acquiring the outbox lock.
+    const rows = yield* sql<ClaimedInvitationResponseRow>`
       UPDATE recruitment_invitation_response_outbox AS outbox
       SET status = 'Processing',
         claim_id = ${claimId},
         claimed_at = ${claimedAt},
         attempts = outbox.attempts + 1,
         last_failure_tag = NULL
-      FROM candidate
-      WHERE outbox.effect_id = candidate.effect_id
+      WHERE outbox.effect_id = ${candidate.effectId}
+        AND EXISTS (
+          SELECT 1 FROM recruitment_invitations AS invitation
+          WHERE invitation.invitation_id = outbox.invitation_id
+            AND invitation.superseded_at IS NULL
+        )
       RETURNING
         outbox.effect_id AS "effectId",
         outbox.effect_type AS "effectType",
