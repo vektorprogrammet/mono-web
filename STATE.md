@@ -418,6 +418,17 @@ The existing reviewed-assignment and Person rehearsals passed at the same source
 The record is `/tmp/vektor-org-accepted-0924/acceptance.json`, with a checksummed source archive.
 The historical backup and previous Organization browser rehearsal were not rerun. No production source, provider, deployment, or cutover was exercised.
 
+Reviewed receipt acceptance used committed source `05f05974` and schema migration 67.
+Real MariaDB and PostgreSQL exercised the SELECT-only reader, receipt CLI, account encryption, and private-file custody with invented records.
+Twenty-seven occurrences produced three accepted claims, twenty-three quarantines, and one explicit exclusion. Thirty-one acceptance checks passed.
+The checks covered source ownership, cross-snapshot replay, native edits, concurrent import, rollback, promotion failure, and logical database/file restore.
+Legacy refunded claims produced approval only. No grants, human audit events, notifications, or settlement evidence appeared.
+
+The original synthetic receipt, reviewed Organization, and reviewed-assignment rehearsals passed at the same source revision.
+Twenty-three focused receipt tests and sixteen affected type-check tasks passed.
+The record is `/tmp/vektor-receipt-accepted-0924/acceptance.json`, with a checksummed source archive.
+No historical receipt data, production source, external provider, deployment, or cutover was exercised. Restore acceptance does not simulate power loss.
+
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.
 
