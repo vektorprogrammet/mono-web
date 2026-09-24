@@ -19,8 +19,14 @@ import {
   importIdentityCohort,
   type CohortReport as IdentityCohortReport,
 } from "@vektorprogrammet/database/identity-cohort";
+import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";
+import { CurrentAssignmentReview } from "@vektorprogrammet/placements/contracts";
+import {
+  importReconciledCurrentAssignmentCohort,
+  type CurrentAssignmentReport,
+} from "@vektorprogrammet/placements/server";
 import { Pool, type PoolClient } from "pg";
-import { flow } from "effect";
+import { flow, Schema } from "effect";
 import {
   buildLegacyReferences,
   departmentId,
@@ -29,6 +35,7 @@ import {
   semesterId,
 } from "./legacy-cutover-references";
 import { buildLegacyPersonSnapshot } from "./legacy-person-snapshot";
+import { buildLegacyCurrentAssignmentSnapshot } from "./legacy-current-assignment-snapshot";
 import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-source-snapshot";
 
 const repository = "vektorprogrammet/vektorprogrammet";
@@ -45,13 +52,14 @@ const sourceSchoolId = (value: number | string): string => `legacy-school:${id(v
 
 const sourceHistoryId = (value: number | string): string => `legacy-history:${id(value)}`;
 
-interface CutoverOptions {
+export interface CutoverOptions {
   readonly sourceUrl: string;
   readonly targetUrl: string;
   readonly targetDatabase: string;
   readonly snapshotId: string;
   readonly attestedBy: string;
   readonly passwordlessPolicy: "ProvisionRecovery";
+  readonly currentAssignments: "NotRequested" | CurrentAssignmentReview;
 }
 
 type CutoverStage =
@@ -60,6 +68,8 @@ type CutoverStage =
   | "ReferenceSeed"
   | "PersonProjection"
   | "PersonImport"
+  | "CurrentAssignmentProjection"
+  | "CurrentAssignmentImport"
   | "HistoricalProjection"
   | "HistoricalImport"
   | "AccountProjection"
@@ -255,7 +265,7 @@ export const buildLegacyAccountSnapshot = (
   });
 };
 
-/** Imports Person, directories, historical service, and owned account identities only. */
+/** Imports references, People, reviewed assignments, historical service, and Accounts atomically. */
 export const runLegacyServiceCutover = async (options: CutoverOptions) => {
   if (
     options.passwordlessPolicy !== "ProvisionRecovery" ||
@@ -265,6 +275,14 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
     options.sourceUrl === options.targetUrl
   )
     throw new Error("Explicit source, target, snapshot and attestation selections are required");
+
+  const review = options.currentAssignments === "NotRequested"
+    ? undefined
+    : await inStage("CurrentAssignmentProjection", async () =>
+        Schema.decodeUnknownSync(CurrentAssignmentReview)(options.currentAssignments, {
+          onExcessProperty: "error",
+        }),
+      );
 
   const targetSelection = (() => {
     try {
@@ -317,6 +335,12 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
           fileURLToPath(new URL("./legacy-source-snapshot.ts", import.meta.url)),
           fileURLToPath(new URL("./legacy-person-snapshot.ts", import.meta.url)),
           fileURLToPath(new URL("./legacy-cutover-references.ts", import.meta.url)),
+          fileURLToPath(new URL("./legacy-current-assignment-snapshot.ts", import.meta.url)),
+          fileURLToPath(import.meta.resolve("@vektorprogrammet/placements/contracts")),
+          fileURLToPath(import.meta.resolve("@vektorprogrammet/placements/server")),
+          // Hash the implementation explicitly. Public re-exports alone do not pin behavior.
+          fileURLToPath(new URL("./current-assignment-cohort.ts", import.meta.resolve("@vektorprogrammet/placements/server"))),
+          fileURLToPath(new URL("../current-assignment-contracts.ts", import.meta.resolve("@vektorprogrammet/placements/server"))),
           fileURLToPath(import.meta.resolve("@vektorprogrammet/database/person-cohort")),
           fileURLToPath(
             import.meta.resolve("@vektorprogrammet/database/historical-service-cohort"),
@@ -370,21 +394,48 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
       importPersonCohort(pool, personSnapshot, client),
     );
 
-    const historicalSnapshot = await inStage("HistoricalProjection", async () =>
-      buildLegacyHistoricalSnapshot(source, person, personSnapshot, {
-        sourceRevision,
-        transformationRevision,
-        snapshotId: options.snapshotId,
-        referenceDigest: references.referenceDigest,
-      }),
-    );
+    const currentSnapshot = review === undefined
+      ? undefined
+      : await inStage("CurrentAssignmentProjection", async () =>
+          buildLegacyCurrentAssignmentSnapshot(source, person, personSnapshot, review, {
+            snapshotId: options.snapshotId,
+            transformationRevision,
+            referenceDigest: references.referenceDigest,
+          }),
+        );
+    const historicalSource = review === undefined
+      ? source
+      : { ...source, history: source.history.filter((row) =>
+          row.semesterId === null || semesterId(row.semesterId) !== review.sourceSemesterId,
+        ) };
+    let historical: HistoricalServiceReport | undefined;
 
-    const historical: HistoricalServiceReport = await inStage("HistoricalImport", () =>
-      importHistoricalServiceCohort(pool, historicalSnapshot, client),
-    );
+    if (historicalSource.history.length > 0) {
+      const historicalSnapshot = await inStage("HistoricalProjection", async () =>
+        buildLegacyHistoricalSnapshot(historicalSource, person, personSnapshot, {
+          sourceRevision,
+          transformationRevision,
+          snapshotId: options.snapshotId,
+          referenceDigest: references.referenceDigest,
+        }),
+      );
 
-    if (historical.accepted === 0)
-      throw new CutoverStageFailure("HistoricalImport", "NoAcceptedService");
+      historical = await inStage("HistoricalImport", () =>
+        importHistoricalServiceCohort(pool, historicalSnapshot, client),
+      );
+
+      if (historical.accepted === 0)
+        throw new CutoverStageFailure("HistoricalImport", "NoAcceptedService");
+    }
+
+    const current: CurrentAssignmentReport | undefined = currentSnapshot === undefined
+      ? undefined
+      : await inStage("CurrentAssignmentImport", () =>
+          importReconciledCurrentAssignmentCohort(pool, currentSnapshot, client),
+        );
+
+    if (current !== undefined && current.accepted === 0)
+      throw new CutoverStageFailure("CurrentAssignmentImport", "NoAcceptedAssignments");
 
     const accountSnapshot = await inStage("AccountProjection", async () =>
       buildLegacyAccountSnapshot(source, person, personSnapshot, {
@@ -401,12 +452,27 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
     await inStage("TargetCommit", () => client.query("COMMIT"));
 
     return {
-      scope: "PersonReferencesHistoricalServiceAndAccounts",
-      currentAssignments: "NotImported",
+      scope: review === undefined
+        ? "PersonReferencesHistoricalServiceAndAccounts"
+        : "PersonReferencesHistoricalServiceCurrentAssignmentsAndAccounts",
+      currentAssignments: current === undefined || review === undefined
+        ? "NotImported" as const
+        : {
+            stage: "Reconciled" as const,
+            sourceSemesterId: review.sourceSemesterId,
+            asOf: review.asOf,
+            sourceWatermark: review.sourceWatermark,
+            currentState: current.currentState,
+            input: current.input,
+            accepted: current.accepted,
+            quarantined: current.quarantined,
+            reasons: reasons(current.occurrences),
+          },
       source: {
         snapshotId: options.snapshotId,
         revision: sourceRevision,
         credentialRevision: digest(credentials),
+        transformationRevision,
       },
       references: {
         stage: referenceStage,
@@ -424,12 +490,12 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
         reasons: reasons(person.occurrences),
       },
       historicalService: {
-        stage: "Reconciled",
-        currentState: historical.currentState,
-        input: historical.input,
-        accepted: historical.accepted,
-        quarantined: historical.quarantined,
-        reasons: reasons(historical.occurrences),
+        stage: historical === undefined ? "NotImported" : "Reconciled",
+        currentState: "Unchanged",
+        input: historical?.input ?? 0,
+        accepted: historical?.accepted ?? 0,
+        quarantined: historical?.quarantined ?? 0,
+        reasons: historical === undefined ? {} : reasons(historical.occurrences),
       },
       accounts: {
         stage: "Reconciled",
@@ -459,7 +525,7 @@ export const runLegacyServiceCutover = async (options: CutoverOptions) => {
 };
 
 const usage =
-  "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID --passwordless-policy=provision-recovery (remote PostgreSQL requires ?sslCaEnv=NAME; local target uses ?host=/absolute/socket; source remains SELECT-only)";
+  "Usage: bun run run-legacy-service-cutover.ts --source-url-env=NAME --target-url-env=NAME --target-database=NAME --snapshot-id=ID --attested-by=ID --passwordless-policy=provision-recovery --current-assignments=none|PATH (remote PostgreSQL requires ?sslCaEnv=NAME; local target uses ?host=/absolute/socket; source remains SELECT-only)";
 
 if (import.meta.main) {
   if (process.argv.length === 3 && process.argv[2] === "--help") {
@@ -483,6 +549,7 @@ if (import.meta.main) {
         "snapshot-id",
         "attested-by",
         "passwordless-policy",
+        "current-assignments",
       ];
 
       if (
@@ -503,6 +570,16 @@ if (import.meta.main) {
       )
         throw new Error("Connection environment selection is invalid");
 
+      const currentAssignments = argumentsByName["current-assignments"] === "none"
+        ? "NotRequested" as const
+        : Schema.decodeUnknownSync(CurrentAssignmentReview)(
+            await readPrivateCohortJson(
+              argumentsByName["current-assignments"],
+              () => new Error("InvalidSnapshot"),
+            ),
+            { onExcessProperty: "error" },
+          );
+
       const result = await runLegacyServiceCutover({
         sourceUrl: process.env[sourceEnv]!,
         targetUrl: process.env[targetEnv]!,
@@ -510,6 +587,7 @@ if (import.meta.main) {
         snapshotId: argumentsByName["snapshot-id"]!,
         attestedBy: argumentsByName["attested-by"]!,
         passwordlessPolicy: "ProvisionRecovery",
+        currentAssignments,
       });
 
       console.log(JSON.stringify(result));
