@@ -42,7 +42,7 @@ assert.equal(
 const environment = {
   ...process.env,
   API_URL: manifest.backendOrigin,
-  VITE_API_URL: manifest.backendOrigin,
+  VITE_API_URL: manifest.dashboardOrigin,
   DASHBOARD_ORIGIN: manifest.dashboardOrigin,
   DASHBOARD_MOUNT: "/dashboard/",
   HOST: "127.0.0.1",
