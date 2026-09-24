@@ -137,11 +137,11 @@ for (const signal of ["SIGTERM", "SIGINT"])
 try {
   await run("bun", ["run", "build"], join(root, "packages/sdk"));
   await run("bun", ["run", "build"], dashboardRoot);
-  dashboard = spawn(
-    process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-    ["node_modules/@react-router/serve/dist/cli.js", "build/server/index.js"],
-    { cwd: dashboardRoot, env: environment, stdio: ["ignore", "pipe", "pipe"] },
-  );
+  dashboard = spawn("bun", ["server.mjs"], {
+    cwd: dashboardRoot,
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   dashboard.stdout.on("data", (value) => {
     output += value;
   });
