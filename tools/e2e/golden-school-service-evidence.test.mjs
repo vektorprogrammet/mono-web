@@ -63,6 +63,7 @@ test("diagnostic custody rejects encoded credentials before any upload file exis
       ["failure.log", "Authorization: [REDACTED]Bearer private-value"],
       ["evidence.json", '{"cookie":" private-value"}'],
       ["failure.log", "DATABASE_PASSWORD=private-value"],
+      ["dashboard-command-4.log", "unlisted command output"],
     ];
     for (const [index, [path, text]] of cases.entries()) {
       const directory = join(temporary, String(index));
