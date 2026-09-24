@@ -398,13 +398,15 @@ const rehearse = async () =>
       await refuseReview(`invalid-${decision}-interval`, {
         ...review,
         memberships: review.memberships.map((entry, index) =>
-          index === 0 ? { ...entry, decision } : entry,
+          index === 0 && entry.decision !== "Excluded" ? { ...entry, decision } : entry,
         ),
       });
     await refuseReview("reversed-interval", {
       ...review,
       memberships: review.memberships.map((entry, index) =>
-        index === 0 ? { ...entry, endAt: "2025-01-01T00:00:00Z" } : entry,
+        index === 0 && entry.decision !== "Excluded"
+          ? { ...entry, endAt: "2025-01-01T00:00:00Z" }
+          : entry,
       ),
     });
     await refuseReview(
