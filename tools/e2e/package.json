@@ -7,7 +7,8 @@
     "check-types": "tsc --noEmit",
     "rehearsal:legacy-person": "bun run run-legacy-backup-person-rehearsal.ts",
     "cutover:legacy-service": "bun run run-legacy-service-cutover.ts",
-    "rehearsal:legacy-current-assignment": "bun --no-env-file run-legacy-current-assignment-rehearsal.ts"
+    "rehearsal:legacy-current-assignment": "bun --no-env-file run-legacy-current-assignment-rehearsal.ts",
+    "rehearsal:legacy-organization": "bun --no-env-file run-legacy-organization-rehearsal.ts"
   },
   "dependencies": {
     "@vektorprogrammet/database": "workspace:*",
