@@ -1,6 +1,6 @@
 # Golden school-service CI
 
-Status: planned.
+Status: accepted locally; hosted acceptance not run.
 
 This contract owns slice B of the [functional testing roadmap](../web-system-functional-testing.md#development-sequence).
 [Slice A](golden-school-service-journey.md) is accepted locally. This slice does not repeat its product acceptance.
@@ -15,9 +15,9 @@ A missing, skipped, unsupported, interrupted, or failed journey must never produ
 
 ### Scope and ownership
 
-The planning branch owns this specification only.
-Implementation owns a narrow addition to [CI](../../.github/workflows/ci.yml) and acceptance/report glue in `tools/e2e/`.
-A narrow [browser runner](../../apps/dashboard/e2e/run-real-native-placement.mjs) change can record the built dashboard identity.
+This slice owns this specification, a narrow addition to [CI](../../.github/workflows/ci.yml), and acceptance/report glue in `tools/e2e/`.
+Narrow [browser runner](../../apps/dashboard/e2e/run-real-native-placement.mjs) changes record the built dashboard identity and owned process groups.
+Golden-only transport diagnostics contain method, path, status, elapsed time, and abort events, never headers, query strings, or bodies.
 The [parent runner](../../tools/e2e/placement-check.ts) remains the lifecycle owner.
 The [observer](../../tools/e2e/golden-school-service.mjs) remains the authority for required step identities.
 No new framework or private product API belongs to this slice.
@@ -73,6 +73,8 @@ The staging step must reject credentials, authorization values, cookies, private
 Raw traces, credential manifests, database files, browser profiles, and raw result directories must never enter an upload.
 Artifact names must include the checkout revision, workflow run ID, and attempt number.
 Retention must not exceed one day. Uploads must not use a wildcard over a runtime directory.
+The upload file set must contain exactly the checked staging files.
+The workflow must not maintain a second file inventory.
 
 ### Resources and cleanup
 
@@ -101,23 +103,65 @@ A missing receipt after that event remains a failure.
 
 ## Definition of done
 
-Each requirement needs executable evidence. All implementation acceptance checks are **not run** at planning time.
+Local implementation acceptance is complete. Hosted acceptance remains **not run**.
 
-| Check                                                                                           | Required result                                                                           | Planning status                          |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Clean local `bun run test:golden-school-service` through CI acceptance glue                     | One passed scenario, exact checkout/build identity, complete evidence, successful cleanup | Not run                                  |
-| `GOLDEN_SCHOOL_SERVICE_FAULT=omit-attendance` with the same command                             | Nonzero command and gate results, retained original failure, no false completion          | Not run                                  |
-| `GOLDEN_SCHOOL_SERVICE_FAULT=absent-browser-evidence` with the same command                     | Missing browser evidence fails the gate                                                   | Not run                                  |
-| SIGINT or SIGTERM after `browser-active.json`                                                   | Failed receipt, stopped processes, released ports, deleted private state                  | Not run                                  |
-| Deleted receipt or required artifact                                                            | Acceptance fails                                                                          | Not run                                  |
-| Wrong revision/tree, changed runner, artifact, fixture digest, or build bytes                   | Acceptance fails                                                                          | Not run                                  |
-| Skipped, incomplete, or duplicate required results                                              | Acceptance fails                                                                          | Not run                                  |
-| Unknown path, symlink, raw trace, or credential-bearing diagnostic                              | No unsafe upload, failed acceptance                                                       | Not run                                  |
-| Local workflow structure review                                                                 | Required unconditional job, bounded resources, read-only permission, explicit uploads     | Not run                                  |
-| Separately authorized hosted success, deliberate failure, cancellation, and missing-result runs | Actual hosted conclusions and retained evidence match this contract                       | Not run; separate authorization required |
+| Check                                                                                           | Required result                                                                         | Local acceptance                         |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Clean local `bun run test:golden-school-service` through CI acceptance glue                     | One passed scenario, exact source/build identity, complete evidence, successful cleanup | Passed; 13 ordered steps                 |
+| `GOLDEN_SCHOOL_SERVICE_FAULT=omit-attendance` with the same command                             | Nonzero command and gate results, retained original failure, no false completion        | Passed; exit 1 and failed receipt        |
+| `GOLDEN_SCHOOL_SERVICE_FAULT=absent-browser-evidence` with the same command                     | Missing browser evidence fails the gate                                                 | Passed; exit 1 and failed receipt        |
+| SIGINT and SIGTERM after `browser-active.json`                                                  | Failed receipt, stopped processes, released ports, deleted private state                | Passed; exits 130 and 143                |
+| Parent runner SIGKILL after browser startup                                                     | Missing receipt fails the gate; owned process groups stop                               | Passed; SIGKILL retained, gate exit 1    |
+| Deleted receipt or required artifact                                                            | Acceptance fails                                                                        | Passed                                   |
+| Wrong revision/tree, changed runner, artifact, fixture digest, or build bytes                   | Acceptance fails                                                                        | Passed                                   |
+| Skipped, incomplete, or duplicate required results                                              | Acceptance fails                                                                        | Passed                                   |
+| Unknown path, symlink, raw trace, or credential-bearing diagnostic                              | No unsafe upload, failed acceptance                                                     | Passed, including decoded credentials    |
+| Upload file set on success, failure, and setup failure                                          | Exact checked files and summary; no separate workflow inventory                         | Passed                                   |
+| Local workflow structure review                                                                 | Unconditional job, bounded resources, read-only permission, explicit uploads            | Passed locally                           |
+| Separately authorized hosted success, deliberate failure, cancellation, and missing-result runs | Actual hosted conclusions and retained evidence match this contract                     | Not run; separate authorization required |
 
-Local workflow review and local commands do not prove hosted execution, hosted cancellation, artifact service behavior, or repository protection.
-Implementation completion must report those limits without marking hosted acceptance complete.
-Temporary negative-case copies must not alter the retained first-attempt evidence.
-After local acceptance, delete throwaway copies and stop temporary processes.
-The integration owner records acceptance and updates shared status documents after branch integration.
+Local commands and workflow review do not prove hosted execution, hosted cancellation, artifact service behavior, or repository protection.
+The integration owner controls hosted acceptance and shared status documents.
+
+### Local acceptance record
+
+The runtime checks cover implementation commit `14f47869e5d09a0a526e58891d0ce2d8dc25ceb1`.
+Its source tree is `f9134bdf9f834c06dc6c8417fda2b51824de9763`.
+The later documentation-only acceptance commit does not have a separate runtime result.
+
+The [CI runner](../../tools/e2e/golden-school-service-ci.mjs) passed in 28.76 seconds through the existing local command.
+It used Bun 1.3.10, Node 22.22.0, PostgreSQL 17.11, and the local Chromium executable.
+The success evidence remains at `/tmp/golden-ci-acceptance-14f47869`.
+Its artifact inventory digest is `sha256:1f8edc5a30046b3c5a4ba914c8007ead85be67d6339ba1ad42bcb160d97502ca`.
+The generated upload set contained exactly 13 checked files, including the receipt and CI summary.
+
+The two deliberate failures remain at `/tmp/golden-ci-omit-14f47869` and `/tmp/golden-ci-absent-14f47869`.
+Their generated upload sets matched the retained files.
+Signal evidence remains at `/tmp/golden-ci-sigint-14f47869` and `/tmp/golden-ci-sigterm-14f47869`.
+Parent-crash evidence remains at `/tmp/golden-ci-owner-crash-14f47869`.
+Independent checks found no owned processes, rebound every recorded port, and confirmed removal of each private temporary root.
+
+A throwaway receipt check passed 23 acceptance and rejection cases against the final success evidence and build bytes.
+The [focused regressions](../../tools/e2e/golden-school-service-evidence.test.mjs) passed both tests with 18 assertions.
+They cover encoded credential rejection and safe upload output after setup failure.
+The workflow uses a 40-minute job bound with bounded steps and termination headroom.
+
+### Preserved failure limits
+
+An earlier attempt at `ae5928fe` failed after a dashboard GET returned HTTP 503.
+Its evidence remains at `/tmp/golden-ci-success-ae5928fe`; its failed result did not change.
+A distinct diagnostic run at `3abf4958` passed. The underlying cause remains unproven.
+No acceptance retry, product timeout increase, or product behavior change hides that failure.
+
+The first `14f47869` attempt lost its tool connection before the CI wrapper returned a result.
+Its recovered inner receipt remains at `/tmp/golden-ci-success-14f47869`; it does not prove CI acceptance.
+The recovery record is `/tmp/golden-ci-success-14f47869.recovery.json`.
+Independent recovery checks found stopped processes and released ports, then removed the private temporary root.
+The separately named acceptance run above used the same unchanged source.
+
+### Cleanup and handoff
+
+Temporary negative-case copies and proof scripts were removed after local acceptance.
+The retained evidence is local and ephemeral, not a hosted artifact or permanent audit store.
+The integration owner retains the shared temporary toolchain until combined integration checks finish.
+The integration owner updates shared roadmaps, status, and release notes after branch integration.
