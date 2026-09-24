@@ -59,7 +59,7 @@ export default function Epostliste() {
   const { scopes, department, semester, type, emails, error } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const busy = navigation.state !== "idle";
-  const departments = scopes?.departments.filter((entry) => entry.canManage) ?? [];
+  const departments = scopes?.departments ?? [];
 
   const selectClass =
     "w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm";
