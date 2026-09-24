@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Credential-free golden CI
+
+- Run the existing golden school-service journey in a separate CI job without provider credentials.
+- Bind acceptance to the clean checkout, built dashboard, runner, fixture, and retained evidence.
+- Reject incomplete results and unsafe diagnostics. Derive upload paths from the checked staging files.
+- Preserve the first failure and termination signal. Stop owned process groups before removal of private runtime files.
+- Record combined local acceptance. Hosted execution and required-check configuration remain separate, unobserved gates.
+
 ### Executable module documentation
 
 - Add a source-linked Placements guide for consumers and maintainers, discoverable from the repository README.

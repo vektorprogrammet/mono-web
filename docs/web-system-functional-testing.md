@@ -280,6 +280,28 @@ UI accessibility and usability programs remain separate from this functional gat
 This scope does not require removal of existing accessibility checks.
 Screenshots do not create pixel-baseline obligations for the golden suite.
 
+### Golden CI implementation
+
+The [CI workflow](../.github/workflows/ci.yml) runs the existing journey through the [CI wrapper](../tools/e2e/golden-school-service-ci.mjs).
+The [evidence inspector](../tools/e2e/golden-school-service-evidence.mjs) owns source, build, receipt, and artifact checks.
+The wrapper derives upload paths from the checked files after staging. The workflow does not maintain another file inventory.
+Credential checks cover decoded JSON fields and raw diagnostics. Unsupported files cannot enter staging.
+
+From a clean committed tree, use the local gate prerequisites and run:
+
+```bash
+bun --no-env-file tools/e2e/golden-school-service-ci.mjs /tmp/golden-school-service-evidence
+```
+
+Use a new output directory outside the checkout for each run.
+The wrapper keeps the first command outcome, including termination signals.
+On handled interruption or runner failure, cleanup drains declared process groups before removal of private runtime files.
+The generated upload set contains only checked evidence and the bounded CI summary.
+
+[STATE.md](../STATE.md#functional-journey-automation) records integrated acceptance and remaining evidence limits.
+The [CI contract](specs/golden-school-service-ci.md) retains the failure criteria and separately authorized hosted gates.
+Hosted success, cancellation, artifact uploads, and required-check configuration remain unobserved.
+
 ## Development sequence
 
 Each implementation slice needs its own bounded contract and acceptance record.

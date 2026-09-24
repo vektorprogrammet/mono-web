@@ -259,10 +259,20 @@ Omitted attendance and missing browser evidence each failed with exit 1; active-
 Those receipts are `/tmp/vektor-placements-0096-sYhMpr/receipt.json`, `/tmp/vektor-placements-0096-K04Fq0/receipt.json`, and `/tmp/vektor-placements-0096-ouMCQE/receipt.json`.
 Artifact hashes, process exit, and port release were checked independently. Private traces, credentials, and disposable databases were removed.
 
-Later slices add required CI execution, generated sequences, and measured execution scaling.
+The [golden CI contract](docs/specs/golden-school-service-ci.md) is implemented and accepted locally.
+Combined revision `32ef5875b6223005cfc0a731c0c34f1415af66f7` passed the CI wrapper with both workstreams integrated.
+Its retained evidence is `/tmp/vektor-golden-combined-1790289368863`.
+The receipt covers all 13 checkpoints. Independent inspection checked source, build bytes, artifact hashes, and the exact 13-file upload set.
+Seven recorded processes were absent, and all four recorded ports accepted new listeners.
+The final-source [failure and interruption records](docs/specs/golden-school-service-ci.md#local-acceptance-record) remain distinct from this integration run.
+
+Hosted success, failure, cancellation, artifact-service behavior, and repository protection remain unobserved.
+The [preserved failure limits](docs/specs/golden-school-service-ci.md#preserved-failure-limits) include an earlier HTTP 503 with an unproven cause.
+No retry or product timeout change hides that failure. Local acceptance does not establish hosted execution or real-provider readiness.
+
+Later slices add generated sequences and measured execution scaling.
 Existing PGlite database and socket fixtures are the basis for whole-system qualification.
-PGlite performance and full native composition remain unmeasured; PostgreSQL server retains concurrency and recovery acceptance.
-Local acceptance does not establish CI execution or real-provider readiness.
+PGlite performance and full native composition remain unmeasured. PostgreSQL server retains concurrency and recovery acceptance.
 
 ### Developer documentation and parallel workstreams
 
@@ -276,17 +286,18 @@ SIGINT and SIGTERM checks rejected interrupted generation and removed owned temp
 The parent inspected the final guide and API navigation in Chromium.
 An independent agent reader completed the use and bounded-change tasks on predecessor `74081950`; later changes covered prose and generator cleanup.
 This is agent-reader evidence, not an unfamiliar-human usability study.
-The final branch render is `/tmp/placements-guide-259c8d81/index.html`.
+The integrated render is `/tmp/vektor-placements-guide-combined-1790289436003/index.html`.
+Generation, freshness, and Chromium inspection passed on the combined source.
 The [tool-choice record](packages/placements/README.md#tool-choice) explains the maintained generator and isolated documentation compiler.
-The completed pilot specification is retired; the guide, source declarations, examples, and executable checks retain its contract.
+The completed pilot specification is retired. The guide, source declarations, examples, and executable checks retain its contract.
 
-Both workstreams retain separate local branches and worktrees from the common planning base `c89a5512`.
+Both workstreams are integrated into local `main`. Their separate branches and worktrees remain available from the common planning base `c89a5512`.
 The accepted golden journey remains on `main`; accepted history was not moved between branches.
 
-| Workstream    | Local branch                           | Worktree relative to this repository | Contract or accepted guide                              |
-| ------------- | -------------------------------------- | ------------------------------------ | ------------------------------------------------------- |
-| E2E           | `test/golden-journey-ci-0924`          | `../mono-web-e2e`                    | `docs/specs/golden-school-service-ci.md` on that branch |
-| Documentation | `docs/placements-developer-guide-0924` | `../mono-web-docs`                   | [Placements guide](packages/placements/README.md)       |
+| Workstream    | Local branch                           | Worktree relative to this repository | Contract or accepted guide                                   |
+| ------------- | -------------------------------------- | ------------------------------------ | ------------------------------------------------------------ |
+| E2E           | `test/golden-journey-ci-0924`          | `../mono-web-e2e`                    | [Golden CI contract](docs/specs/golden-school-service-ci.md) |
+| Documentation | `docs/placements-developer-guide-0924` | `../mono-web-docs`                   | [Placements guide](packages/placements/README.md)            |
 
 The [testing roadmap](docs/web-system-functional-testing.md#development-sequence) owns E2E sequencing. The documentation roadmap owns documentation sequencing.
 Each branch owns its bounded implementation files. Shared manifests, lockfiles, CI entry points, navigation, and mission state require integration coordination.
