@@ -131,6 +131,29 @@ The homepage development server accepts local edits and labels its provenance `w
 Release builds still require clean committed source. The retained Symfony application uses `bun run dev:server`.
 No development command authorizes production access or cloud provisioning.
 
+### Current-assignment migration rehearsal
+
+Run the original synthetic boundary and the reviewed-source journey separately:
+
+```bash
+bun run rehearsal:current-assignment
+nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
+```
+
+The reviewed-source journey also requires PostgreSQL tools on `PATH`. Its evidence directory must not exist.
+It creates private, disposable MariaDB and PostgreSQL instances and uses synthetic legacy-shaped data.
+It removes those instances after the run and retains an owner-only `report.json`. It does not access production or external providers.
+
+The operator cutover command requires an explicit assignment choice. Its help output defines the connection and review-file arguments:
+
+```bash
+bun --no-env-file tools/e2e/run-legacy-service-cutover.ts --help
+```
+
+`--current-assignments=none` leaves current assignments unimported. A private review file selects the reviewed-source path.
+The [review schema](packages/placements/src/current-assignment-contracts.ts) defines the required evidence.
+Current production data, human review, provider acceptance, and cutover authority remain separate gates.
+
 ## Change rule
 
 Implement one complete operational journey at a time:

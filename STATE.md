@@ -206,10 +206,12 @@ or eventual live contents. Changes since this backup need reconciliation.
 The [backup reader](tools/e2e/legacy-source-snapshot.ts) covers six tables:
 users, departments, semesters, schools, school-department links, and assistant history.
 The cutover imports references, People, history, and Accounts in one target transaction.
-It explicitly leaves current assignments unimported. A newer snapshot does not extend this reader.
-The [assignment cohort](packages/database/src/current-assignment-cohort.ts) requires `synthetic: true`.
-The [receipt adapter](apps/backend/src/receipt/import-snapshot.ts) also requires synthetic source and payment-account evidence.
-Both need real-source reconciliation contracts and adapters, not removal of their safety checks.
+The backup rehearsal explicitly selects historical-only import and leaves current assignments unimported.
+The [reviewed assignment adapter](tools/e2e/legacy-current-assignment-snapshot.ts) uses the supported Placements import boundary.
+It requires snapshot-bound review evidence, accepted Person mappings, and source reference provenance.
+The original synthetic assignment path remains restricted.
+The [receipt adapter](apps/backend/src/receipt/import-snapshot.ts) still requires synthetic source and payment-account evidence.
+Receipt migration needs a real-source reconciliation contract and adapter, not removal of its safety checks.
 
 Organization import also needs integration with accepted Person mappings.
 The [organization adapter](packages/domain/src/organization/import.ts) derives membership Person IDs from numeric legacy user IDs.
@@ -243,7 +245,7 @@ A working local stack does not close these gates. No production activity or exte
 | Workstream                      | Remaining deliverable                                                                                                                                                               | Completion gate                                                                                                                                                              | Authority                                                                          |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Operational scope               | Resolve the obligations below. Implement required outcomes or define an explicit transition process.                                                                                | Each active core case has a supported journey and a responsible owner. Unresolved policy is not silently waived.                                                             | Product decisions for policy; local implementation for defined contracts.          |
-| Real-source import coverage     | Extend the six-table reader and import contracts for required current state, private files, and pending work.                                                                       | Each source occurrence has an evidenced mapping and disposition. Synthetic-only assignment and receipt adapters do not qualify.                                              | Local implementation; current production reads need authorization.                 |
+| Real-source import coverage     | Extend the six-table reader and import contracts for organization state, private files, and pending work.                                                                           | Each occurrence has an evidenced mapping and disposition. Assignment reviews need current source evidence. Receipts still need real-source integration.                      | Local implementation; current production reads need authorization.                 |
 | Current-data reconciliation     | Obtain a consistent current snapshot, private file archive, and external-work inventory. Resolve identity, authority, quarantine, and payment evidence.                             | Rehearse the complete reconciled candidate, not only the historical backup. Verify identity-level accounting and retained private bytes.                                     | Authorized source access and human decisions for ambiguous facts.                  |
 | Portable deployment preparation | Select the Bun host, PostgreSQL service, private storage, mail, and required integrations. Configure ingress, secrets, migrations, worker supervision, backups, and failure alerts. | The exact candidate preserves PostgreSQL locking and private-file custody. Required delivery work has an explicit runner and recovery path.                                  | Local preparation now; provider selection and provisioning at cutover preparation. |
 | Provider acceptance             | Exercise real authentication, scoped access, private-file writes and reads, required delivery, restart, retry, revocation, and restore.                                             | Observe the actual selected providers. Verify deployment limits and operational recovery. Local capture adapters and frontend previews are not substitutes.                  | Explicit provider and credential authorization.                                    |
@@ -260,9 +262,9 @@ Delivery status and remaining integration:
 - [Password-reset mail](apps/backend/src/password-recovery/drain-main.ts) has a one-shot drain command. Its production execution and recovery need explicit ownership.
 - Receipt commands already attempt post-commit delivery and stale-claim recovery. The [receipt drain](apps/backend/src/receipt/drain-main.ts) adds explicit retry. Verify unattended recovery after failure and restart; do not assume an HTTP request or manual command will arrive.
 
-The recommended next local slice is real-source current-assignment reconciliation, with explicit mappings and provenance.
-The historical backup can exercise rejection and accounting, but it cannot supply current assignments.
-Broader reader coverage must not turn historical membership into current authority or remove synthetic-only safety checks.
+The next local import slice is organization membership reconciliation against accepted Person mappings.
+Reviewed current-assignment import still needs an authorized current snapshot and evidence from responsible humans.
+The historical backup cannot supply current assignments. Historical membership must not become current authority by inference.
 
 ### Remaining operational obligations
 

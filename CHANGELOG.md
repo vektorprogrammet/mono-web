@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Reviewed current-assignment migration
+
+- Add a snapshot-bound assignment review with explicit semester, effective date, active decisions, and combined-block evidence.
+- Move assignment reconciliation behind the supported Placements server boundary. Keep its synthetic entry point restricted.
+- Import reviewed assignments, references, accepted People, historical service, and Accounts in one transaction.
+- Preserve native edits on replay. Keep current assignments separate from historical service and human operational decisions.
+- Add a disposable MariaDB-to-PostgreSQL rehearsal through the real reader and operator CLI.
+
 ### Native command ownership
 
 - Move Placements and Recruitment mutation sequencing behind complete Effect service commands while retaining atomic HTTP response receipts.

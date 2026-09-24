@@ -104,18 +104,23 @@ semester, and school mappings. Historical affiliation is derived from accepted
 service rows. Importing history never creates a current affiliation, placement,
 demand, absence, service occurrence, Account, or admission decision.
 
-A synthetic current-assignment reconciliation snapshot may establish current facts only
-when every active source assignment has accepted immutable Person evidence and explicit
-Person, department, semester, and school mappings. It retains its declared canonical
-digest, source watermark, source-row digest, assignment evidence, mapping, disposition,
-and deterministic placement identity as append-only provenance. The transaction creates
-the existing Active affiliation at revision 1 only when it has no canonical target, then
-creates the existing active placement at revision 1. It writes no human operational
-audit action. Several placements can share the one importer-proven affiliation. Exact
-replay is stable; changed source identity, ambiguous or unresolved mappings, inactive
-assignments, overlap, and unowned canonical targets are rejected or quarantined without
-adopting or mutating canonical facts. This local synthetic path does not authorize
-production import.
+Current-assignment reconciliation requires accepted Person evidence and explicit Person, department, semester, and school mappings.
+Placements owns validation, canonical writes, conflicts, and append-only import provenance through its public server boundary.
+The synthetic snapshot remains a separate, restricted path.
+
+A reviewed legacy snapshot also requires the matching source revision, source watermark, semester, effective date, reviewer, and evidence references.
+Every assignment in the selected semester needs one review entry that pins its raw source-row digest and active decision.
+A combined-block assignment requires explicit evidence that one weekday applies to both blocks.
+A historical backup alone does not establish current assignments.
+
+The cutover imports references, accepted People, historical service, reviewed current assignments, and Accounts in one transaction.
+Selected current rows do not enter historical service. An explicit historical-only choice leaves current assignments unchanged.
+The importer creates Active affiliations and placements at revision 1 only when canonical targets permit them.
+Several placements can share one importer-proven affiliation. Inactive and invalid rows do not compete for active slots.
+
+Each occurrence receives an accepted or quarantined disposition. Import writes no human decisions, authority grants, attendance, or notification work.
+Exact replay preserves later native changes. Changed source identity, review, references, or snapshot content fails without partial writes.
+Supplied review evidence does not independently prove freshness, currentness, or production authority.
 
 ## Core lifecycles
 
