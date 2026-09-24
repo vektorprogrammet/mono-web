@@ -11,9 +11,15 @@ import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { CurrentAssignmentReview, type ReconciledCurrentAssignmentSnapshot } from "@vektorprogrammet/placements/contracts";
-import { decodeReconciledCurrentAssignmentSnapshot, importReconciledCurrentAssignmentCohort } from "@vektorprogrammet/placements/server";
-import { Effect, Redacted, Schema } from "effect";
+import {
+  CurrentAssignmentReview,
+  type ReconciledCurrentAssignmentSnapshot,
+} from "@vektorprogrammet/placements/contracts";
+import {
+  decodeReconciledCurrentAssignmentSnapshot,
+  importReconciledCurrentAssignmentCohort,
+} from "@vektorprogrammet/placements/server";
+import { Effect, flow, Predicate, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import { buildLegacyReferences, seedLegacyReferences } from "./legacy-cutover-references";
 import { buildLegacyCurrentAssignmentSnapshot } from "./legacy-current-assignment-snapshot";
@@ -25,8 +31,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 
 let stage = "Options";
 
-const digest = (value: unknown): string =>
-  createHash("sha256").update(canonicalJson(value)).digest("hex");
+const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
 
 // This is deliberately synthetic, not a backup or an assertion about live assignments.
 // Names, nullability, legacy vocabularies and six InnoDB tables match the reader contract.
@@ -92,7 +97,11 @@ GRANT SELECT ON vektor.* TO 'legacy_assignment_reader'@'localhost';
 `;
 
 // Keep the same bounded, redacted subprocess lifecycle as the backup Person rehearsal.
-const run = async (command: ReadonlyArray<string>, stdin?: string, env?: Record<string, string>): Promise<string> => {
+const run = async (
+  command: ReadonlyArray<string>,
+  stdin?: string,
+  env?: Record<string, string>,
+): Promise<string> => {
   const child = spawn(command[0]!, command.slice(1), {
     cwd: repositoryRoot,
     env: { ...process.env, ...env },
@@ -175,24 +184,31 @@ const reviewFor = (source: LegacySourceSnapshot): CurrentAssignmentReview => {
     asOf: "2026-09-24",
     attestedBy: "synthetic-rehearsal-reviewer",
     evidenceRef: "synthetic-review-only",
-    assignments: source.history.filter((row) => String(row.semesterId) === "2").map((row) => ({
-      sourceAssignmentId: `legacy-history:${row.id}`,
-      sourceRowDigest: digest(row),
-      active: String(row.id) !== "109",
-      affiliationEvidenceRef: `synthetic-affiliation:${row.id}`,
-      placementEvidenceRef: `synthetic-placement:${row.id}`,
-      ...(row.bolk === "Bolk 1, Bolk 2" ? { bothBlocksShareDay: true } : {}),
-    })),
+    assignments: source.history
+      .filter((row) => String(row.semesterId) === "2")
+      .map((row) => {
+        const entry = {
+          sourceAssignmentId: `legacy-history:${row.id}`,
+          sourceRowDigest: digest(row),
+          active: String(row.id) !== "109",
+          affiliationEvidenceRef: `synthetic-affiliation:${row.id}`,
+          placementEvidenceRef: `synthetic-placement:${row.id}`,
+        };
+
+        return row.bolk === "Bolk 1, Bolk 2" ? { ...entry, bothBlocksShareDay: true } : entry;
+      }),
   });
 };
 
 // Full persisted target rows, not selected counts, establish refusal/rollback/replay stability.
 // PostgreSQL formats identifiers from its own catalog, as in the existing assignment rehearsal.
 const targetFingerprint = async (pool: Pool): Promise<string> => {
-  const tables = (await pool.query<{ table_name: string }>(`
+  const tables = (
+    await pool.query<{ table_name: string }>(`
     SELECT format('%I.%I', schemaname, tablename) AS table_name FROM pg_tables
     WHERE schemaname IN ('public','auth') ORDER BY schemaname, tablename
-  `)).rows;
+  `)
+  ).rows;
 
   const facts: Record<string, Schema.Json> = {};
 
@@ -209,7 +225,8 @@ const targetFingerprint = async (pool: Pool): Promise<string> => {
 };
 
 const forbiddenFacts = async (pool: Pool): Promise<Record<string, number>> => {
-  const tables = (await pool.query<{ table_name: string }>(`
+  const tables = (
+    await pool.query<{ table_name: string }>(`
     SELECT format('%I.%I', schemaname, tablename) AS table_name FROM pg_tables
     WHERE schemaname IN ('public','auth')
       AND (tablename LIKE '%audit%' OR tablename LIKE '%outbox%' OR tablename LIKE '%grant%'
@@ -218,47 +235,105 @@ const forbiddenFacts = async (pool: Pool): Promise<Record<string, number>> => {
           'service_principals'))
       AND NOT (schemaname = 'auth' AND tablename = 'identity_security_audit')
     ORDER BY schemaname, tablename
-  `)).rows;
+  `)
+  ).rows;
 
   const counts: Record<string, number> = {};
 
   for (const { table_name: table } of tables) {
-    counts[table] = Number((await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${table}`)).rows[0]!.count);
+    counts[table] = Number(
+      (await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM ${table}`)).rows[0]!
+        .count,
+    );
     assert.equal(counts[table], 0, `Import fabricated facts in ${table}`);
   }
 
   // Account import security evidence is expected; it is not a human placement decision.
-  assert.equal((await pool.query<{ count: string }>(`
+  assert.equal(
+    (
+      await pool.query<{ count: string }>(`
     SELECT count(*)::text AS count FROM auth.identity_security_audit
-  `)).rows[0]!.count, "5");
+  `)
+    ).rows[0]!.count,
+    "5",
+  );
 
   return counts;
 };
 
-const canonicalPlacements = async (pool: Pool) => (await pool.query<{
-  person_id: string; day: string; workdays: number; block: string; active: boolean; revision: number;
-}>(`
+const canonicalPlacements = async (pool: Pool) =>
+  (
+    await pool.query<{
+      person_id: string;
+      day: string;
+      workdays: number;
+      block: string;
+      active: boolean;
+      revision: number;
+    }>(`
   SELECT person_id,day,workdays,block,active,revision FROM public.assistant_placements
   ORDER BY person_id,block
-`)).rows;
+`)
+  ).rows;
 
 const assertCanonical = async (pool: Pool): Promise<void> => {
   assert.deepEqual(await canonicalPlacements(pool), [
-    { person_id: "legacy-person-1", day: "Monday", workdays: 8, block: "1", active: true, revision: 1 },
-    { person_id: "legacy-person-1", day: "Tuesday", workdays: 4, block: "2", active: true, revision: 1 },
-    { person_id: "legacy-person-2", day: "Wednesday", workdays: 6, block: "Both", active: true, revision: 1 },
+    {
+      person_id: "legacy-person-1",
+      day: "Monday",
+      workdays: 8,
+      block: "1",
+      active: true,
+      revision: 1,
+    },
+    {
+      person_id: "legacy-person-1",
+      day: "Tuesday",
+      workdays: 4,
+      block: "2",
+      active: true,
+      revision: 1,
+    },
+    {
+      person_id: "legacy-person-2",
+      day: "Wednesday",
+      workdays: 6,
+      block: "Both",
+      active: true,
+      revision: 1,
+    },
   ]);
-  assert.deepEqual((await pool.query(`
+  assert.deepEqual(
+    (
+      await pool.query(`
     SELECT person_id,department_id,status,revision FROM public.organization_volunteer_affiliations
     ORDER BY person_id
-  `)).rows, [
-    { person_id: "legacy-person-1", department_id: "legacy-department:1", status: "Active", revision: 1 },
-    { person_id: "legacy-person-2", department_id: "legacy-department:1", status: "Active", revision: 1 },
-  ]);
-  assert.equal((await pool.query(`
+  `)
+    ).rows,
+    [
+      {
+        person_id: "legacy-person-1",
+        department_id: "legacy-department:1",
+        status: "Active",
+        revision: 1,
+      },
+      {
+        person_id: "legacy-person-2",
+        department_id: "legacy-department:1",
+        status: "Active",
+        revision: 1,
+      },
+    ],
+  );
+  assert.equal(
+    (
+      await pool.query(`
     SELECT count(*)::text AS count FROM public.assistant_placements
     WHERE semester_id <> 'legacy-semester:2'
-  `)).rows[0].count, "0");
+  `)
+    ).rows[0].count,
+    "0",
+  );
 };
 
 const assertAppendOnly = async (pool: Pool): Promise<void> => {
@@ -273,7 +348,10 @@ const assertAppendOnly = async (pool: Pool): Promise<void> => {
   const before = await targetFingerprint(pool);
 
   for (const [table, column] of Object.entries(columns)) {
-    await assert.rejects(pool.query(`UPDATE public.${table} SET ${column} = ${column}`), /append-only/);
+    await assert.rejects(
+      pool.query(`UPDATE public.${table} SET ${column} = ${column}`),
+      /append-only/,
+    );
     await assert.rejects(pool.query(`DELETE FROM public.${table}`), /append-only/);
     await assert.rejects(pool.query(`TRUNCATE public.${table} CASCADE`), /append-only/);
   }
@@ -291,9 +369,20 @@ const runRehearsal = async (temporaryRoot: string) => {
   let processesStopped = true;
   const pools: Pool[] = [];
 
-  const mysql = (sql: string) => run([
-    "mariadb", "--no-defaults", "--batch", "--raw", "--skip-column-names", "--socket", mysqlSocket, "-uroot",
-  ], sql);
+  const mysql = (sql: string) =>
+    run(
+      [
+        "mariadb",
+        "--no-defaults",
+        "--batch",
+        "--raw",
+        "--skip-column-names",
+        "--socket",
+        mysqlSocket,
+        "-uroot",
+      ],
+      sql,
+    );
 
   const target = async (database: string) => {
     await run(["createdb", "-h", postgresRoot, "-p", "5432", "-U", "postgres", database]);
@@ -301,34 +390,75 @@ const runRehearsal = async (temporaryRoot: string) => {
     selection.searchParams.set("host", postgresRoot);
     selection.searchParams.set("port", "5432");
     const url = selection.toString();
-    await Effect.runPromise(databaseHealth.pipe(Effect.provide(DatabaseLive({
-      url: Redacted.make(url), applicationName: "synthetic-current-assignment-rehearsal", maxConnections: 2,
-    }))));
+    await Effect.runPromise(
+      databaseHealth.pipe(
+        Effect.provide(
+          DatabaseLive({
+            url: Redacted.make(url),
+            applicationName: "synthetic-current-assignment-rehearsal",
+            maxConnections: 2,
+          }),
+        ),
+      ),
+    );
     const pool = new Pool({ connectionString: url, max: 3 });
     pools.push(pool);
 
     return { pool, url, database };
   };
 
-  try {
+  const outcome = await (async () => {
     stage = "PrivateDatabaseSetup";
     await mkdir(mysqlRoot, { mode: 0o700 });
     await mkdir(postgresRoot, { mode: 0o700 });
     await mkdir(mysqlData, { mode: 0o700 });
-    await run(["mariadb-install-db", "--no-defaults", `--datadir=${mysqlData}`,
-      "--auth-root-authentication-method=normal", "--skip-test-db"]);
-    mysqlProcess = spawn("mariadbd", [
-      "--no-defaults", `--datadir=${mysqlData}`, `--socket=${mysqlSocket}`,
-      `--pid-file=${join(mysqlRoot, "mysql.pid")}`, `--log-error=${join(mysqlRoot, "mysql.log")}`,
-      "--skip-networking",
-    ], { cwd: repositoryRoot, stdio: "ignore" });
+    await run([
+      "mariadb-install-db",
+      "--no-defaults",
+      `--datadir=${mysqlData}`,
+      "--auth-root-authentication-method=normal",
+      "--skip-test-db",
+    ]);
+    mysqlProcess = spawn(
+      "mariadbd",
+      [
+        "--no-defaults",
+        `--datadir=${mysqlData}`,
+        `--socket=${mysqlSocket}`,
+        `--pid-file=${join(mysqlRoot, "mysql.pid")}`,
+        `--log-error=${join(mysqlRoot, "mysql.log")}`,
+        "--skip-networking",
+      ],
+      { cwd: repositoryRoot, stdio: "ignore" },
+    );
     mysqlProcess.once("error", () => undefined);
-    await waitFor(async () => { await mysql("SELECT 1"); });
+    await waitFor(async () => {
+      await mysql("SELECT 1");
+    });
     await mysql(fixtureSql);
-    await run(["initdb", "-D", postgresRoot, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
+    await run([
+      "initdb",
+      "-D",
+      postgresRoot,
+      "-A",
+      "trust",
+      "-U",
+      "postgres",
+      "--no-locale",
+      "--encoding=UTF8",
+    ]);
     postgresStarted = true;
-    await run(["pg_ctl", "-D", postgresRoot, "-l", join(postgresRoot, "postgres.log"),
-      "-o", `-c listen_addresses= -k ${postgresRoot} -p 5432`, "-w", "start"]);
+    await run([
+      "pg_ctl",
+      "-D",
+      postgresRoot,
+      "-l",
+      join(postgresRoot, "postgres.log"),
+      "-o",
+      `-c listen_addresses= -k ${postgresRoot} -p 5432`,
+      "-w",
+      "start",
+    ]);
 
     const sourceUrl = new URL("mysql://legacy_assignment_reader@localhost/vektor");
     sourceUrl.searchParams.set("socketPath", mysqlSocket);
@@ -351,9 +481,13 @@ const runRehearsal = async (temporaryRoot: string) => {
     const primary = await target("assignment_reviewed");
 
     const options = {
-      sourceUrl: sourceUrl.toString(), targetUrl: primary.url, targetDatabase: primary.database,
-      snapshotId: "synthetic-current-assignment-2026", attestedBy: "synthetic-rehearsal-reviewer",
-      passwordlessPolicy: "ProvisionRecovery" as const, currentAssignments: review,
+      sourceUrl: sourceUrl.toString(),
+      targetUrl: primary.url,
+      targetDatabase: primary.database,
+      snapshotId: "synthetic-current-assignment-2026",
+      attestedBy: "synthetic-rehearsal-reviewer",
+      passwordlessPolicy: "ProvisionRecovery" as const,
+      currentAssignments: review,
     };
 
     const untouched = await targetFingerprint(primary.pool);
@@ -362,27 +496,49 @@ const runRehearsal = async (temporaryRoot: string) => {
     const refuseReview = async (name: string, altered: CurrentAssignmentReview) => {
       stage = name;
       await assert.rejects(runLegacyServiceCutover({ ...options, currentAssignments: altered }));
-      assert.equal(await targetFingerprint(primary.pool), untouched, `${name} changed target facts`);
+      assert.equal(
+        await targetFingerprint(primary.pool),
+        untouched,
+        `${name} changed target facts`,
+      );
       refusals.push(name);
     };
 
     await refuseReview("missing-entry", { ...review, assignments: review.assignments.slice(1) });
-    await refuseReview("duplicate-entry", { ...review, assignments: [...review.assignments, review.assignments[0]!] });
-    await refuseReview("unknown-entry", { ...review, assignments: [
-      ...review.assignments, { ...review.assignments[0]!, sourceAssignmentId: "legacy-history:999" },
-    ] });
-    await refuseReview("changed-row-digest", { ...review, assignments: review.assignments.map((entry, index) =>
-      index === 0 ? { ...entry, sourceRowDigest: "0".repeat(64) } : entry) });
+    await refuseReview("duplicate-entry", {
+      ...review,
+      assignments: [...review.assignments, review.assignments[0]!],
+    });
+    await refuseReview("unknown-entry", {
+      ...review,
+      assignments: [
+        ...review.assignments,
+        { ...review.assignments[0]!, sourceAssignmentId: "legacy-history:999" },
+      ],
+    });
+    await refuseReview("changed-row-digest", {
+      ...review,
+      assignments: review.assignments.map((entry, index) =>
+        index === 0 ? { ...entry, sourceRowDigest: "0".repeat(64) } : entry,
+      ),
+    });
     await refuseReview("changed-source-revision", { ...review, sourceRevision: "0".repeat(64) });
     await refuseReview("wrong-semester", { ...review, sourceSemesterId: "legacy-semester:1" });
-    await refuseReview("empty-semester", { ...review, sourceSemesterId: "legacy-semester:3", assignments: [] });
+    await refuseReview("empty-semester", {
+      ...review,
+      sourceSemesterId: "legacy-semester:3",
+      assignments: [],
+    });
     await refuseReview("out-of-semester-date", { ...review, asOf: "2026-01-24" });
     await refuseReview("invalid-calendar-date", { ...review, asOf: "2026-09-31" });
-    await refuseReview("missing-combined-day-confirmation", { ...review, assignments: review.assignments.map((entry) => {
-      const { bothBlocksShareDay: _confirmation, ...unconfirmed } = entry;
+    await refuseReview("missing-combined-day-confirmation", {
+      ...review,
+      assignments: review.assignments.map((entry) => {
+        const { bothBlocksShareDay: _confirmation, ...unconfirmed } = entry;
 
-      return unconfirmed;
-    }) });
+        return unconfirmed;
+      }),
+    });
     await mysql("UPDATE vektor.assistant_history SET day = 'Tirsdag' WHERE id = 101");
     await refuseReview("changed-source-row", review);
     await mysql("UPDATE vektor.assistant_history SET day = 'Mandag' WHERE id = 101");
@@ -395,9 +551,15 @@ const runRehearsal = async (temporaryRoot: string) => {
       CREATE TRIGGER fail_assignment_rehearsal BEFORE INSERT ON auth.account_cohort_imports
       FOR EACH ROW EXECUTE FUNCTION auth.fail_assignment_rehearsal();
     `);
-    await assert.rejects(runLegacyServiceCutover(options), (cause: unknown) =>
-      cause instanceof CutoverStageFailure && cause.stage === "AccountImport");
-    assert.equal(await targetFingerprint(primary.pool), untouched, "Whole cutover did not roll back");
+    await assert.rejects(
+      runLegacyServiceCutover(options),
+      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "AccountImport",
+    );
+    assert.equal(
+      await targetFingerprint(primary.pool),
+      untouched,
+      "Whole cutover did not roll back",
+    );
     await primary.pool.query(`
       DROP TRIGGER fail_assignment_rehearsal ON auth.account_cohort_imports;
       DROP FUNCTION auth.fail_assignment_rehearsal();
@@ -406,55 +568,106 @@ const runRehearsal = async (temporaryRoot: string) => {
     const reviewFile = join(temporaryRoot, "assignment review.json");
     await writeFile(reviewFile, JSON.stringify(review), { mode: 0o600, flag: "wx" });
 
-    const cliOutput = await run([
-      process.execPath, "--no-env-file", join(repositoryRoot, "tools/e2e/run-legacy-service-cutover.ts"),
-      "--source-url-env=REHEARSAL_SOURCE_URL", "--target-url-env=REHEARSAL_TARGET_URL",
-      `--target-database=${primary.database}`, `--snapshot-id=${options.snapshotId}`,
-      `--attested-by=${options.attestedBy}`, "--passwordless-policy=provision-recovery",
-      `--current-assignments=${reviewFile}`,
-    ], undefined, { REHEARSAL_SOURCE_URL: options.sourceUrl, REHEARSAL_TARGET_URL: options.targetUrl });
+    const cliOutput = await run(
+      [
+        process.execPath,
+        "--no-env-file",
+        join(repositoryRoot, "tools/e2e/run-legacy-service-cutover.ts"),
+        "--source-url-env=REHEARSAL_SOURCE_URL",
+        "--target-url-env=REHEARSAL_TARGET_URL",
+        `--target-database=${primary.database}`,
+        `--snapshot-id=${options.snapshotId}`,
+        `--attested-by=${options.attestedBy}`,
+        "--passwordless-policy=provision-recovery",
+        `--current-assignments=${reviewFile}`,
+      ],
+      undefined,
+      { REHEARSAL_SOURCE_URL: options.sourceUrl, REHEARSAL_TARGET_URL: options.targetUrl },
+    );
 
-    const cliReport = Schema.decodeUnknownSync(Schema.Struct({
-      source: Schema.Struct({ revision: Schema.String }),
-      currentAssignments: Schema.Struct({ accepted: Schema.Int, quarantined: Schema.Int }),
-    }))(JSON.parse(cliOutput));
+    const cliReport = Schema.decodeUnknownSync(
+      Schema.Struct({
+        source: Schema.Struct({ revision: Schema.String }),
+        currentAssignments: Schema.Struct({ accepted: Schema.Int, quarantined: Schema.Int }),
+      }),
+    )(JSON.parse(cliOutput));
 
-    assert.deepEqual(cliReport, { source: { revision: review.sourceRevision },
-      currentAssignments: { accepted: 3, quarantined: 6 } });
+    assert.deepEqual(cliReport, {
+      source: { revision: review.sourceRevision },
+      currentAssignments: { accepted: 3, quarantined: 6 },
+    });
 
     for (const value of source.users.flatMap((user) => [user.email, user.firstName, user.phone]))
-      if (typeof value === "string" && value.length > 0)
+      if (Predicate.isString(value) && value.length > 0)
         assert.equal(cliOutput.includes(value), false, "CLI report contains a personal field");
     stage = "CanonicalAssignments";
     const first = await runLegacyServiceCutover(options);
     assert.notEqual(first.currentAssignments, "NotImported");
     assert.equal(first.source.revision, review.sourceRevision);
-    assert.deepEqual({ accepted: first.person.accepted, quarantined: first.person.quarantined }, { accepted: 5, quarantined: 2 });
-    assert.deepEqual({ input: first.historicalService.input, accepted: first.historicalService.accepted }, { input: 1, accepted: 1 });
-    assert.ok(typeof first.currentAssignments !== "string");
-    assert.deepEqual({ input: first.currentAssignments.input, accepted: first.currentAssignments.accepted,
-      quarantined: first.currentAssignments.quarantined }, { input: 9, accepted: 3, quarantined: 6 });
+    assert.deepEqual(
+      { accepted: first.person.accepted, quarantined: first.person.quarantined },
+      { accepted: 5, quarantined: 2 },
+    );
+    assert.deepEqual(
+      { input: first.historicalService.input, accepted: first.historicalService.accepted },
+      { input: 1, accepted: 1 },
+    );
+    assert.ok(first.currentAssignments !== "NotImported");
+    assert.deepEqual(
+      {
+        input: first.currentAssignments.input,
+        accepted: first.currentAssignments.accepted,
+        quarantined: first.currentAssignments.quarantined,
+      },
+      { input: 9, accepted: 3, quarantined: 6 },
+    );
     await assertCanonical(primary.pool);
 
-    const dispositions = (await primary.pool.query<{ occurrence_id: string; disposition: string; reason: string }>(`
+    const dispositions = (
+      await primary.pool.query<{ occurrence_id: string; disposition: string; reason: string }>(`
       SELECT occurrence_id,disposition,reason FROM public.current_assignment_occurrences ORDER BY occurrence_id
-    `)).rows;
+    `)
+    ).rows;
 
-    assert.deepEqual(dispositions.filter((row) => row.reason === "Imported").map((row) => row.occurrence_id),
-      ["legacy-history-row-101", "legacy-history-row-102", "legacy-history-row-103"]);
+    assert.deepEqual(
+      dispositions.filter((row) => row.reason === "Imported").map((row) => row.occurrence_id),
+      ["legacy-history-row-101", "legacy-history-row-102", "legacy-history-row-103"],
+    );
     assert.equal(dispositions.filter((row) => row.reason === "InvalidRow").length, 3);
-    assert.equal(dispositions.find((row) => row.occurrence_id === "legacy-history-row-109")?.reason, "Inactive");
+    assert.equal(
+      dispositions.find((row) => row.occurrence_id === "legacy-history-row-109")?.reason,
+      "Inactive",
+    );
 
     for (const id of [104, 108]) {
-      assert.equal(dispositions.find((row) => row.occurrence_id === `legacy-history-row-${id}`)?.disposition, "Quarantined");
+      assert.equal(
+        dispositions.find((row) => row.occurrence_id === `legacy-history-row-${id}`)?.disposition,
+        "Quarantined",
+      );
     }
 
-    const ledger = (await primary.pool.query<{ review: unknown; source_kind: string; source_semester_id: string; as_of: string }>(`
+    const ledger = (
+      await primary.pool.query<{
+        review: unknown;
+        source_kind: string;
+        source_semester_id: string;
+        as_of: string;
+      }>(`
       SELECT review,source_kind,source_semester_id,as_of::text FROM public.current_assignment_reviews
-    `)).rows;
+    `)
+    ).rows;
 
-    assert.deepEqual(ledger, [{ review, source_kind: "ReviewedLegacy", source_semester_id: review.sourceSemesterId, as_of: review.asOf }]);
-    assert.equal((await primary.pool.query(`
+    assert.deepEqual(ledger, [
+      {
+        review,
+        source_kind: "ReviewedLegacy",
+        source_semester_id: review.sourceSemesterId,
+        as_of: review.asOf,
+      },
+    ]);
+    assert.equal(
+      (
+        await primary.pool.query(`
       SELECT count(*)::text AS count FROM public.current_assignment_reviews r
       JOIN public.current_assignment_snapshots a ON a.snapshot_key = r.snapshot_key
       JOIN public.historical_service_reference_provenance p
@@ -462,42 +675,71 @@ const runRehearsal = async (temporaryRoot: string) => {
         AND p.source_revision = a.source_revision AND p.reference_digest = r.reference_digest
       JOIN public.person_cohort_snapshots s ON s.snapshot_key = r.person_snapshot_key
         AND s.source_revision = a.source_revision AND s.snapshot_id = a.snapshot_id
-    `)).rows[0].count, "1");
+    `)
+      ).rows[0].count,
+      "1",
+    );
     stage = "AppendOnlyAndExcludedFacts";
     const noFabricatedFacts = await forbiddenFacts(primary.pool);
     await assertAppendOnly(primary.pool);
     const committed = await targetFingerprint(primary.pool);
     await runLegacyServiceCutover(options);
-    assert.equal(await targetFingerprint(primary.pool), committed, "Exact replay changed imported facts");
-    await assert.rejects(runLegacyServiceCutover({ ...options, currentAssignments: { ...review, evidenceRef: "changed-review" } }));
-    assert.equal(await targetFingerprint(primary.pool), committed, "Changed review changed committed facts");
+    assert.equal(
+      await targetFingerprint(primary.pool),
+      committed,
+      "Exact replay changed imported facts",
+    );
+    await assert.rejects(
+      runLegacyServiceCutover({
+        ...options,
+        currentAssignments: { ...review, evidenceRef: "changed-review" },
+      }),
+    );
+    assert.equal(
+      await targetFingerprint(primary.pool),
+      committed,
+      "Changed review changed committed facts",
+    );
     stage = "ReferenceAndPersonProvenance";
     const provenance = await target("assignment_provenance");
     const references = buildLegacyReferences(source);
 
     const provenanceIdentity = {
-      sourceRepository: "vektorprogrammet/vektorprogrammet", sourceRevision: review.sourceRevision,
+      sourceRepository: "vektorprogrammet/vektorprogrammet",
+      sourceRevision: review.sourceRevision,
       snapshotId: options.snapshotId,
     };
 
     await seedLegacyReferences(provenance.pool, provenanceIdentity, references);
 
     const personSnapshot = buildLegacyPersonSnapshot(source.users, {
-      sourceRevision: review.sourceRevision, snapshotId: options.snapshotId,
-      transformationRevision: first.source.transformationRevision, attestedBy: options.attestedBy,
+      sourceRevision: review.sourceRevision,
+      snapshotId: options.snapshotId,
+      transformationRevision: first.source.transformationRevision,
+      attestedBy: options.attestedBy,
     });
 
     const personReport = await importPersonCohort(provenance.pool, personSnapshot);
 
-    const projected = buildLegacyCurrentAssignmentSnapshot(source, personReport, personSnapshot, review, {
-      snapshotId: options.snapshotId, transformationRevision: first.source.transformationRevision,
-      referenceDigest: references.referenceDigest,
-    });
+    const projected = buildLegacyCurrentAssignmentSnapshot(
+      source,
+      personReport,
+      personSnapshot,
+      review,
+      {
+        snapshotId: options.snapshotId,
+        transformationRevision: first.source.transformationRevision,
+        referenceDigest: references.referenceDigest,
+      },
+    );
 
     const rehash = (snapshot: ReconciledCurrentAssignmentSnapshot) => {
       const { snapshotDigest: _snapshotDigest, ...unsigned } = snapshot;
 
-      return decodeReconciledCurrentAssignmentSnapshot({ ...unsigned, snapshotDigest: digest(unsigned) });
+      return decodeReconciledCurrentAssignmentSnapshot({
+        ...unsigned,
+        snapshotDigest: digest(unsigned),
+      });
     };
 
     const provenanceBefore = await targetFingerprint(provenance.pool);
@@ -505,31 +747,61 @@ const runRehearsal = async (temporaryRoot: string) => {
     for (const [name, candidate] of [
       ["wrong-reference-digest", { ...projected, referenceDigest: "0".repeat(64) }],
       ["wrong-person-snapshot", { ...projected, personSnapshotKey: "0".repeat(64) }],
-      ["native-existence-without-source-provenance", { ...projected, snapshotId: "unseeded-assignment-snapshot",
-        personSnapshotKey: digest([projected.sourceRepository, "unseeded-assignment-snapshot"]) }],
+      [
+        "native-existence-without-source-provenance",
+        {
+          ...projected,
+          snapshotId: "unseeded-assignment-snapshot",
+          personSnapshotKey: digest([projected.sourceRepository, "unseeded-assignment-snapshot"]),
+        },
+      ],
     ] as const) {
-      await assert.rejects(importReconciledCurrentAssignmentCohort(provenance.pool, rehash(candidate)));
+      await assert.rejects(
+        importReconciledCurrentAssignmentCohort(provenance.pool, rehash(candidate)),
+      );
       assert.equal(await targetFingerprint(provenance.pool), provenanceBefore, name);
       refusals.push(name);
     }
 
     // A different accepted native Person is not the accepted mapping for this source user.
-    const otherPerson = personSnapshot.mappings.find((mapping) => mapping.sourceUserId === "legacy-user:4")!;
+    const otherPerson = personSnapshot.mappings.find(
+      (mapping) => mapping.sourceUserId === "legacy-user:4",
+    )!;
 
-    const wrongPersonMapping = rehash({ ...projected, mappings: projected.mappings.map((mapping) =>
-      mapping.sourceAssignmentId === "legacy-history:101" ? { ...mapping, personId: otherPerson.personId } : mapping) });
+    const wrongPersonMapping = rehash({
+      ...projected,
+      mappings: projected.mappings.map((mapping) =>
+        mapping.sourceAssignmentId === "legacy-history:101"
+          ? { ...mapping, personId: otherPerson.personId }
+          : mapping,
+      ),
+    });
 
     const client = await provenance.pool.connect();
 
     try {
       await client.query("BEGIN");
-      const mismapped = await importReconciledCurrentAssignmentCohort(provenance.pool, wrongPersonMapping, client);
+
+      const mismapped = await importReconciledCurrentAssignmentCohort(
+        provenance.pool,
+        wrongPersonMapping,
+        client,
+      );
+
       assert.equal(mismapped.accepted, 2);
-      assert.equal(mismapped.occurrences.find((row) => row.occurrenceId === "legacy-history-row-101")?.reason,
-        "PersonReconciliationMissing");
-      assert.equal((await client.query(
-        "SELECT count(*)::text AS count FROM public.assistant_placements WHERE person_id = $1", [otherPerson.personId],
-      )).rows[0].count, "0");
+      assert.equal(
+        mismapped.occurrences.find((row) => row.occurrenceId === "legacy-history-row-101")?.reason,
+        "PersonReconciliationMissing",
+      );
+      assert.equal(
+        (
+          await client.query(
+            "SELECT count(*)::text AS count FROM public.assistant_placements WHERE person_id = $1",
+            [otherPerson.personId],
+          )
+        ).rows[0].count,
+        "0",
+      );
     } finally {
       await client.query("ROLLBACK");
       client.release();
@@ -540,7 +812,11 @@ const runRehearsal = async (temporaryRoot: string) => {
     await mysql("UPDATE vektor.assistant_history SET user_id = 2 WHERE id = 101");
     const repointed = reviewFor(await readLegacySourceSnapshot(sourceUrl.toString()));
     await assert.rejects(runLegacyServiceCutover({ ...options, currentAssignments: repointed }));
-    assert.equal(await targetFingerprint(primary.pool), committed, "Changed accepted source identity changed target");
+    assert.equal(
+      await targetFingerprint(primary.pool),
+      committed,
+      "Changed accepted source identity changed target",
+    );
     await mysql("UPDATE vektor.assistant_history SET user_id = 1 WHERE id = 101");
     refusals.push("changed-accepted-source-identity");
 
@@ -559,20 +835,34 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     stage = "ConcurrentFirstImport";
     const concurrent = await target("assignment_concurrent");
-    const concurrentOptions = { ...options, targetUrl: concurrent.url, targetDatabase: concurrent.database };
+
+    const concurrentOptions = {
+      ...options,
+      targetUrl: concurrent.url,
+      targetDatabase: concurrent.database,
+    };
 
     const concurrentReports = await Promise.all([
-      runLegacyServiceCutover(concurrentOptions), runLegacyServiceCutover(concurrentOptions),
+      runLegacyServiceCutover(concurrentOptions),
+      runLegacyServiceCutover(concurrentOptions),
     ]);
 
-    assert.deepEqual(concurrentReports[0]!.currentAssignments, concurrentReports[1]!.currentAssignments);
+    assert.deepEqual(
+      concurrentReports[0]!.currentAssignments,
+      concurrentReports[1]!.currentAssignments,
+    );
     await assertCanonical(concurrent.pool);
-    assert.deepEqual((await concurrent.pool.query(`SELECT
+    assert.deepEqual(
+      (
+        await concurrent.pool.query(`SELECT
       (SELECT count(*) FROM public.current_assignment_snapshots)::text AS snapshots,
       (SELECT count(*) FROM public.current_assignment_reviews)::text AS reviews,
       (SELECT count(*) FROM public.current_assignment_imports)::text AS imports,
       (SELECT count(*) FROM public.current_assignment_occurrences)::text AS occurrences
-    `)).rows[0], { snapshots: "1", reviews: "1", imports: "3", occurrences: "9" });
+    `)
+      ).rows[0],
+      { snapshots: "1", reviews: "1", imports: "3", occurrences: "9" },
+    );
     await forbiddenFacts(concurrent.pool);
 
     stage = "CurrentOnlySource";
@@ -582,71 +872,143 @@ const runRehearsal = async (temporaryRoot: string) => {
     assert.notEqual(currentOnlyReview.sourceRevision, review.sourceRevision);
     const currentOnly = await target("assignment_current_only");
 
-    const currentOnlyResult = await runLegacyServiceCutover({ ...options,
-      targetUrl: currentOnly.url, targetDatabase: currentOnly.database, currentAssignments: currentOnlyReview,
+    const currentOnlyResult = await runLegacyServiceCutover({
+      ...options,
+      targetUrl: currentOnly.url,
+      targetDatabase: currentOnly.database,
+      currentAssignments: currentOnlyReview,
     });
 
     assert.equal(currentOnlyResult.historicalService.stage, "NotImported");
     assert.equal(currentOnlyResult.historicalService.input, 0);
     await assertCanonical(currentOnly.pool);
-    assert.deepEqual((await currentOnly.pool.query(`SELECT
+    assert.deepEqual(
+      (
+        await currentOnly.pool.query(`SELECT
       (SELECT count(*) FROM public.assistant_service_history)::text AS history,
       (SELECT count(*) FROM public.assistant_affiliation_history)::text AS affiliations,
       (SELECT count(*) FROM public.historical_service_snapshots)::text AS snapshots,
       (SELECT count(*) FROM public.historical_service_occurrences)::text AS occurrences
-    `)).rows[0], { history: "0", affiliations: "0", snapshots: "0", occurrences: "0" });
+    `)
+      ).rows[0],
+      { history: "0", affiliations: "0", snapshots: "0", occurrences: "0" },
+    );
     await forbiddenFacts(currentOnly.pool);
 
     return {
       scope: "FaithfulSyntheticSixTableMariaDBToDisposablePostgreSQL",
-      establishesProductionParity: false, establishesLiveCurrentAssignments: false,
-      source: { revision: review.sourceRevision, currentOnlyRevision: currentOnlyReview.sourceRevision,
-        tables: 6, users: 7, selectedAssignments: 9, historicalRows: 1,
-        sourceSemesterId: review.sourceSemesterId, asOf: review.asOf, watermark: review.sourceWatermark,
-        credentialsExcludedFromRevision: true, selectOnlyReader: true },
-      target: { schemaRevision: databaseSchemaRevision, placements: 3, affiliations: 2,
-        acceptedPeople: 5, quarantinedPeople: 2, quarantinedAssignments: 6 },
-      refusals, assignmentReasons: first.currentAssignments.reasons,
-      observations: { positiveOperatorCLI: true, normalizedPlacements: true, bothBlocksExplicitlyConfirmed: true,
-        acceptedPersonDependence: true, exactPersonMappingRequired: true, nativeExistenceInsufficient: true,
-        inactiveDoesNotCompete: true, sameSnapshotProvenance: true,
-        wholeCutoverRollback: true, exactReplayPreservesNativeEdits: true, concurrentFirstImport: true,
-        concurrentReplay: true, currentOnlySource: true, appendOnlyReviewAndProvenance: true },
-      privacy: { credentialsPrinted: 0, rawPersonalFieldsPrinted: 0, forbiddenFacts: noFabricatedFacts,
-        accountSecurityAuditRows: 5, evidenceDirectoryMode: "0700", evidenceFileMode: "0600" },
-      productionResourcesUsed: false, externalProviderActions: false,
+      establishesProductionParity: false,
+      establishesLiveCurrentAssignments: false,
+      source: {
+        revision: review.sourceRevision,
+        currentOnlyRevision: currentOnlyReview.sourceRevision,
+        tables: 6,
+        users: 7,
+        selectedAssignments: 9,
+        historicalRows: 1,
+        sourceSemesterId: review.sourceSemesterId,
+        asOf: review.asOf,
+        watermark: review.sourceWatermark,
+        credentialsExcludedFromRevision: true,
+        selectOnlyReader: true,
+      },
+      target: {
+        schemaRevision: databaseSchemaRevision,
+        placements: 3,
+        affiliations: 2,
+        acceptedPeople: 5,
+        quarantinedPeople: 2,
+        quarantinedAssignments: 6,
+      },
+      refusals,
+      assignmentReasons: first.currentAssignments.reasons,
+      observations: {
+        positiveOperatorCLI: true,
+        normalizedPlacements: true,
+        bothBlocksExplicitlyConfirmed: true,
+        acceptedPersonDependence: true,
+        exactPersonMappingRequired: true,
+        nativeExistenceInsufficient: true,
+        inactiveDoesNotCompete: true,
+        sameSnapshotProvenance: true,
+        wholeCutoverRollback: true,
+        exactReplayPreservesNativeEdits: true,
+        concurrentFirstImport: true,
+        concurrentReplay: true,
+        currentOnlySource: true,
+        appendOnlyReviewAndProvenance: true,
+      },
+      privacy: {
+        credentialsPrinted: 0,
+        rawPersonalFieldsPrinted: 0,
+        forbiddenFacts: noFabricatedFacts,
+        accountSecurityAuditRows: 5,
+        evidenceDirectoryMode: "0700",
+        evidenceFileMode: "0600",
+      },
+      productionResourcesUsed: false,
+      externalProviderActions: false,
     };
-  } finally {
-    let cleanupFailed = false;
+  })().then(
+    (report) => ({ _tag: "Success" as const, report }),
+    (error) => ({ _tag: "Failure" as const, error }),
+  );
 
-    for (const pool of pools) await pool.end().catch(() => { cleanupFailed = true; });
+  const cleanupErrors: Error[] = [];
 
-    if (postgresStarted) {
-      await run(["pg_ctl", "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"])
-        .catch(() => { cleanupFailed = true; });
+  for (const pool of pools)
+    await pool.end().catch((cause) => {
+      cleanupErrors.push(new Error("Disposable pool cleanup failed", { cause }));
+    });
 
-      if (await lstat(join(postgresRoot, "postmaster.pid")).then(() => true, () => false)) {
-        cleanupFailed = true;
-        processesStopped = false;
-      }
+  if (postgresStarted) {
+    await run(["pg_ctl", "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"]).catch(
+      (cause) => {
+        cleanupErrors.push(new Error("PostgreSQL cleanup failed", { cause }));
+      },
+    );
+
+    if (
+      await lstat(join(postgresRoot, "postmaster.pid")).then(
+        () => true,
+        () => false,
+      )
+    ) {
+      cleanupErrors.push(new Error("Disposable PostgreSQL process remains"));
+      processesStopped = false;
     }
+  }
 
-    if (mysqlProcess) await stopProcess(mysqlProcess).catch(() => {
-      cleanupFailed = true;
+  if (mysqlProcess)
+    await stopProcess(mysqlProcess).catch((cause) => {
+      cleanupErrors.push(new Error("MariaDB cleanup failed", { cause }));
       processesStopped = false;
     });
 
-    if (processesStopped) await rm(temporaryRoot, { recursive: true, force: true });
+  if (processesStopped)
+    await rm(temporaryRoot, { recursive: true, force: true }).catch((cause) => {
+      cleanupErrors.push(new Error("Private directory cleanup failed", { cause }));
+    });
 
-    if (cleanupFailed) throw new Error("Disposable database cleanup failed; details redacted");
-  }
+  if (Predicate.isTagged(outcome, "Failure"))
+    throw new AggregateError(
+      [outcome.error, ...cleanupErrors],
+      "Synthetic rehearsal failed; details redacted",
+    );
+
+  if (cleanupErrors.length > 0)
+    throw new AggregateError(cleanupErrors, "Owned database cleanup failed; details redacted");
+
+  return outcome.report;
 };
 
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
 
   if (args.length === 1 && args[0] === "--help") {
-    console.log("Usage: bun --no-env-file tools/e2e/run-legacy-current-assignment-rehearsal.ts --evidence-dir=<new-directory>\nRuns synthetic, private socket-only MariaDB/PostgreSQL. No backup, production, or provider access.");
+    console.log(
+      "Usage: bun --no-env-file tools/e2e/run-legacy-current-assignment-rehearsal.ts --evidence-dir=<new-directory>\nRuns synthetic, private socket-only MariaDB/PostgreSQL. No backup, production, or provider access.",
+    );
 
     return;
   }
@@ -662,18 +1024,36 @@ const main = async (): Promise<void> => {
   await chmod(temporaryRoot, 0o700);
   const report = await runRehearsal(temporaryRoot);
   const evidenceFile = join(evidenceDirectory, "report.json");
-  await writeFile(evidenceFile, JSON.stringify({ ...report, ownedDatabasesCleaned: true }, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+  await writeFile(
+    evidenceFile,
+    JSON.stringify({ ...report, ownedDatabasesCleaned: true }, null, 2) + "\n",
+    { mode: 0o600, flag: "wx" },
+  );
 
-  for (const [path, mode] of [[evidenceDirectory, 0o700], [evidenceFile, 0o600]] as const) {
+  for (const [path, mode] of [
+    [evidenceDirectory, 0o700],
+    [evidenceFile, 0o600],
+  ] as const) {
     const metadata = await lstat(path);
     assert.equal(metadata.isSymbolicLink(), false);
     assert.equal(metadata.uid, process.getuid?.());
     assert.equal(metadata.mode & 0o777, mode);
   }
 
-  console.log(JSON.stringify({ scope: report.scope, sourceRevision: report.source.revision,
-    acceptedAssignments: report.target.placements, quarantinedAssignments: report.target.quarantinedAssignments,
-    evidence: "owner-only-report.json", ownedDatabasesCleaned: true }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        scope: report.scope,
+        sourceRevision: report.source.revision,
+        acceptedAssignments: report.target.placements,
+        quarantinedAssignments: report.target.quarantinedAssignments,
+        evidence: "owner-only-report.json",
+        ownedDatabasesCleaned: true,
+      },
+      null,
+      2,
+    ),
+  );
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
