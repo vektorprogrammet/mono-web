@@ -229,6 +229,7 @@ const rehearse = async () =>
       const personSnapshotKey = digest([repository, candidateSnapshotId]);
 
       stage = "BuildOrganizationReview";
+
       const organization = Schema.decodeUnknownSync(OrganizationReview)({
         sourceRevision: baseline.baseRevision,
         sourceWatermark: candidateWatermark,
@@ -281,6 +282,7 @@ const rehearse = async () =>
       });
 
       stage = "BuildReceiptReview";
+
       const receiptReview = Schema.decodeUnknownSync(ReceiptReview)({
         sourceRepository: repository,
         sourceRevision: baseline.baseRevision,
@@ -857,16 +859,19 @@ const main = async (): Promise<void> => {
 if (process.argv[1] === fileURLToPath(import.meta.url))
   await main().catch((cause) => {
     const error = cause instanceof AggregateError ? cause.errors[0] : cause;
+
     const location =
       error instanceof Error
         ? /(?:run-legacy-candidate-rehearsal|legacy-candidate-fixture)\.ts:(\d+):/.exec(
             error.stack ?? "",
           )?.[1]
         : undefined;
+
     const nativePhase =
       error instanceof Error
         ? /^Candidate native journey failed: ([A-Za-z0-9-]+)$/.exec(error.message)?.[1]
         : undefined;
+
     console.error(
       `Synthetic combined candidate rehearsal failed at ${stage}${nativePhase ? `/${nativePhase}` : ""}${location ? ` (line ${location})` : ""}; details redacted`,
     );
