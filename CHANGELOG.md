@@ -1,5 +1,12 @@
 ## Unreleased
 
+### Interactive local walkthrough
+
+- Keep the sign-in form readable in both themes. Match the first client render to server HTML before applying the saved theme.
+- Update the theme control when the system preference changes.
+- Show native directory failures and access denials without empty result tables. Search both first and last names.
+- Include the linked applicant contact in the interview fixture. Correct the local account seed command and its required environment.
+
 ### Layered system guide and development shell
 
 - Add a source-linked MDX walkthrough from human workflows to authority, persistence, delivery, and migration.

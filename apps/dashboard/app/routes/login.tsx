@@ -29,7 +29,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   if (await hasAuthenticatedSession(request)) {
-    throw redirect("/", Predicate.isTagged(oauth, "Pending") ? { headers: oauthNoStoreHeaders() } : undefined);
+    throw redirect(
+      "/",
+      Predicate.isTagged(oauth, "Pending") ? { headers: oauthNoStoreHeaders() } : undefined,
+    );
   }
 
   return data(
@@ -73,19 +76,20 @@ export async function action({ request }: Route.ActionArgs) {
   );
 
   return Match.value(result).pipe(
-Match.tag("Authenticated", async (result) => {if (!Predicate.isTagged(oauth, "Pending")) {
+    Match.tag("Authenticated", async (result) => {
+      if (!Predicate.isTagged(oauth, "Pending")) {
         return redirect(safeRedirect(form.get("redirectTo")), {
           headers: result.headers,
         });
       }
 
-const cookie = sessionCookieFromResponse(result.headers);
+      const cookie = sessionCookieFromResponse(result.headers);
 
-if (result.continuation === undefined || cookie === undefined) {
+      if (result.continuation === undefined || cookie === undefined) {
         return oauthError(502, "OAuth-forespørselen kunne ikke fortsette.");
       }
 
-try {
+      try {
         const location = await guardOAuthContinuation(
           request,
           oauth.pending,
@@ -96,13 +100,22 @@ try {
         return redirect(location, { headers: oauthNoStoreHeaders(result.headers) });
       } catch {
         return oauthError(502, "OAuth-forespørselen kunne ikke fortsette.");
-      }}),
-Match.tag("InvalidOAuthRequest", () => {return oauthError(400, "OAuth-forespørselen er ugyldig. Start tilkoblingen på nytt.");}),
-Match.tag("RateLimited", () => {return loginError("For mange innloggingsforsøk. Prøv igjen om 15 minutter.");}),
-Match.tag("InvalidCredentials", () => {return loginError("Feil e-post eller passord");}),
-Match.tag("Unavailable", () => {return loginError("Tjenesten er midlertidig utilgjengelig. Prøv igjen senere.");}),
-Match.exhaustive
-);
+      }
+    }),
+    Match.tag("InvalidOAuthRequest", () => {
+      return oauthError(400, "OAuth-forespørselen er ugyldig. Start tilkoblingen på nytt.");
+    }),
+    Match.tag("RateLimited", () => {
+      return loginError("For mange innloggingsforsøk. Prøv igjen om 15 minutter.");
+    }),
+    Match.tag("InvalidCredentials", () => {
+      return loginError("Feil e-post eller passord");
+    }),
+    Match.tag("Unavailable", () => {
+      return loginError("Tjenesten er midlertidig utilgjengelig. Prøv igjen senere.");
+    }),
+    Match.exhaustive,
+  );
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
@@ -115,11 +128,11 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
 
   return (
-    <main className="grid h-dvh place-items-center bg-gray-50">
-      <div className="w-full max-w-sm space-y-6 rounded-lg bg-white p-8 shadow-md">
+    <main className="grid h-dvh place-items-center bg-muted text-foreground">
+      <div className="w-full max-w-sm space-y-6 rounded-lg bg-card p-8 text-card-foreground shadow-md">
         <div className="text-center">
           <h1 className="font-bold text-2xl">Vektorprogrammet</h1>
-          <p className="mt-1 text-gray-500 text-sm">Logg inn på dashbordet</p>
+          <p className="mt-1 text-muted-foreground text-sm">Logg inn på dashbordet</p>
           {loaderData.oauthError && (
             <p role="alert" className="mt-3 rounded bg-red-50 p-2 text-red-700 text-sm">
               OAuth-forespørselen er ugyldig. Start tilkoblingen på nytt.
@@ -169,7 +182,7 @@ export default function Login() {
                 />
                 <button
                   type="button"
-                  className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-600 text-xs hover:text-gray-700"
+                  className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground text-xs hover:text-foreground"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? "Skjul" : "Vis"}
@@ -183,7 +196,7 @@ export default function Login() {
 
             <Link
               to="/glemt-passord"
-              className="block text-center text-sm text-gray-500 hover:text-gray-700"
+              className="block text-center text-sm text-muted-foreground hover:text-foreground"
             >
               Glemt passord?
             </Link>

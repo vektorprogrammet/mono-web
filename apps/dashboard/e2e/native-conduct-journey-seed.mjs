@@ -119,6 +119,12 @@ INSERT INTO organization_teams (team_id, department_id, name, active, revision)
 VALUES ('${teamId}', '${departmentId}', 'Rekruttering', TRUE, 0) ON CONFLICT (team_id) DO NOTHING;
 INSERT INTO person_contact_profiles (person_id, email, phone, revision)
 VALUES ('${persons.leader.personId}', '${persons.leader.email}', '+47 900 00 063', 0) ON CONFLICT (person_id) DO NOTHING;
+INSERT INTO person_contact_profiles (person_id, email, phone, revision)
+SELECT link.person_id, applicant.email, applicant.phone, 0
+FROM applicant_account_links link
+JOIN admission_applicants applicant USING (applicant_id)
+WHERE link.applicant_id = '${applicantA}'
+ON CONFLICT (person_id) DO NOTHING;
 INSERT INTO organization_memberships (membership_id, person_id, team_id, deleted_team_name, start_at, end_at, position_id, is_team_leader, is_suspended, revision)
 VALUES ('membership-native-conduct-leader-0063', '${persons.leader.personId}', '${teamId}', NULL, '2026-01-01T00:00:00.000Z', NULL, 'teamleader', TRUE, FALSE, 0)
 ON CONFLICT (membership_id) DO NOTHING;

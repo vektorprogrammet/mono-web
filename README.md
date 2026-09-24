@@ -140,7 +140,10 @@ For a new synthetic database, provision the native journey accounts separately b
 If you use `.env`, export `BACKEND_PG_URL` in your shell before this seed command.
 
 ```bash
-JOURNEY_PG_URL="$BACKEND_PG_URL" bun apps/dashboard/e2e/native-users-journey.seed.mjs
+JOURNEY_SEED_PG_URL="$BACKEND_PG_URL" \
+  NATIVE_IDENTITY_DEPLOYMENT=local \
+  NATIVE_IDENTITY_TRUSTED_ORIGINS='["http://127.0.0.1:5173"]' \
+  bun --no-env-file apps/dashboard/e2e/native-users-journey-seed.mjs
 ```
 
 The seed creates synthetic profiles and authority facts. Its source defines the development account credentials.
