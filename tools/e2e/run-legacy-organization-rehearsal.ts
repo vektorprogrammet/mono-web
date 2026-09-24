@@ -752,7 +752,8 @@ const rehearse = async () =>
 
     stage = "ImmutableSourceAndTransformation";
     await mysql("UPDATE vektor.team_membership SET user_id=2 WHERE id=101");
-    const repointed = reviewFor(await readLegacySourceSnapshot(sourceUrl, "Include"));
+    const repointedSource = await readLegacySourceSnapshot(sourceUrl, "Include");
+    const repointed = reviewFor(repointedSource);
     await assert.rejects(runLegacyServiceCutover({ ...options, organization: repointed }));
     await assert.rejects(
       runLegacyServiceCutover({
@@ -760,9 +761,9 @@ const rehearse = async () =>
         snapshotId: "later-source-conflict",
         organization: repointed,
       }),
-      (cause: unknown) =>
-        cause instanceof CutoverStageFailure && cause.stage === "OrganizationImport",
+      (cause: unknown) => cause instanceof CutoverStageFailure && cause.stage === "ReferenceSeed",
     );
+
     assert.equal(await targetFingerprint(primary.pool), committed);
     await mysql("UPDATE vektor.team_membership SET user_id=1 WHERE id=101");
     await assert.rejects(
