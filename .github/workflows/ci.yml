@@ -11,6 +11,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  placements-docs:
+    name: Placements documentation (required-capable gate)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      PLACEMENTS_DOCS_EXPECTED_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        timeout-minutes: 2
+        with:
+          bun-version: 1.3.10
+      - uses: actions/setup-node@v4
+        timeout-minutes: 2
+        with:
+          node-version: 22
+      - name: Install frozen documentation dependencies
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Check retained-artifact rejection rules
+        timeout-minutes: 1
+        run: bun test tools/system-guide/placements-artifact.test.mjs
+      - name: Check examples and generate exact-source reference
+        id: docs
+        timeout-minutes: 4
+        run: bun run --cwd packages/placements docs:ci "$RUNNER_TEMP/placements-docs"
+      - name: Accept retained documentation without regeneration
+        timeout-minutes: 1
+        run: bun run --cwd packages/placements docs:accept "$RUNNER_TEMP/placements-docs"
+      - name: Upload complete public documentation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        timeout-minutes: 2
+        with:
+          name: placements-docs-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/placements-docs
+          if-no-files-found: error
+          retention-days: 1
+      - name: Remove disposable documentation
+        if: ${{ always() }}
+        timeout-minutes: 1
+        run: rm -rf -- "$RUNNER_TEMP/placements-docs"
+
   golden-school-service:
     name: Golden school-service (required functional gate)
     runs-on: ubuntu-24.04
