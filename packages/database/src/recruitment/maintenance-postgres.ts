@@ -108,21 +108,7 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
     return;
   }
   if (authority.globalAdministrator !== "Active" && !departmentsFor(authority).includes(identity!.departmentId)) return yield* fail("Denied");
-  // Worker claims lock their outbox before the interview. Preserve that order.
-  yield* sealInterviewInvitationEnvelopes(command.interviewId);
-  yield* sealInterviewResponseEnvelopes(command.interviewId);
   yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId},0))`;
-  const interview = (yield* staffingRows(sql,null,command.interviewId,true))[0];
-  if (!interview) return yield* fail("NotFound");
-  if (interview.terminal) return yield* fail("Terminal");
-  if (command.coInterviewerPersonId === command.interviewerPersonId) return yield* fail("Ineligible");
-  for (const id of [...new Set(people.filter((id) => id !== personId || id === command.interviewerPersonId || id === command.coInterviewerPersonId))].sort()) {
-    if (id === identity!.linkedApplicantPersonId) return yield* fail("Ineligible");
-    const eligible = yield* authorityFor(sql,id,now,true).pipe(Effect.catchTag("RecruitmentMaintenanceFailure",() => fail("Ineligible")));
-    if (!eligible.memberships.some((entry) => entry.departmentId === interview.departmentId && entry.active)) return yield* fail("Ineligible");
-    const profile = yield* sql`SELECT person_id FROM public.person_profiles WHERE person_id=${id} FOR SHARE`;
-    if (profile.length !== 1) return yield* fail("Ineligible");
-  }
 });
 
 export const authorizeMaintenance = (command: RecruitmentMaintenanceCommand, personId: PersonId) => Effect.gen(function* () {
@@ -144,7 +130,23 @@ export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, person
       return yield* Schema.decodeUnknownEffect(RecruitmentMaintenanceResult)(receipts[0].result);
     }
     if (Predicate.isTagged(command,"ChangeInterviewStaffing")) {
-      const before = (yield* staffingRows(sql,null,command.interviewId,true))[0]!;
+      // Workers lock their outbox before taking interview row locks.
+      yield* sealInterviewInvitationEnvelopes(command.interviewId);
+      yield* sealInterviewResponseEnvelopes(command.interviewId);
+      const before = (yield* staffingRows(sql,null,command.interviewId,true))[0];
+      if (!before) return yield* fail("NotFound");
+      if (before.terminal) return yield* fail("Terminal");
+      if (command.coInterviewerPersonId === command.interviewerPersonId) return yield* fail("Ineligible");
+      const identity = yield* guardInterviewApplicantIdentity(command.interviewId,personId);
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const candidates = command.coInterviewerPersonId === null ? [command.interviewerPersonId] : [command.interviewerPersonId,command.coInterviewerPersonId];
+      for (const id of candidates.toSorted()) {
+        if (id === identity.linkedApplicantPersonId) return yield* fail("Ineligible");
+        const eligible = yield* authorityFor(sql,id,now,true).pipe(Effect.catchTag("RecruitmentMaintenanceFailure",() => fail("Ineligible")));
+        if (!eligible.memberships.some((entry) => entry.departmentId === before.departmentId && entry.active)) return yield* fail("Ineligible");
+        const profile = yield* sql`SELECT person_id FROM public.person_profiles WHERE person_id=${id} FOR SHARE`;
+        if (profile.length !== 1) return yield* fail("Ineligible");
+      }
       if (before.revision !== command.expectedRevision) return yield* fail("Stale");
       const after = { ...before,interviewerPersonId:command.interviewerPersonId,coInterviewerPersonId:command.coInterviewerPersonId,revision:before.revision+1 };
       yield* sql`UPDATE public.recruitment_interviews SET interviewer_person_id=${after.interviewerPersonId},co_interviewer_person_id=${after.coInterviewerPersonId},revision=${after.revision} WHERE interview_id=${command.interviewId}`;
