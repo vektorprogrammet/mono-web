@@ -5,6 +5,16 @@
  */
 import { Context, Effect } from "effect";
 import type { PersonId } from "../organization/schema.js";
+import type { PublicApplicationId } from "../application/schema.js";
+import type { RecruitmentActor } from "./schema.js";
+import type { InterviewReport, InterviewReportQuery } from "./report.js";
+import type {
+  RecruitmentApplicationHttpAccess,
+  RecruitmentAuthorityHttpSource,
+  RecruitmentInterviewHttpSource,
+  RecruitmentInvitationHttpSnapshot,
+  RecruitmentInvitationTransition,
+} from "./access.js";
 import type {
   RecruitmentMaintenanceCommand,
   RecruitmentMaintenanceResult,
@@ -113,6 +123,56 @@ export type RecruitmentFailure =
   | ProfileFailure;
 
 export interface RecruitmentOperations {
+  /** Caller holds the receipt transaction; current target authority precedes replay. */
+  readonly prepareAssignment: (input: {
+    readonly applicationId: PublicApplicationId;
+    readonly interviewerPersonId: PersonId;
+    readonly personId: PersonId;
+    readonly authorizationInstant: string;
+  }) => Effect.Effect<
+    { readonly access: RecruitmentApplicationHttpAccess; readonly actor: RecruitmentActor },
+    RecruitmentFailure
+  >;
+  /** Acquires applicant custody before interview or transport-receipt locks. */
+  readonly prepareInterview: (input: {
+    readonly interviewId: RecruitmentInterviewId;
+    readonly personId: PersonId;
+    readonly authorizationInstant: string;
+  }) => Effect.Effect<
+    {
+      readonly source: RecruitmentInterviewHttpSource;
+      readonly actor: RecruitmentActor;
+      readonly activeMember: boolean;
+    },
+    RecruitmentFailure
+  >;
+  readonly readInterviewSource: (
+    interviewId: RecruitmentInterviewId,
+    personId: PersonId,
+  ) => Effect.Effect<RecruitmentInterviewHttpSource, RecruitmentFailure>;
+  readonly readPersonAuthoritySources: (
+    personId: PersonId,
+  ) => Effect.Effect<ReadonlyArray<RecruitmentAuthorityHttpSource>, RecruitmentFailure>;
+  readonly readInvitationSnapshot: (
+    capability: RecruitmentInvitationCapability,
+  ) => Effect.Effect<RecruitmentInvitationHttpSnapshot, RecruitmentFailure>;
+  readonly transitionInvitation: (input: {
+    readonly capability: RecruitmentInvitationCapability;
+    readonly transition: RecruitmentInvitationTransition;
+    readonly now: string;
+  }) => Effect.Effect<RecruitmentInvitationHttpSnapshot, RecruitmentFailure>;
+  readonly resolveInterviewReportLeader: (
+    personId: PersonId,
+    now: string,
+  ) => Effect.Effect<
+    Extract<RecruitmentActor, { readonly _tag: "DepartmentLeader" }>,
+    RecruitmentFailure
+  >;
+  readonly readCompletedInterviewReport: (
+    personId: PersonId,
+    now: string,
+    query: InterviewReportQuery,
+  ) => Effect.Effect<InterviewReport, RecruitmentFailure>;
   readonly readQuestionnaires: (
     personId: PersonId,
   ) => Effect.Effect<QuestionnaireManagement, RecruitmentFailure>;

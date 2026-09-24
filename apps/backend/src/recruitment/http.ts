@@ -5,28 +5,11 @@ import {
 } from "./maintenance-http.js";
 import { InterviewReportQuery, InterviewReport } from "@vektorprogrammet/domain/recruitment";
 import {
-  readCompletedInterviewReport,
-  resolveInterviewReportLeader,
-  RecruitmentInvitationHttpTransition,
-  guardInterviewApplicantIdentity,
-  assignApplicant,
-  cancelInterview,
-  correctInterviewAssessment as correctInterviewAssessmentPostgres,
-  executeRecruitmentInvitationTransitionPostgres,
-  finalizeInterview,
-  readInterviewConductInTransaction,
-  readRecruitmentApplicationHttpAccessPostgres,
-  readRecruitmentInterviewHttpSourcePostgres,
-  readRecruitmentInvitationHttpSnapshotPostgres,
-  readRecruitmentInvitationHttpSourcePostgres,
-  readRecruitmentPersonAuthorityHttpSourcesPostgres,
-  readRecruitmentTargetActorPostgres,
-  readRecruitmentTargetAuthorityPostgres,
-  scheduleInterview as scheduleInterviewPostgres,
+  RecruitmentInvitationTransition,
   type RecruitmentAuthorityHttpSource,
   type RecruitmentInterviewHttpSource,
   type RecruitmentInvitationHttpSource,
-} from "@vektorprogrammet/database/recruitment";
+} from "@vektorprogrammet/domain/recruitment";
 
 import {
   AssignmentBoard,
@@ -64,7 +47,7 @@ import {
   type StrongETag,
 } from "@vektorprogrammet/http-api";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import { Admissions } from "@vektorprogrammet/domain/admissions";
+
 import {
   AuthorityRef,
   AuthorityVersion,
@@ -86,8 +69,7 @@ import {
 } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
-import { DepartmentId, Organization } from "@vektorprogrammet/domain/organization";
-import { Profile } from "@vektorprogrammet/domain/profile";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import {
   Recruitment,
   RecruitmentAssignmentBoardQuerySchema,
@@ -697,11 +679,7 @@ const executeCommand = <CommandId, E, R>(input: {
       readonly credentialSubject: CredentialSubject;
       readonly execute: (
         commandId: NoInfer<CommandId>,
-      ) => Effect.Effect<
-        Response,
-        unknown,
-        never | Database | Admissions | Organization | Profile | Recruitment
-      >;
+      ) => Effect.Effect<Response, unknown, Recruitment>;
     },
     E,
     R
@@ -756,7 +734,11 @@ const readInvitationResponse = <E, R>(request: Request, input: RecruitmentApiHtt
     yield* noQuery(request);
     const capability = yield* invitationCapability(request);
     const now = input.config.now();
-    const snapshot = yield* readRecruitmentInvitationHttpSnapshotPostgres(capability);
+
+    const snapshot = yield* Recruitment.use((service) =>
+      service.readInvitationSnapshot(capability),
+    );
+
     yield* authorizeInvitationOperation({
       spec: Option.getOrThrow(reflectAccessSpec(ReadInvitationResponseEndpoint)),
       request,
@@ -795,13 +777,13 @@ const invitationMutation = <E, R>(
       Match.orElse(() => RequestNewInvitationTimeEndpoint),
     );
 
-    let transition: RecruitmentInvitationHttpTransition;
+    let transition: RecruitmentInvitationTransition;
 
     if (operation === "Confirm") {
       yield* strictDecode(ConfirmInvitationPayload, { code: "request.malformed", status: 400 })(
         yield* readJsonBody(request, input.config.maxBodyBytes, true),
       );
-      transition = RecruitmentInvitationHttpTransition.Confirm();
+      transition = RecruitmentInvitationTransition.Confirm();
     } else if (operation === "Reject") {
       const body = yield* strictDecode(InvitationRejectInput)(
         yield* readJsonBody(request, input.config.maxBodyBytes),
@@ -809,18 +791,22 @@ const invitationMutation = <E, R>(
 
       transition =
         body.message === undefined
-          ? RecruitmentInvitationHttpTransition.Reject({})
-          : RecruitmentInvitationHttpTransition.Reject({ message: body.message });
+          ? RecruitmentInvitationTransition.Reject({})
+          : RecruitmentInvitationTransition.Reject({ message: body.message });
     } else {
       const body = yield* strictDecode(InvitationRequestNewTimeInput)(
         yield* readJsonBody(request, input.config.maxBodyBytes),
       );
 
-      transition = RecruitmentInvitationHttpTransition.RequestNewTime({ message: body.message });
+      transition = RecruitmentInvitationTransition.RequestNewTime({ message: body.message });
     }
 
     const now = input.config.now();
-    const source = yield* readRecruitmentInvitationHttpSourcePostgres(capability);
+
+    const source = yield* Recruitment.use((service) =>
+      service.readInvitationSnapshot(capability),
+    ).pipe(Effect.map((snapshot) => snapshot.source));
+
     yield* authorizeInvitationOperation({
       spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
       request,
@@ -836,18 +822,19 @@ const invitationMutation = <E, R>(
       }
     }
 
-    yield* executeRecruitmentInvitationTransitionPostgres({
-      capability,
-      transition,
-      now,
-    });
-    const updated = yield* readRecruitmentInvitationHttpSourcePostgres(capability);
+    const updated = yield* Recruitment.use((service) =>
+      service.transitionInvitation({
+        capability,
+        transition,
+        now,
+      }),
+    );
 
     return new Response(null, {
       status: 204,
       headers: {
         "cache-control": NO_STORE,
-        etag: invitationETag(updated),
+        etag: invitationETag(updated.source),
         vary: "Origin",
       },
     });
@@ -918,7 +905,11 @@ const readInterviewReport = <E, R>(request: Request, input: RecruitmentApiHttpOp
     const query = yield* strictDecode(InterviewReportQuery)(queryInput);
     const caller = yield* actorFor(request, input);
     const now = input.config.now();
-    const actor = yield* resolveInterviewReportLeader(caller.personId, now);
+
+    const actor = yield* Recruitment.use((service) =>
+      service.resolveInterviewReportLeader(caller.personId, now),
+    );
+
     yield* authorizePersonOperation({
       spec: Option.getOrThrow(reflectAccessSpec(ReadInterviewReportEndpoint)),
       request,
@@ -930,7 +921,11 @@ const readInterviewReport = <E, R>(request: Request, input: RecruitmentApiHttpOp
       grantScopes: [Scope.Department({ departmentId: actor.departmentId })],
       authorizationInstant: now,
     });
-    const observation = yield* readCompletedInterviewReport(actor.personId, now, query);
+
+    const observation = yield* Recruitment.use((service) =>
+      service.readCompletedInterviewReport(actor.personId, now, query),
+    );
+
     const output = yield* strictOutput(InterviewReport)(observation);
 
     return new Response(JSON.stringify(output), {
@@ -973,7 +968,9 @@ const readSchedulingBoard = <E, R>(request: Request, input: RecruitmentApiHttpOp
       read({ actor, now }),
     );
 
-    const authority = yield* readRecruitmentPersonAuthorityHttpSourcesPostgres(actor.personId);
+    const authority = yield* Recruitment.use((service) =>
+      service.readPersonAuthoritySources(actor.personId),
+    );
 
     const output = yield* strictOutput(SchedulingBoard)(
       schedulingBoardWithETags(observation, authority),
@@ -1011,17 +1008,14 @@ const createApplicationInterview = <E, R>(
             now: input.config.now,
           });
 
-          const access = yield* readRecruitmentApplicationHttpAccessPostgres({
-            applicationId,
-            interviewerPersonId: body.interviewerPersonId,
-            authorizationInstant: authorization.authorizationInstant,
-          });
-
-          const actor = yield* readRecruitmentTargetActorPostgres({
-            personId: authorization.authority.personId,
-            departmentId: access.departmentId,
-            authorizationInstant: authorization.authorizationInstant,
-          });
+          const { access, actor } = yield* Recruitment.use((service) =>
+            service.prepareAssignment({
+              applicationId,
+              interviewerPersonId: body.interviewerPersonId,
+              personId: authorization.authority.personId,
+              authorizationInstant: authorization.authorizationInstant,
+            }),
+          );
 
           const resource = {
             kind: ResourceKind.make("application"),
@@ -1059,13 +1053,15 @@ const createApplicationInterview = <E, R>(
             credentialSubject: `Person:${actor.personId}`,
             execute: (commandId: RecruitmentAssignmentCommandId) =>
               Effect.gen(function* () {
-                const result = yield* assignApplicant(
-                  { commandId, applicationId, ...body },
-                  {
-                    actor,
-                    now: authorization.authorizationInstant,
-                    interviewId: input.config.nextInterviewId(),
-                  },
+                const result = yield* Recruitment.use((service) =>
+                  service.assignApplicant(
+                    { commandId, applicationId, ...body },
+                    {
+                      actor,
+                      now: authorization.authorizationInstant,
+                      interviewId: input.config.nextInterviewId(),
+                    },
+                  ),
                 );
 
                 const output = yield* Schema.decodeEffect(RecruitmentInterviewResource)(
@@ -1073,9 +1069,11 @@ const createApplicationInterview = <E, R>(
                   { onExcessProperty: "error" },
                 ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
 
-                const source = yield* readRecruitmentInterviewHttpSourcePostgres(
-                  result.observation.interview.interviewId,
-                  actor.personId,
+                const source = yield* Recruitment.use((service) =>
+                  service.readInterviewSource(
+                    result.observation.interview.interviewId,
+                    actor.personId,
+                  ),
                 );
 
                 const location = normalizeTarget("/api/recruitment/interviews/{interviewId}", {
@@ -1114,18 +1112,13 @@ const interviewAuthorizationInTransaction = <E, R>(
       now: input.config.now,
     });
 
-    yield* guardInterviewApplicantIdentity(interviewId, authorization.authority.personId);
-
-    const source = yield* readRecruitmentInterviewHttpSourcePostgres(
-      interviewId,
-      authorization.authority.personId,
+    const { source, actor, activeMember } = yield* Recruitment.use((service) =>
+      service.prepareInterview({
+        interviewId,
+        personId: authorization.authority.personId,
+        authorizationInstant: authorization.authorizationInstant,
+      }),
     );
-
-    const { actor, activeMember } = yield* readRecruitmentTargetAuthorityPostgres({
-      personId: authorization.authority.personId,
-      departmentId: source.departmentId,
-      authorizationInstant: authorization.authorizationInstant,
-    });
 
     const resource = {
       kind: ResourceKind.make("recruitment-interview"),
@@ -1202,19 +1195,21 @@ const scheduleInterview = <E, R>(
                   );
                 }
 
-                const result = yield* scheduleInterviewPostgres(
-                  {
-                    commandId,
-                    interviewId,
-                    expectedRevision: authorization.source.interviewRevision,
-                    ...body,
-                  },
-                  {
-                    actor: authorization.actor,
-                    now: authorization.authorizationInstant,
-                    invitationId: input.config.nextInvitationId(),
-                    responseCapability: input.config.nextResponseCapability(),
-                  },
+                const result = yield* Recruitment.use((service) =>
+                  service.scheduleInterview(
+                    {
+                      commandId,
+                      interviewId,
+                      expectedRevision: authorization.source.interviewRevision,
+                      ...body,
+                    },
+                    {
+                      actor: authorization.actor,
+                      now: authorization.authorizationInstant,
+                      invitationId: input.config.nextInvitationId(),
+                      responseCapability: input.config.nextResponseCapability(),
+                    },
+                  ),
                 );
 
                 const observation = result.observation;
@@ -1229,9 +1224,8 @@ const scheduleInterview = <E, R>(
                   { onExcessProperty: "error" },
                 ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
 
-                const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
-                  interviewId,
-                  authorization.actor.personId,
+                const updated = yield* Recruitment.use((service) =>
+                  service.readInterviewSource(interviewId, authorization.actor.personId),
                 );
 
                 return new Response(JSON.stringify(output), {
@@ -1267,19 +1261,16 @@ const readInterviewConductHandler = <E, R>(
             input,
           );
 
-          const observation = yield* readInterviewConductInTransaction(
-            interviewId,
-            {
+          const observation = yield* Recruitment.use((service) =>
+            service.readInterviewConduct(interviewId, {
               actor: authorization.actor,
               now: input.config.now(),
               authorizationInstant: authorization.authorizationInstant,
-            },
-            sql,
+            }),
           );
 
-          const source = yield* readRecruitmentInterviewHttpSourcePostgres(
-            interviewId,
-            authorization.actor.personId,
+          const source = yield* Recruitment.use((service) =>
+            service.readInterviewSource(interviewId, authorization.actor.personId),
           );
 
           return { observation, source };
@@ -1348,17 +1339,19 @@ const correctInterviewAssessment = <E, R>(
                   return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
                 }
 
-                const result = yield* correctInterviewAssessmentPostgres(
-                  {
-                    commandId,
-                    interviewId,
-                    ...body,
-                  },
-                  {
-                    actor: authorization.actor,
-                    now: authorization.authorizationInstant,
-                    authorizationInstant: authorization.authorizationInstant,
-                  },
+                const result = yield* Recruitment.use((service) =>
+                  service.correctInterviewAssessment(
+                    {
+                      commandId,
+                      interviewId,
+                      ...body,
+                    },
+                    {
+                      actor: authorization.actor,
+                      now: authorization.authorizationInstant,
+                      authorizationInstant: authorization.authorizationInstant,
+                    },
+                  ),
                 );
 
                 const observation = result.observation;
@@ -1375,9 +1368,8 @@ const correctInterviewAssessment = <E, R>(
                   { onExcessProperty: "error" },
                 ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
 
-                const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
-                  interviewId,
-                  authorization.actor.personId,
+                const updated = yield* Recruitment.use((service) =>
+                  service.readInterviewSource(interviewId, authorization.actor.personId),
                 );
 
                 return new Response(JSON.stringify(output), {
@@ -1421,8 +1413,6 @@ const lifecycleInterview = <E, R>(
           input,
         );
 
-        yield* guardInterviewApplicantIdentity(interviewId, authorization.actor.personId);
-
         return authorization;
       });
 
@@ -1456,18 +1446,20 @@ const lifecycleInterview = <E, R>(
                     );
                   }
 
-                  const result = yield* finalizeInterview(
-                    {
-                      commandId,
-                      interviewId,
-                      expectedRevision: authorization.source.interviewRevision,
-                      ...body,
-                    },
-                    {
-                      actor: authorization.actor,
-                      now: authorization.authorizationInstant,
-                      authorizationInstant: authorization.authorizationInstant,
-                    },
+                  const result = yield* Recruitment.use((service) =>
+                    service.finalizeInterview(
+                      {
+                        commandId,
+                        interviewId,
+                        expectedRevision: authorization.source.interviewRevision,
+                        ...body,
+                      },
+                      {
+                        actor: authorization.actor,
+                        now: authorization.authorizationInstant,
+                        authorizationInstant: authorization.authorizationInstant,
+                      },
+                    ),
                   );
 
                   const observation = result.observation;
@@ -1482,9 +1474,8 @@ const lifecycleInterview = <E, R>(
                     { onExcessProperty: "error" },
                   ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
 
-                  const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
-                    interviewId,
-                    authorization.actor.personId,
+                  const updated = yield* Recruitment.use((service) =>
+                    service.readInterviewSource(interviewId, authorization.actor.personId),
                   );
 
                   return new Response(JSON.stringify(output), {
@@ -1530,17 +1521,19 @@ const lifecycleInterview = <E, R>(
                   );
                 }
 
-                const result = yield* cancelInterview(
-                  {
-                    commandId,
-                    interviewId,
-                    expectedRevision: authorization.source.interviewRevision,
-                  },
-                  {
-                    actor: authorization.actor,
-                    now: authorization.authorizationInstant,
-                    authorizationInstant: authorization.authorizationInstant,
-                  },
+                const result = yield* Recruitment.use((service) =>
+                  service.cancelInterview(
+                    {
+                      commandId,
+                      interviewId,
+                      expectedRevision: authorization.source.interviewRevision,
+                    },
+                    {
+                      actor: authorization.actor,
+                      now: authorization.authorizationInstant,
+                      authorizationInstant: authorization.authorizationInstant,
+                    },
+                  ),
                 );
 
                 const observation = result.observation;
@@ -1555,9 +1548,8 @@ const lifecycleInterview = <E, R>(
                   { onExcessProperty: "error" },
                 ).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
 
-                const updated = yield* readRecruitmentInterviewHttpSourcePostgres(
-                  interviewId,
-                  authorization.actor.personId,
+                const updated = yield* Recruitment.use((service) =>
+                  service.readInterviewSource(interviewId, authorization.actor.personId),
                 );
 
                 return new Response(JSON.stringify(output), {

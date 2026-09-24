@@ -1,21 +1,30 @@
 import { afterAll, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
+  Recruitment,
+  RecruitmentInvitationTransition,
   RecruitmentInterviewId,
   RecruitmentInvitationCapabilitySchema,
 } from "@vektorprogrammet/domain/recruitment";
 import { Database } from "../service.js";
 import { DatabaseTest } from "../layers.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
-import {
-  readRecruitmentInterviewHttpSourcePostgres,
-  readRecruitmentInvitationHttpSnapshotPostgres,
-  readRecruitmentPersonAuthorityHttpSourcesPostgres,
-} from "./http-postgres.js";
+import { RecruitmentLive } from "./postgres-layer.js";
+import { OrganizationLive } from "../organization/postgres-layer.js";
+import { AdmissionsLive } from "../admissions/postgres-layer.js";
+import { ProfileLive } from "../profile/postgres-layer.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(
+  RecruitmentLive.pipe(
+    Layer.provideMerge(
+      Layer.mergeAll(AdmissionsLive, ProfileLive).pipe(
+        Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest()))),
+      ),
+    ),
+  ),
+);
 
 afterAll(() => runtime.dispose());
 
@@ -46,28 +55,51 @@ it("reads persisted authority revisions, co-interviewers, and invitation state",
       yield* sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`INSERT INTO recruitment_interview_schedules (interview_id, scheduled_at, room, campus, message, scheduled_by_person_id, committed_at, schedule_revision) VALUES ('interview-1', '2031-09-15T12:00:00.000Z', 'A1', 'Gløshaugen', 'Welcome', 'primary-1', '2031-09-01', 2)`;
-          yield* sql`INSERT INTO recruitment_invitations (invitation_id, interview_id, schedule_revision, capability_sha256, response_state, response_revision, responded_at, created_at) VALUES ('invitation-1', 'interview-1', 2, ${digest}, 'Accepted', 1, '2031-09-02', '2031-09-01')`;
-          yield* sql`INSERT INTO recruitment_invitation_response_audit (invitation_id, interview_id, schedule_revision, response_revision, response_state, responded_at) VALUES ('invitation-1', 'interview-1', 2, 1, 'Accepted', '2031-09-02')`;
+          yield* sql`INSERT INTO recruitment_invitations (invitation_id, interview_id, schedule_revision, capability_sha256, response_state, response_revision, created_at) VALUES ('invitation-1', 'interview-1', 2, ${digest}, 'Pending', 0, '2031-09-01')`;
         }),
       );
 
-      const authority = yield* readRecruitmentPersonAuthorityHttpSourcesPostgres(
-        PersonId.make("co-1"),
+      const authority = yield* Recruitment.use((service) =>
+        service.readPersonAuthoritySources(PersonId.make("co-1")),
       );
 
-      const interview = yield* readRecruitmentInterviewHttpSourcePostgres(
-        RecruitmentInterviewId.make("interview-1"),
-        PersonId.make("co-1"),
+      const interview = yield* Recruitment.use((service) =>
+        service.readInterviewSource(
+          RecruitmentInterviewId.make("interview-1"),
+          PersonId.make("co-1"),
+        ),
       );
 
-      const snapshot = yield* readRecruitmentInvitationHttpSnapshotPostgres(capability);
+      const snapshot = yield* Recruitment.use((service) =>
+        service.transitionInvitation({
+          capability,
+          transition: RecruitmentInvitationTransition.Confirm(),
+          now: "2031-09-02T00:00:00.000Z",
+        }),
+      );
+
       yield* sql`UPDATE recruitment_invitations SET superseded_at = '2031-09-16' WHERE invitation_id = 'invitation-1'`;
 
       const superseded = yield* Effect.flip(
-        readRecruitmentInvitationHttpSnapshotPostgres(capability),
+        Recruitment.use((service) => service.readInvitationSnapshot(capability)),
       );
 
-      return { authority, interview, snapshot, superseded };
+      yield* sql`INSERT INTO applicant_account_invitations (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at) VALUES ('account-invitation', 'application-1', 'applicant-1', repeat('b',64), '2031-10-01', 'Claimed', 'primary-1', '2031-09-01')`;
+      yield* sql`INSERT INTO applicant_account_links (applicant_id, person_id, linked_at, invitation_id) VALUES ('applicant-1', 'co-1', '2031-09-02', 'account-invitation')`;
+
+      const selfDenied = yield* Effect.flip(
+        sql.withTransaction(
+          Recruitment.use((service) =>
+            service.prepareInterview({
+              interviewId: RecruitmentInterviewId.make("interview-1"),
+              personId: PersonId.make("co-1"),
+              authorizationInstant: "2031-09-15T12:00:00.000Z",
+            }),
+          ),
+        ),
+      );
+
+      return { authority, interview, snapshot, superseded, selfDenied };
     }),
   );
 
@@ -104,4 +136,5 @@ it("reads persisted authority revisions, co-interviewers, and invitation state",
     },
   });
   expect(observed.superseded._tag).toBe("RecruitmentInvitationNotFound");
+  expect(observed.selfDenied._tag).toBe("RecruitmentScopeDenied");
 }, 15_000);

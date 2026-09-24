@@ -24,6 +24,15 @@ import {
   requestNewInvitationTime,
 } from "./invitation-response-postgres.js";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
+import {
+  prepareRecruitmentAssignment,
+  prepareRecruitmentInterview,
+  readRecruitmentInterviewHttpSourcePostgres,
+  readRecruitmentInvitationHttpSnapshotPostgres,
+  readRecruitmentPersonAuthorityHttpSourcesPostgres,
+  executeRecruitmentInvitationTransitionPostgres,
+} from "./http-postgres.js";
+import { readCompletedInterviewReport, resolveInterviewReportLeader } from "./report-postgres.js";
 
 /** Live Recruitment authority; all supporting capabilities remain explicit. */
 export const RecruitmentLive = Layer.effect(
@@ -35,6 +44,37 @@ export const RecruitmentLive = Layer.effect(
     const profile = yield* Profile;
 
     return Recruitment.of({
+      prepareAssignment: (input) =>
+        prepareRecruitmentAssignment(input).pipe(Effect.provideService(Database, database)),
+      prepareInterview: (input) =>
+        prepareRecruitmentInterview(input).pipe(Effect.provideService(Database, database)),
+      readInterviewSource: (interviewId, personId) =>
+        readRecruitmentInterviewHttpSourcePostgres(interviewId, personId).pipe(
+          Effect.provideService(Database, database),
+        ),
+      readPersonAuthoritySources: (personId) =>
+        readRecruitmentPersonAuthorityHttpSourcesPostgres(personId).pipe(
+          Effect.provideService(Database, database),
+        ),
+      readInvitationSnapshot: (capability) =>
+        readRecruitmentInvitationHttpSnapshotPostgres(capability).pipe(
+          Effect.provideService(Database, database),
+        ),
+      transitionInvitation: (input) =>
+        executeRecruitmentInvitationTransitionPostgres(input).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Admissions, admissions),
+          Effect.provideService(Profile, profile),
+        ),
+      resolveInterviewReportLeader: (personId, now) =>
+        resolveInterviewReportLeader(personId, now).pipe(
+          Effect.provideService(Organization, organization),
+        ),
+      readCompletedInterviewReport: (personId, now, query) =>
+        readCompletedInterviewReport(personId, now, query).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Organization, organization),
+        ),
       readQuestionnaires: (personId) =>
         readQuestionnaires(personId).pipe(Effect.provideService(Database, database)),
       readInterviewStaffing: (personId) =>

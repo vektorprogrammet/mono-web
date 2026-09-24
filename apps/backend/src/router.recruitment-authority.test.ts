@@ -130,6 +130,7 @@ const schedulingBoard = {
 // Models the frozen domain laws: assignment reads require an active DepartmentLeader;
 // scheduling reads require an active department member.
 const recruitment = {
+  readPersonAuthoritySources: () => Effect.succeed([]),
   readAssignmentBoard: (
     query: RecruitmentAssignmentBoardQuery,
     context: { readonly actor: RecruitmentActor },

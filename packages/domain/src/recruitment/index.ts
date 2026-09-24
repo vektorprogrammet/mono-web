@@ -6,6 +6,8 @@ export * from "./schema.js";
 
 export * from "./service.js";
 
+export * from "./access.js";
+
 export * from "./conduct.js";
 
 export * from "./scheduling.js";

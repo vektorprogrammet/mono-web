@@ -1,11 +1,14 @@
-import { readInterviewApplicantIdentity } from "./conduct-identity.js";
-import type { Admissions } from "@vektorprogrammet/domain/admissions";
+import {
+  guardInterviewApplicantIdentity,
+  readInterviewApplicantIdentity,
+} from "./conduct-identity.js";
+
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { Database, type DatabaseOperations } from "../service.js";
-import type { Profile } from "@vektorprogrammet/domain/profile";
+
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { Data, Match, Effect, Schema } from "effect";
+import { Match, Effect, Schema } from "effect";
 import {
   RecruitmentApplicationNotFound,
   RecruitmentDecodeError,
@@ -20,68 +23,24 @@ import {
 } from "./invitation-response-postgres.js";
 import {
   RecruitmentActorSchema,
-  RecruitmentInstantSchema,
   RecruitmentInterviewId,
   RecruitmentInvitationCapabilitySchema,
-  RecruitmentInvitationId,
-  RecruitmentInvitationResponseObservationSchema,
-  RecruitmentInvitationResponseStateSchema,
   type RecruitmentActor,
   type RecruitmentInvitationCapability,
-  type RecruitmentInvitationResponseMessage,
   type RecruitmentInvitationResponseObservation,
-  type RecruitmentInvitationResponseResult,
 } from "@vektorprogrammet/domain/recruitment";
 
-const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
-
-const RecruitmentInvitationHttpSourceSchema = Schema.Struct({
-  capabilitySha256: Schema.String,
-  invitationId: RecruitmentInvitationId,
-  interviewId: RecruitmentInterviewId,
-  departmentId: DepartmentId,
-  scheduleRevision: Revision,
-  responseRevision: Revision,
-  responseState: RecruitmentInvitationResponseStateSchema,
-  supersededAt: Schema.NullOr(RecruitmentInstantSchema),
-});
-
-export type RecruitmentInvitationHttpSource = typeof RecruitmentInvitationHttpSourceSchema.Type;
-
-const RecruitmentInvitationHttpSnapshotSchema = Schema.Struct({
-  source: RecruitmentInvitationHttpSourceSchema,
-  observation: RecruitmentInvitationResponseObservationSchema,
-});
-
-export type RecruitmentInvitationHttpSnapshot = typeof RecruitmentInvitationHttpSnapshotSchema.Type;
-
-const RecruitmentApplicationHttpAccessSchema = Schema.Struct({
-  applicationId: PublicApplicationIdSchema,
-  departmentId: DepartmentId,
-  interviewerEligible: Schema.Boolean,
-});
-
-export type RecruitmentApplicationHttpAccess = typeof RecruitmentApplicationHttpAccessSchema.Type;
-
-const RecruitmentAuthorityHttpSourceSchema = Schema.Struct({
-  kind: Schema.Literals(["GlobalAdministrator", "Membership"]),
-  identity: Schema.String,
-  revisions: Schema.Array(Revision),
-});
-
-export type RecruitmentAuthorityHttpSource = typeof RecruitmentAuthorityHttpSourceSchema.Type;
-
-const RecruitmentInterviewHttpSourceSchema = Schema.Struct({
-  interviewId: RecruitmentInterviewId,
-  departmentId: DepartmentId,
-  interviewerPersonId: PersonId,
-  coInterviewerPersonId: Schema.NullOr(PersonId),
-  interviewRevision: Revision,
-  linkedApplicantPersonId: Schema.NullOr(PersonId),
-  authority: Schema.Array(RecruitmentAuthorityHttpSourceSchema),
-});
-
-export type RecruitmentInterviewHttpSource = typeof RecruitmentInterviewHttpSourceSchema.Type;
+import {
+  RecruitmentInvitationHttpSnapshotSchema,
+  RecruitmentApplicationHttpAccessSchema,
+  RecruitmentAuthorityHttpSourceSchema,
+  RecruitmentInterviewHttpSourceSchema,
+  type RecruitmentInvitationHttpSnapshot,
+  type RecruitmentApplicationHttpAccess,
+  type RecruitmentAuthorityHttpSource,
+  type RecruitmentInterviewHttpSource,
+  type RecruitmentInvitationTransition,
+} from "@vektorprogrammet/domain/recruitment";
 
 const decodeError = (operation: string, cause: unknown) =>
   new RecruitmentDecodeError({ message: `${operation}: ${String(cause)}` });
@@ -178,18 +137,6 @@ export const readRecruitmentInvitationHttpSnapshotPostgres = (
         ),
       );
     }),
-  );
-
-/** Canonical capability-selected source for invitation access and ETags. */
-export const readRecruitmentInvitationHttpSourcePostgres = (
-  capabilityInput: RecruitmentInvitationCapability,
-): Effect.Effect<
-  RecruitmentInvitationHttpSource,
-  RecruitmentInvitationNotFound | RecruitmentDecodeError | RecruitmentPersistenceError,
-  Database
-> =>
-  readRecruitmentInvitationHttpSnapshotPostgres(capabilityInput).pipe(
-    Effect.map((snapshot) => snapshot.source),
   );
 
 /** Application scope and target-interviewer eligibility for native access evaluation. */
@@ -471,35 +418,87 @@ export const readRecruitmentInterviewHttpSourcePostgres = (
     }),
   );
 
-export type RecruitmentInvitationHttpTransition =
-  | { readonly _tag: "Confirm" }
-  | { readonly _tag: "Reject"; readonly message?: RecruitmentInvitationResponseMessage }
-  | { readonly _tag: "RequestNewTime"; readonly message: RecruitmentInvitationResponseMessage };
+/** Target selection and business identity custody belong to Recruitment, not its transport. */
+export const prepareRecruitmentAssignment = (input: {
+  readonly applicationId: typeof PublicApplicationIdSchema.Type;
+  readonly interviewerPersonId: PersonId;
+  readonly personId: PersonId;
+  readonly authorizationInstant: string;
+}) =>
+  Effect.gen(function* () {
+    const access = yield* readRecruitmentApplicationHttpAccessPostgres(input);
 
-export const RecruitmentInvitationHttpTransition =
-  Data.taggedEnum<RecruitmentInvitationHttpTransition>();
+    const actor = yield* readRecruitmentTargetActorPostgres({
+      personId: input.personId,
+      departmentId: access.departmentId,
+      authorizationInstant: input.authorizationInstant,
+    });
 
-/** Runs one non-replayable invitation transition in its domain transaction. */
+    return { access, actor };
+  });
+
+/** Caller holds the transaction so applicant custody survives authorization and receipt replay. */
+export const prepareRecruitmentInterview = (input: {
+  readonly interviewId: RecruitmentInterviewId;
+  readonly personId: PersonId;
+  readonly authorizationInstant: string;
+}) =>
+  Effect.gen(function* () {
+    yield* guardInterviewApplicantIdentity(input.interviewId, input.personId);
+
+    const source = yield* readRecruitmentInterviewHttpSourcePostgres(
+      input.interviewId,
+      input.personId,
+    );
+
+    const authority = yield* readRecruitmentTargetAuthorityPostgres({
+      personId: input.personId,
+      departmentId: source.departmentId,
+      authorizationInstant: input.authorizationInstant,
+    });
+
+    return { source, ...authority };
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("prepare recruitment interview", cause)),
+    ),
+  );
+
+/** Runs the transition and resulting representation in the same committing transaction. */
 export const executeRecruitmentInvitationTransitionPostgres = (input: {
   readonly capability: RecruitmentInvitationCapability;
-  readonly transition: RecruitmentInvitationHttpTransition;
+  readonly transition: RecruitmentInvitationTransition;
   readonly now: string;
-}): Effect.Effect<RecruitmentInvitationResponseResult, unknown, Database | Admissions | Profile> =>
-  Match.value(input.transition).pipe(
-    Match.tag("Confirm", () => confirmInvitation(input.capability, { now: input.now })),
-    Match.tag("Reject", (transition) =>
-      rejectInvitation(
-        input.capability,
-        transition.message === undefined ? {} : { message: transition.message },
-        { now: input.now },
+}) =>
+  Database.use((database) =>
+    database
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* Match.value(input.transition).pipe(
+            Match.tag("Confirm", () => confirmInvitation(input.capability, { now: input.now })),
+            Match.tag("Reject", (transition) =>
+              rejectInvitation(
+                input.capability,
+                transition.message === undefined ? {} : { message: transition.message },
+                { now: input.now },
+              ),
+            ),
+            Match.tag("RequestNewTime", (transition) =>
+              requestNewInvitationTime(
+                input.capability,
+                { message: transition.message },
+                { now: input.now },
+              ),
+            ),
+            Match.exhaustive,
+          );
+
+          return yield* readRecruitmentInvitationHttpSnapshotPostgres(input.capability);
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("transition recruitment invitation", cause)),
+        ),
       ),
-    ),
-    Match.tag("RequestNewTime", (transition) =>
-      requestNewInvitationTime(
-        input.capability,
-        { message: transition.message },
-        { now: input.now },
-      ),
-    ),
-    Match.exhaustive,
   );
