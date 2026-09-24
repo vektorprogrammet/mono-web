@@ -1,7 +1,7 @@
 # Developer module documentation
 
-Status: planned. This roadmap does not claim implementation or tool compatibility.
-[STATE.md](../STATE.md#developer-documentation-and-parallel-workstreams) records workstream ownership and delivery status.
+Status: implementation roadmap. The [Placements guide](../packages/placements/README.md) implements the first pilot.
+[STATE.md](../STATE.md#developer-documentation-and-parallel-workstreams) records acceptance, workstream ownership, and remaining work.
 
 ## Goal
 
@@ -99,10 +99,10 @@ The [system-guide renderer](../tools/system-guide/build.ts) produces standalone 
 It is currently a single-document renderer, not a module reference or example-validation system.
 The [HTTP generator](../packages/http-api/scripts/generate-openapi.ts) supplies an existing generation and freshness-check pattern.
 
-The first tool candidate is [Effect docgen](https://github.com/Effect-TS/docgen).
-Its upstream documentation describes JSDoc reference generation and type-checked, executed examples.
-Adoption requires a bounded check against the repository's TypeScript, Effect, Node, and Bun requirements.
-Tool availability does not establish compatibility with this repository.
+The pilot evaluated [Effect docgen](https://github.com/Effect-TS/docgen) before selecting a maintained alternative.
+The [guide tool-choice record](../packages/placements/README.md#tool-choice) owns the qualification result and compatibility limits.
+Future modules reuse the accepted tooling unless a concrete requirement needs another bounded qualification.
+Tool availability alone does not establish compatibility with this repository.
 
 If docgen does not fit, retain executable TypeScript examples and existing compiler/runtime checks.
 Evaluate another maintained reference generator only for a concrete unmet requirement.
