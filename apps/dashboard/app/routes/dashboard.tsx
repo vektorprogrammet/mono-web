@@ -173,6 +173,11 @@ const mainLinks = [
         coordinatorOnly: true,
       },
       {
+        title: "Intervjubemanning",
+        url: href("/intervjubemanning"),
+        coordinatorOnly: true,
+      },
+      {
         title: "Statistikk",
         url: href("/statistikk"),
       },

@@ -1,0 +1,143 @@
+.recruitment-maintenance {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 70rem;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 1.5rem;
+  color: #183347;
+  overflow-wrap: anywhere;
+}
+.recruitment-maintenance h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+.recruitment-maintenance h2 {
+  font-size: 1.35rem;
+  font-weight: 650;
+  margin-top: 1.5rem;
+}
+.recruitment-maintenance h3 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+.recruitment-maintenance p {
+  margin: 0.75rem 0;
+}
+.recruitment-maintenance fieldset {
+  min-width: 0;
+}
+.recruitment-maintenance legend {
+  font-weight: 650;
+  padding: 0 0.4rem;
+}
+.rm-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  margin: 0.75rem 0;
+}
+.rm-field label {
+  font-weight: 600;
+}
+.rm-field input,
+.rm-field select,
+.rm-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid #647b8a;
+  border-radius: 0.3rem;
+  padding: 0.65rem;
+  background: white;
+  color: #183347;
+  font: inherit;
+}
+.rm-field textarea {
+  resize: vertical;
+}
+.rm-form {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1.25rem 0;
+}
+.rm-question,
+.rm-history-entry {
+  border: 1px solid #a7b6c1;
+  border-radius: 0.4rem;
+  padding: 1rem;
+  margin: 0.8rem 0;
+  background: #f8fafb;
+}
+.rm-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.rm-checkbox input {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+.rm-alternative {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ccd5dd;
+}
+.rm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.65rem 0;
+}
+.recruitment-maintenance button {
+  border: 1px solid #526b7c;
+  border-radius: 0.3rem;
+  padding: 0.65rem 0.8rem;
+  background: white;
+  color: #183347;
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.recruitment-maintenance button[type="submit"] {
+  background: #075e72;
+  color: white;
+  justify-self: start;
+}
+.recruitment-maintenance button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.recruitment-maintenance :focus-visible {
+  outline: 3px solid #006a82;
+  outline-offset: 3px;
+}
+.recruitment-maintenance [role="alert"] {
+  border-left: 4px solid #a42222;
+  padding: 0.7rem;
+  background: #fff4f4;
+}
+.recruitment-maintenance summary {
+  cursor: pointer;
+  padding: 0.5rem 0;
+  font-weight: 600;
+}
+.recruitment-maintenance ol {
+  padding-left: 1.25rem;
+}
+@media (max-width: 480px) {
+  .recruitment-maintenance {
+    padding: 0.8rem;
+  }
+  .rm-question,
+  .rm-history-entry {
+    padding: 0.7rem;
+  }
+  .rm-actions {
+    flex-direction: column;
+  }
+  .rm-actions button {
+    width: 100%;
+  }
+}

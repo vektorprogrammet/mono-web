@@ -6,6 +6,7 @@ import { registerDashboardElement } from "./foldkit/dashboard/elements";
 import { registerInterviewElement } from "./foldkit/interview/elements";
 import { registerOrganizationCatalogElement } from "./foldkit/organization/elements";
 import { registerSchoolsDirectoryElement } from "./foldkit/schools/elements";
+import { registerRecruitmentMaintenanceElements } from "./foldkit/recruitment-maintenance/elements";
 import { registerContentWorkspaceElement } from "./foldkit/content/elements";
 import { registerSocialEventsElement } from "./foldkit/social-events/elements";
 import { registerSchoolSurveysElement } from "./foldkit/surveys/elements";
@@ -17,6 +18,7 @@ function HydrationSafeRouter() {
     registerInterviewElement();
     registerOrganizationCatalogElement();
     registerSchoolsDirectoryElement();
+    registerRecruitmentMaintenanceElements();
     registerContentWorkspaceElement();
     registerSocialEventsElement();
     registerSchoolSurveysElement();

@@ -1,4 +1,8 @@
-import { readRecruitmentMaintenanceHttp, maintainRecruitmentHttp, recruitmentMaintenanceErrorResponse } from "./maintenance-http.js";
+import {
+  readRecruitmentMaintenanceHttp,
+  maintainRecruitmentHttp,
+  recruitmentMaintenanceErrorResponse,
+} from "./maintenance-http.js";
 import { InterviewReportQuery, InterviewReport } from "@vektorprogrammet/domain/recruitment";
 import {
   readCompletedInterviewReport,
@@ -142,78 +146,6 @@ export interface RecruitmentApiHttpOptions<E = never, R = never> {
 }
 
 type GenericFacts = Schema.JsonObject;
-
-export const RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS = {
-  readInvitationResponse: {
-    operationId: "recruitment.readInvitationResponse",
-    method: "GET",
-    path: "/api/recruitment/invitation-response",
-  },
-  confirmInvitation: {
-    operationId: "recruitment.confirmInvitation",
-    method: "POST",
-    path: "/api/recruitment/invitation-response:confirm",
-  },
-  rejectInvitation: {
-    operationId: "recruitment.rejectInvitation",
-    method: "POST",
-    path: "/api/recruitment/invitation-response:reject",
-  },
-  requestNewInvitationTime: {
-    operationId: "recruitment.requestNewInvitationTime",
-    method: "POST",
-    path: "/api/recruitment/invitation-response:request-new-time",
-  },
-  readAssignmentBoard: {
-    operationId: "recruitment.readAssignmentBoard",
-    method: "GET",
-    path: "/api/recruitment/application-assignments",
-  },
-  readInterviewReport: {
-    operationId: "recruitment.readInterviewReport",
-    method: "GET",
-    path: "/api/recruitment/interview-report",
-  },
-  readSchedulingBoard: {
-    operationId: "recruitment.readSchedulingBoard",
-    method: "GET",
-    path: "/api/recruitment/interviews",
-  },
-  createApplicationInterview: {
-    operationId: "recruitment.createApplicationInterview",
-    method: "POST",
-    path: "/api/recruitment/applications/{applicationId}/interviews",
-  },
-  scheduleInterview: {
-    operationId: "recruitment.scheduleInterview",
-    method: "POST",
-    path: "/api/recruitment/interviews/{interviewId}:schedule",
-  },
-  readInterviewConduct: {
-    operationId: "recruitment.readInterviewConduct",
-    method: "GET",
-    path: "/api/recruitment/interviews/{interviewId}",
-  },
-  correctInterviewAssessment: {
-    operationId: "recruitment.correctInterviewAssessment",
-    method: "POST",
-    path: "/api/recruitment/interviews/{interviewId}:correct",
-  },
-  finalizeInterview: {
-    operationId: "recruitment.finalizeInterview",
-    method: "POST",
-    path: "/api/recruitment/interviews/{interviewId}:finalize",
-  },
-  cancelInterview: {
-    operationId: "recruitment.cancelInterview",
-    method: "POST",
-    path: "/api/recruitment/interviews/{interviewId}:cancel",
-  },
-} as const;
-
-export const RECRUITMENT_NATIVE_OPERATION_IDS = Object.values(
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS,
-).map((registration) => registration.operationId);
 
 const NO_STORE = "no-store";
 
@@ -1643,9 +1575,23 @@ export const RecruitmentApiHandlers = <E, R>(input: RecruitmentApiHttpOptions<E,
   HttpApiBuilder.group(ExternalNativeApi, "recruitment", (handlers) =>
     Effect.succeed(
       handlers
-        .handleRaw("readQuestionnaires",({request}) => toHttpApiResponse(request,(webRequest) => readRecruitmentMaintenanceHttp(webRequest,"questionnaires"),recruitmentMaintenanceErrorResponse))
-        .handleRaw("readInterviewStaffing",({request}) => toHttpApiResponse(request,(webRequest) => readRecruitmentMaintenanceHttp(webRequest,"staffing"),recruitmentMaintenanceErrorResponse))
-        .handleRaw("maintainRecruitment",({request}) => toHttpApiResponse(request,maintainRecruitmentHttp,recruitmentMaintenanceErrorResponse))
+        .handleRaw("readQuestionnaires", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readRecruitmentMaintenanceHttp(webRequest, "questionnaires"),
+            recruitmentMaintenanceErrorResponse,
+          ),
+        )
+        .handleRaw("readInterviewStaffing", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readRecruitmentMaintenanceHttp(webRequest, "staffing"),
+            recruitmentMaintenanceErrorResponse,
+          ),
+        )
+        .handleRaw("maintainRecruitment", ({ request }) =>
+          toHttpApiResponse(request, maintainRecruitmentHttp, recruitmentMaintenanceErrorResponse),
+        )
         .handleRaw("readInterviewReport", ({ request }) =>
           toHttpApiResponse(
             request,

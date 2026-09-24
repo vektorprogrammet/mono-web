@@ -923,6 +923,7 @@ const assignmentInTransaction = (
     }
 
     const existing = yield* readInterviewForApplication(sql, command.applicationId);
+
     if (existing !== undefined) return yield* new RecruitmentApplicationAlreadyAssigned({
       applicationId: command.applicationId, interviewId: RecruitmentInterviewId.make(existing.interviewId),
     });

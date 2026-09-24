@@ -3,7 +3,7 @@ import type { DashboardRole } from "./model";
 export type NavigationLink = Readonly<{
   label: string;
   href: string;
-  requiredRole: "team-member" | "team-leader";
+  requiredRole: "team-member" | "team-leader" | "global-administrator";
   external?: boolean;
 }>;
 
@@ -40,6 +40,7 @@ export const admissionLinks = [
   memberLink("Intervjufordeling", "/dashboard/intervjufordeling"),
   memberLink("Intervjuer", "/dashboard/intervjuer"),
   leaderLink("Fullførte intervjuer", "/dashboard/intervjuer/rapport"),
+  leaderLink("Intervjubemanning", "/dashboard/intervjubemanning"),
   leaderLink("Søkerkontoer", "/dashboard/onboarding"),
 ] as const;
 
@@ -54,7 +55,11 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       { kind: "admission-menu", label: "Opptak", links: admissionLinks },
       {
         kind: "link",
-        link: leaderLink("Intervjuskjema", "/dashboard/intervjusjema"),
+        link: {
+          label: "Intervjuskjema",
+          href: "/dashboard/intervjusjema",
+          requiredRole: "global-administrator",
+        },
       },
       {
         kind: "link",
@@ -156,7 +161,9 @@ export const hasTeamLeaderAccess = (role: DashboardRole | null): boolean =>
   role === "ROLE_TEAM_LEADER" || role === "ROLE_ADMIN";
 
 export const canViewLink = (role: DashboardRole | null, link: NavigationLink): boolean =>
-  link.requiredRole === "team-member" || hasTeamLeaderAccess(role);
+  link.requiredRole === "global-administrator"
+    ? role === "ROLE_ADMIN"
+    : link.requiredRole === "team-member" || hasTeamLeaderAccess(role);
 
 export const isActivePath = (activePath: string, href: string): boolean =>
   activePath === href || activePath.startsWith(`${href}/`);

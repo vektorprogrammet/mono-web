@@ -64,7 +64,6 @@ import {
 import { describe, expect, it } from "vitest";
 import { runTestPromise } from "../../test/runtime.js";
 import {
-  RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS,
   conditionalJsonResponse,
   interviewETag,
   readRecruitmentRequestBody,
@@ -74,76 +73,6 @@ import {
 } from "./http.js";
 
 describe("native recruitment HTTP boundary", () => {
-  it("registers every frozen recruitment operation once with canonical action routes", () => {
-    expect(RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS).toEqual({
-      readInvitationResponse: {
-        operationId: "recruitment.readInvitationResponse",
-        method: "GET",
-        path: "/api/recruitment/invitation-response",
-      },
-      confirmInvitation: {
-        operationId: "recruitment.confirmInvitation",
-        method: "POST",
-        path: "/api/recruitment/invitation-response:confirm",
-      },
-      rejectInvitation: {
-        operationId: "recruitment.rejectInvitation",
-        method: "POST",
-        path: "/api/recruitment/invitation-response:reject",
-      },
-      requestNewInvitationTime: {
-        operationId: "recruitment.requestNewInvitationTime",
-        method: "POST",
-        path: "/api/recruitment/invitation-response:request-new-time",
-      },
-      readAssignmentBoard: {
-        operationId: "recruitment.readAssignmentBoard",
-        method: "GET",
-        path: "/api/recruitment/application-assignments",
-      },
-      readInterviewReport: {
-        operationId: "recruitment.readInterviewReport",
-        method: "GET",
-        path: "/api/recruitment/interview-report",
-      },
-      readSchedulingBoard: {
-        operationId: "recruitment.readSchedulingBoard",
-        method: "GET",
-        path: "/api/recruitment/interviews",
-      },
-      createApplicationInterview: {
-        operationId: "recruitment.createApplicationInterview",
-        method: "POST",
-        path: "/api/recruitment/applications/{applicationId}/interviews",
-      },
-      scheduleInterview: {
-        operationId: "recruitment.scheduleInterview",
-        method: "POST",
-        path: "/api/recruitment/interviews/{interviewId}:schedule",
-      },
-      readInterviewConduct: {
-        operationId: "recruitment.readInterviewConduct",
-        method: "GET",
-        path: "/api/recruitment/interviews/{interviewId}",
-      },
-      correctInterviewAssessment: {
-        operationId: "recruitment.correctInterviewAssessment",
-        method: "POST",
-        path: "/api/recruitment/interviews/{interviewId}:correct",
-      },
-      finalizeInterview: {
-        operationId: "recruitment.finalizeInterview",
-        method: "POST",
-        path: "/api/recruitment/interviews/{interviewId}:finalize",
-      },
-      cancelInterview: {
-        operationId: "recruitment.cancelInterview",
-        method: "POST",
-        path: "/api/recruitment/interviews/{interviewId}:cancel",
-      },
-    });
-  });
-
   it("accepts one bounded JSON object and rejects invalid transport bodies", async () => {
     await expect(
       runTestPromise(

@@ -5,7 +5,13 @@
  */
 import { Context, Effect } from "effect";
 import type { PersonId } from "../organization/schema.js";
-import type { RecruitmentMaintenanceCommand, RecruitmentMaintenanceResult, QuestionnaireManagement, InterviewStaffingManagement, RecruitmentMaintenanceFailure } from "./maintenance.js";
+import type {
+  RecruitmentMaintenanceCommand,
+  RecruitmentMaintenanceResult,
+  QuestionnaireManagement,
+  InterviewStaffingManagement,
+  RecruitmentMaintenanceFailure,
+} from "./maintenance.js";
 import type { AdmissionPeriodFailure } from "../admission-period/errors.js";
 import type {
   OrganizationDecodeError,
@@ -107,10 +113,20 @@ export type RecruitmentFailure =
   | ProfileFailure;
 
 export interface RecruitmentOperations {
-  readonly readQuestionnaires: (personId: PersonId) => Effect.Effect<QuestionnaireManagement, RecruitmentFailure>;
-  readonly readInterviewStaffing: (personId: PersonId) => Effect.Effect<InterviewStaffingManagement, RecruitmentFailure>;
-  readonly authorizeMaintenance: (command: RecruitmentMaintenanceCommand, personId: PersonId) => Effect.Effect<void, RecruitmentFailure>;
-  readonly maintainRecruitment: (command: RecruitmentMaintenanceCommand, personId: PersonId) => Effect.Effect<RecruitmentMaintenanceResult, RecruitmentFailure>;
+  readonly readQuestionnaires: (
+    personId: PersonId,
+  ) => Effect.Effect<QuestionnaireManagement, RecruitmentFailure>;
+  readonly readInterviewStaffing: (
+    personId: PersonId,
+  ) => Effect.Effect<InterviewStaffingManagement, RecruitmentFailure>;
+  readonly authorizeMaintenance: (
+    command: RecruitmentMaintenanceCommand,
+    personId: PersonId,
+  ) => Effect.Effect<void, RecruitmentFailure>;
+  readonly maintainRecruitment: (
+    command: RecruitmentMaintenanceCommand,
+    personId: PersonId,
+  ) => Effect.Effect<RecruitmentMaintenanceResult, RecruitmentFailure>;
   readonly readAssignmentBoard: (
     query: RecruitmentAssignmentBoardQuery,
     context: RecruitmentReadAssignmentBoardContext,

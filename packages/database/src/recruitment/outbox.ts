@@ -256,8 +256,11 @@ const canonicalEnvelopeMatches = (
 };
 
 const validateEnvelope = (
-  sql: DatabaseOperations, admissions: AdmissionsOperations, profile: ProfileOperations,
-  rawRow: ClaimedInvitationRow, claimId: string,
+  sql: DatabaseOperations,
+  admissions: AdmissionsOperations,
+  profile: ProfileOperations,
+  rawRow: ClaimedInvitationRow,
+  claimId: string,
   reject: (tag: string) => Effect.Effect<undefined, RecruitmentPersistenceError>,
 ): Effect.Effect<ClaimedRecruitmentInvitation | undefined, RecruitmentPersistenceError> =>
   Effect.gen(function* () {
@@ -375,8 +378,11 @@ const validateEnvelope = (
 
     const canonical = decodedCanonical.value;
     const envelopeSha256 = sha256Hex(canonicalJsonBytes(request));
+
     if (canonical.envelopeSha256 !== null) {
-      if (canonical.envelopeSha256 !== envelopeSha256) return yield* reject("AuthorityEnvelopeMismatch");
+      if (canonical.envelopeSha256 !== envelopeSha256)
+        return yield* reject("AuthorityEnvelopeMismatch");
+
       return { effectId: row.effectId, claimId: row.claimId, attempts: row.attempts, request };
     }
 
@@ -456,7 +462,11 @@ const validateEnvelope = (
       return yield* reject("AuthorityEnvelopeMismatch");
     }
 
-    yield* sql`UPDATE public.recruitment_schedule_command_receipts SET envelope_sha256=${envelopeSha256} WHERE command_id=${row.commandId} AND envelope_sha256 IS NULL`.pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("seal delivery envelope",cause))));
+    yield* sql`UPDATE public.recruitment_schedule_command_receipts SET envelope_sha256=${envelopeSha256} WHERE command_id=${row.commandId} AND envelope_sha256 IS NULL`.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("seal delivery envelope", cause)),
+      ),
+    );
 
     return {
       effectId: row.effectId,
@@ -511,23 +521,35 @@ const claimInTransaction = (
     const rawRow = rows[0];
 
     if (rawRow === undefined) return undefined;
-    return yield* validateEnvelope(sql, admissions, profile, rawRow, claimId,
-      (tag) => quarantineAndSkip(sql, rawRow, tag));
+
+    return yield* validateEnvelope(sql, admissions, profile, rawRow, claimId, (tag) =>
+      quarantineAndSkip(sql, rawRow, tag),
+    );
   });
 
-export const sealInterviewInvitationEnvelopes = (interviewId: string) => Effect.gen(function* () {
-  const sql = yield* Database;
-  const admissions = yield* Admissions;
-  const profile = yield* Profile;
-  const rows = yield* sql<ClaimedInvitationRow>`SELECT outbox.effect_id AS "effectId",outbox.effect_type AS "effectType",outbox.command_id AS "commandId",
+export const sealInterviewInvitationEnvelopes = (interviewId: string) =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const admissions = yield* Admissions;
+    const profile = yield* Profile;
+
+    const rows =
+      yield* sql<ClaimedInvitationRow>`SELECT outbox.effect_id AS "effectId",outbox.effect_type AS "effectType",outbox.command_id AS "commandId",
     outbox.interview_id AS "interviewId",outbox.invitation_id AS "invitationId",outbox.schedule_revision AS "scheduleRevision",outbox.ordinal,
     'legacy-seal'::text AS "claimId",outbox.attempts+1 AS attempts,outbox.payload_json AS "payloadJson"
     FROM public.recruitment_invitation_outbox outbox JOIN public.recruitment_schedule_command_receipts receipt ON receipt.command_id=outbox.command_id
     WHERE outbox.interview_id=${interviewId} AND outbox.status IN ('Pending','Failed','Processing') AND receipt.envelope_sha256 IS NULL
     ORDER BY outbox.effect_id FOR UPDATE OF outbox`;
-  for (const row of rows) yield* validateEnvelope(sql,admissions,profile,row,"legacy-seal",
-    (tag) => Effect.fail(persistenceError("seal legacy invitation envelope: "+tag)));
-}).pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("seal legacy envelopes",cause))));
+
+    for (const row of rows)
+      yield* validateEnvelope(sql, admissions, profile, row, "legacy-seal", (tag) =>
+        Effect.fail(persistenceError("seal legacy invitation envelope: " + tag)),
+      );
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("seal legacy envelopes", cause)),
+    ),
+  );
 
 export const claimNextRecruitmentInvitation = (
   claimId: string,
