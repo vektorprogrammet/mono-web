@@ -860,8 +860,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url))
             error.stack ?? "",
           )?.[1]
         : undefined;
+    const nativePhase =
+      error instanceof Error
+        ? /^Candidate native journey failed: ([A-Za-z0-9-]+)$/.exec(error.message)?.[1]
+        : undefined;
     console.error(
-      `Synthetic combined candidate rehearsal failed at ${stage}${location ? ` (line ${location})` : ""}; details redacted`,
+      `Synthetic combined candidate rehearsal failed at ${stage}${nativePhase ? `/${nativePhase}` : ""}${location ? ` (line ${location})` : ""}; details redacted`,
     );
     process.exitCode = 1;
   });
