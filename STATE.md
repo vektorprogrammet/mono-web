@@ -385,6 +385,16 @@ The final Chromium journey followed the homepage login link, submitted the nativ
 The retained record also covers both dashboard mounts, restart persistence, missing configuration, port-conflict cleanup, and dirty release-build rejection.
 Nineteen focused homepage tests passed. The affected type-check graph completed twelve tasks, including ten cached results.
 The record is `/tmp/vektor-local-dev-acceptance-eRSdyG/acceptance.json`.
+Native command ownership has scoped local acceptance. Placements now owns portable contracts and its private PostgreSQL implementation in one package.
+HTTP adapters call complete Placements and Recruitment commands. Cross-application proofs now live in `tools/verification`.
+Placement API and Chromium acceptance used `dbaad29e`; it covered concurrency, replay, coverage, and all three terminal service outcomes.
+Schools rendered native records through successful same-origin reads. The cancellation form retained focus through outcome changes.
+Compiled Recruitment and relocated completion-delivery acceptance passed at `2bd1b758`, including browser persistence and owned-process cleanup.
+The receipt rehearsal passed at `b0eea924`, including import quarantine, replay, delivery recovery, browser reopening, and database/file restore.
+Worker lifecycle acceptance used `4d58d4cd`; local disablement, claim recovery, interruption, retry, and root failure passed.
+Fifteen affected type/build tasks, 47 focused tests, generated-contract checks, scoped lint, and formatting passed.
+Nine prohibited imports were rejected. Placements HTTP no longer imports its ten former database helpers; Recruitment no longer exposes twelve wildcard export groups.
+The record is `/tmp/vektor-command-ownership-P0ppoX/acceptance.json`, with a checksummed source archive and scope-specific receipts.
 No provider, production data, or external delivery was exercised. Owned runtime resources and integrated worktrees were removed.
 Each directory retains source provenance and evidence outside the product repository. Temporary storage is not a permanent archive.
 No repository-wide all-packages test pass or deployed provider journey is claimed.

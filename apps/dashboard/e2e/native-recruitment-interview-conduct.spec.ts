@@ -111,7 +111,13 @@ const assertNoApplicantPrivateFields = (value: Schema.Json): void => {
     return;
   }
 
-  if (value === null || Predicate.isString(value) || Predicate.isNumber(value) || Predicate.isBoolean(value)) return;
+  if (
+    value === null ||
+    Predicate.isString(value) ||
+    Predicate.isNumber(value) ||
+    Predicate.isBoolean(value)
+  )
+    return;
 
   for (const [key, child] of Object.entries(value)) {
     expect(key).not.toMatch(/email|phone|recommendation|answers|capability|interviewer|score/iu);
@@ -303,7 +309,9 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
 
       await applicantPage.goto("/dashboard/soknad");
       expect(applicantProgress.status()).toBe(200);
-      const applicantProgressBody = Schema.decodeUnknownSync(Schema.Json)(await applicantProgress.json());
+      const applicantProgressBody = Schema.decodeUnknownSync(Schema.Json)(
+        await applicantProgress.json(),
+      );
       assertNoApplicantPrivateFields(applicantProgressBody);
       expect(JSON.stringify(applicantProgressBody)).toContain('"InterviewCompleted"');
       await expect(
@@ -333,7 +341,9 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
         .getByRole("button", { name: "Fullfør intervju", exact: true })
         .click();
       const staleResponse = await stalePost;
-      await expect(staleResponse.json()).resolves.toEqual(RecruitmentBridgeFailure.cases.Conflict.make({message: "Recruitment state has changed"}));
+      await expect(staleResponse.json()).resolves.toEqual(
+        RecruitmentBridgeFailure.cases.Conflict.make({ message: "Recruitment state has changed" }),
+      );
       expect(staleResponse.status()).toBe(409);
       await expect(
         stalePage.getByRole("alert").filter({
@@ -392,7 +402,9 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       ]);
 
       expect(cancelResponse.status()).toBe(200);
-      const cancellation = Schema.decodeUnknownSync(CancelInterviewResponse)(await cancelResponse.json());
+      const cancellation = Schema.decodeUnknownSync(CancelInterviewResponse)(
+        await cancelResponse.json(),
+      );
       expect(cancelledConductResponse.status()).toBe(200);
       expect(cancelledBoardResponse.status()).toBe(200);
       await expect(independentPage.getByText("Intervjuet er avlyst.")).toBeVisible();
@@ -411,7 +423,9 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       );
 
       expect(retainedConductResponse.status()).toBe(200);
-      const retainedConduct = Schema.decodeUnknownSync(ConductObservation)(await retainedConductResponse.json());
+      const retainedConduct = Schema.decodeUnknownSync(ConductObservation)(
+        await retainedConductResponse.json(),
+      );
       expect(retainedConduct.interviewId).toBe(cancellation.interviewId);
       expect(retainedConduct.cancellationState).toBe("Cancelled");
       expect(retainedConduct.cancelledAt).toBe(cancellation.cancelledAt);
