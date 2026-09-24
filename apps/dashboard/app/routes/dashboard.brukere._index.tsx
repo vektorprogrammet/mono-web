@@ -1,4 +1,4 @@
-import { Predicate } from "effect";
+import { nativeProblemFrom } from "../lib/native-problem";
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://react-router.com/start/framework/route-module
 import { DataTable } from "@/components/data-table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,7 +34,6 @@ function toRow(entry: typeof PeopleDirectoryEntry.Type): BrukerRow {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
 
@@ -48,8 +47,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       },
     };
   } catch (error) {
-    const code =
-      Predicate.isObjectOrArray(error) && error !== null && "code" in error ? error.code : undefined;
+    const code = nativeProblemFrom(error)?.code;
 
     if (code === "credential.missing" || code === "credential.invalid") {
       throw await expiredSessionRedirect(request);
@@ -89,7 +87,16 @@ export const columns: Array<ColumnDef<user>> = [
     enableSorting: false,
     enableHiding: false,
   },
-  { id: "Fornavn", accessorKey: "firstName", header: "Fornavn" },
+  {
+    id: "Fornavn",
+    accessorKey: "firstName",
+    header: "Fornavn",
+    filterFn: (row, _columnId, value: string) =>
+      `${row.original.firstName} ${row.original.lastName}`
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .includes(value.trim().toLowerCase().replace(/\s+/g, " ")),
+  },
   { id: "Etternavn", accessorKey: "lastName", header: "Etternavn" },
   { id: "Telefon", accessorKey: "phone", header: "Telefon" },
   { id: "E-post", accessorKey: "mail", header: "E-post" },
@@ -108,8 +115,6 @@ export const columns: Array<ColumnDef<user>> = [
 
 export default function Brukere() {
   const data = useLoaderData<typeof loader>();
-  const activeUsers = data.users?.activeUsers ?? [];
-  const inActiveUsers = data.users?.inactiveUsers ?? [];
   const unavailable = "error" in data && data.error === "unavailable";
   const denied = !data.users && !unavailable;
 
@@ -119,35 +124,45 @@ export default function Brukere() {
       <section className="flex w-full min-w-0 flex-col items-center ">
         <h1 className="mb-10 font-semibold text-2xl">Brukere</h1>
         {unavailable ? (
-          <p className="mb-6 text-center text-gray-600" role="alert">
+          <p className="mb-6 text-center text-muted-foreground" role="alert">
             Brukerlisten kunne ikke lastes. Prøv igjen senere.
           </p>
         ) : denied ? (
-          <p className="mb-6 text-center text-gray-600" role="alert">
+          <p className="mb-6 text-center text-muted-foreground" role="alert">
             Du har ikke tilgang til brukerlisten. Listen er bare tilgjengelig for aktive
             globaladministratorer og avdelingsledere.
           </p>
         ) : null}
-        <Tabs defaultValue="active" className="mb-6 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-center">
-            <TabsList className="my-5 flex flex-wrap justify-center">
-              <TabsTrigger value="active">Aktive Brukere</TabsTrigger>
-              <TabsTrigger value="inactive">Inaktive Brukere</TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="active" className="min-w-0 overflow-x-auto">
-            <div className="min-w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
-              <DataTable columns={columns} data={activeUsers} />
+        {data.users !== null && (
+          <Tabs defaultValue="active" className="mb-6 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-center">
+              <TabsList className="my-5 flex flex-wrap justify-center">
+                <TabsTrigger value="active">Aktive Brukere</TabsTrigger>
+                <TabsTrigger value="inactive">Inaktive Brukere</TabsTrigger>
+              </TabsList>
             </div>
-          </TabsContent>
 
-          <TabsContent value="inactive" className="min-w-0 overflow-x-auto">
-            <div className="min-w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
-              <DataTable columns={columns} data={inActiveUsers} />
-            </div>
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="active" className="min-w-0 overflow-x-auto">
+              <div className="min-w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
+                <DataTable
+                  columns={columns}
+                  data={data.users.activeUsers}
+                  filterColumnId="Fornavn"
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="inactive" className="min-w-0 overflow-x-auto">
+              <div className="min-w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
+                <DataTable
+                  columns={columns}
+                  data={data.users.inactiveUsers}
+                  filterColumnId="Fornavn"
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+        )}
       </section>
     </>
   );

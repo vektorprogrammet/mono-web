@@ -38,7 +38,7 @@ export default function Teaminteresse() {
     <section className="flex w-full min-w-0 flex-col items-center">
       <h1 className="mb-10 font-semibold text-2xl">Teaminteresse</h1>
       <div className="w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        <DataTable columns={columns} data={teamInterest} />
+        <DataTable columns={columns} data={teamInterest} filterColumnId="name" />
       </div>
     </section>
   );

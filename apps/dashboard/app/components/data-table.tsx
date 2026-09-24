@@ -15,11 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type {
-  ColumnDef,
-  ColumnFiltersState,
-  VisibilityState,
-} from "@tanstack/react-table";
+import type { ColumnDef, ColumnFiltersState, VisibilityState } from "@tanstack/react-table";
 import {
   flexRender,
   getCoreRowModel,
@@ -33,11 +29,13 @@ import { DataTablePagination } from "./data-table-pagination";
 interface DataTableProps<Data, Value> {
   columns: Array<ColumnDef<Data, Value>>;
   data: Array<Data>;
+  filterColumnId: string;
 }
 
 export function DataTable<Data, Value>({
   columns,
   data,
+  filterColumnId,
 }: DataTableProps<Data, Value>) {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
@@ -60,7 +58,7 @@ export function DataTable<Data, Value>({
     },
   });
 
-  const nameFilter = table.getColumn("name")?.getFilterValue();
+  const nameFilter = table.getColumn(filterColumnId)?.getFilterValue();
 
   return (
     <div className="flex max-h-[80vh] w-full flex-col justify-between rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
@@ -68,9 +66,7 @@ export function DataTable<Data, Value>({
         <Input
           placeholder="Filtrer navn..."
           value={Predicate.isString(nameFilter) ? nameFilter : ""}
-          onChange={(event) =>
-            table.getColumn("name")?.setFilterValue(event.target.value)
-          }
+          onChange={(event) => table.getColumn(filterColumnId)?.setFilterValue(event.target.value)}
           className="max-w-sm"
         />
         <DropdownMenu>
@@ -89,9 +85,7 @@ export function DataTable<Data, Value>({
                     key={column.id}
                     className="capitalize"
                     checked={column.getIsVisible()}
-                    onCheckedChange={(value) =>
-                      column.toggleVisibility(!!value)
-                    }
+                    onCheckedChange={(value) => column.toggleVisibility(!!value)}
                   >
                     {column.id}
                   </DropdownMenuCheckboxItem>
@@ -110,10 +104,7 @@ export function DataTable<Data, Value>({
                     <TableHead key={header.id}>
                       {header.isPlaceholder
                         ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
+                        : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   );
                 })}
@@ -123,26 +114,17 @@ export function DataTable<Data, Value>({
           <TableBody>
             {table.getRowModel().rows?.length > 0 ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                >
+                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center"
-                >
+                <TableCell colSpan={columns.length} className="h-24 text-center">
                   No results.
                 </TableCell>
               </TableRow>
