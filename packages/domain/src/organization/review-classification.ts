@@ -83,16 +83,17 @@ const BoardRow = Schema.Struct({
 });
 
 const uniqueNamedRows = (rows: ReadonlyArray<Schema.Json>) => {
-  const valid = rows
-    .values()
-    .map((row) => Schema.decodeUnknownOption(NamedRow)(normalizeRow(row)))
-    .filter(Option.isSome)
-    .map((row) => row.value)
-    .toArray();
-
+  const valid: Array<typeof NamedRow.Type> = [];
   const counts = new Map<number, number>();
+  const decode = Schema.decodeUnknownOption(NamedRow);
 
-  for (const row of valid) counts.set(row.id, (counts.get(row.id) ?? 0) + 1);
+  for (const raw of rows) {
+    const row = decode(normalizeRow(raw));
+
+    if (Option.isNone(row)) continue;
+    valid.push(row.value);
+    counts.set(row.value.id, (counts.get(row.value.id) ?? 0) + 1);
+  }
 
   return valid.filter((row) => counts.get(row.id) === 1);
 };
@@ -410,12 +411,10 @@ export const classifyReviewedOrganization = (
   for (const item of appointments)
     targets.set(semantic(item), (targets.get(semantic(item)) ?? 0) + 1);
 
-  const duplicates = new Set(
-    appointments
-      .values()
-      .filter((item) => targets.get(semantic(item))! > 1)
-      .map((item) => item.occurrence.occurrenceId),
-  );
+  const duplicates = new Set<string>();
+
+  for (const item of appointments)
+    if (targets.get(semantic(item))! > 1) duplicates.add(item.occurrence.occurrenceId);
 
   return {
     teams: classified.teams,
