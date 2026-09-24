@@ -1,5 +1,6 @@
 import { Console, Effect } from "effect";
 import { CliConfig, CliError, Command, Flag } from "effect/unstable/cli";
+import { version } from "../package.json";
 import { canonicalJson, failureId } from "./canonical.js";
 import { FALSIFIERS, run } from "./runner.js";
 import { ParityRuntimeError } from "./runtime.js";
@@ -72,7 +73,7 @@ const invalidOptions = (message: string) =>
     errors: [new CliError.UserError({ cause: message })],
   });
 
-const commandErrorReport = (message: string): ZeroGapReport => {
+const commandErrorReport = (): ZeroGapReport => {
   const sourceRefIds: string[] = [];
 
   const failure = {
@@ -96,12 +97,7 @@ const commandErrorReport = (message: string): ZeroGapReport => {
     inventory_artifact_sha256: {},
     row_counts: {},
     status_counts: {},
-    failures: [
-      {
-        ...failure,
-        reason_code: message.length > 0 ? "COMMAND_ARGUMENT_ERROR" : failure.reason_code,
-      },
-    ],
+    failures: [failure],
     mismatches: [],
     openapi_reconciliation_ref: "openapi-reconciliation.json",
     verification: {
@@ -258,7 +254,7 @@ export const main = (
       ),
     );
 
-    return yield* Command.runWith(command, { version: "0.1.0", renderErrors: false })(
+    return yield* Command.runWith(command, { version, renderErrors: false })(
       programArgs.filter((argument) => argument !== "--"),
     ).pipe(
       Effect.provideService(CliConfig.CliConfig, CliConfig.make({ builtIns: [] })),
@@ -279,9 +275,7 @@ export const main = (
           }
 
           const report =
-            error instanceof ParityRuntimeError
-              ? runtimeErrorReport(error)
-              : commandErrorReport(error.message);
+            error instanceof ParityRuntimeError ? runtimeErrorReport(error) : commandErrorReport();
 
           if (
             error instanceof ParityRuntimeError &&

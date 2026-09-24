@@ -1,5 +1,11 @@
 ## Unreleased
 
+### Effect CLI boundary
+
+- Declare RAT options and generated help with Effect CLI. Preserve machine-readable reports, exit codes, mode restrictions, and last-value option selection.
+- Accept standard `--name=value` spelling. Keep the private replay protocol and pinned verification wrapper unchanged.
+- Exercise real help, rejected commands, and synthetic falsifiers through the executable CLI.
+
 ### Interactive local walkthrough
 
 - Keep the sign-in form readable in both themes. Match the first client render to server HTML before applying the saved theme.

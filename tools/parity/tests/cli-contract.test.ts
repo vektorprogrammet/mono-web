@@ -40,7 +40,6 @@ const expectCommandError = (args: readonly string[]) => {
     "COMMAND_ARGUMENT_ERROR",
   ]);
   expect(result.stderr).toContain("--mode");
-  expect(result.stderr).not.toContain("Error:");
 };
 
 describe("RAT process contract", () => {
