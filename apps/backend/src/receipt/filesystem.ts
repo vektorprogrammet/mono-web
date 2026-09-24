@@ -266,12 +266,8 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
           const requestDigest = createHash("sha256").update(JSON.stringify(request)).digest("hex");
           const previous = applied.get(request.effectId);
 
-          if (previous !== undefined) {
-            if (previous !== requestDigest)
-              throw new ReceiptFileEffectConflict({ effectId: request.effectId });
-
-            return;
-          }
+          if (previous !== undefined && previous !== requestDigest)
+            throw new ReceiptFileEffectConflict({ effectId: request.effectId });
 
           if (
             Predicate.isTagged(request, "PromoteReceiptFile") &&
