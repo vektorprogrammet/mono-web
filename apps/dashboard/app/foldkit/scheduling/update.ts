@@ -220,7 +220,8 @@ export const updateFor =
     const boardRefreshing = Predicate.isTagged(model.board, "Refreshing") || Predicate.isTagged(model.board, "Loading");
     const scheduleBusy = model.isScheduling || model.scheduleAttempt !== null || boardRefreshing;
     const draftLocked = scheduleBusy || model.scheduleCommitted;
-    if (draftLocked && (message._tag === "UpdatedScheduledAt" || message._tag === "UpdatedRoom" || message._tag === "UpdatedCampus" || message._tag === "UpdatedMapLink" || message._tag === "UpdatedMessage")) {
+
+    if (draftLocked && (Predicate.isTagged(message, "UpdatedScheduledAt") || Predicate.isTagged(message, "UpdatedRoom") || Predicate.isTagged(message, "UpdatedCampus") || Predicate.isTagged(message, "UpdatedMapLink") || Predicate.isTagged(message, "UpdatedMessage"))) {
       return { model, commands: [] };
     }
 
@@ -231,6 +232,7 @@ export const updateFor =
           if (model.isScheduling || boardRefreshing) return { model, commands: [] };
           const requestId = model.boardRequestId + 1;
           const data = AsyncData.getData(model.board);
+
           return { model: {
             ...model,
             board: Option.isSome(data) ? SchedulingBoardData.Refreshing({ data: data.value }) : SchedulingBoardData.Loading(),
@@ -240,10 +242,12 @@ export const updateFor =
         },
         SucceededLoadSchedulingBoard: ({ requestId, board }) => {
           if (requestId !== model.boardRequestId) return { model, commands: [] };
+
           if (model.scheduleCommitted) return reconcileCommittedSchedule(model, board);
           const recovering = model.scheduleAttempt === null && model.scheduleFailure?._tag === "Conflict";
           const current = board.interviews.find((interview) => interview.interviewId === model.scheduleInterview?.interviewId);
           const eligible = current !== undefined && (current.schedule === null || current.responseState === "RequestedNewTime");
+
           return { model: {
             ...model,
             board: SchedulingBoardData.Success({ data: board }),
@@ -261,6 +265,7 @@ export const updateFor =
         FailedLoadSchedulingBoard: ({ requestId, message: failureMessage }) => {
           if (requestId !== model.boardRequestId) return { model, commands: [] };
           const data = AsyncData.getData(model.board);
+
           return { model: {
             ...model,
             board: Option.isSome(data)
@@ -347,10 +352,12 @@ export const updateFor =
         SubmittedSchedule: () => {
           if (model.isScheduling || model.scheduleCommitted || boardRefreshing || model.scheduleInterview === null) return { model, commands: [] };
           const requestId = model.boardRequestId + 1;
+
           if (model.scheduleAttempt !== null) {
             return { model: { ...model, isScheduling: true, boardRequestId: requestId, scheduleError: null },
               commands: [ScheduleInterview({ requestId, input: model.scheduleAttempt })] };
           }
+
           if (model.scheduleFailure?._tag === "Conflict") return { model, commands: [] };
           const interview = model.scheduleInterview;
 

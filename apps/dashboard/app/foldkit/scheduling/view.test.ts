@@ -14,6 +14,7 @@ import { view } from "./view";
 import { OpenedSchedule } from "./message";
 
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
+
 const schedule = {
   interviewId: "interview-conduct-view",
   scheduledAt: "2031-09-14T13:00:00.000Z",
@@ -170,7 +171,9 @@ describe("Foldkit scheduling conduct view", () => {
   it("keeps a confirmed draft read-only while allowing explicit exit", () => {
     const source = terminalModel("Completed");
     const data = AsyncData.getData(source.board);
+
     if (!Predicate.isTagged(data, "Some")) throw new Error("expected board");
+
     const committed: ReadyModel = {
       ...source,
       conduct: ConductData.Idle(),
@@ -179,6 +182,7 @@ describe("Foldkit scheduling conduct view", () => {
       scheduleDialog: Dialog.open(source.scheduleDialog).model,
       room: FieldValidation.NotValidated({ value: "Retained replacement room" }),
     };
+
     Scene.scene(config, Scene.given(committed),
       Scene.Mount.resolve(Dialog.AcquireResources, Dialog.Message.SucceededAcquireResources()),
       Scene.expect(Scene.label("Rom")).toHaveValue("Retained replacement room"),
@@ -190,10 +194,13 @@ describe("Foldkit scheduling conduct view", () => {
   it("shows the requested-time context inside the replacement dialog without reusing the old time", () => {
     const source = terminalModel("Completed");
     const data = AsyncData.getData(source.board);
+
     if (!Predicate.isTagged(data, "Some")) throw new Error("expected board");
+
     const board = S.decodeUnknownSync(SchedulingBoard)({ ...data.value, interviews: data.value.interviews.map((interview) => ({
       ...interview, responseState: "RequestedNewTime", responseMessage: "Etter klokken fire, takk.",
     })) });
+
     const initial = init(LoadedSchedulingInput.make({ board }), IdempotencyKey.make("replacement-view-test-command"));
     const opened = config.update(initial, OpenedSchedule({ interviewId: board.interviews[0]!.interviewId })).model;
     Scene.scene(config, Scene.given(opened),

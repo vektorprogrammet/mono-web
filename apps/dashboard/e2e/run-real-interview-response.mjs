@@ -30,11 +30,25 @@ const recordingDriverPath = fileURLToPath(
   new URL("../../../tools/e2e/record-native-recruitment-invitation-response.ts", import.meta.url),
 );
 
-const dashboardPort = 5174;
+function configuredLoopbackPort(name, fallback) {
+  const value = process.env[name] ?? String(fallback);
 
-const backendPort = 8797;
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer`);
 
-const postgresPort = 55432;
+  const port = Number(value);
+
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be between 1 and 65535`);
+  }
+
+  return port;
+}
+
+const dashboardPort = configuredLoopbackPort("RECRUITMENT_E2E_DASHBOARD_PORT", 5174);
+
+const backendPort = configuredLoopbackPort("RECRUITMENT_E2E_BACKEND_PORT", 8797);
+
+const postgresPort = configuredLoopbackPort("RECRUITMENT_E2E_POSTGRES_PORT", 55432);
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 

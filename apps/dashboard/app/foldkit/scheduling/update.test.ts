@@ -38,6 +38,7 @@ import {
 } from "./message";
 import { ConductData, init, type Model, type ReadyModel, LoadedSchedulingInput } from "./model";
 import { updateFor } from "./update";
+
 const decodeBoard = S.decodeUnknownSync(SchedulingBoard, { onExcessProperty: "error" });
 
 const decodeResult = S.decodeUnknownSync(ScheduleInterviewResponse);
@@ -239,13 +240,16 @@ describe("Foldkit scheduling transitions", () => {
   it("retains a committed draft when cancellation hides its row and permits deliberate exit without another POST", async () => {
     let postCalls = 0;
     const hiddenBoard = decodeBoard({ departmentId: rawInterview.departmentId, interviews: [] });
+
     const client: RecruitmentClient = { recruitment: { ...inertClient.recruitment,
       scheduleInterview: () => Effect.sync(() => {
         postCalls += 1;
+
         return decodeResult({ interviewId: rawInterview.interviewId, schedule: freshSchedule, responseState: "Pending", notificationState: "Pending" });
       }),
       readSchedulingBoard: () => Effect.succeed(hiddenBoard),
     } };
+
     const transition = updateFor(commandsFor(client));
     const draft = validDraft(transition);
     const submitted = transition(draft, SubmittedSchedule());
@@ -266,6 +270,7 @@ describe("Foldkit scheduling transitions", () => {
       const board = decodeBoard({ ...responseBoard, interviews: [interview] });
       const initial = ready(init(LoadedSchedulingInput.make({ board }), IdempotencyKey.make("rebooking-gate-test-command")));
       const opened = advance(update, initial, OpenedSchedule({ interviewId: interview.interviewId }));
+
       if (interview.responseState !== "RequestedNewTime") {
         expect(opened).toBe(initial);
       } else {
@@ -278,12 +283,15 @@ describe("Foldkit scheduling transitions", () => {
 
   it("replays the exact uncertain command after a board refresh without accepting edits or duplicate submits", async () => {
     const calls: Array<Parameters<RecruitmentClient["recruitment"]["scheduleInterview"]>[0]> = [];
+
     const client: RecruitmentClient = { recruitment: { ...inertClient.recruitment,
       scheduleInterview: (input) => {
         calls.push(input);
+
         return Effect.fail(RecruitmentBridgeFailure.cases.Network.make({ message: "connection lost" }));
       },
     } };
+
     const transition = updateFor(commandsFor(client));
     const draft = validDraft(transition);
     const submitted = transition(draft, SubmittedSchedule());
@@ -306,6 +314,7 @@ describe("Foldkit scheduling transitions", () => {
       scheduleInterview: () => Effect.succeed(decodeResult({ interviewId: rawInterview.interviewId, schedule: freshSchedule, responseState: "Pending", notificationState: "Pending" })),
       readSchedulingBoard: () => Effect.fail(RecruitmentBridgeFailure.cases.Conflict.make({ message: "read failed" })),
     } };
+
     const transition = updateFor(commandsFor(client));
     const submitted = transition(validDraft(transition), SubmittedSchedule());
     const failed = advance(transition, submitted.model, await Effect.runPromise(submitted.commands![0]!.effect));

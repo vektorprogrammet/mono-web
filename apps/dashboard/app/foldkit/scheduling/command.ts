@@ -1,5 +1,5 @@
 import { RecruitmentInterviewId } from "@vektorprogrammet/http-api"
-import { Effect } from "effect";
+import { Effect, Predicate } from "effect";
 import { Command } from "foldkit";
 import type {
   CancelInterviewInput,
@@ -101,10 +101,11 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
         Effect.catch((error) =>
           Effect.sync(() => {
             const failure = toRecruitmentBridgeFailure(error);
+
             return FailedSchedule({
               requestId,
               failure,
-              outcome: failure._tag === "Network" || failure._tag === "RateLimited" || failure._tag === "Configuration" ? "Unknown" : "Rejected",
+              outcome: Predicate.isTagged(failure, "Network") || Predicate.isTagged(failure, "RateLimited") || Predicate.isTagged(failure, "Configuration") ? "Unknown" : "Rejected",
             });
           }),
         ),
