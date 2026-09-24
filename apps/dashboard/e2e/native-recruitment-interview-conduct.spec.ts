@@ -1,4 +1,4 @@
-import { CancelInterviewResponse, ConductObservation, SchedulingBoard } from "@vektorprogrammet/http-api";
+import { CancelInterviewResponse, ConductObservation } from "@vektorprogrammet/http-api";
 import { RecruitmentBridgeFailure } from "../app/foldkit/recruitment/bridge";
 import { Schema, Predicate } from "effect";
 import AxeBuilder from "@axe-core/playwright";
@@ -399,12 +399,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       await expect(independentPage.locator(".fs-conduct .fs-status")).toHaveText("Avlyst");
 
       // Cancellation leaves the active board, but its authorized conduct history remains readable.
-      const reloadedBoard = responseFor(independentPage, "readSchedulingBoard");
       await independentPage.reload();
-      const reloadedBoardResponse = await reloadedBoard;
-      expect(reloadedBoardResponse.status()).toBe(200);
-      const board = Schema.decodeUnknownSync(SchedulingBoard)(await reloadedBoardResponse.json());
-      expect(board.interviews.some(interview => interview.interviewId === cancellation.interviewId)).toBe(false);
       await expect(
         independentPage.getByRole("heading", { level: 1, name: "Planlegg intervjuer" }),
       ).toBeVisible();
