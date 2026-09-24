@@ -29,12 +29,24 @@ export type ReceiptOutboxRequest = typeof ReceiptOutboxRequestSchema.Type;
 
 export type ReceiptOutboxEffectType = ReceiptOutboxRequest["_tag"];
 
-export const receiptOutboxRequest = (
+export function receiptOutboxRequest<Tag extends "PromoteReceiptFile" | "DeleteReceiptFile">(
+  commandId: string,
+  receiptId: string,
+  effectType: Tag,
+  file: ReceiptFile,
+): Extract<ReceiptOutboxRequest, { readonly _tag: Tag }>;
+export function receiptOutboxRequest(
   commandId: string,
   receiptId: string,
   effectType: ReceiptOutboxEffectType,
   file?: ReceiptFile,
-): ReceiptOutboxRequest => {
+): ReceiptOutboxRequest;
+export function receiptOutboxRequest(
+  commandId: string,
+  receiptId: string,
+  effectType: ReceiptOutboxEffectType,
+  file?: ReceiptFile,
+): ReceiptOutboxRequest {
   const base = { effectId: `${commandId}:${effectType}`, receiptId, commandId };
 
   return Match.value(effectType).pipe(
@@ -45,7 +57,7 @@ export const receiptOutboxRequest = (
     }),
     Match.orElse((type) => ReceiptOutboxRequestSchema.cases[type].make(base)),
   );
-};
+}
 
 export const sameReceiptFile = (left: ReceiptFile, right: ReceiptFile): boolean =>
   left.fileRef === right.fileRef &&

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
 import {
   decodeReviewedReceiptSnapshot,
   ReceiptReview,
@@ -22,11 +23,13 @@ export const legacyReceiptBaseSourceRevision = (source: LegacySourceSnapshot): s
     ...baseSource
   } = source;
 
-  return receiptEvidenceDigest(baseSource);
+  return receiptEvidenceDigest(canonicalJsonValue(baseSource));
 };
 
 /** Private in-memory input to custody only; never serialize this map. */
-export const legacyReceiptAccounts = (source: LegacySourceSnapshot): ReadonlyMap<string, string | null> => {
+export const legacyReceiptAccounts = (
+  source: LegacySourceSnapshot,
+): ReadonlyMap<string, string | null> => {
   if (source.receipts === undefined || source.paymentAccounts === undefined)
     throw new Error("Explicit receipt source selection is required");
 
@@ -51,7 +54,7 @@ export const legacyReceiptRows = (
 
   return source.receipts!.map((row) => {
     const sourceUserId = row.userId === null ? null : `legacy-user:${String(row.userId)}`;
-    const account = sourceUserId === null ? null : accounts.get(sourceUserId) ?? null;
+    const account = sourceUserId === null ? null : (accounts.get(sourceUserId) ?? null);
 
     return {
       sourcePrimaryKey: String(row.id),
@@ -76,13 +79,16 @@ export const buildLegacyReceiptSnapshot = (
   cipher: PaymentAccountCipher,
 ): ReviewedReceiptSnapshot => {
   try {
-    const review = Schema.decodeUnknownSync(ReceiptReview)(reviewInput, { onExcessProperty: "error" });
+    const review = Schema.decodeUnknownSync(ReceiptReview)(reviewInput, {
+      onExcessProperty: "error",
+    });
 
     if (
       review.sourceRepository !== "vektorprogrammet/vektorprogrammet" ||
       review.sourceRevision !== legacyReceiptBaseSourceRevision(source) ||
       review.referenceDigest !== buildLegacyReferences(source).referenceDigest
-    ) throw new Error("InvalidSnapshot");
+    )
+      throw new Error("InvalidSnapshot");
 
     return decodeReviewedReceiptSnapshot({ review, rows: legacyReceiptRows(source, cipher) });
   } catch {
@@ -92,14 +98,16 @@ export const buildLegacyReceiptSnapshot = (
 
 /** Bind every executable transformation, including the reader and operator boundary. */
 export const legacyReceiptTransformationRevision = async (): Promise<string> =>
-  receiptEvidenceDigest(await Promise.all([
-    reviewedReceiptTransformationRevision(),
-    ...[
-      import.meta.url,
-      new URL("./legacy-source-snapshot.ts", import.meta.url),
-      new URL("./legacy-cutover-references.ts", import.meta.url),
-      new URL("./legacy-database-transport.ts", import.meta.url),
-      new URL("./run-legacy-receipt-import.ts", import.meta.url),
-      import.meta.resolve("@vektorprogrammet/database/cohort-cli"),
-    ].map((url) => readFile(fileURLToPath(url), "utf8")),
-  ]));
+  receiptEvidenceDigest(
+    await Promise.all([
+      reviewedReceiptTransformationRevision(),
+      ...[
+        import.meta.url,
+        new URL("./legacy-source-snapshot.ts", import.meta.url),
+        new URL("./legacy-cutover-references.ts", import.meta.url),
+        new URL("./legacy-database-transport.ts", import.meta.url),
+        new URL("./run-legacy-receipt-import.ts", import.meta.url),
+        import.meta.resolve("@vektorprogrammet/database/cohort-cli"),
+      ].map((url) => readFile(fileURLToPath(url), "utf8")),
+    ]),
+  );
