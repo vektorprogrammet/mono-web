@@ -553,8 +553,7 @@ export async function observeReceiptReopening(options: {
     if (browser) await browser.close();
 
     for (const child of children) {
-      if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null)
-        continue;
+      if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) continue;
 
       const exited = new Promise((resolve) => child.once("exit", resolve));
       child.kill("SIGTERM");
