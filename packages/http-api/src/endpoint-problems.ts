@@ -119,9 +119,11 @@ export const ProfileUpdateOwnProfileProblem = problemUnion("ProfileUpdateOwnProf
   "precondition.invalid",
   "precondition.failed",
   "precondition.required",
+  "transaction.conflict",
   "internal.error",
   "profile.not-found",
   "profile.unavailable",
+  "idempotency.unavailable",
 ]);
 
 /** Problems for `organization.listDepartments`. */

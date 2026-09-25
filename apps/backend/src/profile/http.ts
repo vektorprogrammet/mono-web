@@ -18,6 +18,7 @@ import {
   UpdateOwnProfileEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
+import { isSerializationConflict } from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { Cause, DateTime, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -126,7 +127,11 @@ const errorResponse = (cause: unknown): Response => {
     case "ProfileCommandConflict":
       return nativeProblemResponse("idempotency.digest-conflict", 409);
     case "NativeHttpReceiptPersistenceError":
-      return nativeProblemResponse("idempotency.unavailable", 503);
+      return isSerializationConflict(cause)
+        ? nativeProblemResponse("transaction.conflict", 409)
+        : nativeProblemResponse("idempotency.unavailable", 503);
+    case "NativeHttpReceiptInvalid":
+      return nativeProblemResponse("internal.error", 500);
     default:
       return nativeProblemResponse("profile.unavailable", 503);
   }
