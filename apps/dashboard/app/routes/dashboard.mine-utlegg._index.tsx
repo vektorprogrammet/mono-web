@@ -15,7 +15,7 @@ import {
   ReceiptUiError,
   type ReceiptUiErrorField,
 } from "@/lib/receipt-view";
-import { ReceiptId, readBoundedReceiptForm } from "@vektorprogrammet/http-api";
+import { ReceiptFileTooLarge, ReceiptId, readBoundedReceiptForm } from "@vektorprogrammet/http-api";
 import {
   IdempotencyKey,
   StrongETag,
@@ -163,10 +163,39 @@ function parseReceiptIdentity(form: FormData): ParseResult<ParsedReceiptIdentity
   }
 }
 
-function parseReceiptFile(form: FormData, required: true): ParseResult<File>;
-function parseReceiptFile(form: FormData, required: false): ParseResult<File | undefined>;
-function parseReceiptFile(form: FormData, required: boolean): ParseResult<File | undefined> {
-  const fileValue = form.get("file");
+/**
+ * The submitted form as read within its byte bounds. An oversized file ends the read
+ * early, so it is recorded here instead of being present in `form`.
+ */
+type BoundedReceiptForm = { readonly form: FormData; readonly oversizedFile: boolean };
+
+const readReceiptForm = (request: Request): Promise<BoundedReceiptForm> =>
+  readBoundedReceiptForm(request, MAX_FILE_BYTES).then(
+    (form) => ({ form, oversizedFile: false }),
+    (cause: unknown) => {
+      // A too-large file is the owner's input error: answer it in the form that sent it.
+      if (cause instanceof ReceiptFileTooLarge) return { form: cause.fields, oversizedFile: true };
+
+      throw new Response("Receipt upload exceeds the limit or is malformed", { status: 413 });
+    },
+  );
+
+function parseReceiptFile(read: BoundedReceiptForm, required: true): ParseResult<File>;
+function parseReceiptFile(
+  read: BoundedReceiptForm,
+  required: false,
+): ParseResult<File | undefined>;
+function parseReceiptFile(
+  read: BoundedReceiptForm,
+  required: boolean,
+): ParseResult<File | undefined> {
+  if (read.oversizedFile) {
+    return {
+      error: receiptDecodeError("Kvitteringsfilen kan ikke være større enn 10 MiB.", "file"),
+    };
+  }
+
+  const fileValue = read.form.get("file");
 
   if (!(fileValue instanceof File) || fileValue.size === 0) {
     return required
@@ -177,12 +206,6 @@ function parseReceiptFile(form: FormData, required: boolean): ParseResult<File |
   if (!Object.hasOwn(SUPPORTED_FILE_TYPES, fileValue.type)) {
     return {
       error: receiptDecodeError("Kvitteringsfilen må være PDF, PNG eller JPEG.", "file"),
-    };
-  }
-
-  if (fileValue.size > MAX_FILE_BYTES) {
-    return {
-      error: receiptDecodeError("Kvitteringsfilen kan ikke være større enn 10 MiB.", "file"),
     };
   }
 
@@ -233,9 +256,8 @@ export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
 
-  const form = await readBoundedReceiptForm(request, MAX_FILE_BYTES).catch(() => {
-    throw new Response("Receipt upload exceeds the limit or is malformed", { status: 413 });
-  });
+  const read = await readReceiptForm(request);
+  const { form } = read;
 
   const commandIdText = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
   const commandId = decodeIdempotencyKey(commandIdText);
@@ -270,7 +292,7 @@ export async function action({ request }: Route.ActionArgs) {
       };
     }
 
-    const file = parseReceiptFile(form, true);
+    const file = parseReceiptFile(read, true);
 
     if ("error" in file) {
       return {
@@ -341,7 +363,7 @@ export async function action({ request }: Route.ActionArgs) {
       return { success: false as const, intent, mutationFailure };
     }
 
-    const replacementFile = parseReceiptFile(form, false);
+    const replacementFile = parseReceiptFile(read, false);
 
     if ("error" in replacementFile) {
       const mutationFailure: ReceiptOwnerMutationFailure = {

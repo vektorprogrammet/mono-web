@@ -27,8 +27,9 @@ import {
   type RecruitmentOperations,
 } from "@vektorprogrammet/domain/recruitment";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
-import { SchoolSurveys } from "@vektorprogrammet/domain";
-import { Predicate, DateTime, Effect, Layer } from "effect";
+import { Admissions, SchoolSurveys } from "@vektorprogrammet/domain";
+import { NativeProblem } from "@vektorprogrammet/http-api";
+import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import { decodeBackendConfig } from "./config.js";
 import { makeBackendTestHttp as backendHttpHandler } from "./test/native-http.js";
@@ -38,6 +39,8 @@ const leaderToken = "leader-session-token";
 const memberToken = "member-session-token";
 
 const inactiveToken = "inactive-session-token";
+
+const unassignedToken = "unassigned-session-token";
 
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
@@ -76,12 +79,14 @@ const membershipsByToken = new Map<string, ReadonlyArray<AuthorityMembershipRow>
     inactiveToken,
     [{ departmentId: DepartmentId.make("department-1"), active: false, teamLeader: false }],
   ],
+  [unassignedToken, []],
 ]);
 
 const personIdsByToken = new Map<string, string>([
   [leaderToken, "leader-1"],
   [memberToken, "member-1"],
   [inactiveToken, "inactive-1"],
+  [unassignedToken, "unassigned-1"],
 ]);
 
 const personIdForToken = (tokenValue: string): string =>
@@ -115,6 +120,15 @@ const recruitmentCalls: Array<{
   readonly operation: string;
   readonly actor: unknown;
 }> = [];
+
+const admissions = {
+  listAdmissionPeriodsForManagement: ({ actor }: { readonly actor: unknown }) =>
+    Effect.sync(() => {
+      recruitmentCalls.push({ operation: "listAdmissionPeriodsForManagement", actor });
+
+      return [];
+    }),
+};
 
 const assignmentBoard = {
   admissionPeriodId: AdmissionPeriodId.make("period-1"),
@@ -219,6 +233,7 @@ const backendServices = Layer.mergeAll(
   database.layer,
   Layer.mock(Organization, organization),
   Layer.mock(RecruitmentService, recruitment),
+  Layer.mock(Admissions, admissions),
   Layer.succeed(SocialEvents, socialEvents),
   Layer.succeed(SchoolSurveys, schoolSurveys),
   Layer.succeed(Identity, identity),
@@ -236,6 +251,12 @@ const request = (pathname: string, sessionValue: string): Promise<Response> =>
       headers: { cookie: `better-auth.session_token=${sessionValue}` },
     }),
   );
+
+const problem = async (response: Response) => {
+  const decoded = Schema.decodeUnknownSync(NativeProblem)(await response.json());
+
+  return { status: response.status, code: decoded.code };
+};
 
 describe("recruitment actors from authorized departments (spec 0055)", () => {
   beforeEach(() => {
@@ -313,17 +334,43 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
     ]);
   });
 
-  it("rejects an inactive department member from the scheduling board", async () => {
+  it("denies an inactive department member from the scheduling board", async () => {
     const response = await request("/api/recruitment/interviews", inactiveToken);
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
-      title: "Invalid credential",
-      status: 401,
-      detail: "The supplied credential is invalid.",
-      code: "credential.invalid",
-    });
+
+    expect(await problem(response)).toEqual({ status: 403, code: "authority.denied" });
     expect(recruitmentCalls).toEqual([]);
+  });
+
+  // A 401 tells the dashboard that the session expired, and it signs the person out.
+  it("denies an authenticated person without a department instead of rejecting the session", async () => {
+    const [board, admissionPeriods] = await Promise.all([
+      request("/api/recruitment/interviews", unassignedToken),
+      request("/api/admission-periods", unassignedToken),
+    ]);
+
+    expect([await problem(board), await problem(admissionPeriods)]).toEqual([
+      { status: 403, code: "authority.denied" },
+      { status: 403, code: "authority.denied" },
+    ]);
+    expect(recruitmentCalls).toEqual([]);
+  });
+
+  it("lists admission periods in a department leader's own department without a scope", async () => {
+    const response = await request("/api/admission-periods", leaderToken);
+
+    expect(response.status).toBe(200);
+    expect(recruitmentCalls).toEqual([
+      {
+        operation: "listAdmissionPeriodsForManagement",
+        actor: expect.objectContaining(
+          AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+            personId: PersonId.make("leader-1"),
+            departmentId: DepartmentId.make("department-1"),
+            active: true,
+          }),
+        ),
+      },
+    ]);
   });
 
   it("denies an anonymous scheduling-board caller before any domain call", async () => {

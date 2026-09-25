@@ -12,6 +12,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import {
   emitNativeRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
@@ -33,25 +34,7 @@ const recordingDriverPath = fileURLToPath(
   new URL("../../../tools/e2e/record-native-recruitment-invitation-response.ts", import.meta.url),
 );
 
-function configuredLoopbackPort(name, fallback) {
-  const value = process.env[name] ?? String(fallback);
-
-  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer`);
-
-  const port = Number(value);
-
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`${name} must be between 1 and 65535`);
-  }
-
-  return port;
-}
-
-const dashboardPort = configuredLoopbackPort("RECRUITMENT_E2E_DASHBOARD_PORT", 5174);
-
-const backendPort = configuredLoopbackPort("RECRUITMENT_E2E_BACKEND_PORT", 8797);
-
-const postgresPort = configuredLoopbackPort("RECRUITMENT_E2E_POSTGRES_PORT", 55432);
+const [dashboardPort, backendPort, postgresPort] = await reserveLoopbackPorts(3);
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -2127,7 +2110,11 @@ async function main() {
     },
   ];
 
-  const baseEnvironment = postgresComposeEnvironment({ ...process.env });
+  const baseEnvironment = postgresComposeEnvironment({
+    ...process.env,
+    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
+  });
+
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;

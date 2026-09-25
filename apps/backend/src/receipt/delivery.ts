@@ -7,7 +7,8 @@ import {
 import { Predicate, Effect, Layer, Schema } from "effect";
 import { deliverJson, type HttpDeliveryConfig, type DeliveryFetch } from "../delivery/http.js";
 
-const Envelope = Schema.Struct({
+/** The economy notification that the receipt outbox sends to the delivery endpoint. */
+export const ReceiptDeliveryEnvelope = Schema.Struct({
   deliveryId: Schema.String,
   from: ContactEmail,
   to: ContactEmail,
@@ -126,9 +127,12 @@ export const ReceiptDeliveryLive = (
                   );
 
                 if (row.delivery_envelope !== null)
-                  return yield* Schema.decodeUnknownEffect(Envelope)(row.delivery_envelope, {
-                    onExcessProperty: "error",
-                  });
+                  return yield* Schema.decodeUnknownEffect(ReceiptDeliveryEnvelope)(
+                    row.delivery_envelope,
+                    {
+                      onExcessProperty: "error",
+                    },
+                  );
 
                 const facts = yield* sql<{
                   department_id: string;
@@ -195,7 +199,7 @@ export const ReceiptDeliveryLive = (
                   ? `${subject}. Referanse: ${fact.visual_id}.\nBeløp: ${(Number(fact.settlement_amount) / 100).toFixed(2)} ${fact.settlement_currency}\nEkstern autoritet: ${fact.external_authority}\nEkstern referanse: ${fact.external_reference}\nOppgjort: ${fact.settled_at}`
                   : `${subject}. Referanse: ${fact.visual_id}.\nBeløp: ${(Number(fact.amount) / 100).toFixed(2)} NOK\nDato: ${fact.receipt_date}\nBeskrivelse: ${fact.description}${Predicate.isTagged(request, "NotifyReceiptRejected") ? `\nKontakt økonomiansvarlig på ${config.sender} dersom du har spørsmål om avvisningen.` : ""}`;
 
-                const prepared = yield* Schema.decodeUnknownEffect(Envelope)({
+                const prepared = yield* Schema.decodeUnknownEffect(ReceiptDeliveryEnvelope)({
                   deliveryId: request.effectId,
                   from: config.sender,
                   to: submitted ? config.economyRecipients[fact.department_id] : fact.email,

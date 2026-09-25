@@ -50,7 +50,8 @@ describe("admission-period dashboard boundary", () => {
       startAt: "2031-08-15T08:00",
       endAt: "2031-10-01T20:00",
     });
-    expect(parsed.value.payload).toEqual({
+    // Strict: a present undefined department would reach the API as null.
+    expect(parsed.value.payload).toStrictEqual({
       semesterId: "semester-autumn-2031",
       startAt: "2031-08-15T08:00:00.000Z",
       endAt: "2031-10-01T20:00:00.000Z",

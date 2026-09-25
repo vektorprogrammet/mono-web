@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import assert from "node:assert/strict";
 import { MultipartError } from "effect/unstable/http/Multipart";
-import { readBoundedReceiptForm } from "./receipt-upload.js";
+import { ReceiptFileTooLarge, readBoundedReceiptForm } from "./receipt-upload.js";
 
 describe("receipt transfer bounds", () => {
   it.each([undefined, "1"])(
@@ -69,22 +69,25 @@ describe("receipt transfer bounds", () => {
     assert.ok(file instanceof File);
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(bytes);
   });
-  it("rejects file bytes beyond the configured limit even below the transfer limit", async () => {
-    const form = new FormData();
-    form.set(
-      "file",
-      new File([new Uint8Array([0, 255, 17, 42, 1])], "receipt.png", { type: "image/png" }),
-    );
-    const encoded = new Request("http://receipt.test", { method: "POST", body: form });
+  // One transport chunk carries the whole body; 200_000 bytes also exceed the transfer bound.
+  it.each([5, 200_000])(
+    "reports a %s-byte file beyond its limit with the fields sent before it",
+    async (fileBytes) => {
+      const form = new FormData();
+      form.set("commandId", "receipt-command");
+      form.set("file", new File([new Uint8Array(fileBytes)], "receipt.png", { type: "image/png" }));
+      const encoded = new Request("http://receipt.test", { method: "POST", body: form });
+      const bytes = await encoded.arrayBuffer();
+      const headers = new Headers(encoded.headers);
+      headers.set("content-length", String(bytes.byteLength));
 
-    const request = new Request(encoded.url, {
-      method: encoded.method,
-      headers: encoded.headers,
-      body: await encoded.arrayBuffer(),
-    });
+      const request = new Request(encoded.url, { method: encoded.method, headers, body: bytes });
 
-    await expect(readBoundedReceiptForm(request, 4)).rejects.toBeInstanceOf(RangeError);
-  });
+      const failure = await readBoundedReceiptForm(request, 4).catch((error: Error) => error);
+      assert.ok(failure instanceof ReceiptFileTooLarge);
+      expect([...failure.fields.entries()]).toEqual([["commandId", "receipt-command"]]);
+    },
+  );
   it("cancels an incomplete multipart source when the request is aborted", async () => {
     const abort = new AbortController();
     const started = Promise.withResolvers<void>();

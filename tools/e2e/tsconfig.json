@@ -15,6 +15,7 @@
     "golden-harness.ts",
     "golden-harness-self-test.ts",
     "golden-team-application.ts",
-    "golden-team-application-evidence.ts"
+    "golden-team-application-evidence.ts",
+    "local-backend-environment.ts"
   ]
 }

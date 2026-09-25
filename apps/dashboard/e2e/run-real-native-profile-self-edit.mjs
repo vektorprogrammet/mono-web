@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { postgresProgram } from "@monoweb/postgres";
+import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -328,15 +329,12 @@ const main = async () => {
       ["run", "--cwd", "apps/backend", "start"],
       {
         ...baseEnvironment,
-        BACKEND_HOST: "127.0.0.1",
-        BACKEND_PORT: String(backendPort),
-        BACKEND_PG_URL: postgresUrl,
-        BETTER_AUTH_SECRET: secret,
-        NATIVE_IDENTITY_DEPLOYMENT: "local",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
-        PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-        PASSWORD_RESET_DELIVERY_MODE: "disabled",
-        RECEIPT_DELIVERY_MODE: "disabled",
+        ...localBackendEnvironment({
+          backendOrigin,
+          dashboardOrigin,
+          postgresUrl,
+          betterAuthSecret: secret,
+        }),
       },
       repositoryRoot,
     );
@@ -349,6 +347,7 @@ const main = async () => {
         API_URL: proxy.origin,
         VITE_API_URL: proxy.origin,
         DASHBOARD_ORIGIN: dashboardOrigin,
+        DASHBOARD_MOUNT: "/",
       },
       label: "native Profile dashboard production build",
     });
@@ -358,6 +357,7 @@ const main = async () => {
       API_URL: proxy.origin,
       VITE_API_URL: proxy.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
+      DASHBOARD_MOUNT: "/",
       REAL_NATIVE_PROFILE_E2E: "1",
       PROFILE_E2E_API_ORIGIN: proxy.origin,
       PROFILE_E2E_DASHBOARD_ORIGIN: dashboardOrigin,

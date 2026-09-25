@@ -233,6 +233,17 @@ try {
      ON CONFLICT (grant_id) DO NOTHING`,
     [grantId, identityEvidencePersona.personId],
   );
+  // Mailing lists resolve an omitted semester to the unique current semester (docs/system.md);
+  // the administrator's navigation sweep needs one to render rather than report a missing reference.
+  await observer.query(
+    `INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
+     VALUES (
+       'semester-identity-0065-current',
+       date_trunc('milliseconds', now() - interval '30 days', 'UTC'),
+       date_trunc('milliseconds', now() + interval '120 days', 'UTC')
+     )
+     ON CONFLICT (semester_id) DO NOTHING`,
+  );
   await observer.query(
     `INSERT INTO public.person_profiles (person_id, first_name, last_name)
      VALUES ($1, $2, $3)

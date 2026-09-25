@@ -116,7 +116,7 @@ function Confirmation({
           innsendingen.
         </p>
         <div className="rounded-md bg-muted p-4">
-          <p className="text-muted-foreground text-sm">Søknadsreferanse</p>
+          <p className="text-sm">Søknadsreferanse</p>
           <p className="mt-1 break-all font-mono font-semibold" data-testid="application-id">
             {applicationId}
           </p>

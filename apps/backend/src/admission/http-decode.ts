@@ -1,70 +1,95 @@
 /** Admission request decoding: query strings, JSON bodies, and admission period merge patches. */
 import { AdmissionPeriodMergePatch } from "@vektorprogrammet/http-api";
-import { Effect, Schema } from "effect";
+import {
+  makeNativeValidationError,
+  type NativeValidationError,
+  Problem,
+} from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Match, Predicate, Schema, type SchemaIssue } from "effect";
+import { semanticProblem, semanticProblems } from "../http-api/problem.js";
 import { readBoundedJson } from "../http-api/read-json.js";
-import { HttpSemanticFailure } from "../http-semantics.js";
+import { interpretAdmissionPeriodMergePatchSource } from "../http-semantics.js";
 import type { AdmissionApiHttpOptions } from "./http-context.js";
 
+/** No admission operation takes query parameters, so any query string is malformed. */
 export const rejectQueryString = (request: Request) =>
-  new URL(request.url).search === ""
-    ? Effect.void
-    : Effect.fail(new HttpSemanticFailure("validation.failed", 422));
+  new URL(request.url).search === "" ? Effect.void : Effect.fail(Problem.make("request.malformed"));
 
-const boundedJsonWithTag = (request: Request, maxBytes: number) =>
-  readBoundedJson(request, maxBytes).pipe(
-    Effect.mapError((cause) =>
-      cause instanceof HttpSemanticFailure && cause.code === "request.too-large"
-        ? new HttpSemanticFailure("request.too-large", 413)
-        : new HttpSemanticFailure("validation.failed", 422),
+/**
+ * Reads one JSON body in the operation's media type. Another media type is 415, and a
+ * body that is not bounded, well-formed JSON keeps the reader's 400 or 413 problem.
+ */
+const readJsonBody = (request: Request, mediaType: RegExp, maxBodyBytes: number) =>
+  mediaType.test(request.headers.get("content-type") ?? "")
+    ? semanticProblems(readBoundedJson(request, maxBodyBytes), [
+        "request.malformed",
+        "request.too-large",
+        "internal.error",
+      ])
+    : Effect.fail(Problem.make("media-type.unsupported"));
+
+const pointerOf = (path: ReadonlyArray<PropertyKey>) =>
+  path.map((segment) => `/${String(segment).replaceAll("~", "~0").replaceAll("/", "~1")}`).join("");
+
+/** Every member a schema rejected, named by its RFC 6901 pointer and never by its value. */
+const rejectedMembers = (
+  issue: SchemaIssue.Issue,
+  path: ReadonlyArray<PropertyKey> = [],
+): ReadonlyArray<NativeValidationError> =>
+  Match.value(issue).pipe(
+    Match.tag("Pointer", (nested) => rejectedMembers(nested.issue, [...path, ...nested.path])),
+    Match.tag("Filter", "Encoding", (nested) => rejectedMembers(nested.issue, path)),
+    Match.tag("Composite", (nested) =>
+      nested.issues.flatMap((member) => rejectedMembers(member, path)),
     ),
+    Match.tag("MissingKey", () => [makeNativeValidationError(pointerOf(path), "missing")]),
+    Match.tag("UnexpectedKey", () => [makeNativeValidationError(pointerOf(path), "unknown")]),
+    Match.orElse(() => [makeNativeValidationError(pointerOf(path), "invalid")]),
+  );
+
+/** Decodes one body exactly; a rejection names each rejected member once. */
+const decodeBody = <S extends Schema.ConstraintDecoder<unknown, never>>(
+  schema: S,
+  body: Schema.Json,
+) =>
+  Schema.decodeUnknownEffect(schema)(body, { onExcessProperty: "error", errors: "all" }).pipe(
+    Effect.mapError((error) => {
+      const members = new Map(
+        rejectedMembers(error.issue).map((member) => [`${member.code} ${member.pointer}`, member]),
+      );
+
+      return Problem.validation("validation.failed", [...members.values()]);
+    }),
   );
 
 export const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
   schema: S,
   maxBodyBytes: number,
-): Effect.Effect<S["Type"], HttpSemanticFailure> =>
+) =>
   Effect.gen(function* () {
-    const contentType = request.headers.get("content-type") ?? "";
+    const body = yield* readJsonBody(request, /^application\/json(?:\s*;|$)/iu, maxBodyBytes);
 
-    if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(new HttpSemanticFailure("validation.failed", 422));
-    }
-
-    const body = yield* boundedJsonWithTag(request, maxBodyBytes);
-
-    return yield* Schema.decodeUnknownEffect(schema)(body, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+    return yield* decodeBody(schema, body);
   });
 
 export const decodeAdmissionPeriodPatch = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    const contentType = request.headers.get("content-type") ?? "";
-
-    if (!/^application\/merge-patch\+json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
-    }
-
-    const body = yield* readBoundedJson(request, input.config.maxBodyBytes).pipe(
-      Effect.mapError((cause) =>
-        cause instanceof HttpSemanticFailure && cause.code === "request.too-large"
-          ? new HttpSemanticFailure("request.too-large", 413)
-          : new HttpSemanticFailure("request.malformed", 400),
-      ),
+    const body = yield* readJsonBody(
+      request,
+      /^application\/merge-patch\+json(?:\s*;|$)/iu,
+      input.config.maxBodyBytes,
     );
 
-    const patch = yield* Schema.decodeUnknownEffect(AdmissionPeriodMergePatch)(body, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+    // Unknown, absent, and deleted members are judged before the values are decoded.
+    const interpretation = yield* semanticProblem(
+      () => interpretAdmissionPeriodMergePatchSource(body),
+      ["request.malformed"],
+    );
 
-    if (!Object.hasOwn(patch, "startAt") && !Object.hasOwn(patch, "endAt")) {
-      return yield* Effect.fail(new HttpSemanticFailure("validation.no-change", 422));
+    if (Predicate.isTagged(interpretation, "Rejected")) {
+      return yield* Problem.validation(interpretation.code, interpretation.errors);
     }
 
-    if (patch.startAt === null || patch.endAt === null) {
-      return yield* Effect.fail(new HttpSemanticFailure("validation.field-not-deletable", 422));
-    }
-
-    return patch;
+    return yield* decodeBody(AdmissionPeriodMergePatch, body);
   });

@@ -3,31 +3,43 @@ import {
   postgresComposeFile,
   postgresProgram,
 } from "@monoweb/postgres";
-import { AdmissionPeriodActorSchema } from "@vektorprogrammet/domain/admission-period";
-import { ApprovalScopeSchema } from "@vektorprogrammet/domain/receipt";
-import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import {
+  AdmissionPeriodManagementItem,
+  AdmissionsSubmitApplicationProblem,
+} from "@vektorprogrammet/http-api";
+import { Predicate, Schema } from "effect";
+import { randomBytes, randomUUID } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Predicate } from "effect";
-
+import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const homepageRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
-const homepageOrigin = "http://127.0.0.1:8787";
+const homepageDevVarsPath = join(homepageRoot, ".dev.vars");
+
+const [postgresPort, backendPort, homepagePort, staffPort] = await reserveLoopbackPorts(4);
 
 const homepageHost = "p000.vektor.phibkro.org";
 
-const backendOrigin = "http://127.0.0.1:8792";
+/** The browser loads this loopback origin and sends the homepage Host on every request. */
+const homepageOrigin = `http://127.0.0.1:${homepagePort}`;
 
-const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
+/** The first-party origin that native identity trusts for staff requests; nothing listens there. */
+const staffOrigin = `http://127.0.0.1:${staffPort}`;
+
+const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
 
 const composeProject = `mono-web-public-application-0039-${process.pid}`;
 
@@ -35,20 +47,31 @@ const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
 
-const postgresPort = 55432;
-
+/**
+ * Only GitHub Actions with PUBLIC_APPLICATION_REMOTE_EVIDENCE=1 writes the evidence file
+ * that the workflow uploads. Every other run proves the same journey and prints it.
+ */
 const remoteEvidenceAuthorized =
   process.env.CI === "true" &&
   process.env.GITHUB_ACTIONS === "true" &&
   process.env.PUBLIC_APPLICATION_REMOTE_EVIDENCE === "1";
 
-const fixedClock = "2031-09-15T12:00:00.000Z";
+const dockerAvailable =
+  spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+
+const postgresTopology = dockerAvailable ? "docker" : "local";
+
+/**
+ * A session is valid only while it outlives the authorization instant, and new sessions
+ * expire days after real time, so the fixed admission clock lies in the past.
+ */
+const fixedClock = "2025-09-15T12:00:00.000Z";
 
 const departmentId = "department-trondheim";
 
 const foreignDepartmentId = "department-bergen";
 
-const semesterId = "semester-autumn-2031";
+const semesterId = "semester-autumn-2025";
 
 const fieldOfStudyId = "field-mathematics";
 
@@ -56,9 +79,22 @@ const inactiveFieldOfStudyId = "field-inactive";
 
 const foreignFieldOfStudyId = "field-foreign";
 
-const openStart = "2031-09-01T08:00:00.000Z";
+const openStart = "2025-09-01T08:00:00.000Z";
 
-const openEnd = "2031-10-01T20:00:00.000Z";
+const openEnd = "2025-10-01T20:00:00.000Z";
+
+const closedEnd = "2025-09-10T12:00:00.000Z";
+
+/** The department leader who opens the period and later closes it. */
+const leader = {
+  personId: "leader-trondheim-0039",
+  firstName: "Lise",
+  lastName: "Leder",
+  email: "leader-trondheim-0039@example.invalid",
+  password: randomBytes(24).toString("base64url"),
+};
+
+const betterAuthSecret = randomBytes(32).toString("base64url");
 
 const privateCanaries = [
   "Applicant Canary",
@@ -67,14 +103,14 @@ const privateCanaries = [
   "+47 900 00 039",
 ];
 
-const secretCanaries = ["receipt:receipt"];
-
-const postgresTopology = "docker";
+const secretCanaries = ["receipt:receipt", leader.password, betterAuthSecret];
 
 const commandProcesses = new Set();
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+
+const decodeStrict = (schema) => Schema.decodeUnknownSync(schema, { onExcessProperty: "error" });
 
 function assertPortAvailable(port) {
   return new Promise((resolvePort, rejectPort) => {
@@ -86,7 +122,7 @@ function assertPortAvailable(port) {
     socket.once("error", (error) => {
       socket.destroy();
 
-      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
+      if (Predicate.hasProperty(error, "code") && error.code === "ECONNREFUSED") {
         resolvePort();
 
         return;
@@ -110,10 +146,11 @@ function runCommand(command, args, options) {
 
     commandProcesses.add(child);
     const stdout = [];
+    const stderr = [];
 
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
-      child.stderr.resume();
+      child.stderr.on("data", (chunk) => stderr.push(chunk));
     }
 
     let settled = false;
@@ -152,9 +189,11 @@ function runCommand(command, args, options) {
         return;
       }
 
+      const diagnostics = captureOutput ? `\n${Buffer.concat(stderr).toString("utf8")}` : "";
+
       rejectCommand(
         new Error(
-          `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}`,
+          `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}${diagnostics}`,
         ),
       );
     });
@@ -184,7 +223,7 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (!Predicate.hasProperty(error, "code") || error.code !== "ESRCH") {
       throw new Error("Could not stop local process group");
     }
 
@@ -201,7 +240,7 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (!Predicate.hasProperty(error, "code") || error.code !== "ESRCH") {
       throw new Error("Could not terminate local process group");
     }
   }
@@ -209,7 +248,20 @@ async function stopProcess(child) {
   await exited;
 }
 
-async function waitForHttp(url, child, label, init = undefined) {
+/** One HTTP status, or 0 when nothing answered; node:http can send the homepage Host. */
+function probeHttp(url, headers) {
+  return new Promise((resolveProbe) => {
+    const probe = httpRequest(url, { headers }, (response) => {
+      response.resume();
+      resolveProbe(response.statusCode ?? 0);
+    });
+
+    probe.once("error", () => resolveProbe(0));
+    probe.end();
+  });
+}
+
+async function waitForHttp(url, child, label, headers = {}) {
   const deadline = Date.now() + commandTimeoutMs;
 
   while (Date.now() < deadline) {
@@ -217,13 +269,7 @@ async function waitForHttp(url, child, label, init = undefined) {
       throw new Error(`${label} exited before readiness`);
     }
 
-    try {
-      const response = await fetch(url, { ...init, redirect: "manual" });
-
-      if (response.status >= 200 && response.status < 500) return;
-    } catch {
-      // Readiness is retried until the bounded deadline.
-    }
+    if ((await probeHttp(url, headers)) === 200) return;
 
     await sleep(250);
   }
@@ -295,6 +341,7 @@ async function initializeLocalPostgres(dataRoot, environment) {
       cwd: repositoryRoot,
       env: environment,
       label: "Local public-application PostgreSQL initialization",
+      captureOutput: true,
     },
   );
   await startExistingLocalPostgres(dataRoot, environment);
@@ -326,6 +373,7 @@ async function startExistingLocalPostgres(dataRoot, environment) {
       cwd: repositoryRoot,
       env: environment,
       label: "Local public-application PostgreSQL startup",
+      captureOutput: true,
     },
   );
   await waitForPostgres(environment);
@@ -336,6 +384,7 @@ async function stopLocalPostgres(dataRoot, environment) {
     cwd: repositoryRoot,
     env: environment,
     label: "Local public-application PostgreSQL stop",
+    captureOutput: true,
   });
 }
 
@@ -345,7 +394,7 @@ async function pathExists(path) {
 
     return true;
   } catch (error) {
-    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
+    if (Predicate.hasProperty(error, "code") && error.code === "ENOENT") {
       return false;
     }
 
@@ -404,6 +453,20 @@ async function runPsql(sql, environment, label) {
     : runCommand(postgresProgram("psql"), args, options);
 }
 
+/** Creates the login of the department leader; the seed applies every migration first. */
+async function seedLeaderIdentity(environment) {
+  await runCommand("bun", ["run", "identity:seed"], {
+    cwd: databaseRoot,
+    env: {
+      ...environment,
+      IDENTITY_SEED_PG_URL: postgresUrl,
+      IDENTITY_SEED_PERSONS: JSON.stringify([leader]),
+    },
+    label: "Public-application leader identity seed",
+    captureOutput: true,
+  });
+}
+
 async function seedReferenceData(environment) {
   await runPsql(
     `
@@ -414,8 +477,8 @@ async function seedReferenceData(environment) {
       INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
       VALUES (
         '${semesterId}',
-        '2031-08-01T00:00:00.000Z',
-        '2031-12-31T00:00:00.000Z'
+        '2025-08-01T00:00:00.000Z',
+        '2025-12-31T00:00:00.000Z'
       );
       INSERT INTO admission_period_fields_of_study (
         field_of_study_id,
@@ -426,44 +489,84 @@ async function seedReferenceData(environment) {
         ('${fieldOfStudyId}', '${departmentId}', 'Matematikk', TRUE),
         ('${inactiveFieldOfStudyId}', '${departmentId}', 'Inaktiv linje', FALSE),
         ('${foreignFieldOfStudyId}', '${foreignDepartmentId}', 'Fysikk', TRUE);
+      INSERT INTO organization_departments (department_id, name, short_name, email, city)
+      VALUES ('${departmentId}', 'Trondheim', 'TRD', 'trondheim-0039@example.invalid', 'Trondheim');
+      INSERT INTO organization_teams (team_id, department_id, name)
+      VALUES ('team-trondheim-board-0039', '${departmentId}', 'Styret');
+      INSERT INTO organization_memberships (
+        membership_id,
+        person_id,
+        team_id,
+        start_at,
+        position_id,
+        is_team_leader
+      ) VALUES (
+        'membership-leader-trondheim-0039',
+        '${leader.personId}',
+        'team-trondheim-board-0039',
+        '2020-01-01T00:00:00.000Z',
+        'leader',
+        TRUE
+      );
     `,
     environment,
     "Public-application reference-data seed",
   );
 }
 
-async function createOpenPeriod(leaderToken) {
-  const response = await fetch(`${backendOrigin}/api/admin/admission-periods`, {
+/** Signs the leader in through Better Auth and returns the session cookies. */
+async function signInLeader() {
+  const response = await fetch(`${backendOrigin}/api/auth/sign-in/email`, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${leaderToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      commandId: "open-public-application-period-0039",
-      semesterId,
-      startAt: openStart,
-      endAt: openEnd,
-    }),
+    headers: { "content-type": "application/json", origin: staffOrigin },
+    body: JSON.stringify({ email: leader.email, password: leader.password }),
   });
 
-  if (!response.ok) {
-    throw new Error("Could not create the public-application admission period");
+  if (response.status !== 200) {
+    throw new Error(`Leader sign-in answered ${response.status}`);
   }
 
-  const observation = await response.json();
+  const cookie = response.headers
+    .getSetCookie()
+    .map((header) => header.split(";", 1)[0])
+    .join("; ");
+
+  if (!cookie.includes("better-auth.session_token=")) {
+    throw new Error("Leader sign-in set no session cookie");
+  }
+
+  return cookie;
+}
+
+async function createOpenPeriod(leaderCookie) {
+  const response = await fetch(`${backendOrigin}/api/admission-periods`, {
+    method: "POST",
+    headers: {
+      cookie: leaderCookie,
+      origin: staffOrigin,
+      "content-type": "application/json",
+      "idempotency-key": randomUUID(),
+    },
+    body: JSON.stringify({ semesterId, startAt: openStart, endAt: openEnd, departmentId }),
+  });
+
+  if (response.status !== 201) {
+    throw new Error(`Admission period creation answered ${response.status}`);
+  }
+
+  const period = decodeStrict(AdmissionPeriodManagementItem)(await response.json());
 
   if (
-    !observation ||
-    !(observation === null || Predicate.isObjectOrArray(observation)) ||
-    !Predicate.isTagged(observation, "Created") ||
-    !observation.period ||
-    !Predicate.isString(observation.period.id)
+    period.departmentId !== departmentId ||
+    period.semesterId !== semesterId ||
+    period.startAt !== openStart ||
+    period.endAt !== openEnd ||
+    response.headers.get("etag") !== period.etag
   ) {
-    throw new Error("Admission period creation returned an invalid observation");
+    throw new Error("Admission period creation returned another period");
   }
 
-  return observation.period.id;
+  return period;
 }
 
 async function runOutboxDelivery(environment) {
@@ -589,6 +692,11 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
   const auditCommandIds = postgres.audits.map((audit) => audit.commandId);
   const commandIds = postgres.commands.map((command) => command.commandId);
 
+  const commandApplicationIds = postgres.commands
+    .map((command) => command.applicationId)
+    .toSorted()
+    .join(",");
+
   if (
     postgres.applicantCount !== 2 ||
     postgres.applicationCount !== 2 ||
@@ -600,20 +708,20 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
     postgres.primaryProfilePreserved !== true ||
     !applicationIds.includes(lifecycle.browser.applicationId) ||
     !applicationIds.includes(lifecycle.concurrent.acceptedApplicationId) ||
-    !commandIds.includes(lifecycle.browser.commandId) ||
+    commandApplicationIds !== applicationIds.toSorted().join(",") ||
     lifecycle.replay.sameApplicationId !== true ||
     lifecycle.browser.draftPreservedAfterDuplicate !== true ||
     lifecycle.browser.axe.formSeriousCritical !== 0 ||
     lifecycle.browser.axe.errorSeriousCritical !== 0 ||
     lifecycle.browser.axe.confirmationSeriousCritical !== 0 ||
     lifecycle.closing.confirmationPreserved !== true ||
-    lifecycle.closing.rejection.tag !== "NoEligibleAdmissionPeriod" ||
-    lifecycle.concurrent.rejected.tag !== "DuplicatePublicApplication" ||
-    lifecycle.rejections.duplicate.tag !== "DuplicatePublicApplication" ||
-    lifecycle.rejections.replayConflict.tag !== "DuplicatePublicApplicationCommandConflict" ||
-    lifecycle.rejections.rateLimited.tag !== "PublicApplicationRateLimitExceeded" ||
-    lifecycle.rejections.bodyLimit.tag !== "RequestBodyTooLarge" ||
-    persistenceFailure.tag !== "PublicApplicationPersistenceError" ||
+    lifecycle.closing.rejection.code !== "application.no-eligible-period" ||
+    lifecycle.concurrent.rejected.code !== "application.duplicate" ||
+    lifecycle.rejections.duplicate.code !== "application.duplicate" ||
+    lifecycle.rejections.replayConflict.code !== "idempotency.digest-conflict" ||
+    lifecycle.rejections.rateLimited?.code !== "rate-limit.exceeded" ||
+    lifecycle.rejections.bodyLimit.code !== "request.too-large" ||
+    persistenceFailure.code !== "idempotency.unavailable" ||
     postgres.audits.some(
       (audit) =>
         audit.action !== "PublicApplicationSubmitted" ||
@@ -688,6 +796,7 @@ async function restartPostgres(dataRoot, environment) {
   }
 }
 
+/** Without PostgreSQL the command cannot open its receipt transaction. */
 async function exercisePostgresFailure(dataRoot, environment) {
   await stopPostgres(dataRoot, environment);
   let response;
@@ -695,9 +804,8 @@ async function exercisePostgresFailure(dataRoot, environment) {
   try {
     response = await fetch(`${backendOrigin}/api/applications`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "idempotency-key": randomUUID() },
       body: JSON.stringify({
-        commandId: "postgres-failure-public-application-0039",
         departmentId,
         firstName: "Persistence Failure",
         lastName: "Canary",
@@ -712,58 +820,59 @@ async function exercisePostgresFailure(dataRoot, environment) {
     await restartPostgres(dataRoot, environment);
   }
 
-  if (response.status !== 503) {
-    throw new Error("PostgreSQL failure did not return a typed service rejection");
+  if (
+    response.status !== 503 ||
+    response.headers.get("content-type") !== "application/problem+json" ||
+    response.headers.get("retry-after") !== "5"
+  ) {
+    throw new Error(`PostgreSQL failure answered ${response.status} instead of a 503 problem`);
   }
 
-  const body = await response.json();
+  const problem = decodeStrict(AdmissionsSubmitApplicationProblem)(await response.json());
 
-  if (body?.error?.tag !== "PublicApplicationPersistenceError") {
-    throw new Error("PostgreSQL failure returned an unexpected error tag");
+  if (problem.code !== "idempotency.unavailable") {
+    throw new Error(`PostgreSQL failure answered ${problem.code}`);
   }
 
-  return { status: response.status, tag: body.error.tag };
+  return { status: response.status, code: problem.code };
+}
+
+function startBackend(environment) {
+  const configuredBackendCommand = process.env.BACKEND_COMMAND;
+
+  return configuredBackendCommand
+    ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
+        cwd: repositoryRoot,
+        env: environment,
+      })
+    : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
+        cwd: repositoryRoot,
+        env: environment,
+      });
 }
 
 async function main() {
-  if (!remoteEvidenceAuthorized) {
-    throw new Error("The real public-applicant journey is authorized only in isolated remote CI");
+  const evidencePath = process.env.PUBLIC_APPLICATION_EVIDENCE_PATH;
+
+  if (remoteEvidenceAuthorized && !evidencePath) {
+    throw new Error("PUBLIC_APPLICATION_EVIDENCE_PATH is required for remote evidence");
   }
 
-  if (!process.env.PUBLIC_APPLICATION_EVIDENCE_PATH) {
-    throw new Error("PUBLIC_APPLICATION_EVIDENCE_PATH is required");
+  if (!remoteEvidenceAuthorized && evidencePath !== undefined) {
+    throw new Error(
+      "PUBLIC_APPLICATION_EVIDENCE_PATH is written only in GitHub Actions with PUBLIC_APPLICATION_REMOTE_EVIDENCE=1",
+    );
   }
-
-  if (postgresTopology !== "docker") {
-    throw new Error("Isolated remote CI requires Docker-backed disposable PostgreSQL");
-  }
-
-  await Promise.all([
-    assertPortAvailable(8787),
-    assertPortAvailable(8792),
-    assertPortAvailable(postgresPort),
-  ]);
 
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-public-application-0039-"));
   const postgresDataRoot = join(temporaryRoot, "postgres");
   const lifecycleEvidencePath = join(temporaryRoot, "public-application-lifecycle.json");
-  const leaderToken = randomBytes(32).toString("base64url");
 
-  const admissionTokens = JSON.stringify({
-    [leaderToken]: AdmissionPeriodActorSchema.cases.DepartmentLeader.make({personId: "leader-trondheim", departmentId, active: true}),
+  const baseEnvironment = postgresComposeEnvironment({
+    ...process.env,
+    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
   });
 
-  const receiptTokens = JSON.stringify({
-    [leaderToken]: {
-      personId: "leader-trondheim",
-      departmentId,
-      active: true,
-      paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-      approvalScope: ApprovalScopeSchema.cases.None.make({}),
-    },
-  });
-
-  const baseEnvironment = postgresComposeEnvironment(process.env);
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.API_URL;
@@ -771,18 +880,16 @@ async function main() {
 
   const apiEnvironment = {
     ...baseEnvironment,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: "8792",
-    BACKEND_PG_URL: postgresUrl,
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
-    ADMISSION_AUTH_TOKENS: admissionTokens,
+    ...localBackendEnvironment({
+      backendOrigin,
+      dashboardOrigin: staffOrigin,
+      postgresUrl,
+      betterAuthSecret,
+    }),
     ADMISSION_FIXED_NOW: fixedClock,
     ADMISSION_MAX_BODY_BYTES: "16384",
     ADMISSION_RATE_LIMIT_MAX: "64",
     ADMISSION_RATE_LIMIT_WINDOW_MS: "600000",
-    RECEIPT_AUTH_TOKENS: receiptTokens,
   };
 
   const homepageEnvironment = {
@@ -791,9 +898,11 @@ async function main() {
   };
 
   let postgresStarted = false;
+  let devVarsCreated = false;
   let apiProcess;
   let homepageProcess;
   let evidence;
+  let leaderCookie;
   let cleaned = false;
 
   const cleanup = async () => {
@@ -804,6 +913,14 @@ async function main() {
     for (const processToStop of [...commandProcesses, homepageProcess, apiProcess]) {
       try {
         await stopProcess(processToStop);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+
+    if (devVarsCreated) {
+      try {
+        await rm(homepageDevVarsPath, { force: true });
       } catch (error) {
         cleanupErrors.push(error);
       }
@@ -889,36 +1006,30 @@ async function main() {
       await initializeLocalPostgres(postgresDataRoot, baseEnvironment);
     }
 
-    const configuredBackendCommand = process.env.BACKEND_COMMAND;
-    apiProcess = configuredBackendCommand
-      ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
-          cwd: repositoryRoot,
-          env: apiEnvironment,
-        })
-      : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
-          cwd: repositoryRoot,
-          env: apiEnvironment,
-        });
-    await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
+    await seedLeaderIdentity(apiEnvironment);
     await seedReferenceData(baseEnvironment);
-    const admissionPeriodId = await createOpenPeriod(leaderToken);
 
-    await runCommand("bun", ["run", "build"], {
-      cwd: sdkRoot,
-      env: homepageEnvironment,
-      label: "Public-application SDK build",
-    });
+    apiProcess = startBackend(apiEnvironment);
+    await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
+    leaderCookie = await signInLeader();
+    const period = await createOpenPeriod(leaderCookie);
+
+    // The build copies .dev.vars into its output, where the preview reads API_URL. Git
+    // ignores the file, so the bundle build still sees a clean worktree.
+    await writeFile(homepageDevVarsPath, `API_URL=${backendOrigin}\n`, { flag: "wx", mode: 0o600 });
+    devVarsCreated = true;
     await runCommand("bun", ["run", "worker:build"], {
       cwd: homepageRoot,
       env: homepageEnvironment,
       label: "Public-application homepage build",
     });
-    homepageProcess = startProcess("bun", ["run", "worker:dev"], {
-      cwd: homepageRoot,
-      env: homepageEnvironment,
-    });
+    homepageProcess = startProcess(
+      "bunx",
+      ["vite", "preview", "--host", "127.0.0.1", "--port", String(homepagePort), "--strictPort"],
+      { cwd: homepageRoot, env: homepageEnvironment },
+    );
     await waitForHttp(`${homepageOrigin}/health`, homepageProcess, "Homepage", {
-      headers: { host: homepageHost },
+      host: homepageHost,
     });
 
     const playwrightEnvironment = {
@@ -927,15 +1038,17 @@ async function main() {
       HOMEPAGE_ORIGIN: homepageOrigin,
       BACKEND_ORIGIN: backendOrigin,
       PUBLIC_APPLICATION_E2E_EVIDENCE_PATH: lifecycleEvidencePath,
-      PUBLIC_APPLICATION_E2E_PERIOD_ID: admissionPeriodId,
-      PUBLIC_APPLICATION_E2E_LEADER_TOKEN: leaderToken,
+      PUBLIC_APPLICATION_E2E_PERIOD_ID: period.id,
+      PUBLIC_APPLICATION_E2E_PERIOD_ETAG: period.etag,
+      PUBLIC_APPLICATION_E2E_PERIOD_REVISION: String(period.revision),
+      PUBLIC_APPLICATION_E2E_OPEN_END: openEnd,
+      PUBLIC_APPLICATION_E2E_CLOSED_END: closedEnd,
+      PUBLIC_APPLICATION_E2E_LEADER_COOKIE: leaderCookie,
+      PUBLIC_APPLICATION_E2E_STAFF_ORIGIN: staffOrigin,
       PUBLIC_APPLICATION_E2E_RATE_LIMIT_ATTEMPTS: "80",
+      PUBLIC_APPLICATION_PLAYWRIGHT_ARTIFACT_ROOT: join(temporaryRoot, "playwright"),
     };
 
-    playwrightEnvironment.PUBLIC_APPLICATION_PLAYWRIGHT_ARTIFACT_ROOT = join(
-      temporaryRoot,
-      "playwright",
-    );
     await runCommand(
       "node",
       [
@@ -957,16 +1070,9 @@ async function main() {
     const delivery = await runOutboxDelivery(baseEnvironment);
     const postgresBeforeFailure = await readPostgresEvidence(baseEnvironment);
 
+    // A fresh backend has a fresh public rate limit for the failure request.
     await stopProcess(apiProcess);
-    apiProcess = configuredBackendCommand
-      ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
-          cwd: repositoryRoot,
-          env: apiEnvironment,
-        })
-      : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
-          cwd: repositoryRoot,
-          env: apiEnvironment,
-        });
+    apiProcess = startBackend(apiEnvironment);
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Restarted unified backend");
     const persistenceFailure = await exercisePostgresFailure(postgresDataRoot, baseEnvironment);
     const postgresAfterFailure = await readPostgresEvidence(baseEnvironment);
@@ -979,6 +1085,7 @@ async function main() {
 
     evidence = {
       topology: {
+        mode: remoteEvidenceAuthorized ? "remote-ci" : "local",
         homepage: "loopback-built-cloudflare-worker-preview",
         api: "unified-native-effect-backend",
         database:
@@ -1020,37 +1127,37 @@ async function main() {
 
   if (cleanupError !== undefined) throw cleanupError;
 
-  if (await pathExists(temporaryRoot)) {
-    throw new Error("Public-application cleanup left the temporary root behind");
+  if ((await pathExists(temporaryRoot)) || (await pathExists(homepageDevVarsPath))) {
+    throw new Error("Public-application cleanup left temporary files behind");
   }
 
-  await Promise.all([
-    assertPortAvailable(8787),
-    assertPortAvailable(8792),
-    assertPortAvailable(postgresPort),
-  ]);
+  const releasedPorts = [postgresPort, backendPort, homepagePort];
+  await Promise.all(releasedPorts.map(assertPortAvailable));
 
   const finalEvidence = {
     ...evidence,
     cleanup: {
       postgresRemoved: true,
       temporaryRootRemoved: true,
-      portsReleased: [8787, 8792, postgresPort],
+      portsReleased: releasedPorts,
     },
   };
 
   const serializedEvidence = JSON.stringify(finalEvidence);
 
-  for (const canary of [...privateCanaries, ...secretCanaries, leaderToken]) {
+  for (const canary of [...privateCanaries, ...secretCanaries, leaderCookie]) {
     if (serializedEvidence.includes(canary)) {
       throw new Error("Public-application evidence exposed private material");
     }
   }
 
-  await writeFile(process.env.PUBLIC_APPLICATION_EVIDENCE_PATH, `${serializedEvidence}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+  if (remoteEvidenceAuthorized) {
+    await writeFile(evidencePath, `${serializedEvidence}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+  }
+
   process.stdout.write(`${serializedEvidence}\n`);
 }
 
@@ -1058,5 +1165,12 @@ main().catch((error) => {
   process.stderr.write(
     `${error instanceof Error ? error.message : "Real public-application runner failed"}\n`,
   );
+
+  if (error instanceof AggregateError) {
+    for (const cause of error.errors) {
+      process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+    }
+  }
+
   process.exitCode = 1;
 });

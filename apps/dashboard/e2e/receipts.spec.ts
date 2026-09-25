@@ -1,6 +1,8 @@
-import { Data, Predicate } from "effect";
+import { Data, Predicate, Schema } from "effect";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readdir, writeFile } from "node:fs/promises";
+import { chmod, readdir, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   expect,
   test,
@@ -9,8 +11,14 @@ import {
   type Browser,
   type Page,
 } from "@playwright/test";
-
-import { z } from "zod";
+import {
+  NativeProblem,
+  ReadReceiptEvidenceEndpoint,
+  ReceiptLifecycleEvidenceResponse,
+  ReceiptListResponse,
+  ReceiptResource,
+  UserProfileResponse,
+} from "@vektorprogrammet/http-api";
 import { dashboardBaseUrl, dashboardMount } from "../dashboard-base";
 
 type JourneyOutcome = Data.TaggedEnum<{
@@ -60,89 +68,28 @@ const REVISED_AMOUNT_ORE = 21_075;
 
 const MAX_FILE_BYTES = 10_485_760;
 
-const REPLACEMENT_IDEMPOTENCY_KEY = "receipt-owner-e2e-replacement";
-
 const RECEIPT_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
 
-const receiptProblemSchema = z
-  .object({
-    type: z.string(),
-    title: z.string(),
-    status: z.number().int(),
-    code: z.string(),
-    detail: z.string(),
-  })
-  .passthrough();
+// Responses decode with the API contract, so a contract change fails here instead of a copy.
+const exactDecoding = { onExcessProperty: "error" } as const;
 
-const receiptProjectionSchema = z
-  .object({
-    receiptId: z.string().min(1),
-    visualId: z.string().min(1),
-    ownerPersonId: z.string().min(1),
-    departmentId: z.string().min(1),
-    description: z.string().min(1),
-    amountOre: z.number().int().positive(),
-    currency: z.literal("NOK"),
-    receiptDate: z.string(),
-    status: z.enum(["Pending", "Approved", "Rejected", "Withdrawn"]),
-    revision: z.number().int().nonnegative(),
-    etag: z.string().regex(/^"vkr2\./u),
-  })
-  .strict();
+const decodeProblem = Schema.decodeUnknownSync(NativeProblem);
 
-const receiptResourceSchema = receiptProjectionSchema.extend({
-  submittedAt: z.string(),
-  approvedAt: z.string().nullable(),
-});
+const decodeReceiptResource = Schema.decodeUnknownSync(ReceiptResource);
 
-const receiptPageSchema = z
-  .object({
-    items: z.array(receiptProjectionSchema),
-    nextCursor: z.string().optional(),
-  })
-  .strict();
+const decodeReceiptPage = Schema.decodeUnknownSync(ReceiptListResponse);
 
-const lifecycleEvidenceSchema = z
-  .object({
-    receiptId: z.string().min(1),
-    file: z
-      .object({
-        fileRef: z.string().min(1),
-        objectKey: z.string().min(1),
-        contentType: z.string().min(1),
-        byteLength: z.number().int().positive(),
-        sha256: z.string().regex(/^[a-f0-9]{64}$/),
-      })
-      .strict(),
-    outbox: z.array(
-      z
-        .object({
-          effectId: z.string().min(1),
-          effectType: z.string().min(1),
-          commandId: z.string().min(1),
-          receiptId: z.string().min(1),
-          ordinal: z.number().int().nonnegative(),
-          status: z.string().min(1),
-          attempts: z.number().int().nonnegative(),
-          lastFailureTag: z.string().nullable(),
-        })
-        .strict(),
-    ),
-    audit: z.array(
-      z
-        .object({
-          commandId: z.string().min(1),
-          receiptId: z.string().min(1),
-          action: z.string().min(1),
-          receiptRevision: z.number().int().nonnegative(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
+const decodeLifecycleEvidence = Schema.decodeUnknownSync(ReceiptLifecycleEvidenceResponse);
+
+const decodeProfile = Schema.decodeUnknownSync(UserProfileResponse);
+
+/** Settings of the operator drain, which the runner owns. */
+const decodeOperatorEnvironment = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
+);
 
 interface ReceiptPersona {
   readonly personId: string;
@@ -158,6 +105,28 @@ function requiredEnvironment(name: string): string {
   }
 
   return value;
+}
+
+/**
+ * Refuses writes to the committed receipt files while `action` runs, as a read-only or
+ * full volume would. A revision still commits, and its promoted file stays staged.
+ */
+async function withReadOnlyCommittedFiles<A>(
+  committedObjectKey: string,
+  action: () => Promise<A>,
+): Promise<A> {
+  const directory = dirname(
+    join(requiredEnvironment("RECEIPT_E2E_COMMITTED_ROOT"), committedObjectKey),
+  );
+
+  const { mode } = await stat(directory);
+  await chmod(directory, 0o500);
+
+  try {
+    return await action();
+  } finally {
+    await chmod(directory, mode & 0o7777);
+  }
 }
 
 function receiptPersona(kind: "OWNER" | "FOREIGN"): ReceiptPersona {
@@ -235,12 +204,9 @@ async function authenticate(
   });
 
   expect(profileResponse.status()).toBe(200);
-  expect(
-    z
-      .object({ personId: z.string() })
-      .passthrough()
-      .parse(await profileResponse.json()),
-  ).toMatchObject({ personId: persona.personId });
+  expect(decodeProfile(await profileResponse.json(), exactDecoding)).toMatchObject({
+    personId: persona.personId,
+  });
 
   return cookie;
 }
@@ -305,10 +271,14 @@ async function captureLifecycleEvidence(
     readonly committed: ReadonlyArray<string>;
   };
 }> {
-  const response = await request.get(
-    `${INTERNAL_BACKEND_ORIGIN}/api/e2e/receipts/${encodeURIComponent(receiptId)}/evidence`,
-    { headers: sessionHeaders(sessionCookie) },
+  const evidencePath = ReadReceiptEvidenceEndpoint.path.replace(
+    ":receiptId",
+    encodeURIComponent(receiptId),
   );
+
+  const response = await request.get(`${INTERNAL_BACKEND_ORIGIN}${evidencePath}`, {
+    headers: sessionHeaders(sessionCookie),
+  });
 
   expect(response.status()).toBe(200);
   const stagingRoot = process.env.RECEIPT_E2E_STAGING_ROOT;
@@ -318,7 +288,7 @@ async function captureLifecycleEvidence(
     throw new Error("Receipt lifecycle evidence roots are missing");
   }
 
-  const evidence = lifecycleEvidenceSchema.parse(await response.json());
+  const evidence = decodeLifecycleEvidence(await response.json(), exactDecoding);
 
   return {
     ...evidence,
@@ -336,7 +306,7 @@ async function expectProblemCode(
 ): Promise<string> {
   expect(response.status()).toBe(expectedStatus);
   expect(response.headers()["content-type"]).toContain("application/problem+json");
-  const problem = receiptProblemSchema.parse(await response.json());
+  const problem = decodeProblem(await response.json(), exactDecoding);
   expect(problem).toMatchObject({
     status: expectedStatus,
     code: expectedCode,
@@ -394,13 +364,13 @@ test.describe("Native Receipt owner journey", () => {
     await submissionButton.click();
 
     const submissionError = submissionForm.getByRole("alert");
-    await expect(submissionError).toHaveAttribute("data-error-code", "validation.failed");
+    await expect(submissionError).toHaveAttribute("data-error-tag", "ReceiptDecodeError");
     await expect(submissionError).toHaveAttribute("data-error-field", "amountNok");
     await expect(submissionForm).toHaveAttribute("aria-busy", "false");
     await expect(submissionButton).toBeEnabled();
 
     const submissionIdempotencyKey = await submissionForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(submissionIdempotencyKey).not.toBe("");
@@ -486,7 +456,7 @@ test.describe("Native Receipt owner journey", () => {
       );
     }
 
-    await expect(submissionForm.locator('input[name="idempotencyKey"]')).toHaveValue(
+    await expect(submissionForm.locator('input[name="commandId"]')).toHaveValue(
       submissionIdempotencyKey,
     );
 
@@ -499,7 +469,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(submissionError).toContainText(
       "Kvitteringsfilen kan ikke være større enn 10 MiB.",
     );
-    await expect(submissionForm.locator('input[name="idempotencyKey"]')).toHaveValue(
+    await expect(submissionForm.locator('input[name="commandId"]')).toHaveValue(
       submissionIdempotencyKey,
     );
 
@@ -513,7 +483,7 @@ test.describe("Native Receipt owner journey", () => {
     const submissionSuccess = submissionForm.getByRole("status");
     await expect(submissionSuccess).toBeVisible();
     await expect(submissionSuccess).toHaveAttribute(
-      "data-idempotency-key",
+      "data-command-id",
       submissionIdempotencyKey,
     );
     let receiptRow = page.locator("[data-receipt-id]").filter({ hasText: DESCRIPTION });
@@ -556,7 +526,7 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     expect(submitReplayResponse.status()).toBe(201);
-    const submitReplay = receiptResourceSchema.parse(await submitReplayResponse.json());
+    const submitReplay = decodeReceiptResource(await submitReplayResponse.json(), exactDecoding);
     expect(submitReplayResponse.headers()["etag"]).toBe(submitReplay.etag);
     expect(submitReplay).toMatchObject({
       receiptId,
@@ -569,7 +539,12 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     expect(ownedAtRevisionZeroResponse.status()).toBe(200);
-    const ownedAtRevisionZero = receiptPageSchema.parse(await ownedAtRevisionZeroResponse.json());
+
+    const ownedAtRevisionZero = decodeReceiptPage(
+      await ownedAtRevisionZeroResponse.json(),
+      exactDecoding,
+    );
+
     expect(ownedAtRevisionZero.items).toHaveLength(1);
     const revisionZero = ownedAtRevisionZero.items[0];
 
@@ -601,12 +576,12 @@ test.describe("Native Receipt owner journey", () => {
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     const reviseError = page.locator('[role="alert"][data-action-intent="revise"]');
-    await expect(reviseError).toHaveAttribute("data-error-code", "validation.failed");
+    await expect(reviseError).toHaveAttribute("data-error-tag", "ReceiptDecodeError");
     await expect(reviseError).toHaveAttribute("data-error-field", "amountNok");
-    await expect(reviseError).toHaveAttribute("data-if-match", revisionZero.etag);
+    await expect(reviseError).toHaveAttribute("data-etag", revisionZero.etag);
 
     const stableRevisionIdempotencyKey = await reviseForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(stableRevisionIdempotencyKey).not.toBe("");
@@ -617,7 +592,7 @@ test.describe("Native Receipt owner journey", () => {
     const revisionNotice = page.locator('[role="status"][data-action-intent="revise"]');
     await expect(revisionNotice).toBeVisible();
     await expect(revisionNotice).toHaveAttribute(
-      "data-idempotency-key",
+      "data-command-id",
       stableRevisionIdempotencyKey,
     );
     await expect(revisionNotice).toHaveAttribute("data-revision", "1");
@@ -647,25 +622,40 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
-    await reviseForm.locator('input[name="idempotencyKey"]').evaluate((element, idempotencyKey) => {
+
+    const replacementIdempotencyKey = requiredEnvironment(
+      "RECEIPT_E2E_REPLACEMENT_IDEMPOTENCY_KEY",
+    );
+
+    await reviseForm.locator('input[name="commandId"]').evaluate((element, idempotencyKey) => {
       if (!(element instanceof HTMLInputElement)) throw new Error("Expected an idempotency input");
       const input = element;
       input.value = idempotencyKey;
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
-    }, REPLACEMENT_IDEMPOTENCY_KEY);
-    await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
+    }, replacementIdempotencyKey);
 
-    await expect(revisionNotice).toHaveAttribute("data-revision", "2");
-    await expect(revisionNotice).toHaveAttribute(
-      "data-idempotency-key",
-      REPLACEMENT_IDEMPOTENCY_KEY,
+    const beforeReplacement = await captureLifecycleEvidence(
+      request,
+      receiptId,
+      authorization.Cookie,
     );
-    const replacementIdempotencyKey = REPLACEMENT_IDEMPOTENCY_KEY;
+
+    // The replacement's promotion fails, so the revision commits with its new file staged.
+    const beforeFailure = await withReadOnlyCommittedFiles(
+      beforeReplacement.file.objectKey,
+      async () => {
+        await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
+        await expect(revisionNotice).toHaveAttribute("data-revision", "2");
+        await expect(revisionNotice).toHaveAttribute("data-command-id", replacementIdempotencyKey);
+
+        return captureLifecycleEvidence(request, receiptId, authorization.Cookie);
+      },
+    );
+
     const revisionTwoEtag = await revisionNotice.getAttribute("data-etag");
 
     if (revisionTwoEtag === null) throw new Error("Receipt revision two ETag is missing");
-    const beforeFailure = await captureLifecycleEvidence(request, receiptId, authorization.Cookie);
 
     const replacementRetryResponse = await request.patch(
       `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
@@ -689,12 +679,37 @@ test.describe("Native Receipt owner journey", () => {
     );
 
     expect(replacementRetryResponse.status()).toBe(200);
-    const replacementRetry = receiptResourceSchema.parse(await replacementRetryResponse.json());
+
+    const replacementRetry = decodeReceiptResource(
+      await replacementRetryResponse.json(),
+      exactDecoding,
+    );
+
     expect(replacementRetryResponse.headers()["etag"]).toBe(replacementRetry.etag);
     expect(replacementRetry).toMatchObject({
       receiptId,
       revision: 2,
     });
+
+    // The replay answers from the command's stored response and runs nothing, so the failed
+    // promotion stays pending. The operator's bounded drain resumes it without a business
+    // command, as the unattended worker would.
+    const operatorDrain = spawnSync(
+      "bun",
+      ["run", "apps/backend/src/receipt/drain-main.ts", receiptId],
+      {
+        cwd: requiredEnvironment("RECEIPT_E2E_REPOSITORY_ROOT"),
+        env: {
+          ...process.env,
+          ...decodeOperatorEnvironment(requiredEnvironment("RECEIPT_E2E_OPERATOR_ENVIRONMENT")),
+        },
+        encoding: "utf8",
+      },
+    );
+
+    expect(operatorDrain.status, operatorDrain.stderr).toBe(0);
+    expect(operatorDrain.stdout.trim()).toBe(JSON.stringify({ result: "Complete" }));
+
     const afterRetry = await captureLifecycleEvidence(request, receiptId, authorization.Cookie);
     const lifecycleEvidencePath = process.env.RECEIPT_E2E_LIFECYCLE_EVIDENCE_PATH;
 
@@ -722,8 +737,9 @@ test.describe("Native Receipt owner journey", () => {
 
     expect(stableRevisionReplayResponse.status()).toBe(200);
 
-    const stableRevisionReplay = receiptResourceSchema.parse(
+    const stableRevisionReplay = decodeReceiptResource(
       await stableRevisionReplayResponse.json(),
+      exactDecoding,
     );
 
     expect(stableRevisionReplay).toMatchObject({
@@ -740,7 +756,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(revisionTwoEtag);
 
     const staleDraftIdempotencyKey = await reviseForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(staleDraftIdempotencyKey).not.toBe("");
@@ -766,7 +782,10 @@ test.describe("Native Receipt owner journey", () => {
 
     expect(concurrentRevisionResponse.status()).toBe(200);
 
-    const concurrentRevision = receiptResourceSchema.parse(await concurrentRevisionResponse.json());
+    const concurrentRevision = decodeReceiptResource(
+      await concurrentRevisionResponse.json(),
+      exactDecoding,
+    );
 
     expect(concurrentRevisionResponse.headers()["etag"]).toBe(concurrentRevision.etag);
     expect(concurrentRevision).toMatchObject({
@@ -776,9 +795,9 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
-    await expect(reviseError).not.toHaveAttribute("data-idempotency-key", staleDraftIdempotencyKey);
-    await expect(reviseError).toHaveAttribute("data-error-code", "precondition.failed");
-    await expect(reviseError).toHaveAttribute("data-if-match", revisionTwoEtag);
+    await expect(reviseError).not.toHaveAttribute("data-command-id", staleDraftIdempotencyKey);
+    await expect(reviseError).toHaveAttribute("data-error-tag", "StaleReceiptRevision");
+    await expect(reviseError).toHaveAttribute("data-etag", revisionTwoEtag);
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
     await expect(reviseForm).toBeVisible();
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(CONCURRENT_DESCRIPTION);
@@ -786,7 +805,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(concurrentRevision.etag);
 
     const refreshedIdempotencyKey = await reviseForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(refreshedIdempotencyKey).not.toBe("");
@@ -825,7 +844,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(withdrawForm.locator('input[name="etag"]')).toHaveValue(concurrentRevision.etag);
 
     const withdrawalIdempotencyKey = await withdrawForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(withdrawalIdempotencyKey).not.toBe("");
@@ -836,7 +855,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(withdrawalNotice).toHaveAttribute("data-status", "Withdrawn");
     await expect(withdrawalNotice).toHaveAttribute("data-revision", "4");
     await expect(withdrawalNotice).toHaveAttribute(
-      "data-idempotency-key",
+      "data-command-id",
       withdrawalIdempotencyKey,
     );
     const withdrawalEtag = await withdrawalNotice.getAttribute("data-etag");
@@ -872,7 +891,12 @@ test.describe("Native Receipt owner journey", () => {
     );
 
     expect(withdrawalReplayResponse.status()).toBe(200);
-    const withdrawalReplay = receiptResourceSchema.parse(await withdrawalReplayResponse.json());
+
+    const withdrawalReplay = decodeReceiptResource(
+      await withdrawalReplayResponse.json(),
+      exactDecoding,
+    );
+
     expect(withdrawalReplayResponse.headers()["etag"]).toBe(withdrawalReplay.etag);
     expect(withdrawalReplay).toMatchObject({
       receiptId,
@@ -905,7 +929,7 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     expect(finalOwnedResponse.status()).toBe(200);
-    const finalOwned = receiptPageSchema.parse(await finalOwnedResponse.json());
+    const finalOwned = decodeReceiptPage(await finalOwnedResponse.json(), exactDecoding);
     expect(finalOwned.items).toHaveLength(1);
     expect(finalOwned.items[0]).toMatchObject({
       receiptId,

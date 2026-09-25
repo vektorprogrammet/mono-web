@@ -1,20 +1,52 @@
 import { Effect, Stream } from "effect";
 import * as Multipart from "effect/unstable/http/Multipart";
 
-/** Bound transfer bytes before parsing and cancel the source with its request. */
+/**
+ * A receipt file part exceeded its byte limit. This is an input error in a readable form:
+ * `fields` holds the parts read before the file, so a form can answer in place with the
+ * draft and command identity it submitted.
+ */
+export class ReceiptFileTooLarge extends RangeError {
+  readonly fields: FormData;
+
+  constructor(fields: FormData) {
+    super("Receipt file is too large");
+    this.name = "ReceiptFileTooLarge";
+    this.fields = fields;
+  }
+}
+
+/** Bytes beyond a file's limit that the transfer bound admits for the other form parts. */
+const transferMargin = 131_072;
+
+/**
+ * Transport chunks are split to at most half the margin and parsed one per pull, so the
+ * parser sees a file cross its limit before the transfer count can cross the body bound.
+ */
+const transferSlice = transferMargin / 2;
+
+const slices = function* (chunk: Uint8Array) {
+  for (let offset = 0; offset < chunk.byteLength; offset += transferSlice) {
+    yield chunk.subarray(offset, offset + transferSlice);
+  }
+};
+
+/**
+ * Bound transfer bytes while parsing and cancel the source with its request.
+ *
+ * The byte counters, not the declared length, enforce the bounds: a body whose file is
+ * too large stops after that file's limit, so the fields before it stay readable.
+ */
 export const readBoundedReceiptForm = async (
   request: Request,
   maxFileBytes: number,
 ): Promise<FormData> => {
-  const maxBytes = maxFileBytes + 131_072;
+  const maxBytes = maxFileBytes + transferMargin;
   const length = request.headers.get("content-length");
 
   if (length !== null && (!/^\d+$/u.test(length) || !Number.isSafeInteger(Number(length)))) {
     throw new TypeError("Invalid receipt body length");
   }
-
-  if (length !== null && Number(length) > maxBytes)
-    throw new RangeError("Receipt body is too large");
 
   const body = request.body;
 
@@ -27,6 +59,9 @@ export const readBoundedReceiptForm = async (
     evaluate: () => body,
     onError: (cause) => new TypeError("Receipt transfer failed", { cause }),
   }).pipe(
+    Stream.map(slices),
+    Stream.flattenIterable,
+    Stream.rechunk(1),
     Stream.map((chunk) => {
       size += chunk.byteLength;
 
@@ -64,7 +99,7 @@ export const readBoundedReceiptForm = async (
               Effect.sync(() => {
                 fileBytes += chunk.byteLength;
 
-                if (fileBytes > maxFileBytes) throw new RangeError("Receipt file is too large");
+                if (fileBytes > maxFileBytes) throw new ReceiptFileTooLarge(form);
 
                 if (!(chunk.buffer instanceof ArrayBuffer))
                   throw new TypeError("Invalid receipt byte buffer");

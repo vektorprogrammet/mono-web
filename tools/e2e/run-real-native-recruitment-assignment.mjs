@@ -893,19 +893,22 @@ const main = async () => {
       env: journeyEnvironment,
       label: "native recruitment SDK build",
     });
-    dashboard = start(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      [
-        "node_modules/@react-router/dev/dist/cli/index.js",
-        "dev",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(dashboardPort),
-      ],
-      journeyEnvironment,
-      dashboardRoot,
-    );
+
+    // The dev server optimizes newly discovered dependencies and reloads the page, which
+    // aborts in-flight module imports under the browser. The journey serves the build.
+    const dashboardEnvironment = {
+      ...journeyEnvironment,
+      HOST: "127.0.0.1",
+      PORT: String(dashboardPort),
+      NODE_ENV: "production",
+    };
+
+    await run("bun", ["run", "build"], {
+      cwd: dashboardRoot,
+      env: dashboardEnvironment,
+      label: "native recruitment dashboard production build",
+    });
+    dashboard = start("bun", ["server.mjs"], dashboardEnvironment, dashboardRoot);
     await waitForHttp(`${dashboardOrigin}/login`, dashboard, "native dashboard");
 
     const playwrightArgs = [

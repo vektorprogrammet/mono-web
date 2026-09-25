@@ -3,14 +3,20 @@ import {
   postgresComposeFile,
   postgresProgram,
 } from "@monoweb/postgres";
+import { ReadReceiptEvidenceEndpoint } from "@vektorprogrammet/http-api";
 import { Predicate } from "effect";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+import { startReceiptDeliverySink } from "../../../tools/e2e/receipt-delivery-sink.ts";
+import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";
 import { dashboardMount } from "../dashboard-base.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -21,32 +27,12 @@ const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url)
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
-function configuredLoopbackPort(name, fallback) {
-  const value = process.env[name] ?? String(fallback);
+const disposablePorts = await reserveLoopbackPorts(4);
 
-  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer`);
-  const port = Number(value);
+const [dashboardPort, backendPort, internalBackendPort, postgresPort] = disposablePorts;
 
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`${name} must be between 1 and 65535`);
-  }
-
-  return port;
-}
-
-const dashboardPort = configuredLoopbackPort("RECEIPT_E2E_DASHBOARD_PORT", 5174);
-
-const backendPort = configuredLoopbackPort("RECEIPT_E2E_BACKEND_PORT", 8790);
-
-const internalBackendPort = configuredLoopbackPort("RECEIPT_E2E_INTERNAL_BACKEND_PORT", 8791);
-
-const postgresPort = 55432;
-
-const disposablePorts = [dashboardPort, backendPort, internalBackendPort, postgresPort];
-
-if (new Set(disposablePorts).size !== disposablePorts.length) {
-  throw new Error("Real Receipt owner loopback ports must be distinct");
-}
+/** The Idempotency-Key of the replacement revision whose file promotion the journey fails. */
+const replacementIdempotencyKey = "receipt-owner-e2e-replacement";
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -330,7 +316,13 @@ async function countFiles(root) {
       withFileTypes: true,
     });
 
-    return entries.reduce((count, entry) => count + (entry.isFile() ? 1 : 0), 0);
+    // Effect reservation markers record request digests, not private receipt bytes.
+    return entries.reduce(
+      (count, entry) =>
+        count +
+        (entry.isFile() && relative(root, entry.parentPath).split(sep)[0] !== ".effects" ? 1 : 0),
+      0,
+    );
   } catch (error) {
     if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return 0;
@@ -462,6 +454,7 @@ async function seedOwnerAuthorities(environment) {
 async function readPostgresEvidence(environment) {
   const sql = `
     SELECT json_build_object(
+      'receiptId', (SELECT receipt_id FROM economy_receipts LIMIT 1),
       'receiptCount', (SELECT count(*) FROM economy_receipts),
       'commandCount', (SELECT count(*) FROM economy_receipt_command_receipts),
       'auditCount', (SELECT count(*) FROM economy_receipt_audit),
@@ -526,46 +519,99 @@ async function readPostgresEvidence(environment) {
   return JSON.parse(result.stdout.trim());
 }
 
-function assertDurableEvidence(postgres, privateFile, lifecycle) {
+/**
+ * The backend derives a command id from the caller, operation, target, and Idempotency-Key,
+ * so the replacement's effects are found by the id it derives for the owner's revision.
+ */
+const replacementCommandId = (postgres, ownerPersonId) =>
+  deriveHttpIdentity({
+    credentialSubject: `Person:${ownerPersonId}`,
+    qualifiedOperationId: "receipts.reviseReceipt",
+    normalizedTarget: `/api/receipts/${encodeURIComponent(postgres.receiptId)}`,
+    idempotencyKey: replacementIdempotencyKey,
+  }).commandId;
+
+function assertDurableEvidence(postgres, privateFile, lifecycle, ownerPersonId) {
   const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
   const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
+  const replacementCommand = replacementCommandId(postgres, ownerPersonId);
 
   const replacementPromote = outbox.find(
-    (row) => row.effectId === "receipt-owner-e2e-replacement:PromoteReceiptFile",
+    (row) => row.effectId === `${replacementCommand}:PromoteReceiptFile`,
   );
 
   const replacementDelete = outbox.find(
-    (row) => row.effectId === "receipt-owner-e2e-replacement:DeleteReceiptFile",
+    (row) => row.effectId === `${replacementCommand}:DeleteReceiptFile`,
   );
 
-  const replacementAudit = audits.find((row) => row.commandId === "receipt-owner-e2e-replacement");
+  const replacementAudit = audits.find((row) => row.commandId === replacementCommand);
   const beforeFailure = lifecycle?.beforeFailure;
   const afterRetry = lifecycle?.afterRetry;
 
-  if (
-    postgres.receiptCount !== 1 ||
-    postgres.commandCount !== 5 ||
-    postgres.auditCount !== 5 ||
-    postgres.outboxCount !== 10 ||
-    postgres.deliveredOutboxCount !== postgres.outboxCount ||
-    postgres.duplicateEffectCount !== 0 ||
-    postgres.finalStatus !== "Withdrawn" ||
-    postgres.finalRevision !== 4 ||
-    replacementPromote?.status !== "Delivered" ||
-    replacementPromote.attempts !== 2 ||
-    replacementPromote.ordinal !== 0 ||
-    replacementDelete?.status !== "Delivered" ||
-    replacementDelete.ordinal !== 2 ||
-    replacementAudit?.action !== "PendingReceiptRevised" ||
-    beforeFailure === undefined ||
-    afterRetry === undefined ||
-    beforeFailure.file.objectKey !== afterRetry.file.objectKey ||
-    afterRetry.file.objectKey !== postgres.receiptFile.objectKey ||
-    beforeFailure.physical.committed.length === 0 ||
-    beforeFailure.physical.committed.includes(beforeFailure.file.objectKey) ||
-    !afterRetry.physical.committed.includes(afterRetry.file.objectKey)
-  ) {
-    throw new Error("Receipt persistence evidence did not prove injected replacement recovery");
+  // Each law is a named fact, so a failure reports which one broke instead of only that one did.
+  const observed = {
+    receiptCount: postgres.receiptCount,
+    commandCount: postgres.commandCount,
+    auditCount: postgres.auditCount,
+    outboxCount: postgres.outboxCount,
+    everyEffectDelivered: postgres.deliveredOutboxCount === postgres.outboxCount,
+    duplicateEffectCount: postgres.duplicateEffectCount,
+    finalStatus: postgres.finalStatus,
+    finalRevision: postgres.finalRevision,
+    replacementPromote: replacementPromote && {
+      status: replacementPromote.status,
+      attempts: replacementPromote.attempts,
+      ordinal: replacementPromote.ordinal,
+    },
+    replacementDelete: replacementDelete && {
+      status: replacementDelete.status,
+      ordinal: replacementDelete.ordinal,
+    },
+    replacementAuditAction: replacementAudit?.action,
+    retryKeptObjectKey:
+      beforeFailure !== undefined &&
+      afterRetry !== undefined &&
+      beforeFailure.file.objectKey === afterRetry.file.objectKey,
+    receiptKeepsRetriedFile: afterRetry?.file.objectKey === postgres.receiptFile?.objectKey,
+    failureLeftFileUnpromoted:
+      beforeFailure !== undefined &&
+      beforeFailure.physical.committed.length > 0 &&
+      !beforeFailure.physical.committed.includes(beforeFailure.file.objectKey),
+    retryPromotedFile:
+      afterRetry !== undefined && afterRetry.physical.committed.includes(afterRetry.file.objectKey),
+  };
+
+  const expected = {
+    receiptCount: 1,
+    commandCount: 5,
+    auditCount: 5,
+    outboxCount: 10,
+    everyEffectDelivered: true,
+    duplicateEffectCount: 0,
+    finalStatus: "Withdrawn",
+    finalRevision: 4,
+    replacementPromote: { status: "Delivered", attempts: 2, ordinal: 0 },
+    replacementDelete: { status: "Delivered", ordinal: 2 },
+    replacementAuditAction: "PendingReceiptRevised",
+    retryKeptObjectKey: true,
+    receiptKeepsRetriedFile: true,
+    failureLeftFileUnpromoted: true,
+    retryPromotedFile: true,
+  };
+
+  if (!isDeepStrictEqual(observed, expected)) {
+    const effects = outbox.map((row) => ({
+      effectId: row.effectId,
+      effectType: row.effectType,
+      ordinal: row.ordinal,
+      status: row.status,
+      attempts: row.attempts,
+      lastFailureTag: row.lastFailureTag,
+    }));
+
+    throw new Error(
+      `Receipt persistence evidence did not prove injected replacement recovery: ${JSON.stringify({ observed, expected, effects })}`,
+    );
   }
 
   if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 0) {
@@ -574,8 +620,6 @@ function assertDurableEvidence(postgres, privateFile, lifecycle) {
 }
 
 async function main() {
-  await Promise.all(disposablePorts.map(assertPortAvailable));
-
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-owner-0036-"));
   const stagingRoot = join(temporaryRoot, "staging");
   const committedRoot = join(temporaryRoot, "committed");
@@ -605,7 +649,11 @@ async function main() {
     password: personaPassword,
   };
 
-  const baseEnvironment = postgresComposeEnvironment(process.env);
+  const baseEnvironment = postgresComposeEnvironment({
+    ...process.env,
+    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
+  });
+
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
 
@@ -625,25 +673,29 @@ async function main() {
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
   };
 
+  // The submission notifies the owner's department economy; without a delivery target that
+  // effect keeps failing and holds every later effect of the receipt.
+  const deliverySink = await startReceiptDeliverySink({
+    sender: "economy@example.invalid",
+    economyRecipients: { "department-1": "economy.department-1@example.invalid" },
+  });
+
   const apiEnvironment = {
     ...sharedEnvironment,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: String(backendPort),
-    BACKEND_PG_URL: postgresUrl,
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
+    ...localBackendEnvironment({ backendOrigin, dashboardOrigin, postgresUrl, betterAuthSecret }),
+    ...deliverySink.environment,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
     RECEIPT_E2E_TEST_MODE: "1",
-    RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID: "receipt-owner-e2e-replacement:PromoteReceiptFile",
   };
 
   const internalApiEnvironment = {
     ...apiEnvironment,
     BACKEND_INGRESS: "internal",
     BACKEND_PORT: String(internalBackendPort),
+    // Internal ingress requires its source networks; this runner reaches it over loopback only.
+    OAUTH_INTERNAL_SOURCE_NETWORKS: "127.0.0.1/32",
   };
 
   const dashboardEnvironment = {
@@ -662,6 +714,17 @@ async function main() {
   const playwrightEnvironment = {
     ...dashboardEnvironment,
     REAL_RECEIPT_OWNER_E2E: "1",
+    RECEIPT_E2E_REPLACEMENT_IDEMPOTENCY_KEY: replacementIdempotencyKey,
+    RECEIPT_E2E_REPOSITORY_ROOT: repositoryRoot,
+    // The operator drain resumes pending receipt work; it reads the backend storage, database,
+    // and delivery settings and issues no business command.
+    RECEIPT_E2E_OPERATOR_ENVIRONMENT: JSON.stringify({
+      BACKEND_PG_URL: postgresUrl,
+      RECEIPT_STAGING_ROOT: stagingRoot,
+      RECEIPT_COMMITTED_ROOT: committedRoot,
+      RECEIPT_MAX_FILE_BYTES: apiEnvironment.RECEIPT_MAX_FILE_BYTES,
+      ...deliverySink.environment,
+    }),
     BACKEND_ORIGIN: backendOrigin,
     INTERNAL_BACKEND_ORIGIN: internalBackendOrigin,
     DASHBOARD_ORIGIN: dashboardOrigin,
@@ -697,6 +760,12 @@ async function main() {
       } catch (error) {
         cleanupErrors.push(error);
       }
+    }
+
+    try {
+      await deliverySink.close();
+    } catch (error) {
+      cleanupErrors.push(error);
     }
 
     if (postgresStarted) {
@@ -810,8 +879,9 @@ async function main() {
           env: internalApiEnvironment,
         });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
+    // Internal ingress mounts only the internal API; its evidence route answers once it is up.
     await waitForHttp(
-      `${internalBackendOrigin}/api/e2e/receipts/readiness/evidence`,
+      `${internalBackendOrigin}${ReadReceiptEvidenceEndpoint.path.replace(":receiptId", "readiness")}`,
       internalApiProcess,
       "Internal native backend",
     );
@@ -860,7 +930,7 @@ async function main() {
       committedFileCount: await countFiles(committedRoot),
     };
 
-    assertDurableEvidence(postgres, privateFile, lifecycle);
+    assertDurableEvidence(postgres, privateFile, lifecycle, ownerPersona.personId);
     evidence = {
       topology: {
         dashboard: "loopback-react-router",

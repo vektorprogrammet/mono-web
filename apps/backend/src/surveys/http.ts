@@ -344,6 +344,23 @@ const read = (request: Request, surveyId: SurveyId) =>
     );
   });
 
+/**
+ * Answers are keyed by question and Check selections are sets, so their order carries no
+ * meaning. The digest orders both from the request alone, so an accepted response still
+ * replays after its survey closes. A repeated question never validates, so ordering by
+ * question alone is canonical for every body that can own a receipt.
+ */
+const unorderedSubmission = (body: SubmitSchoolSurveyResponseRequest) => ({
+  schoolId: body.schoolId,
+  answers: body.answers
+    .map((answer): SubmitSchoolSurveyResponseRequest["answers"][number] =>
+      answer.kind === "Check" ? { ...answer, values: answer.values.toSorted() } : answer,
+    )
+    .toSorted((left, right) =>
+      left.questionId < right.questionId ? -1 : left.questionId > right.questionId ? 1 : 0,
+    ),
+});
+
 const submit = (request: Request, surveyId: SurveyId) =>
   Effect.gen(function* () {
     yield* noQuery(request);
@@ -379,7 +396,7 @@ const submit = (request: Request, surveyId: SurveyId) =>
         return {
           identity: {
             identitySha256: identity.identitySha256,
-            requestSha256: semanticRequestDigest({ body }),
+            requestSha256: semanticRequestDigest({ body: unorderedSubmission(body) }),
             operationId,
           },
           execute: SchoolSurveys.use(({ prepareResponse, persistResponse }) =>

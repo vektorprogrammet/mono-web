@@ -53,11 +53,6 @@ import { knownAdmissionFailure } from "./http-problem.js";
 export const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* rejectQueryString(request);
-    const contentType = request.headers.get("content-type") ?? "";
-
-    if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
-    }
 
     const payload = yield* decodeJson(
       request,
@@ -278,6 +273,9 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
           ),
         };
       }),
+      // A concurrent create for the same department and semester commits after this
+      // snapshot; the restarted transaction sees it and answers that the period exists.
+      { retry: "serialization-once" },
     );
 
     return nativeCommandOutcomeResponse(result);
@@ -432,6 +430,9 @@ export const reviseAdmissionPeriod = (
           ),
         };
       }),
+      // A concurrent revision commits after this snapshot; the restarted transaction reads
+      // the new revision, so the stale If-Match answers precondition.failed.
+      { retry: "serialization-once" },
     );
 
     return nativeCommandOutcomeResponse(result);
@@ -531,6 +532,15 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
           ),
         };
       }),
+      // A concurrent submission for the same normalized email commits after this snapshot;
+      // the restarted transaction sees it and answers the duplicate instead of a write failure.
+      {
+        retry: "serialization-or-unique-once",
+        retryUniqueConstraints: [
+          "admission_applicants_normalized_email_key",
+          "native_http_idempotency_receipts_pkey",
+        ],
+      },
     );
 
     return nativeCommandOutcomeResponse(result);

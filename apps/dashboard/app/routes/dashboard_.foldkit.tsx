@@ -1,4 +1,3 @@
-import { Predicate } from "effect";
 import { UserProfileResponse } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { createElement } from "react";
@@ -7,6 +6,7 @@ import { DASHBOARD_ELEMENT, DASHBOARD_INPUT_ATTRIBUTE } from "../foldkit/dashboa
 import { DashboardInput, DashboardInputJson, isDashboardRole, LandingSummary } from "../foldkit/dashboard/model";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
+import { nativeProblemFrom } from "../lib/native-problem";
 import { ownerEnabled, responseHeaders } from "../lib/interview-bridge.server";
 import type { Route } from "./+types/dashboard_.foldkit";
 
@@ -26,8 +26,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (result.body === undefined) throw new Error("Profile response did not include a body");
     profile = result.body;
   } catch (error) {
-    const code =
-      Predicate.isObjectOrArray(error) && error !== null && "code" in error ? error.code : undefined;
+    const code = nativeProblemFrom(error)?.code;
 
     if (code === "credential.missing" || code === "credential.invalid") {
       throw await expiredSessionRedirect(request);

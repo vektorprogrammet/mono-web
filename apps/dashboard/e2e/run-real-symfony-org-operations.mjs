@@ -440,7 +440,9 @@ async function main() {
   // The existing Playwright config uses this real-dashboard project switch.
   dashboardEnv.REAL_SYMFONY_INTERVIEW_SCHEDULING_E2E = "1";
   dashboardEnv.API_URL = nativeOrigin;
-  dashboardEnv.VITE_API_URL = nativeOrigin;
+  // The browser reaches the API through the dashboard's same-origin /api proxy to API_URL;
+  // Foldkit browser clients refuse any other origin.
+  dashboardEnv.VITE_API_URL = dashboardOrigin;
   dashboardEnv.LEGACY_SYMFONY_URL = legacyOrigin;
   dashboardEnv.DASHBOARD_ORIGIN = dashboardOrigin;
   dashboardEnv.VITE_DASHBOARD_ORIGIN = dashboardOrigin;

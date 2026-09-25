@@ -1,5 +1,5 @@
-import { Effect, Schema as S } from "effect";
-import { toProfileBridgeFailure, type ProfileBridgeFailure } from "./bridge";
+import { Effect, Option, Schema as S } from "effect";
+import { ProfileBridgeFailure, toProfileBridgeFailure } from "./bridge";
 import { ProfileCommand, ProfileInput, type ProfileInput as ProfileInputValue } from "./model";
 
 export interface ProfileClient {
@@ -11,33 +11,17 @@ export interface ProfileClient {
 }
 
 interface BridgeResponse {
-  readonly status: number;
   readonly ok: boolean;
   readonly payload: unknown;
 }
 
 const profileEndpoint = "/profile";
 
-const statusTag = (status: number): string => {
-  if (status === 401) return "Unauthorized";
-
-  if (status === 403) return "Forbidden";
-
-  if (status === 404) return "NotFound";
-
-  if (status === 409 || status === 412 || status === 428) return "Conflict";
-
-  if (status === 400 || status === 422) return "Validation";
-
-  if (status === 429) return "RateLimited";
-
-  if (status >= 500) return "Configuration";
-
-  return "Network";
-};
-
+/** The profile route answers a failure with its typed bridge failure; anything else is unexpected. */
 const failureFrom = (response: BridgeResponse): ProfileBridgeFailure =>
-  toProfileBridgeFailure({ _tag: statusTag(response.status), message: "" });
+  S.decodeUnknownOption(ProfileBridgeFailure, { onExcessProperty: "error" })(response.payload).pipe(
+    Option.getOrElse(() => toProfileBridgeFailure(response.payload)),
+  );
 
 export const createBrowserProfileClient = (): ProfileClient => ({
   profile: {
@@ -55,7 +39,7 @@ export const createBrowserProfileClient = (): ProfileClient => ({
 
           const payload: unknown = await response.json().catch(() => null);
 
-          return { status: response.status, ok: response.ok, payload };
+          return { ok: response.ok, payload };
         },
         catch: (cause) => toProfileBridgeFailure(cause),
       }).pipe(

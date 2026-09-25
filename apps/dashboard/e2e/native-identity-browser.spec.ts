@@ -1,5 +1,7 @@
+import { SessionListResponse } from "@vektorprogrammet/http-api";
 import { Schema, Predicate } from "effect";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
@@ -268,41 +270,27 @@ const signInContext = async (
   expect(response.status()).toBe(200);
 };
 
-const readSessions = async (
-  context: BrowserContext,
-): Promise<ReadonlyArray<Record<string, Schema.Json>>> => {
+/** Reads owned sessions; the contract's owner-only projection rejects any extra field. */
+const readSessions = async (context: BrowserContext): Promise<typeof SessionListResponse.Type> => {
   const response = await context.request.get(`${apiOrigin}/api/sessions`, {
     headers: originHeaders(),
   });
 
   expect(response.status()).toBe(200);
-  const body = Schema.decodeUnknownSync(Schema.Array(Schema.Record(Schema.String, Schema.Json)))((await response.json()));
 
-  const expectedFields = [
-    "createdAt",
-    "current",
-    "expiresAt",
-    "ipAddress",
-    "sessionId",
-    "updatedAt",
-    "userAgent",
-  ];
+  const body = Schema.decodeUnknownSync(SessionListResponse, { onExcessProperty: "error" })(
+    await response.json(),
+  );
 
   expect(body.length).toBeGreaterThan(0);
-
-  for (const session of body) {
-    expect(Object.keys(session).sort()).toEqual(expectedFields);
-    expect(Predicate.isString(session.sessionId)).toBe(true);
-    expect(Predicate.isString(session.createdAt)).toBe(true);
-    expect(Predicate.isString(session.updatedAt)).toBe(true);
-    expect(Predicate.isString(session.expiresAt)).toBe(true);
-    expect(Predicate.isBoolean(session.current)).toBe(true);
-  }
-
-  expect(body.filter((session) => session.current === true)).toHaveLength(1);
+  expect(body.filter((session) => session.current)).toHaveLength(1);
 
   return body;
 };
+
+/** Session mutations are idempotent commands; each call is a new command with its own key. */
+const commandHeaders = (method: "DELETE" | "GET" | "POST"): Record<string, string> =>
+  method === "GET" ? {} : { "Idempotency-Key": randomBytes(18).toString("base64url") };
 
 const nativeMutation = (
   context: BrowserContext,
@@ -312,7 +300,7 @@ const nativeMutation = (
 ) =>
   context.request.fetch(`${apiOrigin}${path}`, {
     method,
-    headers: originHeaders(origin),
+    headers: { ...originHeaders(origin), ...commandHeaders(method) },
   });
 
 const replayWithCookie = (
@@ -325,6 +313,7 @@ const replayWithCookie = (
     headers: {
       Cookie: `${cookie.name}=${cookie.value}`,
       Origin: dashboardOrigin,
+      ...commandHeaders(method),
     },
   });
 
@@ -569,7 +558,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       await page.getByLabel("Passord", { exact: true }).fill(password);
       await page.getByRole("button", { name: "Logg inn" }).click();
       await page.waitForURL((url) => url.pathname === "/dashboard", { waitUntil: "commit" });
-      await expect(page.getByText("Journey Identity")).toBeVisible();
+      await expect(page.getByText("Journey Identity", { exact: true })).toBeVisible();
       browserAuthorityChecks.push(
         await observeBrowserAuthorityIsolation(context, page, "authenticated-dashboard"),
       );
@@ -595,7 +584,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       };
       await page.reload();
       await expect(page).toHaveURL(/\/dashboard\/?$/u);
-      await expect(page.getByText("Journey Identity")).toBeVisible();
+      await expect(page.getByText("Journey Identity", { exact: true })).toBeVisible();
       browserAuthorityChecks.push(
         await observeBrowserAuthorityIsolation(context, page, "authenticated-reload"),
       );

@@ -1,9 +1,7 @@
-import { DatabaseLive } from "@vektorprogrammet/database";
 import { Database } from "@vektorprogrammet/database";
-import {
-  deliverNextPublicApplicationOutbox,
-  makeRecordingPublicApplicationEffectInterpreter,
-} from "@vektorprogrammet/domain/application";
+import { DatabaseLive } from "@vektorprogrammet/database/live";
+import { deliverNextPublicApplicationOutbox } from "@vektorprogrammet/database/application";
+import { makeRecordingPublicApplicationEffectInterpreter } from "@vektorprogrammet/domain/application";
 import { Predicate, Effect, Redacted } from "effect";
 
 const postgresUrl = process.env.PUBLIC_APPLICATION_OUTBOX_PG_URL;
@@ -59,22 +57,14 @@ const program = Effect.gen(function* () {
     return yield* failProof("Public-application outbox did not persist provider failure");
   }
 
-  const retry = yield* deliverNextPublicApplicationOutbox(
-    "public-application-retry",
-    "2031-09-15T12:00:02.000Z",
-    interpreter,
-  );
-
-  if (!Predicate.isTagged(retry, "Delivered") || retry.claim.effectId !== firstEffectId) {
-    return yield* failProof("Public-application outbox did not retry the failed effect first");
-  }
-
-  let deliveryIndex = 0;
+  // The failed effect returns to the retry queue; the claim order serves other commands'
+  // effects fairly before it, so the retry is found in the drain instead of the next claim.
+  const delivered = [];
 
   while (true) {
     const result = yield* deliverNextPublicApplicationOutbox(
-      `public-application-delivery-${deliveryIndex}`,
-      `2031-09-15T12:00:${String(deliveryIndex + 3).padStart(2, "0")}.000Z`,
+      `public-application-delivery-${delivered.length}`,
+      `2031-09-15T12:00:${String(delivered.length + 2).padStart(2, "0")}.000Z`,
       interpreter,
     );
 
@@ -84,11 +74,17 @@ const program = Effect.gen(function* () {
       return yield* failProof("Public-application outbox returned an unexpected delivery state");
     }
 
-    deliveryIndex += 1;
+    delivered.push(result);
 
-    if (deliveryIndex > 32) {
+    if (delivered.length > 32) {
       return yield* failProof("Public-application outbox did not reach its bounded idle state");
     }
+  }
+
+  const retry = delivered.find((result) => result.claim.effectId === firstEffectId);
+
+  if (retry === undefined) {
+    return yield* failProof("Public-application outbox did not retry the failed effect");
   }
 
   yield* interpreter.deliver(retry.claim.request, retry.claim.ordinal, retry.claim.attempts + 1);
@@ -112,7 +108,9 @@ try {
   );
 
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
-} catch {
-  process.stderr.write("Public-application recording outbox driver failed\n");
+} catch (error) {
+  process.stderr.write(
+    `Public-application recording outbox driver failed: ${error instanceof Error ? error.message : "unknown failure"}\n`,
+  );
   process.exitCode = 1;
 }

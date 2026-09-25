@@ -362,14 +362,13 @@ export function parseAdmissionPeriodForm(
 
   let payload: typeof CreateAdmissionPeriodRequest.Type;
 
+  // An empty department is an absent key: the SDK encodes a present undefined as null,
+  // which the contract rejects.
   try {
     payload = Schema.decodeUnknownSync(CreateAdmissionPeriodRequest)(
-      {
-        semesterId: decoded.semesterId,
-        startAt,
-        endAt,
-        departmentId: decoded.departmentId === undefined ? undefined : decoded.departmentId,
-      },
+      decoded.departmentId === undefined
+        ? { semesterId: decoded.semesterId, startAt, endAt }
+        : { semesterId: decoded.semesterId, startAt, endAt, departmentId: decoded.departmentId },
       { onExcessProperty: "error" },
     );
   } catch {

@@ -101,7 +101,8 @@ const makeCredentialLifecycleHooks = (database: Pool) => {
             )
           ).rows[0];
 
-          if (!access && ctx.path !== "/request-password-reset") {
+          // Sign-out must clear the cookies of a revoked or expired session, never refuse them.
+          if (!access && ctx.path !== "/request-password-reset" && ctx.path !== "/sign-out") {
             if (ctx.path === "/get-session") return ctx.json(null);
             throw new APIError("UNAUTHORIZED", {
               code: "INVALID_SESSION",

@@ -5,12 +5,16 @@ import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
-  AdmissionPeriodActorSchema,
+  AdmissionRoleDenied,
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
+import {
+  RecruitmentInactiveActor,
+  RecruitmentRoleDenied,
+} from "@vektorprogrammet/domain/recruitment";
 import {
   type Identity,
   type IdentityEngineError,
@@ -29,6 +33,7 @@ import { AdmissionsApiHandlers } from "./admission/http.js";
 import { DirectoryApiHandlers } from "./directory/http.js";
 import {
   admissionActorForDepartment,
+  unscopedAdmissionActorFrom,
   organizationActorFrom,
   profileRoleFrom,
   recruitmentBoardActorFrom,
@@ -138,33 +143,25 @@ export const ExternalNativeApiRouterLive = (
     | UnauthenticatedActor
     | InactiveActor
     | AdmissionScopeDenied
+    | AdmissionRoleDenied
     | OrganizationResolutionError,
     Organization | Identity | OAuthCredentialAuthority
   > =>
     Effect.gen(function* () {
       const authority = yield* resolveRequestPersonAuthority(request, { now: options.now });
 
-      if (departmentScope === undefined) {
-        if (authority.globalAdministrator !== "Active") {
-          return yield* Effect.fail(
-            authority.globalAdministrator === "Inactive"
-              ? new InactiveActor({ personId: authority.personId })
-              : new UnauthenticatedActor({
-                  message: "no authority for unscoped management route",
-                }),
-          );
-        }
-
-        return AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
-          personId: authority.personId,
-          active: true,
-        });
-      }
-
       return yield* Effect.try({
-        try: () => admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
+        try: () =>
+          departmentScope === undefined
+            ? unscopedAdmissionActorFrom(authority)
+            : admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
         catch: (cause) => {
-          if (cause instanceof InactiveActor || cause instanceof AdmissionScopeDenied) return cause;
+          if (
+            cause instanceof InactiveActor ||
+            cause instanceof AdmissionScopeDenied ||
+            cause instanceof AdmissionRoleDenied
+          )
+            return cause;
           throw cause;
         },
       });
@@ -218,7 +215,9 @@ export const ExternalNativeApiRouterLive = (
             Effect.try({
               try: () => recruitmentBoardActorFrom(authority),
               catch: (cause) =>
-                cause instanceof InactiveActor || cause instanceof UnauthenticatedActor
+                cause instanceof InactiveActor ||
+                cause instanceof RecruitmentInactiveActor ||
+                cause instanceof RecruitmentRoleDenied
                   ? cause
                   : new Cause.UnknownError(cause),
             }),

@@ -1,36 +1,44 @@
-import { Data, Predicate } from "effect";
+import { Predicate } from "effect";
 import {
   postgresComposeEnvironment,
   postgresComposeFile,
   postgresProgram,
 } from "@monoweb/postgres";
+import { deriveHttpIdentity, encodePathIdentity } from "@vektorprogrammet/backend/http-semantics";
+import {
+  AdmissionsApi,
+  CreateAdmissionPeriodEndpoint,
+  ReviseAdmissionPeriodEndpoint,
+} from "@vektorprogrammet/http-api";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const DepartmentLeader = Data.tagged("DepartmentLeader");
-
-const GlobalAdmin = Data.tagged("GlobalAdmin");
-
-const Member = Data.tagged("Member");
-
-const None = Data.tagged("None");
+import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
-const dashboardOrigin = "http://127.0.0.1:5174";
+const [dashboardPort, backendPort, proxyPort, postgresPort] = await reserveLoopbackPorts(4);
 
-const backendOrigin = "http://127.0.0.1:8791";
+const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
-const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+const backendOrigin = `http://127.0.0.1:${backendPort}`;
+
+const proxyOrigin = `http://127.0.0.1:${proxyPort}`;
+
+const dashboardMount = "/dashboard/";
+
+const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
 
 const composeProject = `mono-web-admission-0038-${process.pid}`;
 
@@ -38,17 +46,112 @@ const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
 
-const postgresPort = 55432;
+/**
+ * ADMISSION_FIXED_NOW pins the authorization instant of admission commands, and a
+ * transactional session lookup requires the session to outlive that instant. The pinned
+ * instant therefore precedes every session that this journey signs in.
+ */
+const fixedClock = "2025-09-15T12:00:00.000Z";
 
-const fixedClock = "2031-09-15T12:00:00.000Z";
+/** Reference data that the runner seeds and the spec reads; the spec keeps no copy. */
+const reference = {
+  fixedNow: fixedClock,
+  departmentId: "department-trondheim",
+  foreignDepartmentId: "department-bergen",
+  semester: {
+    id: "semester-autumn-2025",
+    startAt: "2025-08-01T00:00:00.000Z",
+    endAt: "2025-12-31T00:00:00.000Z",
+  },
+  fieldOfStudyId: "field-mathematics",
+};
 
-const departmentId = "department-trondheim";
+const personaPassword = randomBytes(24).toString("base64url");
 
-const foreignDepartmentId = "department-bergen";
+const betterAuthSecret = randomBytes(32).toString("base64url");
 
-const semesterId = "semester-autumn-2031";
+const personas = {
+  leader: {
+    personId: "person-admission-leader-trondheim",
+    firstName: "Tora",
+    lastName: "Leder",
+    email: "leader.trondheim.admission@example.invalid",
+  },
+  foreignLeader: {
+    personId: "person-admission-leader-bergen",
+    firstName: "Berit",
+    lastName: "Leder",
+    email: "leader.bergen.admission@example.invalid",
+  },
+  globalAdministrator: {
+    personId: "person-admission-global-administrator",
+    firstName: "Gunnar",
+    lastName: "Administrator",
+    email: "global.administrator.admission@example.invalid",
+  },
+  inactiveLeader: {
+    personId: "person-admission-inactive-leader",
+    firstName: "Ivar",
+    lastName: "Tidligere",
+    email: "inactive.leader.admission@example.invalid",
+  },
+  member: {
+    personId: "person-admission-member-trondheim",
+    firstName: "Mia",
+    lastName: "Medlem",
+    email: "member.trondheim.admission@example.invalid",
+  },
+};
 
-const fieldOfStudyId = "field-mathematics";
+/**
+ * Authority comes only from these rows: an active team leader in each department, an
+ * active global administrator grant, a leader whose only membership has ended, and an
+ * active non-leader member. The admission reference data uses the same departments, and
+ * every person has the contact profile that the dashboard shell reads after sign-in.
+ */
+const seedSql = `
+BEGIN;
+INSERT INTO person_contact_profiles (person_id, email, phone, revision) VALUES
+${Object.values(personas)
+  .map(({ personId, email }, index) => `  ('${personId}', '${email}', '+47 900 00 ${40 + index}', 0)`)
+  .join(",\n")};
+INSERT INTO organization_departments (
+  department_id, name, short_name, email, city, active, revision
+) VALUES
+  ('${reference.departmentId}', 'Vektorprogrammet Trondheim', 'Trondheim',
+    'trondheim@example.invalid', 'Trondheim', TRUE, 0),
+  ('${reference.foreignDepartmentId}', 'Vektorprogrammet Bergen', 'Bergen',
+    'bergen@example.invalid', 'Bergen', TRUE, 0);
+INSERT INTO organization_teams (team_id, department_id, name, active, revision) VALUES
+  ('team-admission-trondheim', '${reference.departmentId}', 'Styret Trondheim', TRUE, 0),
+  ('team-admission-bergen', '${reference.foreignDepartmentId}', 'Styret Bergen', TRUE, 0);
+INSERT INTO organization_memberships (
+  membership_id, person_id, team_id, start_at, end_at, is_team_leader, position_name
+) VALUES
+  ('membership-admission-leader-trondheim', '${personas.leader.personId}',
+    'team-admission-trondheim', '2020-01-01T00:00:00.000Z', NULL, TRUE, 'Leder'),
+  ('membership-admission-leader-bergen', '${personas.foreignLeader.personId}',
+    'team-admission-bergen', '2020-01-01T00:00:00.000Z', NULL, TRUE, 'Leder'),
+  ('membership-admission-inactive-leader', '${personas.inactiveLeader.personId}',
+    'team-admission-trondheim', '2020-01-01T00:00:00.000Z', '2021-01-01T00:00:00.000Z',
+    TRUE, 'Leder'),
+  ('membership-admission-member-trondheim', '${personas.member.personId}',
+    'team-admission-trondheim', '2020-01-01T00:00:00.000Z', NULL, FALSE, 'Medlem');
+INSERT INTO organization_global_administrator_grants (grant_id, person_id, start_at, end_at)
+VALUES (
+  'grant-admission-global-administrator', '${personas.globalAdministrator.personId}',
+  '2020-01-01T00:00:00.000Z', NULL
+);
+INSERT INTO admission_period_departments (department_id, name) VALUES
+  ('${reference.departmentId}', 'Trondheim'),
+  ('${reference.foreignDepartmentId}', 'Bergen');
+INSERT INTO admission_period_semesters (semester_id, start_at, end_at) VALUES
+  ('${reference.semester.id}', '${reference.semester.startAt}', '${reference.semester.endAt}');
+INSERT INTO admission_period_fields_of_study (
+  field_of_study_id, department_id, name, active
+) VALUES ('${reference.fieldOfStudyId}', '${reference.departmentId}', 'Matematikk', TRUE);
+COMMIT;
+`;
 
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
@@ -58,22 +161,20 @@ const postgresTopology = dockerAvailable ? "docker" : "local";
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
+const errorCode = (error) =>
+  error !== null && Predicate.isObjectOrArray(error) && "code" in error ? error.code : undefined;
+
 function assertPortAvailable(port) {
   return new Promise((resolvePort, rejectPort) => {
     const socket = createConnection({ host: "127.0.0.1", port });
     socket.once("connect", () => {
       socket.destroy();
-      rejectPort(new Error(`Loopback port ${port} is already in use`));
+      rejectPort(new Error(`Loopback port ${port} is still in use`));
     });
     socket.once("error", (error) => {
       socket.destroy();
 
-      if (
-        error &&
-        (error === null || Predicate.isObjectOrArray(error)) &&
-        "code" in error &&
-        error.code === "ECONNREFUSED"
-      ) {
+      if (errorCode(error) === "ECONNREFUSED") {
         resolvePort();
 
         return;
@@ -82,6 +183,23 @@ function assertPortAvailable(port) {
       rejectPort(new Error(`Could not inspect loopback port ${port}`));
     });
   });
+}
+
+async function waitForPortRelease(port) {
+  let lastError;
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      await assertPortAvailable(port);
+
+      return;
+    } catch (error) {
+      lastError = error;
+      await sleep(100);
+    }
+  }
+
+  throw lastError;
 }
 
 function runCommand(command, args, options) {
@@ -95,10 +213,11 @@ function runCommand(command, args, options) {
     });
 
     const stdout = [];
+    const stderr = [];
 
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
-      child.stderr.resume();
+      child.stderr.on("data", (chunk) => stderr.push(chunk));
     }
 
     let settled = false;
@@ -135,9 +254,11 @@ function runCommand(command, args, options) {
         return;
       }
 
+      const detail = Buffer.concat(stderr).toString("utf8").trim();
+
       rejectCommand(
         new Error(
-          `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}`,
+          `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}${detail.length > 0 ? `: ${detail}` : ""}`,
         ),
       );
     });
@@ -165,14 +286,7 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (
-      !error ||
-      !(error === null || Predicate.isObjectOrArray(error)) ||
-      !("code" in error) ||
-      error.code !== "ESRCH"
-    ) {
-      throw new Error("Could not stop local process group");
-    }
+    if (errorCode(error) !== "ESRCH") throw new Error("Could not stop local process group");
 
     return;
   }
@@ -187,14 +301,7 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (
-      !error ||
-      !(error === null || Predicate.isObjectOrArray(error)) ||
-      !("code" in error) ||
-      error.code !== "ESRCH"
-    ) {
-      throw new Error("Could not terminate local process group");
-    }
+    if (errorCode(error) !== "ESRCH") throw new Error("Could not terminate local process group");
   }
 
   await exited;
@@ -327,14 +434,7 @@ async function pathExists(path) {
 
     return true;
   } catch (error) {
-    if (
-      error &&
-      (error === null || Predicate.isObjectOrArray(error)) &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      return false;
-    }
+    if (errorCode(error) === "ENOENT") return false;
 
     throw error;
   }
@@ -391,25 +491,143 @@ async function runPsql(sql, environment, label) {
     : runCommand(postgresProgram("psql"), args, options);
 }
 
-async function seedReferenceData(environment) {
-  await runPsql(
-    `
-      INSERT INTO admission_period_departments (department_id, name)
-      VALUES
-        ('${departmentId}', 'Trondheim'),
-        ('${foreignDepartmentId}', 'Bergen');
-      INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
-      VALUES ('${semesterId}', '2031-08-01T00:00:00.000Z', '2031-12-31T00:00:00.000Z');
-      INSERT INTO admission_period_fields_of_study (
-        field_of_study_id,
-        department_id,
-        name,
-        active
-      ) VALUES ('${fieldOfStudyId}', '${departmentId}', 'Matematikk', TRUE);
-    `,
-    environment,
-    "Admission reference-data seed",
-  );
+const parseJsonBody = (bytes) => {
+  if (bytes.byteLength === 0) return null;
+
+  try {
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    return null;
+  }
+};
+
+const admissionPeriodPath = /^\/api\/admission-periods(?:\/|$)/u;
+
+/**
+ * The dashboard server calls the backend from its loaders and actions, so the browser's
+ * commands are observable only between the two. Each forwarded request is appended to a
+ * JSON Lines ledger before its response is released, and the spec reads that ledger.
+ * Only admission-period bodies are kept: sign-in bodies carry passwords.
+ */
+async function startRecordingProxy(ledgerPath) {
+  const records = [];
+
+  const record = (entry) => {
+    records.push(entry);
+    appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
+  };
+
+  const server = createServer(async (request, response) => {
+    const method = request.method ?? "GET";
+    const url = new URL(request.url ?? "/", backendOrigin);
+    const chunks = [];
+
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const requestBytes = Buffer.concat(chunks);
+    const idempotencyKey = request.headers["idempotency-key"];
+    const ifMatch = request.headers["if-match"];
+
+    const entry = {
+      method,
+      path: url.pathname,
+      idempotencyKey: Predicate.isString(idempotencyKey) ? idempotencyKey : null,
+      ifMatch: Predicate.isString(ifMatch) ? ifMatch : null,
+      body: admissionPeriodPath.test(url.pathname) ? parseJsonBody(requestBytes) : null,
+      status: 502,
+      problemCode: null,
+    };
+
+    try {
+      const headers = new Headers();
+
+      for (const [name, value] of Object.entries(request.headers)) {
+        if (
+          value === undefined ||
+          ["connection", "content-length", "host", "transfer-encoding"].includes(name)
+        ) {
+          continue;
+        }
+
+        if (Array.isArray(value)) {
+          for (const item of value) headers.append(name, item);
+        } else {
+          headers.set(name, value);
+        }
+      }
+
+      const upstream = await fetch(url, {
+        method,
+        headers,
+        body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
+        redirect: "manual",
+      });
+
+      const responseBytes = Buffer.from(await upstream.arrayBuffer());
+      entry.status = upstream.status;
+
+      if (upstream.headers.get("content-type")?.startsWith("application/problem+json") === true) {
+        const problem = parseJsonBody(responseBytes);
+
+        entry.problemCode =
+          problem !== null &&
+          Predicate.isObjectOrArray(problem) &&
+          "code" in problem &&
+          Predicate.isString(problem.code)
+            ? problem.code
+            : null;
+      }
+
+      record(entry);
+      response.statusCode = upstream.status;
+
+      for (const [name, value] of upstream.headers.entries()) {
+        if (
+          ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
+        ) {
+          continue;
+        }
+
+        response.setHeader(name, value);
+      }
+
+      const setCookie = upstream.headers.getSetCookie();
+
+      if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
+      response.setHeader("content-length", String(responseBytes.byteLength));
+      response.end(responseBytes);
+    } catch {
+      record(entry);
+      response.statusCode = 502;
+      response.setHeader("content-type", "application/json");
+      response.end('{"error":"admission evidence proxy failed"}');
+    }
+  });
+
+  await new Promise((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.listen(proxyPort, "127.0.0.1", () => {
+      server.removeListener("error", rejectListen);
+      resolveListen();
+    });
+  });
+
+  let closed = false;
+
+  return {
+    records,
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      server.closeAllConnections?.();
+      await new Promise((resolveClose, rejectClose) => {
+        server.close((error) =>
+          error === undefined || errorCode(error) === "ERR_SERVER_NOT_RUNNING"
+            ? resolveClose()
+            : rejectClose(error),
+        );
+      });
+    },
+  };
 }
 
 async function readPostgresEvidence(environment) {
@@ -476,15 +694,47 @@ async function readPostgresEvidence(environment) {
   return JSON.parse(result.stdout.trim());
 }
 
+/**
+ * The backend persists the command ID derived from the credential subject, operation,
+ * target, and Idempotency-Key, never the raw key. The leader issued every accepted
+ * command: the browser's create and close, and the concurrent API revision that won.
+ */
+const leaderCommandId = (endpoint, normalizedTarget, idempotencyKey) =>
+  deriveHttpIdentity({
+    credentialSubject: `Person:${personas.leader.personId}`,
+    qualifiedOperationId: `${AdmissionsApi.identifier}.${endpoint.identifier}`,
+    normalizedTarget,
+    idempotencyKey,
+  }).commandId;
+
 function assertDurableEvidence(postgres, lifecycle) {
   const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
   const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
 
-  const acceptedCommandIds = [
+  const periodTarget = ReviseAdmissionPeriodEndpoint.path.replace(
+    ":admissionPeriodId",
+    encodePathIdentity(lifecycle.period.id),
+  );
+
+  const createCommandId = leaderCommandId(
+    CreateAdmissionPeriodEndpoint,
+    CreateAdmissionPeriodEndpoint.path,
     lifecycle.period.createIdempotencyKey,
+  );
+
+  const concurrentWinnerCommandId = leaderCommandId(
+    ReviseAdmissionPeriodEndpoint,
+    periodTarget,
     lifecycle.period.concurrentWinnerIdempotencyKey,
+  );
+
+  const closeCommandId = leaderCommandId(
+    ReviseAdmissionPeriodEndpoint,
+    periodTarget,
     lifecycle.period.closeIdempotencyKey,
-  ];
+  );
+
+  const acceptedCommandIds = [createCommandId, concurrentWinnerCommandId, closeCommandId];
 
   const auditCommandIds = audits.map((audit) => audit.commandId);
   const outboxCommandIds = outbox.map((effect) => effect.commandId);
@@ -505,7 +755,7 @@ function assertDurableEvidence(postgres, lifecycle) {
     postgres.applicationCommandCount !== 1 ||
     postgres.period?.id !== lifecycle.period.id ||
     postgres.period?.revision !== lifecycle.period.finalRevision ||
-    postgres.period?.lastCommandId !== lifecycle.period.closeIdempotencyKey ||
+    postgres.period?.lastCommandId !== closeCommandId ||
     postgres.application?.id !== lifecycle.application.id ||
     postgres.application?.admissionPeriodId !== lifecycle.period.id ||
     lifecycle.publicEligibility.beforeClose.includes(lifecycle.period.id) !== true ||
@@ -524,99 +774,71 @@ function assertDurableEvidence(postgres, lifecycle) {
   }
 }
 
-async function main() {
-  await Promise.all([
-    assertPortAvailable(5174),
-    assertPortAvailable(8791),
-    assertPortAvailable(55432),
-  ]);
+const describeLedger = (records) =>
+  records
+    .map(({ method, path, status, problemCode, body }) =>
+      [method, path, status, problemCode, body === null ? null : JSON.stringify(body)]
+        .filter((part) => part !== null)
+        .join(" "),
+    )
+    .join("\n");
 
+async function main() {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-admission-0038-"));
   const postgresDataRoot = join(temporaryRoot, "postgres");
   const stagingRoot = join(temporaryRoot, "receipt-staging");
   const committedRoot = join(temporaryRoot, "receipt-committed");
   const lifecycleEvidencePath = join(temporaryRoot, "admission-lifecycle-evidence.json");
+  const proxyLedgerPath = join(temporaryRoot, "admission-proxy-ledger.jsonl");
   await Promise.all([
     mkdir(stagingRoot, { recursive: true }),
     mkdir(committedRoot, { recursive: true }),
   ]);
 
-  const leaderToken = randomBytes(32).toString("base64url");
-  const foreignLeaderToken = randomBytes(32).toString("base64url");
-  const globalAdminToken = randomBytes(32).toString("base64url");
-  const inactiveToken = randomBytes(32).toString("base64url");
-  const roleDeniedToken = randomBytes(32).toString("base64url");
-
-  const admissionTokens = JSON.stringify({
-    [leaderToken]: DepartmentLeader({ personId: "leader-trondheim", departmentId, active: true }),
-    [foreignLeaderToken]: DepartmentLeader({
-      personId: "leader-bergen",
-      departmentId: foreignDepartmentId,
-      active: true,
-    }),
-    [globalAdminToken]: GlobalAdmin({ personId: "global-administrator", active: true }),
-    [inactiveToken]: DepartmentLeader({ personId: "inactive-leader", departmentId, active: false }),
-    [roleDeniedToken]: Member({ personId: "member-trondheim", departmentId, active: true }),
+  const baseEnvironment = postgresComposeEnvironment({
+    ...process.env,
+    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
   });
 
-  const receiptPrincipal = (personId, actorDepartmentId, active) => ({
-    personId,
-    departmentId: actorDepartmentId,
-    active,
-    paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-    approvalScope: None({}),
-  });
-
-  const receiptTokens = JSON.stringify({
-    [leaderToken]: receiptPrincipal("leader-trondheim", departmentId, true),
-    [foreignLeaderToken]: receiptPrincipal("leader-bergen", foreignDepartmentId, true),
-    [globalAdminToken]: receiptPrincipal("global-administrator", departmentId, true),
-    [inactiveToken]: receiptPrincipal("inactive-leader", departmentId, false),
-    [roleDeniedToken]: receiptPrincipal("member-trondheim", departmentId, true),
-  });
-
-  const baseEnvironment = postgresComposeEnvironment({ ...process.env });
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
 
   const apiEnvironment = {
     ...baseEnvironment,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: "8791",
-    BACKEND_PG_URL: postgresUrl,
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    PASSWORD_RESET_DELIVERY_MODE: "disabled",
-    RECEIPT_DELIVERY_MODE: "disabled",
-    ADMISSION_AUTH_TOKENS: admissionTokens,
+    ...localBackendEnvironment({ backendOrigin, dashboardOrigin, postgresUrl, betterAuthSecret }),
     ADMISSION_FIXED_NOW: fixedClock,
-    RECEIPT_AUTH_TOKENS: receiptTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
-    RECEIPT_MAX_FILE_BYTES: "10485760",
-    RECEIPT_E2E_TEST_MODE: "1",
   };
 
   const dashboardEnvironment = {
     ...baseEnvironment,
-    API_URL: backendOrigin,
-    VITE_API_URL: backendOrigin,
+    API_URL: proxyOrigin,
+    VITE_API_URL: dashboardOrigin,
+    DASHBOARD_ORIGIN: dashboardOrigin,
+    DASHBOARD_MOUNT: dashboardMount,
   };
 
   const playwrightEnvironment = {
     ...dashboardEnvironment,
     REAL_ADMISSION_PERIOD_E2E: "1",
     BACKEND_ORIGIN: backendOrigin,
-    DASHBOARD_ORIGIN: dashboardOrigin,
-    ADMISSION_E2E_LEADER_TOKEN: leaderToken,
-    ADMISSION_E2E_FOREIGN_LEADER_TOKEN: foreignLeaderToken,
-    ADMISSION_E2E_GLOBAL_ADMIN_TOKEN: globalAdminToken,
-    ADMISSION_E2E_INACTIVE_TOKEN: inactiveToken,
-    ADMISSION_E2E_ROLE_DENIED_TOKEN: roleDeniedToken,
+    ADMISSION_E2E_REFERENCE: JSON.stringify(reference),
+    ADMISSION_E2E_PERSONAS: JSON.stringify(
+      Object.fromEntries(
+        Object.entries(personas).map(([role, { email }]) => [
+          role,
+          { email, password: personaPassword },
+        ]),
+      ),
+    ),
+    ADMISSION_E2E_PROXY_LEDGER_PATH: proxyLedgerPath,
     ADMISSION_E2E_LIFECYCLE_EVIDENCE_PATH: lifecycleEvidencePath,
   };
 
   let postgresStarted = false;
   let apiProcess;
+  let proxy;
   let dashboardProcess;
   let evidence;
   let cleaned = false;
@@ -626,12 +848,22 @@ async function main() {
     cleaned = true;
     const cleanupErrors = [];
 
-    for (const processToStop of [dashboardProcess, apiProcess]) {
-      try {
-        await stopProcess(processToStop);
-      } catch (error) {
-        cleanupErrors.push(error);
-      }
+    try {
+      await stopProcess(dashboardProcess);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+
+    try {
+      await proxy?.close();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+
+    try {
+      await stopProcess(apiProcess);
+    } catch (error) {
+      cleanupErrors.push(error);
     }
 
     if (postgresStarted) {
@@ -716,44 +948,47 @@ async function main() {
           env: apiEnvironment,
         });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
-    await seedReferenceData(baseEnvironment);
+    await runCommand("bun", ["run", "identity:seed"], {
+      cwd: databaseRoot,
+      env: {
+        ...apiEnvironment,
+        IDENTITY_SEED_PG_URL: postgresUrl,
+        IDENTITY_SEED_PERSONS: JSON.stringify(
+          Object.values(personas).map((persona) => ({ ...persona, password: personaPassword })),
+        ),
+      },
+      label: "Admission native identity seed",
+      captureOutput: true,
+    });
+    await runPsql(seedSql, baseEnvironment, "Admission authority and reference-data seed");
+    proxy = await startRecordingProxy(proxyLedgerPath);
 
     await runCommand("bun", ["run", "build"], {
-      cwd: sdkRoot,
+      cwd: dashboardRoot,
       env: dashboardEnvironment,
-      label: "Admission SDK build",
+      label: "Admission dashboard production build",
     });
-    dashboardProcess = startProcess(
-      "nix",
-      [
-        "shell",
-        "nixpkgs#nodejs_24",
-        "--command",
-        "node",
-        "node_modules/@react-router/dev/dist/cli/index.js",
-        "dev",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "5174",
-      ],
-      { cwd: dashboardRoot, env: dashboardEnvironment },
-    );
-    await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
+    dashboardProcess = startProcess("bun", ["server.mjs"], {
+      cwd: dashboardRoot,
+      env: {
+        ...dashboardEnvironment,
+        HOST: "127.0.0.1",
+        PORT: String(dashboardPort),
+        NODE_ENV: "production",
+      },
+    });
+    await waitForHttp(`${dashboardOrigin}${dashboardMount}login`, dashboardProcess, "Dashboard");
 
     await runCommand(
-      "nix",
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
       [
-        "shell",
-        "nixpkgs#nodejs_24",
-        "--command",
-        "node",
         "./node_modules/@playwright/test/cli.js",
         "test",
         "e2e/admission-period-management.spec.ts",
         "--project=admission-period-management",
         "--workers=1",
         "--retries=0",
+        "--reporter=list",
       ],
       {
         cwd: dashboardRoot,
@@ -767,8 +1002,9 @@ async function main() {
     assertDurableEvidence(postgres, lifecycle);
     evidence = {
       topology: {
-        dashboard: "loopback-react-router",
+        dashboard: "loopback-react-router-production-build",
         api: "unified-native-effect-backend",
+        identity: "native-better-auth-sessions",
         database:
           postgresTopology === "docker"
             ? "disposable-postgresql-docker"
@@ -781,12 +1017,24 @@ async function main() {
     };
   } catch (error) {
     primaryError = error;
+
+    if (proxy !== undefined && proxy.records.length > 0) {
+      process.stderr.write(`Admission proxy ledger:\n${describeLedger(proxy.records)}\n`);
+    }
   }
 
   let cleanupError;
 
   try {
     await cleanup();
+
+    if (await pathExists(temporaryRoot)) {
+      throw new Error("Admission cleanup left the temporary root behind");
+    }
+
+    await Promise.all(
+      [dashboardPort, backendPort, proxyPort, postgresPort].map((port) => waitForPortRelease(port)),
+    );
   } catch (error) {
     cleanupError = error;
   } finally {
@@ -802,31 +1050,26 @@ async function main() {
 
   if (cleanupError !== undefined) throw cleanupError;
 
-  if (await pathExists(temporaryRoot)) {
-    throw new Error("Admission cleanup left the temporary root behind");
-  }
-
-  await Promise.all([
-    assertPortAvailable(5174),
-    assertPortAvailable(8791),
-    assertPortAvailable(55432),
-  ]);
-
   process.stdout.write(
     `${JSON.stringify({
       ...evidence,
       cleanup: {
         postgresRemoved: true,
         temporaryRootRemoved: true,
-        portsReleased: [5174, 8791, 55432],
+        portsReleased: [dashboardPort, backendPort, proxyPort, postgresPort],
       },
     })}\n`,
   );
 }
 
+const errorDetail = (error) =>
+  error instanceof AggregateError
+    ? `${error.message}: ${error.errors.map(errorDetail).join("; ")}`
+    : error instanceof Error
+      ? error.message
+      : String(error);
+
 main().catch((error) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : "Real admission runner failed"}\n`,
-  );
+  process.stderr.write(`Real admission runner failed: ${errorDetail(error)}\n`);
   process.exitCode = 1;
 });
