@@ -89,6 +89,8 @@ export const observeLegacyCandidateNativeJourney = async (
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
     RECEIPT_STAGING_ROOT: input.receiptStore.stagingRoot,
     RECEIPT_COMMITTED_ROOT: input.receiptStore.committedRoot,
   });

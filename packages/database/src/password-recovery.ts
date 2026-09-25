@@ -1,7 +1,7 @@
 import { DatabasePgPool } from "./pg-pool.js";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-import { Context, Layer, Match, Predicate, Effect } from "effect";
+import { createHash, randomUUID } from "node:crypto";
+import { Cause, Context, Exit, Layer, Match, Predicate, Effect } from "effect";
 import type { Pool, PoolClient } from "pg";
 import type {
   IdentityRequestContext,
@@ -283,69 +283,73 @@ export const makePasswordRecovery = (pool: Pool, config: AuthEngineConfig) => {
 };
 
 /** One bounded attempt. SKIP LOCKED and claim fencing allow independent operators safely. */
-export const drainPasswordResetMail = async (
+export const drainPasswordResetMail = (
   pool: Pool,
   config: Pick<AuthEngineConfig, "oauth">,
   mail: MailOperations,
   sender: string,
-): Promise<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim"> => {
-  const claim = randomUUID();
+): Effect.Effect<"Empty" | "Delivered" | "Failed" | "Quarantined" | "LostClaim"> =>
+  Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const claim = randomUUID();
 
-  const row = await transaction(pool, async (client) => {
-    await client.query(
-      `UPDATE auth.password_reset_email_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_code='stale-claim' WHERE status='Processing' AND claimed_at<CURRENT_TIMESTAMP-INTERVAL '60 seconds'`,
-    );
+      const row = yield* Effect.promise(() =>
+        transaction(pool, async (client) => {
+          await client.query(
+            `UPDATE auth.password_reset_email_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_code='stale-claim' WHERE status='Processing' AND claimed_at<CURRENT_TIMESTAMP-INTERVAL '60 seconds'`,
+          );
 
-    return (
-      await client.query<{
-        effect_id: string;
-        verification_id: string;
-        subject_person_id: string;
-        attempts: number;
-      }>(
-        `WITH next AS (SELECT effect_id FROM auth.password_reset_email_outbox WHERE status='Pending' OR (status='Failed' AND attempts<3) ORDER BY created_at,effect_id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE auth.password_reset_email_outbox o SET status='Processing',claim_id=$1,claimed_at=CURRENT_TIMESTAMP,attempts=attempts+1 FROM next WHERE o.effect_id=next.effect_id RETURNING o.*`,
-        [claim],
-      )
-    ).rows[0];
-  });
+          return (
+            await client.query<{
+              effect_id: string;
+              verification_id: string;
+              subject_person_id: string;
+              attempts: number;
+              payload_sha256: string | null;
+            }>(
+              `WITH next AS (SELECT effect_id FROM auth.password_reset_email_outbox WHERE status='Pending' OR (status='Failed' AND attempts<3) ORDER BY created_at,effect_id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE auth.password_reset_email_outbox o SET status='Processing',claim_id=$1,claimed_at=CURRENT_TIMESTAMP,attempts=attempts+1 FROM next WHERE o.effect_id=next.effect_id RETURNING o.*`,
+              [claim],
+            )
+          ).rows[0];
+        }),
+      );
 
-  if (!row) return "Empty";
+      if (!row) return "Empty";
 
-  const verification = (
-    await pool.query<{ identifier: string; value: string; expiresAt: Date; email: string | null }>(
-      `SELECT v.identifier,v.value,v."expiresAt",u.email FROM auth.verification v LEFT JOIN auth."user" u ON u.id=$2 AND NOT u.access_disabled WHERE v.id=$1`,
-      [row.verification_id, row.subject_person_id],
-    )
-  ).rows[0];
+      const verification = (yield* Effect.promise(() =>
+        pool.query<{ identifier: string; value: string; expiresAt: Date; email: string | null }>(
+          `SELECT v.identifier,v.value,v."expiresAt",u.email FROM auth.verification v LEFT JOIN auth."user" u ON u.id=$2 AND NOT u.access_disabled WHERE v.id=$1`,
+          [row.verification_id, row.subject_person_id],
+        ),
+      )).rows[0];
 
-  let failure:
-    | "verification-invalid"
-    | "verification-expired"
-    | "authority-mismatch"
-    | "provider-rejected"
-    | "provider-unavailable"
-    | "delivery-timeout"
-    | null = null;
+      let failure:
+        | "verification-invalid"
+        | "verification-expired"
+        | "authority-mismatch"
+        | "provider-rejected"
+        | "provider-unavailable"
+        | "delivery-timeout"
+        | null = null;
 
-  let providerReference: string | null = null;
-  let quarantined = false;
+      let providerReference: string | null = null;
+      let interruptedCause: Cause.Cause<never> | undefined;
+      let quarantined = false;
 
-  if (!verification || !/^reset-password:[A-Za-z0-9_-]+$/.test(verification.identifier)) {
-    failure = "verification-invalid";
-  } else if (verification.value !== row.subject_person_id || !verification.email) {
-    failure = "authority-mismatch";
-  } else if (verification.expiresAt.getTime() <= Date.now()) {
-    failure = "verification-expired";
-  }
+      if (!verification || !/^reset-password:[A-Za-z0-9_-]+$/.test(verification.identifier)) {
+        failure = "verification-invalid";
+      } else if (verification.value !== row.subject_person_id || !verification.email) {
+        failure = "authority-mismatch";
+      } else if (verification.expiresAt.getTime() <= Date.now()) {
+        failure = "verification-expired";
+      }
 
-  quarantined = failure !== null;
+      quarantined = failure !== null;
 
-  if (!failure && verification) {
-    const token = verification.identifier.slice("reset-password:".length);
+      if (!failure && verification) {
+        const token = verification.identifier.slice("reset-password:".length);
 
-    const result = await Effect.runPromise(
-      Effect.result(
-        mail.deliver({
+        const request = {
           deliveryId: row.effect_id,
           sender,
           recipient: verification.email!,
@@ -359,46 +363,80 @@ export const drainPasswordResetMail = async (
             "",
             "Hvis du ikke ba om dette, kan du se bort fra e-posten.",
           ].join("\n"),
+        };
+
+        const fingerprint = createHash("sha256").update(JSON.stringify(request)).digest("hex");
+
+        const frozen = yield* Effect.promise(() =>
+          pool.query(
+            "UPDATE auth.password_reset_email_outbox SET payload_sha256=COALESCE(payload_sha256,$3) WHERE effect_id=$1 AND claim_id=$2 AND status='Processing' RETURNING payload_sha256",
+            [row.effect_id, claim, fingerprint],
+          ),
+        );
+
+        if (frozen.rowCount !== 1) return "LostClaim";
+
+        if (frozen.rows[0].payload_sha256 !== fingerprint) {
+          failure = "verification-invalid";
+          quarantined = true;
+        } else {
+          const deliveryExit = yield* Effect.exit(restore(Effect.result(mail.deliver(request))));
+
+          if (Exit.isFailure(deliveryExit)) {
+            // Interruption is ambiguous. Persist quarantine before the owning fiber releases the pool.
+            if (!Cause.hasInterruptsOnly(deliveryExit.cause))
+              return yield* Effect.failCause(deliveryExit.cause);
+            interruptedCause = deliveryExit.cause;
+            failure = "delivery-timeout";
+            quarantined = true;
+          } else {
+            const result = deliveryExit.value;
+
+            if (Predicate.isTagged(result, "Failure")) {
+              failure = Match.value(result.failure.kind).pipe(
+                Match.when("permanent-rejection", () => "provider-rejected" as const),
+                Match.when("ambiguous-outcome", () => "delivery-timeout" as const),
+                Match.orElse(() => "provider-unavailable" as const),
+              );
+              quarantined = result.failure.kind !== "temporary-unavailability" || row.attempts >= 3;
+            } else {
+              providerReference = result.success.providerReference;
+            }
+          }
+        }
+      }
+
+      const outcome = yield* Effect.promise(() =>
+        transaction(pool, async (client) => {
+          const updated = await client.query(
+            `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN CURRENT_TIMESTAMP ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing'`,
+            [
+              row.effect_id,
+              claim,
+              failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed",
+              failure,
+              providerReference,
+            ],
+          );
+
+          if (updated.rowCount !== 1) return "LostClaim";
+          await audit(
+            client,
+            failure === null ? "password-reset-mail-delivered" : "password-reset-mail-failed",
+            failure ?? "provider-acknowledged",
+            row.subject_person_id,
+            null,
+          );
+
+          return failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed";
         }),
-      ),
-    );
-
-    if (Predicate.isTagged(result, "Failure")) {
-      failure = Match.value(result.failure.kind).pipe(
-        Match.when("permanent-rejection", () => "provider-rejected" as const),
-        Match.when("ambiguous-outcome", () => "delivery-timeout" as const),
-        Match.orElse(() => "provider-unavailable" as const),
       );
-      quarantined = result.failure.kind !== "temporary-unavailability" || row.attempts >= 3;
-    } else {
-      providerReference = result.success.providerReference;
-    }
-  }
 
-  return transaction(pool, async (client) => {
-    const updated = await client.query(
-      `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN CURRENT_TIMESTAMP ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing'`,
-      [
-        row.effect_id,
-        claim,
-        failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed",
-        failure,
-        providerReference,
-      ],
-    );
+      if (interruptedCause) return yield* Effect.failCause(interruptedCause);
 
-    if (updated.rowCount !== 1) return "LostClaim";
-    await audit(
-      client,
-      failure === null ? "password-reset-mail-delivered" : "password-reset-mail-failed",
-      failure ?? "provider-acknowledged",
-      row.subject_person_id,
-      null,
-    );
-
-    return failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed";
-  });
-};
+      return outcome;
+    }),
+  );
 
 export class PasswordRecovery extends Context.Service<
   PasswordRecovery,

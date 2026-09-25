@@ -67,7 +67,12 @@ function assertPortAvailable(port) {
     socket.once("error", (error) => {
       socket.destroy();
 
-      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
+      if (
+        error &&
+        (error === null || Predicate.isObjectOrArray(error)) &&
+        "code" in error &&
+        error.code === "ECONNREFUSED"
+      ) {
         resolvePort();
 
         return;
@@ -163,7 +168,12 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (
+      !error ||
+      !(error === null || Predicate.isObjectOrArray(error)) ||
+      !("code" in error) ||
+      error.code !== "ESRCH"
+    ) {
       throw new Error("Could not stop local process group");
     }
 
@@ -180,7 +190,12 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (
+      !error ||
+      !(error === null || Predicate.isObjectOrArray(error)) ||
+      !("code" in error) ||
+      error.code !== "ESRCH"
+    ) {
       throw new Error("Could not terminate local process group");
     }
   }
@@ -315,7 +330,12 @@ async function pathExists(path) {
 
     return true;
   } catch (error) {
-    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
+    if (
+      error &&
+      (error === null || Predicate.isObjectOrArray(error)) &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
       return false;
     }
 
@@ -531,11 +551,15 @@ async function main() {
   const roleDeniedToken = randomBytes(32).toString("base64url");
 
   const admissionTokens = JSON.stringify({
-    [leaderToken]: DepartmentLeader({personId: "leader-trondheim", departmentId, active: true}),
-    [foreignLeaderToken]: DepartmentLeader({personId: "leader-bergen", departmentId: foreignDepartmentId, active: true}),
-    [globalAdminToken]: GlobalAdmin({personId: "global-administrator", active: true}),
-    [inactiveToken]: DepartmentLeader({personId: "inactive-leader", departmentId, active: false}),
-    [roleDeniedToken]: Member({personId: "member-trondheim", departmentId, active: true}),
+    [leaderToken]: DepartmentLeader({ personId: "leader-trondheim", departmentId, active: true }),
+    [foreignLeaderToken]: DepartmentLeader({
+      personId: "leader-bergen",
+      departmentId: foreignDepartmentId,
+      active: true,
+    }),
+    [globalAdminToken]: GlobalAdmin({ personId: "global-administrator", active: true }),
+    [inactiveToken]: DepartmentLeader({ personId: "inactive-leader", departmentId, active: false }),
+    [roleDeniedToken]: Member({ personId: "member-trondheim", departmentId, active: true }),
   });
 
   const receiptPrincipal = (personId, actorDepartmentId, active) => ({
@@ -564,6 +588,8 @@ async function main() {
     BACKEND_PORT: "8791",
     BACKEND_PG_URL: postgresUrl,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: admissionTokens,
     ADMISSION_FIXED_NOW: fixedClock,
     RECEIPT_AUTH_TOKENS: receiptTokens,

@@ -220,7 +220,12 @@ function assertPortAvailable(port) {
     socket.once("error", (error) => {
       socket.destroy();
 
-      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
+      if (
+        error &&
+        (error === null || Predicate.isObjectOrArray(error)) &&
+        "code" in error &&
+        error.code === "ECONNREFUSED"
+      ) {
         resolvePort();
 
         return;
@@ -254,7 +259,12 @@ function signalProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (
+      !error ||
+      !(error === null || Predicate.isObjectOrArray(error)) ||
+      !("code" in error) ||
+      error.code !== "ESRCH"
+    ) {
       throw error;
     }
   }
@@ -487,7 +497,12 @@ async function pathExists(path) {
 
     return true;
   } catch (error) {
-    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
+    if (
+      error &&
+      (error === null || Predicate.isObjectOrArray(error)) &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
       return false;
     }
 
@@ -598,10 +613,9 @@ async function startRecordingProxy(targetOrigin) {
       authorizationHeaderPresent: request.headers.authorization !== undefined,
       requestHasResponseCapability: hasObjectKey(requestJson, "responseCapability"),
       responseHasResponseCapability: false,
-      idempotencyKey:
-        Predicate.isString(request.headers["idempotency-key"])
-          ? request.headers["idempotency-key"]
-          : null,
+      idempotencyKey: Predicate.isString(request.headers["idempotency-key"])
+        ? request.headers["idempotency-key"]
+        : null,
       ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
       requestJson,
       responseJson: null,
@@ -1059,6 +1073,8 @@ async function main() {
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
     ADMISSION_FIXED_NOW: fixedClock,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,

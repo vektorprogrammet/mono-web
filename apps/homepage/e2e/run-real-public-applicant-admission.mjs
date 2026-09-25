@@ -778,6 +778,8 @@ async function main() {
     BACKEND_PORT: "8792",
     BACKEND_PG_URL: postgresUrl,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: admissionTokens,
     ADMISSION_FIXED_NOW: fixedClock,
     ADMISSION_MAX_BODY_BYTES: "16384",

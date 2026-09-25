@@ -82,7 +82,8 @@ const pngReceiptBytes = Buffer.from(
   "base64",
 );
 
-const sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+const sleep = (milliseconds) =>
+  new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
 function assertPortAvailable(port) {
   return new Promise((resolvePort, rejectPort) => {
@@ -94,7 +95,12 @@ function assertPortAvailable(port) {
     socket.once("error", (error) => {
       socket.destroy();
 
-      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
+      if (
+        error &&
+        (error === null || Predicate.isObjectOrArray(error)) &&
+        "code" in error &&
+        error.code === "ECONNREFUSED"
+      ) {
         resolvePort();
 
         return;
@@ -163,7 +169,8 @@ function runCommand(command, args, options) {
       }
 
       const detail = captureOutput
-        ? Buffer.concat(stderr).toString("utf8").trim() || Buffer.concat(stdout).toString("utf8").trim()
+        ? Buffer.concat(stderr).toString("utf8").trim() ||
+          Buffer.concat(stdout).toString("utf8").trim()
         : "";
 
       rejectCommand(
@@ -199,7 +206,12 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (
+      !error ||
+      !(error === null || Predicate.isObjectOrArray(error)) ||
+      !("code" in error) ||
+      error.code !== "ESRCH"
+    ) {
       throw new Error("Could not stop local process group");
     }
 
@@ -216,7 +228,12 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (
+      !error ||
+      !(error === null || Predicate.isObjectOrArray(error)) ||
+      !("code" in error) ||
+      error.code !== "ESRCH"
+    ) {
       throw new Error("Could not terminate local process group");
     }
   }
@@ -351,7 +368,12 @@ async function pathExists(path) {
 
     return true;
   } catch (error) {
-    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
+    if (
+      error &&
+      (error === null || Predicate.isObjectOrArray(error)) &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
       return false;
     }
 
@@ -389,9 +411,7 @@ async function startRecordingProxy(targetOrigin) {
       for (const [name, value] of Object.entries(request.headers)) {
         if (
           value === undefined ||
-          ["connection", "content-length", "host", "transfer-encoding"].includes(
-            name.toLowerCase(),
-          )
+          ["connection", "content-length", "host", "transfer-encoding"].includes(name.toLowerCase())
         )
           continue;
         headers.set(name, Array.isArray(value) ? value.join(",") : value);
@@ -443,7 +463,9 @@ async function startRecordingProxy(targetOrigin) {
       response.end(upstreamBody);
     } catch (error) {
       response.writeHead(502, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "proxy failure" }));
+      response.end(
+        JSON.stringify({ error: error instanceof Error ? error.message : "proxy failure" }),
+      );
     }
   });
 
@@ -456,12 +478,16 @@ async function startRecordingProxy(targetOrigin) {
   });
   const address = server.address();
 
-  if (address === null || Predicate.isString(address)) throw new Error("Receipt proxy has no TCP address");
+  if (address === null || Predicate.isString(address))
+    throw new Error("Receipt proxy has no TCP address");
 
   return {
     origin: `http://127.0.0.1:${address.port}`,
     records,
-    close: () => new Promise((resolveClose, rejectClose) => server.close((error) => (error ? rejectClose(error) : resolveClose()))),
+    close: () =>
+      new Promise((resolveClose, rejectClose) =>
+        server.close((error) => (error ? rejectClose(error) : resolveClose())),
+      ),
   };
 }
 
@@ -473,7 +499,8 @@ async function startDeliverySink() {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const bytes = await readIncoming(request);
     const envelope = parseJson(bytes);
-    const loopback = request.socket.remoteAddress === "127.0.0.1" || request.socket.remoteAddress === "::1";
+    const loopback =
+      request.socket.remoteAddress === "127.0.0.1" || request.socket.remoteAddress === "::1";
 
     if (
       request.method !== "POST" ||
@@ -513,7 +540,8 @@ async function startDeliverySink() {
   });
   const address = server.address();
 
-  if (address === null || Predicate.isString(address)) throw new Error("Receipt delivery sink has no TCP address");
+  if (address === null || Predicate.isString(address))
+    throw new Error("Receipt delivery sink has no TCP address");
   const origin = `http://127.0.0.1:${address.port}`;
 
   return {
@@ -531,12 +559,18 @@ async function startDeliverySink() {
     failNext: () => {
       failNextDelivery = true;
     },
-    close: () => new Promise((resolveClose, rejectClose) => server.close((error) => (error ? rejectClose(error) : resolveClose()))),
+    close: () =>
+      new Promise((resolveClose, rejectClose) =>
+        server.close((error) => (error ? rejectClose(error) : resolveClose())),
+      ),
   };
 }
 
 function resultBody(result, label) {
-  assert.ok(result && (result === null || Predicate.isObjectOrArray(result)), `${label} did not return an SDK response`);
+  assert.ok(
+    result && (result === null || Predicate.isObjectOrArray(result)),
+    `${label} did not return an SDK response`,
+  );
   assert.ok("body" in result, `${label} SDK response has no body`);
   assert.ok(result.body !== undefined, `${label} SDK response returned no body`);
 
@@ -573,11 +607,7 @@ async function requestFinanceEvidence(apiOrigin, cookie, receiptId) {
 
 async function expectProblem(response, expectedStatus, expectedCode, label) {
   const body = await response.json();
-  assert.equal(
-    response.status,
-    expectedStatus,
-    `${label} status: ${JSON.stringify(body)}`,
-  );
+  assert.equal(response.status, expectedStatus, `${label} status: ${JSON.stringify(body)}`);
   assert.match(
     response.headers.get("content-type") ?? "",
     /application\/problem\+json/u,
@@ -688,7 +718,10 @@ function receiptById(items, receiptId, label) {
 }
 
 async function login(browser, persona) {
-  const context = await browser.newContext({ baseURL: dashboardOrigin, viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({
+    baseURL: dashboardOrigin,
+    viewport: { width: 1440, height: 900 },
+  });
   const page = await context.newPage();
   const loginUrl = new URL(`${dashboardMount({})}login`, dashboardOrigin).toString();
   await page.goto(loginUrl);
@@ -701,10 +734,15 @@ async function login(browser, persona) {
   });
 
   const sessionCookies = (await context.cookies(dashboardOrigin)).filter(
-    ({ name }) => name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
+    ({ name }) =>
+      name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
   );
 
-  assert.equal(sessionCookies.length, 1, `${persona.personId} must have one Better Auth session cookie`);
+  assert.equal(
+    sessionCookies.length,
+    1,
+    `${persona.personId} must have one Better Auth session cookie`,
+  );
   const sessionCookie = sessionCookies[0];
   assert.ok(sessionCookie, `${persona.personId} session cookie is missing`);
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
@@ -715,7 +753,11 @@ async function login(browser, persona) {
 
   assert.equal(sessionResponse.status, 200, `${persona.personId} native session read`);
   const session = await sessionResponse.json();
-  assert.equal(session?.personId, persona.personId, `${persona.personId} canonical session binding`);
+  assert.equal(
+    session?.personId,
+    persona.personId,
+    `${persona.personId} canonical session binding`,
+  );
 
   return {
     context,
@@ -753,7 +795,10 @@ async function main() {
   const stagingRoot = join(temporaryRoot, "staging");
   const committedRoot = join(temporaryRoot, "committed");
   const postgresDataRoot = join(temporaryRoot, "postgres");
-  await Promise.all([mkdir(stagingRoot, { recursive: true }), mkdir(committedRoot, { recursive: true })]);
+  await Promise.all([
+    mkdir(stagingRoot, { recursive: true }),
+    mkdir(committedRoot, { recursive: true }),
+  ]);
 
   const baseEnvironment = { ...process.env };
 
@@ -865,7 +910,16 @@ async function main() {
         if (postgresTopology === "docker") {
           await runCommand(
             "docker",
-            ["compose", "-f", composeFile, "-p", composeProject, "down", "--volumes", "--remove-orphans"],
+            [
+              "compose",
+              "-f",
+              composeFile,
+              "-p",
+              composeProject,
+              "down",
+              "--volumes",
+              "--remove-orphans",
+            ],
             {
               cwd: repositoryRoot,
               env: postgresEnvironment,
@@ -886,7 +940,8 @@ async function main() {
       errors.push(error);
     }
 
-    if (errors.length > 0) throw new AggregateError(errors, "Receipt settlement runtime cleanup failed");
+    if (errors.length > 0)
+      throw new AggregateError(errors, "Receipt settlement runtime cleanup failed");
   };
 
   const interrupt = (signal) => {
@@ -927,9 +982,21 @@ async function main() {
     });
 
     const seed = JSON.parse(seedRun.stdout.trim().split(/\r?\n/u).at(-1));
-    assert.equal(seed.fixtureCounts.settlementGrants, 4, "Seed must include independent settlement grants");
-    assert.equal(seed.fixtureCounts.approvalGrants, 1, "Seed must include a separate approval grant");
-    assert.equal(seed.paymentDestinationFingerprint.length, 64, "Seed fingerprint must be SHA-256 hex");
+    assert.equal(
+      seed.fixtureCounts.settlementGrants,
+      4,
+      "Seed must include independent settlement grants",
+    );
+    assert.equal(
+      seed.fixtureCounts.approvalGrants,
+      1,
+      "Seed must include a separate approval grant",
+    );
+    assert.equal(
+      seed.paymentDestinationFingerprint.length,
+      64,
+      "Seed fingerprint must be SHA-256 hex",
+    );
 
     deliverySink = await startDeliverySink();
 
@@ -943,6 +1010,8 @@ async function main() {
       BACKEND_PORT: String(backendPort),
       BACKEND_PG_URL: postgresUrl,
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+      PASSWORD_RESET_DELIVERY_MODE: "disabled",
+      RECEIPT_DELIVERY_MODE: "disabled",
       RECEIPT_STAGING_ROOT: stagingRoot,
       RECEIPT_COMMITTED_ROOT: committedRoot,
       RECEIPT_MAX_FILE_BYTES: "10485760",
@@ -953,7 +1022,10 @@ async function main() {
       const configuredCommand = process.env.BACKEND_COMMAND;
 
       return configuredCommand
-        ? startProcess("/bin/sh", ["-c", configuredCommand], { cwd: repositoryRoot, env: backendEnvironment })
+        ? startProcess("/bin/sh", ["-c", configuredCommand], {
+            cwd: repositoryRoot,
+            env: backendEnvironment,
+          })
         : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
             cwd: repositoryRoot,
             env: backendEnvironment,
@@ -1025,19 +1097,39 @@ async function main() {
     const inactiveSettler = await login(browser, requirePersona("settlement-inactive-0114"));
     const expiredSettler = await login(browser, requirePersona("settlement-expired-0114"));
     const foreignSettler = await login(browser, requirePersona("settlement-foreign-0114"));
-    sessions.push(owner, approver, settler, ordinary, inactiveSettler, expiredSettler, foreignSettler);
+    sessions.push(
+      owner,
+      approver,
+      settler,
+      ordinary,
+      inactiveSettler,
+      expiredSettler,
+      foreignSettler,
+    );
 
     for (const session of sessions) session.context.on("request", recordBrowserRequest);
 
-    const ownerSdk = createPromiseClient(proxy.origin, { cookie: owner.cookie, origin: dashboardOrigin });
-    const approverSdk = createPromiseClient(proxy.origin, { cookie: approver.cookie, origin: dashboardOrigin });
-    const settlerSdk = createPromiseClient(proxy.origin, { cookie: settler.cookie, origin: dashboardOrigin });
+    const ownerSdk = createPromiseClient(proxy.origin, {
+      cookie: owner.cookie,
+      origin: dashboardOrigin,
+    });
+    const approverSdk = createPromiseClient(proxy.origin, {
+      cookie: approver.cookie,
+      origin: dashboardOrigin,
+    });
+    const settlerSdk = createPromiseClient(proxy.origin, {
+      cookie: settler.cookie,
+      origin: dashboardOrigin,
+    });
 
     const listOwned = async () =>
       resultBody(await ownerSdk.receipts.listReceipts({ query: {} }), "list owned receipts");
 
     const listSettlementQueue = async () =>
-      resultBody(await settlerSdk.receipts.listReceiptsForSettlement({ query: {} }), "list settlement queue");
+      resultBody(
+        await settlerSdk.receipts.listReceiptsForSettlement({ query: {} }),
+        "list settlement queue",
+      );
 
     const readFinanceSettlement = async (receiptId) =>
       resultBody(
@@ -1051,17 +1143,20 @@ async function main() {
       `Initial owner projection is unavailable: ${JSON.stringify(initialOwnerProjection)}`,
     );
 
-
     const claimDescription = "Expense claim approved before settlement evidence 0114";
     await submitReceiptFromDashboard(owner.page, claimDescription);
 
     const ownedAfterSubmission = await eventually(
       listOwned,
-      (body) => Array.isArray(body?.items) && body.items.some((item) => item?.description === claimDescription),
+      (body) =>
+        Array.isArray(body?.items) &&
+        body.items.some((item) => item?.description === claimDescription),
       "dashboard receipt submission",
     );
 
-    const submittedReceipt = ownedAfterSubmission.items.find((item) => item?.description === claimDescription);
+    const submittedReceipt = ownedAfterSubmission.items.find(
+      (item) => item?.description === claimDescription,
+    );
     assert.ok(submittedReceipt, "Submitted receipt is missing from owner projection");
     assert.equal(submittedReceipt.status, "Pending", "Dashboard submission begins pending");
     assert.equal(submittedReceipt.revision, 0, "Dashboard submission begins at revision zero");
@@ -1079,11 +1174,27 @@ async function main() {
 
     assert.equal(approvedResult.status, "Approved", "Approval changes the claim decision only");
     assert.equal(approvedResult.revision, 1, "Approval increments the receipt revision once");
-    assert.equal(Predicate.isString(approvedResult.approvedAt), true, "Approval records approvedAt");
-    assert.equal(JSON.stringify(approvedResult).includes("settlementId"), false, "Approval response has no settlement evidence");
+    assert.equal(
+      Predicate.isString(approvedResult.approvedAt),
+      true,
+      "Approval records approvedAt",
+    );
+    assert.equal(
+      JSON.stringify(approvedResult).includes("settlementId"),
+      false,
+      "Approval response has no settlement evidence",
+    );
 
-    const ownerAfterApproval = receiptById((await listOwned()).items, submittedReceipt.receiptId, "owner after approval");
-    assert.equal(ownerAfterApproval.status, "Approved", "Owner sees an approved claim before settlement");
+    const ownerAfterApproval = receiptById(
+      (await listOwned()).items,
+      submittedReceipt.receiptId,
+      "owner after approval",
+    );
+    assert.equal(
+      ownerAfterApproval.status,
+      "Approved",
+      "Owner sees an approved claim before settlement",
+    );
     assert.equal(ownerAfterApproval.revision, 1, "Owner sees the approval revision");
     assert.equal(
       JSON.stringify(ownerAfterApproval).includes("paymentDestinationFingerprint"),
@@ -1091,9 +1202,21 @@ async function main() {
       "Owner approval projection has no settlement evidence",
     );
     const approvalPersistence = await readReceiptEvidence(pool, submittedReceipt.receiptId);
-    assert.equal(approvalPersistence.receipt.status, "Approved", "PostgreSQL records approval before settlement");
-    assert.equal(approvalPersistence.receipt.revision, 1, "Approval persistence advances exactly one revision");
-    assert.deepEqual(approvalPersistence.settlements, [], "Approval persistence creates no settlement evidence");
+    assert.equal(
+      approvalPersistence.receipt.status,
+      "Approved",
+      "PostgreSQL records approval before settlement",
+    );
+    assert.equal(
+      approvalPersistence.receipt.revision,
+      1,
+      "Approval persistence advances exactly one revision",
+    );
+    assert.deepEqual(
+      approvalPersistence.settlements,
+      [],
+      "Approval persistence creates no settlement evidence",
+    );
     assert.equal(
       approvalPersistence.audits.some(({ action }) => action === "ReceiptSettled"),
       false,
@@ -1108,10 +1231,22 @@ async function main() {
       "independently authorized settler queue",
     );
 
-    assert.equal(queuedReceipt.status, "Approved", "Settlement queue shows only the approved source");
+    assert.equal(
+      queuedReceipt.status,
+      "Approved",
+      "Settlement queue shows only the approved source",
+    );
     assert.equal(queuedReceipt.revision, 1, "Settlement queue exposes the approval revision");
-    assert.notEqual(settler.persona.personId, owner.persona.personId, "Settler must be a different person from owner");
-    assert.notEqual(settler.persona.personId, approver.persona.personId, "Settlement grant must be separate from approval grant");
+    assert.notEqual(
+      settler.persona.personId,
+      owner.persona.personId,
+      "Settler must be a different person from owner",
+    );
+    assert.notEqual(
+      settler.persona.personId,
+      approver.persona.personId,
+      "Settlement grant must be separate from approval grant",
+    );
 
     const queuePath = `${proxy.origin}/api/receipt-settlement-queue`;
     const denialCountsBefore = await readWriteCounts(pool);
@@ -1184,12 +1319,7 @@ async function main() {
         settlementAttemptPayload(`denied-${label.replaceAll(" ", "-")}-0114`),
       );
 
-      await expectProblem(
-        commandResponse,
-        denialStatus,
-        denialCode,
-        `${label} settlement command`,
-      );
+      await expectProblem(commandResponse, denialStatus, denialCode, `${label} settlement command`);
       denials.push({
         label,
         queue: queueStatus,
@@ -1210,13 +1340,32 @@ async function main() {
       settlementAttemptPayload("unknown-settlement-reference-0114"),
     );
 
-    await expectProblem(unknownResponse, 404, "receipt.not-found", "unknown receipt settlement concealment");
-    const unknownEvidenceResponse = await requestFinanceEvidence(proxy.origin, settler.cookie, unknownReceiptId);
-    await expectProblem(unknownEvidenceResponse, 404, "receipt.not-found", "unknown receipt settlement evidence concealment");
-    assert.deepEqual(await readWriteCounts(pool), denialCountsBefore, "Denied settlement attempts write nothing");
+    await expectProblem(
+      unknownResponse,
+      404,
+      "receipt.not-found",
+      "unknown receipt settlement concealment",
+    );
+    const unknownEvidenceResponse = await requestFinanceEvidence(
+      proxy.origin,
+      settler.cookie,
+      unknownReceiptId,
+    );
+    await expectProblem(
+      unknownEvidenceResponse,
+      404,
+      "receipt.not-found",
+      "unknown receipt settlement evidence concealment",
+    );
+    assert.deepEqual(
+      await readWriteCounts(pool),
+      denialCountsBefore,
+      "Denied settlement attempts write nothing",
+    );
 
     const ownerSeededItems = (await listOwned()).items;
-    const seededReceipt = (kind) => receiptById(ownerSeededItems, seed.seededReceiptIds[kind], `seeded ${kind} receipt`);
+    const seededReceipt = (kind) =>
+      receiptById(ownerSeededItems, seed.seededReceiptIds[kind], `seeded ${kind} receipt`);
 
     for (const [kind, expectedCode] of [
       ["pending", "receipt.invalid-transition"],
@@ -1237,7 +1386,11 @@ async function main() {
       );
 
       await expectProblem(response, 409, expectedCode, `${kind} receipt cannot settle`);
-      assert.deepEqual(await readWriteCounts(pool), countsBefore, `${kind} failure creates no evidence`);
+      assert.deepEqual(
+        await readWriteCounts(pool),
+        countsBefore,
+        `${kind} failure creates no evidence`,
+      );
     }
 
     const duplicateCandidate = seededReceipt("duplicateExternalReference");
@@ -1256,7 +1409,12 @@ async function main() {
       },
     );
 
-    await expectProblem(futureSettlement, 422, "settlement.after-recorded-at", "future settlement instant");
+    await expectProblem(
+      futureSettlement,
+      422,
+      "settlement.after-recorded-at",
+      "future settlement instant",
+    );
 
     const mobileContext = await browser.newContext({
       baseURL: dashboardOrigin,
@@ -1321,7 +1479,10 @@ async function main() {
       [],
       "Settlement confirmation has no blocking accessibility violations",
     );
-    const confirmationButton = confirmation.getByRole("button", { name: "Bekreft oppgjør", exact: true });
+    const confirmationButton = confirmation.getByRole("button", {
+      name: "Bekreft oppgjør",
+      exact: true,
+    });
     await confirmationButton.focus();
     await confirmationButton.press("Enter");
     const settlementSuccess = settler.page.getByTestId("receipt-settlement-success");
@@ -1339,7 +1500,8 @@ async function main() {
     );
     await settlementDetailLink.click();
     await settler.page.waitForURL(
-      (url) => url.pathname === `${settlementRoute}/${encodeURIComponent(submittedReceipt.receiptId)}`,
+      (url) =>
+        url.pathname === `${settlementRoute}/${encodeURIComponent(submittedReceipt.receiptId)}`,
     );
     await settler.page.getByTestId("receipt-settlement-evidence").waitFor();
 
@@ -1348,7 +1510,8 @@ async function main() {
         const records = proxy.records.filter(
           (record) =>
             record.method === "POST" &&
-            record.pathname === `/api/receipts/${encodeURIComponent(submittedReceipt.receiptId)}:settle`,
+            record.pathname ===
+              `/api/receipts/${encodeURIComponent(submittedReceipt.receiptId)}:settle`,
         );
 
         return records.find(
@@ -1361,8 +1524,16 @@ async function main() {
       "dashboard settlement command through the real backend",
     );
 
-    assert.equal(canonicalRecord.requestHeaders.ifMatch, approvedResult.etag, "Dashboard sends the visible approval revision");
-    assert.equal(Predicate.isString(canonicalRecord.requestHeaders.idempotencyKey), true, "Dashboard sends an idempotency key");
+    assert.equal(
+      canonicalRecord.requestHeaders.ifMatch,
+      approvedResult.etag,
+      "Dashboard sends the visible approval revision",
+    );
+    assert.equal(
+      Predicate.isString(canonicalRecord.requestHeaders.idempotencyKey),
+      true,
+      "Dashboard sends an idempotency key",
+    );
     assert.deepEqual(
       Object.keys(canonicalRecord.requestJson).sort(),
       ["expectedRevision", "externalAuthority", "externalReference", "settledAt"],
@@ -1388,7 +1559,11 @@ async function main() {
       settledAt,
       "Dashboard sends the entered UTC settlement instant",
     );
-    assert.equal(canonicalRecord.responseHeaders.cacheControl, "private, no-store", "Settlement response is private");
+    assert.equal(
+      canonicalRecord.responseHeaders.cacheControl,
+      "private, no-store",
+      "Settlement response is private",
+    );
     assert.ok(canonicalRecord.responseHeaders.etag, "Settlement response carries a fresh ETag");
 
     const canonicalEvidence = await eventually(
@@ -1424,13 +1599,25 @@ async function main() {
       "PostgreSQL settlement evidence is immutable and copied from the approved claim",
     );
     assert.match(canonicalSettlement.settlementId, /\S/u, "Server issued a settlement identity");
-    assert.match(canonicalSettlement.recordedAt, /^\d{4}-\d{2}-\d{2}T/u, "Server recorded the settlement instant");
+    assert.match(
+      canonicalSettlement.recordedAt,
+      /^\d{4}-\d{2}-\d{2}T/u,
+      "Server recorded the settlement instant",
+    );
     assert.ok(
       Date.parse(canonicalSettlement.recordedAt) >= Date.parse(canonicalSettlement.settledAt),
       "Recorded time is not before external settlement time",
     );
-    assert.equal(canonicalEvidence.receipt.status, "Approved", "Settlement leaves the approval decision intact");
-    assert.equal(canonicalEvidence.receipt.revision, 2, "Settlement increments the receipt revision");
+    assert.equal(
+      canonicalEvidence.receipt.status,
+      "Approved",
+      "Settlement leaves the approval decision intact",
+    );
+    assert.equal(
+      canonicalEvidence.receipt.revision,
+      2,
+      "Settlement increments the receipt revision",
+    );
 
     const canonicalSettlementAudits = canonicalEvidence.audits.filter(
       (audit) => audit.action === "ReceiptSettled",
@@ -1463,15 +1650,23 @@ async function main() {
       "owner settlement projection",
     );
 
-    assert.equal(ownerAfterSettlement.status, "Approved", "Owner claim decision remains approved after settlement");
-    assert.ok(ownerAfterSettlement.settlement, "Owner list projection embeds separate settlement evidence");
+    assert.equal(
+      ownerAfterSettlement.status,
+      "Approved",
+      "Owner claim decision remains approved after settlement",
+    );
+    assert.ok(
+      ownerAfterSettlement.settlement,
+      "Owner list projection embeds separate settlement evidence",
+    );
     assert.equal(
       ownerAfterSettlement.settlement.settlementId,
       canonicalSettlement.settlementId,
       "Owner list identifies the canonical settlement",
     );
     const financeSettlementResponse = await readFinanceSettlement(submittedReceipt.receiptId);
-    const financeSettlementDetail = financeSettlementResponse.settlement ?? financeSettlementResponse;
+    const financeSettlementDetail =
+      financeSettlementResponse.settlement ?? financeSettlementResponse;
 
     for (const [label, projection] of [
       ["owner list", ownerAfterSettlement.settlement],
@@ -1487,7 +1682,11 @@ async function main() {
         seed.paymentDestinationFingerprint,
         settler.persona.personId,
       ]) {
-        assert.equal(serializedProjection.includes(value), true, `${label} exposes immutable settlement evidence`);
+        assert.equal(
+          serializedProjection.includes(value),
+          true,
+          `${label} exposes immutable settlement evidence`,
+        );
       }
 
       assert.equal(
@@ -1508,8 +1707,16 @@ async function main() {
     const ownerEvidenceElement = ownerReceiptRow.getByTestId("receipt-settlement-evidence");
     await ownerEvidenceElement.waitFor();
     const ownerRendered = await ownerEvidenceElement.innerText();
-    assert.equal(ownerRendered.includes(normalizedReference), true, "Owner dashboard renders settlement evidence after reload");
-    assert.equal(ownerRendered.includes(privatePaymentDestination), false, "Owner dashboard never renders payment destination ciphertext");
+    assert.equal(
+      ownerRendered.includes(normalizedReference),
+      true,
+      "Owner dashboard renders settlement evidence after reload",
+    );
+    assert.equal(
+      ownerRendered.includes(privatePaymentDestination),
+      false,
+      "Owner dashboard never renders payment destination ciphertext",
+    );
 
     const financeDetailPath = `${settlementRoute}/${encodeURIComponent(submittedReceipt.receiptId)}`;
     await settler.page.goto(`${dashboardOrigin}${financeDetailPath}`);
@@ -1518,14 +1725,27 @@ async function main() {
     await settler.page.reload();
     await financeEvidenceElement.waitFor();
     const financeRendered = await financeEvidenceElement.innerText();
-    assert.equal(financeRendered.includes(normalizedReference), true, "Finance dashboard renders settlement evidence after reload");
-    assert.equal(financeRendered.includes(seed.paymentDestinationFingerprint), true, "Finance dashboard renders the destination fingerprint");
-    assert.equal(financeRendered.includes(privatePaymentDestination), false, "Finance dashboard never renders payment destination ciphertext");
+    assert.equal(
+      financeRendered.includes(normalizedReference),
+      true,
+      "Finance dashboard renders settlement evidence after reload",
+    );
+    assert.equal(
+      financeRendered.includes(seed.paymentDestinationFingerprint),
+      true,
+      "Finance dashboard renders the destination fingerprint",
+    );
+    assert.equal(
+      financeRendered.includes(privatePaymentDestination),
+      false,
+      "Finance dashboard never renders payment destination ciphertext",
+    );
     assert.ok(
       proxy.records.filter(
         (record) =>
           record.method === "GET" &&
-          record.pathname === `/api/receipt-settlement-queue/${encodeURIComponent(submittedReceipt.receiptId)}` &&
+          record.pathname ===
+            `/api/receipt-settlement-queue/${encodeURIComponent(submittedReceipt.receiptId)}` &&
           record.responseStatus === 200,
       ).length >= 2,
       "Finance detail is read through the concealed backend projection before and after reload",
@@ -1549,7 +1769,11 @@ async function main() {
       canonicalRecord.responseJson,
       "Idempotent replay returns the byte-equivalent first settlement resource",
     );
-    assert.deepEqual(await readWriteCounts(pool), replayCountsBefore, "Idempotent replay writes nothing");
+    assert.deepEqual(
+      await readWriteCounts(pool),
+      replayCountsBefore,
+      "Idempotent replay writes nothing",
+    );
 
     const changedReplayResponse = await requestSettlement(
       proxy.origin,
@@ -1560,7 +1784,12 @@ async function main() {
       { ...canonicalRecord.requestJson, externalReference: "changed-replay-reference-0114" },
     );
 
-    await expectProblem(changedReplayResponse, 409, "idempotency.digest-conflict", "changed settlement replay");
+    await expectProblem(
+      changedReplayResponse,
+      409,
+      "idempotency.digest-conflict",
+      "changed settlement replay",
+    );
 
     const staleRevisionResponse = await requestSettlement(
       proxy.origin,
@@ -1571,7 +1800,12 @@ async function main() {
       settlementAttemptPayload("stale-revision-reference-0114"),
     );
 
-    await expectProblem(staleRevisionResponse, 412, "precondition.failed", "stale settlement revision");
+    await expectProblem(
+      staleRevisionResponse,
+      412,
+      "precondition.failed",
+      "stale settlement revision",
+    );
 
     const alreadySettledResponse = await requestSettlement(
       proxy.origin,
@@ -1585,7 +1819,12 @@ async function main() {
       ),
     );
 
-    await expectProblem(alreadySettledResponse, 409, "receipt.already-settled", "second settlement evidence");
+    await expectProblem(
+      alreadySettledResponse,
+      409,
+      "receipt.already-settled",
+      "second settlement evidence",
+    );
 
     const duplicateReferenceResponse = await requestSettlement(
       proxy.origin,
@@ -1635,13 +1874,17 @@ async function main() {
       ),
     ]);
 
-    const concurrentStatuses = concurrentResponses.map(({ status }) => status).sort((left, right) => left - right);
+    const concurrentStatuses = concurrentResponses
+      .map(({ status }) => status)
+      .sort((left, right) => left - right);
     assert.deepEqual(
       concurrentStatuses,
       [200, 200],
       `Concurrent duplicate settlement returned unexpected statuses: ${JSON.stringify(concurrentStatuses)}`,
     );
-    const concurrentBodies = await Promise.all(concurrentResponses.map((response) => response.json()));
+    const concurrentBodies = await Promise.all(
+      concurrentResponses.map((response) => response.json()),
+    );
     assert.deepEqual(
       concurrentBodies[1],
       concurrentBodies[0],
@@ -1676,15 +1919,22 @@ async function main() {
       "settle delivery-retry receipt through generated SDK",
     );
 
-    assert.equal(deliverySettlement.receiptId, deliveryCandidate.receiptId, "SDK settlement response identifies the receipt");
+    assert.equal(
+      deliverySettlement.receiptId,
+      deliveryCandidate.receiptId,
+      "SDK settlement response identifies the receipt",
+    );
 
     const failedDeliveryEvidence = await eventually(
       () => readReceiptEvidence(pool, deliveryCandidate.receiptId),
-      (state) => state?.settlements?.length === 1 && state.outbox.some((row) => row.status === "Failed"),
+      (state) =>
+        state?.settlements?.length === 1 && state.outbox.some((row) => row.status === "Failed"),
       "failed settlement notification persistence",
     );
 
-    const failedOutbox = failedDeliveryEvidence.outbox.find((row) => row.effectType === "NotifyReceiptSettled");
+    const failedOutbox = failedDeliveryEvidence.outbox.find(
+      (row) => row.effectType === "NotifyReceiptSettled",
+    );
     assert.deepEqual(
       {
         ordinal: failedOutbox?.ordinal,
@@ -1701,7 +1951,11 @@ async function main() {
       `${failedOutbox?.commandId}:NotifyReceiptSettled`,
       "Settlement notification identity derives from the durable command identity",
     );
-    assert.equal(failedDeliveryEvidence.settlements.length, 1, "Delivery failure does not roll back settlement evidence");
+    assert.equal(
+      failedDeliveryEvidence.settlements.length,
+      1,
+      "Delivery failure does not roll back settlement evidence",
+    );
 
     await stopProcess(backendProcess);
     backendProcess = startBackend();
@@ -1719,17 +1973,32 @@ async function main() {
     );
 
     const drainEvidence = JSON.parse(drain.stdout.trim().split(/\r?\n/u).at(-1));
-    assert.equal(drainEvidence.result, "Complete", "Bounded retry acknowledges the settlement notification");
+    assert.equal(
+      drainEvidence.result,
+      "Complete",
+      "Bounded retry acknowledges the settlement notification",
+    );
 
     const recoveredDeliveryEvidence = await eventually(
       () => readReceiptEvidence(pool, deliveryCandidate.receiptId),
-      (state) => state?.settlements?.length === 1 && state.outbox.some((row) => row.status === "Delivered"),
+      (state) =>
+        state?.settlements?.length === 1 && state.outbox.some((row) => row.status === "Delivered"),
       "acknowledged settlement notification retry",
     );
 
-    const recoveredOutbox = recoveredDeliveryEvidence.outbox.find((row) => row.effectType === "NotifyReceiptSettled");
-    assert.equal(recoveredDeliveryEvidence.settlements.length, 1, "Retry does not create another settlement record");
-    assert.equal(recoveredOutbox?.effectId, failedOutbox?.effectId, "Retry keeps the original effect identity");
+    const recoveredOutbox = recoveredDeliveryEvidence.outbox.find(
+      (row) => row.effectType === "NotifyReceiptSettled",
+    );
+    assert.equal(
+      recoveredDeliveryEvidence.settlements.length,
+      1,
+      "Retry does not create another settlement record",
+    );
+    assert.equal(
+      recoveredOutbox?.effectId,
+      failedOutbox?.effectId,
+      "Retry keeps the original effect identity",
+    );
     assert.ok(recoveredOutbox?.attempts >= 2, "Retry records a second delivery attempt");
 
     const retryDeliveries = deliverySink.deliveries.filter(
@@ -1741,8 +2010,14 @@ async function main() {
       [503, 204],
       "Local receiver observed failure then acknowledged retry for the same effect",
     );
-    assert.ok(retryDeliveries.every(({ loopback }) => loopback), "Delivery retry is confined to loopback");
-    assert.ok(retryDeliveries.every(({ to }) => to === owner.persona.email), "Settlement notification targets the owner");
+    assert.ok(
+      retryDeliveries.every(({ loopback }) => loopback),
+      "Delivery retry is confined to loopback",
+    );
+    assert.ok(
+      retryDeliveries.every(({ to }) => to === owner.persona.email),
+      "Settlement notification targets the owner",
+    );
     assert.ok(
       retryDeliveries.every(
         ({ subject, text }) =>
@@ -1760,14 +2035,35 @@ async function main() {
       browserOrigins: [...new Set(browserRequestOrigins)],
       proxyTargets: [...new Set(proxy.records.map(({ targetOrigin }) => targetOrigin))],
       deliveryTargets: deliverySink.deliveries.map(({ loopback }) => loopback),
-      providerCalls: proxy.records.filter(({ pathname }) => /(?:bank|payment|provider|stripe|vipps|nets)/iu.test(pathname)),
+      providerCalls: proxy.records.filter(({ pathname }) =>
+        /(?:bank|payment|provider|stripe|vipps|nets)/iu.test(pathname),
+      ),
     };
 
-    assert.deepEqual(providerNetworkRecords.configuredPaymentProviders, [], "No provider configuration is present");
-    assert.deepEqual(providerNetworkRecords.browserOrigins, [dashboardOrigin], "Chromium only reaches the loopback dashboard");
-    assert.deepEqual(providerNetworkRecords.proxyTargets, [backendOrigin], "All dashboard API calls remain on loopback backend");
-    assert.ok(providerNetworkRecords.deliveryTargets.every(Boolean), "All notification traffic is loopback");
-    assert.deepEqual(providerNetworkRecords.providerCalls, [], "Settlement journey makes no provider or payment-network call");
+    assert.deepEqual(
+      providerNetworkRecords.configuredPaymentProviders,
+      [],
+      "No provider configuration is present",
+    );
+    assert.deepEqual(
+      providerNetworkRecords.browserOrigins,
+      [dashboardOrigin],
+      "Chromium only reaches the loopback dashboard",
+    );
+    assert.deepEqual(
+      providerNetworkRecords.proxyTargets,
+      [backendOrigin],
+      "All dashboard API calls remain on loopback backend",
+    );
+    assert.ok(
+      providerNetworkRecords.deliveryTargets.every(Boolean),
+      "All notification traffic is loopback",
+    );
+    assert.deepEqual(
+      providerNetworkRecords.providerCalls,
+      [],
+      "Settlement journey makes no provider or payment-network call",
+    );
 
     const noCiphertextEvidence = JSON.stringify({
       canonicalRecord,
@@ -1779,7 +2075,11 @@ async function main() {
       proxyRecords: proxy.records,
     });
 
-    assert.equal(noCiphertextEvidence.includes(privatePaymentDestination), false, "Runtime evidence contains no payment destination ciphertext");
+    assert.equal(
+      noCiphertextEvidence.includes(privatePaymentDestination),
+      false,
+      "Runtime evidence contains no payment destination ciphertext",
+    );
 
     evidence = {
       topology: {
@@ -1787,7 +2087,10 @@ async function main() {
         backend: "native-effect-http-api",
         sdk: "generated-@vektorprogrammet/sdk",
         browser: "real-headless-chromium",
-        database: postgresTopology === "docker" ? "disposable-postgresql-docker" : "disposable-postgresql-local-nix",
+        database:
+          postgresTopology === "docker"
+            ? "disposable-postgresql-docker"
+            : "disposable-postgresql-local-nix",
         delivery: "acknowledged-loopback-http",
       },
       seed: {
@@ -1862,7 +2165,10 @@ async function main() {
   }
 
   if (primaryError !== undefined && cleanupError !== undefined) {
-    throw new AggregateError([primaryError, cleanupError], "Receipt settlement runtime and cleanup both failed");
+    throw new AggregateError(
+      [primaryError, cleanupError],
+      "Receipt settlement runtime and cleanup both failed",
+    );
   }
 
   if (primaryError !== undefined) throw primaryError;
@@ -1874,11 +2180,14 @@ async function main() {
   }
 
   await Promise.all(disposablePorts.map(assertPortAvailable));
-  process.stdout.write(`${JSON.stringify({ ...evidence, cleanup: { temporaryRootRemoved: true, postgresRemoved: true } })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ ...evidence, cleanup: { temporaryRootRemoved: true, postgresRemoved: true } })}\n`,
+  );
 }
 
 const formatError = (error) => {
-  if (error instanceof AggregateError) return `${error.message}: ${error.errors.map(formatError).join("; ")}`;
+  if (error instanceof AggregateError)
+    return `${error.message}: ${error.errors.map(formatError).join("; ")}`;
 
   return error instanceof Error ? error.message : String(error);
 };

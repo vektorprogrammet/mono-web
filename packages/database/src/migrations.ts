@@ -541,6 +541,11 @@ export const databaseMigrationDefinitions = [
     name: "reviewed-receipt-cohort",
     url: new URL("../migrations/0067-reviewed-receipt-cohort.sql", import.meta.url),
   },
+  {
+    id: "68_password-reset-payload-fingerprint",
+    name: "password-reset-payload-fingerprint",
+    url: new URL("../migrations/0068-password-reset-payload-fingerprint.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

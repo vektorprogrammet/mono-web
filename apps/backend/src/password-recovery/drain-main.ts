@@ -20,7 +20,7 @@ try {
       const pool = yield* DatabasePgPool;
       const mail = yield* Mail;
 
-      return yield* Effect.promise(() => drainPasswordResetMail(pool, config.auth, mail, sender));
+      return yield* drainPasswordResetMail(pool, config.auth, mail, sender);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(

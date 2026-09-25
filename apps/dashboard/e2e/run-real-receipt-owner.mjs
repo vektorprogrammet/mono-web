@@ -634,6 +634,8 @@ async function main() {
     BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",

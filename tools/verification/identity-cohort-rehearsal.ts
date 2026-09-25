@@ -1036,7 +1036,7 @@ try {
   );
 
   assert.equal(
-    await drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+    await Effect.runPromise(drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid")),
     "Delivered",
   );
   assert.equal(deliveryAttempts, 1);
@@ -1099,7 +1099,7 @@ try {
     1,
   );
   assert.equal(
-    await drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+    await Effect.runPromise(drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid")),
     "Delivered",
   );
   assert.equal(deliveryAttempts, 2);
@@ -1174,7 +1174,7 @@ try {
         200,
       );
       assert.equal(
-        await drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+        await Effect.runPromise(drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid")),
         "Delivered",
       );
       const redirect = await fetch(deliveredUrl, { redirect: "manual" });

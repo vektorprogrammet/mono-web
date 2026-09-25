@@ -126,6 +126,8 @@ try {
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
     JOURNEY_SEED_PG_URL: pg,
     API_URL: canonicalOrigin,
     VITE_API_URL: canonicalOrigin,
@@ -217,20 +219,16 @@ try {
   const drainWith = (provider: Layer.Layer<Mail>) =>
     Effect.runPromise(
       Mail.use((mail) =>
-        Effect.promise(() =>
-          drainPasswordResetMail(
-            pool,
-            {
-              oauth: {
-                canonicalOrigin,
-                dashboardOrigin,
-                nativeApiResource: "urn:vektorprogrammet:native-api",
-              },
-            },
-            mail,
-            "recovery@example.invalid",
-          ),
-        ),
+        drainPasswordResetMail(pool,
+        {
+          oauth: {
+            canonicalOrigin,
+            dashboardOrigin,
+            nativeApiResource: "urn:vektorprogrammet:native-api",
+          },
+        },
+        mail,
+        "recovery@example.invalid",),
       ).pipe(Effect.provide(provider)),
     );
 

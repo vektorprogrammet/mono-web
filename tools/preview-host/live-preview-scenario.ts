@@ -16,7 +16,7 @@ import {
   type PreviewScenarioApplicationResult,
   type PreviewScenarioStep,
 } from "./preview-scenario.js";
-import {Array as Arr,  Predicate, Record as Rec, Schema } from "effect";
+import { Array as Arr, Predicate, Record as Rec, Schema } from "effect";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
 
@@ -167,11 +167,22 @@ const providerEnvironmentNames = [
   "RECEIPT_PROVIDER_TOKEN",
   "CONTACT_DELIVERY_URL",
   "CONTACT_DELIVERY_TOKEN",
+  "MAIL_DELIVERY_URL",
+  "MAIL_DELIVERY_TOKEN",
+  "RECEIPT_DELIVERY_URL",
+  "RECEIPT_DELIVERY_TOKEN",
 ] as const;
 
 export const assertProviderDeliveryDisabled = (environment: NodeJS.ProcessEnv): void => {
   const mode = environment.PUBLIC_APPLICATION_EFFECT_MODE;
   assert.ok(mode === undefined || mode === "disabled", "public application delivery is enabled");
+
+  for (const key of ["PASSWORD_RESET_DELIVERY_MODE", "RECEIPT_DELIVERY_MODE"]) {
+    assert.ok(
+      environment[key] === undefined || environment[key] === "disabled",
+      `${key} enables delivery`,
+    );
+  }
 
   for (const name of providerEnvironmentNames) {
     assert.ok(environment[name] === undefined, `${name} must be absent`);

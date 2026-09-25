@@ -11,6 +11,8 @@ const environment = {
   OAUTH_DASHBOARD_ORIGIN: "http://127.0.0.1:4173",
   OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
 };
 
 const httpEnvironment = {
@@ -23,6 +25,53 @@ const httpEnvironment = {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("backend configuration boundary", () => {
+  it("requires explicit recovery modes and complete enabled providers before startup", () => {
+    for (const key of ["PASSWORD_RESET_DELIVERY_MODE", "RECEIPT_DELIVERY_MODE"]) {
+      expect(() => decodeBackendConfig({ ...environment, [key]: undefined })).toThrow();
+      expect(() => decodeBackendConfig({ ...environment, [key]: "http" })).toThrow();
+    }
+
+    const reset = {
+      ...environment,
+      PASSWORD_RESET_DELIVERY_MODE: "http",
+      MAIL_SENDER: "sender@example.invalid",
+      MAIL_DELIVERY_URL: "http://127.0.0.1:9999/mail",
+      MAIL_DELIVERY_TOKEN: "synthetic-token",
+      MAIL_DELIVERY_TIMEOUT_MS: "1000",
+    };
+
+    for (const key of [
+      "MAIL_SENDER",
+      "MAIL_DELIVERY_URL",
+      "MAIL_DELIVERY_TOKEN",
+      "MAIL_DELIVERY_TIMEOUT_MS",
+    ]) {
+      expect(() => decodeBackendConfig({ ...reset, [key]: "" })).toThrow();
+    }
+
+    expect(() => decodeBackendConfig({ ...reset, PASSWORD_RESET_DELIVERY_POLL_MS: "0" })).toThrow();
+
+    const receipt = {
+      ...environment,
+      RECEIPT_DELIVERY_MODE: "http",
+      RECEIPT_DELIVERY_URL: "http://127.0.0.1:9999/receipt",
+      RECEIPT_DELIVERY_TOKEN: "synthetic-token",
+      RECEIPT_DELIVERY_TIMEOUT_MS: "1000",
+      RECEIPT_DELIVERY_SENDER: "sender@example.invalid",
+      RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: '{"department":"economy@example.invalid"}',
+    };
+
+    expect(() => decodeBackendConfig(receipt)).toThrow();
+    expect(() =>
+      decodeBackendConfig({
+        ...receipt,
+        RECEIPT_STAGING_ROOT: "/tmp/proof-staging",
+        RECEIPT_COMMITTED_ROOT: "/tmp/proof-committed",
+        RECEIPT_DELIVERY_POLL_MS: "-1",
+      }),
+    ).toThrow();
+  });
+
   it("uses only the supplied record, including when required keys are missing", () => {
     vi.stubEnv("BACKEND_PG_URL", environment.BACKEND_PG_URL);
     vi.stubEnv("BACKEND_PORT", "9999");
