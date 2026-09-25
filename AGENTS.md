@@ -216,10 +216,12 @@ Keep enduring behavior in the system and architecture documents.
 ## Symfony source
 
 Use `apps/server/CLAUDE.md` for Symfony-specific commands and constraints.
-Server commands run through Composer:
+Server commands run through Composer inside `devenv --profile legacy shell`:
 
 ```bash
+devenv --profile legacy shell
 cd apps/server
+composer install
 composer test
 composer lint
 composer analyse

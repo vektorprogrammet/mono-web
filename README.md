@@ -73,10 +73,12 @@ See [development practices](AGENTS.md#building-reference) before changing it.
 - openssl, Git, and the Git hooks.
 
 The `legacy` profile adds the Symfony toolchain: PHP at the `apps/server/composer.json` version, Composer, and MariaDB.
-Enter it with `devenv --profile legacy shell`. `dev:server`, `rehearsal:account-cohort`, and the `rehearsal:legacy-*`
-scripts refuse to start without it. The default shell has no legacy tools.
+Enter it with `devenv --profile legacy shell`. `dev:server`, `rehearsal:account-cohort`, the `rehearsal:legacy-*` scripts,
+and the Symfony browser suites (`e2e:real-core-journeys`, `e2e:real-org-operations`, `e2e:real-background-operations`,
+`e2e:real-content-ops`) refuse to start without it. The default shell has no legacy tools.
 [devenv.lock](devenv.lock) pins nixpkgs. Bun and Playwright come from the historical nixpkgs revision that shipped
 their exact versions, selected through the `nixpkgs-multiverse` input.
+The Checks and Tests workflows run their steps in the same shell through [.github/actions/devenv](.github/actions/devenv/action.yml).
 
 `devenv shell` installs the Git hooks, except when `CI` is set. Hooks check; they never rewrite or restage files.
 The pre-commit hook checks formatting and lint on staged files.
