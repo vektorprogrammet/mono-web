@@ -21,6 +21,7 @@ import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
+import { PRIVATE_NO_STORE } from "../http-semantics.js";
 
 /**
  * Specs 0059/0060 gate matrix and wire shapes, driven through the backend
@@ -291,6 +292,8 @@ describe("spec 0059 team-interest HTTP boundary", () => {
   it("gives a global administrator every department despite having one membership", async () => {
     const teamInterest = await get("/api/team-interest-registrations", "session=admin-session");
     expect(teamInterest.status).toBe(200);
+    // The contract declares a private read; the dashboard's SDK rejects any other cache policy.
+    expect(teamInterest.headers.get("cache-control")).toBe(PRIVATE_NO_STORE);
     expect(await teamInterest.json()).toEqual({
       "hydra:member": [
         { id: 1, userName: "User A", teamName: "Team One" },

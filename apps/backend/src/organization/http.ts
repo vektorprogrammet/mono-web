@@ -39,6 +39,7 @@ import {
   ListMailingListsEndpoint,
   MailingListResponse,
   ListTeamInterestEndpoint,
+  TeamInterestResponse,
   ListTeamsEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
@@ -53,6 +54,7 @@ import {
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
+  PRIVATE_NO_STORE,
   PUBLIC_CACHE_CONTROL,
   deriveStrongETag,
   evaluateReadPreconditions,
@@ -99,24 +101,12 @@ export interface OrganizationApiHttpOptions {
 
 type TaggedHttpError = OrganizationDecodeError | HttpSemanticFailure;
 
-/** Frozen fixture envelope for spec 0059: strict, no extra row fields. */
-const TeamInterestEnvelopeSchema = Schema.Struct({
-  "hydra:member": Schema.Array(
-    Schema.Struct({
-      id: Schema.Number,
-      userName: Schema.String,
-      teamName: Schema.String,
-    }),
-  ),
-  "hydra:totalItems": Schema.Number,
-});
-
-const jsonResponse = (body: Schema.Json, status = 200): Response =>
+const jsonResponse = (body: Schema.Json, status = 200, cacheControl = "no-store"): Response =>
   new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
+      "cache-control": cacheControl,
     },
   });
 
@@ -287,16 +277,14 @@ const decodeCommand = <S extends Schema.ConstraintDecoder<unknown, never>>(
     );
   });
 
-const strictJsonResponse = <S extends Schema.ConstraintDecoder<Schema.Json, never>>(
-  schema: S,
-  status = 200,
-) =>
+/** Encodes a private read through its contract schema; no shared cache may store it. */
+const privateReadJson = <S extends Schema.ConstraintDecoder<Schema.Json, never>>(schema: S) =>
   flow(
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
     Effect.mapError(
       () => new OrganizationPersistenceError({ operation: "HTTP", message: "Invalid response" }),
     ),
-    Effect.map((decoded) => jsonResponse(decoded, status)),
+    Effect.map((decoded) => jsonResponse(decoded, 200, PRIVATE_NO_STORE)),
   );
 
 const publicListResponse = (
@@ -925,7 +913,7 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
       "hydra:totalItems": rows.length,
     };
 
-    return yield* strictJsonResponse(TeamInterestEnvelopeSchema)(envelope);
+    return yield* privateReadJson(TeamInterestResponse)(envelope);
   });
 
 const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =>
@@ -969,10 +957,7 @@ const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =
       }),
     );
 
-    const response = yield* strictJsonResponse(MailingListResponse)(lists);
-    response.headers.set("cache-control", "private, no-store");
-
-    return response;
+    return yield* privateReadJson(MailingListResponse)(lists);
   });
 
 /** Native HttpApi implementations for organization endpoints. */
@@ -1002,10 +987,8 @@ const readAppointmentManagement = (request: Request) =>
       grantScopes: [Scope.Global()],
       now: resolved.authorizationInstant,
     });
-    const response = yield* strictJsonResponse(AppointmentManagement)(snapshot);
-    response.headers.set("cache-control", "private, no-store");
 
-    return response;
+    return yield* privateReadJson(AppointmentManagement)(snapshot);
   });
 
 const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =>
