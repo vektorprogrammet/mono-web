@@ -179,6 +179,13 @@ const persistedCorrection = Database.use(
   `,
 ).pipe(Effect.map((rows) => rows[0]));
 
+const correctionBody = JSON.stringify({
+  expectedRevision: 2,
+  answers: questionIds.map((questionId) => ({ questionId, answer: `Corrected ${questionId}` })),
+  score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
+  recommendation: "Kanskje",
+});
+
 const fixture = () => {
   const database = backendDatabase(finalizedInterview);
 
@@ -292,15 +299,7 @@ describe("recruitment commands over HTTP and PostgreSQL", () => {
           "idempotency-key": "commands-correction".padEnd(22, "0"),
           "if-match": etag,
         },
-        body: JSON.stringify({
-          expectedRevision: 2,
-          answers: questionIds.map((questionId) => ({
-            questionId,
-            answer: `Corrected ${questionId}`,
-          })),
-          score: { explanatoryPower: 7, roleModel: 8, suitability: 9 },
-          recommendation: "Kanskje",
-        }),
+        body: correctionBody,
       });
 
       await expect(concurrentUpdate).resolves.toBe(1);
@@ -325,6 +324,35 @@ describe("recruitment commands over HTTP and PostgreSQL", () => {
       audits: 1,
       httpReceipts: 1,
       revision: 3,
+    });
+  });
+
+  it("rejects an exponent Content-Length before the correction starts", async () => {
+    const { database, request } = fixture();
+    const conduct = await request(`/api/recruitment/interviews/${interviewId}`);
+    const etag = conduct.headers.get("etag");
+
+    if (etag === null) throw new Error("The conduct read returned no entity tag");
+
+    const correction = await request(`/api/recruitment/interviews/${interviewId}:correct`, {
+      method: "POST",
+      headers: {
+        "content-length": "1e3",
+        "content-type": "application/json",
+        "idempotency-key": "commands-exponent".padEnd(22, "0"),
+        "if-match": etag,
+      },
+      body: correctionBody,
+    });
+
+    expect(correction.status).toBe(400);
+    await expect(correction.json()).resolves.toMatchObject({ code: "request.malformed" });
+    await expect(database.run(persistedCorrection)).resolves.toEqual({
+      corrections: 0,
+      correctionReceipts: 0,
+      audits: 0,
+      httpReceipts: 0,
+      revision: 2,
     });
   });
 });
