@@ -109,7 +109,7 @@ Do not expose storage identities, payment ciphertext, provider secrets, or persi
 | Existing settlement or duplicate external reference | Reconcile the existing evidence. Do not create a second record.                                |
 | Persistence or file failure                         | Preserve the cause privately and inspect the owned recovery boundary.                          |
 
-The [failure unions](errors.ts), [file failures](file-errors.ts), and [HTTP mapping](../../../../apps/backend/src/receipt/http.ts) own exact tags and statuses.
+The [failure unions](errors.ts), [file failures](file-errors.ts), and [HTTP mapping](../../../../apps/backend/src/receipt/http-problem.ts) own exact tags and statuses.
 Settlement also rejects a settlement time after its recorded time.
 Its immutable evidence binds the approved amount, destination fingerprint, external reference, actor, and revision.
 The [settlement implementation](../../../database/src/receipt/settlement.ts) owns those checks and uniqueness rules.
@@ -155,7 +155,7 @@ post-commit delivery
 ```
 
 The [HTTP transaction owner](../../../../apps/backend/src/http-api/receipt-transaction.ts) retains response receipts and preconditions.
-The [receipt HTTP adapter](../../../../apps/backend/src/receipt/http.ts) supplies receipt-specific authority and execution.
+The [receipt HTTP commands](../../../../apps/backend/src/receipt/http-commands.ts) supply receipt-specific authority and execution.
 The [database command implementation](../../../database/src/receipt/postgres.ts) preserves state, revision, command receipt, audit, and outbox in one transaction.
 The [decision function](update.ts) owns legal lifecycle transitions.
 HTTP responses do not replace domain command receipts.
@@ -220,7 +220,7 @@ The following sources own the limits. This guide does not duplicate their numeri
 | Collections        | [Pagination declarations](pagination.ts) own the page size and cursor types. The [collection methods](service.ts) return bounded pages.                                                                                  |
 | Delivery ownership | The [outbox adapter](../../../database/src/receipt/outbox.ts) bounds concurrent interpreters within the runtime and fences each durable claim.                                                                           |
 | Provider calls     | The [delivery parser](../../../../apps/backend/src/receipt/delivery.ts) bounds deadlines. The [HTTP transport](../../../../apps/backend/src/delivery/http.ts) propagates cancellation without an internal retry loop.    |
-| Recovery           | The [worker](../../../../apps/backend/src/receipt/worker.ts) owns stale-claim recovery and retry cadence. The [request drain](../../../../apps/backend/src/receipt/http.ts) bounds work per invocation.                  |
+| Recovery           | The [worker](../../../../apps/backend/src/receipt/worker.ts) owns stale-claim recovery and retry cadence. The [request drain](../../../../apps/backend/src/receipt/outbox-drain.ts) bounds work per invocation.          |
 | Processes          | The [native root](../../../../apps/backend/src/main.ts) owns the worker lifetime. The [shared pool](../../../database/src/pg-pool.ts) owns database acquisition and release.                                             |
 
 The shared delivery permit applies within one JavaScript process, before a durable claim.

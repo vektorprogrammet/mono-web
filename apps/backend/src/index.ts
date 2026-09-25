@@ -14,6 +14,8 @@ export * from "./receipt/r2.js";
 
 export * from "./receipt/http.js";
 
+export type { ReceiptApiHttpOptions, ReceiptIdentityResolvers } from "./receipt/http-context.js";
+
 export * from "./organization/config.js";
 
 export * from "./organization/http.js";

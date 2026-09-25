@@ -54,11 +54,8 @@ import { externalNativePreflightMethodsForPath } from "./native-api-preflight.js
 import { decideNativePreflight } from "./native-preflight.js";
 import { OrganizationApiHandlers } from "./organization/http.js";
 import { ProfileApiHandlers } from "./profile/http.js";
-import {
-  InternalReceiptApiHandlers,
-  ReceiptApiHandlers,
-  type ReceiptIdentityResolvers,
-} from "./receipt/http.js";
+import { InternalReceiptApiHandlers, ReceiptApiHandlers } from "./receipt/http.js";
+import type { ReceiptIdentityResolvers } from "./receipt/http-context.js";
 import {
   ReceiptFileStoreResource,
   ReceiptFileStoreLive,
