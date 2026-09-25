@@ -10,7 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
@@ -316,7 +316,13 @@ async function countFiles(root) {
       withFileTypes: true,
     });
 
-    return entries.reduce((count, entry) => count + (entry.isFile() ? 1 : 0), 0);
+    // Effect reservation markers record request digests, not private receipt bytes.
+    return entries.reduce(
+      (count, entry) =>
+        count +
+        (entry.isFile() && relative(root, entry.parentPath).split(sep)[0] !== ".effects" ? 1 : 0),
+      0,
+    );
   } catch (error) {
     if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return 0;
