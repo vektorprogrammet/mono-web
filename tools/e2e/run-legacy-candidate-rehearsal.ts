@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { DepartmentId, OrganizationReview, PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -666,11 +667,18 @@ const rehearse = async () =>
 
       stage = "LogicalDatabaseAndPrivateFileRestore";
       const dump = join(temporaryRoot, "candidate.dump");
-      await runLocal(["pg_dump", "--dbname", primary.url, "--format=custom", "--file", dump]);
+      await runLocal([
+        postgresProgram("pg_dump"),
+        "--dbname",
+        primary.url,
+        "--format=custom",
+        "--file",
+        dump,
+      ]);
       await chmod(dump, 0o600);
       const restored = await target("candidate_restored");
       await runLocal([
-        "pg_restore",
+        postgresProgram("pg_restore"),
         "--dbname",
         restored.url,
         "--clean",

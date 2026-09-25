@@ -95,6 +95,7 @@
     "@cloudflare/vite-plugin": "^1.13.12",
     "@effect/vitest": "catalog:effect-v4",
     "@foldkit/vite-plugin": "0.24.0",
+    "@monoweb/postgres": "workspace:*",
     "@playwright/test": "^1.51.1",
     "@react-router/dev": "^8.3.0",
     "@types/node": "^22.13.14",

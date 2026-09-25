@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { postgresProgram } from "@monoweb/postgres";
 import { Array as Arr, Predicate, Context, Effect, Schema } from "effect";
 import { resolveCollectorExecutablesWithServices } from "./api.js";
 import { canonicalJson, sha256 } from "./canonical.js";
@@ -276,26 +277,16 @@ const command = (
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-const nixPostgres = (
-  commands: ParityCommandExecutorOperations,
-  arguments_: readonly string[],
-  options: Parameters<typeof command>[3] = {},
-): string =>
-  command(commands, "nix", ["shell", "nixpkgs#postgresql_17", "--command", ...arguments_], {
-    ...options,
-    timeout: options.timeout ?? 300_000,
-  });
-
 const psql = (
   commands: ParityCommandExecutorOperations,
   repositoryRoot: string,
   postgresUrl: string,
   sql: string,
 ): string =>
-  nixPostgres(
+  command(
     commands,
+    postgresProgram("psql"),
     [
-      "psql",
       postgresUrl,
       "--no-psqlrc",
       "--set",
@@ -305,7 +296,7 @@ const psql = (
       "--command",
       sql,
     ],
-    { cwd: repositoryRoot },
+    { cwd: repositoryRoot, timeout: 300_000 },
   ).trim();
 
 const fixedPng = Uint8Array.from(
@@ -1252,10 +1243,10 @@ export const runClaimSpecificJourneyEvidence = (
         let postgresStarted = false;
 
         try {
-          nixPostgres(
+          command(
             commands,
+            postgresProgram("initdb"),
             [
-              "initdb",
               "-D",
               postgresData,
               "-U",
@@ -1266,12 +1257,13 @@ export const runClaimSpecificJourneyEvidence = (
             ],
             {
               cwd: config.repositoryRoot,
+              timeout: 300_000,
             },
           );
-          nixPostgres(
+          command(
             commands,
+            postgresProgram("pg_ctl"),
             [
-              "pg_ctl",
               "-D",
               postgresData,
               "-l",
@@ -1281,22 +1273,14 @@ export const runClaimSpecificJourneyEvidence = (
               "-w",
               "start",
             ],
-            { cwd: config.repositoryRoot },
+            { cwd: config.repositoryRoot, timeout: 300_000 },
           );
           postgresStarted = true;
-          nixPostgres(
+          command(
             commands,
-            [
-              "createdb",
-              "-h",
-              "127.0.0.1",
-              "-p",
-              String(postgresPort),
-              "-U",
-              "postgres",
-              "receipt_proof",
-            ],
-            { cwd: config.repositoryRoot },
+            postgresProgram("createdb"),
+            ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "receipt_proof"],
+            { cwd: config.repositoryRoot, timeout: 300_000 },
           );
           backend = await processes.start("bun", ["run", "--cwd", "apps/backend", "start"], {
             cwd: config.repositoryRoot,
@@ -1438,9 +1422,12 @@ export const runClaimSpecificJourneyEvidence = (
 
           if (postgresStarted) {
             try {
-              nixPostgres(commands, ["pg_ctl", "-D", postgresData, "-m", "fast", "-w", "stop"], {
-                cwd: config.repositoryRoot,
-              });
+              command(
+                commands,
+                postgresProgram("pg_ctl"),
+                ["-D", postgresData, "-m", "fast", "-w", "stop"],
+                { cwd: config.repositoryRoot, timeout: 300_000 },
+              );
             } catch {
               // Cleanup continues to remove the disposable root; the caller observes primary failures.
             }

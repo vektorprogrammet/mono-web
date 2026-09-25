@@ -18,6 +18,7 @@ import { mkdtemp, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { postgresProgram } from "@monoweb/postgres";
 
 import {
   type PreviewRuntimeObservation,
@@ -367,7 +368,10 @@ const cleanup = () =>
       artifact_digest:
         "sha256:" + createHash("sha256").update(JSON.stringify(retained)).digest("hex"),
       artifacts: retained,
-      runtime: { bun: process.versions.bun, postgres: run("postgres", ["--version"]).trim() },
+      runtime: {
+        bun: process.versions.bun,
+        postgres: run(postgresProgram("postgres"), ["--version"]).trim(),
+      },
     };
 
     await writeFile(join(artifacts, "receipt.json"), JSON.stringify(receipt, null, 2), {
@@ -485,8 +489,17 @@ try {
       server.listen(notificationPort, "127.0.0.1", resolve);
     });
     const pgDir = join(artifacts, "postgres");
-    run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
-    postgresProcess = start("postgres", [
+    run(postgresProgram("initdb"), [
+      "-D",
+      pgDir,
+      "-A",
+      "trust",
+      "-U",
+      "postgres",
+      "--no-locale",
+      "--encoding=UTF8",
+    ]);
+    postgresProcess = start(postgresProgram("postgres"), [
       "-D",
       pgDir,
       "-p",

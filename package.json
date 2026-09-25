@@ -69,7 +69,8 @@
     "wrangler": "4.136.1"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "postgresql": "18"
   },
   "packageManager": "bun@1.3.10",
   "catalogs": {

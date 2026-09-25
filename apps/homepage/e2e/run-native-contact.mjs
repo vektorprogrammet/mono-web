@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
@@ -176,9 +177,18 @@ try {
   const browserOrigin = `http://p000.vektor.phibkro.org:${ingressPort}`;
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const pgDir = join(artifacts, "postgres");
-  run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
-  start(
+  run(postgresProgram("initdb"), [
+    "-D",
+    pgDir,
+    "-A",
+    "trust",
+    "-U",
     "postgres",
+    "--no-locale",
+    "--encoding=UTF8",
+  ]);
+  start(
+    postgresProgram("postgres"),
     ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts],
     process.env,
   );

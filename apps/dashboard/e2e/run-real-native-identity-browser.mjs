@@ -7,6 +7,7 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { postgresProgram } from "@monoweb/postgres";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -433,7 +434,7 @@ const main = async () => {
 
   try {
     await run(
-      "initdb",
+      postgresProgram("initdb"),
       [
         "-D",
         postgresRoot,
@@ -450,7 +451,7 @@ const main = async () => {
       },
     );
     postgres = start(
-      "pg_ctl",
+      postgresProgram("pg_ctl"),
       [
         "-D",
         postgresRoot,
@@ -471,7 +472,7 @@ const main = async () => {
         while (Date.now() < deadline) {
           try {
             await run(
-              "psql",
+              postgresProgram("psql"),
               [
                 "-h",
                 "127.0.0.1",
@@ -502,7 +503,7 @@ const main = async () => {
       },
     );
     await run(
-      "createdb",
+      postgresProgram("createdb"),
       ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", postgresDatabase],
       { cwd: repositoryRoot, env: baseEnvironment, label: "Identity database creation" },
     );
@@ -876,7 +877,7 @@ const main = async () => {
         capture: true,
         label: "Bun version",
       }),
-      run("psql", ["--version"], {
+      run(postgresProgram("psql"), ["--version"], {
         cwd: repositoryRoot,
         env: baseEnvironment,
         capture: true,
@@ -989,7 +990,7 @@ const main = async () => {
 
   try {
     if (postgres !== undefined)
-      await run("pg_ctl", ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
+      await run(postgresProgram("pg_ctl"), ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
         cwd: repositoryRoot,
         env: baseEnvironment,
         label: "PostgreSQL cleanup",

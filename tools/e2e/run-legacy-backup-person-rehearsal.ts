@@ -16,9 +16,10 @@ import {
 } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
@@ -157,7 +158,7 @@ const run = async (command: ReadonlyArray<string>, options: SpawnOptions = {}): 
 
   if (exitCode !== 0) {
     const details = options.redactStderr ? "details redacted" : stderr.slice(-2_000);
-    throw new Error(String(command[0]) + " failed (" + exitCode + "): " + details);
+    throw new Error(basename(command[0]!) + " failed (" + exitCode + "): " + details);
   }
 
   return stdout.trim();
@@ -308,7 +309,7 @@ const doctrineEntityTables = async (): Promise<ReadonlySet<string>> => {
 
 const startNativeDatabase = async (dataRoot: string, port: number): Promise<void> => {
   await run([
-    "initdb",
+    postgresProgram("initdb"),
     "-D",
     dataRoot,
     "-A",
@@ -322,7 +323,7 @@ const startNativeDatabase = async (dataRoot: string, port: number): Promise<void
 
   try {
     await run([
-      "pg_ctl",
+      postgresProgram("pg_ctl"),
       "-D",
       dataRoot,
       "-l",
@@ -857,14 +858,22 @@ const runRehearsal = async (temporaryRoot: string) => {
     postgresStarted = true;
     await startNativeDatabase(postgresRoot, postgresPort);
     await assert.rejects(
-      run(["pg_isready", "-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres"]),
+      run([
+        postgresProgram("pg_isready"),
+        "-h",
+        "127.0.0.1",
+        "-p",
+        String(postgresPort),
+        "-U",
+        "postgres",
+      ]),
       /pg_isready failed/,
       "Disposable PostgreSQL unexpectedly exposed TCP",
     );
     const nativeDatabase = "person_cohort_rehearsal";
     const restoredDatabase = "person_cohort_restored";
     await run([
-      "createdb",
+      postgresProgram("createdb"),
       "-h",
       postgresRoot,
       "-p",
@@ -966,7 +975,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     const dumpPath = join(privateRoot, "person-native.dump");
     await run(
       [
-        "pg_dump",
+        postgresProgram("pg_dump"),
         "-Fc",
         "-h",
         postgresRoot,
@@ -984,7 +993,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     await chmod(dumpPath, 0o600);
     await secureRegularFile(dumpPath, 0o600);
     await run([
-      "createdb",
+      postgresProgram("createdb"),
       "-h",
       postgresRoot,
       "-p",
@@ -995,7 +1004,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     ]);
     await run(
       [
-        "pg_restore",
+        postgresProgram("pg_restore"),
         "--exit-on-error",
         "-h",
         postgresRoot,
@@ -1056,7 +1065,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     const reasons = reasonCounts(committedReport);
     const cutoverDatabase = "legacy_service_cutover_rehearsal";
     await run([
-      "createdb",
+      postgresProgram("createdb"),
       "-h",
       postgresRoot,
       "-p",
@@ -1388,7 +1397,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     const cutoverDumpPath = join(privateRoot, "service-native.dump");
     await run(
       [
-        "pg_dump",
+        postgresProgram("pg_dump"),
         "-Fc",
         "-h",
         postgresRoot,
@@ -1407,7 +1416,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     await secureRegularFile(cutoverDumpPath, 0o600);
     const restoredCutoverDatabase = "legacy_service_cutover_restored";
     await run([
-      "createdb",
+      postgresProgram("createdb"),
       "-h",
       postgresRoot,
       "-p",
@@ -1418,7 +1427,7 @@ const runRehearsal = async (temporaryRoot: string) => {
     ]);
     await run(
       [
-        "pg_restore",
+        postgresProgram("pg_restore"),
         "--exit-on-error",
         "-h",
         postgresRoot,
@@ -1545,9 +1554,10 @@ const runRehearsal = async (temporaryRoot: string) => {
     if (pool !== undefined) await pool.end().catch(recordCleanupFailure);
 
     if (postgresStarted) {
-      await run(["pg_ctl", "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"], {
-        redactStderr: true,
-      }).catch(recordCleanupFailure);
+      await run(
+        [postgresProgram("pg_ctl"), "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"],
+        { redactStderr: true },
+      ).catch(recordCleanupFailure);
 
       const pidFileRemains = await lstat(join(postgresRoot, "postmaster.pid")).then(
         () => true,

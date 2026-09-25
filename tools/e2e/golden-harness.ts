@@ -22,6 +22,7 @@ import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as BunServices from "@effect/platform-bun/BunServices";
+import { postgresProgram } from "@monoweb/postgres";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   Cause,
@@ -695,10 +696,15 @@ const startPostgres =
     Effect.gen(function* () {
       const data = join(privateRoot, "postgres");
 
+      const programs = yield* Effect.try({
+        try: () => ({ initdb: postgresProgram("initdb"), postgres: postgresProgram("postgres") }),
+        catch: failure("postgres"),
+      });
+
       yield* runToCompletion(ledger)(
         {
           label: "initdb",
-          command: "initdb",
+          command: programs.initdb,
           args: ["-D", data, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"],
           cwd: root,
           env: environment,
@@ -708,7 +714,7 @@ const startPostgres =
 
       const server = yield* spawnOwned(ledger)({
         label: "postgres",
-        command: "postgres",
+        command: programs.postgres,
         args: [
           "-D",
           data,
@@ -1310,14 +1316,25 @@ const main = (journey: GoldenJourney, root: string) =>
         const passed = primary === undefined && leaked.length === 0;
         const exitCode = exitCodeFor(reason, passed);
 
-        const [node, postgres] = yield* Effect.forEach(["node", "postgres"], (command) =>
-          run(
-            { label: command, command, args: ["--version"], cwd: root, env: environment },
-            "10 seconds",
-          ).pipe(
-            Effect.map((output) => output.trim()),
-            Effect.orElseSucceed(() => "unavailable"),
-          ),
+        const [node, postgres] = yield* Effect.forEach(
+          [
+            ["node", Effect.succeed("node")],
+            [
+              "postgres",
+              Effect.try({ try: () => postgresProgram("postgres"), catch: failure("postgres") }),
+            ],
+          ] as const,
+          ([label, command]) =>
+            command.pipe(
+              Effect.flatMap((resolved) =>
+                run(
+                  { label, command: resolved, args: ["--version"], cwd: root, env: environment },
+                  "10 seconds",
+                ),
+              ),
+              Effect.map((output) => output.trim()),
+              Effect.orElseSucceed(() => "unavailable"),
+            ),
         );
 
         const receipt = {

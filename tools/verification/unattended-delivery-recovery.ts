@@ -9,6 +9,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
+import { postgresProgram } from "@monoweb/postgres";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -332,7 +333,7 @@ const business = async () =>
   ).rows[0];
 
 try {
-  run("initdb", [
+  run(postgresProgram("initdb"), [
     "-D",
     pgDirectory,
     "-A",
@@ -342,7 +343,7 @@ try {
     "--no-locale",
     "--encoding=UTF8",
   ]);
-  run("pg_ctl", [
+  run(postgresProgram("pg_ctl"), [
     "-D",
     pgDirectory,
     "-l",
@@ -745,7 +746,8 @@ try {
   provider.close(() => providerClosed.resolve());
   await providerClosed.promise;
 
-  if (postgresStarted) run("pg_ctl", ["-D", pgDirectory, "-m", "immediate", "-w", "stop"]);
+  if (postgresStarted)
+    run(postgresProgram("pg_ctl"), ["-D", pgDirectory, "-m", "immediate", "-w", "stop"]);
   await rm(privateRoot, { recursive: true, force: true });
 
   for (const expected of ownedPorts)

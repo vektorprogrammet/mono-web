@@ -6,6 +6,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
+  postgresComposeEnvironment,
+  postgresComposeFile,
+  postgresProgram,
+} from "@monoweb/postgres";
+import {
   expect,
   test,
   type APIRequestContext,
@@ -27,15 +32,9 @@ const execFileAsync = promisify(execFile);
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
-const DEFAULT_RECEIPT_COMPOSE_FILE = join(REPOSITORY_ROOT, "docker-compose.yml");
-
-const RECEIPT_COMPOSE_FILE = process.env.RECEIPT_COMPOSE_FILE ?? DEFAULT_RECEIPT_COMPOSE_FILE;
-
 const RECEIPT_COMPOSE_PROJECT = process.env.RECEIPT_COMPOSE_PROJECT;
 
 const RECEIPT_POSTGRES_TOPOLOGY = process.env.RECEIPT_POSTGRES_TOPOLOGY ?? "docker";
-
-const RECEIPT_POSTGRES_PACKAGE = process.env.RECEIPT_POSTGRES_PACKAGE ?? "nixpkgs#postgresql_17";
 
 const RECEIPT_PG_DATA_ROOT = process.env.RECEIPT_PG_DATA_ROOT;
 
@@ -388,12 +387,8 @@ async function readPostgresJson<T>(sql: string, schema: z.ZodType<T>): Promise<T
       throw new Error("RECEIPT_PG_DATA_ROOT is required for local PostgreSQL evidence");
     }
 
-    command = "nix";
+    command = postgresProgram("psql");
     commandArgs = [
-      "shell",
-      RECEIPT_POSTGRES_PACKAGE,
-      "--command",
-      "psql",
       "-h",
       "127.0.0.1",
       "-p",
@@ -417,7 +412,7 @@ async function readPostgresJson<T>(sql: string, schema: z.ZodType<T>): Promise<T
     commandArgs = [
       "compose",
       "-f",
-      RECEIPT_COMPOSE_FILE,
+      postgresComposeFile,
       "-p",
       RECEIPT_COMPOSE_PROJECT,
       "exec",
@@ -438,6 +433,7 @@ async function readPostgresJson<T>(sql: string, schema: z.ZodType<T>): Promise<T
 
   const result = await execFileAsync(command, commandArgs, {
     cwd: REPOSITORY_ROOT,
+    env: postgresComposeEnvironment(process.env),
     maxBuffer: 1_048_576,
   });
 

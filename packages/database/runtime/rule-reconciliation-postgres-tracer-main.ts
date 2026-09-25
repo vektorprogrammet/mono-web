@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Predicate, Effect, Redacted } from "effect";
+import { postgresProgram } from "@monoweb/postgres";
 import { ruleReconciliationTracerProgram } from "../src/rule-reconciliation-postgres-tracer-main.js";
 
 const execute = promisify(execFile);
@@ -44,7 +45,7 @@ const run = async (): Promise<void> => {
   try {
     await mkdir(socket);
     await execute(
-      "initdb",
+      postgresProgram("initdb"),
       [
         "--pgdata",
         data,
@@ -57,7 +58,7 @@ const run = async (): Promise<void> => {
       ],
       { env: { ...process.env, LC_ALL: "C" } },
     );
-    await execute("pg_ctl", [
+    await execute(postgresProgram("pg_ctl"), [
       "--pgdata",
       data,
       "--wait",
@@ -70,7 +71,7 @@ const run = async (): Promise<void> => {
       "start",
     ]);
     started = true;
-    await execute("createdb", [
+    await execute(postgresProgram("createdb"), [
       "--host",
       "127.0.0.1",
       "--port",
@@ -93,7 +94,7 @@ const run = async (): Promise<void> => {
   } finally {
     try {
       if (started) {
-        await execute("pg_ctl", [
+        await execute(postgresProgram("pg_ctl"), [
           "--pgdata",
           data,
           "--mode",

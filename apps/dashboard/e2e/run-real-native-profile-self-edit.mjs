@@ -7,6 +7,7 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { postgresProgram } from "@monoweb/postgres";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -244,7 +245,7 @@ const main = async () => {
 
   try {
     await run(
-      "initdb",
+      postgresProgram("initdb"),
       [
         "-D",
         postgresRoot,
@@ -257,7 +258,7 @@ const main = async () => {
       { cwd: repositoryRoot, env: baseEnvironment, label: "Profile PostgreSQL initialization" },
     );
     postgres = start(
-      "pg_ctl",
+      postgresProgram("pg_ctl"),
       [
         "-D",
         postgresRoot,
@@ -276,7 +277,7 @@ const main = async () => {
     while (Date.now() < readyDeadline) {
       try {
         await run(
-          "psql",
+          postgresProgram("psql"),
           [
             "-h",
             "127.0.0.1",
@@ -304,7 +305,7 @@ const main = async () => {
 
     assert.ok(Date.now() < readyDeadline, "PostgreSQL did not become ready");
     await run(
-      "createdb",
+      postgresProgram("createdb"),
       ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", postgresDatabase],
       { cwd: repositoryRoot, env: baseEnvironment, label: "Profile database creation" },
     );
@@ -486,7 +487,7 @@ const main = async () => {
       label: "Bun version",
     });
 
-    const postgresVersion = await run("psql", ["--version"], {
+    const postgresVersion = await run(postgresProgram("psql"), ["--version"], {
       cwd: repositoryRoot,
       env: baseEnvironment,
       capture: true,
@@ -552,7 +553,7 @@ const main = async () => {
   ]) {
     try {
       if (label === "postgres" && child !== undefined)
-        await run("pg_ctl", ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
+        await run(postgresProgram("pg_ctl"), ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
           cwd: repositoryRoot,
           env: baseEnvironment,
           label: "PostgreSQL cleanup",

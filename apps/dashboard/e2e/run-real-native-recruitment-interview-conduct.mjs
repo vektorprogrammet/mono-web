@@ -6,6 +6,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import {
   withProjectionFileLock,
   writeFilePathNoFollow,
@@ -189,7 +190,7 @@ const waitForHttp = async (url, child, label) => {
 
 const runPsql = async (sql, environment, label) => {
   const output = await run(
-    "psql",
+    postgresProgram("psql"),
     [
       "-h",
       "127.0.0.1",
@@ -343,7 +344,7 @@ const main = async () => {
 
   try {
     await run(
-      "initdb",
+      postgresProgram("initdb"),
       [
         "-D",
         postgresRoot,
@@ -356,7 +357,7 @@ const main = async () => {
       { cwd: repositoryRoot, env: baseEnvironment, label: "conduct PostgreSQL initialization" },
     );
     postgres = start(
-      "pg_ctl",
+      postgresProgram("pg_ctl"),
       [
         "-D",
         postgresRoot,
@@ -602,7 +603,7 @@ const main = async () => {
 
   try {
     if (postgres !== undefined)
-      await run("pg_ctl", ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
+      await run(postgresProgram("pg_ctl"), ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
         cwd: repositoryRoot,
         env: baseEnvironment,
         label: "conduct PostgreSQL cleanup",

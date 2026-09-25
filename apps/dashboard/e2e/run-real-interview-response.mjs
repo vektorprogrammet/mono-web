@@ -1,4 +1,9 @@
 import { Predicate } from "effect";
+import {
+  postgresComposeEnvironment,
+  postgresComposeFile,
+  postgresProgram,
+} from "@monoweb/postgres";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
@@ -19,8 +24,6 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
-
-const composeFile = join(repositoryRoot, "docker-compose.yml");
 
 const runnerPath = fileURLToPath(import.meta.url);
 
@@ -61,8 +64,6 @@ const composeProject = `mono-web-native-invitation-response-0051-${process.pid}`
 const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
-
-const nixPostgresPackage = "nixpkgs#postgresql_17";
 
 const fixedClock = "2031-09-15T12:00:00.000Z";
 
@@ -565,10 +566,6 @@ function startProcess(command, args, options) {
   return child;
 }
 
-function runNixPostgres(command, args, options) {
-  return runCommand("nix", ["shell", nixPostgresPackage, "--command", command, ...args], options);
-}
-
 function processHasExited(child) {
   return child.exitCode !== null || child.signalCode !== null;
 }
@@ -626,7 +623,7 @@ async function waitForPostgres(environment) {
           ? [
               "compose",
               "-f",
-              composeFile,
+              postgresComposeFile,
               "-p",
               composeProject,
               "exec",
@@ -648,7 +645,7 @@ async function waitForPostgres(environment) {
       };
 
       if (postgresTopology === "docker") await runCommand("docker", args, options);
-      else await runNixPostgres("pg_isready", args, options);
+      else await runCommand(postgresProgram("pg_isready"), args, options);
 
       return;
     } catch {
@@ -662,8 +659,8 @@ async function waitForPostgres(environment) {
 async function startLocalPostgres(dataRoot, environment) {
   await rm(dataRoot, { recursive: true, force: true });
   await mkdir(dataRoot, { recursive: true });
-  await runNixPostgres(
-    "initdb",
+  await runCommand(
+    postgresProgram("initdb"),
     [
       "--pgdata",
       dataRoot,
@@ -679,8 +676,8 @@ async function startLocalPostgres(dataRoot, environment) {
       label: "Local invitation-response PostgreSQL initialization",
     },
   );
-  await runNixPostgres(
-    "pg_ctl",
+  await runCommand(
+    postgresProgram("pg_ctl"),
     [
       "-D",
       dataRoot,
@@ -698,8 +695,8 @@ async function startLocalPostgres(dataRoot, environment) {
     },
   );
   await waitForPostgres(environment);
-  await runNixPostgres(
-    "createdb",
+  await runCommand(
+    postgresProgram("createdb"),
     ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "receipt_proof"],
     {
       cwd: repositoryRoot,
@@ -710,7 +707,7 @@ async function startLocalPostgres(dataRoot, environment) {
 }
 
 async function stopLocalPostgres(dataRoot, environment) {
-  await runNixPostgres("pg_ctl", ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
+  await runCommand(postgresProgram("pg_ctl"), ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
     cwd: repositoryRoot,
     env: environment,
     label: "Local invitation-response PostgreSQL cleanup",
@@ -742,7 +739,7 @@ async function runPsql(sql, environment, label) {
       ? [
           "compose",
           "-f",
-          composeFile,
+          postgresComposeFile,
           "-p",
           composeProject,
           "exec",
@@ -784,7 +781,7 @@ async function runPsql(sql, environment, label) {
 
   return postgresTopology === "docker"
     ? runCommand("docker", args, options)
-    : runNixPostgres("psql", args, options);
+    : runCommand(postgresProgram("psql"), args, options);
 }
 
 const hasObjectKey = (value, key) => {
@@ -2130,7 +2127,7 @@ async function main() {
     },
   ];
 
-  const baseEnvironment = { ...process.env };
+  const baseEnvironment = postgresComposeEnvironment({ ...process.env });
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
@@ -2197,7 +2194,7 @@ async function main() {
             [
               "compose",
               "-f",
-              composeFile,
+              postgresComposeFile,
               "-p",
               composeProject,
               "down",
@@ -2246,7 +2243,7 @@ async function main() {
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
-        ["compose", "-f", composeFile, "-p", composeProject, "up", "-d", "receipt-postgres"],
+        ["compose", "-f", postgresComposeFile, "-p", composeProject, "up", "-d", "receipt-postgres"],
         {
           cwd: repositoryRoot,
           env: baseEnvironment,
@@ -2411,7 +2408,7 @@ async function main() {
         database:
           postgresTopology === "docker"
             ? "disposable-postgresql-docker"
-            : "disposable-postgresql-local-nix",
+            : "disposable-postgresql-local",
         browser: "real-chromium",
         notification: "recording-gateway-fetch-blocked",
         fixedClock,

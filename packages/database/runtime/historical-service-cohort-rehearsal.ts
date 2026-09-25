@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Schema, flow, Predicate, Effect, Redacted } from "effect";
 import { Pool } from "pg";
+import { postgresProgram } from "@monoweb/postgres";
 import { databaseHealth } from "@vektorprogrammet/database";
 import {
   HistoricalServiceFailure,
@@ -90,7 +91,7 @@ let evidence: Record<string, Schema.Json> | undefined;
 
 try {
   const port = await freePort();
-  command("initdb", [
+  command(postgresProgram("initdb"), [
     "-D",
     pgdata,
     "-A",
@@ -102,7 +103,7 @@ try {
   ]);
 
   const postgres = spawn(
-    "postgres",
+    postgresProgram("postgres"),
     ["-D", pgdata, "-p", String(port), "-h", "127.0.0.1", "-k", artifacts],
     { stdio: "ignore" },
   );
@@ -560,7 +561,13 @@ try {
   );
 
   const restoredFactsExpected = await facts(pool);
-  command("pg_dump", ["--dbname", databaseUrl, "--format=custom", "--file", backup]);
+  command(postgresProgram("pg_dump"), [
+    "--dbname",
+    databaseUrl,
+    "--format=custom",
+    "--file",
+    backup,
+  ]);
   assert.ok((await stat(backup)).size > 0);
 
   const backupChecksum = createHash("sha256")
@@ -571,7 +578,7 @@ try {
   await admin.query("CREATE DATABASE historical_service_restored");
   await admin.end();
   const restoredUrl = `postgres://postgres@127.0.0.1:${port}/historical_service_restored`;
-  command("pg_restore", ["--dbname", restoredUrl, backup]);
+  command(postgresProgram("pg_restore"), ["--dbname", restoredUrl, backup]);
   const restored = new Pool({ connectionString: restoredUrl });
   assert.deepEqual(await facts(restored), restoredFactsExpected);
   await restored.end();

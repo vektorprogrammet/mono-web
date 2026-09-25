@@ -14,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { storeReceiptImportResult } from "@vektorprogrammet/database/receipt/postgres";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
@@ -1288,11 +1289,18 @@ const rehearse = async () =>
 
     stage = "RestoreIncompleteWork";
     const dumpPath = join(temporaryRoot, "pending.dump");
-    await runLocal(["pg_dump", "--dbname", pending.url, "--format=custom", "--file", dumpPath]);
+    await runLocal([
+      postgresProgram("pg_dump"),
+      "--dbname",
+      pending.url,
+      "--format=custom",
+      "--file",
+      dumpPath,
+    ]);
     await chmod(dumpPath, 0o600);
     const restore = await target("receipt_restored");
     await runLocal([
-      "pg_restore",
+      postgresProgram("pg_restore"),
       "--dbname",
       restore.url,
       "--clean",

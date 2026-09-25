@@ -1,3 +1,8 @@
+import {
+  postgresComposeEnvironment,
+  postgresComposeFile,
+  postgresProgram,
+} from "@monoweb/postgres";
 import { AdmissionPeriodActorSchema } from "@vektorprogrammet/domain/admission-period";
 import { ApprovalScopeSchema } from "@vektorprogrammet/domain/receipt";
 import { randomBytes } from "node:crypto";
@@ -16,8 +21,6 @@ const homepageRoot = fileURLToPath(new URL("../", import.meta.url));
 
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
-const composeFile = join(repositoryRoot, "docker-compose.yml");
-
 const homepageOrigin = "http://127.0.0.1:8787";
 
 const homepageHost = "p000.vektor.phibkro.org";
@@ -33,8 +36,6 @@ const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
 
 const postgresPort = 55432;
-
-const nixPostgresPackage = "nixpkgs#postgresql_17";
 
 const remoteEvidenceAuthorized =
   process.env.CI === "true" &&
@@ -173,10 +174,6 @@ function startProcess(command, args, options) {
   return child;
 }
 
-function runNixPostgres(command, args, options) {
-  return runCommand("nix", ["shell", nixPostgresPackage, "--command", command, ...args], options);
-}
-
 async function stopProcess(child) {
   if (child === undefined || child.exitCode !== null || child.pid === undefined) {
     return;
@@ -244,7 +241,7 @@ async function waitForPostgres(environment) {
           ? [
               "compose",
               "-f",
-              composeFile,
+              postgresComposeFile,
               "-p",
               composeProject,
               "exec",
@@ -268,7 +265,7 @@ async function waitForPostgres(environment) {
       if (postgresTopology === "docker") {
         await runCommand("docker", args, options);
       } else {
-        await runNixPostgres("pg_isready", args, options);
+        await runCommand(postgresProgram("pg_isready"), args, options);
       }
 
       return;
@@ -283,8 +280,8 @@ async function waitForPostgres(environment) {
 async function initializeLocalPostgres(dataRoot, environment) {
   await rm(dataRoot, { recursive: true, force: true });
   await mkdir(dataRoot, { recursive: true });
-  await runNixPostgres(
-    "initdb",
+  await runCommand(
+    postgresProgram("initdb"),
     [
       "--pgdata",
       dataRoot,
@@ -301,8 +298,8 @@ async function initializeLocalPostgres(dataRoot, environment) {
     },
   );
   await startExistingLocalPostgres(dataRoot, environment);
-  await runNixPostgres(
-    "createdb",
+  await runCommand(
+    postgresProgram("createdb"),
     ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "receipt_proof"],
     {
       cwd: repositoryRoot,
@@ -313,8 +310,8 @@ async function initializeLocalPostgres(dataRoot, environment) {
 }
 
 async function startExistingLocalPostgres(dataRoot, environment) {
-  await runNixPostgres(
-    "pg_ctl",
+  await runCommand(
+    postgresProgram("pg_ctl"),
     [
       "-D",
       dataRoot,
@@ -335,7 +332,7 @@ async function startExistingLocalPostgres(dataRoot, environment) {
 }
 
 async function stopLocalPostgres(dataRoot, environment) {
-  await runNixPostgres("pg_ctl", ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
+  await runCommand(postgresProgram("pg_ctl"), ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
     cwd: repositoryRoot,
     env: environment,
     label: "Local public-application PostgreSQL stop",
@@ -362,7 +359,7 @@ async function runPsql(sql, environment, label) {
       ? [
           "compose",
           "-f",
-          composeFile,
+          postgresComposeFile,
           "-p",
           composeProject,
           "exec",
@@ -404,7 +401,7 @@ async function runPsql(sql, environment, label) {
 
   return postgresTopology === "docker"
     ? runCommand("docker", args, options)
-    : runNixPostgres("psql", args, options);
+    : runCommand(postgresProgram("psql"), args, options);
 }
 
 async function seedReferenceData(environment) {
@@ -662,7 +659,7 @@ async function stopPostgres(dataRoot, environment) {
   if (postgresTopology === "docker") {
     await runCommand(
       "docker",
-      ["compose", "-f", composeFile, "-p", composeProject, "stop", "receipt-postgres"],
+      ["compose", "-f", postgresComposeFile, "-p", composeProject, "stop", "receipt-postgres"],
       {
         cwd: repositoryRoot,
         env: environment,
@@ -678,7 +675,7 @@ async function restartPostgres(dataRoot, environment) {
   if (postgresTopology === "docker") {
     await runCommand(
       "docker",
-      ["compose", "-f", composeFile, "-p", composeProject, "start", "receipt-postgres"],
+      ["compose", "-f", postgresComposeFile, "-p", composeProject, "start", "receipt-postgres"],
       {
         cwd: repositoryRoot,
         env: environment,
@@ -766,7 +763,7 @@ async function main() {
     },
   });
 
-  const baseEnvironment = { ...process.env };
+  const baseEnvironment = postgresComposeEnvironment(process.env);
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.API_URL;
@@ -820,7 +817,7 @@ async function main() {
             [
               "compose",
               "-f",
-              composeFile,
+              postgresComposeFile,
               "-p",
               composeProject,
               "down",
@@ -871,7 +868,16 @@ async function main() {
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
-        ["compose", "-f", composeFile, "-p", composeProject, "up", "-d", "receipt-postgres"],
+        [
+          "compose",
+          "-f",
+          postgresComposeFile,
+          "-p",
+          composeProject,
+          "up",
+          "-d",
+          "receipt-postgres",
+        ],
         {
           cwd: repositoryRoot,
           env: baseEnvironment,
@@ -978,7 +984,7 @@ async function main() {
         database:
           postgresTopology === "docker"
             ? "disposable-postgresql-docker"
-            : "disposable-postgresql-local-nix",
+            : "disposable-postgresql-local",
         browser: "real-chromium-single-worker",
         effects: "recording-only-bounded-outbox",
         fixedClock,

@@ -1,0 +1,34 @@
+name: PostgreSQL
+description: >-
+  Reads the PostgreSQL major that the root manifest declares (engines.postgresql).
+  Optionally installs that major from the PGDG archive and puts its programs first on PATH.
+inputs:
+  install:
+    description: Install the declared major and put its bin directory on PATH.
+    default: "true"
+outputs:
+  major:
+    description: The declared PostgreSQL major.
+    value: ${{ steps.declared.outputs.major }}
+runs:
+  using: composite
+  steps:
+    - id: declared
+      shell: bash
+      run: |
+        major="$(jq -er '.engines.postgresql | select(test("^[1-9][0-9]*$"))' package.json)"
+        echo "major=$major" >> "$GITHUB_OUTPUT"
+    - if: ${{ inputs.install == 'true' }}
+      shell: bash
+      env:
+        MAJOR: ${{ steps.declared.outputs.major }}
+      run: |
+        key="$RUNNER_TEMP/pgdg.asc"
+        curl --fail --silent --show-error --location https://www.postgresql.org/media/keys/ACCC4CF8.asc --output "$key"
+        gpg --batch --show-keys --with-colons "$key" | grep -Fx "fpr:::::::::B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8:"
+        sudo install -m 644 "$key" /usr/share/keyrings/pgdg.asc
+        codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+        echo "deb [signed-by=/usr/share/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt $codename-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+        sudo apt-get update
+        sudo apt-get install --yes "postgresql-$MAJOR" "postgresql-contrib-$MAJOR"
+        echo "/usr/lib/postgresql/$MAJOR/bin" >> "$GITHUB_PATH"
