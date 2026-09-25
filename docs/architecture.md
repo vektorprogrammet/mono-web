@@ -224,6 +224,11 @@ lock when an invariant spans rows or current state. Use a compare-and-set revisi
 when a caller edits an observed version. A rejected concurrent command must not
 leave partial state.
 
+Take a PostgreSQL advisory lock with `lockAdvisory` from
+[advisory-lock.ts](../packages/database/src/advisory-lock.ts). Its `AdvisoryLockKey`
+constructors own every key text, including the text that migration triggers hash.
+`anti-slop/no-raw-advisory-lock-sql` rejects hand-written advisory-lock SQL.
+
 Instants are `timestamptz` values at millisecond precision, the precision of the domain's
 `DateTime.Utc`. A CHECK on every instant column rejects a sub-millisecond value, and clock
 defaults and clock writes use `date_trunc('milliseconds', ..., 'UTC')`. Bind an instant as its

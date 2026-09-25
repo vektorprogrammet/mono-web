@@ -93,6 +93,11 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Parameters bound through raw `pg` `query` calls, `sql.in`, or `sql.unsafe` are not typed. Only the `Database` template rejects a `DateTime` argument.
   Raw calls include the identity and OAuth adapters, `packages/database/src/service-principal-grants-live.ts`, the cohort importers in `packages/database/src`,
   and `packages/placements/src/server/current-assignment-cohort.ts`.
+- Raw `pg` files still write advisory-lock SQL and copy lock keys by hand. The exceptions of `anti-slop/no-raw-advisory-lock-sql` in `oxlint.config.ts` list them;
+  each leaves that list when it moves to Effect SQL and `lockAdvisory`. The rule does not cover `tools/`, where `tools/e2e/legacy-cutover-references.ts`
+  and `tools/verification/organization-import-rehearsal.test.ts` also write advisory-lock SQL.
+- The raw `pg` identity adapters `packages/database/src/auth-engine.ts` and `packages/database/src/password-recovery.ts` read `NOT access_disabled` by hand
+  instead of `accountAccessEnabled` in `packages/database/src/identity-access.ts`.
 - `Team.email` (`packages/domain/src/organization/schema.ts`) accepts text that is not a mailbox. Open team intake requires a deliverable mailbox; the write boundary does not check it.
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
 - PR previews (operator decision, 2026-09-25): keep Cloudflare frontend previews for now; they need the `CLOUDFLARE_API_TOKEN` repository secret (operator step).
