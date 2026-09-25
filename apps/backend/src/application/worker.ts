@@ -1,4 +1,4 @@
-import { Predicate, Duration, Effect } from "effect";
+import { DateTime, Duration, Predicate, Effect } from "effect";
 import { Database } from "@vektorprogrammet/database";
 import {
   deliverNextPublicApplicationOutbox,
@@ -8,12 +8,12 @@ import type {
   PublicApplicationEffectInterpreter,
   PublicApplicationPersistenceError,
 } from "@vektorprogrammet/domain/application";
+import { pollForever } from "../worker-support.js";
 
 export interface PublicApplicationOutboxWorkerOptions {
   readonly workerId: string;
   readonly pollIntervalMilliseconds: number;
   readonly staleClaimMilliseconds: number;
-  readonly now: () => string;
   readonly onStart?: () => void;
   readonly onStop?: () => void;
 }
@@ -36,23 +36,28 @@ export const runPublicApplicationOutboxWorker = (
   let claimSequence = 0;
 
   const tick = Effect.gen(function* () {
-    const result = yield* deliverNextPublicApplicationOutbox(
+    const now = DateTime.formatIso(yield* DateTime.now);
+
+    return yield* deliverNextPublicApplicationOutbox(
       `${options.workerId}:${claimSequence++}`,
-      options.now(),
+      now,
       interpreter,
     );
-
-    if (!Predicate.isTagged(result, "Delivered")) {
-      yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
-    }
   });
 
   return Effect.gen(function* () {
-    const now = Date.parse(options.now());
-    const claimedBefore = new Date(now - options.staleClaimMilliseconds).toISOString();
+    const now = yield* DateTime.now;
+
+    const claimedBefore = DateTime.formatIso(
+      DateTime.subtract(now, { milliseconds: options.staleClaimMilliseconds }),
+    );
+
     yield* recoverAllStalePublicApplicationOutbox(claimedBefore);
     options.onStart?.();
 
-    return yield* Effect.forever(tick);
+    return yield* pollForever(tick, {
+      interval: Duration.millis(options.pollIntervalMilliseconds),
+      skipDelay: Predicate.isTagged("Delivered"),
+    });
   }).pipe(Effect.ensuring(Effect.sync(() => options.onStop?.())));
 };

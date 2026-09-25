@@ -2,10 +2,12 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
-import { deliverNextReceiptOutbox,
-listStaleReceiptOutboxClaimIds,
-recoverStaleReceiptOutbox, } from "@vektorprogrammet/database/receipt/postgres";
-import { Predicate, Effect, Layer, Redacted, Schema } from "effect";
+import {
+  deliverNextReceiptOutbox,
+  listStaleReceiptOutboxClaimIds,
+  recoverStaleReceiptOutbox,
+} from "@vektorprogrammet/database/receipt/postgres";
+import { DateTime, Predicate, Effect, Layer, Redacted, Schema } from "effect";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { decodeReceiptApiConfig } from "./config.js";
 import { ReceiptFileStoreLive } from "./filesystem.js";
@@ -43,7 +45,7 @@ const result = await Effect.runPromise(
     const exists = yield* db`SELECT 1 FROM economy_receipts WHERE receipt_id = ${receiptId}`;
 
     if (exists.length !== 1) return "NotFound";
-    const cutoff = new Date(Date.now() - 60_000).toISOString();
+    const cutoff = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { minutes: 1 }));
 
     for (const claim of yield* listStaleReceiptOutboxClaimIds(cutoff, receiptId))
       yield* recoverStaleReceiptOutbox(claim, cutoff);
@@ -51,7 +53,7 @@ const result = await Effect.runPromise(
     for (let count = 0; count < 256; count++) {
       const next = yield* deliverNextReceiptOutbox(
         randomUUID(),
-        new Date().toISOString(),
+        DateTime.formatIso(yield* DateTime.now),
         receiptId,
       );
 

@@ -42,7 +42,7 @@ import {
   ListTeamsEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { flow, Match, Cause, Predicate, Effect, Option, Schema } from "effect";
+import { flow, DateTime, Match, Cause, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   resolveRequestCredentialInTransaction,
@@ -365,7 +365,7 @@ const listDepartments = (request: Request) =>
           }),
         ],
       },
-      new Date().toISOString(),
+      DateTime.formatIso(yield* DateTime.now),
     );
     yield* assertNoQuery(request);
     const rows = yield* Organization.use(({ listDepartments }) => listDepartments);
@@ -399,7 +399,7 @@ const listTeams = (request: Request) =>
           }),
         ],
       },
-      new Date().toISOString(),
+      DateTime.formatIso(yield* DateTime.now),
     );
     yield* assertNoQuery(request);
     const rows = yield* Organization.use(({ listTeams }) => listTeams());
@@ -433,7 +433,7 @@ const listFieldOfStudies = (request: Request) =>
           }),
         ],
       },
-      new Date().toISOString(),
+      DateTime.formatIso(yield* DateTime.now),
     );
     yield* assertNoQuery(request);
     const rows = yield* Organization.use(({ listFieldOfStudies }) => listFieldOfStudies);

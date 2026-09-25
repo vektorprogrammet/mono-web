@@ -86,7 +86,7 @@ import {
 
 import { flow, Cause, Match, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
+import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   type CanonicalSemanticRequest,
@@ -733,7 +733,7 @@ const readInvitationResponse = <E, R>(request: Request, input: RecruitmentApiHtt
   Effect.gen(function* () {
     yield* noQuery(request);
     const capability = yield* invitationCapability(request);
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
 
     const snapshot = yield* Recruitment.use((service) =>
       service.readInvitationSnapshot(capability),
@@ -801,7 +801,7 @@ const invitationMutation = <E, R>(
       transition = RecruitmentInvitationTransition.RequestNewTime({ message: body.message });
     }
 
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
 
     const source = yield* Recruitment.use((service) =>
       service.readInvitationSnapshot(capability),
@@ -844,7 +844,7 @@ const readAssignmentBoard = <E, R>(request: Request, input: RecruitmentApiHttpOp
   Effect.gen(function* () {
     const query = yield* decodeBoardQuery(request);
     const actor = yield* actorFor(request, input);
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
     const departmentId = actorDepartment(actor);
     yield* authorizePersonOperation({
       spec: Option.getOrThrow(reflectAccessSpec(ReadAssignmentBoardEndpoint)),
@@ -904,7 +904,7 @@ const readInterviewReport = <E, R>(request: Request, input: RecruitmentApiHttpOp
 
     const query = yield* strictDecode(InterviewReportQuery)(queryInput);
     const caller = yield* actorFor(request, input);
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
 
     const actor = yield* Recruitment.use((service) =>
       service.resolveInterviewReportLeader(caller.personId, now),
@@ -938,7 +938,7 @@ const readSchedulingBoard = <E, R>(request: Request, input: RecruitmentApiHttpOp
   Effect.gen(function* () {
     yield* noQuery(request);
     const actor = yield* actorFor(request, input);
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
     const departmentId = actorDepartment(actor);
     yield* authorizePersonOperation({
       spec: Option.getOrThrow(reflectAccessSpec(ReadSchedulingBoardEndpoint)),
@@ -1261,10 +1261,12 @@ const readInterviewConductHandler = <E, R>(
             input,
           );
 
+          const now = yield* currentInstant(input.config.now);
+
           const observation = yield* Recruitment.use((service) =>
             service.readInterviewConduct(interviewId, {
               actor: authorization.actor,
-              now: input.config.now(),
+              now,
               authorizationInstant: authorization.authorizationInstant,
             }),
           );

@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { DateTime, Effect, Layer } from "effect";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import {
   RecruitmentNotificationDeliveryError,
@@ -92,10 +92,11 @@ export const HttpRecruitmentNotificationsLive = (
       | RecruitmentInterviewCompletionOutboxRequest,
   ) =>
     deliverJson(request, config, fetchEffect, { "idempotency-key": request.effectId }).pipe(
-      Effect.map(() =>
+      Effect.andThen(DateTime.now),
+      Effect.map((deliveredAt) =>
         RecruitmentNotificationEvidenceSchema.make({
           effectId: request.effectId,
-          deliveredAt: new Date().toISOString(),
+          deliveredAt: DateTime.formatIso(deliveredAt),
           // This identifies the acknowledged HTTP submission, not downstream mailbox delivery.
           providerReference: `http:${request.effectId}`,
         }),

@@ -68,7 +68,7 @@ import { Database } from "@vektorprogrammet/database";
 import { Organization, PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
-import { flow, Cause, Match, Predicate, Effect, Option, Schema } from "effect";
+import { flow, Cause, DateTime, Match, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   resolveRequestPersonAuthorityInTransaction,
@@ -452,7 +452,7 @@ const authorizeAnonymousContentOperation = (
   resolution: CanonicalScopeResolution<Record<string, never>>,
 ) =>
   Effect.gen(function* () {
-    const instant = yield* Effect.sync(() => AuthorizationInstant.make(new Date().toISOString()));
+    const instant = AuthorizationInstant.make(DateTime.formatIso(yield* DateTime.now));
 
     const evaluation = yield* evaluateAccessJourney(spec, undefined, {
       now: Effect.succeed(instant),

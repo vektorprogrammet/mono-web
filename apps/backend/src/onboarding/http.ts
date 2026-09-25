@@ -28,7 +28,7 @@ import {
 import { DomainId } from "@vektorprogrammet/domain/authz";
 import { flow, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
+import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -193,7 +193,7 @@ export const OnboardingApiHandlers = (input: {
   now?: () => string;
   delivery?: OnboardingDeliveryConfig;
 }) => {
-  const now = () => input.now?.() ?? new Date().toISOString();
+  const now = currentInstant(input.now);
 
   const read = (request: Request) =>
     Database.use((sql) =>
@@ -303,7 +303,7 @@ export const OnboardingApiHandlers = (input: {
       });
       const body = yield* decode(OnboardingClaim)(yield* readBody(request));
       const digest = yield* tokenDigest(body.token);
-      yield* checkOnboardingClaim(digest, now());
+      yield* checkOnboardingClaim(digest, yield* now);
 
       const passwordHash =
         body.mode === "NewAccount"
@@ -329,7 +329,7 @@ export const OnboardingApiHandlers = (input: {
 
             return yield* claimOnboarding({
               digest,
-              now: now(),
+              now: yield* now,
               identity,
               provision: provisionOnboardingAccount,
             });

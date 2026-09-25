@@ -298,7 +298,9 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
                       }),
                     ],
                   },
-                  (options.now ?? (() => new Date().toISOString()))(),
+                  options.now === undefined
+                    ? DateTime.formatIso(yield* DateTime.now)
+                    : options.now(),
                 );
                 yield* databaseHealth;
 

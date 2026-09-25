@@ -7,8 +7,9 @@ import {
   SchoolServiceNotificationDeliveryError,
   type SchoolServiceNotificationRequest,
 } from "@vektorprogrammet/placements/contracts";
-import { Predicate, Duration, Effect } from "effect";
+import { DateTime, Predicate, Duration, Effect } from "effect";
 import { deliverJson, type DeliveryFetch } from "../delivery/http.js";
+import { pollForever } from "../worker-support.js";
 
 export interface SchoolServiceNotificationConfig {
   readonly endpoint: URL;
@@ -106,31 +107,29 @@ export const runSchoolServiceNotificationWorker = (
     readonly workerId: string;
     readonly pollIntervalMilliseconds: number;
     readonly staleClaimMilliseconds: number;
-    readonly now: () => string;
   },
 ) => {
   if (options.workerId.length === 0) throw new Error("worker ID must not be empty");
   let sequence = 0;
 
   const tick = Effect.gen(function* () {
-    const claimedAt = options.now();
+    const claimedAt = yield* DateTime.now;
 
-    const claimedBefore = new Date(
-      Date.parse(claimedAt) - options.staleClaimMilliseconds,
-    ).toISOString();
+    const claimedBefore = DateTime.formatIso(
+      DateTime.subtract(claimedAt, { milliseconds: options.staleClaimMilliseconds }),
+    );
 
     yield* recoverStaleSchoolServiceNotifications(claimedBefore);
 
-    const result = yield* deliverNextSchoolServiceNotification(
+    return yield* deliverNextSchoolServiceNotification(
       `${options.workerId}:${sequence++}`,
-      claimedAt,
+      DateTime.formatIso(claimedAt),
       interpreter,
     );
-
-    if (!Predicate.isTagged(result, "Delivered")) {
-      yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
-    }
   });
 
-  return Effect.forever(tick);
+  return pollForever(tick, {
+    interval: Duration.millis(options.pollIntervalMilliseconds),
+    skipDelay: Predicate.isTagged("Delivered"),
+  });
 };

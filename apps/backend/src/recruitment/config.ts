@@ -7,7 +7,8 @@ import {
 
 export interface RecruitmentApiConfig {
   readonly maxBodyBytes: number;
-  readonly now: () => string;
+  /** Fixed instant from `ADMISSION_FIXED_NOW`; without it, handlers read the Clock service. */
+  readonly now?: () => string;
   readonly nextInterviewId: () => typeof RecruitmentInterviewId.Type;
   readonly nextInvitationId: () => typeof RecruitmentInvitationId.Type;
   readonly nextResponseCapability: () => string;

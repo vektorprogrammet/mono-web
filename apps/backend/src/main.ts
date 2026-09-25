@@ -218,7 +218,6 @@ if (process.exitCode !== 1) {
               workerId: `backend-${randomUUID()}`,
               pollIntervalMilliseconds: config.publicApplicationEffects.pollIntervalMilliseconds,
               staleClaimMilliseconds: config.publicApplicationEffects.staleClaimMilliseconds,
-              now: () => new Date().toISOString(),
             },
           ),
         );
@@ -233,7 +232,6 @@ if (process.exitCode !== 1) {
               workerId: `school-service-${randomUUID()}`,
               pollIntervalMilliseconds: config.schoolServiceNotifications.pollIntervalMilliseconds,
               staleClaimMilliseconds: config.schoolServiceNotifications.staleClaimMilliseconds,
-              now: () => new Date().toISOString(),
             },
           ),
         );
@@ -250,7 +248,6 @@ if (process.exitCode !== 1) {
                 config.schoolServiceDispatchNotifications.pollIntervalMilliseconds,
               staleClaimMilliseconds:
                 config.schoolServiceDispatchNotifications.staleClaimMilliseconds,
-              now: () => new Date().toISOString(),
             },
           ),
         );
@@ -263,7 +260,6 @@ if (process.exitCode !== 1) {
             workerId: `recruitment-${randomUUID()}`,
             pollIntervalMilliseconds: config.recruitmentNotifications.pollIntervalMilliseconds,
             staleClaimMilliseconds: config.recruitmentNotifications.staleClaimMilliseconds,
-            now: () => new Date().toISOString(),
           }).pipe(
             Effect.provide(HttpRecruitmentNotificationsLive(config.recruitmentNotifications)),
           ),

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Deferred, Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import {
   ApplicantIdSchema,
   PublicApplicationIdSchema,
@@ -110,18 +111,22 @@ describe("public application delivery worker", () => {
           };
 
           const fiber = yield* Effect.forkScoped(
-            runPublicApplicationOutboxWorker(interpreter, {
-              workerId: "database-test-worker",
-              pollIntervalMilliseconds: 5,
-              staleClaimMilliseconds: 60_000,
-              now: () => "2031-09-15T12:02:00.000Z",
-              onStart: () => {
-                starts += 1;
-              },
-              onStop: () => {
-                stops += 1;
-              },
-            }),
+            TestClock.setTime(Date.parse("2031-09-15T12:02:00.000Z")).pipe(
+              Effect.andThen(
+                runPublicApplicationOutboxWorker(interpreter, {
+                  workerId: "database-test-worker",
+                  pollIntervalMilliseconds: 5,
+                  staleClaimMilliseconds: 60_000,
+                  onStart: () => {
+                    starts += 1;
+                  },
+                  onStop: () => {
+                    stops += 1;
+                  },
+                }),
+              ),
+              Effect.provide(TestClock.layer()),
+            ),
           );
 
           yield* Deferred.await(deliveryStarted);

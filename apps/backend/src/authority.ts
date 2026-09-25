@@ -35,7 +35,7 @@ import {
   type Decision,
 } from "@vektorprogrammet/domain/authz";
 import type { RecruitmentActor } from "@vektorprogrammet/domain/recruitment";
-import { Predicate, Effect, Schema } from "effect";
+import { DateTime, Predicate, Effect, Schema } from "effect";
 import { hasBetterAuthSessionCredential } from "./session-security.js";
 
 /**
@@ -53,8 +53,12 @@ import type {
 /** Projection failures are infrastructure-level and surface as typed denials upstream. */
 export type OrganizationResolutionError = OrganizationDecodeError | OrganizationPersistenceError;
 
-/** Injected clock keeps the one-instant-per-request law testable (spec 0055). */
-const defaultNow = (): string => new Date().toISOString();
+/**
+ * Injected clock keeps the one-instant-per-request law testable (spec 0055).
+ * Without an override, the instant comes from the Clock service.
+ */
+export const currentInstant = (now: (() => string) | undefined): Effect.Effect<string> =>
+  now === undefined ? Effect.map(DateTime.now, DateTime.formatIso) : Effect.sync(now);
 
 const decodeAuthorizationInstant = (value: string): OrganizationAuthorityInstant =>
   Schema.decodeUnknownSync(OrganizationAuthorityInstantSchema)(value);
@@ -259,9 +263,9 @@ export const resolveRequestCredentialAtInstant = (
   Identity | OAuthCredentialAuthority
 > =>
   Effect.flatMap(requestCredentialEffect(request, expected), (credential) =>
-    Effect.sync(() => ({
+    Effect.map(currentInstant(options.now), (instant) => ({
       credential,
-      authorizationInstant: AuthorizationInstant.make((options.now ?? defaultNow)()),
+      authorizationInstant: AuthorizationInstant.make(instant),
     })),
   );
 
@@ -280,7 +284,7 @@ export const resolveRequestCredentialInTransaction = (
   Database | IdentitySnapshot | OAuthCredentialAuthority
 > => {
   return Effect.flatMap(
-    Effect.sync(() => AuthorizationInstant.make((options.now ?? defaultNow)())),
+    Effect.map(currentInstant(options.now), AuthorizationInstant.make),
     (authorizationInstant) =>
       Effect.map(
         requestCredentialInTransactionEffect(request, expected, authorizationInstant),
@@ -339,9 +343,9 @@ export const resolveAuthenticatedPersonAtInstant = (
   Identity
 > =>
   Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
-    Effect.sync(() => ({
+    Effect.map(currentInstant(options.now), (instant) => ({
       personId: actor.personId,
-      authorizationInstant: decodeAuthorizationInstant((options.now ?? defaultNow)()),
+      authorizationInstant: decodeAuthorizationInstant(instant),
     })),
   );
 
@@ -355,9 +359,9 @@ export const resolveRequestPersonAtInstant = (
   Identity | OAuthCredentialAuthority
 > =>
   Effect.flatMap(requestPersonEffect(request), (personId) =>
-    Effect.sync(() => ({
+    Effect.map(currentInstant(options.now), (instant) => ({
       personId,
-      authorizationInstant: decodeAuthorizationInstant((options.now ?? defaultNow)()),
+      authorizationInstant: decodeAuthorizationInstant(instant),
     })),
   );
 
@@ -371,7 +375,7 @@ export const resolvePersonAuthority = (
   Organization | Identity
 > => {
   return Effect.flatMap(
-    Effect.sync(() => decodeAuthorizationInstant((options.now ?? defaultNow)())),
+    Effect.map(currentInstant(options.now), decodeAuthorizationInstant),
     (instant) => personAuthorityEffect(cookieHeader, instant),
   );
 };
@@ -386,12 +390,10 @@ export const resolvePersonAuthorityAfterSession = (
   Organization | Identity
 > =>
   Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
-    Effect.flatMap(
-      Effect.sync(() => decodeAuthorizationInstant((options.now ?? defaultNow)())),
-      (instant) =>
-        Organization.use(({ resolvePersonAuthority }) =>
-          resolvePersonAuthority(actor.personId, instant),
-        ),
+    Effect.flatMap(Effect.map(currentInstant(options.now), decodeAuthorizationInstant), (instant) =>
+      Organization.use(({ resolvePersonAuthority }) =>
+        resolvePersonAuthority(actor.personId, instant),
+      ),
     ),
   );
 
@@ -405,10 +407,8 @@ export const resolveRequestPersonAuthority = (
   Organization | Identity | OAuthCredentialAuthority
 > =>
   Effect.flatMap(requestPersonEffect(request), (personId) =>
-    Effect.flatMap(
-      Effect.sync(() => decodeAuthorizationInstant((options.now ?? defaultNow)())),
-      (instant) =>
-        Organization.use(({ resolvePersonAuthority }) => resolvePersonAuthority(personId, instant)),
+    Effect.flatMap(Effect.map(currentInstant(options.now), decodeAuthorizationInstant), (instant) =>
+      Organization.use(({ resolvePersonAuthority }) => resolvePersonAuthority(personId, instant)),
     ),
   );
 
