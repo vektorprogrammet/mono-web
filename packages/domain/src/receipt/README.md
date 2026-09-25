@@ -269,12 +269,12 @@ Run the focused decision and HTTP transaction checks from the repository root:
 ```bash
 bun run --cwd packages/domain vitest run src/receipt/update.test.ts src/receipt/update.property.test.ts --no-file-parallelism --maxWorkers=1
 bun run --cwd apps/backend vitest run src/receipt/http.test.ts src/http-api/receipt-transaction.test.ts --no-file-parallelism --maxWorkers=1
-bun run --cwd packages/http-api generate:check
+bun run --cwd packages/http-api generate
 ```
 
 The decision checks defend legal transitions and invariants. They do not resolve live authority.
 The HTTP checks cover the adapter contract with their declared test dependencies, not a continuous browser journey.
-The generation check detects stale transport artifacts. It does not exercise delivery.
+The generation step derives the transport artifacts and checks the contract release invariants. It does not exercise delivery.
 
 The [functional testing guide](../../../../docs/web-system-functional-testing.md) owns local journey commands and their evidence requirements.
 The [delivery recovery guide](../../../../docs/delivery-recovery.md#local-proof) owns the disposable native recovery proof.

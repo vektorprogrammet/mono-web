@@ -12,6 +12,7 @@
     "noFallthroughCasesInSwitch": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    "customConditions": ["@vektorprogrammet/source"],
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,

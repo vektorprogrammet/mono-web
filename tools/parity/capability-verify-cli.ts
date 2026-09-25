@@ -41,7 +41,10 @@ const GENERATOR_PATHS = [
   "tools/parity/legacy-openapi-cli.ts",
   "tools/parity/schemas",
   "tools/parity/src/capability-parity.ts",
-  "packages/http-api/openapi.json",
+  "packages/http-api/scripts/generate-openapi.ts",
+  "packages/http-api/src",
+  "packages/domain/src",
+  "packages/placements/src",
   "tools/parity/data/legacy-contract/legacy-symfony-openapi.snapshot.json",
 ] as const;
 

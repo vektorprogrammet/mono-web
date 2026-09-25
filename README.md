@@ -107,13 +107,14 @@ Use a separate source-matched committed snapshot for acceptance, as described in
 
 ### Layered system walkthrough
 
-Open [the standalone guide](docs/system-walkthrough.html) in a browser.
-Edit [its MDX source](docs/system-walkthrough.mdx), then regenerate it:
+Render [the MDX source](docs/system-walkthrough.mdx), then open the standalone `docs/system-walkthrough.html` in a browser:
 
 ```bash
 bun install --frozen-lockfile
 bun run docs:system
 ```
+
+Git ignores the rendered HTML. Edit only the MDX source.
 
 The build uses the vendored MIT MDXCN component and embeds all styles.
 The resulting HTML needs no server, JavaScript, or external assets.

@@ -10,9 +10,8 @@
   },
   "scripts": {
     "generate": "bun run scripts/generate-openapi.ts",
-    "generate:check": "bun run scripts/generate-openapi.ts --check",
     "check-types": "tsc --noEmit",
-    "build": "bun run generate:check && tsc --noEmit",
+    "build": "tsc --noEmit",
     "lint": "oxlint",
     "test": "vitest run"
   },

@@ -10,6 +10,9 @@ export default defineConfig({
       "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     ),
   },
+  // Workspace packages such as the SDK resolve to source; Vitest appends its default conditions.
+  resolve: { conditions: ["@vektorprogrammet/source"] },
+  ssr: { resolve: { conditions: ["@vektorprogrammet/source"] } },
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],

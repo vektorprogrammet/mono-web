@@ -8,6 +8,11 @@ dist
 build
 *.tsbuildinfo
 
+# Derived from committed sources; regenerate them, never commit them
+/packages/http-api/openapi.json
+/packages/sdk/native-api-operations.json
+/docs/system-walkthrough.html
+
 artifacts/
 # Environment variables
 .env

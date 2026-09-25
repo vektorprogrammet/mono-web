@@ -62,7 +62,9 @@ export default defineConfig(({ command }) => {
       ),
     },
     plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
-    resolve: { alias },
+    // Workspace packages such as the SDK resolve to source; the plugins append Vite's default conditions.
+    resolve: { alias, conditions: ["@vektorprogrammet/source"] },
+    ssr: { resolve: { conditions: ["@vektorprogrammet/source"] } },
     server,
   };
 });
