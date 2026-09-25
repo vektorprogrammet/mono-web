@@ -3868,6 +3868,85 @@
           "personId": {
             "type": "string"
           },
+          "placements": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "active": {
+                  "type": "boolean"
+                },
+                "block": {
+                  "enum": [
+                    "1",
+                    "2",
+                    "Both"
+                  ],
+                  "type": "string"
+                },
+                "day": {
+                  "enum": [
+                    "Monday",
+                    "Tuesday",
+                    "Wednesday",
+                    "Thursday",
+                    "Friday"
+                  ],
+                  "type": "string"
+                },
+                "departmentId": {
+                  "type": "string"
+                },
+                "firstName": {
+                  "type": "string"
+                },
+                "lastName": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "placementId": {
+                  "pattern": "^placement-[a-f0-9]{64}$",
+                  "type": "string"
+                },
+                "revision": {
+                  "type": "integer"
+                },
+                "schoolId": {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                "schoolName": {
+                  "type": "string"
+                },
+                "semesterId": {
+                  "type": "string"
+                },
+                "workdays": {
+                  "maximum": 8,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "departmentId",
+                "semesterId",
+                "schoolId",
+                "day",
+                "workdays",
+                "block",
+                "placementId",
+                "personId",
+                "active",
+                "revision",
+                "firstName",
+                "lastName",
+                "schoolName"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "responses": {
             "items": {
               "additionalProperties": false,
@@ -3957,6 +4036,7 @@
           "departmentId",
           "semesterId",
           "personId",
+          "placements",
           "rosterSlots",
           "commitments",
           "absences",

@@ -2,7 +2,7 @@
   "artifacts": {
     "openapi": {
       "path": "packages/http-api/openapi.json",
-      "sha256": "20457c20a13ee65179acdc28cb298f607abce31dbe869ddd1fa8cee5c633ca0e"
+      "sha256": "30a9fb74aa760a0e42cafc62008a803951552f53880bbf5ca65b1d49ab8e74c2"
     },
     "sdkOperations": {
       "path": "packages/sdk/native-api-operations.json",

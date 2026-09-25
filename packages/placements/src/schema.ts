@@ -361,6 +361,7 @@ export const CoverageCandidate = Schema.Struct({
 export const OwnCoverageView = Schema.Struct({
   ...PlacementScope.fields,
   personId: PersonId,
+  placements: Schema.Array(Placement),
   rosterSlots: Schema.Array(ConfirmedRosterSlot),
   commitments: Schema.Array(SchoolServiceCommitment),
   absences: Schema.Array(SchoolServiceAbsence),
