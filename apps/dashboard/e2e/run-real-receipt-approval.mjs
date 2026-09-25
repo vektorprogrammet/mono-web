@@ -5,7 +5,7 @@ import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:f
 import { createServer } from "node:http";
 import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -409,6 +409,10 @@ async function stopLocalPostgres(dataRoot, environment) {
   });
 }
 
+/**
+ * Counts receipt files under root. The file store keeps one durable effect
+ * reservation marker per promotion under `.effects`; those are not receipt files.
+ */
 async function countFiles(root) {
   try {
     const entries = await readdir(root, {
@@ -416,7 +420,12 @@ async function countFiles(root) {
       withFileTypes: true,
     });
 
-    return entries.reduce((count, entry) => count + (entry.isFile() ? 1 : 0), 0);
+    return entries.reduce(
+      (count, entry) =>
+        count +
+        (entry.isFile() && relative(root, entry.parentPath).split(sep)[0] !== ".effects" ? 1 : 0),
+      0,
+    );
   } catch (error) {
     if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
       return 0;
@@ -1051,7 +1060,9 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   assertEqual(postgres.fixtureCounts, expectedFixtureCounts, "Receipt authority fixture counts");
 
   if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 4) {
-    throw new Error("Receipt approval private-file cleanup did not preserve the committed files");
+    throw new Error(
+      `Receipt approval private-file cleanup did not preserve the committed files: staging=${privateFile.stagingFileCount} committed=${privateFile.committedFileCount}`,
+    );
   }
 
   const finalFileIdentities = postgres.receipts.map((receipt) => ({
