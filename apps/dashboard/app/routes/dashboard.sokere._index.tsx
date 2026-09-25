@@ -96,3 +96,6 @@ export default function RecruitmentRoute() {
     [DASHBOARD_INPUT_ATTRIBUTE]: serializedInput,
   });
 }
+
+/** This route renders the complete Foldkit navigation and main landmark. */
+export const handle = { dashboardShell: "owned" } as const;
