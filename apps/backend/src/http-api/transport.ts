@@ -9,7 +9,9 @@ import {
 import { timingSafeEqual } from "node:crypto";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import { CONTACT_BACKEND_HEADER } from "@vektorprogrammet/domain/contact";
 import { Identity } from "@vektorprogrammet/domain/identity";
+import { credentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Match, Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
 import { HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
@@ -20,8 +22,7 @@ import {
   resolveRequestPerson,
 } from "../authority.js";
 import type { ContactConfig } from "../contact/config.js";
-import { nativeProblemResponse } from "../http-semantics.js";
-import { hasBetterAuthSessionCredential } from "../session-security.js";
+import { classifyCredential, problemWebResponse } from "./problem.js";
 
 /**
  * Flattens one Effect-native Web transport operation into an HTTP API response.
@@ -65,58 +66,58 @@ const issueAtHeader = (
 };
 
 /** Maps automatic request decoding failures to the frozen transport problem families. */
-export const requestSchemaErrorResponse = (error: HttpApiError.HttpApiSchemaError): Response => {
+const requestSchemaProblem = (error: HttpApiError.HttpApiSchemaError) => {
   if (error.kind === "Headers") {
     if (issueAtHeader(error.cause.issue, "if-match")) {
       return issueAtHeader(error.cause.issue, "if-match", "MissingKey")
-        ? nativeProblemResponse("precondition.required", 428)
-        : nativeProblemResponse("precondition.invalid", 400);
+        ? Problem.make("precondition.required")
+        : Problem.make("precondition.invalid");
     }
 
     if (issueAtHeader(error.cause.issue, "if-none-match")) {
-      return nativeProblemResponse("precondition.invalid", 400);
+      return Problem.make("precondition.invalid");
     }
 
     if (issueAtHeader(error.cause.issue, "idempotency-key")) {
-      return nativeProblemResponse("idempotency-key.invalid", 400);
+      return Problem.make("idempotency-key.invalid");
     }
 
-    return nativeProblemResponse("header.malformed", 400);
+    return Problem.make("header.malformed");
   }
 
   if (error.kind === "Params" || error.kind === "Query") {
-    return nativeProblemResponse("request.malformed", 400);
+    return Problem.make("request.malformed");
   }
 
-  return nativeProblemResponse("internal.error", 500);
+  return Problem.make("internal.error");
 };
+
+/**
+ * RequestSchemaErrorMiddleware is API-wide, so it declares no error that would
+ * spread to every endpoint. It answers with the rendering the encoder uses.
+ */
+export const requestSchemaErrorResponse = (error: HttpApiError.HttpApiSchemaError): Response =>
+  problemWebResponse(requestSchemaProblem(error));
 
 type CredentialChallenge =
   | 'VektorSession realm="native-api"'
-  | 'VektorSession realm="native-api", Bearer realm="native-api"'
-  | 'ContactSSR realm="native-contact"';
-
-const rejectedCredential = (challenge: CredentialChallenge) =>
-  HttpServerResponse.fromWeb(
-    nativeProblemResponse("credential.invalid", 401, { "www-authenticate": challenge }),
-  );
+  | 'VektorSession realm="native-api", Bearer realm="native-api"';
 
 /**
- * Classifies a failed person or session authentication from the raw request.
+ * Rejects a failed person or session authentication from the raw request.
  * Effect decodes an absent credential as an empty value, so absence is read
  * from the headers: no Better Auth session cookie and no Authorization header
  * is a missing credential; any presented credential that failed is invalid.
  */
-const unauthenticatedResponse = (
+const rejectCredential = (
   request: HttpServerRequest.HttpServerRequest,
   challenge: CredentialChallenge,
 ) =>
-  request.headers.authorization !== undefined ||
-  hasBetterAuthSessionCredential(request.headers.cookie ?? null)
-    ? rejectedCredential(challenge)
-    : HttpServerResponse.fromWeb(
-        nativeProblemResponse("credential.missing", 401, { "www-authenticate": challenge }),
-      );
+  Effect.fail(
+    Problem.unauthenticated(
+      classifyCredential(request.headers.authorization, request.headers.cookie, challenge),
+    ),
+  );
 
 const isUnauthenticated = (cause: unknown): cause is UnauthenticatedActor =>
   cause instanceof UnauthenticatedActor;
@@ -134,7 +135,7 @@ const sessionSecurityLayer = Layer.effect(
           );
 
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return unauthenticatedResponse(
+            return yield* rejectCredential(
               yield* HttpServerRequest.HttpServerRequest,
               'VektorSession realm="native-api"',
             );
@@ -175,7 +176,7 @@ const personSecurityLayer = Layer.effect(
           );
 
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return unauthenticatedResponse(
+            return yield* rejectCredential(
               request,
               'VektorSession realm="native-api", Bearer realm="native-api"',
             );
@@ -200,7 +201,7 @@ const personSecurityLayer = Layer.effect(
           );
 
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return unauthenticatedResponse(
+            return yield* rejectCredential(
               request,
               'VektorSession realm="native-api", Bearer realm="native-api"',
             );
@@ -235,7 +236,7 @@ const personOrServiceSecurityLayer = Layer.effect(
         );
 
         if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-          return unauthenticatedResponse(
+          return yield* rejectCredential(
             request,
             'VektorSession realm="native-api", Bearer realm="native-api"',
           );
@@ -257,9 +258,7 @@ const invitationCapabilitySecurityLayer = Layer.succeed(
   InvitationCapabilitySecurity.of({
     invitationCapability: (httpEffect, { credential }) =>
       Redacted.value(credential).length === 0
-        ? Effect.succeed(
-            HttpServerResponse.fromWeb(nativeProblemResponse("resource.not-found", 404)),
-          )
+        ? Effect.fail(Problem.make("resource.not-found"))
         : httpEffect,
   }),
 );
@@ -274,9 +273,19 @@ const contactSsrSecurityLayer = (contact: ContactConfig | undefined) => {
         if (expected === undefined) return httpEffect;
         const supplied = Buffer.from(Redacted.value(credential));
 
+        // A request without the header presented no credential; a wrong token presented an invalid one.
         return supplied.length === expected.length && timingSafeEqual(supplied, expected)
           ? httpEffect
-          : Effect.succeed(rejectedCredential('ContactSSR realm="native-contact"'));
+          : Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) =>
+              Effect.fail(
+                Problem.unauthenticated(
+                  credentialPresentation({
+                    presented: request.headers[CONTACT_BACKEND_HEADER] !== undefined,
+                    challenge: 'ContactSSR realm="native-contact"',
+                  }),
+                ),
+              ),
+            );
       },
     }),
   );

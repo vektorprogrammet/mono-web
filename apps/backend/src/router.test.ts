@@ -31,9 +31,11 @@ import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
 import { CredentialOutcomeSchema } from "@vektorprogrammet/domain/authz";
 import { Economy } from "@vektorprogrammet/domain/receipt";
+import { NativeProblem, SchoolSurveyReadProblem } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeBackendConfig } from "./config.js";
+import { contactConfig } from "./contact/config.js";
 import {
   externalNativePreflightAttachmentGaps,
   externalNativePreflightMethodsForPath,
@@ -584,6 +586,67 @@ describe("unified backend router", () => {
 
       expect((await fetchWith({ cookie: `theme=dark; ${token}=valid-session` })).status).toBe(200);
     });
+
+    it("for the contact server credential", async () => {
+      const contactBackend = backendHttpHandler(
+        {
+          ...config,
+          contact: contactConfig({
+            CONTACT_BACKEND_TOKEN: "router-contact-credential-00000000000000",
+            CONTACT_DELIVERY_TOKEN: "router-contact-delivery",
+            CONTACT_SENDER: "contact@example.org",
+            CONTACT_DELIVERY_URL: "http://127.0.0.1:9",
+            CONTACT_DELIVERY_TIMEOUT_MS: "100",
+          }),
+        },
+        successfulServices,
+        unavailableAuthHandler,
+      );
+
+      for (const [headers, code] of [
+        [{}, "credential.missing"],
+        [{ "x-vektor-contact-backend": "wrong" }, "credential.invalid"],
+      ] as const) {
+        const response = await contactBackend.fetch(
+          new Request("http://backend.test/api/contact-messages", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              origin: "http://127.0.0.1:5174",
+              "x-vektor-contact-ip": "127.0.0.1",
+              ...headers,
+            },
+            body: JSON.stringify({
+              departmentId: "one",
+              name: "Ola",
+              email: "ola@example.org",
+              subject: "Hei",
+              message: "Hei",
+            }),
+          }),
+        );
+
+        expect({
+          status: response.status,
+          code: Schema.decodeUnknownSync(NativeProblem)(await response.json()).code,
+          challenge: response.headers.get("www-authenticate"),
+        }).toEqual({ status: 401, code, challenge: 'ContactSSR realm="native-contact"' });
+      }
+    });
+  });
+
+  it("answers a handler defect with the frozen internal.error problem", async () => {
+    // The router's SchoolSurveys service dies on every call.
+    const response = await request("/api/surveys/public/router-defect");
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("content-type")).toBe("application/problem+json");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(
+      Schema.decodeUnknownSync(SchoolSurveyReadProblem)(await response.json(), {
+        onExcessProperty: "error",
+      }).code,
+    ).toBe("internal.error");
   });
 
   it("conceals missing, non-owned, and already-revoked session ids identically", async () => {
