@@ -22,4 +22,4 @@ pre-push:
     check:
       run: bun run check
     test:
-      run: bunx turbo run test --affected
+      run: bunx turbo run test --affected --concurrency=1
