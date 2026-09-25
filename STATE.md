@@ -92,12 +92,14 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   and `packages/placements/src/server/current-assignment-cohort.ts`.
 - `Team.email` (`packages/domain/src/organization/schema.ts`) accepts text that is not a mailbox. Open team intake requires a deliverable mailbox; the write boundary does not check it.
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
-- The [PR preview contract](docs/specs/worker-pr-previews.md) requires workspace validation before deployment. `.github/workflows/preview-pr.yml` only builds.
+- PR previews (operator decision, 2026-09-25): keep Cloudflare frontend previews for now; they need the `CLOUDFLARE_API_TOKEN` repository secret (operator step).
+  Later, move to full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
+  The [PR preview contract](docs/specs/worker-pr-previews.md) requires workspace validation before deployment. `.github/workflows/preview-pr.yml` only builds.
 - Hosted CI at `49f38ccc` fails. `Tests` run `36118163912` fails the PHPUnit suite, `TypeScript (build, test)`, native identity (PostgreSQL lifecycle),
   native identity browser evidence, and public applicant browser jobs. `Release SDK` fails its publish step.
-  PR preview cleanup fails without `CLOUDFLARE_API_TOKEN`. Hosted Alchemy deployment is unobserved.
+  Hosted Alchemy deployment is unobserved.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
-- In progress: staged-change checks in pre-commit.
+- `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy` adds PHP, Composer, and MariaDB. CI runs in the same shell; its hosted cost is unmeasured.
 
 ## Next
 
