@@ -2,10 +2,12 @@ import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import { canManagePlacements } from "@vektorprogrammet/placements/contracts";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   OnboardingClaim,
   OnboardingCommand,
-  OnboardingFailure,
+  type OnboardingFailure,
   OnboardingScope,
 } from "@vektorprogrammet/domain/onboarding";
 import {
@@ -17,7 +19,11 @@ import {
   readOnboardingBoard,
 } from "@vektorprogrammet/database/onboarding";
 import { hashOnboardingPassword, provisionOnboardingAccount } from "@vektorprogrammet/database";
-import { PersonId } from "@vektorprogrammet/domain/organization";
+import {
+  type OrganizationDecodeError,
+  type OrganizationPersistenceError,
+  PersonId,
+} from "@vektorprogrammet/domain/organization";
 import {
   ExternalNativeApi,
   OnboardingResource,
@@ -25,67 +31,100 @@ import {
   CommandOnboardingEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { DomainId } from "@vektorprogrammet/domain/authz";
+import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { flow, Predicate, Effect, Option, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   currentInstant,
   headerCredentialCount,
   resolveRequestPersonAuthorityInTransaction,
 } from "../authority.js";
-import { readBoundedJson } from "../http-api/read-json.js";
-import { isSerializationConflict, personPresentation } from "../http-api/problem.js";
-import { toHttpApiResponse } from "../http-api/transport.js";
 import {
-  HttpSemanticFailure,
+  authorizePerson,
+  commandOutcomeResponse,
+  commandReceiptProblems,
+  decodeRequest,
+  httpIdentity,
+  idempotencyKeyOf,
+  isSerializationConflict,
+  personPresentation,
+  problemMapper,
+  readJsonBody,
+  requireCurrentETag,
+  requireNoQuery,
+  requiredIfMatchOf,
+  webHandler,
+} from "../http-api/problem.js";
+import {
   deriveStrongETag,
-  deriveHttpIdentity,
   normalizeTarget,
-  parseIdempotencyKey,
-  parseRequiredIfMatch,
   semanticMutationRequest,
   semanticRequestDigest,
-  evaluateMutationPrecondition,
   responseCapsule,
-  nativeProblemResponse,
 } from "../http-semantics.js";
-import {
-  authorizePersonNativeOperation,
-  genericContext,
-  nativeCommandOutcomeResponse,
-} from "../native-operation.js";
+import { genericContext } from "../native-operation.js";
 import { drainOnboardingDelivery, type OnboardingDeliveryConfig } from "./delivery.js";
 
-const semantic = <A>(operation: () => A) =>
-  Effect.try({
-    try: operation,
-    catch: (cause) =>
-      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
+/** Both bodies are JSON. The media type is matched case-sensitively. */
+const JSON_MEDIA_TYPE = /^application\/json(?:\s*;|$)/u;
+
+const MAX_BODY_BYTES = 8_192;
+
+/** The SQLSTATE of the first coded failure in a cause chain. */
+const sqlState = (cause: unknown, depth = 0): string | undefined => {
+  if (depth >= 8 || !Predicate.isObjectOrArray(cause)) return undefined;
+
+  if (Predicate.hasProperty(cause, "code") && Predicate.isString(cause.code)) return cause.code;
+
+  return Predicate.hasProperty(cause, "cause") ? sqlState(cause.cause, depth + 1) : undefined;
+};
+
+/**
+ * A failed statement. A unique violation means a racing claim provisioned
+ * the same account first, so the claimant must sign in to it.
+ *
+ * @construct http-problem
+ */
+const sqlProblem = (cause: SqlError | OrganizationPersistenceError) =>
+  sqlState(cause) === "23505"
+    ? Problem.make("onboarding.sign-in-required")
+    : isSerializationConflict(cause)
+      ? Problem.make("transaction.conflict")
+      : Problem.make("internal.error");
+
+/**
+ * The one answer for every onboarding failure. A person credential rejected
+ * inside the transaction is answered from the request's own evidence.
+ *
+ * @construct http-problem
+ */
+const onboardingProblems = (presentation: CredentialPresentation) =>
+  problemMapper<
+    | OnboardingFailure
+    | UnauthenticatedActor
+    | IdentityEngineError
+    | OrganizationDecodeError
+    | OrganizationPersistenceError
+    | SqlError
+  >()({
+    OnboardingFailure: ({ code }) => Problem.make(code),
+    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+    IdentityEngineError: () => Problem.make("internal.error"),
+    OrganizationDecodeError: () => Problem.make("internal.error"),
+    OrganizationPersistenceError: sqlProblem,
+    SqlError: sqlProblem,
   });
 
-const promise = <A>(operation: () => PromiseLike<A>) =>
-  Effect.tryPromise({
-    try: () => operation(),
-    catch: (cause) =>
-      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
-  });
-
+/**
+ * Hex SHA-256 of a claim token, the only form the database stores.
+ *
+ * @construct crypto-digest
+ */
 const tokenDigest = (token: string) =>
-  Effect.tryPromise({
-    try: () => crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
-    catch: (cause) =>
-      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
-  }).pipe(
-    Effect.map((digest) =>
-      Array.from(new Uint8Array(digest))
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join(""),
-    ),
+  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))).pipe(
+    Effect.map((digest) => Buffer.from(digest).toString("hex")),
   );
-
-const header = (r: Request, k: string) => (r.headers.has(k) ? [r.headers.get(k)!] : []);
 
 const resource = <A extends object>(body: A) => ({
   ...body,
@@ -111,102 +150,62 @@ const json = (body: Schema.Json, etag?: string) => {
   });
 };
 
-const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
-  flow(
-    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
-  );
-
-/** Board rows reach the schema unchecked; a row outside it is a server defect, not a request error. */
+/**
+ * Board rows reach the schema unchecked; a row outside it is a server defect, not a request error.
+ *
+ * @construct http-problem
+ */
 const boardOutput = flow(
   Schema.decodeUnknownEffect(OnboardingResource, { onExcessProperty: "error" }),
   Effect.orDie,
 );
 
-const query = (request: Request) =>
-  semantic(() => {
-    const q = new URL(request.url).searchParams;
+/** The one departmentId query member the board operations accept. */
+const scopeOf = (request: Request) => {
+  const query = new URL(request.url).searchParams;
 
-    if ([...q.keys()].some((k) => k !== "departmentId" || q.getAll(k).length !== 1))
-      throw new HttpSemanticFailure("request.malformed", 400);
+  return [...query.keys()].some((k) => k !== "departmentId" || query.getAll(k).length !== 1)
+    ? Effect.fail(Problem.make("request.malformed"))
+    : decodeRequest(OnboardingScope)(Object.fromEntries(query));
+};
 
-    return Object.fromEntries(q);
-  });
-
-type Endpoint = typeof ReadOnboardingEndpoint | typeof CommandOnboardingEndpoint;
-
+/** A coordinator of the department, then the declared AccessSpec, at one transaction instant. */
 const authorize = (
   request: Request,
-  endpoint: Endpoint,
-  departmentId: typeof OnboardingScope.Type.departmentId | null,
-  manage: boolean,
+  endpoint: typeof ReadOnboardingEndpoint | typeof CommandOnboardingEndpoint,
+  departmentId: typeof OnboardingScope.Type.departmentId,
+  presentation: CredentialPresentation,
   now?: () => string,
 ) =>
   Effect.gen(function* () {
     const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
 
-    if (manage && (departmentId === null || !canManagePlacements(auth.authority, departmentId)))
-      return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
-    yield* authorizePersonNativeOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-      credential: auth.credential,
-      personId: auth.authority.personId,
-      resolution: {
-        selection: "ExactlyOne",
-        contexts: [
-          genericContext({
-            domainId: "organization",
-            departmentId: departmentId ?? undefined,
-            authorityVersion: auth.authorizationInstant,
-          }),
-        ],
+    if (!canManagePlacements(auth.authority, departmentId))
+      return yield* Problem.make("authority.denied");
+
+    yield* authorizePerson(
+      {
+        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+        credential: auth.credential,
+        personId: auth.authority.personId,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [
+            genericContext({
+              domainId: "organization",
+              departmentId,
+              authorityVersion: auth.authorizationInstant,
+            }),
+          ],
+        },
+        grantScopes: [Scope.Department({ departmentId })],
+        now: auth.authorizationInstant,
       },
-      grantScopes:
-        departmentId === null
-          ? [Scope.Domain({ domainId: DomainId.make("organization") })]
-          : [Scope.Department({ departmentId })],
-      now: auth.authorizationInstant,
-    });
+      presentation,
+    );
 
     return auth;
   });
-
-const errorResponse = (cause: unknown): Response => {
-  if (cause instanceof HttpSemanticFailure || cause instanceof OnboardingFailure)
-    return nativeProblemResponse(cause.code, cause.status);
-
-  if (
-    (cause === null || Predicate.isObjectOrArray(cause)) &&
-    cause !== null &&
-    "_tag" in cause &&
-    Predicate.isTagged(cause, "UnauthenticatedActor")
-  )
-    return nativeProblemResponse("credential.invalid", 401);
-
-  // The command executor reports every failed statement as a receipt persistence failure.
-  if (Predicate.isTagged(cause, "NativeHttpReceiptPersistenceError"))
-    return isSerializationConflict(cause)
-      ? nativeProblemResponse("transaction.conflict", 409)
-      : nativeProblemResponse("idempotency.unavailable", 503);
-
-  const sqlCode = (cause: unknown, n = 0): string | null =>
-    n < 8 && (cause === null || Predicate.isObjectOrArray(cause)) && cause !== null
-      ? "code" in cause && Predicate.isString(cause.code)
-        ? cause.code
-        : "cause" in cause
-          ? sqlCode(cause.cause, n + 1)
-          : null
-      : null;
-
-  const code = sqlCode(cause);
-
-  if (code === "23505") return nativeProblemResponse("onboarding.sign-in-required", 409);
-
-  if (code === "40001" || code === "40P01")
-    return nativeProblemResponse("transaction.conflict", 409);
-
-  return nativeProblemResponse("internal.error", 500);
-};
 
 export const OnboardingApiHandlers = (input: {
   now?: () => string;
@@ -214,41 +213,39 @@ export const OnboardingApiHandlers = (input: {
 }) => {
   const now = currentInstant(input.now);
 
-  const read = (request: Request) =>
-    Database.use((sql) =>
+  const read = (request: Request) => {
+    const presentation = personPresentation(request);
+
+    return Database.use((sql) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          const scope = yield* decode(OnboardingScope)(yield* query(request));
-          yield* authorize(request, ReadOnboardingEndpoint, scope.departmentId, true, input.now);
+          const scope = yield* scopeOf(request);
+          yield* authorize(
+            request,
+            ReadOnboardingEndpoint,
+            scope.departmentId,
+            presentation,
+            input.now,
+          );
           const board = yield* readOnboardingBoard(scope.departmentId);
 
           return json(yield* boardOutput(resource(board)));
         }),
       ),
-    );
-
-  const readBody = (request: Request) => {
-    if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json")
-      return Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
-
-    return readBoundedJson(request, 8192);
+    ).pipe(onboardingProblems(presentation));
   };
 
   const command = (request: Request) =>
     Effect.gen(function* () {
-      const body = yield* readBody(request);
-      const selected = yield* decode(OnboardingCommand)(body);
-      const scope = yield* decode(OnboardingScope)(yield* query(request));
-      const ifMatch = yield* semantic(() => parseRequiredIfMatch(header(request, "if-match")));
-      const key = yield* semantic(() => parseIdempotencyKey(header(request, "idempotency-key")));
+      const body = yield* readJsonBody(request, JSON_MEDIA_TYPE, MAX_BODY_BYTES);
+      const selected = yield* decodeRequest(OnboardingCommand)(body);
+      const scope = yield* scopeOf(request);
+      const ifMatch = yield* requiredIfMatchOf(request);
+      const idempotencyKey = yield* idempotencyKeyOf(request);
+      const presentation = personPresentation(request);
 
-      const token = yield* semantic(
-        () =>
-          "onboard_" +
-          Array.from(crypto.getRandomValues(new Uint8Array(32)))
-            .map((byte) => byte.toString(16).padStart(2, "0"))
-            .join(""),
-      );
+      const token =
+        "onboard_" + Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex");
 
       const digest = yield* tokenDigest(token);
 
@@ -258,18 +255,16 @@ export const OnboardingApiHandlers = (input: {
             request,
             CommandOnboardingEndpoint,
             scope.departmentId,
-            true,
+            presentation,
             input.now,
           );
 
-          const identity = yield* semantic(() =>
-            deriveHttpIdentity({
-              credentialSubject: `Person:${auth.authority.personId}`,
-              qualifiedOperationId: "onboarding.command",
-              normalizedTarget: normalizeTarget("/api/onboarding/{departmentId}", scope),
-              idempotencyKey: key,
-            }),
-          );
+          const identity = yield* httpIdentity({
+            credentialSubject: `Person:${auth.authority.personId}`,
+            qualifiedOperationId: "onboarding.command",
+            normalizedTarget: normalizeTarget("/api/onboarding/{departmentId}", scope),
+            idempotencyKey,
+          });
 
           return {
             identity: {
@@ -281,12 +276,7 @@ export const OnboardingApiHandlers = (input: {
               const app = yield* onboardingApplication(selected.applicationId, scope.departmentId);
               yield* lockOnboardingApplicant(app.applicantId);
               const current = resource(yield* readOnboardingBoard(scope.departmentId));
-              const precondition = evaluateMutationPrecondition(current.etag, ifMatch);
-
-              if (Predicate.isTagged(precondition, "Failed"))
-                return yield* Effect.fail(
-                  new HttpSemanticFailure(precondition.code, precondition.status),
-                );
+              yield* requireCurrentETag(current.etag, ifMatch);
               yield* commandOnboarding({
                 departmentId: scope.departmentId,
                 command: selected,
@@ -301,26 +291,31 @@ export const OnboardingApiHandlers = (input: {
                 resource(yield* readOnboardingBoard(scope.departmentId)),
               );
 
-              return yield* promise(() => responseCapsule(json(changed, changed.etag)));
+              return yield* Effect.promise(() => responseCapsule(json(changed, changed.etag)));
             }),
           };
         }),
-      );
+      ).pipe(onboardingProblems(presentation), commandReceiptProblems);
 
-      const response = nativeCommandOutcomeResponse(outcome);
+      const response = yield* commandOutcomeResponse(outcome);
 
-      if (response.ok && selected.action !== "Revoke")
-        yield* drainOnboardingDelivery(selected.applicationId, input.delivery);
+      if (selected.action !== "Revoke")
+        yield* drainOnboardingDelivery(selected.applicationId, input.delivery).pipe(
+          Effect.catchTag("SchemaError", Effect.die),
+          onboardingProblems(presentation),
+        );
 
       return response;
     });
 
   const claim = (request: Request) =>
     Effect.gen(function* () {
-      yield* semantic(() => {
-        if (new URL(request.url).search) throw new HttpSemanticFailure("request.malformed", 400);
-      });
-      const body = yield* decode(OnboardingClaim)(yield* readBody(request));
+      yield* requireNoQuery(request);
+
+      const body = yield* decodeRequest(OnboardingClaim)(
+        yield* readJsonBody(request, JSON_MEDIA_TYPE, MAX_BODY_BYTES),
+      );
+
       const digest = yield* tokenDigest(body.token);
 
       // A new-account claim presents one credential: its token. An existing-account claim has one
@@ -338,37 +333,24 @@ export const OnboardingApiHandlers = (input: {
         yield* checkOnboardingClaim(digest, yield* now);
       }
 
-      const passwordHash =
+      const newAccount =
         body.mode === "NewAccount"
-          ? yield* promise(() => hashOnboardingPassword(body.password))
+          ? {
+              mode: "NewAccount" as const,
+              personId: PersonId.make(crypto.randomUUID()),
+              passwordHash: yield* Effect.promise(() => hashOnboardingPassword(body.password)),
+            }
           : null;
 
       const result = yield* Database.use((sql) =>
         sql.withTransaction(
           Effect.gen(function* () {
-            const identity =
-              body.mode === "ExistingAccount"
-                ? {
-                    mode: "ExistingAccount" as const,
-                    // A rejected credential is answered from what the request presented.
-                    personId: (yield* resolveRequestPersonAuthorityInTransaction(request, {
-                      now: input.now,
-                    }).pipe(
-                      Effect.catchTag("UnauthenticatedActor", () =>
-                        Effect.fail(
-                          new HttpSemanticFailure(
-                            Problem.unauthenticated(personPresentation(request)).code,
-                            401,
-                          ),
-                        ),
-                      ),
-                    )).authority.personId,
-                  }
-                : {
-                    mode: "NewAccount" as const,
-                    personId: yield* semantic(() => PersonId.make(crypto.randomUUID())),
-                    passwordHash: passwordHash!,
-                  };
+            const identity = newAccount ?? {
+              mode: "ExistingAccount" as const,
+              personId: (yield* resolveRequestPersonAuthorityInTransaction(request, {
+                now: input.now,
+              })).authority.personId,
+            };
 
             return yield* claimOnboarding({
               digest,
@@ -381,14 +363,14 @@ export const OnboardingApiHandlers = (input: {
       );
 
       return json(result);
-    });
+    }).pipe(onboardingProblems(personPresentation(request)));
 
   return HttpApiBuilder.group(ExternalNativeApi, "onboarding", (handlers) =>
     Effect.succeed(
       handlers
-        .handleRaw("readBoard", ({ request }) => toHttpApiResponse(request, read, errorResponse))
-        .handleRaw("command", ({ request }) => toHttpApiResponse(request, command, errorResponse))
-        .handleRaw("claim", ({ request }) => toHttpApiResponse(request, claim, errorResponse)),
+        .handleRaw("readBoard", ({ request }) => webHandler(request, read))
+        .handleRaw("command", ({ request }) => webHandler(request, command))
+        .handleRaw("claim", ({ request }) => webHandler(request, claim)),
     ),
   );
 };
