@@ -23,3 +23,21 @@ export * from "./organization/http.js";
 export * from "./recruitment/config.js";
 
 export * from "./recruitment/http.js";
+
+export type {
+  RecruitmentApiHttpOptions,
+  RecruitmentConductContextResolution,
+} from "./recruitment/http-context.js";
+
+export { recruitmentInterviewAccessContext } from "./recruitment/http-access.js";
+
+export { readRecruitmentRequestBody } from "./recruitment/http-decode.js";
+
+export { recruitmentHttpErrorResponse } from "./recruitment/http-problem.js";
+
+export {
+  conditionalJsonResponse,
+  interviewETag,
+  invitationETag,
+  schedulingBoardWithETags,
+} from "./recruitment/http-representation.js";

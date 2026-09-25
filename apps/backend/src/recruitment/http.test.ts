@@ -63,14 +63,14 @@ import {
 } from "../http-semantics.js";
 import { describe, expect, it } from "vitest";
 import { runTestPromise } from "../../test/runtime.js";
+import { recruitmentInterviewAccessContext } from "./http-access.js";
+import { readRecruitmentRequestBody } from "./http-decode.js";
+import { recruitmentHttpErrorResponse } from "./http-problem.js";
 import {
   conditionalJsonResponse,
   interviewETag,
-  readRecruitmentRequestBody,
-  recruitmentHttpErrorResponse,
   schedulingBoardWithETags,
-  recruitmentInterviewAccessContext,
-} from "./http.js";
+} from "./http-representation.js";
 
 describe("native recruitment HTTP boundary", () => {
   it("accepts one bounded JSON object and rejects invalid transport bodies", async () => {
