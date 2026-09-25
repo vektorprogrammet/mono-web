@@ -1189,15 +1189,25 @@ export type CredentialPresentation = CredentialAbsent | CredentialPresented;
 
 /**
  * Records, once at ingress, whether the request carried credential material.
- * Only this evidence can produce a credential problem.
+ * Only this evidence can produce a credential problem. Evidence of a presented
+ * credential keeps that type, so it can only produce `credential.invalid`.
  */
-export const credentialPresentation = (input: {
+export function credentialPresentation(input: {
+  readonly presented: true;
+  readonly challenge: string;
+}): CredentialPresented;
+export function credentialPresentation(input: {
   readonly presented: boolean;
   readonly challenge: string;
-}): CredentialPresentation =>
-  input.presented
+}): CredentialPresentation;
+export function credentialPresentation(input: {
+  readonly presented: boolean;
+  readonly challenge: string;
+}): CredentialPresentation {
+  return input.presented
     ? { [CredentialPresentationTypeId]: "Presented", challenge: input.challenge }
     : { [CredentialPresentationTypeId]: "Absent", challenge: input.challenge };
+}
 
 const ProblemTypeId = "~@vektorprogrammet/http-api/Problem";
 
@@ -1512,3 +1522,6 @@ export const nativeUserChallenges = (invalidBearer = false): string =>
 
 /** Standard credential accepted by a cookie-only native endpoint. */
 export const nativeCookieChallenge = 'VektorSession realm="native-api"';
+
+/** The one credential an invitation-capability endpoint accepts: its capability header. */
+export const invitationCapabilityChallenge = 'RecruitmentInvitationCapability realm="native-api"';

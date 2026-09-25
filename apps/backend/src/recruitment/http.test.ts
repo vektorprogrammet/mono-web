@@ -203,7 +203,7 @@ const ingress = (
 
 /** An invitation capability holder's read (`""`) or response. */
 const invitation = (
-  action: "" | ":confirm" | ":reject",
+  action: "" | ":confirm" | ":reject" | ":request-new-time",
   init: {
     readonly headers?: Record<string, string>;
     readonly body?: string | ReadableStream<Uint8Array>;
@@ -401,6 +401,49 @@ describe("native recruitment HTTP boundary", () => {
         await http.fetch(invitation("", { headers: { "if-match": '"vkr2.stale"' } })),
       ),
     ).toEqual({ status: 412, code: "precondition.failed" });
+  });
+
+  it("rejects an invitation capability presented beside a session cookie or a bearer", async () => {
+    const http = ingress();
+    transitions.length = 0;
+
+    // The capability is the request's one credential in every invitation operation.
+    const operations = [
+      ["", undefined],
+      [":confirm", "{}"],
+      [":reject", "{}"],
+      [":request-new-time", JSON.stringify({ message: "Kan vi møtes torsdag?" })],
+    ] as const;
+
+    const answer = async (response: Response) =>
+      response.ok
+        ? { status: response.status }
+        : { ...(await problemOf(response)), challenge: response.headers.get("www-authenticate") };
+
+    for (const [header, credential] of [
+      ["cookie", "theme=dark; better-auth.session_token=http-leader"],
+      ["authorization", "Bearer http-leader-bearer"],
+    ] as const) {
+      for (const [action, body] of operations) {
+        const response = await http.fetch(
+          invitation(action, { headers: { [header]: credential }, body }),
+        );
+
+        expect({ action, header, ...(await answer(response)) }).toEqual({
+          action,
+          header,
+          status: 401,
+          code: "credential.invalid",
+          challenge: 'RecruitmentInvitationCapability realm="native-api"',
+        });
+      }
+    }
+
+    expect(transitions).toEqual([]);
+    // A cookie without a session is no second credential.
+    expect(
+      await answer(await http.fetch(invitation("", { headers: { cookie: "theme=dark" } }))),
+    ).toEqual({ status: 200 });
   });
 
   it("exposes mutation-compatible strong ETags on scheduling items", () => {

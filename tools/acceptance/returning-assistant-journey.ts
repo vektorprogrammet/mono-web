@@ -1967,16 +1967,17 @@ export const runReturningAssistantBrowserJourney = async ({
       origin: ui,
     };
 
-    const invitationPendingResponse = await page.request.get(
-      `${api}/api/recruitment/invitation-response`,
-      { headers: invitationHeaders },
-    );
+    // The invitee presents only the capability. The staff page's session cookie would be a
+    // second credential, so these requests go through fetch, which keeps no cookie jar.
+    const invitationPendingResponse = await fetch(`${api}/api/recruitment/invitation-response`, {
+      headers: invitationHeaders,
+    });
 
     const invitationPendingText = await invitationPendingResponse.text();
 
-    if (invitationPendingResponse.status() !== 200) {
+    if (invitationPendingResponse.status !== 200) {
       throw new Error(
-        `next invitation read failed ${invitationPendingResponse.status()} ${invitationPendingText}`,
+        `next invitation read failed ${invitationPendingResponse.status} ${invitationPendingText}`,
       );
     }
 
@@ -1984,7 +1985,7 @@ export const runReturningAssistantBrowserJourney = async ({
       RecruitmentInvitationResponseObservationSchema,
     )(JSON.parse(invitationPendingText));
 
-    const invitationETag = invitationPendingResponse.headers()["etag"];
+    const invitationETag = invitationPendingResponse.headers.get("etag");
     assert.ok(invitationETag);
     assert.deepEqual(invitationPending, {
       scheduledAt: "2026-09-20T10:00:00.000Z",
@@ -1994,32 +1995,32 @@ export const runReturningAssistantBrowserJourney = async ({
       responseMessage: null,
     });
 
-    const invitationConfirmResponse = await page.request.post(
+    const invitationConfirmResponse = await fetch(
       `${api}/api/recruitment/invitation-response:confirm`,
       {
+        method: "POST",
         headers: {
           ...invitationHeaders,
           "content-type": "application/json",
           "if-match": invitationETag,
         },
-        data: {},
+        body: "{}",
       },
     );
 
     const invitationConfirmText = await invitationConfirmResponse.text();
 
-    if (invitationConfirmResponse.status() !== 204) {
+    if (invitationConfirmResponse.status !== 204) {
       throw new Error(
-        `next invitation confirmation failed ${invitationConfirmResponse.status()} ${invitationConfirmText}`,
+        `next invitation confirmation failed ${invitationConfirmResponse.status} ${invitationConfirmText}`,
       );
     }
 
-    const invitationAcceptedResponse = await page.request.get(
-      `${api}/api/recruitment/invitation-response`,
-      { headers: invitationHeaders },
-    );
+    const invitationAcceptedResponse = await fetch(`${api}/api/recruitment/invitation-response`, {
+      headers: invitationHeaders,
+    });
 
-    assert.equal(invitationAcceptedResponse.status(), 200);
+    assert.equal(invitationAcceptedResponse.status, 200);
 
     const invitationAccepted = Schema.decodeUnknownSync(
       RecruitmentInvitationResponseObservationSchema,

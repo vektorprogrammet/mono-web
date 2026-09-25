@@ -451,9 +451,11 @@ a current appointment keeps its scope, and ending an appointment changes no gran
 
 A request presents one credential. A request that carries both a session cookie and
 a bearer token fails, whether they name one Person, two Persons, or a Person and a
-service. The backend never chooses between them. In the existing-account onboarding
-claim, the signed-in Person is the one principal, and the claim link is a single-use
-requirement bound to its invitation, not a second credential.
+service. An interview invitation response that carries a session cookie or bearer
+beside its capability also fails. The backend never chooses between them. In the
+existing-account onboarding claim, the signed-in Person is the one principal, and
+the claim link is a single-use requirement bound to its invitation, not a second
+credential.
 
 A service caller is a separate principal, not a synthetic Person. A valid machine
 credential proves its identity, but a current grant must also cover the operation,
