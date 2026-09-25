@@ -1,6 +1,8 @@
 /** Admission HTTP failure classification and JSON response helpers. */
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import { makeNativeValidationError, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Cause, Match, Predicate, type Schema } from "effect";
+import { problemWebResponse } from "../http-api/problem.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 
 /** Keeps admission-classified failures and wraps every other thrown value as unknown. */
@@ -103,6 +105,13 @@ export const admissionHttpErrorResponse = (cause: unknown): Response => {
       return nativeProblemResponse("idempotency.digest-conflict", 409);
     case "ReturningAssistantPersistenceError":
       return nativeProblemResponse("returning.unavailable", 503);
+    case "DepartmentNotFound":
+      // The frozen unions have no department code; an unknown department is an invalid value.
+      return problemWebResponse(
+        Problem.validation("validation.failed", [
+          makeNativeValidationError("/departmentId", "invalid"),
+        ]),
+      );
     case "FieldOfStudyNotFound":
     case "FieldOfStudyInactive":
     case "FieldOfStudyDepartmentMismatch":
