@@ -175,9 +175,11 @@ const MobileMenu = ({ routes }: { routes: Array<{ name: string; path: To }> }) =
             variant="outline"
             className="fixed top-12 right-0 flex rounded-l-full bg-[rgba(0,0,0,0.8)] p-1 pr-2"
             size="icon"
+            aria-label="Åpne meny"
           >
             <Avatar className="h-full w-full rounded-full">
-              <AvatarImage src="/images/team/IT-Tor.png" />
+              {/* Decorative: the button carries the accessible name. */}
+              <AvatarImage src="/images/team/IT-Tor.png" alt="" />
               <AvatarFallback>{"Tor"}</AvatarFallback>
             </Avatar>
           </Button>
