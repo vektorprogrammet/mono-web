@@ -1,5 +1,5 @@
 import { Database } from "../service.js";
-import { Match, Effect, Schema, Semaphore, Option } from "effect";
+import { Match, Effect, Schema, Semaphore, Clock } from "effect";
 import {
   ReceiptAuxiliaryEffects,
   ReceiptFileService,
@@ -15,6 +15,7 @@ import {
 
 // Shared by request-time drains and the unattended worker, before any claim is held.
 const deliveryPermit = Semaphore.makeUnsafe(1);
+
 interface ClaimedOutboxRow {
   readonly effect_id: string;
   readonly command_id: string;
@@ -275,23 +276,30 @@ export const deliverNextReceiptOutbox = (
   Database | ReceiptFileService | ReceiptAuxiliaryEffects
 > =>
   Effect.gen(function* () {
-    const claim = yield* claimNextReceiptOutbox(claimId, claimedAt, receiptId);
+    const waitingSince = yield* Clock.currentTimeMillis;
 
-    if (claim === undefined) return ReceiptOutboxDeliveryResult.Idle();
+    return yield* deliveryPermit.withPermit(
+      Effect.gen(function* () {
+        const acquiredAt = new Date(
+          Date.parse(claimedAt) + Math.max(0, (yield* Clock.currentTimeMillis) - waitingSince),
+        ).toISOString();
 
-    return yield* interpretReceiptOutbox(claim.request, claim.claimId).pipe(
-      Effect.matchEffect({
-        onFailure: (failure) =>
-          failReceiptOutbox(claim, failure._tag).pipe(
-            Effect.as(ReceiptOutboxDeliveryResult.Failed({ claim, failureTag: failure._tag })),
-          ),
-        onSuccess: () =>
-          completeReceiptOutbox(claim).pipe(
-            Effect.as(ReceiptOutboxDeliveryResult.Delivered({ claim })),
-          ),
+        const claim = yield* claimNextReceiptOutbox(claimId, acquiredAt, receiptId);
+
+        if (claim === undefined) return ReceiptOutboxDeliveryResult.Idle();
+
+        return yield* interpretReceiptOutbox(claim.request, claim.claimId).pipe(
+          Effect.matchEffect({
+            onFailure: (failure) =>
+              failReceiptOutbox(claim, failure._tag).pipe(
+                Effect.as(ReceiptOutboxDeliveryResult.Failed({ claim, failureTag: failure._tag })),
+              ),
+            onSuccess: () =>
+              completeReceiptOutbox(claim).pipe(
+                Effect.as(ReceiptOutboxDeliveryResult.Delivered({ claim })),
+              ),
+          }),
+        );
       }),
     );
-  }).pipe(
-    deliveryPermit.withPermitsIfAvailable(1),
-    Effect.map(Option.getOrElse(() => ReceiptOutboxDeliveryResult.Idle())),
-  );
+  });

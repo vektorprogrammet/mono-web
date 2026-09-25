@@ -4,8 +4,17 @@ import {
   ReceiptSubmitForm,
   type ReceiptSubmissionNotice,
 } from "@/components/receipts/ReceiptSubmitForm";
-import { isUnauthorizedError, mapOwnedReceiptError, mapOwnedReceiptView, type ReceiptOwnerMutationFailure, type ReceiptOwnerMutationNotice, type ReceiptRevisionDraft, ReceiptUiError, type ReceiptUiErrorField } from "@/lib/receipt-view";
-import { ReceiptId, readBoundedReceiptForm } from "@vektorprogrammet/http-api"
+import {
+  isUnauthorizedError,
+  mapOwnedReceiptError,
+  mapOwnedReceiptView,
+  type ReceiptOwnerMutationFailure,
+  type ReceiptOwnerMutationNotice,
+  type ReceiptRevisionDraft,
+  ReceiptUiError,
+  type ReceiptUiErrorField,
+} from "@/lib/receipt-view";
+import { ReceiptId, readBoundedReceiptForm } from "@vektorprogrammet/http-api";
 import {
   IdempotencyKey,
   StrongETag,
@@ -51,8 +60,7 @@ function readFormText(form: FormData, name: string): string | null {
 }
 
 function receiptDecodeError(message: string, field?: ReceiptUiErrorField): ReceiptUiError {
-  return ReceiptUiError.ReceiptDecodeError({message,
-field});
+  return ReceiptUiError.ReceiptDecodeError({ message, field });
 }
 
 function decodeIdempotencyKey(value: string): IdempotencyKeyValue | undefined {
@@ -220,9 +228,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
+
   const form = await readBoundedReceiptForm(request, MAX_FILE_BYTES).catch(() => {
     throw new Response("Receipt upload exceeds the limit or is malformed", { status: 413 });
   });
+
   const commandIdText = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
   const commandId = decodeIdempotencyKey(commandIdText);
   const intent = readFormText(form, "_intent");
@@ -371,10 +381,13 @@ export async function action({ request }: Route.ActionArgs) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         ...identity.value,
-        commandId:
-          Predicate.isTagged(mappedError, "StaleReceiptRevision") ? crypto.randomUUID() : commandIdText,
+        commandId: Predicate.isTagged(mappedError, "StaleReceiptRevision")
+          ? crypto.randomUUID()
+          : commandIdText,
         error: mappedError,
-        draft: Predicate.isTagged(mappedError, "StaleReceiptRevision") ? undefined : fields.value.draft,
+        draft: Predicate.isTagged(mappedError, "StaleReceiptRevision")
+          ? undefined
+          : fields.value.draft,
       };
 
       return { success: false as const, intent, mutationFailure };
