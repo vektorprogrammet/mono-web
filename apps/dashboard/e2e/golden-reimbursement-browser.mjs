@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Predicate } from "effect";
@@ -221,9 +222,11 @@ export const runReimbursementBrowser = async ({
     await expect(approvalRow).toBeVisible();
     const receiptLink = approvalRow.getByRole("link", { name: "Vis kvittering", exact: true });
     const fileUrl = new URL(await receiptLink.getAttribute("href"), origins.dashboard).href;
+
     const fileResponse = approver.context.waitForEvent("response", {
       predicate: (response) => response.url() === fileUrl,
     });
+
     const popupPromise = approver.page.waitForEvent("popup");
     await receiptLink.click();
     const [popup, downloaded] = await Promise.all([popupPromise, fileResponse]);
@@ -422,7 +425,7 @@ export const runReimbursementBrowser = async ({
     ]) {
       const ids = [];
       const sizes = [];
-      let cursor = null;
+      let cursor;
 
       do {
         assert.ok(sizes.length < 3, "collection traversal did not terminate");
@@ -430,7 +433,7 @@ export const runReimbursementBrowser = async ({
         const page = await list(
           actor,
           path +
-            (cursor === null
+            (cursor === undefined
               ? ""
               : `${path.includes("?") ? "&" : "?"}cursor=${encodeURIComponent(cursor)}`),
         );
@@ -441,11 +444,11 @@ export const runReimbursementBrowser = async ({
 
         if (actor === approver) pendingBounds.push(...page.items);
         assert.ok(
-          page.nextCursor === null || Predicate.isString(page.nextCursor),
+          page.nextCursor === undefined || Predicate.isString(page.nextCursor),
           "collection continuation required",
         );
         cursor = page.nextCursor;
-      } while (cursor !== null);
+      } while (cursor !== undefined);
 
       assert.equal(ids.length, expected);
       assert.equal(new Set(ids).size, expected);
@@ -539,5 +542,8 @@ export const runReimbursementBrowser = async ({
     return { passed: true, receiptId, settlementId: settled.settlement.settlementId, checks };
   } finally {
     await browser.close();
+    await writeFile(join(artifacts, "browser-checks.json"), JSON.stringify({ checks }, null, 2), {
+      mode: 0o600,
+    });
   }
 };
