@@ -56,9 +56,13 @@ const onboardingProblems = [
 /** Problems of the person-secured operations; PersonSecurity declares their credential problems. */
 export const OnboardingProblem = problemUnion("OnboardingProblem", onboardingProblems);
 
-/** The capability claim has no security middleware, so it declares its own credential problem. */
+/**
+ * The capability claim has no security middleware, so it declares its own credential problems:
+ * existing-account mode answers a missing or rejected person credential.
+ */
 export const OnboardingClaimProblem = problemUnion("OnboardingClaimProblem", [
   ...onboardingProblems,
+  "credential.missing",
   "credential.invalid",
 ]);
 

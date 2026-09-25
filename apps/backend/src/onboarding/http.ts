@@ -25,6 +25,7 @@ import {
   CommandOnboardingEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { DomainId } from "@vektorprogrammet/domain/authz";
 import { flow, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -35,6 +36,7 @@ import {
   resolveRequestPersonAuthorityInTransaction,
 } from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
+import { personPresentation } from "../http-api/problem.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
@@ -342,9 +344,19 @@ export const OnboardingApiHandlers = (input: {
               body.mode === "ExistingAccount"
                 ? {
                     mode: "ExistingAccount" as const,
+                    // A rejected credential is answered from what the request presented.
                     personId: (yield* resolveRequestPersonAuthorityInTransaction(request, {
                       now: input.now,
-                    })).authority.personId,
+                    }).pipe(
+                      Effect.catchTag("UnauthenticatedActor", () =>
+                        Effect.fail(
+                          new HttpSemanticFailure(
+                            Problem.unauthenticated(personPresentation(request)).code,
+                            401,
+                          ),
+                        ),
+                      ),
+                    )).authority.personId,
                   }
                 : {
                     mode: "NewAccount" as const,
