@@ -29,9 +29,9 @@ The legacy Symfony source is not in this repository. Production runs the default
 branch of [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet).
 The Symfony modernization attempt that this repository kept as `apps/server` continues
 there as branch `modernize/mono-web-server` (`908368a8`), with its full history.
-To recover it here, use the parent of the mono-web commit that removed it
-(`refactor!: remove the legacy Symfony server`). Its `apps/server` tree `023b85bd`, the same as in
-`2163076f`, is identical to that branch.
+In mono-web, `ea124143` removed it; its parent `1277be8b` still contains `apps/server`, without
+`tools/security-h3`, which the preceding parity retirement deleted. The complete tree `023b85bd`
+is at `b6438cb2`, the base of that change, and is identical to that branch.
 
 That modernization source is not an exact production snapshot. Production contracts
 use the operator-designated legacy `master` baseline and observed live workflows.

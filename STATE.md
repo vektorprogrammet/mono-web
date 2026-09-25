@@ -7,7 +7,7 @@ This file records current state only. Remove an item when it is resolved. Git ke
 ## Current
 
 Production uses the legacy PHP application. Production replacement is not authorized or rehearsed.
-The legacy source is in the [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository; the former `apps/server` continues there as branch `modernize/mono-web-server` (`908368a8`), with the same tree (`023b85bd`) as mono-web `2163076f` and the parent of the removal commit.
+The legacy source is in the [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository; the former `apps/server` continues there as branch `modernize/mono-web-server` (`908368a8`), with the same tree (`023b85bd`) as mono-web `b6438cb2`. The removal commit is `ea124143`; its parent `1277be8b` still contains `apps/server`.
 Local implementation and acceptance do not authorize production, provider, or source-data actions.
 
 Operator decisions:
