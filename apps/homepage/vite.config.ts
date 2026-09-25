@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { dashboardMount } from "../dashboard/dashboard-base.ts";
 import { DEV_CONTENT, DEV_ROUTE_CENSUS } from "./src/lib/dev-content.ts";
 import {
@@ -14,16 +14,7 @@ import {
 
 const projectRoot = fileURLToPath(new URL("./", import.meta.url));
 
-function buildCommit() {
-  const status = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
-    cwd: projectRoot,
-    encoding: "utf8",
-  });
-
-  if (status.trim()) {
-    throw new Error("Homepage build requires a clean git worktree");
-  }
-
+function headCommit() {
   const commit = execFileSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
     cwd: projectRoot,
     encoding: "utf8",
@@ -36,9 +27,26 @@ function buildCommit() {
   return commit;
 }
 
+// A bundle embeds the commit, so it must build from a clean worktree. Config
+// resolution alone, as in `react-router typegen`, does not produce a bundle.
+const cleanWorktreeBuild: Plugin = {
+  name: "homepage-clean-worktree-build",
+  apply: "build",
+  buildStart() {
+    const status = execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+    });
+
+    if (status.trim()) {
+      throw new Error("Homepage build requires a clean git worktree");
+    }
+  },
+};
+
 export default defineConfig(({ command, isPreview }) => {
   const localDevelopment = command === "serve" && !isPreview;
-  const commit = localDevelopment ? "working-tree" : buildCommit();
+  const commit = localDevelopment ? "working-tree" : headCommit();
 
   const cloudflarePlugins =
     localDevelopment || process.env.ALCHEMY_CLOUDFLARE_VITE_INJECTED === "1"
@@ -66,7 +74,7 @@ export default defineConfig(({ command, isPreview }) => {
       ),
       __BUILD_ROUTE_DIGEST__: JSON.stringify(computeRouteDigest(DEV_ROUTE_CENSUS, inputs)),
     },
-    plugins: [...cloudflarePlugins, ...reactRouter(), tailwindcss()],
+    plugins: [cleanWorktreeBuild, ...cloudflarePlugins, ...reactRouter(), tailwindcss()],
     build: {
       outDir: "./build",
     },
