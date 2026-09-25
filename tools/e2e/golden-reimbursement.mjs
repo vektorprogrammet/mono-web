@@ -318,9 +318,9 @@ const cleanup = () =>
 
     try {
       if (provider?.listening) {
-        provider.closeAllConnections();
         const closed = Promise.withResolvers();
         provider.close((error) => (error ? closed.reject(error) : closed.resolve()));
+        provider.closeAllConnections();
         await closed.promise;
       }
     } catch (error) {

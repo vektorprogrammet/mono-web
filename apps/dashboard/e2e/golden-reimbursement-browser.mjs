@@ -219,12 +219,15 @@ export const runReimbursementBrowser = async ({
     await approver.page.goto(origins.dashboard + "/dashboard/utlegg?status=Pending");
     const approvalRow = approver.page.locator(`tr[data-receipt-id="${receiptId}"]`);
     await expect(approvalRow).toBeVisible();
+    const receiptLink = approvalRow.getByRole("link", { name: "Vis kvittering", exact: true });
+    const fileUrl = new URL(await receiptLink.getAttribute("href"), origins.dashboard).href;
+    const fileResponse = approver.context.waitForEvent("response", {
+      predicate: (response) => response.url() === fileUrl,
+    });
     const popupPromise = approver.page.waitForEvent("popup");
-    await approvalRow.getByRole("link", { name: "Vis kvittering", exact: true }).click();
-    const popup = await popupPromise;
-    await popup.waitForLoadState("domcontentloaded");
-    assert.ok(popup.url().includes(encodeURIComponent(receiptId)));
-    const downloaded = await approver.context.request.get(popup.url());
+    await receiptLink.click();
+    const [popup, downloaded] = await Promise.all([popupPromise, fileResponse]);
+    await popup.waitForURL(fileUrl);
     assert.equal(downloaded.status(), 200);
     assert.equal(sha256(await downloaded.body()), sha256(receiptBytes));
     await popup.close();
