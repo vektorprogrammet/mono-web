@@ -1,9 +1,9 @@
 import { flow, Predicate, Data, Effect, Schema } from "effect";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Rfc3339InstantSchema } from "@vektorprogrammet/domain/time";
 import {
-  AUTHZ_LOCK_PROTOCOL,
   DomainId,
   PrincipalSchema,
   ResourceId,
@@ -79,19 +79,11 @@ const acquireAuthorizationLock = (
   sql: DatabaseOperations,
   mode: "Shared" | "Exclusive",
 ): Effect.Effect<void, AuthzPersistenceError> =>
-  (mode === "Shared"
-    ? sql`
-        SELECT pg_catalog.pg_advisory_xact_lock_shared(
-          pg_catalog.hashtextextended(${AUTHZ_LOCK_PROTOCOL.advisoryKey}, 0)
-        )
-      `
-    : sql`
-        SELECT pg_catalog.pg_advisory_xact_lock(
-          pg_catalog.hashtextextended(${AUTHZ_LOCK_PROTOCOL.advisoryKey}, 0)
-        )
-      `
+  lockAdvisory(
+    sql,
+    AdvisoryLockKey.authorizationRules,
+    mode === "Shared" ? "shared" : "exclusive",
   ).pipe(
-    Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError(`acquire ${mode} authorization lock`, cause)),
     ),
