@@ -17,25 +17,25 @@ import {
   NativeAuthEngineLive,
   AuthPoolLive,
   type AuthEngineConfig,
-} from "../../packages/database/src/auth-engine.js";
-import { DatabasePgPool } from "../../packages/database/src/pg-pool.js";
+} from "@vektorprogrammet/database/auth-engine";
+import { DatabasePgPool } from "@vektorprogrammet/database/pg-pool";
 import { ManagedRuntime, Layer } from "effect";
 import {
   PasswordRecovery,
   drainPasswordResetMail,
-} from "../../packages/database/src/password-recovery.js";
-import { identityRequestContext } from "../../apps/backend/src/session-security.js";
-import { mailDeliveryConfig, HttpMailLive } from "../../apps/backend/src/mail/http.js";
+} from "@vektorprogrammet/database/password-recovery";
+import { identityRequestContext } from "@vektorprogrammet/backend/session-security";
+import { mailDeliveryConfig, HttpMailLive } from "@vektorprogrammet/backend/mail/http";
 import {
   importIdentityCohort,
   IdentityCohortFailure,
 } from "@vektorprogrammet/database/identity-cohort";
-import { summarizeIdentityCohort } from "../../packages/database/src/identity-cohort-cli.js";
+import { summarizeIdentityCohort } from "@vektorprogrammet/database/identity-cohort-cli";
 import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";
 import {
   isNativePasswordHash,
   verifyNativeOrLegacyPassword,
-} from "../../packages/database/src/password-codec.js";
+} from "@vektorprogrammet/database/password-codec";
 import { proveCredentialResetRace } from "./credential-race.js";
 
 declare const Bun: {
@@ -1036,7 +1036,9 @@ try {
   );
 
   assert.equal(
-    await Effect.runPromise(drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid")),
+    await Effect.runPromise(
+      drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+    ),
     "Delivered",
   );
   assert.equal(deliveryAttempts, 1);
@@ -1099,7 +1101,9 @@ try {
     1,
   );
   assert.equal(
-    await Effect.runPromise(drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid")),
+    await Effect.runPromise(
+      drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+    ),
     "Delivered",
   );
   assert.equal(deliveryAttempts, 2);
@@ -1174,7 +1178,9 @@ try {
         200,
       );
       assert.equal(
-        await Effect.runPromise(drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid")),
+        await Effect.runPromise(
+          drainPasswordResetMail(authPool!, config, delivery, "recovery@example.invalid"),
+        ),
         "Delivered",
       );
       const redirect = await fetch(deliveredUrl, { redirect: "manual" });

@@ -10,7 +10,7 @@ import { Database } from "@vektorprogrammet/database";
 import { DatabaseTest } from "@vektorprogrammet/database/live";
 import { executePublicApplicationCommand } from "@vektorprogrammet/database/application";
 import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
-import { runPublicApplicationOutboxWorker } from "../../apps/backend/src/application/worker.js";
+import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/backend/application/worker";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
 

@@ -876,8 +876,8 @@ Settlement requires separate evidence and authority. A legacy “refunded” fla
 <p><code>apps/backend/src/main.ts</code> is the native backend&#x27;s composition root.
 It connects the HTTP process, database, authentication, business services, file storage, and configured delivery programs.</p>
 <p>The selected backend is portable Bun with PostgreSQL.
-The retained Cloudflare Worker composition is not the selected backend target.
-Its Hyperdrive transport conflicts with the PostgreSQL advisory-lock requirements of the native system.
+There is no Cloudflare Worker backend composition.
+Hyperdrive transport conflicts with the PostgreSQL advisory-lock requirements of the native system.
 Provider selection and deployed acceptance remain separate work.</p>
 <p>Local <code>bun dev</code> starts the backend and both frontend development servers through the existing workspace tasks.
 It requires a separate, dedicated loopback PostgreSQL database and a stable authentication secret.

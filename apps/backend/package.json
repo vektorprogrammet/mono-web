@@ -4,7 +4,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./application/worker": "./src/application/worker.ts",
+    "./delivery/http": "./src/delivery/http.ts",
+    "./http-semantics": "./src/http-semantics.ts",
+    "./mail/http": "./src/mail/http.ts",
+    "./onboarding/delivery": "./src/onboarding/delivery.ts",
+    "./receipt/delivery": "./src/receipt/delivery.ts",
+    "./receipt/filesystem": "./src/receipt/filesystem.ts",
+    "./receipt/import-snapshot": "./src/receipt/import-snapshot.ts",
+    "./receipt/payment-account": "./src/receipt/payment-account.ts",
+    "./receipt/reviewed-import": "./src/receipt/reviewed-import.ts",
+    "./session-security": "./src/session-security.ts"
   },
   "scripts": {
     "start": "bun run src/main.ts",

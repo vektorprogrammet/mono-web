@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { deliverJson } from "../../apps/backend/src/delivery/http.js";
+import { deliverJson } from "@vektorprogrammet/backend/delivery/http";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { Database } from "@vektorprogrammet/database";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";

@@ -6,11 +6,11 @@ import { claimOnboarding, commandOnboarding } from "@vektorprogrammet/database/o
 import { Predicate, Effect } from "effect";
 import { DatabaseTest } from "@vektorprogrammet/database/live";
 import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
-import { provisionOnboardingAccount } from "../../packages/database/src/onboarding-account.js";
+import { provisionOnboardingAccount } from "@vektorprogrammet/database/onboarding-account";
 import {
   drainOnboardingDelivery,
   expireOnboardingSecrets,
-} from "../../apps/backend/src/onboarding/delivery.js";
+} from "@vektorprogrammet/backend/onboarding/delivery";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
 

@@ -11,7 +11,7 @@ import {
   emitRuntimeEvidenceReceipt,
   sanitizePlaywrightArtifact,
 } from "./runtime-evidence-receipt.mjs";
-import { deriveHttpIdentity } from "../../backend/src/http-semantics.ts";
+import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 

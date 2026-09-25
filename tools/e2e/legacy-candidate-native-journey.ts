@@ -30,14 +30,14 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Cause, Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
-import { decodeBackendConfig } from "../../apps/backend/src/config.js";
-import { ReceiptDeliveryLive } from "../../apps/backend/src/receipt/delivery.js";
+import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
   backendHttpHandler,
+  decodeBackendConfig,
   ExternalNativeApiRouterLive,
   nativeHttpRouterConfig,
   type BackendAuthHandler,
-} from "../../apps/backend/src/router.js";
+} from "@vektorprogrammet/backend";
 import type { RehearsalTarget } from "./legacy-organization-rehearsal-runtime.js";
 
 export interface CandidateNativeIdentity {
@@ -89,8 +89,8 @@ export const observeLegacyCandidateNativeJourney = async (
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
     RECEIPT_STAGING_ROOT: input.receiptStore.stagingRoot,
     RECEIPT_COMMITTED_ROOT: input.receiptStore.committedRoot,
   });

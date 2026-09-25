@@ -1,4 +1,5 @@
 import { DatabasePgPool } from "./pg-pool.js";
+import { withoutCursorTimestamp, type CursorPositioned } from "./receipt/cursor.js";
 import {
   AuthzRuleSubjectSchema,
   AuthzRuleScopeSchema,
@@ -264,9 +265,7 @@ const currentServiceBinding = async (
   return result.rows[0].client_id;
 };
 
-type PositionedServiceCandidate = ServicePrincipalReceiptGrantCandidate & {
-  readonly cursorTimestamp: string;
-};
+type PositionedServiceCandidate = CursorPositioned<ServicePrincipalReceiptGrantCandidate>;
 
 const readExactGrantCandidates = async (
   client: PoolClient,
@@ -516,9 +515,7 @@ const readInCurrentSnapshot = async (
       const last = candidates[candidates.length - 1]!;
       authority = {
         ...base,
-        candidates: candidates.map(
-          ({ cursorTimestamp: _cursorTimestamp, ...candidate }) => candidate,
-        ),
+        candidates: candidates.map(withoutCursorTimestamp),
         rules: await readServicePrincipalRules(
           client,
           credential.principal.servicePrincipalId,

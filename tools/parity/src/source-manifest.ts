@@ -581,6 +581,34 @@ const unsafePathExtensionPattern =
 const databaseSourceCodePathPattern =
   /^packages\/database\/(?:package\.json|tsconfig\.json|(?:src|runtime|test)\/(?:[^/]+\/)*[^/]+\.ts|migrations\/(?:[^/]+\/)*[^/]+\.sql)$/;
 
+/**
+ * Reviewed tracked source whose path resembles a blocked class. Each entry records why the
+ * file is source code rather than credential, backup, or database material.
+ */
+const REVIEWED_SOURCE_PATHS = {
+  "apps/backend/test/database.ts":
+    "Backend test Layer that provisions private disposable PostgreSQL databases; it holds no data.",
+  "tools/verification/credential-race.ts":
+    "Credential-race proof driver; callers supply synthetic credentials and it uses reserved example.invalid addresses.",
+} as const;
+
+const isReviewedSourcePath = (path: string): path is keyof typeof REVIEWED_SOURCE_PATHS =>
+  Object.hasOwn(REVIEWED_SOURCE_PATHS, path);
+
+/** Bun `patchedDependencies` files are named `<package>@<semver>.patch`, which resembles an email address. */
+const packagePatchPathPattern =
+  /^patches\/[a-z0-9][a-z0-9._~-]*@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\.patch$/;
+
+/** Returns the review reason for tracked source that is safe despite its path class, or null. */
+export const reviewedSourcePathReason = (path: string): string | null => {
+  const normalized = path.replaceAll("\\", "/");
+
+  if (packagePatchPathPattern.test(normalized))
+    return "Dependency patch named by the package manager's `<package>@<version>.patch` convention.";
+
+  return isReviewedSourcePath(normalized) ? REVIEWED_SOURCE_PATHS[normalized] : null;
+};
+
 const canonicalKeyTokens = (value: string): readonly string[] => {
   const words = value
     .normalize("NFC")
@@ -665,6 +693,8 @@ export const isUnsafeSourcePath = (path: string): boolean => {
   const normalized = path.replaceAll("\\", "/");
   const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
 
+  if (reviewedSourcePathReason(normalized) !== null) return false;
+
   if (databaseSourceCodePathPattern.test(normalized)) {
     return unsafePathExtensionPattern.test(basename);
   }
@@ -716,6 +746,11 @@ const approvedSqlSourceDigests = new Map<string, string>([
   [
     "packages/database/migrations/0059-school-service-person-intervals.sql",
     "sha256:0aed5692b8fd33c5080accdf408eb061ed8a8b4f7a1c4ed6fb4df587874258cd",
+  ],
+  // Reviewed: the INSERT ... SELECT only backfills accepted mappings from existing rows; no literal data.
+  [
+    "packages/database/migrations/0065-person-cohort-accepted-mappings.sql",
+    "sha256:019627c25f2ac1a6699421e8c4d5bdeaea65454773dbcc3425670d6af4772b72",
   ],
 ]);
 
@@ -1809,6 +1844,8 @@ export const unsafeSourceScalarReason = (
   if (normalized.length === 0) return null;
   const rawField = fieldName?.trim() ?? "";
   const context = scalarContext(rawField, true);
+
+  if (context === "source_path" && reviewedSourcePathReason(normalized) !== null) return null;
 
   if ((context === "owner" || context === "source_symbol") && unsafeSourceSymbol(normalized))
     return "UNSAFE_SOURCE";

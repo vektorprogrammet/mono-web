@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -10,7 +9,7 @@ import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { decodePersonCohort, importPersonCohort } from "@vektorprogrammet/database/person-cohort";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   CurrentAssignmentReview,
   type ReconciledCurrentAssignmentSnapshot,
@@ -31,7 +30,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 
 let stage = "Options";
 
-const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
 // This is deliberately synthetic, not a backup or an assertion about live assignments.
 // Names, nullability, legacy vocabularies and six InnoDB tables match the reader contract.

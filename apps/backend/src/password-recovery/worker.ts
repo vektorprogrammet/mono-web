@@ -1,7 +1,7 @@
 import { DatabasePgPool } from "@vektorprogrammet/database/live";
 import { Mail } from "@vektorprogrammet/domain/mail";
 import { Duration, Effect } from "effect";
-import { drainPasswordResetMail } from "../../../../packages/database/src/password-recovery.js";
+import { drainPasswordResetMail } from "@vektorprogrammet/database/password-recovery";
 import type { BackendAuthConfig, PasswordResetDeliveryConfig } from "../config.js";
 import { pollForever } from "../worker-support.js";
 

@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { Predicate } from "effect";
 import { goldenSteps } from "./golden-school-service.mjs";
 
 export const goldenArtifactName =
   /^(?:evidence\.json|failure\.log|browser-(?:evidence|network|trace-sanitized|cleanup|active|build)\.json|playwright-evidence\.json|dashboard-(?:runtime|command-[0-9]+)\.log)$/;
+
 export const goldenRunnerPaths = [
   "tools/e2e/placement-check.ts",
   "tools/e2e/golden-school-service.mjs",
@@ -14,14 +16,17 @@ export const goldenRunnerPaths = [
   "tools/e2e/golden-school-service-evidence.mjs",
   "tools/e2e/golden-http-diagnostics.mjs",
 ];
+
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 export const dashboardBuildInventory = async (root) => {
   const files = [];
+
   const visit = async (relative) => {
     const path = join(root, "apps/dashboard/build", relative);
     const info = await lstat(path);
     assert.ok(!info.isSymbolicLink(), "build must not contain symlinks");
+
     if (info.isDirectory()) {
       for (const name of (await readdir(path)).sort()) await visit(join(relative, name));
     } else {
@@ -30,6 +35,7 @@ export const dashboardBuildInventory = async (root) => {
       files.push({ path: relative, sha256: sha256(bytes), bytes: bytes.length });
     }
   };
+
   await visit("");
   assert.ok(
     files.some(({ path }) => path === "server/index.js"),
@@ -39,6 +45,7 @@ export const dashboardBuildInventory = async (root) => {
     files.some(({ path }) => path.startsWith("client/")),
     "client build absent",
   );
+
   return files;
 };
 
@@ -61,6 +68,7 @@ const safeBytes = (bytes) => {
     ),
     "private diagnostic rejected",
   );
+
   for (const match of text.matchAll(
     /(?:^|\s)(?:[A-Z0-9_]*(?:PASSWORD|TOKEN|SECRET)|AUTHORIZATION|COOKIE|SET-COOKIE)\s*[:=]\s*([^\r\n]*)/gim,
   ))
@@ -68,11 +76,11 @@ const safeBytes = (bytes) => {
 };
 
 const safeJson = (value) => {
-  if (typeof value === "string") {
+  if (Predicate.isString(value)) {
     safeBytes(Buffer.from(value));
   } else if (Array.isArray(value)) {
     for (const item of value) safeJson(item);
-  } else if (value !== null && typeof value === "object") {
+  } else if (Predicate.isObject(value)) {
     for (const [key, item] of Object.entries(value)) {
       if (/^(?:authorization|cookie|set-cookie)$|(?:password|token|secret)$/i.test(key))
         assert.ok(item === "[REDACTED]" || item === null, "credential diagnostic rejected");
@@ -80,20 +88,25 @@ const safeJson = (value) => {
     }
   }
 };
+
 // Only receipt-bound, allowlisted regular files can enter the upload directory.
 // Errors deliberately omit artifact contents and supplied values.
 export const inspectGoldenEvidence = async ({ directory, root, revision, sourceTree }) => {
   assert.ok((await lstat(directory)).isDirectory(), "evidence directory absent");
   assert.ok(!(await lstat(directory)).isSymbolicLink(), "evidence directory symlink rejected");
+
   const read = async (name) => {
     const info = await lstat(join(directory, name));
     assert.ok(info.isFile() && !info.isSymbolicLink(), "diagnostic must be a regular file");
     assert.ok(info.size <= 16 * 1024 * 1024, "diagnostic exceeds size limit");
     const bytes = await readFile(join(directory, name));
     safeBytes(bytes);
+
     if (name.endsWith(".json")) safeJson(JSON.parse(bytes));
+
     return bytes;
   };
+
   const receiptBytes = await read("receipt.json");
   const receipt = JSON.parse(receiptBytes);
   assert.ok(
@@ -115,6 +128,7 @@ export const inspectGoldenEvidence = async ({ directory, root, revision, sourceT
     goldenRunnerPaths,
     "runner inventory differs",
   );
+
   for (const item of receipt.runner_sources)
     assert.ok(
       sha256(await readFile(join(root, item.path))) === item.sha256,
@@ -134,9 +148,10 @@ export const inspectGoldenEvidence = async ({ directory, root, revision, sourceT
   );
   const files = new Map([["receipt.json", receiptBytes]]);
   const documents = new Map();
+
   for (const item of receipt.artifacts) {
     assert.ok(
-      typeof item.path === "string" && goldenArtifactName.test(item.path),
+      Predicate.isString(item.path) && goldenArtifactName.test(item.path),
       "artifact path outside allowlist",
     );
     assert.ok(!files.has(item.path), "duplicate artifact path");
@@ -146,14 +161,17 @@ export const inspectGoldenEvidence = async ({ directory, root, revision, sourceT
       "artifact bytes differ",
     );
     files.set(item.path, bytes);
+
     if (item.path.endsWith(".json")) documents.set(item.path, JSON.parse(bytes));
   }
+
   assert.deepEqual(
     (await readdir(directory)).sort(),
     [...files.keys()].sort(),
     "unlisted runtime artifact remains",
   );
   const build = documents.get("browser-build.json");
+
   if (build) {
     assert.ok(build.revision === revision && build.sourceTree === sourceTree, "wrong build source");
     assert.ok(
@@ -166,6 +184,7 @@ export const inspectGoldenEvidence = async ({ directory, root, revision, sourceT
       "built dashboard bytes differ",
     );
   }
+
   return { receipt, files, documents };
 };
 
@@ -180,6 +199,7 @@ export const requireGoldenSuccess = ({ receipt, documents }) => {
     "journey did not pass",
   );
   assert.deepEqual(receipt.step_ids, goldenSteps, "required steps missing or duplicated");
+
   for (const name of [
     "evidence.json",
     "browser-build.json",
@@ -209,6 +229,7 @@ export const requireGoldenSuccess = ({ receipt, documents }) => {
     goldenSteps,
     "parent observations incomplete",
   );
+
   for (const key of [
     "processesExited",
     "portsReleased",

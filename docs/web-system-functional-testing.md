@@ -65,7 +65,7 @@ Reuse these sources before adding another runner or abstraction:
 - [Runtime evidence receipts](../apps/dashboard/e2e/runtime-evidence-receipt.mjs): source, fixture, and artifact binding.
 - [Interview properties](../apps/dashboard/app/foldkit/interview/update.property.test.ts): schema-generated inputs and client transition checks.
 - [Scheduling transitions](../apps/dashboard/app/foldkit/scheduling/update.test.ts): stale observations, uncertain commands, and recovery.
-- [CI workflow](../.github/workflows/ci.yml) and [Playwright configuration](../apps/dashboard/playwright.config.ts): existing execution and report ownership.
+- [CI workflow](../.github/workflows/tests.yml) and [Playwright configuration](../apps/dashboard/playwright.config.ts): existing execution and report ownership.
 - [Database Layers](../packages/database/src/layers.ts): existing PGlite support with `btree_gist` and canonical migrations.
 - [Socket fixture](../packages/database/src/test-support/postgres.ts): existing PGlite server and real `pg.Pool`, each limited to one connection.
 
@@ -348,7 +348,7 @@ See [STATE.md](../STATE.md) for the exercised source revision and remaining gate
 
 ### Golden CI implementation
 
-The [CI workflow](../.github/workflows/ci.yml) runs the existing journey through the [CI wrapper](../tools/e2e/golden-school-service-ci.mjs).
+The [CI workflow](../.github/workflows/tests.yml) runs the existing journey through the [CI wrapper](../tools/e2e/golden-school-service-ci.mjs).
 The [evidence inspector](../tools/e2e/golden-school-service-evidence.mjs) owns source, build, receipt, and artifact checks.
 The wrapper derives upload paths from the checked files after staging. The workflow does not maintain another file inventory.
 Credential checks cover decoded JSON fields and raw diagnostics. Unsupported files cannot enter staging.

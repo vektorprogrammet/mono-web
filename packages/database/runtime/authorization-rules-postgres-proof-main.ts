@@ -78,7 +78,7 @@ import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Result, Data, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
-import { spec0055OrganizationAuthorityFixtures } from "../../domain/src/organization/authority-fixtures.test-support.js";
+import { spec0055OrganizationAuthorityFixtures } from "@vektorprogrammet/domain/organization/authority-fixtures";
 import { resolveOrganizationPersonAuthorityForRead } from "../src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../src/receipt/postgres.js";
 import { DatabaseLive } from "../src/layers.js";

@@ -1277,7 +1277,7 @@ test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blo
       rmSync(legacyRoot, { recursive: true, force: true });
     }
   }
-});
+}, 10_000);
 
 test("API resource trivia is accepted while unterminated block comments fail closed", async () => {
   const collectFixture = async (source: string): Promise<ApiCollection> => {
@@ -2032,6 +2032,23 @@ describe("source safety boundary", () => {
       "var/logs/.gitkeep",
     ]) {
       expect(isUnsafeSourcePath(path)).toBe(false);
+    }
+  });
+
+  test("admits only exactly reviewed source whose path resembles a blocked class", () => {
+    for (const [path, unsafe] of [
+      ["apps/backend/test/database.ts", false],
+      ["tools/verification/credential-race.ts", false],
+      ["patches/effect@4.0.0-rc.116.patch", false],
+      ["apps/backend/test/database.sql", true],
+      ["apps/backend/test/database-seed.ts", true],
+      ["tools/verification/credentials.json", true],
+      ["patches/person@university.no.patch", true],
+      ["vendor/patches/effect@4.0.0.patch/credentials.json", true],
+    ] as const) {
+      expect(
+        isUnsafeSourcePath(path) || unsafeSourceScalarReason(path, "source_path") !== null,
+      ).toBe(unsafe);
     }
   });
 

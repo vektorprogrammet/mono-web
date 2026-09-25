@@ -64,14 +64,11 @@ The application uses Bun, TypeScript, Effect, PostgreSQL, React Router, Foldkit,
 The PostgreSQL adapter pin preserves the pool shared by Database and Better Auth.
 See [development practices](AGENTS.md#building-reference) before changing it.
 
-The pinned project shell provides Lefthook:
-
-```bash
-devenv shell -- lefthook --version
-```
-
-This adds the executable, not a hook policy. The existing Git hook has no matching
-Lefthook configuration. No hooks are installed or replaced by this shell.
+`bun install` installs the Git hooks in [lefthook.yml](lefthook.yml) with the pinned Lefthook dependency; no project shell is required.
+The pre-commit hook checks formatting and lint on staged files, plus the generated HTTP contract when `packages/http-api` or `packages/sdk` changes.
+The pre-push hook runs `bun run check` and the tests of packages changed from `main`. Hooks never rewrite or restage files.
+Push from a clean worktree: the homepage type check refuses uncommitted changes.
+Run a hook manually with `bunx lefthook run pre-commit`, or skip hooks once with `LEFTHOOK=0`.
 
 The root manifest declares a type-only Effect patch. It preserves union-command
 requests and callable Fetch inputs across runtimes. SDK type checks cover both

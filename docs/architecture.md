@@ -288,11 +288,10 @@ The existing Turbo tasks own these processes; PostgreSQL remains a separately ma
 The launcher requires a dedicated loopback database and disables external delivery.
 See [local development](../README.md#local-native-development) for the executable configuration interface.
 
-`apps/backend/src/cloudflare-worker.ts` retains the superseded Cloudflare backend composition.
-Its Hyperdrive, R2, and email integration is not the selected backend target.
-The target is a portable Bun backend with PostgreSQL. Provider selection and provisioning remain deferred until cutover preparation.
+The target is a portable Bun backend with PostgreSQL. There is no Cloudflare Worker backend composition.
+The [R2 receipt-file adapter](../apps/backend/src/receipt/r2.ts) and [Cloudflare mail adapter](../apps/backend/src/mail/cloudflare.ts) are unselected provider adapters.
+Provider selection and provisioning remain deferred until cutover preparation.
 [STATE.md](../STATE.md#current) records the current authority and acceptance limits.
-A resource declaration or cron configuration does not prove a working delivery drain.
 
 The homepage and dashboard have separate Worker entry points. Pull-request previews
 build the exact proposed revision without credentials. Trusted default-branch code

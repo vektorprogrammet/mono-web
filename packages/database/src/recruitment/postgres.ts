@@ -436,7 +436,10 @@ const candidateForRow = (
             ? "NoContact"
             : "Scheduled",
       interviewer,
-      interviewSchema: interviewSchema === null ? null : { ...interviewSchema, questionCount: decodedRow.snapshotQuestionCount },
+      interviewSchema:
+        interviewSchema === null
+          ? null
+          : { ...interviewSchema, questionCount: decodedRow.snapshotQuestionCount },
       scheduledAt: decodedRow.scheduledAt,
     };
 
@@ -928,9 +931,11 @@ const assignmentInTransaction = (
 
     const existing = yield* readInterviewForApplication(sql, command.applicationId);
 
-    if (existing !== undefined) return yield* new RecruitmentApplicationAlreadyAssigned({
-      applicationId: command.applicationId, interviewId: RecruitmentInterviewId.make(existing.interviewId),
-    });
+    if (existing !== undefined)
+      return yield* new RecruitmentApplicationAlreadyAssigned({
+        applicationId: command.applicationId,
+        interviewId: RecruitmentInterviewId.make(existing.interviewId),
+      });
     const interviewSchema = yield* readInterviewSchema(sql, command.interviewSchemaId);
 
     if (interviewSchema === undefined) {

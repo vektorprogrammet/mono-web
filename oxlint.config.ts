@@ -116,7 +116,27 @@ const effectConfig = {
 } satisfies ExpandInput;
 
 // Export maps own package access; these restrictions also close relative-import bypasses.
+const crossPackageSourceImportMessage =
+  "Import another workspace package through its export map, not its source path.";
+
+const crossPackageSourceImportPatterns = [
+  {
+    regex: "^(\\./)?(\\.\\./)+([^./][^/]*/)?[^./][^/]*/src(/|$)",
+    message: crossPackageSourceImportMessage,
+  },
+];
+
+// Same boundary without the SDK, whose export map exposes only its built `dist/` output.
+const crossPackageSourceImportPatternsExceptSdk = [
+  {
+    regex:
+      "^(\\./)?(\\.\\./)+(apps/[^/]+|tools/[^/]+|packages/(database|domain|http-api|placements)|[^./][^/]*)/src(/|$)",
+    message: crossPackageSourceImportMessage,
+  },
+];
+
 const productImportPatterns = [
+  ...crossPackageSourceImportPatterns,
   {
     regex: "(^|/)tools/(verification|preview-host|e2e)(/|$)",
     message: "Product code must not depend on verification executables.",
@@ -148,6 +168,7 @@ export default defineConfig({
     { name: "anti-slop-effect", specifier: "./tools/oxlint/anti-slop/effect/index.ts" },
   ],
   rules: {
+    "no-restricted-imports": ["error", { patterns: crossPackageSourceImportPatterns }],
     "anti-slop-effect/no-manual-effect-error-tag": "error",
     "anti-slop-effect/no-manual-tag-comparison": "error",
     "anti-slop-effect/no-manual-tagged-construction": "error",
@@ -196,7 +217,10 @@ export default defineConfig({
     {
       files: ["tools/{verification,preview-host,e2e}/**"],
       rules: {
-        "no-restricted-imports": ["error", { patterns: placementPublicImportPatterns }],
+        "no-restricted-imports": [
+          "error",
+          { patterns: [...crossPackageSourceImportPatterns, ...placementPublicImportPatterns] },
+        ],
       },
     },
     {
@@ -277,6 +301,47 @@ export default defineConfig({
         // These Bun entrypoints intentionally use Bun-native lifecycle APIs beside Node compatibility APIs.
         "effect/no-cross-runtime": "off",
       },
+    },
+    // Source-import exemptions. Each entry names why an export-map import is not yet possible.
+    {
+      // No package manifest: Bun's isolated linker gives these scripts no workspace dependencies.
+      files: ["tools/preview-host/**"],
+      rules: {
+        "no-restricted-imports": ["error", { patterns: placementPublicImportPatterns }],
+      },
+    },
+    {
+      // The SDK exports only built `dist/`; these drivers run against its source without a build.
+      files: [
+        "tools/e2e/placement-check.ts",
+        "tools/verification/organization-import-rehearsal-main.ts",
+        "tools/verification/receipt-import-rehearsal.ts",
+        "tools/verification/receipt-reopen-observation.ts",
+      ],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              ...crossPackageSourceImportPatternsExceptSdk,
+              ...placementPublicImportPatterns,
+            ],
+          },
+        ],
+      },
+    },
+    {
+      // Parity evidence helpers have no export map, and the dashboard does not depend on parity.
+      files: [
+        "apps/dashboard/e2e/merge-runtime-evidence.mjs",
+        "apps/dashboard/e2e/runtime-evidence-receipt.mjs",
+      ],
+      rules: { "no-restricted-imports": "off" },
+    },
+    {
+      // Alchemy is outside the Bun workspace, with its own lockfile; this import is type-only.
+      files: ["infra/alchemy/preview/apex-worker.ts"],
+      rules: { "no-restricted-imports": "off" },
     },
   ],
   ignorePatterns: [

@@ -15,7 +15,7 @@ A missing, skipped, unsupported, interrupted, or failed journey must never produ
 
 ### Scope and ownership
 
-This slice owns this specification, a narrow addition to [CI](../../.github/workflows/ci.yml), and acceptance/report glue in `tools/e2e/`.
+This slice owns this specification, a narrow addition to [CI](../../.github/workflows/tests.yml), and acceptance/report glue in `tools/e2e/`.
 Narrow [browser runner](../../apps/dashboard/e2e/run-real-native-placement.mjs) changes record the built dashboard identity and owned process groups.
 Golden-only transport diagnostics contain method, path, status, elapsed time, and abort events, never headers, query strings, or bodies.
 The [parent runner](../../tools/e2e/placement-check.ts) remains the lifecycle owner.

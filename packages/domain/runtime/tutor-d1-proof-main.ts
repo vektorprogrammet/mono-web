@@ -21,7 +21,7 @@ import {
   normalizeBlobBytes,
   runWithTutorD1,
   validateReplayRows,
-} from "../src/tutor/d1.js";
+} from "./tutor-d1.js";
 import { projectFoldedState } from "../src/tutor/tracer.js";
 import type { CommandObservation } from "../src/tutor/tracer.js";
 import type { Descriptor, EventEnvelopeV1, StreamKey } from "../src/tutor/schema.js";

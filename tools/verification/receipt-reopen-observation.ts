@@ -7,8 +7,8 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import { Schema } from "effect";
-import { ReceiptResource } from "../../packages/http-api/src/index.js";
-import { StrongETag, IdempotencyKey } from "../../packages/http-api/src/http-semantics.js";
+import { ReceiptResource } from "@vektorprogrammet/http-api";
+import { StrongETag, IdempotencyKey } from "@vektorprogrammet/http-api/http-semantics";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 
 export async function observeReceiptReopening(options: {

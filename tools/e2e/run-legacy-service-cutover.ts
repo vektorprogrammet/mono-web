@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
 import { selectLegacyTargetTransport } from "./legacy-database-transport";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   importPersonCohort,
   type PersonCohortReport,
@@ -50,9 +49,7 @@ import { readLegacySourceSnapshot, type LegacySourceSnapshot } from "./legacy-so
 
 const repository = "vektorprogrammet/vektorprogrammet";
 
-const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
-
-const digest = flow(canonicalJson, sha256);
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
 const id = (value: number | string): string => String(value);
 

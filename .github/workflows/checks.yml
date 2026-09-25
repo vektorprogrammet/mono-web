@@ -1,0 +1,41 @@
+name: Checks
+
+# Fast feedback on every push and pull request. Long suites live in tests.yml.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Format, lint, types, and HTTP contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        timeout-minutes: 2
+        with:
+          bun-version: 1.3.10
+      - uses: actions/setup-node@v4
+        timeout-minutes: 2
+        with:
+          node-version: 22
+      - name: Install frozen dependencies
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+      - name: Check format, lint, and types
+        timeout-minutes: 12
+        run: bun run check
+      - name: Check generated HTTP contract
+        timeout-minutes: 2
+        run: bun run --cwd packages/http-api generate:check

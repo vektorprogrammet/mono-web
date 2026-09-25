@@ -24,7 +24,7 @@ import {
 import { CurrentAssignmentReview } from "@vektorprogrammet/placements/contracts";
 import { Schema } from "effect";
 import type { Pool } from "pg";
-import * as PaymentCustody from "../../apps/backend/src/receipt/payment-account";
+import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";
 import { buildLegacyReferences } from "./legacy-cutover-references";
 import {
   legacyReceiptBaseSourceRevision,

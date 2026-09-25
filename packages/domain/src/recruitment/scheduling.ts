@@ -1,9 +1,6 @@
 import { Effect } from "effect";
 import { compareRfc3339Instants } from "../time.js";
-import {
-  RecruitmentInterviewAlreadyScheduled,
-  RecruitmentScheduleInPast,
-} from "./errors.js";
+import { RecruitmentInterviewAlreadyScheduled, RecruitmentScheduleInPast } from "./errors.js";
 import type { RecruitmentInvitationResponseState, RecruitmentScheduleCommand } from "./schema.js";
 
 /** Initial scheduling and applicant-requested replacement share one command. */

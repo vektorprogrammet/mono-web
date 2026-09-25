@@ -1,7 +1,7 @@
 import { Effect, Layer, Redacted } from "effect";
 import { Mail } from "@vektorprogrammet/domain/mail";
 import { DatabasePgPool, DatabaseLive } from "@vektorprogrammet/database/live";
-import { drainPasswordResetMail } from "../../../../packages/database/src/password-recovery.js";
+import { drainPasswordResetMail } from "@vektorprogrammet/database/password-recovery";
 import { decodeBackendConfig } from "../config.js";
 import { mailDeliveryConfig, HttpMailLive } from "../mail/http.js";
 

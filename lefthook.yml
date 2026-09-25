@@ -1,0 +1,25 @@
+# The only Git hook source. `bun install` installs these hooks through the root `prepare` script.
+# Hooks check; they never rewrite or restage files. Set LEFTHOOK=0 to skip them once.
+
+# Fast loop: staged files only.
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      # .oxfmtrc.json owns the formatter scope, including for explicit paths.
+      run: bunx oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+    lint:
+      glob: "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      run: bunx oxlint --no-error-on-unmatched-pattern {staged_files}
+    contract:
+      glob: "packages/{http-api,sdk}/**"
+      run: bun run --cwd packages/http-api generate:check
+
+# Long loop: everything `check` covers plus tests for packages changed from main.
+pre-push:
+  piped: true
+  commands:
+    check:
+      run: bun run check
+    test:
+      run: bunx turbo run test --affected --concurrency=1

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type * as GeneratedSdkModule from "../../packages/sdk/src/effect-client.js";
-import { SessionResponse } from "../../packages/http-api/src/system.js";
+import { SessionResponse } from "@vektorprogrammet/http-api";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";
@@ -81,8 +81,12 @@ import {
   Schema,
 } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
-import { decodeBackendConfig, type BackendConfig } from "../../apps/backend/src/config.js";
-import { backendHttpHandler, ExternalNativeApiRouterLive } from "../../apps/backend/src/router.js";
+import {
+  backendHttpHandler,
+  decodeBackendConfig,
+  ExternalNativeApiRouterLive,
+  type BackendConfig,
+} from "@vektorprogrammet/backend";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { IdentitySnapshot } from "@vektorprogrammet/database/auth";
 import {
