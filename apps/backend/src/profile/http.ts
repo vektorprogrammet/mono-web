@@ -355,12 +355,6 @@ const updateOwnProfile = (request: Request) =>
             cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
         });
 
-        if (Predicate.isTagged(precondition, "Failed")) {
-          return yield* Effect.fail(
-            new HttpSemanticFailure(precondition.code, precondition.status),
-          );
-        }
-
         const derived = yield* Effect.try({
           try: () =>
             deriveHttpIdentity({
@@ -379,8 +373,17 @@ const updateOwnProfile = (request: Request) =>
             requestSha256: semanticRequestDigest(semanticMutationRequest(patch, ifMatch)),
             operationId,
           },
+          // A receipt lookup precedes the precondition, so a replay after this command's own
+          // write still answers its stored response, and a changed body under the same key
+          // is a digest conflict rather than a stale precondition.
           execute: Profile.use((profileService) =>
             Effect.gen(function* () {
+              if (Predicate.isTagged(precondition, "Failed")) {
+                return yield* Effect.fail(
+                  new HttpSemanticFailure(precondition.code, precondition.status),
+                );
+              }
+
               yield* profileService.updateOwnProfile({
                 actorPersonId: actor.personId,
                 command: UpdateOwnProfileCommand.make({
