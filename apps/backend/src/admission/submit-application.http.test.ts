@@ -4,7 +4,10 @@ import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
-import { AdmissionsSubmitApplicationProblem } from "@vektorprogrammet/http-api";
+import {
+  AdmissionsSubmitApplicationProblem,
+  PublicApplicationConfirmationSchema,
+} from "@vektorprogrammet/http-api";
 import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Layer, ManagedRuntime, Schedule, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -85,6 +88,9 @@ const fixture = () => {
       }),
     );
 
+  const read = (applicationId: string) =>
+    http.fetch(new Request(`http://backend.test/api/applications/${applicationId}`));
+
   const count = (table: string) =>
     database.run(
       Database.use((sql) =>
@@ -112,7 +118,7 @@ const fixture = () => {
     );
   };
 
-  return { database, submit, count, competitor };
+  return { database, submit, read, count, competitor };
 };
 
 /** Decodes a rejection through the endpoint's closed Problem Details union. */
@@ -142,6 +148,27 @@ describe("public application submission over HTTP", () => {
     });
     await expect(count("admission_applications")).resolves.toBe(0);
     await expect(count("native_http_idempotency_receipts")).resolves.toBe(0);
+  });
+
+  it("reads the confirmation of a submitted application", async () => {
+    const { submit, read } = fixture();
+    const submitted = await submit("confirmedApplication");
+
+    expect(submitted.status).toBe(201);
+
+    const { applicationId } = Schema.decodeUnknownSync(PublicApplicationConfirmationSchema)(
+      await submitted.json(),
+      { onExcessProperty: "error" },
+    );
+
+    const confirmation = await read(applicationId);
+
+    expect(confirmation.status).toBe(200);
+    expect(
+      Schema.decodeUnknownSync(PublicApplicationConfirmationSchema)(await confirmation.json(), {
+        onExcessProperty: "error",
+      }),
+    ).toEqual(PublicApplicationConfirmationSchema.make({ applicationId }));
   });
 
   it("answers the loser of a concurrent same-applicant race as a duplicate", async () => {

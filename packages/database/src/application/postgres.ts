@@ -816,9 +816,8 @@ export const findPublicApplicationConfirmation = (
       return yield* new PublicApplicationNotFound({ applicationId: normalizedId });
     }
 
-    return yield* Schema.decodeUnknownEffect(PublicApplicationConfirmationSchema)({
-      applicationId: rows[0].application_id,
-    }).pipe(Effect.mapError(() => persistenceError("decode application confirmation")));
+    // The row only proves that the application exists; its identity is the decoded one.
+    return PublicApplicationConfirmationSchema.make({ applicationId: normalizedId });
   });
 
 /**
