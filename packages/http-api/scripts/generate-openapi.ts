@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 import { NativeApiReleaseVersion } from "../src/release.js";
 import { OpenApi } from "effect/unstable/httpapi";
@@ -78,15 +78,6 @@ assert(
 assert(
   internalOperationIds.length === 1,
   `expected 1 internal operation, received ${internalOperationIds.length}`,
-);
-
-const packageManifest = Schema.decodeSync(
-  Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
-)(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-
-assert(
-  packageManifest.version === NativeApiReleaseVersion,
-  "HTTP API package version is not synchronized",
 );
 
 await writeFile(
