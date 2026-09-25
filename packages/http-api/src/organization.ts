@@ -400,6 +400,7 @@ const OrganizationLifecycleProblem = problemUnion("OrganizationLifecycleProblem"
   "idempotency.digest-conflict",
   "idempotency.in-flight",
   "idempotency.response-expired",
+  "internal.error",
   "idempotency.unavailable",
   "organization.unavailable",
 ]);
