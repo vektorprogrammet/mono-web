@@ -211,17 +211,6 @@ export const ExternalNativeApiRouterLive = (
     ),
     RecruitmentApiHandlers({
       config: config.recruitment,
-      resolveConductContext: (request) =>
-        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
-          Effect.map((authority) => ({
-            actor: AdmissionPeriodActorSchema.cases.Member.make({
-              personId: authority.personId,
-              departmentId: DepartmentId.make(authority.memberships[0]?.departmentId ?? "conduct"),
-              active: true,
-            }),
-            authorizationInstant: authority.evaluatedAt,
-          })),
-        ),
       resolveActor: (request) =>
         resolveRequestPersonAuthority(request, { now: options.now }).pipe(
           Effect.flatMap((authority) =>

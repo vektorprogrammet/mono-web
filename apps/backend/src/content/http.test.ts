@@ -6,10 +6,12 @@ import {
   ContentSlugConflict,
 } from "@vektorprogrammet/domain/content";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { ContentApi, ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect } from "effect";
+import { OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
 import { HttpSemanticFailure } from "../http-semantics.js";
-import { CONTENT_NATIVE_OPERATION_IDS } from "./http-context.js";
+import { contentOperationId } from "./http-context.js";
 import { readContentRequestBody } from "./http-decode.js";
 import { contentHttpErrorResponse } from "./http-problem.js";
 
@@ -27,22 +29,40 @@ const expectProblem = async (response: Response, status: number, code: string): 
 };
 
 describe("native content HTTP boundary", () => {
-  it("registers the complete frozen owned-operation inventory exactly once", () => {
-    expect(CONTENT_NATIVE_OPERATION_IDS).toEqual([
-      "content.readContentWorkspace",
-      "content.createArticle",
-      "content.readArticle",
-      "content.reviseArticle",
-      "content.publishArticle",
-      "content.unpublishArticle",
-      "content.listNews",
-      "content.readNewsArticle",
-    ]);
-    expect(
-      CONTENT_NATIVE_OPERATION_IDS.every(
-        (operationId, index) => CONTENT_NATIVE_OPERATION_IDS.indexOf(operationId) === index,
+  it("identifies every content endpoint by the operation id the published contract assigns it", () => {
+    const methods: ReadonlyArray<OpenApi.OpenAPISpecMethodName> = [
+      "get",
+      "put",
+      "post",
+      "delete",
+      "options",
+      "head",
+      "patch",
+      "trace",
+    ];
+
+    const publishedRoutes = new Map(
+      Object.entries(OpenApi.fromApi(ExternalNativeApi).paths).flatMap(([path, item]) =>
+        methods.flatMap((method) => {
+          const operation = item[method];
+
+          return operation === undefined
+            ? []
+            : [
+                [
+                  operation.operationId,
+                  `${method.toUpperCase()} ${path.replace(/\{(\w+)\}/g, ":$1")}`,
+                ] as const,
+              ];
+        }),
       ),
-    ).toBe(true);
+    );
+
+    const endpoints = Object.values(ContentApi.endpoints);
+
+    expect(endpoints.map((endpoint) => publishedRoutes.get(contentOperationId(endpoint)))).toEqual(
+      endpoints.map((endpoint) => `${endpoint.method} ${endpoint.path}`),
+    );
   });
 
   it("maps owned domain failures to closed RFC 9457 problems", async () => {

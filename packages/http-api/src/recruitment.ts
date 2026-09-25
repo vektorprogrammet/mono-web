@@ -194,6 +194,7 @@ import {
   entityMutationResponse,
   IdempotencyHeaders,
   IdempotencyIfMatchHeaders,
+  IfMatchHeaders,
   noContentMutationResponse,
   privateConditionalResponses,
   privateReadResponse,
@@ -330,7 +331,7 @@ export const ConfirmInvitationEndpoint = HttpApiEndpoint.post(
   "/api/recruitment/invitation-response:confirm",
   {
     params: {},
-    headers: IdempotencyIfMatchHeaders,
+    headers: IfMatchHeaders,
     payload: ConfirmInvitationPayload,
     success: noContentMutationResponse({ etag: true }),
     error: endpointProblemResponses(RecruitmentConfirmInvitationProblem),
@@ -348,7 +349,7 @@ export const RejectInvitationEndpoint = HttpApiEndpoint.post(
   "/api/recruitment/invitation-response:reject",
   {
     params: {},
-    headers: IdempotencyIfMatchHeaders,
+    headers: IfMatchHeaders,
     payload: InvitationRejectInput,
     success: noContentMutationResponse({ etag: true }),
     error: endpointProblemResponses(RecruitmentRejectInvitationProblem),
@@ -366,7 +367,7 @@ export const RequestNewInvitationTimeEndpoint = HttpApiEndpoint.post(
   "/api/recruitment/invitation-response:request-new-time",
   {
     params: {},
-    headers: IdempotencyIfMatchHeaders,
+    headers: IfMatchHeaders,
     payload: InvitationRequestNewTimeInput,
     success: noContentMutationResponse({ etag: true }),
     error: endpointProblemResponses(RecruitmentRequestNewInvitationTimeProblem),

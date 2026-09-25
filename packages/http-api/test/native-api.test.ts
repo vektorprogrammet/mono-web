@@ -1054,10 +1054,7 @@ const noStoreReadOperations = [
   "surveys.readSchoolSurvey",
 ];
 
-const existingResourceMutationOperations = new Set<string>([
-  ...entityMutationOperations,
-  ...taggedNoContentMutationOperations,
-]);
+const existingResourceMutationOperations = new Set<string>(entityMutationOperations);
 
 const reflectedOperations = () => {
   const externalPaths = new Map(
@@ -1447,8 +1444,8 @@ describe("native API reflection", () => {
         expect(headerParameters).toEqual(["if-match", "if-none-match"]);
       } else if (mutations.has(operationId)) {
         expect(headerParameters).toEqual(
-          bodyPreconditionMutationOperations.some((id) => id === operationId)
-            ? ["idempotency-key"]
+          taggedNoContentMutationOperations.some((id) => id === operationId)
+            ? ["if-match"]
             : existingResourceMutationOperations.has(operationId)
               ? ["idempotency-key", "if-match"]
               : ["idempotency-key"],

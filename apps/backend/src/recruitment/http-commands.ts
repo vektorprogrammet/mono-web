@@ -159,10 +159,6 @@ export const invitationMutation = <E, R>(
 
     const ifMatch = yield* requiredIfMatch(request);
 
-    yield* Effect.try({
-      try: () => parseIdempotencyKey(headerValues(request, "idempotency-key")),
-      catch: knownRecruitmentFailure,
-    });
     const capability = yield* invitationCapability(request);
 
     const endpoint = Match.value(operation).pipe(
@@ -462,6 +458,7 @@ export const correctInterviewAssessment = <E, R>(
       identities: { interviewId },
       semanticRequest: semanticMutationRequest(body, ifMatch),
       commandIdSchema: RecruitmentInterviewCorrectionCommandId,
+      retry: "serialization-once",
       prepare: () =>
         Effect.gen(function* () {
           const authorization = yield* interviewAuthorizationInTransaction(

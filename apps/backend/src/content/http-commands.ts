@@ -55,7 +55,9 @@ import {
 import { articleContext, contentScope } from "./http-access.js";
 import {
   authorizedActorInTransaction,
+  contentOperationId,
   type AuthorizedContentActor,
+  type ContentEndpoint,
   type TransactionalAuthorizedContentActor,
 } from "./http-context.js";
 import {
@@ -98,13 +100,15 @@ interface PreparedContentCommand {
 
 const executeCommand = <E, R>(
   request: Request,
-  operationId: string,
+  endpoint: ContentEndpoint,
   routeTemplate: string,
   identities: Readonly<Record<string, string>>,
   semanticRequest: CanonicalSemanticRequest,
   prepare: () => Effect.Effect<PreparedContentCommand, E, R>,
 ) =>
   Effect.gen(function* () {
+    const operationId = contentOperationId(endpoint);
+
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const prepared = yield* prepare();
@@ -146,7 +150,7 @@ export const createArticle = (request: Request, maxBodyBytes: number) =>
 
     return yield* executeCommand(
       request,
-      "content.createArticle",
+      CreateArticleEndpoint,
       "/api/content/articles",
       {},
       { body },
@@ -251,7 +255,7 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
 
     return yield* executeCommand(
       request,
-      "content.reviseArticle",
+      ReviseArticleEndpoint,
       "/api/content/articles/{articleId}",
       { articleId: String(articleId) },
       semanticMutationRequest(patch, ifMatch),
@@ -358,14 +362,11 @@ export const lifecycleArticle = (
 
     const ifMatch = yield* requiredIfMatch(request);
 
-    const operationId =
-      operation === "Publish" ? "content.publishArticle" : "content.unpublishArticle";
-
     const suffix = operation === "Publish" ? "publish" : "unpublish";
 
     return yield* executeCommand(
       request,
-      operationId,
+      endpoint,
       `/api/content/articles/{articleId}:${suffix}`,
       { articleId: String(articleId) },
       semanticMutationRequest(body, ifMatch),

@@ -757,7 +757,6 @@ const recruitmentJourney = async (
       headers: {
         ...capabilityHeaders,
         "content-type": "application/json",
-        "idempotency-key": "reject-invitation-native-claim-0078",
         "if-match": invitationEtag,
       },
       method: "POST",
@@ -778,7 +777,6 @@ const recruitmentJourney = async (
       headers: {
         ...capabilityHeaders,
         "content-type": "application/json",
-        "idempotency-key": "confirm-invitation-native-claim-0078",
         "if-match": rejectedEtag,
       },
       method: "POST",

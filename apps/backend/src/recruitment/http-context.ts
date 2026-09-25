@@ -5,17 +5,9 @@ import { HttpSemanticFailure } from "../http-semantics.js";
 import type { RecruitmentApiConfig } from "./config.js";
 import { errorTag } from "./http-problem.js";
 
-export interface RecruitmentConductContextResolution {
-  readonly actor: RecruitmentActor;
-  readonly authorizationInstant: string;
-}
-
 export interface RecruitmentApiHttpOptions<E = never, R = never> {
   readonly config: RecruitmentApiConfig;
   readonly resolveActor: (request: Request) => Effect.Effect<RecruitmentActor, E, R>;
-  readonly resolveConductContext?: (
-    request: Request,
-  ) => Effect.Effect<RecruitmentConductContextResolution, E, R>;
 }
 
 /** An untagged actor-resolution failure is an invalid credential. */
