@@ -411,9 +411,12 @@ Instants: the domain `Instant` codec (`DateTime.Utc`), millisecond storage, and 
 Receipt keyset cursors still carry microsecond text (`packages/database/src/receipt/cursor.ts`). They stay exact because stored values are milliseconds; M3 moves them to `Instant`.
 Parameters bound through raw `pg` `query` calls (the identity and OAuth adapters, `service-principal-grants-live.ts`, and the cohort importers in `packages/database/src` and `packages/placements/src/server/current-assignment-cohort.ts`) and through `sql.in` or `sql.unsafe` are not typed; only the `Database` template rejects a `DateTime` argument.
 
-In progress on separate branches: typed endpoint problems, PostgreSQL 18, and staged-change checks in pre-commit.
+In progress on separate branches: PostgreSQL 18 and staged-change checks in pre-commit.
+Typed endpoint problems, phases 0 and 1: handlers can fail with `Problem<Code>` values that HttpApiBuilder encodes against the endpoint's declared union. Only security middleware declares credential problems. `ProblemBoundaryLive` answers a defect with `internal.error`.
+The generated SDK fails with a `Problem`; clients read it through `isProblem` and `problemBody`. Team applications are migrated. Every other group still renders raw problem Responses through `toHttpApiResponse`.
 Code that trusts a convention is fixed when a change touches it (see [AGENTS.md](AGENTS.md#construction-over-trust)).
 Known instances: hand-written operation ids outside content, dashboard navigation paths, a fixed admissions `retry-after`, fixed ports in older browser runners, and hosted runs of the preview, Alchemy, and SDK publish workflows.
+Also: `apps/homepage/src/lib/public-application.ts` lists its problem codes by hand and omits `header.malformed`; four operations do not declare the `internal.error` the boundary can answer (`organization.readAppointmentManagement`, `organization.executeLifecycle`, `contact.submitContactMessage`, `admissions.readReturningAssistantOptions`); `apps/backend/src/contact/http.ts` re-checks the server token and answers every rejection as `credential.invalid`.
 Operator step after the PostgreSQL 18 change reaches staging: run `docker compose down --remove-orphans` to remove the orphaned `receipt-postgres` container.
 
 ### Remaining migration work
