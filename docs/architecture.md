@@ -29,7 +29,8 @@ The legacy Symfony source is not in this repository. Production runs the default
 branch of [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet).
 The Symfony modernization attempt that this repository kept as `apps/server` continues
 there as branch `modernize/mono-web-server` (`908368a8`), with its full history.
-The last mono-web commit that contains `apps/server` is `2163076f`.
+The last mono-web commit that contains `apps/server` is `859c0529`; its `apps/server` tree
+(`023b85bd`) is identical to that branch.
 
 That modernization source is not an exact production snapshot. Production contracts
 use the operator-designated legacy `master` baseline and observed live workflows.
