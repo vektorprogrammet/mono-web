@@ -2035,6 +2035,23 @@ describe("source safety boundary", () => {
     }
   });
 
+  test("admits only exactly reviewed source whose path resembles a blocked class", () => {
+    for (const [path, unsafe] of [
+      ["apps/backend/test/database.ts", false],
+      ["tools/verification/credential-race.ts", false],
+      ["patches/effect@4.0.0-rc.116.patch", false],
+      ["apps/backend/test/database.sql", true],
+      ["apps/backend/test/database-seed.ts", true],
+      ["tools/verification/credentials.json", true],
+      ["patches/person@university.no.patch", true],
+      ["vendor/patches/effect@4.0.0.patch/credentials.json", true],
+    ] as const) {
+      expect(
+        isUnsafeSourcePath(path) || unsafeSourceScalarReason(path, "source_path") !== null,
+      ).toBe(unsafe);
+    }
+  });
+
   describe("safe source census regressions", () => {
     test("classifies tracked legacy logs before reading or hashing bytes", async () => {
       const root = gitFixture();
