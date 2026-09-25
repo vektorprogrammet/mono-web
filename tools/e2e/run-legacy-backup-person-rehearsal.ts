@@ -33,7 +33,7 @@ import {
 import { readOwnProfile } from "@vektorprogrammet/database/profile";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { flow, Predicate, Effect, Redacted, Schema } from "effect";
+import { flow, Predicate, Effect, Redacted, Schema, SchemaTransformation } from "effect";
 import { Pool } from "pg";
 import { buildLegacyPersonSnapshot, LegacyUserJson } from "./legacy-person-snapshot";
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
@@ -121,8 +121,21 @@ const LegacyPassword = Schema.Struct({
   password: Schema.String,
 });
 
-// PostgreSQL timestamps remain Dates; changing their representation would change state evidence.
-const SqlEvidenceRow = Schema.Record(Schema.String, Schema.Union([Schema.Json, Schema.Date]));
+// PostgreSQL timestamps arrive as Dates, which have no JSON members; digest their ISO text.
+const SqlEvidenceTimestamp = Schema.Date.pipe(
+  Schema.decodeTo(
+    Schema.String,
+    SchemaTransformation.transform({
+      decode: (date) => date.toISOString(),
+      encode: (text) => new Date(text),
+    }),
+  ),
+);
+
+const SqlEvidenceRow = Schema.Record(
+  Schema.String,
+  Schema.Union([Schema.Json, SqlEvidenceTimestamp]),
+);
 
 const decodeSqlEvidenceRows = Schema.decodeUnknownSync(Schema.Array(SqlEvidenceRow));
 

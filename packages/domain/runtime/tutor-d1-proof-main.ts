@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { Schema, Result, Match, Array, Predicate, Effect, Layer } from "effect";
 import { DomainProcessLive, nodeArguments, setNodeExitCode } from "./node.js";
 import { main, TutorD1Proof, type D1ProofResult } from "../src/tutor/d1-proof.js";
@@ -222,6 +223,10 @@ const dbRows = async <A extends object>(
       .bind(...binds)
       .all<A>()
   ).results;
+
+/** Byte binds have no JSON form; the evidence records their hex so bind order stays visible. */
+const bindEvidence = (binds: ReadonlyArray<unknown>) =>
+  binds.map((bind) => (bind instanceof Uint8Array ? { bytesHex: bytesToHex(bind) } : bind));
 
 const rowCounts = async (db: LocalBinding): Promise<RowCounts> => {
   const rows = await dbRows<Record<string, number>>(
@@ -531,7 +536,7 @@ const appendAcceptedCase = async (): Promise<{
       observation: result.observation,
       plan: canonicalJsonValue({
         sql: result.batchPlan.statements.map((statement) => statement.sql),
-        binds: result.batchPlan.statements.map((statement) => statement.binds),
+        binds: result.batchPlan.statements.map((statement) => bindEvidence(statement.binds)),
         resultIndexes: [0, 1, 2],
         returned,
       }),
@@ -1536,8 +1541,10 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           canonicalJsonValue({
             sqlTexts,
             bindOrder: {
-              accepted: acceptedResult.batchPlan.statements.map((statement) => statement.binds),
-              stale: stalePlan.statements.map((statement) => statement.binds),
+              accepted: acceptedResult.batchPlan.statements.map((statement) =>
+                bindEvidence(statement.binds),
+              ),
+              stale: stalePlan.statements.map((statement) => bindEvidence(statement.binds)),
             },
             resultIndexes: [0, 1, 2],
             resultZero: acceptedResult.batchResults[0],

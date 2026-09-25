@@ -53,6 +53,7 @@ import {
 import {
   Organization,
   PersonId,
+  encodedOrganizationImportResult,
   importLegacyOrganizationEffect,
   type LegacyOrganizationSnapshot,
   type OrganizationImportResult,
@@ -1157,7 +1158,7 @@ const stableComparisonIsEqual = (
   });
 
 const importResultEvidence = (result: OrganizationImportResult) => {
-  const bytes = canonicalJsonBytes(result);
+  const bytes = canonicalJsonBytes(encodedOrganizationImportResult(result));
 
   return {
     byteLength: bytes.byteLength,
@@ -2265,8 +2266,12 @@ const runRehearsal = async (
     const replayResult = await serviceImport(runtime, snapshot);
     const replayState = await stableState(sql);
     const replayEquality = compareStableByteSets(committedState, replayState);
-    const replayResultBytes = canonicalJsonBytes(replayResult);
-    const committedResultBytes = canonicalJsonBytes(committedResult);
+    const replayResultBytes = canonicalJsonBytes(encodedOrganizationImportResult(replayResult));
+
+    const committedResultBytes = canonicalJsonBytes(
+      encodedOrganizationImportResult(committedResult),
+    );
+
     assert.ok(Buffer.from(replayResultBytes).equals(Buffer.from(committedResultBytes)));
     assert.deepEqual(
       organizationImportOutcomeMatrix(replayResult),

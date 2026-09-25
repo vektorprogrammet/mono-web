@@ -127,6 +127,8 @@ const decodeAccepted = Schema.decodeUnknownSync(AcceptedResultSchema, {
   onExcessProperty: "error",
 });
 
+const encodeInsertedReceipt = Schema.encodeSync(Receipt.insert);
+
 const readLedger = Effect.fnUntraced(function* (
   sql: DatabaseOperations,
   result: ReceiptImportResult,
@@ -410,7 +412,11 @@ const validatePrepared = (
     if (
       actual.targetSemanticIdentity !== expected.targetSemanticIdentity ||
       (Predicate.isTagged(actual, "AcceptedReceiptImport") &&
-        canonicalJson(actual) !== canonicalJson(expected))
+        !(
+          Predicate.isTagged(expected, "AcceptedReceiptImport") &&
+          canonicalJson(actual) ===
+            canonicalJson({ ...expected, receipt: encodeInsertedReceipt(expected.receipt) })
+        ))
     )
       throw invalid("InvalidPreparedResults");
 

@@ -16,7 +16,7 @@ import {
 } from "../organization/authority-postgres.js";
 import type { OrganizationAuthorityInstant } from "@vektorprogrammet/domain/organization";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { flow, Predicate, Effect, Schema } from "effect";
+import { Equal, flow, Predicate, Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   mapExistingReceiptApprovalActor,
@@ -572,8 +572,7 @@ export const reconcileReceiptImport = (
 
           const actual = yield* findReceipt(sql, expected.receipt.receiptId);
 
-          const matches =
-            actual !== undefined && canonicalJson(actual) === canonicalJson(expected.receipt);
+          const matches = actual !== undefined && Equal.equals(actual, expected.receipt);
 
           const observed =
             matches && actual !== undefined

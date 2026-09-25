@@ -1,6 +1,5 @@
 import { Database, type DatabaseOperations } from "../service.js";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { flow, Effect, Schema } from "effect";
+import { Equal, flow, Effect, Schema } from "effect";
 import {
   DepartmentCreatedObservationSchema,
   TeamCreatedObservationSchema,
@@ -365,12 +364,13 @@ const receiptOrConflict = (
   return Effect.fail(new OrganizationCommandConflict({ commandId }));
 };
 
+/** Decoded models compare structurally, field by field. */
 const ensureCanonical = <A>(
   inserted: A,
   selected: A,
   operation: string,
 ): Effect.Effect<A, OrganizationPersistenceError> =>
-  canonicalJson(inserted) === canonicalJson(selected)
+  Equal.equals(inserted, selected)
     ? Effect.succeed(selected)
     : Effect.fail(persistenceError(operation));
 
