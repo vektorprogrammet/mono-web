@@ -575,8 +575,17 @@ function assertDurableEvidence(postgres, privateFile, lifecycle) {
   };
 
   if (!isDeepStrictEqual(observed, expected)) {
+    const effects = outbox.map((row) => ({
+      effectId: row.effectId,
+      effectType: row.effectType,
+      ordinal: row.ordinal,
+      status: row.status,
+      attempts: row.attempts,
+      lastFailureTag: row.lastFailureTag,
+    }));
+
     throw new Error(
-      `Receipt persistence evidence did not prove injected replacement recovery: ${JSON.stringify({ observed, expected })}`,
+      `Receipt persistence evidence did not prove injected replacement recovery: ${JSON.stringify({ observed, expected, effects })}`,
     );
   }
 
