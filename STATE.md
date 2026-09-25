@@ -341,8 +341,9 @@ PR preview acceptance remains separate tooling work; it does not establish produ
 Delivery status and remaining integration:
 
 - The [recruitment worker](apps/backend/src/recruitment/worker.ts) now runs under native Bun lifecycle supervision when its HTTP notification Layer is configured. Local development explicitly disables it. Synthetic PostgreSQL and loopback HTTP acceptance verified retry, stale-claim recovery, retained payloads, interruption, restart, and root failure. Real-provider acceptance remains open.
-- [Password-reset mail](apps/backend/src/password-recovery/drain-main.ts) has a one-shot drain command. Its production execution and recovery need explicit ownership.
-- Receipt commands already attempt post-commit delivery and stale-claim recovery. The [receipt drain](apps/backend/src/receipt/drain-main.ts) adds explicit retry. Verify unattended recovery after failure and restart; do not assume an HTTP request or manual command will arrive.
+- Password-reset and receipt delivery now have supervised external Bun workers. Internal ingress and disabled modes do not claim work.
+- The [delivery guide](docs/delivery-recovery.md) defines explicit configuration, bounded reset retries, ambiguity quarantine, receipt recovery, and shutdown behavior.
+- The committed local recovery command exercises actual Bun processes, disposable PostgreSQL, and loopback delivery. Real-provider acceptance remains open.
 
 The combined synthetic candidate rehearsal passed across the implemented import boundaries.
 It binds source evidence across separate SQL and file-custody phases and accounts for unresolved or excluded work.

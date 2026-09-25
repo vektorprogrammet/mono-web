@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Unattended delivery recovery
+
+- Supervise password-reset and receipt delivery in the external Bun backend, with explicit modes and joined shutdown.
+- Preserve reset payload identity without retaining reset links or message bodies. Quarantine changed payloads and ambiguous attempts.
+- Preserve receipt envelopes, fenced ownership, and predecessor ordering. Prevent failed receipts from blocking unrelated work.
+- Stop the backend on delivery infrastructure failure. Prove failure, restart, stale ownership, interruption, and recovery against disposable PostgreSQL.
+- Add an operations guide and the `verify:delivery-recovery` command. Real-provider acceptance remains separate.
+
 ### Substitutes operational boundary
 
 - Expose complete pool queries and commands through the portable Substitutes service. Keep SQL helpers private.

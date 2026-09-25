@@ -277,9 +277,10 @@ Rules:
 configuration, PostgreSQL, identity, file storage, notification, and HTTP layers.
 It then runs the server and worker programs.
 The recruitment notification worker starts only when its HTTP delivery Layer is configured.
-The root supervises failure and interruption; a failed worker stops the process.
-Claims use fresh attempt times, and their lease exceeds the provider timeout.
-Shutdown releases an interrupted claim while retaining its immutable payload for recovery.
+The external ingress also owns explicitly enabled password-reset and receipt workers. Internal ingress does not start these workers.
+The root supervises failure and interruption; a failed worker stops the process. Shutdown joins workers before disposing of their database runtime.
+Claims retain domain-specific recovery rules. Ambiguous or stale reset attempts quarantine; receipt attempts retain immutable envelopes and fenced recovery.
+The [delivery guide](delivery-recovery.md) defines configuration, retry limits, and operator recovery.
 
 `bun dev` selects the local Bun backend and both frontend development servers.
 The existing Turbo tasks own these processes; PostgreSQL remains a separately managed prerequisite.
