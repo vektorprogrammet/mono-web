@@ -1015,8 +1015,8 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
 
   await query(
     `UPDATE public.native_http_idempotency_receipts
-        SET committed_at = transaction_timestamp() - interval '25 hours',
-            full_expires_at = transaction_timestamp() - interval '1 hour'
+        SET committed_at = date_trunc('milliseconds', transaction_timestamp(), 'UTC') - interval '25 hours',
+            full_expires_at = date_trunc('milliseconds', transaction_timestamp(), 'UTC') - interval '1 hour'
       WHERE identity_sha256 = $1`,
     [receiptIdentity],
   );
@@ -1225,8 +1225,8 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
 
   const expiredStaleReceipt = await query(
     `UPDATE public.native_http_idempotency_receipts
-        SET committed_at = transaction_timestamp() - interval '25 hours',
-            full_expires_at = transaction_timestamp() - interval '1 hour'
+        SET committed_at = date_trunc('milliseconds', transaction_timestamp(), 'UTC') - interval '25 hours',
+            full_expires_at = date_trunc('milliseconds', transaction_timestamp(), 'UTC') - interval '1 hour'
       WHERE identity_sha256 = $1`,
     [staleReceiptIdentity],
   );

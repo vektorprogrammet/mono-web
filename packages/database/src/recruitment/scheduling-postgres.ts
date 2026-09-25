@@ -554,6 +554,8 @@ const readSchedulingState = (sql: DatabaseOperations, interviewId: string) =>
 
 const capabilityIsValid = (value: string): boolean => /^[A-Za-z0-9_-]{43}$/u.test(value);
 
+const encodeScheduleObservation = Schema.encodeSync(RecruitmentScheduleObservationSchema);
+
 const writeScheduleRows = (
   sql: DatabaseOperations,
   command: RecruitmentScheduleCommand,
@@ -666,7 +668,7 @@ const writeScheduleRows = (
         interview_id, schedule_revision, committed_at
       ) VALUES (
         ${command.commandId}, ${digest}, ${canonicalJson(command)}::jsonb,
-        ${canonicalJson(observation)}::jsonb, ${command.interviewId},
+        ${canonicalJson(encodeScheduleObservation(observation))}::jsonb, ${command.interviewId},
         ${scheduleRevision}, ${context.now}
       )
     `.pipe(

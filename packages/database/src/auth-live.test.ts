@@ -239,7 +239,7 @@ describe("Better Auth session hardening configuration", () => {
         Effect.gen(function* () {
           yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${body.user.id}, 'Snapshot', 'Owner')`;
           yield* sql`INSERT INTO auth."user" (id, name, email, "emailVerified") VALUES (${body.user.id}, 'Snapshot', 'snapshot@example.invalid', TRUE)`;
-          yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${session.id}, ${session.token}, ${session.expiresAt.toISOString()}, CURRENT_TIMESTAMP, ${body.user.id})`;
+          yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${session.id}, ${session.token}, ${session.expiresAt.toISOString()}, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), ${body.user.id})`;
         }),
       ),
     );
@@ -275,7 +275,7 @@ describe("Better Auth session hardening configuration", () => {
         Effect.gen(function* () {
           yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${actor.personId}, 'Snapshot', 'Owner')`;
           yield* sql`INSERT INTO auth."user" (id, name, email, "emailVerified") VALUES (${actor.personId}, 'Owner', 'owner@example.invalid', TRUE)`;
-          yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${actor.sessionId}, 'snapshot-token', '2031-09-16', CURRENT_TIMESTAMP, ${actor.personId})`;
+          yield* sql`INSERT INTO auth."session" (id, token, "expiresAt", "updatedAt", "userId") VALUES (${actor.sessionId}, 'snapshot-token', '2031-09-16', date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), ${actor.personId})`;
 
           const result = yield* makeIdentitySnapshotService(config).revokeSession(
             actor,

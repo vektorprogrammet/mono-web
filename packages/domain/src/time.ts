@@ -1,4 +1,4 @@
-import { DateTime, Option, Schema } from "effect";
+import { DateTime, Option, Schema, SchemaTransformation } from "effect";
 
 const Rfc3339InstantPattern =
   /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
@@ -53,3 +53,28 @@ export const Rfc3339InstantSchema = Schema.String.pipe(
     }),
   ),
 );
+
+/** RFC 3339 years have four digits. The bound also keeps every decoded instant encodable. */
+const Rfc3339InstantRange = {
+  minimum: DateTime.makeUnsafe("0000-01-01T00:00:00.000Z"),
+  maximum: DateTime.makeUnsafe("9999-12-31T23:59:59.999Z"),
+};
+
+/**
+ * An instant at millisecond precision. Decoding accepts RFC 3339 text with any explicit
+ * offset. Encoding always emits `YYYY-MM-DDTHH:mm:ss.sssZ`, the text PostgreSQL projects
+ * with `to_char(... 'MS')`, so wire bytes, stored JSON, digests, and entity tags share
+ * one spelling. Bind the encoded text, never the DateTime, as a SQL parameter.
+ */
+export const Instant = Rfc3339InstantSchema.pipe(
+  Schema.decodeTo(
+    Schema.DateTimeUtc.check(
+      Schema.makeIsBetween({ order: DateTime.Order, formatter: DateTime.formatIso })(
+        Rfc3339InstantRange,
+      ),
+    ),
+    SchemaTransformation.dateTimeUtcFromString,
+  ),
+);
+
+export type Instant = typeof Instant.Type;

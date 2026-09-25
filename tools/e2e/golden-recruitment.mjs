@@ -73,20 +73,20 @@ export const recruitmentFixture = {
 export const seedRecruitment = async (pool) => {
   await pool.query(`
     INSERT INTO admission_period_departments(department_id,name) VALUES ('recruitment-department','Trondheim'),('recruitment-wrong-department','Annen');
-    INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('recruitment-semester',now()-interval '30 days',now()+interval '90 days');
+    INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES ('recruitment-semester',date_trunc('milliseconds',now(),'UTC')-interval '30 days',date_trunc('milliseconds',now(),'UTC')+interval '90 days');
     INSERT INTO organization_departments(department_id,name,short_name,email,city,active,revision) VALUES
       ('recruitment-department','Vektorprogrammet Trondheim','Trondheim','trondheim@example.invalid','Trondheim',true,0),
       ('recruitment-wrong-department','Annen avdeling','Annen','wrong@example.invalid','Annen',true,0);
     INSERT INTO organization_teams(team_id,department_id,name,active,revision) VALUES
       ('recruitment-team','recruitment-department','Koordinator',true,0),('recruitment-wrong-team','recruitment-wrong-department','Koordinator',true,0);
     INSERT INTO organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES
-      ('recruitment-leader','recruitment-leader','recruitment-team',NULL,now()-interval '1 day',NULL,'teamleader',true,false,0),
-      ('recruitment-wrong','recruitment-wrong','recruitment-wrong-team',NULL,now()-interval '1 day',NULL,'teamleader',true,false,0);
+      ('recruitment-leader','recruitment-leader','recruitment-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0),
+      ('recruitment-wrong','recruitment-wrong','recruitment-wrong-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0);
     INSERT INTO person_contact_profiles(person_id,email,phone) VALUES ('recruitment-leader','leader@example.invalid','90000925'),('recruitment-wrong','wrong@example.invalid','90000926');
     INSERT INTO schools_directory_schools(school_id,name,contact_person,email,phone,language,active,revision) OVERRIDING SYSTEM VALUE VALUES (925,'Rekrutt skole','Kontakt','school@example.invalid','90000925','Norwegian',true,0);
     INSERT INTO schools_directory_departments(school_id,department_id,revision) VALUES (925,'recruitment-department',0);
     INSERT INTO admission_period_fields_of_study(field_of_study_id,department_id,name) VALUES('recruitment-field','recruitment-department','Matematikk');
-    INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES('recruitment-period','recruitment-department','recruitment-semester',now()-interval '1 day',now()+interval '30 days','prerequisite');
+    INSERT INTO admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,last_command_id) VALUES('recruitment-period','recruitment-department','recruitment-semester',date_trunc('milliseconds',now(),'UTC')-interval '1 day',date_trunc('milliseconds',now(),'UTC')+interval '30 days','prerequisite');
     INSERT INTO recruitment_interview_schemas(interview_schema_id,name,question_count,active,revision) VALUES('recruitment-schema','Rekruttintervju',1,true,0);
     INSERT INTO recruitment_interview_schema_questions(interview_schema_id,question_id,ordinal,prompt,help_text,kind,alternatives) VALUES('recruitment-schema','recruitment-motivation',0,'Hvorfor vil du bidra?',NULL,'text','[]');
   `);

@@ -467,7 +467,7 @@ const response = await mf.dispatchFetch(`http://p000.vektor.phibkro.org${req.url
     initialExpiry.getTime(),
   );
   await pool.query(
-    "UPDATE public.contact_rate_windows SET expires_at=statement_timestamp()-interval '1 second'",
+    "UPDATE public.contact_rate_windows SET expires_at=date_trunc('milliseconds',statement_timestamp(),'UTC')-interval '1 second'",
   );
   await post();
   assert.equal(await count(), 1);

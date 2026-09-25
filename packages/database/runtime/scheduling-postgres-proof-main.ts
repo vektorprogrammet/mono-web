@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Predicate, Cause, Config, Effect, Layer, Redacted } from "effect";
+import { Predicate, Cause, Config, Effect, Layer, Redacted, Schema } from "effect";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { Database, type DatabaseOperations } from "../src/service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
@@ -8,6 +8,7 @@ import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import {
   Recruitment,
+  RecruitmentScheduleObservationSchema,
   RecruitmentInterviewId,
   RecruitmentInvitationId,
   RecruitmentScheduleCommandId,
@@ -363,10 +364,13 @@ const proof = Effect.gen(function* () {
     Predicate.isTagged(result, "Success") ? [result.value.observation] : [],
   );
 
+  const encodeObservation = Schema.encodeSync(RecruitmentScheduleObservationSchema);
+
   const exactReplayObservation =
     identicalObservations[0] !== undefined &&
     identicalObservations[1] !== undefined &&
-    canonicalJson(identicalObservations[0]) === canonicalJson(identicalObservations[1]);
+    canonicalJson(encodeObservation(identicalObservations[0])) ===
+      canonicalJson(encodeObservation(identicalObservations[1]));
 
   const [linkage] = yield* sql<LinkageCountRow>`
     WITH cohort_interviews(interview_id) AS (

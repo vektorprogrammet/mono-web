@@ -68,7 +68,7 @@ export const rotatePreviewCredentials = async (
           for (const replacement of replacements) {
             const updated = await connection.query(
               `UPDATE auth.account
-           SET password = $1, "updatedAt" = CURRENT_TIMESTAMP
+           SET password = $1, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
            WHERE "providerId" = 'credential' AND "userId" = $2`,
               [replacement.passwordHash, replacement.personId],
             );

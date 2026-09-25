@@ -636,7 +636,7 @@ describe("team application delivery", () => {
               INSERT INTO team_application_command_receipts
                 (command_id, command_sha256, operation, team_id, application_id, observation_json, committed_at)
               VALUES ('poisoned', ${"a".repeat(64)}, 'SubmitTeamApplication', 'ta-open',
-                '00000000-0000-4000-8000-000000000000', '{}', now())
+                '00000000-0000-4000-8000-000000000000', '{}', date_trunc('milliseconds', now(), 'UTC'))
             `;
             yield* sql`
               INSERT INTO team_application_outbox
@@ -649,7 +649,7 @@ describe("team application delivery", () => {
                   replyTo: "it@example.invalid",
                   subject: "Søknad til IT mottatt",
                   text: "Vi har mottatt søknaden din.",
-                })}, now())
+                })}, date_trunc('milliseconds', now(), 'UTC'))
             `;
           }),
         ),

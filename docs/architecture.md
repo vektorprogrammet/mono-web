@@ -177,6 +177,8 @@ Use Effect Schema at every external or durable boundary:
 
 Decode once at entry. Keep the encoded and decoded forms explicit when they differ.
 Do not maintain a second handwritten interface beside a schema-derived type.
+Canonical JSON for digests and stored evidence accepts only plain encoded data; encode a
+value through its schema before hashing it.
 
 Failures are typed and mapped once at the boundary. Do not parse error messages or
 turn every failure into an untyped 500 response.
@@ -221,6 +223,11 @@ Use constraints for invariants that PostgreSQL can express. Use a transaction an
 lock when an invariant spans rows or current state. Use a compare-and-set revision
 when a caller edits an observed version. A rejected concurrent command must not
 leave partial state.
+
+Instants are `timestamptz` values at millisecond precision, the precision of the domain's
+`DateTime.Utc`. A CHECK on every instant column rejects a sub-millisecond value, and clock
+defaults and clock writes use `date_trunc('milliseconds', ..., 'UTC')`. Bind an instant as its
+encoded RFC 3339 text; the `Database` template rejects a `DateTime` argument at compile time.
 
 Migration files are append-only after acceptance. A forward migration corrects an
 accepted schema. Runtime code does not guess around missing columns.

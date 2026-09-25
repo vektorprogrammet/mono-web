@@ -561,6 +561,11 @@ export const databaseMigrationDefinitions = [
     name: "upgrade-constraint-convergence",
     url: new URL("../migrations/0071-upgrade-constraint-convergence.sql", import.meta.url),
   },
+  {
+    id: "72_instant-millisecond-precision",
+    name: "instant-millisecond-precision",
+    url: new URL("../migrations/0072-instant-millisecond-precision.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

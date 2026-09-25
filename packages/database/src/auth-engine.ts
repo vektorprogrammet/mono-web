@@ -202,7 +202,7 @@ const makeCredentialLifecycleHooks = (database: Pool) => {
             ${
               current
                 ? 'SELECT id FROM auth."account" WHERE "userId"=$1 AND "accountId"=$1 AND "providerId"=\'credential\' AND issuer=$2 AND password=$3'
-                : 'UPDATE auth."account" SET password=$5,access_revision=(SELECT access_revision FROM auth.usable_human_sessions WHERE token=$4),"updatedAt"=CURRENT_TIMESTAMP WHERE "userId"=$1 AND "accountId"=$1 AND "providerId"=\'credential\' AND issuer=$2 AND password=$3 RETURNING id'
+                : 'UPDATE auth."account" SET password=$5,access_revision=(SELECT access_revision FROM auth.usable_human_sessions WHERE token=$4),"updatedAt"=date_trunc(\'milliseconds\',CURRENT_TIMESTAMP,\'UTC\') WHERE "userId"=$1 AND "accountId"=$1 AND "providerId"=\'credential\' AND issuer=$2 AND password=$3 RETURNING id'
             }
           ), revoked AS (
             DELETE FROM auth."session" WHERE token=$4 AND NOT EXISTS(SELECT 1 FROM matched) RETURNING id

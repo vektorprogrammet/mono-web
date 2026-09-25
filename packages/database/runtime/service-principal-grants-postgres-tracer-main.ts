@@ -137,21 +137,21 @@ await pool.query(
    (
      'service-receipt-approval-pending', 'SERVICE-PENDING', 'service-receipt-owner',
      'service-receipt-department', 1000, 'NOK', 'Pending service receipt', CURRENT_DATE,
-     CURRENT_TIMESTAMP, 'Pending', NULL, 'ciphertext:service:pending',
+     date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Pending', NULL, 'ciphertext:service:pending',
      'service-file-pending', 'service-object-pending', 'application/pdf', 100,
      repeat('a', 64), 0
    ),
    (
      'service-receipt-approval-nonpending', 'SERVICE-NONPENDING', 'service-receipt-owner',
      'service-receipt-department', 2000, 'NOK', 'Nonpending service receipt', CURRENT_DATE,
-     CURRENT_TIMESTAMP, 'Rejected', NULL, 'ciphertext:service:nonpending',
+     date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Rejected', NULL, 'ciphertext:service:nonpending',
      'service-file-nonpending', 'service-object-nonpending', 'application/pdf', 200,
      repeat('b', 64), 0
    ),
    (
      'service-receipt-approval-foreign', 'SERVICE-FOREIGN', 'service-receipt-owner',
      'service-receipt-department', 3000, 'NOK', 'Foreign service receipt', CURRENT_DATE,
-     CURRENT_TIMESTAMP, 'Pending', NULL, 'ciphertext:service:foreign',
+     date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), 'Pending', NULL, 'ciphertext:service:foreign',
      'service-file-foreign', 'service-object-foreign', 'application/pdf', 300,
      repeat('c', 64), 0
    )`,

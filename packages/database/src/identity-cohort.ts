@@ -355,7 +355,7 @@ export const importIdentityCohort = async (
 
         if (accountId !== null)
           await tx.query(
-            'INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt") VALUES($1,$2,\'credential\',$3,$2,$4,now())',
+            'INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt") VALUES($1,$2,\'credential\',$3,$2,$4,date_trunc(\'milliseconds\',now(),\'UTC\'))',
             [accountId, mapping.personId, createLocalAccountIssuer("credential"), row.passwordHash],
           );
         await tx.query(

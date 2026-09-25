@@ -143,8 +143,8 @@ export async function observeReceiptReopening(options: {
   assert.deepEqual(await snapshot(target.id), before);
 
   for (const mutation of [
-    "UPDATE economy_receipt_approval_grants SET end_at=now(),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
-    "UPDATE organization_memberships SET end_at=now() WHERE membership_id='receipt0097-approver-membership'",
+    "UPDATE economy_receipt_approval_grants SET end_at=date_trunc('milliseconds',now(),'UTC'),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
+    "UPDATE organization_memberships SET end_at=date_trunc('milliseconds',now(),'UTC') WHERE membership_id='receipt0097-approver-membership'",
   ]) {
     await pool.query(mutation);
     assert.equal((await request(target.id, "reopen", target.etag)).status, 403);
@@ -213,7 +213,7 @@ export async function observeReceiptReopening(options: {
     409,
   );
   await pool.query(
-    "UPDATE economy_receipt_approval_grants SET end_at=now(),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
+    "UPDATE economy_receipt_approval_grants SET end_at=date_trunc('milliseconds',now(),'UTC'),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
   );
   assert.equal(
     (await request(target.id, "reopen", target.etag, approverCookie, retryKey)).status,

@@ -131,7 +131,7 @@ it(
           file_ref, file_object_key, file_content_type, file_byte_length, file_sha256, revision
         ) SELECT 'service-page-' || side || '-' || lpad(n::text, 3, '0'),
           'SERVICE-PAGE-' || side || '-' || n, 'receipt-owner', 'receipt-department', 1250, 'NOK', 'Paged service receipt',
-          '2032-06-01', CASE WHEN side = 'b' THEN '2032-06-01T10:00:00.123456Z'::timestamptz ELSE '2032-06-01T09:00:00.123456Z'::timestamptz END,
+          '2032-06-01', CASE WHEN side = 'b' THEN '2032-06-01T10:00:00.123Z'::timestamptz ELSE '2032-06-01T09:00:00.123Z'::timestamptz END,
           CASE WHEN side = 'b' THEN 'Approved' ELSE 'Pending' END,
           CASE WHEN side = 'b' THEN '2032-06-01T11:00:00Z'::timestamptz ELSE NULL END,
           'ciphertext:page', 'service-page-file-' || side || '-' || n, 'service-page-object-' || side || '-' || n,

@@ -114,7 +114,7 @@ try {
   }
 
   await pool.query(
-    `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision) VALUES('interview-recommendation-history','[]',7,8,9,'journey-conduct-leader-0063',CURRENT_TIMESTAMP,1)`,
+    `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision) VALUES('interview-recommendation-history','[]',7,8,9,'journey-conduct-leader-0063',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),1)`,
   );
   // Ordinary assigned member is the runtime subject, not an accidentally privileged fixture.
   await pool.query(

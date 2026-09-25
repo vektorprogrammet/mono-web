@@ -307,7 +307,7 @@ export const drainPasswordResetMail = (
               attempts: number;
               payload_sha256: string | null;
             }>(
-              `WITH next AS (SELECT effect_id FROM auth.password_reset_email_outbox WHERE status='Pending' OR (status='Failed' AND attempts<3) ORDER BY created_at,effect_id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE auth.password_reset_email_outbox o SET status='Processing',claim_id=$1,claimed_at=CURRENT_TIMESTAMP,attempts=attempts+1 FROM next WHERE o.effect_id=next.effect_id RETURNING o.*`,
+              `WITH next AS (SELECT effect_id FROM auth.password_reset_email_outbox WHERE status='Pending' OR (status='Failed' AND attempts<3) ORDER BY created_at,effect_id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE auth.password_reset_email_outbox o SET status='Processing',claim_id=$1,claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),attempts=attempts+1 FROM next WHERE o.effect_id=next.effect_id RETURNING o.*`,
               [claim],
             )
           ).rows[0];
@@ -409,7 +409,7 @@ export const drainPasswordResetMail = (
       const outcome = yield* Effect.promise(() =>
         transaction(pool, async (client) => {
           const updated = await client.query(
-            `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN CURRENT_TIMESTAMP ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing'`,
+            `UPDATE auth.password_reset_email_outbox SET status=$3,claim_id=NULL,claimed_at=NULL,delivered_at=CASE WHEN $3='Delivered' THEN date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC') ELSE NULL END,last_failure_code=$4,provider_reference=$5 WHERE effect_id=$1 AND claim_id=$2 AND status='Processing'`,
             [
               row.effect_id,
               claim,

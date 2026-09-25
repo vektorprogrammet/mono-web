@@ -10,6 +10,12 @@ export const canonicalJsonValue = Match.type<unknown>().pipe(
   Match.when(Predicate.isNumber, (value) => (Number.isFinite(value) ? value : null)),
   Match.when(Array.isArray, (values): Schema.Json => values.map(canonicalJsonValue)),
   Match.when(Predicate.isObjectOrArray, (input): Schema.Json => {
+    const prototype = Object.getPrototypeOf(input);
+
+    // Entries of a DateTime, Date, class instance, or byte array are not its encoded value.
+    if (prototype !== Object.prototype && prototype !== null)
+      throw new Error("canonical JSON accepts plain data only; encode through the owning schema");
+
     const output: Record<string, Schema.Json> = {};
 
     for (const [key, value] of Object.entries(input).sort(([left], [right]) =>

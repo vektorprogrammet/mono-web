@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
+import type * as Statement from "effect/unstable/sql/Statement";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { Department, Team, TeamId } from "@vektorprogrammet/domain/organization";
 import {
@@ -86,9 +87,9 @@ const findTeamIntake = flow(
           ${intakeProjection(sql)}
           WHERE team.team_id = ${teamId}
           ${Match.value(lock).pipe(
-            Match.when("Share", () => sql`FOR SHARE OF team, department`),
-            Match.when("Update", () => sql`FOR UPDATE OF team`),
-            Match.orElse(() => sql``),
+            Match.when("Share", (): Statement.Fragment => sql`FOR SHARE OF team, department`),
+            Match.when("Update", (): Statement.Fragment => sql`FOR UPDATE OF team`),
+            Match.orElse((): Statement.Fragment => sql``),
           )}
         `,
       ),

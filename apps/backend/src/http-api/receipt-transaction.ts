@@ -187,7 +187,7 @@ const redactIdentityIfExpired = (sql: DatabaseOperations, identitySha256: string
       media_type = NULL,
       body_bytes = NULL,
       headers_json = NULL,
-      tombstoned_at = transaction_timestamp()
+      tombstoned_at = date_trunc('milliseconds', transaction_timestamp(), 'UTC')
     WHERE identity_sha256 = ${identitySha256}
       AND state = 'Complete'
       AND full_expires_at <= transaction_timestamp()
@@ -234,8 +234,8 @@ const writeCompleteReceipt = (
       ${capsule.mediaType},
       ${capsule.bodyBytes},
       ${sql.json(capsule.headers)},
-      transaction_timestamp(),
-      transaction_timestamp() + interval '24 hours',
+      date_trunc('milliseconds', transaction_timestamp(), 'UTC'),
+      date_trunc('milliseconds', transaction_timestamp(), 'UTC') + interval '24 hours',
       NULL
     )
   `.pipe(Effect.asVoid);
@@ -345,7 +345,7 @@ export const redactExpiredNativeHttpReceipts = Database.use((sql) =>
           media_type = NULL,
           body_bytes = NULL,
           headers_json = NULL,
-          tombstoned_at = transaction_timestamp()
+          tombstoned_at = date_trunc('milliseconds', transaction_timestamp(), 'UTC')
         WHERE state = 'Complete'
           AND full_expires_at <= transaction_timestamp()
         RETURNING 1

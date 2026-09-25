@@ -634,7 +634,7 @@ const appendAudit = async (
        event_id, occurred_at, event_kind, client_id, family_id, jti,
        subject_person_id, subject_service_principal_id, actor_principal,
        request_correlation, source_ip, user_agent, details
-     ) VALUES ($1, CURRENT_TIMESTAMP, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
+     ) VALUES ($1, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
     [
       randomUUID(),
       input.eventKind,
@@ -895,7 +895,7 @@ export const makeOAuthClientOperatorService = (
 
       const updated = await client.query(
         `UPDATE auth."oauthClient" provider
-            SET "clientSecret" = $2, "updatedAt" = CURRENT_TIMESTAMP
+            SET "clientSecret" = $2, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
            FROM auth.oauth_client_bindings binding
           WHERE provider."clientId" = $1
             AND binding.client_id = provider."clientId"
@@ -907,9 +907,9 @@ export const makeOAuthClientOperatorService = (
       if (updated.rowCount !== 1) throw new Error("live confidential client not found");
       await client.query(
         `UPDATE auth.oauth_client_bindings
-            SET secret_expires_at = CURRENT_TIMESTAMP + interval '90 days',
+            SET secret_expires_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC') + interval '90 days',
                 revision = revision + 1,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE client_id = $1`,
         [clientId],
       );
@@ -931,20 +931,20 @@ export const makeOAuthClientOperatorService = (
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [clientId]);
 
       const updated = await client.query(
-        `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = CURRENT_TIMESTAMP
+        `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE "clientId" = $1 AND COALESCE(disabled, false) = false`,
         [clientId],
       );
 
       if (updated.rowCount !== 1) throw new Error("live OAuth client not found");
       await client.query(
-        `UPDATE auth.oauth_access_token_state SET revoked_at = CURRENT_TIMESTAMP,
+        `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
            revocation_reason = 'client-disabled'
          WHERE client_id = $1 AND revoked_at IS NULL`,
         [clientId],
       );
       await client.query(
-        `UPDATE auth.oauth_refresh_families SET revoked_at = CURRENT_TIMESTAMP,
+        `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
            revocation_reason = 'client-disabled'
          WHERE client_id = $1 AND revoked_at IS NULL`,
         [clientId],
@@ -973,18 +973,18 @@ export const makeOAuthClientOperatorService = (
       if (binding === undefined) throw new Error("service-principal binding not found");
       await client.query(
         `UPDATE public.service_principals
-            SET state = 'Disabled', revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+            SET state = 'Disabled', revision = revision + 1, updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE service_principal_id = $1 AND state = 'Active'`,
         [servicePrincipalId],
       );
       await client.query(
-        `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = CURRENT_TIMESTAMP
+        `UPDATE auth."oauthClient" SET disabled = true, "updatedAt" = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE "clientId" = $1`,
         [binding.client_id],
       );
       await client.query(
         `UPDATE auth.oauth_access_token_state
-            SET revoked_at = CURRENT_TIMESTAMP, revocation_reason = 'service-principal-disabled'
+            SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'service-principal-disabled'
           WHERE service_principal_id = $1 AND revoked_at IS NULL`,
         [servicePrincipalId],
       );
@@ -1444,13 +1444,13 @@ const initialCodeExchange = async (
     if (replay.rows[0] !== undefined) {
       await inTransaction(pool, async (transaction) => {
         await transaction.query(
-          `UPDATE auth.oauth_refresh_families SET revoked_at = CURRENT_TIMESTAMP,
+          `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
              revocation_reason = 'code-replay'
            WHERE family_id = $1 AND revoked_at IS NULL`,
           [replay.rows[0]!.family_id],
         );
         await transaction.query(
-          `UPDATE auth.oauth_access_token_state SET revoked_at = CURRENT_TIMESTAMP,
+          `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
              revocation_reason = 'code-replay'
            WHERE family_id = $1 AND revoked_at IS NULL`,
           [replay.rows[0]!.family_id],
@@ -1591,13 +1591,13 @@ const refreshExchange = async (
     ) {
       await inTransaction(pool, async (transaction) => {
         await transaction.query(
-          `UPDATE auth.oauth_refresh_families SET revoked_at = CURRENT_TIMESTAMP,
+          `UPDATE auth.oauth_refresh_families SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
              revocation_reason = 'refresh-replay'
            WHERE family_id = $1 AND revoked_at IS NULL`,
           [lookup.family_id],
         );
         await transaction.query(
-          `UPDATE auth.oauth_access_token_state SET revoked_at = CURRENT_TIMESTAMP,
+          `UPDATE auth.oauth_access_token_state SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'),
              revocation_reason = 'refresh-replay'
            WHERE family_id = $1 AND revoked_at IS NULL`,
           [lookup.family_id],
@@ -1810,7 +1810,7 @@ const handleRevocation = async (
     await inTransaction(pool, async (transaction) => {
       const updated = await transaction.query<{ readonly family_id: string | null }>(
         `UPDATE auth.oauth_access_token_state
-            SET revoked_at = CURRENT_TIMESTAMP, revocation_reason = 'explicit-access-token'
+            SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-access-token'
           WHERE jti = $1 AND client_id = $2 AND revoked_at IS NULL
           RETURNING family_id`,
         [decoded.claims.jti, client.client_id],
@@ -1860,13 +1860,13 @@ const handleRevocation = async (
     if (owned === undefined) return;
     await transaction.query(
       `UPDATE auth.oauth_refresh_families
-          SET revoked_at = CURRENT_TIMESTAMP, revocation_reason = 'explicit-refresh-token'
+          SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-refresh-token'
         WHERE family_id = $1 AND revoked_at IS NULL`,
       [owned.family_id],
     );
     await transaction.query(
       `UPDATE auth.oauth_access_token_state
-          SET revoked_at = CURRENT_TIMESTAMP, revocation_reason = 'explicit-refresh-token'
+          SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'explicit-refresh-token'
         WHERE family_id = $1 AND revoked_at IS NULL`,
       [owned.family_id],
     );
@@ -1932,7 +1932,7 @@ const handleConsentWithdrawal = async (
   await inTransaction(pool, async (transaction) => {
     const families = await transaction.query<{ readonly family_id: string }>(
       `UPDATE auth.oauth_refresh_families
-          SET revoked_at = CURRENT_TIMESTAMP, revocation_reason = 'consent-withdrawn'
+          SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'consent-withdrawn'
         WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL
         RETURNING family_id`,
       [owned.client_id, personId],
@@ -1940,7 +1940,7 @@ const handleConsentWithdrawal = async (
 
     await transaction.query(
       `UPDATE auth.oauth_access_token_state
-          SET revoked_at = CURRENT_TIMESTAMP, revocation_reason = 'consent-withdrawn'
+          SET revoked_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'), revocation_reason = 'consent-withdrawn'
         WHERE client_id = $1 AND person_id = $2 AND revoked_at IS NULL`,
       [owned.client_id, personId],
     );

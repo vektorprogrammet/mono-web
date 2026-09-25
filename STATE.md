@@ -404,9 +404,14 @@ Import of legacy team applications is a separate reconciliation task. Organizati
 
 The native `main` also gained Lefthook hooks, a split of fast checks and long tests in CI, a measured resource ledger (`bun run measure-job`), derived generated artifacts, and typed outbox claim loss.
 An ingress regression from `042e808d` had answered `credential.invalid` for absent credentials on every secured route; `b74cda24` restored `credential.missing`, and seven suites that had pinned the regression were corrected.
-Migrations 70 and 71 add receipt outbox quarantine and converge upgraded databases with fresh schema checks. The next free migration id is 72.
+Migrations 70 and 71 add receipt outbox quarantine and converge upgraded databases with fresh schema checks.
+Migration 72 truncates every stored instant to milliseconds, truncates clock defaults, and adds a `<table>_<column>_ms` CHECK to each `timestamptz` column except the Migrator's bookkeeping column. It aborts, with nothing changed, when truncation makes a strict interval CHECK or a membership UNIQUE index collide. The next free migration id is 73.
 
-In progress on separate branches: typed endpoint problems, `DateTime` instants with millisecond storage, PostgreSQL 18, and staged-change checks in pre-commit.
+Instants: the domain `Instant` codec (`DateTime.Utc`), millisecond storage, and a canonical JSON guard against non-plain objects are on `main`. Domain fields still use `Rfc3339InstantSchema`; the authority instant (M2), per-slice cutovers (M3), and deletion of the string helpers (M4) remain.
+Receipt keyset cursors still carry microsecond text (`packages/database/src/receipt/cursor.ts`). They stay exact because stored values are milliseconds; M3 moves them to `Instant`.
+Parameters bound through raw `pg` `query` calls (the identity and OAuth adapters, `service-principal-grants-live.ts`, and the cohort importers in `packages/database/src` and `packages/placements/src/server/current-assignment-cohort.ts`) and through `sql.in` or `sql.unsafe` are not typed; only the `Database` template rejects a `DateTime` argument.
+
+In progress on separate branches: typed endpoint problems, PostgreSQL 18, and staged-change checks in pre-commit.
 Code that trusts a convention is fixed when a change touches it (see [AGENTS.md](AGENTS.md#construction-over-trust)).
 Known instances: hand-written operation ids outside content, dashboard navigation paths, a fixed admissions `retry-after`, fixed ports in older browser runners, and hosted runs of the preview, Alchemy, and SDK publish workflows.
 Operator step after the PostgreSQL 18 change reaches staging: run `docker compose down --remove-orphans` to remove the orphaned `receipt-postgres` container.

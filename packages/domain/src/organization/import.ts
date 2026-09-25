@@ -152,6 +152,20 @@ export interface OrganizationImportResult {
   readonly ledger: ReadonlyArray<OrganizationImportLedgerEntry>;
 }
 
+const encodeDepartment = Schema.encodeSync(Department);
+
+const encodeTeam = Schema.encodeSync(Team);
+
+const encodeMembership = Schema.encodeSync(Membership);
+
+/** The result with its models encoded, so digests and byte comparisons see stored values. */
+export const encodedOrganizationImportResult = (result: OrganizationImportResult) => ({
+  ...result,
+  departments: result.departments.map((department) => encodeDepartment(department)),
+  teams: result.teams.map((team) => encodeTeam(team)),
+  memberships: result.memberships.map((membership) => encodeMembership(membership)),
+});
+
 type DecodeOutcome<A> =
   | { readonly ok: true; readonly value: A }
   | { readonly ok: false; readonly message: string };

@@ -188,6 +188,8 @@ const auditEvent = (input: {
     details: input.details,
   });
 
+const encodeEventDetails = Schema.encodeSync(IdentitySecurityEventDetails);
+
 const appendAudit = async (
   database: Queryable,
   unsafeEvent: IdentitySecurityEvent,
@@ -217,7 +219,7 @@ const appendAudit = async (
       event.requestCorrelation,
       event.sourceIp,
       event.userAgent,
-      JSON.stringify(event.details),
+      JSON.stringify(encodeEventDetails(event.details)),
     ],
   );
 };
@@ -295,7 +297,7 @@ const appendSnapshotAudit = (event: IdentitySecurityEvent) =>
         ${event.requestCorrelation},
         ${event.sourceIp},
         ${event.userAgent},
-        ${sql.json(canonicalJsonValue(event.details))}
+        ${sql.json(canonicalJsonValue(encodeEventDetails(event.details)))}
       )
     `.pipe(Effect.asVoid),
   );

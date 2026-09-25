@@ -21,7 +21,10 @@ import {
   admissionPeriodCommandDigest,
   canonicalJson,
 } from "@vektorprogrammet/domain/admission-period";
-import type { AdmissionPeriodOutboxRequest } from "@vektorprogrammet/domain/admission-period";
+import {
+  AdmissionPeriodOutboxRequestSchema,
+  type AdmissionPeriodOutboxRequest,
+} from "@vektorprogrammet/domain/admission-period";
 import {
   AdmissionDepartment,
   AdmissionPeriod,
@@ -258,6 +261,10 @@ const writePeriod = (
   );
 };
 
+const encodeObservation = Schema.encodeSync(AdmissionPeriodObservationSchema);
+
+const encodeOutboxRequest = Schema.encodeSync(AdmissionPeriodOutboxRequestSchema);
+
 const writePeriodCommandReceipt = (
   sql: DatabaseOperations,
   command: AdmissionPeriodCommand,
@@ -272,7 +279,7 @@ const writePeriodCommandReceipt = (
     admission_period_id, committed_at
   ) VALUES (
     ${command.commandId}, ${commandDigest}, ${sql.json(canonicalJsonValue(JSON.parse(canonicalJson(command))))},
-    ${sql.json(canonicalJsonValue(observation))}, ${period.id}, ${now}
+    ${sql.json(canonicalJsonValue(encodeObservation(observation)))}, ${period.id}, ${now}
   )
 `.pipe(
     Effect.asVoid,
@@ -293,7 +300,7 @@ const writeOutbox = (
         effect_id, effect_type, admission_period_id, command_id, ordinal, payload_json
       ) VALUES (
         ${request.effectId}, ${request._tag}, ${request.admissionPeriodId},
-        ${request.commandId}, ${ordinal}, ${sql.json(canonicalJsonValue(request))}
+        ${request.commandId}, ${ordinal}, ${sql.json(canonicalJsonValue(encodeOutboxRequest(request)))}
       )
     `.pipe(Effect.asVoid),
     { discard: true },

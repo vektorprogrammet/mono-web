@@ -542,7 +542,7 @@ const insertReceiptAndAudit = (input: {
         ${input.kind},
         ${sha256Hex(input.payloadBytes)},
         ${sql.json(JSON.parse(canonicalJson(input.result)))},
-        now()
+        date_trunc('milliseconds', now(), 'UTC')
       )
     `.pipe(
       Effect.asVoid,
@@ -555,7 +555,7 @@ const insertReceiptAndAudit = (input: {
         command_id, article_id, actor_person_id, action, version_number, occurred_at
       ) VALUES (
         ${input.commandId}, ${input.articleId}, ${input.actorPersonId}, ${input.action},
-        ${input.versionNumber}, now()
+        ${input.versionNumber}, date_trunc('milliseconds', now(), 'UTC')
       )
     `.pipe(
       Effect.asVoid,
@@ -767,7 +767,7 @@ export const createDraftPostgres = (input: {
               created_at, updated_at, current_version_number, revision
             ) VALUES (
               ${command.title}, ${slug}, ${sanitizedBody}, ${sticky}, ${input.personId},
-              now(), now(), NULL, 0
+              date_trunc('milliseconds', now(), 'UTC'), date_trunc('milliseconds', now(), 'UTC'), NULL, 0
             )
             RETURNING
               CAST(article_id AS integer) AS "articleId",
@@ -925,15 +925,15 @@ export const publishPostgres = (input: {
             draft.bodyHtml,
           );
 
-          // The publish instant is the database transaction's own clock
-          // (spec law 2): now() is inserted and returned as the observation.
+          // The publish instant is the database transaction's own clock (spec law 2), truncated
+          // to the millisecond, inserted, and returned as the observation.
           const insertedVersion = yield* database<{ readonly publishedAt: string }>`
             INSERT INTO public.content_article_versions (
               article_id, version_number, title, slug, body_html, sticky,
               published_at, published_by_person_id
             ) VALUES (
               ${draft.articleId}, ${nextVersionNumber}, ${draft.title}, ${draft.slug},
-              ${sanitizedBody}, ${draft.sticky}, now(), ${input.personId}
+              ${sanitizedBody}, ${draft.sticky}, date_trunc('milliseconds', now(), 'UTC'), ${input.personId}
             )
             RETURNING to_char(
               published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
@@ -1176,7 +1176,7 @@ export const reviseDraftPostgres = (input: {
           const revised = yield* database<ArticleDraftJson>`
             UPDATE public.content_articles
             SET title = ${command.title}, body_html = ${sanitizedBody}, sticky = ${sticky},
-                updated_at = now(), revision = revision + 1
+                updated_at = date_trunc('milliseconds', now(), 'UTC'), revision = revision + 1
             WHERE article_id = ${draft.articleId}
             RETURNING
               CAST(article_id AS integer) AS "articleId",

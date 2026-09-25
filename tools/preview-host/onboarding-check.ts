@@ -543,7 +543,7 @@ try {
   const expiryToken = "onboard_" + randomBytes(32).toString("hex");
   const expiryDigest = createHash("sha256").update(expiryToken).digest("hex");
   await pool.query(
-    `INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) SELECT 'expiry-race',application_id,applicant_id,$2,clock_timestamp()+interval '3 seconds','Open',$3,clock_timestamp()-interval '24 hours'+interval '3 seconds' FROM admission_applications WHERE application_id=$1`,
+    `INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) SELECT 'expiry-race',application_id,applicant_id,$2,date_trunc('milliseconds',clock_timestamp(),'UTC')+interval '3 seconds','Open',$3,date_trunc('milliseconds',clock_timestamp(),'UTC')-interval '24 hours'+interval '3 seconds' FROM admission_applications WHERE application_id=$1`,
     [expiring.applicationId, expiryDigest, leaderId],
   );
   await pool.query(
@@ -605,7 +605,7 @@ try {
   const cleanupId = "expiry-cleanup";
   const cleanupToken = "onboard_" + randomBytes(32).toString("hex");
   await pool.query(
-    `INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) SELECT $2,application_id,applicant_id,$3,clock_timestamp()-interval '1 second','Open',$4,clock_timestamp()-interval '24 hours 1 second' FROM admission_applications WHERE application_id=$1`,
+    `INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) SELECT $2,application_id,applicant_id,$3,date_trunc('milliseconds',clock_timestamp(),'UTC')-interval '1 second','Open',$4,date_trunc('milliseconds',clock_timestamp(),'UTC')-interval '24 hours 1 second' FROM admission_applications WHERE application_id=$1`,
     [
       cleanupApplication.applicationId,
       cleanupId,

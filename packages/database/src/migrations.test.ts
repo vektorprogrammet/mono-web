@@ -413,8 +413,8 @@ describe("native HTTP semantics schema boundary", () => {
               NULL,
               NULL,
               '{}'::jsonb,
-              transaction_timestamp(),
-              transaction_timestamp() + interval '24 hours',
+              date_trunc('milliseconds', transaction_timestamp(), 'UTC'),
+              date_trunc('milliseconds', transaction_timestamp(), 'UTC') + interval '24 hours',
               NULL
             )
           `,
@@ -1475,4 +1475,63 @@ describe("declarative rule reconciliation migration", () => {
       unsupported: "Failure",
     });
   }, 15_000);
+});
+
+describe("instant precision boundary", () => {
+  it("guards every stored instant and its clock default at millisecond precision", async () => {
+    const columns = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+
+        // The Migrator writes its own bookkeeping column with an untruncated default.
+        return yield* database<{
+          readonly column: string;
+          readonly guarded: boolean;
+          readonly untruncatedClockDefault: boolean;
+        }>`
+          SELECT
+            format('%I.%I.%I', namespace.nspname, relation.relname, attribute.attname) AS "column",
+            EXISTS (
+              SELECT 1
+              FROM pg_catalog.pg_constraint AS guard
+              WHERE guard.conrelid = attribute.attrelid
+                AND guard.contype = 'c'
+                AND guard.conkey = ARRAY[attribute.attnum]
+                AND pg_catalog.pg_get_constraintdef(guard.oid) = format(
+                  'CHECK ((%1$s = date_trunc(''milliseconds''::text, %1$s, ''UTC''::text)))',
+                  quote_ident(attribute.attname)
+                )
+            ) AS guarded,
+            COALESCE(
+              pg_catalog.pg_get_expr(column_default.adbin, column_default.adrelid) ~*
+                '(now|current_timestamp|clock_timestamp|statement_timestamp|transaction_timestamp)'
+              AND pg_catalog.pg_get_expr(column_default.adbin, column_default.adrelid) <>
+                'date_trunc(''milliseconds''::text, now(), ''UTC''::text)',
+              false
+            ) AS "untruncatedClockDefault"
+          FROM pg_catalog.pg_attribute AS attribute
+          INNER JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
+          INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+          LEFT JOIN pg_catalog.pg_attrdef AS column_default
+            ON column_default.adrelid = attribute.attrelid
+            AND column_default.adnum = attribute.attnum
+          WHERE attribute.attnum > 0
+            AND NOT attribute.attisdropped
+            AND attribute.atttypid = 'timestamptz'::regtype
+            AND relation.relkind IN ('r', 'p')
+            AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+            AND (namespace.nspname, relation.relname) <> ('public', 'vektorprogrammet_schema_migrations')
+          ORDER BY 1
+        `;
+      }),
+    );
+
+    expect(columns.length).toBeGreaterThan(0);
+    expect(columns.flatMap(({ column, guarded }) => (guarded ? [] : [column]))).toEqual([]);
+    expect(
+      columns.flatMap(({ column, untruncatedClockDefault }) =>
+        untruncatedClockDefault ? [column] : [],
+      ),
+    ).toEqual([]);
+  });
 });

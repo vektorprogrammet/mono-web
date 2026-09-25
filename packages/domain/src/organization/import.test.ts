@@ -1,7 +1,11 @@
 import { Schema } from "effect";
 import { expect, it } from "@effect/vitest";
 import { canonicalJson } from "../tutor/evidence.js";
-import { importLegacyOrganization, type LegacyOrganizationSnapshot } from "./import.js";
+import {
+  encodedOrganizationImportResult,
+  importLegacyOrganization,
+  type LegacyOrganizationSnapshot,
+} from "./import.js";
 
 const snapshot = (memberships: ReadonlyArray<Schema.Json>): LegacyOrganizationSnapshot => ({
   identities: {
@@ -198,7 +202,9 @@ it("derives stable malformed-row keys and deterministic output order", () => {
     teams: [{ id: 11, departmentId: 1, name: "Second", active: true }, ...base.teams],
   });
 
-  expect(canonicalJson(first)).toBe(canonicalJson(second));
+  expect(canonicalJson(encodedOrganizationImportResult(first))).toBe(
+    canonicalJson(encodedOrganizationImportResult(second)),
+  );
   expect(first.quarantined.every((item) => item.sourcePrimaryKey.startsWith("unknown:"))).toBe(
     true,
   );

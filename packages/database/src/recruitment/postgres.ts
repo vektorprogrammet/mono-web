@@ -792,6 +792,8 @@ const writeInterview = (
     ),
   );
 
+const encodeAssignmentObservation = Schema.encodeSync(RecruitmentAssignmentObservationSchema);
+
 const writeReceipt = (
   sql: DatabaseOperations,
   command: RecruitmentAssignmentCommand,
@@ -808,7 +810,7 @@ const writeReceipt = (
       ${command.commandId},
       ${digest},
       ${sql.json(canonicalJsonValue(JSON.parse(canonicalJson(command))))},
-      ${sql.json(canonicalJsonValue(observation))},
+      ${sql.json(canonicalJsonValue(encodeAssignmentObservation(observation)))},
       ${interview.applicationId},
       ${interview.interviewId},
       ${now}

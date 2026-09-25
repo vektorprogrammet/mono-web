@@ -270,7 +270,7 @@ export const observeReceiptDelivery = async (options: {
     mode = "reject";
     const concurrent = await submit("receipt0097-concurrent");
     await pool.query(
-      "UPDATE economy_receipt_outbox SET status='Processing',claim_id='crashed0097',claimed_at=now()-interval '2 minutes' WHERE receipt_id=$1 AND status='Failed'",
+      "UPDATE economy_receipt_outbox SET status='Processing',claim_id='crashed0097',claimed_at=date_trunc('milliseconds',now(),'UTC')-interval '2 minutes' WHERE receipt_id=$1 AND status='Failed'",
       [concurrent.id],
     );
     mode = "accept";
@@ -326,7 +326,7 @@ export const observeReceiptDelivery = async (options: {
     );
 
     await pool.query(
-      "UPDATE economy_receipt_approval_grants SET end_at=now(),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
+      "UPDATE economy_receipt_approval_grants SET end_at=date_trunc('milliseconds',now(),'UTC'),revision=revision+1 WHERE approval_grant_id='receipt0097-approve'",
     );
 
     const denied = await fetch(`${origin}/api/receipts/${missing.id}:reject`, {

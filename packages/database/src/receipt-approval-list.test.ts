@@ -201,8 +201,8 @@ describe("rule-aware Receipt approval projection in PGlite", () => {
             'approval-page-' || side || '-' || lpad(n::text, 3, '0'),
             'APPROVAL-PAGE-' || side || '-' || n, 'approval-query-owner', department_id,
             1000, 'NOK', 'Paged receipt', '2038-06-13',
-            CASE WHEN side = 'b' THEN '2038-06-14T12:00:00.123456Z'::timestamptz
-              ELSE '2038-06-13T12:00:00.123456Z'::timestamptz END,
+            CASE WHEN side = 'b' THEN '2038-06-14T12:00:00.123Z'::timestamptz
+              ELSE '2038-06-13T12:00:00.123Z'::timestamptz END,
             'Pending', NULL, 'ciphertext:page',
             'approval-page-file-' || side || '-' || n,
             'approval-page-object-' || side || '-' || n,
@@ -300,7 +300,7 @@ describe("rule-aware Receipt approval projection in PGlite", () => {
       Array.from({ length: 50 }, (_, index) => `approval-page-a-${String(index).padStart(3, "0")}`),
     );
     expect(pagination.cursor).toEqual({
-      timestamp: "2038-06-13T12:00:00.123456Z",
+      timestamp: "2038-06-13T12:00:00.123000Z",
       receiptId: "approval-page-a-049",
     });
     expect(pagination.next).toEqual([
