@@ -322,8 +322,10 @@ export const runTeamApplicationBrowser = async (
 
       const audit = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
 
-      const serious = audit.violations.flatMap(({ id, impact }) =>
-        impact === "serious" || impact === "critical" ? [id] : [],
+      const serious = audit.violations.flatMap(({ id, impact, nodes }) =>
+        impact === "serious" || impact === "critical"
+          ? [`${id}: ${nodes.map(({ target, html }) => `${target.join(" ")} ${html.slice(0, 160)}`).join(" | ")}`]
+          : [],
       );
 
       assert.deepEqual(serious, [], `${surface} accessibility at ${width}px`);
