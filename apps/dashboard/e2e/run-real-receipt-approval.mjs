@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { createConnection } from "node:net";
+import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,21 +19,60 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 
-const configuredPort = (name, fallback) => {
-  const port = Number(process.env[name] ?? fallback);
+/**
+ * Resolves each named port from the environment, or reserves a distinct
+ * ephemeral loopback port for it: every reservation binds port 0 and stays
+ * bound until all are read, so the kernel cannot hand one port out twice.
+ */
+const configuredPorts = async (names) => {
+  const servers = [];
 
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`${name} must be a TCP port`);
+  try {
+    const ports = [];
+
+    for (const name of names) {
+      const configured = process.env[name];
+
+      if (configured === undefined) {
+        const server = await new Promise((resolveServer, rejectServer) => {
+          const listening = createNetServer();
+          listening.once("error", rejectServer);
+          listening.listen(0, "127.0.0.1", () => resolveServer(listening));
+        });
+
+        servers.push(server);
+        const address = server.address();
+
+        if (address === null || Predicate.isString(address)) {
+          throw new Error(`${name} reservation did not bind a TCP port`);
+        }
+
+        ports.push(address.port);
+        continue;
+      }
+
+      const port = Number(configured);
+
+      if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+        throw new Error(`${name} must be a TCP port`);
+      }
+
+      ports.push(port);
+    }
+
+    return ports;
+  } finally {
+    await Promise.all(
+      servers.map((server) => new Promise((resolveClose) => server.close(resolveClose))),
+    );
   }
-
-  return port;
 };
 
-const dashboardPort = 5174;
-
-const backendPort = configuredPort("RECEIPT_APPROVAL_BACKEND_PORT", 8790);
-
-const postgresPort = configuredPort("RECEIPT_APPROVAL_PG_PORT", 55_432);
+const [dashboardPort, backendPort, postgresPort] = await configuredPorts([
+  "RECEIPT_APPROVAL_DASHBOARD_PORT",
+  "RECEIPT_APPROVAL_BACKEND_PORT",
+  "RECEIPT_APPROVAL_PG_PORT",
+]);
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -1741,7 +1780,7 @@ export default {
     "utf8",
   );
 
-  const baseEnvironment = { ...process.env };
+  const baseEnvironment = { ...process.env, RECEIPT_APPROVAL_PG_PORT: String(postgresPort) };
 
   for (const name of [
     "API_MODE",
