@@ -215,6 +215,7 @@ const cleanup = () =>
         { mode: 0o600 },
       );
     await rm(join(manifest.artifacts, "playwright-private"), { recursive: true, force: true });
+    await rm(join(manifest.artifacts, "homepage-state"), { recursive: true, force: true });
     await writeFile(join(manifest.artifacts, "dashboard-runtime.log"), sanitize(output), {
       mode: 0o600,
     });
@@ -321,20 +322,27 @@ try {
   }
 
   if (manifest.recruitment) {
+    await run("bun", ["--no-env-file", "run", "worker:build"], join(root, "apps/homepage"));
+
     const homepage = start(
-      "bun",
+      environment.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
       [
-        "--no-env-file",
-        "run",
+        join(root, "node_modules/wrangler/bin/wrangler.js"),
         "dev",
-        "--host",
+        "--local",
+        "--config",
+        join(root, "apps/homepage/build/server/wrangler.json"),
+        "--ip",
         "127.0.0.1",
         "--port",
         new URL(manifest.homepageOrigin).port,
-        "--strictPort",
+        "--var",
+        "API_URL:" + manifest.backendOrigin,
+        "--persist-to",
+        join(manifest.artifacts, "homepage-state"),
       ],
-      join(root, "apps/homepage"),
-      { ...environment, NODE_ENV: "development" },
+      root,
+      { ...environment, WRANGLER_SEND_METRICS: "false" },
     );
 
     homepage.stdout.on("data", (value) => {
@@ -347,10 +355,18 @@ try {
 
     while (true) {
       assert.equal(homepage.exitCode, null, "homepage exited");
+      let health;
 
       try {
-        if ((await fetch(manifest.homepageOrigin + "/assistenter")).ok) break;
+        health = await fetch(manifest.homepageOrigin + "/health", {
+          headers: { host: "p000.vektor.phibkro.org" },
+        });
       } catch {}
+
+      if (health?.ok) {
+        assert.equal((await health.json()).commit, manifest.revision, "homepage source differs");
+        break;
+      }
 
       assert.ok(Date.now() < readyBy, "homepage startup timed out");
       await new Promise((resolve) => setTimeout(resolve, 100));

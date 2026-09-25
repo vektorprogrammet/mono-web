@@ -45,6 +45,8 @@ test("continuous recruitment to first placement", async ({ browser }) => {
   const steps: string[] = [];
 
   const capture = (context: BrowserContext) => {
+    context.setDefaultTimeout(10_000);
+    context.setDefaultNavigationTimeout(20_000);
     context.on("page", (page) => page.on("pageerror", (error) => pageErrors.push(error.name)));
 
     for (const page of context.pages())
@@ -61,6 +63,9 @@ test("continuous recruitment to first placement", async ({ browser }) => {
   };
 
   contexts.forEach(capture);
+
+  for (const context of contexts)
+    await context.tracing.start({ screenshots: false, snapshots: false, sources: false });
 
   const checkpoint = async (step: string) => {
     const response = await staff.request.post(m.observerOrigin + "/observe/" + step);
@@ -92,7 +97,14 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     page: Page,
     person: { firstName: string; lastName: string; email: string },
   ) => {
-    await page.goto(m.homepageOrigin + "/assistenter");
+    await page.route(m.homepageOrigin + "/**", async (route) => {
+      const response = await route.fetch({
+        headers: { ...route.request().headers(), host: "p000.vektor.phibkro.org" },
+      });
+      await route.fulfill({ response });
+    });
+    await page.goto(m.homepageOrigin + "/assistenter", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction("window.__MONO_WEB_HYDRATED__ === true");
     await page.getByLabel("Avdeling").selectOption(m.departmentId);
     await page.getByLabel("Studieretning").selectOption(m.fieldId);
     await page.getByLabel("Studieår").selectOption("3");
@@ -320,10 +332,12 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await saved(create);
     await checkpoint("placed");
 
+    await contexts[1].tracing.stop();
     await contexts[1].close();
     const fresh = await browser.newContext({ viewport: { width: 390, height: 844 } });
     contexts.push(fresh);
     capture(fresh);
+    await fresh.tracing.start({ screenshots: false, snapshots: false, sources: false });
     const volunteer = await fresh.newPage();
     await signIn(volunteer, m.persons.applicant, placements);
     await expect(volunteer.locator("[data-placement-id]")).toHaveCount(1);
@@ -359,6 +373,11 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     );
   } finally {
     await writeFile(join(m.artifacts, "browser-network.json"), JSON.stringify(network));
-    await Promise.all(contexts.map((context) => context.close()));
+
+    for (const [index, context] of contexts.entries()) {
+      if (context.pages().length === 0) continue;
+      await context.tracing.stop({ path: join(m.artifacts, "private-trace-" + index + ".zip") });
+      await context.close();
+    }
   }
 });
