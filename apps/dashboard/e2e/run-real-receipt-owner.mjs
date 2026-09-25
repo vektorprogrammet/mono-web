@@ -12,6 +12,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { dashboardMount } from "../dashboard-base.ts";
@@ -522,30 +523,61 @@ function assertDurableEvidence(postgres, privateFile, lifecycle) {
   const beforeFailure = lifecycle?.beforeFailure;
   const afterRetry = lifecycle?.afterRetry;
 
-  if (
-    postgres.receiptCount !== 1 ||
-    postgres.commandCount !== 5 ||
-    postgres.auditCount !== 5 ||
-    postgres.outboxCount !== 10 ||
-    postgres.deliveredOutboxCount !== postgres.outboxCount ||
-    postgres.duplicateEffectCount !== 0 ||
-    postgres.finalStatus !== "Withdrawn" ||
-    postgres.finalRevision !== 4 ||
-    replacementPromote?.status !== "Delivered" ||
-    replacementPromote.attempts !== 2 ||
-    replacementPromote.ordinal !== 0 ||
-    replacementDelete?.status !== "Delivered" ||
-    replacementDelete.ordinal !== 2 ||
-    replacementAudit?.action !== "PendingReceiptRevised" ||
-    beforeFailure === undefined ||
-    afterRetry === undefined ||
-    beforeFailure.file.objectKey !== afterRetry.file.objectKey ||
-    afterRetry.file.objectKey !== postgres.receiptFile.objectKey ||
-    beforeFailure.physical.committed.length === 0 ||
-    beforeFailure.physical.committed.includes(beforeFailure.file.objectKey) ||
-    !afterRetry.physical.committed.includes(afterRetry.file.objectKey)
-  ) {
-    throw new Error("Receipt persistence evidence did not prove injected replacement recovery");
+  // Each law is a named fact, so a failure reports which one broke instead of only that one did.
+  const observed = {
+    receiptCount: postgres.receiptCount,
+    commandCount: postgres.commandCount,
+    auditCount: postgres.auditCount,
+    outboxCount: postgres.outboxCount,
+    everyEffectDelivered: postgres.deliveredOutboxCount === postgres.outboxCount,
+    duplicateEffectCount: postgres.duplicateEffectCount,
+    finalStatus: postgres.finalStatus,
+    finalRevision: postgres.finalRevision,
+    replacementPromote: replacementPromote && {
+      status: replacementPromote.status,
+      attempts: replacementPromote.attempts,
+      ordinal: replacementPromote.ordinal,
+    },
+    replacementDelete: replacementDelete && {
+      status: replacementDelete.status,
+      ordinal: replacementDelete.ordinal,
+    },
+    replacementAuditAction: replacementAudit?.action,
+    retryKeptObjectKey:
+      beforeFailure !== undefined &&
+      afterRetry !== undefined &&
+      beforeFailure.file.objectKey === afterRetry.file.objectKey,
+    receiptKeepsRetriedFile: afterRetry?.file.objectKey === postgres.receiptFile?.objectKey,
+    failureLeftFileUnpromoted:
+      beforeFailure !== undefined &&
+      beforeFailure.physical.committed.length > 0 &&
+      !beforeFailure.physical.committed.includes(beforeFailure.file.objectKey),
+    retryPromotedFile:
+      afterRetry !== undefined && afterRetry.physical.committed.includes(afterRetry.file.objectKey),
+  };
+
+  const expected = {
+    receiptCount: 1,
+    commandCount: 5,
+    auditCount: 5,
+    outboxCount: 10,
+    everyEffectDelivered: true,
+    duplicateEffectCount: 0,
+    finalStatus: "Withdrawn",
+    finalRevision: 4,
+    replacementPromote: { status: "Delivered", attempts: 2, ordinal: 0 },
+    replacementDelete: { status: "Delivered", ordinal: 2 },
+    replacementAuditAction: "PendingReceiptRevised",
+    retryKeptObjectKey: true,
+    receiptKeepsRetriedFile: true,
+    failureLeftFileUnpromoted: true,
+    retryPromotedFile: true,
+  };
+
+  if (!isDeepStrictEqual(observed, expected)) {
+    throw new Error(
+      `Receipt persistence evidence did not prove injected replacement recovery: ${JSON.stringify({ observed, expected })}`,
+    );
   }
 
   if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 0) {
