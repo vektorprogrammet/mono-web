@@ -3,8 +3,6 @@
  * `Problem` values and HttpApiBuilder encodes them against the endpoint's
  * declared problems, so an undeclared code, an unmapped domain failure, or a
  * credential code chosen without ingress evidence does not compile.
- *
- * @construct http-problem
  */
 import type { AccessSpec, CanonicalScopeResolution } from "@vektorprogrammet/domain/authz";
 import {

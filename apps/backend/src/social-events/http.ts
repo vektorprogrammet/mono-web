@@ -104,8 +104,6 @@ export interface SocialEventsApiHttpOptions {
 /**
  * The one answer for every social-event, Organization projection, and
  * transaction credential failure.
- *
- * @construct http-problem
  */
 const socialEventProblems = (presentation: CredentialPresentation) =>
   problemMapper<
@@ -206,8 +204,6 @@ const resolveSocialEventAuthority = (
 /**
  * Reads one private JSON body inside a repeatable-read, read-only snapshot
  * whose instant also resolves the caller's credential and authority.
- *
- * @construct sql-lifecycle
  */
 const snapshotRead = (
   request: Request,

@@ -73,8 +73,6 @@ import { genericContext } from "../native-operation.js";
 /**
  * The one answer for every placement domain failure. Each failure carries the
  * registry code it is answered with.
- *
- * @construct http-problem
  */
 const placementProblems = problemMapper<PlacementOperationFailure>()({
   PlacementFailure: (failure) => Problem.make(failure.code),
@@ -84,8 +82,6 @@ const placementProblems = problemMapper<PlacementOperationFailure>()({
 /**
  * A person credential or organization projection that fails inside the
  * transaction. A projection read that lost a serialization race is a conflict.
- *
- * @construct http-problem
  */
 const authorityProblems = (presentation: CredentialPresentation) =>
   problemMapper<UnauthenticatedActor | IdentityEngineError | OrganizationResolutionError>()({
@@ -100,8 +96,6 @@ const authorityProblems = (presentation: CredentialPresentation) =>
 
 /**
  * The snapshot transaction of a read: a lost serialization race is a conflict.
- *
- * @construct http-problem
  */
 const snapshotProblems = problemMapper<SqlError>()({
   SqlError: (failure) =>
@@ -290,8 +284,6 @@ const selectionForMutation = (
 export const PlacementsApiHandlers = (input: { now?: () => string }) => {
   /**
    * Answers one read from a repeatable-read snapshot; every check runs inside it.
-   *
-   * @construct sql-lifecycle
    */
   const read = (request: Request, mode: "scopes" | "own" | "board" | "ownCoverage" | "coverage") =>
     Database.use((sql) =>

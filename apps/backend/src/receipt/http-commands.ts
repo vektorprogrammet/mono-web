@@ -498,8 +498,6 @@ export const withdrawReceipt = <R>(
 
 /**
  * A lane the E2E barrier synchronized says so on its answer.
- *
- * @construct test-harness
  */
 const markSynchronized = (response: Response) => {
   response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");

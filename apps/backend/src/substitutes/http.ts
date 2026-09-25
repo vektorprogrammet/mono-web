@@ -92,8 +92,6 @@ const persistenceProblem = (failure: OrganizationPersistenceError | SqlError) =>
 /**
  * The one answer for every substitute and person-authority failure. A person
  * credential rejected inside the transaction is answered from the request's evidence.
- *
- * @construct http-problem
  */
 const substituteProblems = (presentation: CredentialPresentation) =>
   problemMapper<
@@ -120,8 +118,6 @@ type Endpoint =
 
 /**
  * Grants the department's substitute permission, then evaluates the declared AccessSpec.
- *
- * @construct http-problem
  */
 const authorize = (
   request: Request,
@@ -167,8 +163,6 @@ export const SubstitutesApiHandlers = (input: { now?: () => string }) => {
   /**
    * Runs one read in a REPEATABLE READ snapshot, which resolves the credential
    * and authority on the same connection, and answers its failures.
-   *
-   * @construct sql-lifecycle
    */
   const snapshotRead = <A, E, R>(request: Request, effect: Effect.Effect<A, E, R>) =>
     Database.use((sql) =>

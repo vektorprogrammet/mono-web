@@ -83,8 +83,6 @@ const sqlState = (cause: unknown, depth = 0): string | undefined => {
 /**
  * A failed statement. A unique violation means a racing claim provisioned
  * the same account first, so the claimant must sign in to it.
- *
- * @construct http-problem
  */
 const sqlProblem = (cause: SqlError | OrganizationPersistenceError) =>
   sqlState(cause) === "23505"
@@ -96,8 +94,6 @@ const sqlProblem = (cause: SqlError | OrganizationPersistenceError) =>
 /**
  * The one answer for every onboarding failure. A person credential rejected
  * inside the transaction is answered from the request's own evidence.
- *
- * @construct http-problem
  */
 const onboardingProblems = (presentation: CredentialPresentation) =>
   problemMapper<
@@ -118,8 +114,6 @@ const onboardingProblems = (presentation: CredentialPresentation) =>
 
 /**
  * Hex SHA-256 of a claim token, the only form the database stores.
- *
- * @construct crypto-digest
  */
 const tokenDigest = (token: string) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))).pipe(
@@ -152,8 +146,6 @@ const json = (body: Schema.Json, etag?: string) => {
 
 /**
  * Board rows reach the schema unchecked; a row outside it is a server defect, not a request error.
- *
- * @construct http-problem
  */
 const boardOutput = flow(
   Schema.decodeUnknownEffect(OnboardingResource, { onExcessProperty: "error" }),

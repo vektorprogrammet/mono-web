@@ -85,8 +85,6 @@ interface PreparedContentCommand<E> {
 /**
  * Runs one content command and its receipt in one transaction. Domain,
  * receipt, and credential failures are answered after the executor.
- *
- * @construct http-problem
  */
 const executeCommand = <EPrepare, EExecute, R>(
   request: Request,

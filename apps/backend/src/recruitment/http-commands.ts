@@ -85,8 +85,6 @@ import { interviewETag, invitationETag } from "./http-representation.js";
  * Runs one idempotent command: current authority first, then the stored
  * receipt, then the command, all in one serializable transaction that is
  * retried once after a lost race.
- *
- * @construct http-transport
  */
 const executeCommand = <CommandId, EPrepare, RPrepare, EExecute>(input: {
   readonly request: Request;

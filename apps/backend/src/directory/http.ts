@@ -86,8 +86,6 @@ const unavailable = () => Problem.make("directory.unavailable");
  * The one answer for every people-directory failure. A read that cannot
  * complete, or a response that does not fit its schema, leaves the directory
  * unavailable.
- *
- * @construct http-problem
  */
 const directoryProblems = problemMapper<
   OrganizationResolutionError | ProfileFailure | Schema.SchemaError
@@ -108,8 +106,6 @@ const directoryProblems = problemMapper<
  * A person credential rejected after ingress is answered from the request's
  * own evidence; an unavailable identity provider leaves the directory
  * unavailable.
- *
- * @construct http-problem
  */
 const directoryCredentialProblems = (presentation: CredentialPresentation) =>
   problemMapper<UnauthenticatedActor | IdentityEngineError>()({

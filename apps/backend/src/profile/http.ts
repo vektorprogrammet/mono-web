@@ -84,8 +84,6 @@ interface ProfileActor {
 /**
  * The one answer for every profile failure; a rejected credential is answered
  * from the request's own credential evidence.
- *
- * @construct http-problem
  */
 const profileProblems = (presentation: CredentialPresentation) =>
   problemMapper<

@@ -83,8 +83,6 @@ const maxAdminBodyBytes = 65_536;
 /**
  * The media type of every survey command body: application/json in any case,
  * optionally with parameters, and with whitespace around the type ignored.
- *
- * @construct http-transport
  */
 const jsonMediaType = /^\s*application\/json\s*(?:;|$)/iu;
 
@@ -112,8 +110,6 @@ type AdminEndpoint =
 
 /**
  * The one answer for every school-survey and Organization authority failure.
- *
- * @construct http-problem
  */
 const schoolSurveyProblems = problemMapper<SchoolSurveyFailure | OrganizationResolutionError>()({
   SchoolSurveyNotFound: () => Problem.make("resource.not-found"),
@@ -130,8 +126,6 @@ const schoolSurveyProblems = problemMapper<SchoolSurveyFailure | OrganizationRes
 
 /**
  * A person credential rejected inside the transaction is answered from the request's evidence.
- *
- * @construct http-problem
  */
 const surveyCredentialProblems = (presentation: CredentialPresentation) =>
   problemMapper<UnauthenticatedActor | IdentityEngineError>()({
@@ -141,8 +135,6 @@ const surveyCredentialProblems = (presentation: CredentialPresentation) =>
 
 /**
  * The administration list scope: exactly one department and one semester query parameter.
- *
- * @construct http-problem
  */
 const adminListScope = (request: Request) =>
   Effect.suspend(() => {
@@ -161,8 +153,6 @@ const adminListScope = (request: Request) =>
 /**
  * The instant of the caller's transaction, at millisecond precision in UTC.
  * A database that cannot answer it is unavailable.
- *
- * @construct sql-lifecycle
  */
 const transactionInstant = Database.use((sql) =>
   sql<{ readonly now: string }>`
@@ -182,8 +172,6 @@ const transactionInstant = Database.use((sql) =>
 /**
  * Runs one read in a read-only snapshot; a snapshot the database cannot open or
  * commit is a dependency outage.
- *
- * @construct sql-lifecycle
  */
 const snapshotRead = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Database.use((sql) =>
@@ -235,8 +223,6 @@ const managesDepartment = (authority: OrganizationPersonAuthority, departmentId:
 
 /**
  * Fails with `denial` unless the person manages the department's surveys.
- *
- * @construct http-problem
  */
 const requireDepartmentManager = <const Code extends "authority.denied" | "resource.not-found">(
   authority: OrganizationPersonAuthority,
@@ -269,8 +255,6 @@ const projectMutationSurvey = (
 
 /**
  * Results a person may not see do not exist for them.
- *
- * @construct http-problem
  */
 const requireResultsAccess = (
   authority: OrganizationPersonAuthority,
@@ -291,8 +275,6 @@ const privateJsonResponse = (body: Schema.Json): Response =>
 
 /**
  * Evaluates an anonymous participation AccessSpec for one survey.
- *
- * @construct http-problem
  */
 const authorizeParticipant = (endpoint: AnonymousEndpoint, surveyId: SurveyId, now: string) =>
   authorizeAnonymous(
@@ -313,8 +295,6 @@ const authorizeParticipant = (endpoint: AnonymousEndpoint, surveyId: SurveyId, n
 
 /**
  * Evaluates an administration AccessSpec for the resolved Person at one instant.
- *
- * @construct http-problem
  */
 const authorizeAdmin = (
   credential: NativePersonAuthorization["credential"],
@@ -350,8 +330,6 @@ const authorizeAdmin = (
 
 /**
  * One survey's administration resource; a stored survey outside its schema is a defect.
- *
- * @construct http-problem
  */
 const readAdminSurvey = (surveyId: SurveyId) =>
   SchoolSurveys.use(({ readAdminSurvey: read }) => read(surveyId)).pipe(

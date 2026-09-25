@@ -1,7 +1,5 @@
 /**
  * Recruitment failures answered as the problems each endpoint declares.
- *
- * @construct http-problem
  */
 import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type {

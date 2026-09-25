@@ -86,8 +86,6 @@ export const decodeSubmitQuery = (request: Request) =>
 /**
  * Runs throwing field checks: a ReceiptDecodeError fails the request's
  * validation, anything else is a defect.
- *
- * @construct http-problem
  */
 const validated = <A>(decode: () => A): Effect.Effect<A, Problem<"validation.failed">> =>
   Effect.suspend(() => {
@@ -320,8 +318,6 @@ export const decodeReviseMultipart = (request: Request, maxFileBytes: number) =>
 /**
  * One bounded `application/json` object; media type parameters and
  * surrounding space are accepted.
- *
- * @construct http-problem
  */
 const decodeJsonObject = (request: Request) =>
   Effect.gen(function* () {

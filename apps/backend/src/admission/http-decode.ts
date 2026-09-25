@@ -30,8 +30,6 @@ const rejectedMembers = (
 
 /**
  * Decodes one body exactly; a rejection names each rejected member once.
- *
- * @construct http-problem
  */
 const decodeBody = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,

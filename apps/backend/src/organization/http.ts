@@ -115,8 +115,6 @@ const organizationUnavailable = () => Problem.make("organization.unavailable");
  * The one answer for every organization failure. The store answers
  * organization.unavailable whether it could not be reached or refused its own
  * record; mailing lists read their recipients through the profile store.
- *
- * @construct http-problem
  */
 const organizationProblems = problemMapper<
   OrganizationCommandFailure | OrganizationLifecycleFailure | ProfileFailure
@@ -150,8 +148,6 @@ const organizationProblems = problemMapper<
 /**
  * A person credential rejected after ingress is answered from the request's
  * own evidence; a failed identity engine leaves organization unavailable.
- *
- * @construct http-problem
  */
 const credentialProblems = (presentation: CredentialPresentation) =>
   problemMapper<UnauthenticatedActor | IdentityEngineError>()({
@@ -161,8 +157,6 @@ const credentialProblems = (presentation: CredentialPresentation) =>
 
 /**
  * Commands and appointment management answer any query as an invalid request.
- *
- * @construct http-problem
  */
 const rejectQuery = (request: Request) =>
   requireNoQuery(request).pipe(Effect.mapError(requestInvalid));
@@ -209,8 +203,6 @@ const readBoundedText = async (request: Request, maxBytes: number) => {
  * Reads one bounded JSON command body. Organization commands answer every
  * body they cannot read, including one of another media type, as an invalid
  * request.
- *
- * @construct http-problem
  */
 const readCommandBody = (request: Request, maxBytes: number) =>
   Effect.gen(function* () {
@@ -245,8 +237,6 @@ const readCommandBody = (request: Request, maxBytes: number) =>
  * Reads a response value through its contract schema. Domain layers return model instances,
  * which canonical JSON refuses; the contract decode yields the plain resource. A value outside
  * the contract leaves organization unavailable.
- *
- * @construct http-problem
  */
 const responseJson = <S extends Schema.ConstraintDecoder<Schema.Json, never>>(schema: S) =>
   flow(
@@ -256,8 +246,6 @@ const responseJson = <S extends Schema.ConstraintDecoder<Schema.Json, never>>(sc
 
 /**
  * Encodes a private read through its contract schema; no shared cache may store it.
- *
- * @construct http-problem
  */
 const privateReadJson = <S extends Schema.ConstraintDecoder<Schema.Json, never>>(schema: S) =>
   flow(
@@ -655,8 +643,6 @@ const MailingListTypeSchema = Schema.Literals(["assistants", "team", "all"]);
 
 /**
  * One optional query identity; a value outside its schema is a malformed request.
- *
- * @construct http-problem
  */
 const optionalQueryIdentity = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
