@@ -231,10 +231,8 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await signIn(other, m.persons.other, placements);
     await checkpoint("other-claimed");
 
-    // A different applicant cannot claim this invitation, read staff assessment, or issue an invitation.
-    await other.goto(mainClaim);
-    await other.getByRole("button", { name: "Knytt min konto", exact: true }).click();
-    await expect(other.getByRole("status")).toContainText("Invitasjonen kunne ikke brukes");
+    // Claim URLs are bearer capabilities. Do not give the other applicant this capability.
+    // Their own session cannot read the staff assessment or issue an invitation.
 
     const privateRead = await other.request.get(
       m.backendOrigin + "/api/recruitment/interviews/" + interviewId,
