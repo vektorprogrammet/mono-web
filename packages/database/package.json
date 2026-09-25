@@ -28,7 +28,13 @@
     "./schools": "./src/schools/index.ts",
     "./social-events": "./src/social-events/index.ts",
     "./substitutes": "./src/substitutes/index.ts",
-    "./surveys": "./src/surveys/index.ts"
+    "./surveys": "./src/surveys/index.ts",
+    "./auth-engine": "./src/auth-engine.ts",
+    "./identity-cohort-cli": "./src/identity-cohort-cli.ts",
+    "./onboarding-account": "./src/onboarding-account.ts",
+    "./password-codec": "./src/password-codec.ts",
+    "./pg-pool": "./src/pg-pool.ts",
+    "./test-support/observe-postgres": "./src/test-support/observe-postgres.ts"
   },
   "scripts": {
     "test": "vitest run --no-file-parallelism",

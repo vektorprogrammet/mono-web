@@ -27,13 +27,13 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { Effect, Match, Redacted, Schema } from "effect";
 import type { Pool } from "pg";
-import * as PaymentCustody from "../../apps/backend/src/receipt/payment-account";
-import * as FileCustody from "../../apps/backend/src/receipt/filesystem";
+import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";
+import * as FileCustody from "@vektorprogrammet/backend/receipt/filesystem";
 import {
   decodeSnapshot,
   prepareReceiptSnapshot,
   rowDigest,
-} from "../../apps/backend/src/receipt/import-snapshot";
+} from "@vektorprogrammet/backend/receipt/import-snapshot";
 import { buildLegacyReferences } from "./legacy-cutover-references";
 import {
   legacyReceiptBaseSourceRevision,

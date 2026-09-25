@@ -1,4 +1,4 @@
-import { observePostgresStatements } from "../../packages/database/src/test-support/observe-postgres.js";
+import { observePostgresStatements } from "@vektorprogrammet/database/test-support/observe-postgres";
 import {
   LegacyDepartmentRowSchema,
   LegacyMembershipRowSchema,

@@ -43,13 +43,13 @@ import { createPromiseClient } from "../../packages/sdk/src/promise.js";
 import {
   ReceiptFileStoreResource,
   ReceiptFileStoreLive,
-} from "../../apps/backend/src/receipt/filesystem.js";
+} from "@vektorprogrammet/backend/receipt/filesystem";
 import {
   decodeSnapshot,
   digest,
   rowDigest,
   prepareReceiptSnapshot,
-} from "../../apps/backend/src/receipt/import-snapshot.js";
+} from "@vektorprogrammet/backend/receipt/import-snapshot";
 
 const root = resolve(import.meta.dirname, "../..");
 

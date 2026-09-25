@@ -9,9 +9,9 @@ import { Effect, Layer, Predicate, Redacted, Schema } from "effect";
 import {
   ReceiptFileStoreLive,
   ReceiptFileStoreResource,
-} from "../../apps/backend/src/receipt/filesystem";
-import { decodePaymentAccountCipher } from "../../apps/backend/src/receipt/payment-account";
-import { runReviewedReceiptImport } from "../../apps/backend/src/receipt/reviewed-import";
+} from "@vektorprogrammet/backend/receipt/filesystem";
+import { decodePaymentAccountCipher } from "@vektorprogrammet/backend/receipt/payment-account";
+import { runReviewedReceiptImport } from "@vektorprogrammet/backend/receipt/reviewed-import";
 import { selectLegacyTargetTransport } from "./legacy-database-transport";
 import {
   buildLegacyReceiptSnapshot,

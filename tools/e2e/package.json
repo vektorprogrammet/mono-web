@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:effect-v4",
+    "@vektorprogrammet/backend": "workspace:*",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
     "@vektorprogrammet/http-api": "workspace:*",

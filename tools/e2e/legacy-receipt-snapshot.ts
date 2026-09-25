@@ -9,8 +9,8 @@ import {
   type ReviewedReceiptSnapshot,
 } from "@vektorprogrammet/domain/receipt";
 import { Schema } from "effect";
-import type { PaymentAccountCipher } from "../../apps/backend/src/receipt/payment-account";
-import { reviewedReceiptTransformationRevision } from "../../apps/backend/src/receipt/reviewed-import";
+import type { PaymentAccountCipher } from "@vektorprogrammet/backend/receipt/payment-account";
+import { reviewedReceiptTransformationRevision } from "@vektorprogrammet/backend/receipt/reviewed-import";
 import { buildLegacyReferences } from "./legacy-cutover-references";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
 

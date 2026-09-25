@@ -7,7 +7,7 @@ import {
   SchoolServiceDispatchNotificationRequest,
   SchoolServiceNotificationRequest,
 } from "@vektorprogrammet/placements/contracts";
-import { IdempotencyIfMatchHeaders } from "../../packages/http-api/src/http-semantics.js";
+import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/http-api/http-semantics";
 /** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
