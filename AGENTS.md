@@ -132,7 +132,7 @@ EventLog does not replace command idempotency or external delivery.
 
 A rule that only a reviewer, a comment, or a copied value enforces is not enforced.
 When you touch code that trusts one of the patterns below, fix that instance in the same change.
-Record instances you cannot fix in `STATE.md` with their location.
+Record instances you cannot fix in `STATE.md` with their location. Remove the record when the instance is fixed.
 
 | Trusted by convention                                                   | Construction                                             | Precedent on `main`                                                                                                                                                                                  |
 | ----------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -192,7 +192,8 @@ Remove owned disposable scripts, checkouts, processes, and completed specificati
 
 A failed aggregate command is not a passing suite because its earlier tests passed.
 A local browser journey is not provider proof. A deployed provider journey is not production cutover authority.
-Keep current acceptance and the next gate in `STATE.md`. Keep enduring behavior in the system and architecture documents.
+`STATE.md` holds current state only: current acceptance, open gaps, and the next gates. Remove an item when it is resolved; Git keeps the history.
+Keep enduring behavior in the system and architecture documents.
 
 ## Symfony source
 

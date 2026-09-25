@@ -2,7 +2,7 @@
 
 Status: accepted locally and retired as an active implementation contract.
 The [functional testing plan](../web-system-functional-testing.md#local-school-service-gate) documents the executable gate.
-[STATE.md](../../STATE.md#functional-journey-automation) records the tested artifacts and acceptance limits.
+[STATE.md](../../STATE.md#evidence-boundary) records the tested artifacts and acceptance limits.
 
 This is slice A of the [web-system functional testing plan](../web-system-functional-testing.md).
 Freeze this contract when its implementation PR opens. Record any later scope change explicitly.
