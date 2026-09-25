@@ -4,7 +4,7 @@ import { createServer as createHttpServer } from "node:http";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,11 +41,11 @@ await mkdir(privateRoot, { mode: 0o700 });
 
 process.stdout.write(`evidence: ${artifacts}\n`);
 
-const port = async () => {
+const port = async (requested = 0) => {
   const server = createServer();
   const listening = Promise.withResolvers<void>();
   server.once("error", listening.reject);
-  server.listen(0, "127.0.0.1", listening.resolve);
+  server.listen(requested, "127.0.0.1", listening.resolve);
   await listening.promise;
   const address = server.address();
   assert.ok(address && !Predicate.isString(address));
@@ -233,6 +233,14 @@ const checks: string[] = [];
 
 let postgresStarted = false;
 
+let postgresPid: number | undefined;
+
+let completed = false;
+
+let sourceUnchanged = false;
+
+const ownedPorts = [pgPort, apiPort, providerPort];
+
 let current: NativeProcess | undefined;
 
 let cookie = "";
@@ -345,6 +353,9 @@ try {
     "start",
   ]);
   postgresStarted = true;
+  postgresPid = Number(
+    (await readFile(join(pgDirectory, "postmaster.pid"), "utf8")).split("\n")[0],
+  );
   run(process.execPath, ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
     ...env,
     IDENTITY_SEED_PG_URL: postgresUrl,
@@ -555,6 +566,7 @@ try {
   receiptMode = "accept";
   // A second main uses a separate listener, but the same durable queue and filesystem.
   const replacementPort = await port();
+  ownedPorts.push(replacementPort);
   current = start({
     ...env,
     BACKEND_PORT: String(replacementPort),
@@ -607,12 +619,14 @@ try {
     "ALTER TABLE auth.password_reset_email_outbox RENAME TO password_reset_email_outbox_shutdown_fault",
   );
   current!.child.kill("SIGTERM");
+
   const shutdownCode = await Promise.race([
     current!.exited,
     pause(10_000).then(() => {
       throw new Error("Finalization failure shutdown timeout");
     }),
   ]);
+
   assert.equal(shutdownCode, 1, "failed interruption finalization must not exit cleanly");
   await pool.query(
     "ALTER TABLE auth.password_reset_email_outbox_shutdown_fault RENAME TO password_reset_email_outbox",
@@ -664,6 +678,8 @@ try {
 
   assert.equal(sessions.rows[0].count, 0);
   checks.push("all native processes exited; no native PostgreSQL sessions remain");
+  assert.equal(checks.length, 9);
+  completed = true;
 } finally {
   held.splice(0).forEach((release) => release());
 
@@ -683,12 +699,27 @@ try {
 
   if (postgresStarted) run("pg_ctl", ["-D", pgDirectory, "-m", "immediate", "-w", "stop"]);
   await rm(privateRoot, { recursive: true, force: true });
+
+  for (const expected of ownedPorts)
+    assert.equal(await port(expected), expected, "owned listener released");
+  const postRunRevision = run("git", ["rev-parse", "HEAD"]).trim();
+  const postRunTree = run("git", ["rev-parse", "HEAD^{tree}"]).trim();
+  sourceUnchanged =
+    postRunRevision === revision &&
+    postRunTree === sourceTree &&
+    run("git", ["status", "--porcelain"]).trim() === "";
   await writeFile(
     join(artifacts, "evidence.json"),
     JSON.stringify(
       {
         revision,
         sourceTree,
+        status: completed && sourceUnchanged ? "passed" : "failed",
+        postRunRevision,
+        postRunTree,
+        sourceUnchanged,
+        ownedPids: [...processes.map((owned) => owned.child.pid), postgresPid],
+        ownedPorts,
         runtime: process.versions.bun,
         checks,
         cleanup: { privateResourcesRemoved: true, providersStopped: true, processesStopped: true },
@@ -701,6 +732,6 @@ try {
   );
 }
 
-assert.equal(checks.length, 9);
+assert.ok(completed && sourceUnchanged, "proof and source identity must pass");
 
 process.stdout.write(`PASS ${checks.length} recovery observations; sanitized evidence retained\n`);
