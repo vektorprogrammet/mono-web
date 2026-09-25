@@ -960,6 +960,7 @@ export const ContentReadContentWorkspaceProblem = problemUnion(
     "authority.denied",
     "origin.denied",
     "internal.error",
+    "content.department-not-found",
     "content.integrity-error",
     "content.unavailable",
   ],
@@ -984,6 +985,7 @@ export const ContentCreateArticleProblem = problemUnion("ContentCreateArticlePro
   "content.slug-conflict",
   "content.department-not-found",
   "content.integrity-error",
+  "content.unavailable",
 ]);
 
 /** Problems for `content.readArticle`. */
@@ -1025,6 +1027,7 @@ export const ContentReviseArticleProblem = problemUnion("ContentReviseArticlePro
   "content.slug-conflict",
   "content.department-not-found",
   "content.integrity-error",
+  "content.unavailable",
 ]);
 
 /** Problems for `content.publishArticle`. */
@@ -1049,6 +1052,7 @@ export const ContentPublishArticleProblem = problemUnion("ContentPublishArticleP
   "content.article-not-found",
   "content.lifecycle-conflict",
   "content.integrity-error",
+  "content.unavailable",
 ]);
 
 /** Problems for `content.unpublishArticle`. */
@@ -1073,6 +1077,7 @@ export const ContentUnpublishArticleProblem = problemUnion("ContentUnpublishArti
   "content.article-not-found",
   "content.lifecycle-conflict",
   "content.integrity-error",
+  "content.unavailable",
 ]);
 
 /** Problems for `content.listNews`. */
@@ -1082,6 +1087,7 @@ export const ContentListNewsProblem = problemUnion("ContentListNewsProblem", [
   "precondition.invalid",
   "precondition.failed",
   "internal.error",
+  "content.department-not-found",
   "content.integrity-error",
   "content.unavailable",
 ]);
