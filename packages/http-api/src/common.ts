@@ -3,14 +3,8 @@
  *
  * @since 0.1.0
  */
-import { Schema } from "effect";
-import {
-  HttpApiMiddleware,
-  HttpApiSchema,
-  HttpApiSecurity,
-  OpenApi,
-} from "effect/unstable/httpapi";
-import { problemUnion } from "./http-semantics.js";
+import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi";
+import { problemStatusResponse, problemUnion } from "./http-semantics.js";
 
 /**
  * Request Cookie header marker for endpoints that perform authoritative session resolution.
@@ -53,24 +47,24 @@ export const OAuthServiceBearer = HttpApiSecurity.bearer.pipe(
 );
 
 /**
+ * The credential problems every security middleware declares; secured
+ * endpoint unions do not repeat them.
+ *
+ * @since 0.2.0
+ * @category Schemas
+ */
+export const SessionUnauthorizedProblem = problemUnion("SessionUnauthorizedProblem", [
+  "credential.missing",
+  "credential.invalid",
+]);
+
+/**
  * Standard missing or invalid session response.
  *
  * @since 0.1.0
  * @category Schemas
  */
-const SessionUnauthorizedBody = problemUnion("SessionUnauthorizedProblem", [
-  ["credential.missing", 401],
-  ["credential.invalid", 401],
-]).pipe(
-  HttpApiSchema.status(401),
-  HttpApiSchema.asJson({ contentType: "application/problem+json" }),
-);
-
-export const SessionUnauthorizedResponse = HttpApiSchema.WithHeaders(SessionUnauthorizedBody, {
-  "cache-control": Schema.Literal("no-store"),
-  vary: Schema.Literal("Origin"),
-  "www-authenticate": Schema.String,
-});
+export const SessionUnauthorizedResponse = problemStatusResponse(SessionUnauthorizedProblem);
 
 /**
  * Contract security marker for session-authenticated native operations.
@@ -146,17 +140,9 @@ export const RecruitmentInvitationCapability = HttpApiSecurity.apiKey({
  * @since 0.1.0
  * @category Schemas
  */
-const InvitationNotFoundBody = problemUnion("InvitationNotFoundProblem", [
-  ["resource.not-found", 404],
-]).pipe(
-  HttpApiSchema.status(404),
-  HttpApiSchema.asJson({ contentType: "application/problem+json" }),
+export const InvitationNotFoundResponse = problemStatusResponse(
+  problemUnion("InvitationNotFoundProblem", ["resource.not-found"]),
 );
-
-export const InvitationNotFoundResponse = HttpApiSchema.WithHeaders(InvitationNotFoundBody, {
-  "cache-control": Schema.Literal("no-store"),
-  vary: Schema.Literal("Origin"),
-});
 
 /**
  * Contract security marker for invitation-capability operations.

@@ -76,7 +76,8 @@ export const authorizeAnonymousNativeOperation = (
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 
-export const authorizePersonNativeOperation = (input: {
+/** One person-credential AccessSpec evaluation for a native operation. */
+export interface NativePersonAuthorization {
   readonly spec: AccessSpec;
   readonly credential?: AcceptedCredential;
   readonly request?: Request;
@@ -84,7 +85,11 @@ export const authorizePersonNativeOperation = (input: {
   readonly resolution: CanonicalScopeResolution<Schema.JsonObject>;
   readonly grantScopes: ReadonlyArray<Scope>;
   readonly now: string;
-}): Effect.Effect<void, HttpSemanticFailure> => {
+}
+
+export const authorizePersonNativeOperation = (
+  input: NativePersonAuthorization,
+): Effect.Effect<void, HttpSemanticFailure> => {
   const credential =
     input.credential ??
     (input.request === undefined

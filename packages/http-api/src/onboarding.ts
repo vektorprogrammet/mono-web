@@ -32,26 +32,34 @@ export const OnboardingResource = Schema.Struct({
   etag: StrongETag,
 }).annotate({ identifier: "OnboardingResource" });
 
-export const OnboardingProblem = problemUnion("OnboardingProblem", [
-  ["request.malformed", 400],
-  ["request.too-large", 413],
-  ["validation.failed", 422],
-  ["credential.invalid", 401],
-  ["authority.denied", 403],
-  ["resource.not-found", 404],
-  ["precondition.required", 428],
-  ["precondition.invalid", 400],
-  ["precondition.failed", 412],
-  ["idempotency-key.invalid", 400],
-  ["idempotency.in-flight", 409],
-  ["idempotency.digest-conflict", 409],
-  ["idempotency.response-expired", 409],
-  ["transaction.conflict", 409],
-  ["internal.error", 500],
-  ["media-type.unsupported", 415],
-  ["onboarding.claim-invalid", 400],
-  ["onboarding.sign-in-required", 409],
-  ["onboarding.already-linked", 409],
+const onboardingProblems = [
+  "request.malformed",
+  "request.too-large",
+  "validation.failed",
+  "authority.denied",
+  "resource.not-found",
+  "precondition.required",
+  "precondition.invalid",
+  "precondition.failed",
+  "idempotency-key.invalid",
+  "idempotency.in-flight",
+  "idempotency.digest-conflict",
+  "idempotency.response-expired",
+  "transaction.conflict",
+  "internal.error",
+  "media-type.unsupported",
+  "onboarding.claim-invalid",
+  "onboarding.sign-in-required",
+  "onboarding.already-linked",
+] as const;
+
+/** Problems of the person-secured operations; PersonSecurity declares their credential problems. */
+export const OnboardingProblem = problemUnion("OnboardingProblem", onboardingProblems);
+
+/** The capability claim has no security middleware, so it declares its own credential problem. */
+export const OnboardingClaimProblem = problemUnion("OnboardingClaimProblem", [
+  ...onboardingProblems,
+  "credential.invalid",
 ]);
 
 const access = (write = false) =>
@@ -94,7 +102,7 @@ export const CommandOnboardingEndpoint = HttpApiEndpoint.post("command", "/api/o
 export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboarding/claim", {
   payload: OnboardingClaim,
   success: privateReadResponse(OnboardingClaimResult),
-  error: endpointProblemResponses(OnboardingProblem),
+  error: endpointProblemResponses(OnboardingClaimProblem),
 })
   .pipe((e) =>
     annotateAccessSpec(

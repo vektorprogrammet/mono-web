@@ -1,5 +1,4 @@
-import { makeNativeProblem } from "@vektorprogrammet/http-api";
-import { HttpApiSchema } from "effect/unstable/httpapi";
+import { makeNativeProblem, Problem } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import {
   parseSubstituteForm,
@@ -75,23 +74,18 @@ it("labels canonical semesters with Norwegian dates rather than storage identifi
   ).toBe("1. jan. 2024 – 30. juni 2024");
 });
 
-it("keeps explicit conflict recovery for the generated SDK's response-header envelope", () => {
+it("keeps explicit conflict recovery for the generated SDK's problem value", () => {
   const problem = makeNativeProblem("precondition.failed");
+  const failed = Problem.fromWire(problem, {});
 
-  const wrapped = HttpApiSchema.withHeaders({
-    body: problem,
-    headers: { "cache-control": "no-store", vary: "Origin" },
-  });
-
-  expect(substituteFailure(wrapped)).toEqual(substituteFailure(problem));
-  expect(substituteFailure(wrapped).conflict).toBe(true);
+  expect(substituteFailure(failed)).toEqual(substituteFailure(problem));
+  expect(substituteFailure(failed).conflict).toBe(true);
 });
 
 it("does not manufacture conflict or authority decisions from malformed error objects", () => {
   for (const error of [
     { code: "precondition.failed" },
-    { body: { code: "precondition.failed" } },
-    { body: { ...makeNativeProblem("precondition.failed"), status: 500 } },
+    { ...makeNativeProblem("precondition.failed"), status: 500 },
   ]) {
     expect(substituteFailure(error).conflict).toBe(false);
   }

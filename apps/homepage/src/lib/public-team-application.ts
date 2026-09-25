@@ -1,6 +1,8 @@
 import { HttpClientError } from "effect/unstable/http";
 import {
   IdempotencyKey,
+  isProblem,
+  problemBody,
   PublicTeamApplicationIntake,
   TeamApplicationInput,
   TeamApplicationsReadIntakeProblem,
@@ -42,23 +44,8 @@ export type TeamApplicationTeam = Pick<
 
 type TeamApplicationProblem = typeof TeamApplicationsSubmitProblem.Type;
 
-/** The codes of the contract's TeamApplicationsSubmitProblem union; its schema type names every native code. */
-type TeamApplicationProblemCode =
-  | "request.malformed"
-  | "header.malformed"
-  | "idempotency-key.invalid"
-  | "resource.not-found"
-  | "idempotency.in-flight"
-  | "idempotency.digest-conflict"
-  | "idempotency.response-expired"
-  | "team-application.intake-closed"
-  | "transaction.conflict"
-  | "request.too-large"
-  | "media-type.unsupported"
-  | "validation.failed"
-  | "internal.error"
-  | "rate-limit.exceeded"
-  | "idempotency.unavailable";
+/** The codes of the contract's TeamApplicationsSubmitProblem union. */
+type TeamApplicationProblemCode = TeamApplicationProblem["code"];
 
 export type PublicTeamApplicationErrorCode =
   | TeamApplicationProblemCode
@@ -322,7 +309,7 @@ const decodeIntakeProblem = Schema.decodeUnknownOption(TeamApplicationsReadIntak
 
 /** Unknown and inactive teams are not found. Every other read failure is a temporary outage. */
 export function publicTeamApplicationPageFailure(cause: unknown): PublicTeamApplicationLoaderData {
-  const problem = decodeIntakeProblem(Predicate.hasProperty(cause, "body") ? cause.body : cause);
+  const problem = decodeIntakeProblem(isProblem(cause) ? problemBody(cause) : cause);
 
   return Option.isSome(problem) && problem.value.code === "resource.not-found"
     ? { state: "not-found" }
@@ -387,10 +374,6 @@ const submitProblemOutcomes: Readonly<Record<TeamApplicationProblemCode, SubmitP
   "idempotency.unavailable": retry(unavailableMessage),
 };
 
-function isTeamApplicationProblemCode(code: string): code is TeamApplicationProblemCode {
-  return Object.hasOwn(submitProblemOutcomes, code);
-}
-
 /** Top-level JSON pointers of the contract fields, such as `/fieldOfStudy`. */
 const fieldByPointer: Readonly<Partial<Record<string, TeamApplicationFieldName>>> =
   Object.fromEntries(teamApplicationFieldNames.map((field) => [`/${field}`, field]));
@@ -449,9 +432,9 @@ export function failedPublicTeamApplication(
   submission: PublicTeamApplicationSubmission,
   cause: unknown,
 ): PublicTeamApplicationActionData {
-  // The SDK keeps response headers around each canonical problem body.
+  // The SDK fails with a Problem; its body is the canonical wire problem.
   const problem = Option.getOrUndefined(
-    decodeSubmitProblem(Predicate.hasProperty(cause, "body") ? cause.body : cause),
+    decodeSubmitProblem(isProblem(cause) ? problemBody(cause) : cause),
   );
 
   const rejected = (
@@ -466,7 +449,7 @@ export function failedPublicTeamApplication(
     },
   });
 
-  if (problem === undefined || !isTeamApplicationProblemCode(problem.code)) {
+  if (problem === undefined) {
     return rejected(transportFailure(cause), false);
   }
 

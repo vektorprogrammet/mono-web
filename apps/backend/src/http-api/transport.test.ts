@@ -1,13 +1,26 @@
 import { backendTestConfig } from "../../test/config.js";
 import { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Identity } from "@vektorprogrammet/domain/identity";
-import { Effect, Layer } from "effect";
+import {
+  ExternalNativeApi,
+  InternalNativeApi,
+  NativeProblem,
+  Problem,
+} from "@vektorprogrammet/http-api";
+import { Effect, Layer, Schema, SchemaAST, SchemaIssue } from "effect";
+import {
+  HttpApi,
+  HttpApiError,
+  type HttpApiEndpoint,
+  type HttpApiGroup,
+} from "effect/unstable/httpapi";
 import { describe, expect, it, vi } from "vitest";
 import {
   makeContentManagementTestHttp,
   makeOrganizationTestHttp,
   makeProfileTestHttp,
 } from "../test/native-http.js";
+import { requestSchemaErrorResponse } from "./transport.js";
 
 const expectProblem = async (response: Response, status: number, code: string): Promise<void> => {
   expect(response.status).toBe(status);
@@ -137,5 +150,111 @@ describe("native request schema error transport", () => {
 
     await expectProblem(response, 400, "request.malformed");
     expect(unreachable).not.toHaveBeenCalled();
+  });
+});
+
+const inputProperties = (schema: Schema.Top | undefined) => {
+  const ast = schema === undefined ? undefined : SchemaAST.toType(schema.ast);
+
+  return ast !== undefined && SchemaAST.isObjects(ast) ? ast.propertySignatures : [];
+};
+
+/** Every request-schema failure HttpApiBuilder can raise before dispatching one endpoint. */
+const requestSchemaErrors = (endpoint: HttpApiEndpoint.Top) => {
+  const errors: Array<HttpApiError.HttpApiSchemaError> = [];
+
+  const raise = (kind: HttpApiError.HttpApiSchemaError["kind"], issue: SchemaIssue.Issue) =>
+    errors.push(
+      new HttpApiError.HttpApiSchemaError({ kind, cause: new Schema.SchemaError(issue) }),
+    );
+
+  for (const header of inputProperties(endpoint.headers)) {
+    raise(
+      "Headers",
+      new SchemaIssue.Pointer([header.name], new SchemaIssue.InvalidType(header.type)),
+    );
+
+    if (!SchemaAST.isOptional(header.type)) {
+      raise(
+        "Headers",
+        new SchemaIssue.Pointer([header.name], new SchemaIssue.MissingKey(undefined)),
+      );
+    }
+  }
+
+  for (const [kind, schema] of [
+    ["Params", endpoint.params],
+    ["Query", endpoint.query],
+  ] as const) {
+    for (const property of inputProperties(schema)) {
+      raise(
+        kind,
+        new SchemaIssue.Pointer([property.name], new SchemaIssue.InvalidType(property.type)),
+      );
+    }
+  }
+
+  return errors;
+};
+
+interface SchemaErrorCheck {
+  readonly operation: string;
+  readonly declared: ReadonlyArray<Schema.Top>;
+  readonly error: HttpApiError.HttpApiSchemaError;
+}
+
+const schemaErrorChecks = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+  api: HttpApi.HttpApi<Id, Groups>,
+) => {
+  const checks: Array<SchemaErrorCheck> = [];
+
+  HttpApi.reflect(api, {
+    onGroup: () => undefined,
+    onEndpoint: ({ group, endpoint, errors }) => {
+      for (const error of requestSchemaErrors(endpoint)) {
+        checks.push({
+          operation: `${group.identifier}.${endpoint.identifier}`,
+          declared: [...errors.values()].flat(),
+          error,
+        });
+      }
+    },
+  });
+
+  return checks;
+};
+
+describe("request schema error coverage", () => {
+  it("answers every request schema failure with a problem the endpoint declares", async () => {
+    const checks = [
+      ...schemaErrorChecks(ExternalNativeApi),
+      ...schemaErrorChecks(InternalNativeApi),
+    ];
+
+    const answered = new Set<string>();
+    const gaps: Array<string> = [];
+
+    for (const { operation, declared, error } of checks) {
+      const { code } = Schema.decodeUnknownSync(NativeProblem)(
+        await requestSchemaErrorResponse(error).json(),
+      );
+
+      const problem = Problem.fromWire({ code }, {});
+      answered.add(code);
+
+      if (!declared.some((schema) => Schema.is(schema)(problem))) {
+        gaps.push(`${operation} ${error.kind} ${code}`);
+      }
+    }
+
+    // Every client-caused transform branch is reachable from some declared endpoint input.
+    expect([...answered].sort()).toEqual([
+      "header.malformed",
+      "idempotency-key.invalid",
+      "precondition.invalid",
+      "precondition.required",
+      "request.malformed",
+    ]);
+    expect(gaps).toEqual([]);
   });
 });

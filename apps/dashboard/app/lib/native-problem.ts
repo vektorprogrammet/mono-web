@@ -1,5 +1,5 @@
-import { NativeProblem, ValidationProblem } from "@vektorprogrammet/http-api";
-import { flow, Option, Predicate, Schema } from "effect";
+import { isProblem, NativeProblem, problemBody, ValidationProblem } from "@vektorprogrammet/http-api";
+import { Option, Schema } from "effect";
 
 const ProblemBody = Schema.Union([ValidationProblem, NativeProblem]);
 
@@ -7,21 +7,14 @@ const decodeProblem = Schema.decodeUnknownOption(ProblemBody, { onExcessProperty
 
 export type NativeProblemSummary = typeof ProblemBody.Type;
 
-/** Decode a canonical direct problem or the generated SDK response body. */
-export const nativeProblemFrom = flow(
-  Schema.decodeUnknownOption(Schema.Union([Schema.Struct({ body: Schema.Json }), Schema.Json])),
-  Option.flatMap(source => decodeProblem(Predicate.isObject(source) && "body" in source ? source.body : source)),
-  Option.getOrUndefined,
-);
+/** Decode a problem failed by the generated SDK or a canonical direct problem body. */
+export const nativeProblemFrom = (cause: unknown): NativeProblemSummary | undefined =>
+  Option.getOrUndefined(decodeProblem(isProblem(cause) ? problemBody(cause) : cause));
 
 /** Preserve transport failures and redirects while decoding native problem evidence. */
-export const nativeFailureFrom = flow(
-  Schema.decodeUnknownOption(Schema.Union([
-    Schema.instanceOf(Error),
-    Schema.instanceOf(Response),
-    Schema.Struct({ body: Schema.Json }),
-    Schema.Json,
-  ])),
-  Option.map(source => source instanceof Error || source instanceof Response ? source : nativeProblemFrom(source)),
-  Option.getOrUndefined,
-);
+export const nativeFailureFrom = (
+  cause: unknown,
+): Error | Response | NativeProblemSummary | undefined =>
+  !isProblem(cause) && (cause instanceof Error || cause instanceof Response)
+    ? cause
+    : nativeProblemFrom(cause);

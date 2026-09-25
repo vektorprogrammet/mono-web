@@ -43,6 +43,7 @@ import {
 import type { BackendConfig } from "./config.js";
 import { ContentApiHandlers } from "./content/http.js";
 import { SystemApiHandlers } from "./http-api/system.js";
+import { ProblemBoundaryLive } from "./http-api/problem.js";
 import { nativeHttpApiMiddlewareLayer } from "./http-api/transport.js";
 import {
   HttpSemanticFailure,
@@ -282,7 +283,7 @@ export const ExternalNativeApiRouterLive = (
     ),
   );
 
-  return Layer.merge(nativeRoutes, notFound);
+  return Layer.mergeAll(nativeRoutes, notFound, ProblemBoundaryLive);
 };
 
 /** Builds the isolated internal API root for an explicitly selected ingress. */
@@ -326,7 +327,7 @@ export const InternalNativeApiRouterLive = (
     ),
   );
 
-  return Layer.merge(internalRoutes, notFound);
+  return Layer.mergeAll(internalRoutes, notFound, ProblemBoundaryLive);
 };
 
 const oauthAuthorizationServerMetadataPath = "/.well-known/oauth-authorization-server/api/auth";

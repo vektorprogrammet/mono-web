@@ -47,6 +47,7 @@ import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { DirectoryApiHandlers, type DirectoryApiHttpOptions } from "../directory/http.js";
 import { ContentApiHandlers } from "../content/http.js";
 import type { ContentRequestActor } from "../content/http-context.js";
+import { ProblemBoundaryLive } from "../http-api/problem.js";
 import { NativeHttpApiMiddlewareLive } from "../http-api/transport.js";
 import { OrganizationApiHandlers, type OrganizationApiHttpOptions } from "../organization/http.js";
 import { ProfileApiHandlers, type ProfileApiHttpOptions } from "../profile/http.js";
@@ -238,7 +239,7 @@ const testRouterFetch = (
 ): ((request: Request) => Promise<Response>) => {
   const allServices = completeServices(services);
 
-  const routerLayer = Layer.merge(app, notFound).pipe(
+  const routerLayer = Layer.mergeAll(app, notFound, ProblemBoundaryLive).pipe(
     Layer.provideMerge(allServices),
     Layer.provide(platform),
   );

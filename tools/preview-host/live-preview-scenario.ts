@@ -17,6 +17,7 @@ import {
   type PreviewScenarioStep,
 } from "./preview-scenario.js";
 import { Array as Arr, Predicate, Record as Rec, Schema } from "effect";
+import { isProblem, problemBody } from "../../packages/http-api/src/http-semantics.js";
 
 const repositoryRoot = new URL("../../", import.meta.url).pathname;
 
@@ -717,9 +718,9 @@ if (import.meta.main) {
         ),
       );
 
-      const body = Predicate.hasProperty(cause, "body") ? cause.body : undefined;
+      const body = isProblem(cause) ? problemBody(cause) : undefined;
 
-      if ((body === null || Predicate.isObjectOrArray(body)) && body !== null) {
+      if (body !== undefined) {
         fields.body = Object.fromEntries(
           Object.entries(body).filter(
             ([key, value]) =>
