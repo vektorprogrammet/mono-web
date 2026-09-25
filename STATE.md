@@ -101,11 +101,11 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   instead of `accountAccessEnabled` in `packages/database/src/identity-access.ts`.
 - `Team.email` (`packages/domain/src/organization/schema.ts`) accepts text that is not a mailbox. Open team intake requires a deliverable mailbox; the write boundary does not check it.
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
-- PR previews (operator decision, 2026-09-25): keep Cloudflare frontend previews for now; they need the `CLOUDFLARE_API_TOKEN` repository secret (operator step).
-  Previews are frontend-only until the native backend gets a preview host; full-stack previews on a container host are the planned follow-up.
-  Later, move to full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
-  The [PR preview contract](docs/specs/worker-pr-previews.md) requires workspace validation before deployment. `.github/workflows/preview-pr.yml` only builds.
-- Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane. Hosted Alchemy deployment is unobserved.
+- PR previews (operator decision, 2026-09-25): Cloudflare Worker Previews of the homepage and dashboard only, as `vektor-preview-homepage` and `vektor-preview-dashboard`, which `wrangler preview` creates on first use ([contract](docs/specs/worker-pr-previews.md)).
+  They need the `CLOUDFLARE_API_TOKEN` repository secret (operator step); no hosted run has deployed one yet. They have no backend, so pages that read the API show the unavailable state.
+  A native backend preview host is the planned follow-up: full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
+- Pending operator teardown: the retired `dev-main` Alchemy stage (vektor.phibkro.org Workers and the workstation's `vektor-preview-*` systemd units); its code is deleted from this repository.
+- Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
 - `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy-data` adds MariaDB and the PHP 8.4 CLI for the legacy data rehearsals. CI runs in the same shell; its hosted cost is unmeasured.
 
