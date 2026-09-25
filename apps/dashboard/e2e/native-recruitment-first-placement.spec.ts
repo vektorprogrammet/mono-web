@@ -104,6 +104,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await page.route(publicOrigin + "/**", async (route) => {
       const response = await route.fetch({
         url: route.request().url().replace(publicOrigin, m.homepageOrigin),
+        ignoreHTTPSErrors: true,
         headers: { ...route.request().headers(), host: new URL(publicOrigin).host },
       });
 

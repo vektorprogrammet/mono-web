@@ -346,6 +346,8 @@ try {
         "--local",
         "--config",
         join(root, "apps/homepage/build/server/wrangler.json"),
+        "--local-protocol",
+        "https",
         "--ip",
         "127.0.0.1",
         "--port",
@@ -374,6 +376,7 @@ try {
       try {
         health = await fetch(manifest.homepageOrigin + "/health", {
           headers: { host: "p000.vektor.phibkro.org" },
+          tls: { rejectUnauthorized: false },
         });
       } catch {}
 

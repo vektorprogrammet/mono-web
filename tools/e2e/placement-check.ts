@@ -742,7 +742,7 @@ try {
         dashboardOrigin,
         artifacts,
         recruitment: true,
-        homepageOrigin: `http://127.0.0.1:${homepagePort}`,
+        homepageOrigin: `https://127.0.0.1:${homepagePort}`,
         observerOrigin: `http://127.0.0.1:${notificationPort}`,
       };
 
