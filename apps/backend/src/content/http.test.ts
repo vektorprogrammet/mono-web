@@ -1,3 +1,4 @@
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   ContentArticleNotFound,
   ContentDepartmentNotFound,
@@ -7,10 +8,11 @@ import {
 } from "@vektorprogrammet/domain/content";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { ContentApi, ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
-import { HttpSemanticFailure } from "../http-semantics.js";
+import { personPresentation } from "../http-api/problem.js";
+import { makeContentManagementTestHttp } from "../test/native-http.js";
 import { contentOperationId } from "./http-context.js";
 import { readContentRequestBody } from "./http-decode.js";
 import { contentHttpErrorResponse } from "./http-problem.js";
@@ -86,20 +88,40 @@ describe("native content HTTP boundary", () => {
       ],
     ] as const;
 
+    const presentation = personPresentation(
+      new Request("http://backend.test/api/content/articles"),
+    );
+
     for (const [failure, status, code] of cases) {
-      await expectProblem(contentHttpErrorResponse(failure), status, code);
+      await expectProblem(contentHttpErrorResponse(failure, presentation), status, code);
     }
 
-    expect(contentHttpErrorResponse(cases[4][0]).headers.get("retry-after")).toBe("5");
+    expect(contentHttpErrorResponse(cases[4][0], presentation).headers.get("retry-after")).toBe(
+      "5",
+    );
   });
 
-  it("adds both challenges to person credential failures", async () => {
-    const response = contentHttpErrorResponse(new HttpSemanticFailure("credential.invalid", 401));
-
-    await expectProblem(response, 401, "credential.invalid");
-    expect(response.headers.get("www-authenticate")).toBe(
-      'VektorSession realm="native-api", Bearer realm="native-api"',
+  it("answers a person rejected after ingress from the credential the request presented", async () => {
+    // The test services leave Identity unavailable, so person security admits
+    // the request, and the handler's own person resolution rejects it.
+    const http = makeContentManagementTestHttp(
+      () => Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+      Layer.empty,
     );
+
+    for (const [headers, code] of [
+      [{ cookie: "better-auth.session_token=content-staff" }, "credential.invalid"],
+      [{}, "credential.missing"],
+    ] as const) {
+      const response = await http.fetch(
+        new Request("http://backend.test/api/content/articles", { headers }),
+      );
+
+      await expectProblem(response, 401, code);
+      expect(response.headers.get("www-authenticate")).toBe(
+        'VektorSession realm="native-api", Bearer realm="native-api"',
+      );
+    }
   });
 
   it("enforces media type and bounded request bodies before JSON decoding", async () => {

@@ -1,10 +1,9 @@
 /** Content HTTP failure classification and native problem responses. */
 import { ContentAuthorityInactive, ContentNotInScope } from "@vektorprogrammet/domain/content";
+import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Cause, Predicate } from "effect";
-import { isSerializationConflict } from "../http-api/problem.js";
+import { isSerializationConflict, problemWebResponse } from "../http-api/problem.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
-
-const PERSON_CHALLENGE = 'VektorSession realm="native-api", Bearer realm="native-api"';
 
 /** Keeps content-classified failures and wraps every other thrown value as unknown. */
 export const knownContentFailure = (cause: unknown) =>
@@ -22,23 +21,25 @@ const errorTag = (cause: unknown): string | undefined =>
     ? cause._tag
     : undefined;
 
-/** Native problem mapping for staff content and public news endpoints. */
-export const contentHttpErrorResponse = (cause: unknown): Response => {
+/**
+ * Native problem mapping for staff content and public news endpoints. A person
+ * rejected after ingress is answered from the credential the request presented.
+ */
+export const contentHttpErrorResponse = (
+  cause: unknown,
+  presentation: CredentialPresentation,
+): Response => {
   while (Cause.isUnknownError(cause)) cause = cause.cause;
 
   if (cause instanceof HttpSemanticFailure) {
-    return nativeProblemResponse(
-      cause.code,
-      cause.status,
-      cause.status === 401 ? { "www-authenticate": PERSON_CHALLENGE } : undefined,
-    );
+    return cause.status === 401
+      ? problemWebResponse(Problem.unauthenticated(presentation))
+      : nativeProblemResponse(cause.code, cause.status);
   }
 
   switch (errorTag(cause)) {
     case "UnauthenticatedActor":
-      return nativeProblemResponse("credential.invalid", 401, {
-        "www-authenticate": PERSON_CHALLENGE,
-      });
+      return problemWebResponse(Problem.unauthenticated(presentation));
     case "AuthorityInactive":
     case "NotInScope":
     case "NotPublisher":
