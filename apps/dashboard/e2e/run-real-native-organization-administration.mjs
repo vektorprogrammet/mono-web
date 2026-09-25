@@ -1198,18 +1198,41 @@ async function main() {
       env: journeyEnvironment,
       label: "Native Organization SDK build",
     });
-    dashboardProcess = startProcess(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      [
-        "node_modules/@react-router/dev/dist/cli/index.js",
-        "dev",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(dashboardPort),
-      ],
-      { cwd: dashboardRoot, env: journeyEnvironment },
-    );
+
+    // The interactive preview keeps the dev server; the journey serves the production build,
+    // whose bundles cannot be re-optimized and reloaded under a signing-in browser.
+    if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1") {
+      dashboardProcess = startProcess(
+        process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+        [
+          "node_modules/@react-router/dev/dist/cli/index.js",
+          "dev",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          String(dashboardPort),
+        ],
+        { cwd: dashboardRoot, env: journeyEnvironment },
+      );
+    } else {
+      const dashboardEnvironment = {
+        ...journeyEnvironment,
+        HOST: "127.0.0.1",
+        PORT: String(dashboardPort),
+        NODE_ENV: "production",
+      };
+
+      await runCommand("bun", ["run", "build"], {
+        cwd: dashboardRoot,
+        env: dashboardEnvironment,
+        label: "Native Organization dashboard production build",
+      });
+      dashboardProcess = startProcess("bun", ["server.mjs"], {
+        cwd: dashboardRoot,
+        env: dashboardEnvironment,
+      });
+    }
+
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
 
     if (process.env.ORGANIZATION_LIFECYCLE_PREVIEW === "1") {
@@ -1646,7 +1669,7 @@ async function main() {
 
     evidence = {
       topology: {
-        dashboard: "loopback-react-router-playwright-server",
+        dashboard: "loopback-react-router-production-server",
         api: "unified-native-effect-backend",
         database:
           postgresTopology === "docker"
