@@ -209,6 +209,7 @@ export const OrganizationCreateDepartmentProblem = problemUnion(
     "dependency.unavailable",
     "idempotency.unavailable",
     "organization.invalid-reference",
+    "organization.unavailable",
   ],
 );
 
@@ -229,6 +230,7 @@ export const OrganizationCreateTeamProblem = problemUnion("OrganizationCreateTea
   "dependency.unavailable",
   "idempotency.unavailable",
   "organization.invalid-reference",
+  "organization.unavailable",
 ]);
 
 /** Problems for `organization.createFieldOfStudy`. */
@@ -250,6 +252,7 @@ export const OrganizationCreateFieldOfStudyProblem = problemUnion(
     "dependency.unavailable",
     "idempotency.unavailable",
     "organization.invalid-reference",
+    "organization.unavailable",
   ],
 );
 
