@@ -34,6 +34,7 @@ import {
   type ReadFailure,
 } from "./model";
 import { instantFromOsloDateTimeLocal } from "./oslo-time";
+import { TEAM_APPLICATIONS_CHOOSER_PATH } from "./paths";
 
 type Page = typeof TeamApplicationListResponse.Type;
 
@@ -576,7 +577,10 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
               "Nåværende medlemmer av teamet kan lese søknadene. Bare teamlederen kan slette søknader og endre søknadsinntaket.",
             ],
           ),
-          h.a([h.Href("../soknader"), h.Class("team-applications__link")], ["Velg et annet team"]),
+          h.a(
+            [h.Href(TEAM_APPLICATIONS_CHOOSER_PATH), h.Class("team-applications__link")],
+            ["Velg et annet team"],
+          ),
         ],
       ),
       noticeView(model, h),

@@ -1,3 +1,4 @@
+import { TEAM_APPLICATIONS_CHOOSER_PATH } from "../team-applications/paths";
 import type { DashboardRole } from "./model";
 
 export type NavigationLink = Readonly<{
@@ -90,7 +91,7 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       { kind: "link", link: memberLink("Team", "/dashboard/team") },
       {
         kind: "link",
-        link: memberLink("Team-søknader", "/dashboard/teamsoknader"),
+        link: memberLink("Team-søknader", TEAM_APPLICATIONS_CHOOSER_PATH),
       },
       {
         kind: "link",
