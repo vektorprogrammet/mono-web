@@ -1,5 +1,5 @@
 import { Database } from "../service.js";
-import { Match, Effect, Schema } from "effect";
+import { Match, Effect, Schema, Semaphore, Option } from "effect";
 import {
   ReceiptAuxiliaryEffects,
   ReceiptFileService,
@@ -13,6 +13,8 @@ import {
   type ReceiptOutboxRequest,
 } from "@vektorprogrammet/domain/receipt";
 
+// Shared by request-time drains and the unattended worker, before any claim is held.
+const deliveryPermit = Semaphore.makeUnsafe(1);
 interface ClaimedOutboxRow {
   readonly effect_id: string;
   readonly command_id: string;
@@ -198,6 +200,7 @@ export const listStaleReceiptOutboxClaimIds = (
           AND claimed_at < ${claimedBefore}
           AND (${receiptScope}::text IS NULL OR receipt_id = ${receiptScope})
         ORDER BY claim_id
+        LIMIT 256
       `,
       )
       .pipe(
@@ -288,4 +291,7 @@ export const deliverNextReceiptOutbox = (
           ),
       }),
     );
-  });
+  }).pipe(
+    deliveryPermit.withPermitsIfAvailable(1),
+    Effect.map(Option.getOrElse(() => ReceiptOutboxDeliveryResult.Idle())),
+  );

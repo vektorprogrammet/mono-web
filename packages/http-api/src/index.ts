@@ -24,6 +24,7 @@ export * from "./organization.js";
 export * from "./profile.js";
 
 export * from "./receipts.js";
+export * from "./receipt-upload.js";
 
 export * from "./release.js";
 
