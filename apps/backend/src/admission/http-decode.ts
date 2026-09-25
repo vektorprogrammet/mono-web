@@ -1,4 +1,4 @@
-/** Admission request decoding: query strings, JSON bodies, and admission period merge patches. */
+/** Admission request decoding: JSON bodies and admission period merge patches. */
 import { AdmissionPeriodMergePatch } from "@vektorprogrammet/http-api";
 import {
   makeNativeValidationError,
@@ -6,27 +6,8 @@ import {
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Match, Predicate, Schema, type SchemaIssue } from "effect";
-import { semanticProblem, semanticProblems } from "../http-api/problem.js";
-import { readBoundedJson } from "../http-api/read-json.js";
+import { readJsonBody, semanticProblem } from "../http-api/problem.js";
 import { interpretAdmissionPeriodMergePatchSource } from "../http-semantics.js";
-import type { AdmissionApiHttpOptions } from "./http-context.js";
-
-/** No admission operation takes query parameters, so any query string is malformed. */
-export const rejectQueryString = (request: Request) =>
-  new URL(request.url).search === "" ? Effect.void : Effect.fail(Problem.make("request.malformed"));
-
-/**
- * Reads one JSON body in the operation's media type. Another media type is 415, and a
- * body that is not bounded, well-formed JSON keeps the reader's 400 or 413 problem.
- */
-const readJsonBody = (request: Request, mediaType: RegExp, maxBodyBytes: number) =>
-  mediaType.test(request.headers.get("content-type") ?? "")
-    ? semanticProblems(readBoundedJson(request, maxBodyBytes), [
-        "request.malformed",
-        "request.too-large",
-        "internal.error",
-      ])
-    : Effect.fail(Problem.make("media-type.unsupported"));
 
 const pointerOf = (path: ReadonlyArray<PropertyKey>) =>
   path.map((segment) => `/${String(segment).replaceAll("~", "~0").replaceAll("/", "~1")}`).join("");
@@ -47,7 +28,9 @@ const rejectedMembers = (
     Match.orElse(() => [makeNativeValidationError(pointerOf(path), "invalid")]),
   );
 
-/** Decodes one body exactly; a rejection names each rejected member once. */
+/**
+ * Decodes one body exactly; a rejection names each rejected member once.
+ */
 const decodeBody = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
   body: Schema.Json,
@@ -62,6 +45,11 @@ const decodeBody = <S extends Schema.ConstraintDecoder<unknown, never>>(
     }),
   );
 
+/**
+ * Reads and decodes one bounded JSON body.
+ *
+ * @construct http-problem
+ */
 export const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
   schema: S,
@@ -73,12 +61,17 @@ export const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
     return yield* decodeBody(schema, body);
   });
 
-export const decodeAdmissionPeriodPatch = (request: Request, input: AdmissionApiHttpOptions) =>
+/**
+ * Reads and decodes one bounded admission period merge patch.
+ *
+ * @construct http-problem
+ */
+export const decodeAdmissionPeriodPatch = (request: Request, maxBodyBytes: number) =>
   Effect.gen(function* () {
     const body = yield* readJsonBody(
       request,
       /^application\/merge-patch\+json(?:\s*;|$)/iu,
-      input.config.maxBodyBytes,
+      maxBodyBytes,
     );
 
     // Unknown, absent, and deleted members are judged before the values are decoded.

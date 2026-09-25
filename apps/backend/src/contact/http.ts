@@ -1,115 +1,86 @@
-import { timingSafeEqual } from "node:crypto";
 import {
   ContactDelivery,
   ContactFailure,
   ContactMessage,
-  ContactVisitorIp,
-  CONTACT_BACKEND_HEADER,
+  type ContactVisitorIp,
   CONTACT_IP_HEADER,
   submitContact,
 } from "@vektorprogrammet/domain/contact";
 import { ContactQuotaLive } from "@vektorprogrammet/database/contact";
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { Effect, Layer, Schema } from "effect";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Layer, Match } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import type { ContactConfig } from "./config.js";
 import { deliverJson } from "../delivery/http.js";
-import { readBoundedJson } from "../http-api/read-json.js";
-import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
-import { toHttpApiResponse } from "../http-api/transport.js";
+import {
+  decodeRequest,
+  problemMapper,
+  readJsonBody,
+  requestInvalid,
+  webHandler,
+} from "../http-api/problem.js";
 
-const denied = () =>
-  nativeProblemResponse("credential.invalid", 401, {
-    "www-authenticate": 'ContactSSR realm="native-contact"',
-  });
+/** The one answer for every contact failure. */
+const contactProblems = problemMapper<ContactFailure>()({
+  ContactFailure: ({ reason }) =>
+    Match.value(reason).pipe(
+      // A recipient that cannot receive the message makes the message itself invalid.
+      Match.when("InvalidRecipient", requestInvalid),
+      Match.when("RateLimited", () => Problem.rateLimited(3_600)),
+      Match.when("Unavailable", () => Problem.make("contact.unavailable")),
+      Match.exhaustive,
+    ),
+});
 
-const tokenMatches = (supplied: string | null, expected: string): boolean => {
-  if (supplied === null) return false;
-  const left = Buffer.from(supplied);
-  const right = Buffer.from(expected);
-
-  return left.length === right.length && timingSafeEqual(left, right);
-};
-
-const failure = (cause: unknown): Response => {
-  const error = cause;
-
-  if (error instanceof HttpSemanticFailure) return nativeProblemResponse(error.code, error.status);
-
-  if (error instanceof ContactFailure) {
-    if (error.reason === "InvalidRecipient") return nativeProblemResponse("validation.failed", 422);
-
-    if (error.reason === "RateLimited")
-      return nativeProblemResponse("rate-limit.exceeded", 429, { "retry-after": "3600" });
-  }
-
-  return nativeProblemResponse("contact.unavailable", 503);
-};
-
-export const makeContactHandler = (config: ContactConfig | undefined) => {
-  const delivery = Layer.succeed(
+const deliveryFor = (config: ContactConfig) =>
+  Layer.succeed(
     ContactDelivery,
     ContactDelivery.of({
       send: (envelope) =>
-        config === undefined
-          ? Effect.fail(new ContactFailure({ reason: "Unavailable" }))
-          : deliverJson(
-              {
-                from: config.sender,
-                to: envelope.to,
-                replyTo: envelope.replyTo,
-                subject: `[Kontaktskjema] ${envelope.subject}`,
-                text: `Navn: ${envelope.name}\nE-post: ${envelope.replyTo}\n\n${envelope.message}`,
-              },
-              config.delivery,
-              globalThis.fetch,
-            ).pipe(Effect.mapError(() => new ContactFailure({ reason: "Unavailable" }))),
+        deliverJson(
+          {
+            from: config.sender,
+            to: envelope.to,
+            replyTo: envelope.replyTo,
+            subject: `[Kontaktskjema] ${envelope.subject}`,
+            text: `Navn: ${envelope.name}\nE-post: ${envelope.replyTo}\n\n${envelope.message}`,
+          },
+          config.delivery,
+          globalThis.fetch,
+        ).pipe(Effect.mapError(() => new ContactFailure({ reason: "Unavailable" }))),
     }),
   );
 
-  const services = Layer.merge(ContactQuotaLive, delivery);
+/**
+ * The public contact form. ContactSSR security admits only the homepage
+ * server's token and the endpoint schema admits only a canonical visitor
+ * address, so the handler starts at the message itself.
+ */
+export const ContactApiHandlers = (config: ContactConfig | undefined) => {
+  const services =
+    config === undefined ? undefined : Layer.merge(ContactQuotaLive, deliveryFor(config));
 
-  return (request: Request) =>
+  const submit = (request: Request, ip: ContactVisitorIp) =>
     Effect.gen(function* () {
-      if (config === undefined) return nativeProblemResponse("contact.unavailable", 503);
+      // Without configuration the ingress admits every request, and nothing can be delivered.
+      if (services === undefined) return yield* Problem.make("contact.unavailable");
 
-      if (!tokenMatches(request.headers.get(CONTACT_BACKEND_HEADER), config.backendToken))
-        return denied();
+      const input = yield* readJsonBody(request, /^application\/json(?:\s*;|$)/iu, 65_536);
 
-      const ip = yield* Effect.sync(() => {
-        try {
-          return Schema.decodeUnknownSync(ContactVisitorIp)(request.headers.get(CONTACT_IP_HEADER));
-        } catch {
-          return undefined;
-        }
-      });
+      const message = yield* decodeRequest(ContactMessage)(input);
 
-      if (ip === undefined) return denied();
-
-      if (!/^application\/json(?:\s*;|$)/iu.test(request.headers.get("content-type") ?? ""))
-        return nativeProblemResponse("media-type.unsupported", 415);
-      const input = yield* readBoundedJson(request, 65_536);
-
-      const message = yield* Effect.try({
-        try: () => Schema.decodeUnknownSync(ContactMessage)(input, { onExcessProperty: "error" }),
-        catch: () => new HttpSemanticFailure("validation.failed", 422),
-      });
-
-      yield* submitContact(message, ip).pipe(Effect.provide(services));
+      yield* submitContact(message, ip).pipe(Effect.provide(services), contactProblems);
 
       return new Response(null, {
         status: 201,
         headers: { "cache-control": "no-store", vary: "Origin" },
       });
-    }).pipe(Effect.match({ onFailure: failure, onSuccess: (response) => response }));
-};
-
-export const ContactApiHandlers = (config: ContactConfig | undefined) => {
-  const handle = makeContactHandler(config);
+    });
 
   return HttpApiBuilder.group(ExternalNativeApi, "contact", (handlers) =>
-    handlers.handleRaw("submitContactMessage", ({ request }) =>
-      toHttpApiResponse(request, handle, failure),
+    handlers.handleRaw("submitContactMessage", ({ request, headers }) =>
+      webHandler(request, (webRequest) => submit(webRequest, headers[CONTACT_IP_HEADER])),
     ),
   );
 };

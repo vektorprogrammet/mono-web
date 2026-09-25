@@ -17,14 +17,8 @@ import {
   evaluateAccessJourney,
   decodeGrant,
 } from "@vektorprogrammet/domain/authz";
-import type { NativeHttpCommandOutcome } from "./http-api/receipt-transaction.js";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
-import { Match, Predicate, Effect, type Schema } from "effect";
-import {
-  HttpSemanticFailure,
-  nativeProblemResponse,
-  responseFromCapsule,
-} from "./http-semantics.js";
+import { Data, Match, Predicate, Effect, type Schema } from "effect";
 
 const capabilities = (spec: AccessSpec) => {
   return Match.value(spec.capabilities).pipe(
@@ -41,18 +35,22 @@ const capabilities = (spec: AccessSpec) => {
   );
 };
 
-const rejectedCode = (status: 401 | 403 | 404) =>
-  Match.value(status).pipe(
-    Match.when(401, () => "credential.invalid" as const),
-    Match.when(404, () => "resource.not-found" as const),
-    Match.orElse(() => "authority.denied" as const),
-  );
+/**
+ * An AccessSpec evaluation that did not grant the operation. The status is
+ * the concealment-aware answer: an unaccepted credential, a denial, or a
+ * concealed resource.
+ *
+ * @construct http-problem
+ */
+export class NativeAccessRejected extends Data.TaggedError("NativeAccessRejected")<{
+  readonly status: 401 | 403 | 404;
+}> {}
 
 export const authorizeAnonymousNativeOperation = (
   spec: AccessSpec,
   resolution: CanonicalScopeResolution<Schema.JsonObject>,
   now: string,
-): Effect.Effect<void, HttpSemanticFailure> =>
+): Effect.Effect<void, NativeAccessRejected> =>
   evaluateAccessJourney(spec, undefined, {
     now: Effect.succeed(AuthorizationInstant.make(now)),
     resolveCredential: () =>
@@ -68,9 +66,7 @@ export const authorizeAnonymousNativeOperation = (
     Effect.flatMap((evaluation) => {
       const status = accessHttpStatus(evaluation, spec.concealment);
 
-      return status === 200
-        ? Effect.void
-        : Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
+      return status === 200 ? Effect.void : Effect.fail(new NativeAccessRejected({ status }));
     }),
   );
 
@@ -89,7 +85,7 @@ export interface NativePersonAuthorization {
 
 export const authorizePersonNativeOperation = (
   input: NativePersonAuthorization,
-): Effect.Effect<void, HttpSemanticFailure> => {
+): Effect.Effect<void, NativeAccessRejected> => {
   const credential =
     input.credential ??
     (input.request === undefined
@@ -107,14 +103,14 @@ export const authorizePersonNativeOperation = (
         } satisfies AcceptedCredential));
 
   if (credential === undefined) {
-    return Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+    return Effect.fail(new NativeAccessRejected({ status: 401 }));
   }
 
   if (
     !Predicate.isTagged(credential.principal, "Person") ||
     credential.principal.personId !== input.personId
   ) {
-    return Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+    return Effect.fail(new NativeAccessRejected({ status: 401 }));
   }
 
   const instant = AuthorizationInstant.make(input.now);
@@ -148,9 +144,7 @@ export const authorizePersonNativeOperation = (
     Effect.flatMap((evaluation) => {
       const status = accessHttpStatus(evaluation, input.spec.concealment);
 
-      return status === 200
-        ? Effect.void
-        : Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
+      return status === 200 ? Effect.void : Effect.fail(new NativeAccessRejected({ status }));
     }),
   );
 };
@@ -172,21 +166,3 @@ export const genericContext = (input: {
   facts: input.facts ?? {},
   authorityVersion: AuthorityVersion.make(input.authorityVersion),
 });
-
-export const nativeCommandOutcomeResponse = (outcome: NativeHttpCommandOutcome): Response => {
-  return Match.value(outcome).pipe(
-    Match.tag("Committed", "Replay", (outcome) => {
-      return responseFromCapsule(outcome.response);
-    }),
-    Match.tag("InFlight", () => {
-      return nativeProblemResponse("idempotency.in-flight", 409, { "retry-after": "1" });
-    }),
-    Match.tag("DigestConflict", () => {
-      return nativeProblemResponse("idempotency.digest-conflict", 409);
-    }),
-    Match.tag("ResponseExpired", () => {
-      return nativeProblemResponse("idempotency.response-expired", 409);
-    }),
-    Match.exhaustive,
-  );
-};

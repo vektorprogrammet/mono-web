@@ -11,11 +11,56 @@ import {
   type ReceiptListItem,
   type ReceiptResource,
 } from "@vektorprogrammet/http-api";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Schema } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
 import type { NativeHttpResponseCapsule } from "../http-api/receipt-transaction.js";
-import { HttpSemanticFailure, deriveStrongETag } from "../http-semantics.js";
+import { deriveStrongETag } from "../http-semantics.js";
 import type { ReceiptFileStore } from "./filesystem.js";
+
+/**
+ * A JSON body under the receipt cache policy the caller names.
+ *
+ * @construct http-transport
+ */
+export const jsonResponse = (
+  body: Schema.Json,
+  status = 200,
+  cacheControl: "no-store" | "private, no-store" = "no-store",
+): Response =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "cache-control": cacheControl,
+    },
+  });
+
+/**
+ * A JSON body private to the caller, varying by Origin.
+ *
+ * @construct http-transport
+ */
+export const privateJsonResponse = (body: Schema.Json, status = 200): Response => {
+  const response = jsonResponse(body, status, "private, no-store");
+  response.headers.set("vary", "Origin");
+
+  return response;
+};
+
+/**
+ * Projects stored rows onto response items. A stored value outside the
+ * response contract is the receipt store failing; any other throw is a defect.
+ *
+ * @construct http-problem
+ */
+export const projected = <A>(project: () => A): Effect.Effect<A, ReceiptPersistenceError> =>
+  Effect.suspend(() => {
+    try {
+      return Effect.succeed(project());
+    } catch (cause) {
+      return cause instanceof ReceiptPersistenceError ? Effect.fail(cause) : Effect.die(cause);
+    }
+  });
 
 export const receiptEtag = (receiptId: string, revision: number) =>
   deriveStrongETag({
@@ -106,28 +151,35 @@ export const ownedReceiptResource = (
   };
 };
 
+/** A created receipt names its location; an updated one does not. */
+export type ReceiptMutationStatus =
+  | { readonly status: 200 }
+  | { readonly status: 201; readonly location: string };
+
+/**
+ * The replayable response of one receipt mutation.
+ *
+ * @construct http-transport
+ */
 export const receiptMutationCapsule = (
   receipt: Receipt,
-  status: 200 | 201,
-  location?: string,
-): NativeHttpResponseCapsule => {
-  const headers: NativeHttpResponseCapsule["headers"] = {
-    "content-type": "application/json",
-    etag: receiptEtag(receipt.receiptId, receipt.revision),
-  };
-
-  if (status === 201) {
-    if (location === undefined) throw new HttpSemanticFailure("internal.error", 500);
-    Object.assign(headers, { location });
-  }
-
-  return {
-    status,
-    mediaType: "application/json",
-    bodyBytes: new TextEncoder().encode(JSON.stringify(receiptResource(receipt))),
-    headers,
-  };
-};
+  response: ReceiptMutationStatus,
+): NativeHttpResponseCapsule => ({
+  status: response.status,
+  mediaType: "application/json",
+  bodyBytes: new TextEncoder().encode(JSON.stringify(receiptResource(receipt))),
+  headers:
+    response.status === 201
+      ? {
+          "content-type": "application/json",
+          etag: receiptEtag(receipt.receiptId, receipt.revision),
+          location: response.location,
+        }
+      : {
+          "content-type": "application/json",
+          etag: receiptEtag(receipt.receiptId, receipt.revision),
+        },
+});
 
 export const settlementMutationCapsule = (
   settlement: ReceiptSettlementEvidence,
@@ -155,6 +207,12 @@ const receiptFileName = (contentType: ReceiptFile["contentType"]): string => {
   }
 };
 
+/**
+ * Answers verified private bytes with their exact headers; unreadable bytes are the receipt
+ * store failing.
+ *
+ * @construct http-transport
+ */
 export const readPrivateReceiptFile = (
   file: ReceiptFile,
   fileStore: ReceiptFileStore,
@@ -163,18 +221,20 @@ export const readPrivateReceiptFile = (
 ) =>
   Effect.tryPromise({
     try: () => fileStore.readCommitted(file, maxFileBytes),
-    catch: () => new HttpSemanticFailure("receipts.unavailable", 503),
+    catch: () => Problem.make("receipts.unavailable"),
   }).pipe(
-    Effect.map((bytes) =>
-      HttpServerResponse.uint8Array(bytes, {
-        contentType: file.contentType,
-        headers: {
-          ...extraHeaders,
-          "content-disposition": `inline; filename="${receiptFileName(file.contentType)}"`,
-          "x-content-type-options": "nosniff",
-          "cache-control": "private, no-store",
-          vary: "Origin",
-        },
-      }),
+    Effect.map(
+      (bytes) =>
+        new Response(bytes, {
+          headers: {
+            ...extraHeaders,
+            "content-type": file.contentType,
+            "content-length": String(bytes.byteLength),
+            "content-disposition": `inline; filename="${receiptFileName(file.contentType)}"`,
+            "x-content-type-options": "nosniff",
+            "cache-control": "private, no-store",
+            vary: "Origin",
+          },
+        }),
     ),
   );

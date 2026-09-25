@@ -1,68 +1,44 @@
-/** Admission HTTP representations: conditional JSON responses and public cache lifetimes. */
-import { Effect, Predicate } from "effect";
-import {
-  type ETagVersionSource,
-  deriveStrongETag,
-  evaluateReadPreconditions,
-  nativeProblemResponse,
-  notModifiedResponse,
-  parseIfNoneMatch,
-  parseReadIfMatch,
-} from "../http-semantics.js";
-import { knownAdmissionFailure } from "./http-problem.js";
+/** Admission HTTP representations: JSON reads, conditional collections, and public cache lifetimes. */
+import type { Schema } from "effect";
+import { conditionalJson } from "../http-api/problem.js";
+import { deriveStrongETag, type ETagVersionSource } from "../http-semantics.js";
 
-export const conditionalJsonResponse = (input: {
+/**
+ * One JSON representation that no cache stores.
+ *
+ * @construct http-transport
+ */
+export const jsonResponse = (body: Schema.Json): Response =>
+  new Response(JSON.stringify(body), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+
+/**
+ * Answers a conditional read of one admission collection, tagged by the
+ * versions of its items.
+ *
+ * @construct http-transport
+ */
+export const conditionalCollection = (input: {
   readonly request: Request;
   readonly body: unknown;
   readonly representationKind: string;
   readonly version: ETagVersionSource;
   readonly cacheControl: string;
 }) =>
-  Effect.try({
-    try: () => {
-      const etag = deriveStrongETag({
-        representationKind: input.representationKind,
-        resourceIdentity: "collection",
-        version: input.version,
-      });
-
-      const decision = evaluateReadPreconditions({
-        currentETag: etag,
-        ifMatch: parseReadIfMatch(
-          input.request.headers.get("if-match") === null
-            ? []
-            : [input.request.headers.get("if-match")!],
-        ),
-        ifNoneMatch: parseIfNoneMatch(
-          input.request.headers.get("if-none-match") === null
-            ? []
-            : [input.request.headers.get("if-none-match")!],
-        ),
-      });
-
-      if (Predicate.isTagged(decision, "Failed")) {
-        return nativeProblemResponse(decision.code, decision.status);
-      }
-
-      if (Predicate.isTagged(decision, "NotModified")) {
-        return notModifiedResponse({
-          etag,
-          cacheControl: input.cacheControl,
-          vary: "Origin",
-        });
-      }
-
-      return new Response(JSON.stringify(input.body), {
-        status: 200,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          "cache-control": input.cacheControl,
-          etag,
-          vary: "Origin",
-        },
-      });
-    },
-    catch: knownAdmissionFailure,
+  conditionalJson({
+    request: input.request,
+    body: input.body,
+    etag: deriveStrongETag({
+      representationKind: input.representationKind,
+      resourceIdentity: "collection",
+      version: input.version,
+    }),
+    cacheControl: input.cacheControl,
+    contentType: "application/json; charset=utf-8",
   });
 
 export const dynamicAdmissionCache = (now: string, boundaries: ReadonlyArray<string>): string => {

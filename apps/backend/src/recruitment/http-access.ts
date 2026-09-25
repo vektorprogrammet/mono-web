@@ -1,4 +1,4 @@
-/** Recruitment HTTP access: person and invitation-capability authorization and access contexts. */
+/** Recruitment HTTP access: invitation-capability authorization and person access contexts. */
 import type { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import {
   AuthorityRef,
@@ -17,7 +17,6 @@ import {
   decodeGrant,
   evaluateAccessJourney,
   type AccessSpec,
-  type CanonicalScopeResolution,
 } from "@vektorprogrammet/domain/authz";
 import type { DepartmentId } from "@vektorprogrammet/domain/organization";
 import {
@@ -35,82 +34,23 @@ import {
   type ReadInterviewConductEndpoint,
   type ScheduleInterviewEndpoint,
 } from "@vektorprogrammet/http-api";
-import { Effect, Match, Option, Predicate, type Schema } from "effect";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Option, Predicate, type Schema } from "effect";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
-import { HttpSemanticFailure } from "../http-semantics.js";
-import { authorizePersonNativeOperation } from "../native-operation.js";
+import { authorizePerson, personPresentation } from "../http-api/problem.js";
 import type { RecruitmentApiHttpOptions } from "./http-context.js";
 
 type GenericFacts = Schema.JsonObject;
 
-const capabilityForSpec = (spec: AccessSpec) =>
-  Predicate.isTagged(spec.capabilities, "One")
-    ? Effect.succeed(spec.capabilities.capability)
-    : Effect.fail(new HttpSemanticFailure("internal.error", 500));
-
-const rejectedCode = (status: 401 | 403 | 404) =>
-  Match.value(status).pipe(
-    Match.when(401, () => "credential.invalid" as const),
-    Match.when(404, () => "resource.not-found" as const),
-    Match.orElse(() => "authority.denied" as const),
-  );
-
-export const authorizePersonOperation = (input: {
-  readonly spec: AccessSpec;
-  readonly request: Request;
-  readonly actor: RecruitmentActor;
-  readonly resolution: CanonicalScopeResolution<GenericFacts>;
-  readonly grantScopes: ReadonlyArray<Scope>;
-  readonly authorizationInstant: string;
-}) =>
-  Effect.gen(function* () {
-    const principal = { _tag: "Person" as const, personId: input.actor.personId };
-    const instant = AuthorizationInstant.make(input.authorizationInstant);
-    const capability = yield* capabilityForSpec(input.spec);
-
-    const grants = input.grantScopes.map((scope, index) =>
-      decodeGrant({
-        grantId: GrantId.make(
-          `native-recruitment:${input.actor.personId}:${capability.type}:${index}`,
-        ),
-        subject: principal,
-        capability,
-        scope,
-        startAt: instant,
-        endAt: null,
-        requirements: [],
-        source: AuthorityRef.make("native-recruitment-actor"),
-        revision: 0,
-      }),
-    );
-
-    const bearer = input.request.headers.get("authorization")?.startsWith("Bearer ") === true;
-
-    const evaluation = yield* evaluateAccessJourney(input.spec, undefined, {
-      now: Effect.succeed(instant),
-      resolveCredential: () =>
-        Effect.succeed({
-          _tag: "Accepted" as const,
-          mechanism: {
-            _tag: bearer ? ("OAuthUserBearer" as const) : ("BetterAuthCookie" as const),
-          },
-          principal,
-          evidenceRef: CredentialEvidenceRef.make("native-recruitment-person"),
-        }),
-      resolveScope: () => Effect.succeed(input.resolution),
-      resolveGrants: () => Effect.succeed(grants),
-    });
-
-    const status = accessHttpStatus(evaluation, input.spec.concealment);
-
-    if (status !== 200) {
-      return yield* Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
-    }
-  });
-
+/**
+ * Authorizes the holder of an invitation's response capability. The
+ * invitation AccessSpec conceals every denial as not found, so a denial
+ * answers resource.not-found and no other rejection exists.
+ *
+ * @construct http-problem
+ */
 export const authorizeInvitationOperation = (input: {
   readonly spec: AccessSpec;
-  readonly request: Request;
   readonly source: RecruitmentInvitationHttpSource;
   readonly authorizationInstant: string;
 }) =>
@@ -124,7 +64,11 @@ export const authorizeInvitationOperation = (input: {
       id: ResourceId.make(input.source.invitationId),
     };
 
-    const capability = yield* capabilityForSpec(input.spec);
+    if (!Predicate.isTagged(input.spec.capabilities, "One")) {
+      return yield* Effect.die(new Error("An invitation AccessSpec names exactly one capability"));
+    }
+
+    const capability = input.spec.capabilities.capability;
 
     const resolution = {
       selection: "ExactlyOne" as const,
@@ -181,8 +125,10 @@ export const authorizeInvitationOperation = (input: {
 
     const status = accessHttpStatus(evaluation, input.spec.concealment);
 
+    if (status === 404) return yield* Problem.make("resource.not-found");
+
     if (status !== 200) {
-      return yield* Effect.fail(new HttpSemanticFailure(rejectedCode(status), status));
+      return yield* Effect.die(new Error(`An invitation AccessSpec revealed a ${status} denial`));
     }
   });
 
@@ -245,7 +191,13 @@ export const recruitmentInterviewAccessContext = (
   ),
 });
 
-export const interviewAuthorizationInTransaction = <E, R>(
+/**
+ * Resolves the current person and authorizes one interview inside the caller's
+ * transaction; a rejected credential is answered from the request's evidence.
+ *
+ * @construct http-problem
+ */
+export const interviewAuthorizationInTransaction = <R>(
   request: Request,
   interviewId: RecruitmentInterviewId,
   endpoint:
@@ -255,7 +207,7 @@ export const interviewAuthorizationInTransaction = <E, R>(
     | typeof CancelInterviewEndpoint
     | typeof CorrectInterviewAssessmentEndpoint,
   allowLeader: boolean,
-  input: RecruitmentApiHttpOptions<E, R>,
+  input: RecruitmentApiHttpOptions<R>,
 ) =>
   Effect.gen(function* () {
     const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
@@ -275,17 +227,20 @@ export const interviewAuthorizationInTransaction = <E, R>(
       id: ResourceId.make(interviewId),
     };
 
-    yield* authorizePersonNativeOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-      credential: authorization.credential,
-      personId: actor.personId,
-      resolution: {
-        selection: "ExactlyOne",
-        contexts: [recruitmentInterviewAccessContext(source, actor, allowLeader, activeMember)],
+    yield* authorizePerson(
+      {
+        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+        credential: authorization.credential,
+        personId: actor.personId,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [recruitmentInterviewAccessContext(source, actor, allowLeader, activeMember)],
+        },
+        grantScopes: [Scope.Resource({ resource })],
+        now: authorization.authorizationInstant,
       },
-      grantScopes: [Scope.Resource({ resource })],
-      now: authorization.authorizationInstant,
-    });
+      personPresentation(request),
+    );
 
     return {
       actor,

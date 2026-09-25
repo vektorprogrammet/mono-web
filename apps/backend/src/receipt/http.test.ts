@@ -1036,7 +1036,7 @@ describe("receipt v0.2 HTTP contract", () => {
     );
 
     expect(changedReplay.status).toBe(409);
-    expect(changedReplay.headers.get("cache-control")).toBe("private, no-store");
+    expect(changedReplay.headers.get("cache-control")).toBe("no-store");
     expect(await changedReplay.json()).toMatchObject({ code: "idempotency.digest-conflict" });
 
     expect(recorded.status).toBe(200);
@@ -1067,7 +1067,7 @@ describe("receipt v0.2 HTTP contract", () => {
       { receiptId: ReceiptId.make("not-visible"), personId },
     ]);
     expect(concealed.status).toBe(404);
-    expect(concealed.headers.get("cache-control")).toBe("private, no-store");
+    expect(concealed.headers.get("cache-control")).toBe("no-store");
     expect(await concealed.json()).toMatchObject({ code: "receipt.not-found" });
   });
 
@@ -1579,7 +1579,12 @@ describe("receipt v0.2 HTTP contract", () => {
 
     const denied = await request(unscoped.http, "/api/receipt-approval-queue", bearer, false);
     expect(denied.status).toBe(403);
-    expect(await readJson(denied)).toMatchObject({ error: { tag: "ReceiptScopeDenied" } });
+    await expectProblem(denied, {
+      code: "authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+    });
     const mixed = await request(state.http, "/api/receipt-approval-queue", bearer);
     expect(mixed.status).toBe(401);
     state.revokeServiceBearer();
@@ -1692,9 +1697,12 @@ describe("internal receipt evidence separation", () => {
       false,
     );
 
-    expect({ status: bearerOnly.status, body: await bearerOnly.json() }).toEqual({
+    expect(bearerOnly.headers.get("www-authenticate")).toBe('VektorSession realm="native-api"');
+    await expectProblem(bearerOnly, {
+      code: "credential.invalid",
+      title: "Invalid credential",
       status: 401,
-      body: { error: { tag: "UnauthenticatedActor" } },
+      detail: "The supplied credential is invalid.",
     });
 
     const response = await request(state.internalHttp, internalPath);
@@ -1707,9 +1715,11 @@ describe("internal receipt evidence separation", () => {
   it("does not read receipt state when the internal Cookie credential is unavailable", async () => {
     const missing = harness({ unauthenticated: true });
     const missingResponse = await request(missing.internalHttp, internalPath);
-    expect({ status: missingResponse.status, body: await missingResponse.json() }).toEqual({
+    await expectProblem(missingResponse, {
+      code: "credential.invalid",
+      title: "Invalid credential",
       status: 401,
-      body: { error: { tag: "UnauthenticatedActor" } },
+      detail: "The supplied credential is invalid.",
     });
     expect(missing.evidenceReads).toEqual([]);
 
@@ -1721,9 +1731,11 @@ describe("internal receipt evidence separation", () => {
     });
 
     const unavailableResponse = await request(unavailable.internalHttp, internalPath);
-    expect({ status: unavailableResponse.status, body: await unavailableResponse.json() }).toEqual({
+    await expectProblem(unavailableResponse, {
+      code: "receipts.unavailable",
+      title: "Receipts unavailable",
       status: 503,
-      body: { error: { tag: "IdentityEngineError" } },
+      detail: "The receipt service is temporarily unavailable.",
     });
     expect(unavailable.evidenceReads).toEqual([]);
   });

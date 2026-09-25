@@ -3,12 +3,14 @@ import { problemUnion } from "./http-semantics.js";
 
 /** Problems for `system.health`. */
 export const SystemHealthProblem = problemUnion("SystemHealthProblem", [
+  "request.malformed",
   "internal.error",
   "health.unavailable",
 ]);
 
 /** Problems for `system.readSession`. */
 export const SystemReadSessionProblem = problemUnion("SystemReadSessionProblem", [
+  "request.malformed",
   "internal.error",
   "identity.unavailable",
 ]);
@@ -23,6 +25,7 @@ export const SystemDeleteSessionProblem = problemUnion("SystemDeleteSessionProbl
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "internal.error",
   "dependency.unavailable",
   "idempotency.unavailable",
@@ -47,6 +50,7 @@ export const SystemDeleteOwnedSessionProblem = problemUnion("SystemDeleteOwnedSe
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "internal.error",
   "dependency.unavailable",
   "idempotency.unavailable",
@@ -62,6 +66,7 @@ export const SystemRevokeOtherSessionsProblem = problemUnion("SystemRevokeOtherS
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "internal.error",
   "dependency.unavailable",
   "idempotency.unavailable",
@@ -77,6 +82,7 @@ export const SystemRevokeAllSessionsProblem = problemUnion("SystemRevokeAllSessi
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "internal.error",
   "dependency.unavailable",
   "idempotency.unavailable",
@@ -113,9 +119,11 @@ export const ProfileUpdateOwnProfileProblem = problemUnion("ProfileUpdateOwnProf
   "precondition.invalid",
   "precondition.failed",
   "precondition.required",
+  "transaction.conflict",
   "internal.error",
   "profile.not-found",
   "profile.unavailable",
+  "idempotency.unavailable",
 ]);
 
 /** Problems for `organization.listDepartments`. */
@@ -194,6 +202,7 @@ export const OrganizationCreateDepartmentProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -201,6 +210,7 @@ export const OrganizationCreateDepartmentProblem = problemUnion(
     "dependency.unavailable",
     "idempotency.unavailable",
     "organization.invalid-reference",
+    "organization.unavailable",
   ],
 );
 
@@ -214,6 +224,7 @@ export const OrganizationCreateTeamProblem = problemUnion("OrganizationCreateTea
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "request.too-large",
   "media-type.unsupported",
   "validation.failed",
@@ -221,6 +232,7 @@ export const OrganizationCreateTeamProblem = problemUnion("OrganizationCreateTea
   "dependency.unavailable",
   "idempotency.unavailable",
   "organization.invalid-reference",
+  "organization.unavailable",
 ]);
 
 /** Problems for `organization.createFieldOfStudy`. */
@@ -235,6 +247,7 @@ export const OrganizationCreateFieldOfStudyProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -242,6 +255,7 @@ export const OrganizationCreateFieldOfStudyProblem = problemUnion(
     "dependency.unavailable",
     "idempotency.unavailable",
     "organization.invalid-reference",
+    "organization.unavailable",
   ],
 );
 
@@ -320,6 +334,7 @@ export const AdmissionsReadReturningAssistantOptionsProblem = problemUnion(
     "returning.history-missing",
     "returning.study-invalid",
     "returning.period-unavailable",
+    "internal.error",
     "returning.unavailable",
   ],
 );
@@ -335,6 +350,7 @@ export const AdmissionsRegisterReturningAssistantProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -362,6 +378,7 @@ export const AdmissionsSubmitApplicationProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -415,6 +432,7 @@ export const AdmissionsCreateAdmissionPeriodProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -438,6 +456,7 @@ export const AdmissionsReviseAdmissionPeriodProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -538,6 +557,7 @@ export const RecruitmentReadAssignmentBoardProblem = problemUnion(
     "origin.denied",
     "internal.error",
     "recruitment.admission-period-not-found",
+    "application.ambiguous-period",
     "recruitment.unavailable",
   ],
 );
@@ -582,12 +602,14 @@ export const RecruitmentCreateApplicationInterviewProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
     "internal.error",
     "dependency.unavailable",
     "idempotency.unavailable",
+    "recruitment.admission-period-not-found",
     "recruitment.application-not-found",
     "application.ambiguous-period",
     "recruitment.interview-schema-not-found",
@@ -608,6 +630,7 @@ export const RecruitmentScheduleInterviewProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -653,6 +676,7 @@ export const RecruitmentFinalizeInterviewProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -683,6 +707,7 @@ export const RecruitmentCorrectInterviewAssessmentProblem = problemUnion(
     "idempotency.in-flight",
     "idempotency.digest-conflict",
     "idempotency.response-expired",
+    "transaction.conflict",
     "request.too-large",
     "media-type.unsupported",
     "validation.failed",
@@ -711,6 +736,7 @@ export const RecruitmentCancelInterviewProblem = problemUnion("RecruitmentCancel
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "request.too-large",
   "media-type.unsupported",
   "validation.failed",
@@ -723,6 +749,7 @@ export const RecruitmentCancelInterviewProblem = problemUnion("RecruitmentCancel
   "recruitment.interview-not-found",
   "recruitment.already-finalized",
   "recruitment.already-cancelled",
+  "recruitment.interview-not-scheduled",
 ]);
 
 /** Problems for `receipts.submitReceipt`. */
@@ -742,6 +769,7 @@ export const ReceiptsSubmitReceiptProblem = problemUnion("ReceiptsSubmitReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.already-exists",
   "receipt.file-not-staged",
 ]);
@@ -768,6 +796,7 @@ export const ReceiptsReviseReceiptProblem = problemUnion("ReceiptsReviseReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
   "receipt.file-not-staged",
@@ -793,6 +822,7 @@ export const ReceiptsWithdrawReceiptProblem = problemUnion("ReceiptsWithdrawRece
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
 ]);
@@ -869,6 +899,7 @@ export const ReceiptsSettleReceiptProblem = problemUnion("ReceiptsSettleReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
 ]);
 
 /** Problems for `receipts.approveReceipt`. */
@@ -891,6 +922,7 @@ export const ReceiptsApproveReceiptProblem = problemUnion("ReceiptsApproveReceip
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
 ]);
@@ -915,6 +947,7 @@ export const ReceiptsRejectReceiptProblem = problemUnion("ReceiptsRejectReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
 ]);
@@ -939,6 +972,7 @@ export const ReceiptsReopenReceiptProblem = problemUnion("ReceiptsReopenReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
 ]);
@@ -952,6 +986,7 @@ export const ContentReadContentWorkspaceProblem = problemUnion(
     "authority.denied",
     "origin.denied",
     "internal.error",
+    "content.department-not-found",
     "content.integrity-error",
     "content.unavailable",
   ],
@@ -967,6 +1002,7 @@ export const ContentCreateArticleProblem = problemUnion("ContentCreateArticlePro
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "request.too-large",
   "media-type.unsupported",
   "validation.failed",
@@ -976,6 +1012,7 @@ export const ContentCreateArticleProblem = problemUnion("ContentCreateArticlePro
   "content.slug-conflict",
   "content.department-not-found",
   "content.integrity-error",
+  "content.unavailable",
 ]);
 
 /** Problems for `content.readArticle`. */
@@ -1002,6 +1039,7 @@ export const ContentReviseArticleProblem = problemUnion("ContentReviseArticlePro
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "request.too-large",
   "media-type.unsupported",
   "validation.failed",
@@ -1017,6 +1055,7 @@ export const ContentReviseArticleProblem = problemUnion("ContentReviseArticlePro
   "content.slug-conflict",
   "content.department-not-found",
   "content.integrity-error",
+  "content.unavailable",
 ]);
 
 /** Problems for `content.publishArticle`. */
@@ -1029,6 +1068,7 @@ export const ContentPublishArticleProblem = problemUnion("ContentPublishArticleP
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "request.too-large",
   "media-type.unsupported",
   "validation.failed",
@@ -1041,6 +1081,7 @@ export const ContentPublishArticleProblem = problemUnion("ContentPublishArticleP
   "content.article-not-found",
   "content.lifecycle-conflict",
   "content.integrity-error",
+  "content.unavailable",
 ]);
 
 /** Problems for `content.unpublishArticle`. */
@@ -1053,6 +1094,7 @@ export const ContentUnpublishArticleProblem = problemUnion("ContentUnpublishArti
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "request.too-large",
   "media-type.unsupported",
   "validation.failed",
@@ -1065,6 +1107,7 @@ export const ContentUnpublishArticleProblem = problemUnion("ContentUnpublishArti
   "content.article-not-found",
   "content.lifecycle-conflict",
   "content.integrity-error",
+  "content.unavailable",
 ]);
 
 /** Problems for `content.listNews`. */
@@ -1074,6 +1117,7 @@ export const ContentListNewsProblem = problemUnion("ContentListNewsProblem", [
   "precondition.invalid",
   "precondition.failed",
   "internal.error",
+  "content.department-not-found",
   "content.integrity-error",
   "content.unavailable",
 ]);

@@ -68,6 +68,7 @@ export const SocialEventsCreateProblem = problemUnion("SocialEventsCreateProblem
   "dependency.unavailable",
   "organization.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
 ]);
 
 /** @since 0.2.0 @category Endpoints */

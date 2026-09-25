@@ -30,12 +30,7 @@ export type { RecruitmentApiHttpOptions } from "./recruitment/http-context.js";
 
 export { recruitmentInterviewAccessContext } from "./recruitment/http-access.js";
 
-export { readRecruitmentRequestBody } from "./recruitment/http-decode.js";
-
-export { recruitmentHttpErrorResponse } from "./recruitment/http-problem.js";
-
 export {
-  conditionalJsonResponse,
   interviewETag,
   invitationETag,
   schedulingBoardWithETags,

@@ -1,63 +1,56 @@
-/** Content HTTP failure classification and native problem responses. */
-import { ContentAuthorityInactive, ContentNotInScope } from "@vektorprogrammet/domain/content";
-import { Cause, Predicate } from "effect";
-import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
+/** Content failures and the problem each one answers. */
+import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type {
+  ArticleNotFound,
+  ContentManagementFailure,
+  ContentUnauthenticatedActor,
+} from "@vektorprogrammet/domain/content";
+import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
+import type {
+  OrganizationDecodeError,
+  OrganizationPersistenceError,
+} from "@vektorprogrammet/domain/organization";
+import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { problemMapper } from "../http-api/problem.js";
 
-const PERSON_CHALLENGE = 'VektorSession realm="native-api", Bearer realm="native-api"';
+/**
+ * The one answer for every content domain failure.
+ *
+ * @construct http-problem
+ */
+export const contentProblems = problemMapper<
+  Exclude<ContentManagementFailure, ContentUnauthenticatedActor> | ArticleNotFound
+>()({
+  AuthorityInactive: () => Problem.make("authority.denied"),
+  NotInScope: () => Problem.make("authority.denied"),
+  NotPublisher: () => Problem.make("authority.denied"),
+  DraftNotOwned: () => Problem.make("authority.denied"),
+  ArticleNotFound: () => Problem.make("content.article-not-found"),
+  SlugConflict: () => Problem.make("content.slug-conflict"),
+  DepartmentNotFound: () => Problem.make("content.department-not-found"),
+  CommandConflict: () => Problem.make("content.lifecycle-conflict"),
+  ContentIntegrityError: () => Problem.make("content.integrity-error"),
+  ContentPersistenceError: () => Problem.make("content.unavailable"),
+  ContentDecodeError: () => Problem.make("internal.error"),
+});
 
-/** Keeps content-classified failures and wraps every other thrown value as unknown. */
-export const knownContentFailure = (cause: unknown) =>
-  cause instanceof HttpSemanticFailure ||
-  cause instanceof ContentAuthorityInactive ||
-  cause instanceof ContentNotInScope
-    ? cause
-    : new Cause.UnknownError(cause);
-
-const errorTag = (cause: unknown): string | undefined =>
-  cause !== null &&
-  (cause === null || Predicate.isObjectOrArray(cause)) &&
-  "_tag" in cause &&
-  Predicate.isString(cause._tag)
-    ? cause._tag
-    : undefined;
-
-/** Native problem mapping for staff content and public news endpoints. */
-export const contentHttpErrorResponse = (cause: unknown): Response => {
-  while (Cause.isUnknownError(cause)) cause = cause.cause;
-
-  if (cause instanceof HttpSemanticFailure) {
-    return nativeProblemResponse(
-      cause.code,
-      cause.status,
-      cause.status === 401 ? { "www-authenticate": PERSON_CHALLENGE } : undefined,
-    );
-  }
-
-  switch (errorTag(cause)) {
-    case "UnauthenticatedActor":
-      return nativeProblemResponse("credential.invalid", 401, {
-        "www-authenticate": PERSON_CHALLENGE,
-      });
-    case "AuthorityInactive":
-    case "NotInScope":
-    case "NotPublisher":
-    case "DraftNotOwned":
-      return nativeProblemResponse("authority.denied", 403);
-    case "ArticleNotFound":
-      return nativeProblemResponse("content.article-not-found", 404);
-    case "SlugConflict":
-      return nativeProblemResponse("content.slug-conflict", 422);
-    case "DepartmentNotFound":
-      return nativeProblemResponse("content.department-not-found", 422);
-    case "CommandConflict":
-      return nativeProblemResponse("content.lifecycle-conflict", 409);
-    case "ContentIntegrityError":
-      return nativeProblemResponse("content.integrity-error", 500);
-    case "ContentPersistenceError":
-      return nativeProblemResponse("content.unavailable", 503);
-    case "ContentDecodeError":
-      return nativeProblemResponse("internal.error", 500);
-    default:
-      return nativeProblemResponse("internal.error", 500);
-  }
-};
+/**
+ * A staff person rejected after ingress is answered from the credential the
+ * request presented. An unavailable identity or organization projection is an
+ * internal error.
+ *
+ * @construct http-problem
+ */
+export const contentActorProblems = (presentation: CredentialPresentation) =>
+  problemMapper<
+    | UnauthenticatedActor
+    | ContentUnauthenticatedActor
+    | IdentityEngineError
+    | OrganizationDecodeError
+    | OrganizationPersistenceError
+  >()({
+    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+    IdentityEngineError: () => Problem.make("internal.error"),
+    OrganizationDecodeError: () => Problem.make("internal.error"),
+    OrganizationPersistenceError: () => Problem.make("internal.error"),
+  });

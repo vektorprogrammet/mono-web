@@ -2,8 +2,8 @@
 import {
   AdmissionPeriodCommandId,
   AdmissionPeriodCommandSchema,
-  AdmissionPeriodId,
   AdmissionPeriodNotFound,
+  type AdmissionPeriodId,
 } from "@vektorprogrammet/domain/admission-period";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
@@ -13,7 +13,6 @@ import {
   ReturningAssistants,
   ReturningCommandIdSchema,
 } from "@vektorprogrammet/domain/application";
-import { Scope } from "@vektorprogrammet/domain/authz";
 import {
   CreateAdmissionPeriodEndpoint,
   CreateAdmissionPeriodRequest,
@@ -25,34 +24,41 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Clock, DateTime, Effect, Option, Predicate } from "effect";
 import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
+import {
+  authorizeAnonymous,
+  commandOutcomeResponse,
+  commandReceiptProblems,
+  httpIdentity,
+  idempotencyKeyOf,
+  requireCurrentETag,
+  requiredIfMatchOf,
+  requireNoQuery,
+  semanticProblem,
+  unreachable,
+} from "../http-api/problem.js";
+import { publicRateLimitKey } from "../http-api/public-rate-limit.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
-  HttpSemanticFailure,
-  deriveHttpIdentity,
   deriveStrongETag,
   encodePathIdentity,
-  evaluateMutationPrecondition,
   jsonBodyBytes,
-  parseIdempotencyKey,
-  parseRequiredIfMatch,
+  normalizeTarget,
   semanticMutationRequest,
   semanticRequestDigest,
 } from "../http-semantics.js";
-import { publicRateLimitKey } from "../http-api/public-rate-limit.js";
+import { genericContext } from "../native-operation.js";
 import {
-  authorizeAnonymousNativeOperation,
-  authorizePersonNativeOperation,
-  genericContext,
-  nativeCommandOutcomeResponse,
-} from "../native-operation.js";
-import { admissionGrantScopes, returningAuthorization } from "./http-access.js";
+  admissionGrantScopes,
+  authorizeAdmissionPerson,
+  returningAuthorization,
+} from "./http-access.js";
 import { admissionActorForAuthority, type AdmissionApiHttpOptions } from "./http-context.js";
-import { decodeAdmissionPeriodPatch, decodeJson, rejectQueryString } from "./http-decode.js";
-import { knownAdmissionFailure } from "./http-problem.js";
+import { decodeAdmissionPeriodPatch, decodeJson } from "./http-decode.js";
+import { admissionProblems } from "./http-problem.js";
 
 export const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
+    yield* requireNoQuery(request);
 
     const payload = yield* decodeJson(
       request,
@@ -60,19 +66,12 @@ export const registerReturningAssistant = (request: Request, input: AdmissionApi
       input.config.maxBodyBytes,
     );
 
-    const idempotencyKey = yield* Effect.try({
-      try: () =>
-        parseIdempotencyKey(
-          request.headers.get("idempotency-key") === null
-            ? []
-            : [request.headers.get("idempotency-key")!],
-        ),
-      catch: knownAdmissionFailure,
-    });
+    const idempotencyKey = yield* idempotencyKeyOf(request);
 
     const operationId = "admissions.registerReturningAssistant";
 
-    const result = yield* executeNativeHttpCommandPostgres(
+    // Domain failures are mapped after the executor, whose retry reads their causes.
+    const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const clock = yield* Clock.Clock;
 
@@ -100,20 +99,16 @@ export const registerReturningAssistant = (request: Request, input: AdmissionApi
           ),
         );
 
-        const derived = yield* Effect.try({
-          try: () =>
-            deriveHttpIdentity({
-              credentialSubject: `Person:${authorization.authority.personId}`,
-              qualifiedOperationId: operationId,
-              normalizedTarget: "/api/returning-assistant/registrations",
-              idempotencyKey,
-            }),
-          catch: knownAdmissionFailure,
+        const identity = yield* httpIdentity({
+          credentialSubject: `Person:${authorization.authority.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/returning-assistant/registrations",
+          idempotencyKey,
         });
 
         return {
           identity: {
-            identitySha256: derived.identitySha256,
+            identitySha256: identity.identitySha256,
             requestSha256: semanticRequestDigest({ body: payload }),
             operationId,
           },
@@ -122,7 +117,7 @@ export const registerReturningAssistant = (request: Request, input: AdmissionApi
               const registered = yield* returning.register(
                 {
                   ...payload,
-                  commandId: ReturningCommandIdSchema.make(derived.commandId),
+                  commandId: ReturningCommandIdSchema.make(identity.commandId),
                 },
                 {
                   personId: authorization.authority.personId,
@@ -151,12 +146,12 @@ export const registerReturningAssistant = (request: Request, input: AdmissionApi
       { retry: "serialization-once" },
     );
 
-    return nativeCommandOutcomeResponse(result);
-  });
+    return yield* commandOutcomeResponse(outcome);
+  }).pipe(admissionProblems(request, "returning.unavailable"), commandReceiptProblems);
 
 export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
+    yield* requireNoQuery(request);
 
     const payload = yield* decodeJson(
       request,
@@ -166,19 +161,12 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
 
     const admissionPeriodId = input.config.nextAdmissionPeriodId();
 
-    const idempotencyKey = yield* Effect.try({
-      try: () =>
-        parseIdempotencyKey(
-          request.headers.get("idempotency-key") === null
-            ? []
-            : [request.headers.get("idempotency-key")!],
-        ),
-      catch: knownAdmissionFailure,
-    });
+    const idempotencyKey = yield* idempotencyKeyOf(request);
 
     const operationId = "admissions.createAdmissionPeriod";
 
-    const result = yield* executeNativeHttpCommandPostgres(
+    // Domain failures are mapped after the executor, whose retry reads their causes.
+    const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
           now: input.config.now,
@@ -190,7 +178,7 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
         );
 
         const now = authorization.authorizationInstant;
-        yield* authorizePersonNativeOperation({
+        yield* authorizeAdmissionPerson(request, {
           spec: Option.getOrThrow(reflectAccessSpec(CreateAdmissionPeriodEndpoint)),
           credential: authorization.credential,
           personId: actor.personId,
@@ -208,28 +196,20 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
               }),
             ],
           },
-          grantScopes: Predicate.isTagged(actor, "GlobalAdmin")
-            ? [Scope.Global()]
-            : Predicate.isTagged(actor, "DepartmentLeader")
-              ? [Scope.Department({ departmentId: actor.departmentId })]
-              : [],
+          grantScopes: admissionGrantScopes(actor),
           now,
         });
 
-        const derived = yield* Effect.try({
-          try: () =>
-            deriveHttpIdentity({
-              credentialSubject: `Person:${actor.personId}`,
-              qualifiedOperationId: operationId,
-              normalizedTarget: "/api/admission-periods",
-              idempotencyKey,
-            }),
-          catch: knownAdmissionFailure,
+        const identity = yield* httpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/admission-periods",
+          idempotencyKey,
         });
 
         return {
           identity: {
-            identitySha256: derived.identitySha256,
+            identitySha256: identity.identitySha256,
             requestSha256: semanticRequestDigest({ body: payload }),
             operationId,
           },
@@ -237,7 +217,7 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
             Effect.gen(function* () {
               const created = yield* admissions.executeAdmissionPeriod(
                 AdmissionPeriodCommandSchema.cases.CreateAdmissionPeriod.make({
-                  commandId: AdmissionPeriodCommandId.make(derived.commandId),
+                  commandId: AdmissionPeriodCommandId.make(identity.commandId),
                   ...payload,
                 }),
                 { actor, now, admissionPeriodId },
@@ -278,43 +258,35 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
       { retry: "serialization-once" },
     );
 
-    return nativeCommandOutcomeResponse(result);
-  });
+    return yield* commandOutcomeResponse(outcome);
+  }).pipe(
+    admissionProblems(request, "dependency.unavailable"),
+    commandReceiptProblems,
+    // A create looks up no period by id, and the period it writes has no earlier revision.
+    unreachable("admission-period.not-found", "precondition.failed"),
+  );
 
 export const reviseAdmissionPeriod = (
   request: Request,
-  admissionPeriodId: string,
+  admissionPeriodId: AdmissionPeriodId,
   input: AdmissionApiHttpOptions,
 ) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
+    yield* requireNoQuery(request);
 
-    const { typedAdmissionPeriodId, ifMatch, idempotencyKey, normalizedTarget } = yield* Effect.try(
-      {
-        try: () => {
-          const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
+    const ifMatch = yield* requiredIfMatchOf(request);
+    const idempotencyKey = yield* idempotencyKeyOf(request);
 
-          return {
-            typedAdmissionPeriodId,
-            ifMatch: parseRequiredIfMatch(
-              request.headers.get("if-match") === null ? [] : [request.headers.get("if-match")!],
-            ),
-            idempotencyKey: parseIdempotencyKey(
-              request.headers.get("idempotency-key") === null
-                ? []
-                : [request.headers.get("idempotency-key")!],
-            ),
-            normalizedTarget: `/api/admission-periods/${encodePathIdentity(typedAdmissionPeriodId)}`,
-          };
-        },
-        catch: knownAdmissionFailure,
-      },
+    const normalizedTarget = yield* semanticProblem(
+      () => normalizeTarget("/api/admission-periods/{admissionPeriodId}", { admissionPeriodId }),
+      ["request.malformed"],
     );
 
-    const patch = yield* decodeAdmissionPeriodPatch(request, input);
+    const patch = yield* decodeAdmissionPeriodPatch(request, input.config.maxBodyBytes);
     const operationId = "admissions.reviseAdmissionPeriod";
 
-    const result = yield* executeNativeHttpCommandPostgres(
+    // Domain failures are mapped after the executor, whose retry reads their causes.
+    const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
           now: input.config.now,
@@ -327,15 +299,13 @@ export const reviseAdmissionPeriod = (
           listAdmissionPeriodsForManagement({ actor, now }),
         );
 
-        const current = periods.find((period) => period.id === typedAdmissionPeriodId);
+        const current = periods.find((period) => period.id === admissionPeriodId);
 
         if (current === undefined) {
-          return yield* Effect.fail(
-            new AdmissionPeriodNotFound({ admissionPeriodId: typedAdmissionPeriodId }),
-          );
+          return yield* Effect.fail(new AdmissionPeriodNotFound({ admissionPeriodId }));
         }
 
-        yield* authorizePersonNativeOperation({
+        yield* authorizeAdmissionPerson(request, {
           spec: Option.getOrThrow(reflectAccessSpec(ReviseAdmissionPeriodEndpoint)),
           credential: authorization.credential,
           personId: actor.personId,
@@ -355,37 +325,25 @@ export const reviseAdmissionPeriod = (
           now,
         });
 
-        const currentETag = deriveStrongETag({
-          representationKind: "AdmissionPeriodManagementItem",
-          resourceIdentity: current.id,
-          version: current.revision,
-        });
+        yield* requireCurrentETag(
+          deriveStrongETag({
+            representationKind: "AdmissionPeriodManagementItem",
+            resourceIdentity: current.id,
+            version: current.revision,
+          }),
+          ifMatch,
+        );
 
-        const precondition = yield* Effect.try({
-          try: () => evaluateMutationPrecondition(currentETag, ifMatch),
-          catch: knownAdmissionFailure,
-        });
-
-        if (Predicate.isTagged(precondition, "Failed")) {
-          return yield* Effect.fail(
-            new HttpSemanticFailure(precondition.code, precondition.status),
-          );
-        }
-
-        const derived = yield* Effect.try({
-          try: () =>
-            deriveHttpIdentity({
-              credentialSubject: `Person:${actor.personId}`,
-              qualifiedOperationId: operationId,
-              normalizedTarget,
-              idempotencyKey,
-            }),
-          catch: knownAdmissionFailure,
+        const identity = yield* httpIdentity({
+          credentialSubject: `Person:${actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget,
+          idempotencyKey,
         });
 
         return {
           identity: {
-            identitySha256: derived.identitySha256,
+            identitySha256: identity.identitySha256,
             requestSha256: semanticRequestDigest(semanticMutationRequest(patch, ifMatch)),
             operationId,
           },
@@ -393,13 +351,13 @@ export const reviseAdmissionPeriod = (
             Effect.gen(function* () {
               const revised = yield* admissions.executeAdmissionPeriod(
                 AdmissionPeriodCommandSchema.cases.ReviseAdmissionPeriod.make({
-                  commandId: AdmissionPeriodCommandId.make(derived.commandId),
-                  admissionPeriodId: typedAdmissionPeriodId,
+                  commandId: AdmissionPeriodCommandId.make(identity.commandId),
+                  admissionPeriodId,
                   expectedRevision: current.revision,
                   startAt: patch.startAt ?? current.startAt,
                   endAt: patch.endAt ?? current.endAt,
                 }),
-                { actor, now, admissionPeriodId: typedAdmissionPeriodId },
+                { actor, now, admissionPeriodId },
               );
 
               const period = revised.period;
@@ -435,12 +393,17 @@ export const reviseAdmissionPeriod = (
       { retry: "serialization-once" },
     );
 
-    return nativeCommandOutcomeResponse(result);
-  });
+    return yield* commandOutcomeResponse(outcome);
+  }).pipe(
+    admissionProblems(request, "dependency.unavailable"),
+    commandReceiptProblems,
+    // A revision never creates a period.
+    unreachable("admission-period.already-exists"),
+  );
 
 export const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
+    yield* requireNoQuery(request);
     const now = yield* currentInstant(input.config.now);
 
     if (!input.config.rateLimit.consume(publicRateLimitKey(request), now)) {
@@ -449,21 +412,14 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
 
     const payload = yield* decodeJson(request, SubmitApplicationRequest, input.config.maxBodyBytes);
 
-    const idempotencyKey = yield* Effect.try({
-      try: () =>
-        parseIdempotencyKey(
-          request.headers.get("idempotency-key") === null
-            ? []
-            : [request.headers.get("idempotency-key")!],
-        ),
-      catch: knownAdmissionFailure,
-    });
+    const idempotencyKey = yield* idempotencyKeyOf(request);
 
     const operationId = "admissions.submitApplication";
 
-    const result = yield* executeNativeHttpCommandPostgres(
+    // Domain failures are mapped after the executor, whose retry reads their causes.
+    const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        yield* authorizeAnonymousNativeOperation(
+        yield* authorizeAnonymous(
           Option.getOrThrow(reflectAccessSpec(SubmitApplicationEndpoint)),
           {
             selection: "ExactlyOne",
@@ -477,20 +433,16 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
           now,
         );
 
-        const derived = yield* Effect.try({
-          try: () =>
-            deriveHttpIdentity({
-              credentialSubject: "Anonymous",
-              qualifiedOperationId: operationId,
-              normalizedTarget: "/api/applications",
-              idempotencyKey,
-            }),
-          catch: knownAdmissionFailure,
+        const identity = yield* httpIdentity({
+          credentialSubject: "Anonymous",
+          qualifiedOperationId: operationId,
+          normalizedTarget: "/api/applications",
+          idempotencyKey,
         });
 
         return {
           identity: {
-            identitySha256: derived.identitySha256,
+            identitySha256: identity.identitySha256,
             requestSha256: semanticRequestDigest({ body: payload }),
             operationId,
           },
@@ -498,7 +450,7 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
             Effect.gen(function* () {
               const submitted = yield* admissions.executePublicApplication(
                 {
-                  commandId: PublicApplicationCommandIdSchema.make(derived.commandId),
+                  commandId: PublicApplicationCommandIdSchema.make(identity.commandId),
                   ...payload,
                 },
                 {
@@ -543,5 +495,10 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
       },
     );
 
-    return nativeCommandOutcomeResponse(result);
-  });
+    return yield* commandOutcomeResponse(outcome);
+  }).pipe(
+    admissionProblems(request, "dependency.unavailable"),
+    commandReceiptProblems,
+    // A submission looks up no confirmation.
+    unreachable("application.not-found"),
+  );

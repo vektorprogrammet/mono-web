@@ -56,9 +56,19 @@ const onboardingProblems = [
 /** Problems of the person-secured operations; PersonSecurity declares their credential problems. */
 export const OnboardingProblem = problemUnion("OnboardingProblem", onboardingProblems);
 
-/** The capability claim has no security middleware, so it declares its own credential problem. */
+/** The command's receipt store can also be unavailable. */
+export const OnboardingCommandProblem = problemUnion("OnboardingCommandProblem", [
+  ...onboardingProblems,
+  "idempotency.unavailable",
+]);
+
+/**
+ * The capability claim has no security middleware, so it declares its own credential problems:
+ * existing-account mode answers a missing or rejected person credential.
+ */
 export const OnboardingClaimProblem = problemUnion("OnboardingClaimProblem", [
   ...onboardingProblems,
+  "credential.missing",
   "credential.invalid",
 ]);
 
@@ -88,7 +98,7 @@ export const CommandOnboardingEndpoint = HttpApiEndpoint.post("command", "/api/o
   payload: OnboardingCommand,
   headers: IdempotencyIfMatchHeaders,
   success: entityMutationResponse(OnboardingResource),
-  error: endpointProblemResponses(OnboardingProblem),
+  error: endpointProblemResponses(OnboardingCommandProblem),
 })
   .middleware(PersonSecurity)
   .pipe((e) => annotateAccessSpec(e, access(true)))

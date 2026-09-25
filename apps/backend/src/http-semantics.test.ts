@@ -1,10 +1,10 @@
 import { StrongETag } from "@vektorprogrammet/http-api";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { describe, expect, it } from "vitest";
 import {
   MergePatchInterpretation,
   MergePatchFieldState,
   PreconditionDecision,
-  HttpSemanticFailure,
   admissionCacheControl,
   deriveHttpIdentity,
   deriveProfileStrongETag,
@@ -13,9 +13,6 @@ import {
   evaluateMutationPrecondition,
   evaluateReadPreconditions,
   interpretProfileMergePatchSource,
-  jsonMutationResponse,
-  noContentMutationResponse,
-  nativeProblemResponse,
   normalizeTarget,
   parseIdempotencyKey,
   parseIfNoneMatch,
@@ -83,9 +80,9 @@ describe("native HTTP semantics", () => {
       }).identitySha256,
     ).toMatch(/^[a-f0-9]{64}$/u);
 
-    expect(() => parseIdempotencyKey([key, key])).toThrow(HttpSemanticFailure);
-    expect(() => parseIdempotencyKey(["too-short"])).toThrow(HttpSemanticFailure);
-    expect(() => encodePathIdentity("\ud800")).toThrow(HttpSemanticFailure);
+    expect(() => parseIdempotencyKey([key, key])).toThrow(Problem);
+    expect(() => parseIdempotencyKey(["too-short"])).toThrow(Problem);
+    expect(() => encodePathIdentity("\ud800")).toThrow(Problem);
     expect(() =>
       deriveHttpIdentity({
         credentialSubject: "Person:",
@@ -93,12 +90,12 @@ describe("native HTTP semantics", () => {
         normalizedTarget: target,
         idempotencyKey: decoded,
       }),
-    ).toThrow(HttpSemanticFailure);
+    ).toThrow(Problem);
   });
 
   it("rejects duplicate JSON names before semantic decoding", () => {
     const bytes = new TextEncoder().encode('{"phone":"one","phone":"two"}');
-    expect(() => parseJsonWithoutDuplicateMembers(bytes)).toThrow(HttpSemanticFailure);
+    expect(() => parseJsonWithoutDuplicateMembers(bytes)).toThrow(Problem);
     expect(parseJsonWithoutDuplicateMembers(new TextEncoder().encode('{"phone":"one"}'))).toEqual({
       phone: "one",
     });
@@ -150,7 +147,7 @@ describe("native HTTP semantics", () => {
 
   it("uses read-list semantics while keeping mutation If-Match exact", () => {
     expect(parseRequiredIfMatch([`  ${tagA}  `])).toBe(tagA);
-    expect(() => parseRequiredIfMatch([])).toThrow(HttpSemanticFailure);
+    expect(() => parseRequiredIfMatch([])).toThrow(Problem);
     expect(parseIfNoneMatch([`W/${tagB}, ${tagA}, ${tagA}`])).toEqual([
       [false, "vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
       [true, "vkr2.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"],
@@ -161,7 +158,7 @@ describe("native HTTP semantics", () => {
       [false, "*"],
       [false, "opaque*tag"],
     ]);
-    expect(() => parseReadIfMatch(['*, "opaque"'])).toThrow(HttpSemanticFailure);
+    expect(() => parseReadIfMatch(['*, "opaque"'])).toThrow(Problem);
     expect(
       evaluateReadPreconditions({
         currentETag: tagA,
@@ -198,7 +195,7 @@ describe("native HTTP semantics", () => {
 
     expect(first).toBe(second);
     expect(first).toMatch(/^[a-f0-9]{64}$/u);
-    expect(() => semanticRequestDigest({ body: { value: "\ud800" } })).toThrow(HttpSemanticFailure);
+    expect(() => semanticRequestDigest({ body: { value: "\ud800" } })).toThrow(Problem);
   });
 
   it("uses the canonical content mutation envelope exactly once", () => {
@@ -291,19 +288,7 @@ describe("native HTTP semantics", () => {
     expect(admissionCacheControl(1_000, [])).toContain("max-age=30");
   });
 
-  it("emits safe problems and replays exact stored response bytes", async () => {
-    const problem = nativeProblemResponse("idempotency.in-flight", 409);
-    expect(problem.headers.get("content-type")).toBe("application/problem+json");
-    expect(problem.headers.get("cache-control")).toBe("no-store");
-    expect(problem.headers.get("retry-after")).toBe("1");
-    expect(await problem.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:idempotency.in-flight",
-      title: "Idempotent request in progress",
-      status: 409,
-      code: "idempotency.in-flight",
-      detail: "A request with this idempotency identity is still in progress.",
-    });
-
+  it("replays exact stored response bytes", async () => {
     const first = new Response('{"receiptId":"receipt-1"}', {
       status: 201,
       headers: {
@@ -314,30 +299,6 @@ describe("native HTTP semantics", () => {
       },
     });
 
-    const created = jsonMutationResponse({
-      status: 201,
-      body: { receiptId: "receipt-1" },
-      etag: tagA,
-      location: "/api/receipts/receipt-1",
-    });
-
-    expect(created.status).toBe(201);
-    expect(created.headers.get("location")).toBe("/api/receipts/receipt-1");
-    expect(created.headers.get("etag")).toBe(tagA);
-    expect(created.headers.get("cache-control")).toBe("no-store");
-    expect(() =>
-      jsonMutationResponse({
-        status: 201,
-        body: {},
-        etag: tagA,
-        location: "https://example.invalid/api/receipts/receipt-1",
-      }),
-    ).toThrow(HttpSemanticFailure);
-    const noContent = noContentMutationResponse();
-    expect(noContent.status).toBe(204);
-    expect(noContent.headers.has("content-type")).toBe(false);
-    expect(noContent.headers.has("location")).toBe(false);
-    expect(noContent.headers.get("cache-control")).toBe("no-store");
     const capsule = await responseCapsule(first);
     expect(capsule.headers).not.toHaveProperty("cache-control");
     const replay = responseFromCapsule(capsule);

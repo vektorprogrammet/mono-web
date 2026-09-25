@@ -1,79 +1,89 @@
+import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Scope } from "@vektorprogrammet/domain/authz";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
-  DepartmentId,
-  SemesterId,
-  OrganizationDecodeError,
-  OrganizationPersistenceError,
   AppointmentManagement,
-  OrganizationLifecycleCommand,
-  OrganizationLifecycleFailure,
   CreateDepartmentCommandSchema,
-  CreateTeamCommandSchema,
   CreateFieldOfStudyCommandSchema,
+  CreateTeamCommandSchema,
+  DepartmentId,
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   Organization,
   OrganizationCommandId,
+  OrganizationLifecycleCommand,
+  SemesterId,
   TeamJsonSchema,
   type OrganizationActor,
+  type OrganizationCommandFailure,
+  type OrganizationLifecycleFailure,
   type OrganizationPersonAuthority,
   type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
-import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
-
-import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
+import type { ProfileFailure } from "@vektorprogrammet/domain/profile";
 import {
-  ReadAppointmentManagementEndpoint,
-  ExecuteOrganizationLifecycleEndpoint,
   CreateDepartmentEndpoint,
   CreateDepartmentRequest,
   CreateFieldOfStudyEndpoint,
   CreateFieldOfStudyRequest,
   CreateTeamEndpoint,
   CreateTeamRequest,
+  ExecuteOrganizationLifecycleEndpoint,
   ExternalNativeApi,
   ListDepartmentsEndpoint,
   ListFieldOfStudiesEndpoint,
   ListMailingListsEndpoint,
-  MailingListResponse,
   ListTeamInterestEndpoint,
-  TeamInterestResponse,
   ListTeamsEndpoint,
+  MailingListResponse,
+  ReadAppointmentManagementEndpoint,
   reflectAccessSpec,
+  TeamInterestResponse,
 } from "@vektorprogrammet/http-api";
-import { flow, DateTime, Match, Cause, Predicate, Effect, Option, Schema } from "effect";
+import {
+  type CredentialPresentation,
+  type IdempotencyKey,
+  Problem,
+  type StrongETag,
+} from "@vektorprogrammet/http-api/http-semantics";
+import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
-  resolveRequestCredentialInTransaction,
   organizationActorFrom,
+  resolveRequestCredentialInTransaction,
   resolveRequestPersonAuthorityInTransaction,
   type OrganizationResolutionError,
 } from "../authority.js";
-import { toHttpApiResponse } from "../http-api/transport.js";
 import {
-  HttpSemanticFailure,
-  PRIVATE_NO_STORE,
-  PUBLIC_CACHE_CONTROL,
+  authorizeAnonymous,
+  authorizePerson,
+  commandOutcomeResponse,
+  commandReceiptProblems,
+  conditionalJson,
+  decodeRequest,
+  httpIdentity,
+  idempotencyKeyOf,
+  personPresentation,
+  problemMapper,
+  requestInvalid,
+  requireNoQuery,
+  unreachable,
+  webHandler,
+} from "../http-api/problem.js";
+import {
+  executeNativeHttpCommandPostgres,
+  type NativeHttpResponseCapsule,
+} from "../http-api/receipt-transaction.js";
+import {
   deriveStrongETag,
-  evaluateReadPreconditions,
   encodePathIdentity,
   jsonBodyBytes,
-  deriveHttpIdentity,
-  notModifiedResponse,
-  parseIfNoneMatch,
-  nativeProblemResponse,
-  parseReadIfMatch,
-  parseIdempotencyKey,
+  PRIVATE_NO_STORE,
+  PUBLIC_CACHE_CONTROL,
   semanticRequestDigest,
 } from "../http-semantics.js";
-import {
-  authorizeAnonymousNativeOperation,
-  authorizePersonNativeOperation,
-  genericContext,
-  nativeCommandOutcomeResponse,
-} from "../native-operation.js";
+import { genericContext } from "../native-operation.js";
 import type { OrganizationApiConfig } from "./config.js";
 
 export interface OrganizationApiHttpOptions {
@@ -99,259 +109,161 @@ export interface OrganizationApiHttpOptions {
   >;
 }
 
-type TaggedHttpError = OrganizationDecodeError | HttpSemanticFailure;
+const organizationUnavailable = () => Problem.make("organization.unavailable");
 
-const jsonResponse = (body: Schema.Json, status = 200, cacheControl = "no-store"): Response =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": cacheControl,
-    },
+/**
+ * The one answer for every organization failure. The store answers
+ * organization.unavailable whether it could not be reached or refused its own
+ * record; mailing lists read their recipients through the profile store.
+ */
+const organizationProblems = problemMapper<
+  OrganizationCommandFailure | OrganizationLifecycleFailure | ProfileFailure
+>()({
+  OrganizationLifecycleFailure: ({ code }) =>
+    Match.value(code).pipe(
+      Match.whenOr("Denied", "SelfDisable", "LastAdministrator", () =>
+        Problem.make("authority.denied"),
+      ),
+      Match.when("NotFound", () => Problem.make("resource.not-found")),
+      Match.when("Stale", () => Problem.make("precondition.failed")),
+      Match.when("Conflict", () => Problem.make("idempotency.digest-conflict")),
+      Match.when("Invalid", requestInvalid),
+      Match.when("Unavailable", organizationUnavailable),
+      Match.exhaustive,
+    ),
+  OrganizationRoleDenied: () => Problem.make("authority.denied"),
+  OrganizationInvalidReference: () => Problem.make("organization.invalid-reference"),
+  OrganizationCommandConflict: () => Problem.make("idempotency.digest-conflict"),
+  OrganizationDecodeError: organizationUnavailable,
+  OrganizationPersistenceError: organizationUnavailable,
+  ProfileDecodeError: organizationUnavailable,
+  ProfileQueryLimitExceeded: organizationUnavailable,
+  ProfileNotFound: organizationUnavailable,
+  ProfileContactNotFound: organizationUnavailable,
+  ProfileStaleRevision: organizationUnavailable,
+  ProfileCommandConflict: organizationUnavailable,
+  ProfilePersistenceError: organizationUnavailable,
+});
+
+/**
+ * A person credential rejected after ingress is answered from the request's
+ * own evidence; a failed identity engine leaves organization unavailable.
+ */
+const credentialProblems = (presentation: CredentialPresentation) =>
+  problemMapper<UnauthenticatedActor | IdentityEngineError>()({
+    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+    IdentityEngineError: organizationUnavailable,
   });
 
-const errorResponse = (cause: unknown): Response => {
-  while (Cause.isUnknownError(cause)) cause = cause.cause;
+/**
+ * Commands and appointment management answer any query as an invalid request.
+ */
+const rejectQuery = (request: Request) =>
+  requireNoQuery(request).pipe(Effect.mapError(requestInvalid));
 
-  if (cause instanceof OrganizationLifecycleFailure) {
-    switch (cause.code) {
-      case "Denied":
-      case "SelfDisable":
-      case "LastAdministrator":
-        return nativeProblemResponse("authority.denied", 403);
-      case "NotFound":
-        return nativeProblemResponse("resource.not-found", 404);
-      case "Stale":
-        return nativeProblemResponse("precondition.failed", 412);
-      case "Conflict":
-        return nativeProblemResponse("idempotency.digest-conflict", 409);
-      case "Invalid":
-        return nativeProblemResponse("validation.failed", 422);
-      case "Unavailable":
-        return nativeProblemResponse("organization.unavailable", 503);
+/** The UTF-8 text of a body of at most `maxBytes`, or undefined past that bound. */
+const readBoundedText = async (request: Request, maxBytes: number) => {
+  if (request.body === null) return "";
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const next = await reader.read();
+
+      if (next.done) break;
+      totalBytes += next.value.byteLength;
+
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+
+        return undefined;
+      }
+
+      chunks.push(next.value);
     }
+  } finally {
+    reader.releaseLock();
   }
 
-  if (cause instanceof HttpSemanticFailure) {
-    return nativeProblemResponse(cause.code, cause.status);
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
   }
 
-  if (
-    cause instanceof HttpSemanticFailure ||
-    (cause instanceof Error && "_tag" in cause && Predicate.isString(cause._tag))
-  ) {
-    const response = Match.value(cause).pipe(
-      Match.when(Predicate.isTagged("NativeHttpReceiptInFlightError"), () => {
-        return nativeProblemResponse("idempotency.in-flight", 409, { "retry-after": "1" });
-      }),
-      Match.when(Predicate.isTagged("NativeHttpReceiptDigestConflictError"), () => {
-        return nativeProblemResponse("idempotency.digest-conflict", 409);
-      }),
-      Match.when(Predicate.isTagged("NativeHttpReceiptExpiredError"), () => {
-        return nativeProblemResponse("idempotency.response-expired", 409);
-      }),
-      Match.when(Predicate.isTagged("NativeHttpReceiptPersistenceError"), () => {
-        return nativeProblemResponse("idempotency.unavailable", 503);
-      }),
-      Match.when(Predicate.isTagged("UnauthenticatedActor"), () => {
-        return nativeProblemResponse("credential.invalid", 401, {
-          "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
-        });
-      }),
-      Match.when(Predicate.isTagged("OrganizationRoleDenied"), () => {
-        return nativeProblemResponse("authority.denied", 403);
-      }),
-      Match.when(Predicate.isTagged("OrganizationInvalidReference"), () => {
-        return nativeProblemResponse("organization.invalid-reference", 422);
-      }),
-      Match.when(Predicate.isTagged("OrganizationCommandConflict"), () => {
-        return nativeProblemResponse("idempotency.digest-conflict", 409);
-      }),
-      Match.when(Predicate.isTagged("OrganizationDecodeError"), () => {
-        return nativeProblemResponse("validation.failed", 422);
-      }),
-      Match.when(Predicate.isTagged("RequestBodyTooLarge"), () => {
-        return nativeProblemResponse("request.too-large", 413);
-      }),
-      Match.orElse(() => undefined),
-    );
-
-    if (response !== undefined) return response;
-  }
-
-  return nativeProblemResponse("organization.unavailable", 503);
+  return new TextDecoder("utf-8", { fatal: true }).decode(body);
 };
 
-const assertNoQuery = (request: Request) =>
-  new URL(request.url).search.length === 0
-    ? Effect.void
-    : Effect.fail(new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }));
-
-const transactionOrganizationAuthorityFor = (request: Request) =>
-  resolveRequestPersonAuthorityInTransaction(request, {});
-
-const readBoundedBody = (request: Request, maxBytes: number) =>
-  Effect.tryPromise({
-    try: async () => {
-      const contentLength = request.headers.get("content-length");
-
-      if (contentLength !== null) {
-        if (!/^\d+$/u.test(contentLength))
-          throw new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" });
-        const declaredLength = Number(contentLength);
-
-        if (!Number.isSafeInteger(declaredLength)) {
-          throw new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" });
-        }
-
-        if (declaredLength > maxBytes) throw new HttpSemanticFailure("request.too-large", 413);
-      }
-
-      if (request.body === null) return "";
-
-      const reader = request.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let totalBytes = 0;
-
-      try {
-        while (true) {
-          const next = await reader.read();
-
-          if (next.done) break;
-          totalBytes += next.value.byteLength;
-
-          if (totalBytes > maxBytes) {
-            await reader.cancel();
-            throw new HttpSemanticFailure("request.too-large", 413);
-          }
-
-          chunks.push(next.value);
-        }
-      } finally {
-        reader.releaseLock();
-      }
-
-      const body = new Uint8Array(totalBytes);
-      let offset = 0;
-
-      for (const chunk of chunks) {
-        body.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-
-      return new TextDecoder("utf-8", { fatal: true }).decode(body);
-    },
-    catch: (cause) =>
-      cause instanceof HttpSemanticFailure || cause instanceof OrganizationDecodeError
-        ? cause
-        : new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-  });
-
-const decodeCommand = <S extends Schema.ConstraintDecoder<unknown, never>>(
-  request: Request,
-  schema: S,
-  input: OrganizationApiHttpOptions,
-): Effect.Effect<S["Type"], TaggedHttpError> =>
+/**
+ * Reads one bounded JSON command body. Organization commands answer every
+ * body they cannot read, including one of another media type, as an invalid
+ * request.
+ */
+const readCommandBody = (request: Request, maxBytes: number) =>
   Effect.gen(function* () {
-    const contentType = request.headers.get("content-type") ?? "";
-
-    if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(
-        new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-      );
+    if (!/^application\/json(?:\s*;|$)/iu.test(request.headers.get("content-type") ?? "")) {
+      return yield* requestInvalid();
     }
 
-    const raw = yield* readBoundedBody(request, input.config.maxBodyBytes);
+    const declared = request.headers.get("content-length");
 
-    const body = yield* Effect.try({
-      try: () => Schema.decodeUnknownSync(Schema.Json)(JSON.parse(raw)),
-      catch: () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
+    if (declared !== null) {
+      if (!/^\d+$/u.test(declared) || !Number.isSafeInteger(Number(declared))) {
+        return yield* requestInvalid();
+      }
+
+      if (Number(declared) > maxBytes) return yield* Problem.make("request.too-large");
+    }
+
+    const text = yield* Effect.tryPromise({
+      try: () => readBoundedText(request, maxBytes),
+      catch: requestInvalid,
     });
 
-    return yield* Schema.decodeUnknownEffect(schema)(body, {
-      onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-      ),
-    );
+    if (text === undefined) return yield* Problem.make("request.too-large");
+
+    return yield* Effect.try({
+      try: () => Schema.decodeUnknownSync(Schema.Json)(JSON.parse(text)),
+      catch: requestInvalid,
+    });
   });
 
 /**
  * Reads a response value through its contract schema. Domain layers return model instances,
- * which canonical JSON refuses; the contract decode yields the plain resource.
+ * which canonical JSON refuses; the contract decode yields the plain resource. A value outside
+ * the contract leaves organization unavailable.
  */
 const responseJson = <S extends Schema.ConstraintDecoder<Schema.Json, never>>(schema: S) =>
   flow(
     Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(
-      () => new OrganizationPersistenceError({ operation: "HTTP", message: "Invalid response" }),
-    ),
+    Effect.mapError(organizationUnavailable),
   );
 
-/** Encodes a private read through its contract schema; no shared cache may store it. */
+/**
+ * Encodes a private read through its contract schema; no shared cache may store it.
+ */
 const privateReadJson = <S extends Schema.ConstraintDecoder<Schema.Json, never>>(schema: S) =>
   flow(
     responseJson(schema),
-    Effect.map((decoded) => jsonResponse(decoded, 200, PRIVATE_NO_STORE)),
+    Effect.map(
+      (decoded) =>
+        new Response(JSON.stringify(decoded), {
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": PRIVATE_NO_STORE,
+          },
+        }),
+    ),
   );
-
-const publicListResponse = (
-  request: Request,
-  body: Schema.Json,
-  representationKind: string,
-  versions: ReadonlyArray<readonly [string, number]>,
-): Response => {
-  const etag = deriveStrongETag({
-    representationKind,
-    resourceIdentity: new URL(request.url).pathname,
-    version: versions,
-  });
-
-  try {
-    const ifMatchValue = request.headers.get("if-match");
-
-    const decision = evaluateReadPreconditions({
-      currentETag: etag,
-      ifMatch: ifMatchValue === null ? null : parseReadIfMatch([ifMatchValue]),
-      ifNoneMatch: parseIfNoneMatch(
-        request.headers.get("if-none-match") === null
-          ? []
-          : [request.headers.get("if-none-match")!],
-      ),
-    });
-
-    if (Predicate.isTagged(decision, "Failed")) {
-      return nativeProblemResponse(decision.code, decision.status);
-    }
-
-    if (Predicate.isTagged(decision, "NotModified")) {
-      return notModifiedResponse({
-        etag,
-        cacheControl: PUBLIC_CACHE_CONTROL,
-        vary: "Origin",
-      });
-    }
-  } catch (cause) {
-    if (!(cause instanceof HttpSemanticFailure)) throw cause;
-
-    return nativeProblemResponse(cause.code, cause.status);
-  }
-
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: {
-      "content-type": "application/json",
-      "cache-control": PUBLIC_CACHE_CONTROL,
-      etag,
-      vary: "Origin",
-    },
-  });
-};
 
 const listDepartments = (request: Request) =>
   Effect.gen(function* () {
-    yield* authorizeAnonymousNativeOperation(
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ListDepartmentsEndpoint)),
       {
         selection: "AllMatching",
@@ -364,28 +276,29 @@ const listDepartments = (request: Request) =>
       },
       DateTime.formatIso(yield* DateTime.now),
     );
-    yield* assertNoQuery(request);
-    const rows = yield* Organization.use(({ listDepartments }) => listDepartments);
+    yield* requireNoQuery(request);
 
-    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(DepartmentJsonSchema))(rows, {
-      onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        () => new OrganizationPersistenceError({ operation: "HTTP", message: "Invalid response" }),
-      ),
+    const departments = yield* Organization.use(({ listDepartments }) => listDepartments).pipe(
+      organizationProblems,
+      Effect.flatMap(responseJson(Schema.Array(DepartmentJsonSchema))),
     );
 
-    return publicListResponse(
+    return yield* conditionalJson({
       request,
-      decoded,
-      "DepartmentListResponse",
-      decoded.map((row) => [row.departmentId, row.revision] as const),
-    );
+      body: departments,
+      etag: deriveStrongETag({
+        representationKind: "DepartmentListResponse",
+        resourceIdentity: new URL(request.url).pathname,
+        version: departments.map((row) => [row.departmentId, row.revision] as const),
+      }),
+      cacheControl: PUBLIC_CACHE_CONTROL,
+      contentType: "application/json",
+    });
   });
 
 const listTeams = (request: Request) =>
   Effect.gen(function* () {
-    yield* authorizeAnonymousNativeOperation(
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ListTeamsEndpoint)),
       {
         selection: "AllMatching",
@@ -398,28 +311,29 @@ const listTeams = (request: Request) =>
       },
       DateTime.formatIso(yield* DateTime.now),
     );
-    yield* assertNoQuery(request);
-    const rows = yield* Organization.use(({ listTeams }) => listTeams());
+    yield* requireNoQuery(request);
 
-    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(TeamJsonSchema))(rows, {
-      onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        () => new OrganizationPersistenceError({ operation: "HTTP", message: "Invalid response" }),
-      ),
+    const teams = yield* Organization.use(({ listTeams }) => listTeams()).pipe(
+      organizationProblems,
+      Effect.flatMap(responseJson(Schema.Array(TeamJsonSchema))),
     );
 
-    return publicListResponse(
+    return yield* conditionalJson({
       request,
-      decoded,
-      "TeamListResponse",
-      decoded.map((row) => [row.teamId, row.revision] as const),
-    );
+      body: teams,
+      etag: deriveStrongETag({
+        representationKind: "TeamListResponse",
+        resourceIdentity: new URL(request.url).pathname,
+        version: teams.map((row) => [row.teamId, row.revision] as const),
+      }),
+      cacheControl: PUBLIC_CACHE_CONTROL,
+      contentType: "application/json",
+    });
   });
 
 const listFieldOfStudies = (request: Request) =>
   Effect.gen(function* () {
-    yield* authorizeAnonymousNativeOperation(
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ListFieldOfStudiesEndpoint)),
       {
         selection: "AllMatching",
@@ -432,373 +346,316 @@ const listFieldOfStudies = (request: Request) =>
       },
       DateTime.formatIso(yield* DateTime.now),
     );
-    yield* assertNoQuery(request);
-    const rows = yield* Organization.use(({ listFieldOfStudies }) => listFieldOfStudies);
+    yield* requireNoQuery(request);
 
-    const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(FieldOfStudyJsonSchema))(rows, {
-      onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        () => new OrganizationPersistenceError({ operation: "HTTP", message: "Invalid response" }),
-      ),
+    const fieldOfStudies = yield* Organization.use(
+      ({ listFieldOfStudies }) => listFieldOfStudies,
+    ).pipe(
+      organizationProblems,
+      Effect.flatMap(responseJson(Schema.Array(FieldOfStudyJsonSchema))),
     );
 
-    return publicListResponse(
+    return yield* conditionalJson({
       request,
-      decoded,
-      "FieldOfStudyListResponse",
-      decoded.map((row) => [row.fieldOfStudyId, row.revision] as const),
+      body: fieldOfStudies,
+      etag: deriveStrongETag({
+        representationKind: "FieldOfStudyListResponse",
+        resourceIdentity: new URL(request.url).pathname,
+        version: fieldOfStudies.map((row) => [row.fieldOfStudyId, row.revision] as const),
+      }),
+      cacheControl: PUBLIC_CACHE_CONTROL,
+      contentType: "application/json",
+    });
+  });
+
+/** The 201 receipt of one created organization resource. */
+const createdCapsule = (
+  resource: Schema.Json,
+  location: string,
+  etag: StrongETag,
+): NativeHttpResponseCapsule => ({
+  status: 201,
+  mediaType: "application/json",
+  headers: { "content-type": "application/json", location, etag },
+  bodyBytes: jsonBodyBytes(resource),
+});
+
+/**
+ * Resolves the caller's current authority inside the command transaction,
+ * evaluates the create AccessSpec for it, and derives the command identity.
+ */
+const authorizeCreate = (input: {
+  readonly request: Request;
+  readonly endpoint: Parameters<typeof reflectAccessSpec>[0];
+  readonly operationId: string;
+  readonly target: string;
+  readonly idempotencyKey: IdempotencyKey;
+  readonly presentation: CredentialPresentation;
+}) =>
+  Effect.gen(function* () {
+    const resolved = yield* resolveRequestPersonAuthorityInTransaction(input.request, {});
+    const actor = organizationActorFrom(resolved.authority);
+
+    yield* authorizePerson(
+      {
+        spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
+        credential: resolved.credential,
+        personId: actor.personId,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [
+            genericContext({
+              domainId: "organization",
+              authorityVersion: `organization:${actor._tag}`,
+            }),
+          ],
+        },
+        grantScopes: Predicate.isTagged(actor, "OrganizationAdministrator") ? [Scope.Global()] : [],
+        now: resolved.authorizationInstant,
+      },
+      input.presentation,
     );
+
+    const identity = yield* httpIdentity({
+      credentialSubject: `Person:${actor.personId}`,
+      qualifiedOperationId: input.operationId,
+      normalizedTarget: input.target,
+      idempotencyKey: input.idempotencyKey,
+    });
+
+    return { actor, identity };
   });
 
 const createDepartment = (request: Request, input: OrganizationApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* assertNoQuery(request);
-    const payload = yield* decodeCommand(request, CreateDepartmentRequest, input);
+    yield* rejectQuery(request);
 
-    const idempotencyKey = yield* Effect.try({
-      try: () =>
-        parseIdempotencyKey(
-          request.headers.get("idempotency-key") === null
-            ? []
-            : [request.headers.get("idempotency-key")!],
-        ),
-      catch: (cause) =>
-        cause instanceof UnauthenticatedActor ||
-        cause instanceof OrganizationLifecycleFailure ||
-        cause instanceof HttpSemanticFailure
-          ? cause
-          : new Cause.UnknownError(cause),
-    });
+    const payload = yield* readCommandBody(request, input.config.maxBodyBytes).pipe(
+      Effect.flatMap(decodeRequest(CreateDepartmentRequest)),
+    );
 
+    const idempotencyKey = yield* idempotencyKeyOf(request);
+    const presentation = personPresentation(request);
     const operationId = "organization.createDepartment";
 
-    const result = yield* executeNativeHttpCommandPostgres(
+    // Domain and credential failures are mapped after the executor, with its receipt failures.
+    const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const resolved = yield* transactionOrganizationAuthorityFor(request);
-        const actor = organizationActorFrom(resolved.authority);
-        yield* authorizePersonNativeOperation({
-          spec: Option.getOrThrow(reflectAccessSpec(CreateDepartmentEndpoint)),
-          credential: resolved.credential,
-          personId: actor.personId,
-          resolution: {
-            selection: "ExactlyOne",
-            contexts: [
-              genericContext({
-                domainId: "organization",
-                authorityVersion: `organization:${actor._tag}`,
-              }),
-            ],
-          },
-          grantScopes: Predicate.isTagged(actor, "OrganizationAdministrator")
-            ? [Scope.Global()]
-            : [],
-          now: resolved.authorizationInstant,
-        });
-
-        const derived = yield* Effect.try({
-          try: () =>
-            deriveHttpIdentity({
-              credentialSubject: `Person:${actor.personId}`,
-              qualifiedOperationId: operationId,
-              normalizedTarget: "/api/departments",
-              idempotencyKey,
-            }),
-          catch: (cause) =>
-            cause instanceof UnauthenticatedActor ||
-            cause instanceof OrganizationLifecycleFailure ||
-            cause instanceof HttpSemanticFailure
-              ? cause
-              : new Cause.UnknownError(cause),
+        const { actor, identity } = yield* authorizeCreate({
+          request,
+          endpoint: CreateDepartmentEndpoint,
+          operationId,
+          target: "/api/departments",
+          idempotencyKey,
+          presentation,
         });
 
         return {
           identity: {
-            identitySha256: derived.identitySha256,
+            identitySha256: identity.identitySha256,
             requestSha256: semanticRequestDigest({ body: payload }),
             operationId,
           },
           execute: Organization.use((organization) =>
-            Effect.gen(function* () {
-              const created = yield* organization.createDepartment(
-                CreateDepartmentCommandSchema.make({
-                  commandId: OrganizationCommandId.make(derived.commandId),
-                  ...payload,
+            organization.createDepartment(
+              CreateDepartmentCommandSchema.make({
+                commandId: OrganizationCommandId.make(identity.commandId),
+                ...payload,
+              }),
+              actor,
+            ),
+          ).pipe(
+            Effect.flatMap(({ observation }) =>
+              responseJson(DepartmentJsonSchema)(
+                Predicate.isTagged(observation, "Replayed")
+                  ? observation.original.department
+                  : observation.department,
+              ),
+            ),
+            Effect.map((department) =>
+              createdCapsule(
+                department,
+                `/api/departments/${encodePathIdentity(department.departmentId)}`,
+                deriveStrongETag({
+                  representationKind: "DepartmentJson",
+                  resourceIdentity: department.departmentId,
+                  version: department.revision,
                 }),
-                actor,
-              );
-
-              const department = yield* responseJson(DepartmentJsonSchema)(
-                Predicate.isTagged(created.observation, "Replayed")
-                  ? created.observation.original.department
-                  : created.observation.department,
-              );
-
-              const etag = deriveStrongETag({
-                representationKind: "DepartmentJson",
-                resourceIdentity: department.departmentId,
-                version: department.revision,
-              });
-
-              return {
-                status: 201,
-                mediaType: "application/json",
-                headers: {
-                  "content-type": "application/json",
-                  location: `/api/departments/${encodePathIdentity(department.departmentId)}`,
-                  etag,
-                },
-                bodyBytes: jsonBodyBytes(department),
-              };
-            }),
+              ),
+            ),
           ),
         };
       }),
+    ).pipe(
+      organizationProblems,
+      commandReceiptProblems,
+      credentialProblems(presentation),
+      // A person AccessSpec reveals every denial; none is concealed as absent.
+      unreachable("resource.not-found"),
     );
 
-    return nativeCommandOutcomeResponse(result);
+    return yield* commandOutcomeResponse(outcome);
   });
 
 const createTeam = (request: Request, input: OrganizationApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* assertNoQuery(request);
-    const payload = yield* decodeCommand(request, CreateTeamRequest, input);
+    yield* rejectQuery(request);
 
-    const idempotencyKey = yield* Effect.try({
-      try: () =>
-        parseIdempotencyKey(
-          request.headers.get("idempotency-key") === null
-            ? []
-            : [request.headers.get("idempotency-key")!],
-        ),
-      catch: (cause) =>
-        cause instanceof UnauthenticatedActor ||
-        cause instanceof OrganizationLifecycleFailure ||
-        cause instanceof HttpSemanticFailure
-          ? cause
-          : new Cause.UnknownError(cause),
-    });
+    const payload = yield* readCommandBody(request, input.config.maxBodyBytes).pipe(
+      Effect.flatMap(decodeRequest(CreateTeamRequest)),
+    );
 
+    const idempotencyKey = yield* idempotencyKeyOf(request);
+    const presentation = personPresentation(request);
     const operationId = "organization.createTeam";
 
-    const result = yield* executeNativeHttpCommandPostgres(
+    // Domain and credential failures are mapped after the executor, with its receipt failures.
+    const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const resolved = yield* transactionOrganizationAuthorityFor(request);
-        const actor = organizationActorFrom(resolved.authority);
-        yield* authorizePersonNativeOperation({
-          spec: Option.getOrThrow(reflectAccessSpec(CreateTeamEndpoint)),
-          credential: resolved.credential,
-          personId: actor.personId,
-          resolution: {
-            selection: "ExactlyOne",
-            contexts: [
-              genericContext({
-                domainId: "organization",
-                authorityVersion: `organization:${actor._tag}`,
-              }),
-            ],
-          },
-          grantScopes: Predicate.isTagged(actor, "OrganizationAdministrator")
-            ? [Scope.Global()]
-            : [],
-          now: resolved.authorizationInstant,
-        });
-
-        const derived = yield* Effect.try({
-          try: () =>
-            deriveHttpIdentity({
-              credentialSubject: `Person:${actor.personId}`,
-              qualifiedOperationId: operationId,
-              normalizedTarget: "/api/teams",
-              idempotencyKey,
-            }),
-          catch: (cause) =>
-            cause instanceof UnauthenticatedActor ||
-            cause instanceof OrganizationLifecycleFailure ||
-            cause instanceof HttpSemanticFailure
-              ? cause
-              : new Cause.UnknownError(cause),
+        const { actor, identity } = yield* authorizeCreate({
+          request,
+          endpoint: CreateTeamEndpoint,
+          operationId,
+          target: "/api/teams",
+          idempotencyKey,
+          presentation,
         });
 
         return {
           identity: {
-            identitySha256: derived.identitySha256,
+            identitySha256: identity.identitySha256,
             requestSha256: semanticRequestDigest({ body: payload }),
             operationId,
           },
           execute: Organization.use((organization) =>
-            Effect.gen(function* () {
-              const created = yield* organization.createTeam(
-                CreateTeamCommandSchema.make({
-                  commandId: OrganizationCommandId.make(derived.commandId),
-                  ...payload,
+            organization.createTeam(
+              CreateTeamCommandSchema.make({
+                commandId: OrganizationCommandId.make(identity.commandId),
+                ...payload,
+              }),
+              actor,
+            ),
+          ).pipe(
+            Effect.flatMap(({ observation }) =>
+              responseJson(TeamJsonSchema)(
+                Predicate.isTagged(observation, "Replayed")
+                  ? observation.original.team
+                  : observation.team,
+              ),
+            ),
+            Effect.map((team) =>
+              createdCapsule(
+                team,
+                `/api/teams/${encodePathIdentity(team.teamId)}`,
+                deriveStrongETag({
+                  representationKind: "TeamJson",
+                  resourceIdentity: team.teamId,
+                  version: team.revision,
                 }),
-                actor,
-              );
-
-              const team = yield* responseJson(TeamJsonSchema)(
-                Predicate.isTagged(created.observation, "Replayed")
-                  ? created.observation.original.team
-                  : created.observation.team,
-              );
-
-              const etag = deriveStrongETag({
-                representationKind: "TeamJson",
-                resourceIdentity: team.teamId,
-                version: team.revision,
-              });
-
-              return {
-                status: 201,
-                mediaType: "application/json",
-                headers: {
-                  "content-type": "application/json",
-                  location: `/api/teams/${encodePathIdentity(team.teamId)}`,
-                  etag,
-                },
-                bodyBytes: jsonBodyBytes(team),
-              };
-            }),
+              ),
+            ),
           ),
         };
       }),
+    ).pipe(
+      organizationProblems,
+      commandReceiptProblems,
+      credentialProblems(presentation),
+      // A person AccessSpec reveals every denial; none is concealed as absent.
+      unreachable("resource.not-found"),
     );
 
-    return nativeCommandOutcomeResponse(result);
+    return yield* commandOutcomeResponse(outcome);
   });
 
 const createFieldOfStudy = (request: Request, input: OrganizationApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* assertNoQuery(request);
-    const payload = yield* decodeCommand(request, CreateFieldOfStudyRequest, input);
+    yield* rejectQuery(request);
 
-    const idempotencyKey = yield* Effect.try({
-      try: () =>
-        parseIdempotencyKey(
-          request.headers.get("idempotency-key") === null
-            ? []
-            : [request.headers.get("idempotency-key")!],
-        ),
-      catch: (cause) =>
-        cause instanceof UnauthenticatedActor ||
-        cause instanceof OrganizationLifecycleFailure ||
-        cause instanceof HttpSemanticFailure
-          ? cause
-          : new Cause.UnknownError(cause),
-    });
+    const payload = yield* readCommandBody(request, input.config.maxBodyBytes).pipe(
+      Effect.flatMap(decodeRequest(CreateFieldOfStudyRequest)),
+    );
 
+    const idempotencyKey = yield* idempotencyKeyOf(request);
+    const presentation = personPresentation(request);
     const operationId = "organization.createFieldOfStudy";
 
-    const result = yield* executeNativeHttpCommandPostgres(
+    // Domain and credential failures are mapped after the executor, with its receipt failures.
+    const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
-        const resolved = yield* transactionOrganizationAuthorityFor(request);
-        const actor = organizationActorFrom(resolved.authority);
-        yield* authorizePersonNativeOperation({
-          spec: Option.getOrThrow(reflectAccessSpec(CreateFieldOfStudyEndpoint)),
-          credential: resolved.credential,
-          personId: actor.personId,
-          resolution: {
-            selection: "ExactlyOne",
-            contexts: [
-              genericContext({
-                domainId: "organization",
-                authorityVersion: `organization:${actor._tag}`,
-              }),
-            ],
-          },
-          grantScopes: Predicate.isTagged(actor, "OrganizationAdministrator")
-            ? [Scope.Global()]
-            : [],
-          now: resolved.authorizationInstant,
-        });
-
-        const derived = yield* Effect.try({
-          try: () =>
-            deriveHttpIdentity({
-              credentialSubject: `Person:${actor.personId}`,
-              qualifiedOperationId: operationId,
-              normalizedTarget: "/api/field-of-studies",
-              idempotencyKey,
-            }),
-          catch: (cause) =>
-            cause instanceof UnauthenticatedActor ||
-            cause instanceof OrganizationLifecycleFailure ||
-            cause instanceof HttpSemanticFailure
-              ? cause
-              : new Cause.UnknownError(cause),
+        const { actor, identity } = yield* authorizeCreate({
+          request,
+          endpoint: CreateFieldOfStudyEndpoint,
+          operationId,
+          target: "/api/field-of-studies",
+          idempotencyKey,
+          presentation,
         });
 
         return {
           identity: {
-            identitySha256: derived.identitySha256,
+            identitySha256: identity.identitySha256,
             requestSha256: semanticRequestDigest({ body: payload }),
             operationId,
           },
           execute: Organization.use((organization) =>
-            Effect.gen(function* () {
-              const created = yield* organization.createFieldOfStudy(
-                CreateFieldOfStudyCommandSchema.make({
-                  commandId: OrganizationCommandId.make(derived.commandId),
-                  ...payload,
+            organization.createFieldOfStudy(
+              CreateFieldOfStudyCommandSchema.make({
+                commandId: OrganizationCommandId.make(identity.commandId),
+                ...payload,
+              }),
+              actor,
+            ),
+          ).pipe(
+            Effect.flatMap(({ observation }) =>
+              responseJson(FieldOfStudyJsonSchema)(
+                Predicate.isTagged(observation, "Replayed")
+                  ? observation.original.fieldOfStudy
+                  : observation.fieldOfStudy,
+              ),
+            ),
+            Effect.map((fieldOfStudy) =>
+              createdCapsule(
+                fieldOfStudy,
+                `/api/field-of-studies/${encodePathIdentity(fieldOfStudy.fieldOfStudyId)}`,
+                deriveStrongETag({
+                  representationKind: "FieldOfStudyJson",
+                  resourceIdentity: fieldOfStudy.fieldOfStudyId,
+                  version: fieldOfStudy.revision,
                 }),
-                actor,
-              );
-
-              const fieldOfStudy = yield* responseJson(FieldOfStudyJsonSchema)(
-                Predicate.isTagged(created.observation, "Replayed")
-                  ? created.observation.original.fieldOfStudy
-                  : created.observation.fieldOfStudy,
-              );
-
-              const etag = deriveStrongETag({
-                representationKind: "FieldOfStudyJson",
-                resourceIdentity: fieldOfStudy.fieldOfStudyId,
-                version: fieldOfStudy.revision,
-              });
-
-              return {
-                status: 201,
-                mediaType: "application/json",
-                headers: {
-                  "content-type": "application/json",
-                  location: `/api/field-of-studies/${encodePathIdentity(fieldOfStudy.fieldOfStudyId)}`,
-                  etag,
-                },
-                bodyBytes: jsonBodyBytes(fieldOfStudy),
-              };
-            }),
+              ),
+            ),
           ),
         };
       }),
+    ).pipe(
+      organizationProblems,
+      commandReceiptProblems,
+      credentialProblems(presentation),
+      // A person AccessSpec reveals every denial; none is concealed as absent.
+      unreachable("resource.not-found"),
     );
 
-    return nativeCommandOutcomeResponse(result);
+    return yield* commandOutcomeResponse(outcome);
   });
 
 const MailingListTypeSchema = Schema.Literals(["assistants", "team", "all"]);
 
-const optionalDepartmentParam = (request: Request) => {
-  const value = new URL(request.url).searchParams.get("department");
+/**
+ * One optional query identity; a value outside its schema is a malformed request.
+ */
+const optionalQueryIdentity = <S extends Schema.ConstraintDecoder<unknown, never>>(
+  request: Request,
+  name: "department" | "semester",
+  schema: S,
+): Effect.Effect<S["Type"] | undefined, Problem<"request.malformed">> => {
+  const value = new URL(request.url).searchParams.get(name);
 
-  if (value === null) return Effect.succeed<DepartmentId | undefined>(undefined);
-
-  return Schema.decodeUnknownEffect(DepartmentId)(value).pipe(
-    Effect.mapError(
-      () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-    ),
-  );
-};
-
-const optionalSemesterParam = (request: Request) => {
-  const value = new URL(request.url).searchParams.get("semester");
-
-  if (value === null) return Effect.succeed<SemesterId | undefined>(undefined);
-
-  return Schema.decodeUnknownEffect(SemesterId)(value).pipe(
-    Effect.mapError(
-      () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-    ),
-  );
+  return value === null
+    ? Effect.succeed(undefined)
+    : Schema.decodeUnknownEffect(schema)(value).pipe(
+        Effect.mapError(() => Problem.make("request.malformed")),
+      );
 };
 
 /** Spec 0059/0060 gating: globalAdmin -> all departments, else active-leader union. */
@@ -828,7 +685,7 @@ const narrowScopeOrThrow = (
     ? Effect.succeed(authorized)
     : authorized.some((authorizedId) => authorizedId === departmentId)
       ? Effect.succeed([departmentId])
-      : Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+      : Effect.fail(Problem.make("authority.denied"));
 
 /** Unknown department reference denies with 422 before any data leaves the store. */
 const assertDepartmentsExist = (departmentIds: ReadonlyArray<DepartmentId>) =>
@@ -836,7 +693,7 @@ const assertDepartmentsExist = (departmentIds: ReadonlyArray<DepartmentId>) =>
     Effect.flatMap((known) => {
       for (const requested of departmentIds) {
         if (!known.some((department) => department.departmentId === requested)) {
-          return Effect.fail(new HttpSemanticFailure("organization.invalid-reference", 422));
+          return Effect.fail(Problem.make("organization.invalid-reference"));
         }
       }
 
@@ -849,6 +706,7 @@ const authorizeOrganizationCollection = (input: {
   readonly authority: OrganizationPersonAuthority;
   readonly endpoint: Parameters<typeof reflectAccessSpec>[0];
   readonly departmentIds: ReadonlyArray<DepartmentId>;
+  readonly presentation: CredentialPresentation;
 }) => {
   const global = input.authority.globalAdministrator === "Active";
 
@@ -875,20 +733,25 @@ const authorizeOrganizationCollection = (input: {
       ? [Scope.Global()]
       : input.departmentIds.map((departmentId) => Scope.Department({ departmentId }));
 
-  return authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
-    request: input.request,
-    personId: input.authority.personId,
-    resolution: { selection: "AllMatching", contexts },
-    grantScopes: scopes,
-    now: input.authority.evaluatedAt,
-  });
+  return authorizePerson(
+    {
+      spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
+      request: input.request,
+      personId: input.authority.personId,
+      resolution: { selection: "AllMatching", contexts },
+      grantScopes: scopes,
+      now: input.authority.evaluatedAt,
+    },
+    input.presentation,
+  );
 };
 
-const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =>
-  Effect.gen(function* () {
+const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
     const authority = yield* input.resolveAuthority(request);
-    const requested = yield* optionalDepartmentParam(request);
+    const requested = yield* optionalQueryIdentity(request, "department", DepartmentId);
     // An authenticated caller with no active leader membership receives a typed
     // denial, never an empty success (spec 0059 authorization boundary). An
     // active global administrator is authorized for all departments even when
@@ -896,7 +759,7 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
     const leaderScope = yield* authorizedDepartmentScope(authority);
 
     if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
-      return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+      return yield* Problem.make("authority.denied");
     }
 
     const authorized = yield* narrowScopeOrThrow(leaderScope, requested);
@@ -905,6 +768,7 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
       authority,
       endpoint: ListTeamInterestEndpoint,
       departmentIds: authorized,
+      presentation,
     });
 
     // Unknown department reference denies with 422 before any data leaves the store.
@@ -912,43 +776,43 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
 
     const filter: TeamInterestFilter = {
       authorizedDepartmentIds: authorized,
-      semesterId: yield* optionalSemesterParam(request),
+      semesterId: yield* optionalQueryIdentity(request, "semester", SemesterId),
     };
 
     const rows = yield* Organization.use(({ listTeamInterestRegistrations }) =>
       listTeamInterestRegistrations(filter),
     );
 
-    const envelope = {
+    return yield* privateReadJson(TeamInterestResponse)({
       "hydra:member": rows.map((row) => ({
         id: row.registrationId,
         userName: row.submitterName,
         teamName: row.teamName,
       })),
       "hydra:totalItems": rows.length,
-    };
+    });
+  }).pipe(
+    organizationProblems,
+    credentialProblems(presentation),
+    // A person AccessSpec reveals every denial; none is concealed as absent.
+    unreachable("resource.not-found"),
+  );
+};
 
-    return yield* privateReadJson(TeamInterestResponse)(envelope);
-  });
+const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) => {
+  const presentation = personPresentation(request);
 
-const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =>
-  Effect.gen(function* () {
-    const rawType = new URL(request.url).searchParams.get("type") ?? "assistants";
-
-    const decodedType = yield* Schema.decodeUnknownEffect(MailingListTypeSchema)(rawType, {
-      onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-      ),
-    );
+  return Effect.gen(function* () {
+    const type = yield* Schema.decodeUnknownEffect(MailingListTypeSchema)(
+      new URL(request.url).searchParams.get("type") ?? "assistants",
+    ).pipe(Effect.mapError(() => Problem.make("request.malformed")));
 
     const authority = yield* input.resolveAuthority(request);
-    const requested = yield* optionalDepartmentParam(request);
+    const requested = yield* optionalQueryIdentity(request, "department", DepartmentId);
     const leaderScope = yield* authorizedDepartmentScope(authority);
 
     if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
-      return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+      return yield* Problem.make("authority.denied");
     }
 
     const authorized = yield* narrowScopeOrThrow(leaderScope, requested);
@@ -959,12 +823,13 @@ const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =
       authority,
       endpoint: ListMailingListsEndpoint,
       departmentIds: authorized,
+      presentation,
     });
-    const semesterId = yield* optionalSemesterParam(request);
+    const semesterId = yield* optionalQueryIdentity(request, "semester", SemesterId);
 
     const lists = yield* Organization.use(({ projectMailingLists }) =>
       projectMailingLists({
-        type: decodedType,
+        type,
         actorPersonId: authority.personId,
         authorizationInstant: authority.evaluatedAt,
         departmentId: requested,
@@ -973,68 +838,82 @@ const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =
     );
 
     return yield* privateReadJson(MailingListResponse)(lists);
-  });
+  }).pipe(
+    organizationProblems,
+    credentialProblems(presentation),
+    // A person AccessSpec reveals every denial; none is concealed as absent.
+    unreachable("resource.not-found"),
+  );
+};
 
-/** Native HttpApi implementations for organization endpoints. */
-const readAppointmentManagement = (request: Request) =>
-  Effect.gen(function* () {
-    yield* assertNoQuery(request);
+const readAppointmentManagement = (request: Request) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
+    yield* rejectQuery(request);
     const resolved = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer");
 
-    if (!Predicate.isTagged(resolved.credential.principal, "Person"))
-      return yield* new UnauthenticatedActor({ message: "authentication required" });
+    if (!Predicate.isTagged(resolved.credential.principal, "Person")) {
+      return yield* Problem.unauthenticated(presentation);
+    }
+
     const personId = resolved.credential.principal.personId;
 
     const snapshot = yield* Organization.use((service) =>
       service.readAppointmentManagement(personId),
     );
 
-    yield* authorizePersonNativeOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(ReadAppointmentManagementEndpoint)),
-      credential: resolved.credential,
-      personId,
-      resolution: {
-        selection: "ExactlyOne",
-        contexts: [
-          genericContext({ domainId: "organization", authorityVersion: "appointment-management" }),
-        ],
+    yield* authorizePerson(
+      {
+        spec: Option.getOrThrow(reflectAccessSpec(ReadAppointmentManagementEndpoint)),
+        credential: resolved.credential,
+        personId,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [
+            genericContext({
+              domainId: "organization",
+              authorityVersion: "appointment-management",
+            }),
+          ],
+        },
+        grantScopes: [Scope.Global()],
+        now: resolved.authorizationInstant,
       },
-      grantScopes: [Scope.Global()],
-      now: resolved.authorizationInstant,
-    });
+      presentation,
+    );
 
     return yield* privateReadJson(AppointmentManagement)(snapshot);
-  });
+  }).pipe(organizationProblems, credentialProblems(presentation));
+};
 
 const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* assertNoQuery(request);
-    const command = yield* decodeCommand(request, OrganizationLifecycleCommand, input);
+    yield* rejectQuery(request);
 
-    const idempotencyKey = yield* Effect.try({
-      try: () =>
-        parseIdempotencyKey(
-          request.headers.get("idempotency-key") === null
-            ? []
-            : [request.headers.get("idempotency-key")!],
-        ),
-      catch: (cause) =>
-        cause instanceof UnauthenticatedActor ||
-        cause instanceof OrganizationLifecycleFailure ||
-        cause instanceof HttpSemanticFailure
-          ? cause
-          : new Cause.UnknownError(cause),
-    });
+    const command = yield* readCommandBody(request, input.config.maxBodyBytes).pipe(
+      Effect.flatMap(decodeRequest(OrganizationLifecycleCommand)),
+    );
 
-    if (command.commandId !== idempotencyKey)
-      return yield* new OrganizationLifecycleFailure({ code: "Conflict" });
+    const idempotencyKey = yield* idempotencyKeyOf(request);
 
+    // A command replays under its own identifier only.
+    if (command.commandId !== idempotencyKey) {
+      return yield* Problem.make("idempotency.digest-conflict");
+    }
+
+    const presentation = personPresentation(request);
+
+    // Domain and credential failures are mapped after the executor, whose serialization
+    // retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const resolved = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer");
 
-        if (!Predicate.isTagged(resolved.credential.principal, "Person"))
-          return yield* new UnauthenticatedActor({ message: "authentication required" });
+        if (!Predicate.isTagged(resolved.credential.principal, "Person")) {
+          return yield* Problem.unauthenticated(presentation);
+        }
+
         const personId = resolved.credential.principal.personId;
 
         // Authority, history and both receipts commit in this ambient transaction.
@@ -1043,29 +922,33 @@ const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =
         );
 
         const current = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer");
-        yield* authorizePersonNativeOperation({
-          spec: Option.getOrThrow(reflectAccessSpec(ExecuteOrganizationLifecycleEndpoint)),
-          credential: current.credential,
-          personId,
-          resolution: {
-            selection: "ExactlyOne",
-            contexts: [
-              genericContext({
-                domainId: "organization",
-                authorityVersion: "appointment-management",
-              }),
-            ],
+        yield* authorizePerson(
+          {
+            spec: Option.getOrThrow(reflectAccessSpec(ExecuteOrganizationLifecycleEndpoint)),
+            credential: current.credential,
+            personId,
+            resolution: {
+              selection: "ExactlyOne",
+              contexts: [
+                genericContext({
+                  domainId: "organization",
+                  authorityVersion: "appointment-management",
+                }),
+              ],
+            },
+            grantScopes: [Scope.Global()],
+            now: current.authorizationInstant,
           },
-          grantScopes: [Scope.Global()],
-          now: current.authorizationInstant,
-        });
+          presentation,
+        );
 
-        const identity = deriveHttpIdentity({
+        // An accepted person, the decoded key, and the fixed operation and target always derive one.
+        const identity = yield* httpIdentity({
           credentialSubject: `Person:${personId}`,
           qualifiedOperationId: "organization.executeLifecycle",
           normalizedTarget: "/api/organization/appointments/commands",
           idempotencyKey,
-        });
+        }).pipe(unreachable("request.malformed", "idempotency-key.invalid"));
 
         return {
           identity: {
@@ -1073,7 +956,7 @@ const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =
             requestSha256: semanticRequestDigest({ body: command }),
             operationId: "organization.executeLifecycle",
           },
-          execute: Effect.succeed({
+          execute: Effect.succeed<NativeHttpResponseCapsule>({
             status: 200,
             mediaType: "application/json",
             headers: {
@@ -1089,64 +972,39 @@ const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =
         };
       }),
       { retry: "serialization-once" },
-    );
+    ).pipe(organizationProblems, commandReceiptProblems, credentialProblems(presentation));
 
-    return nativeCommandOutcomeResponse(outcome);
+    return yield* commandOutcomeResponse(outcome);
   });
 
+/** Native HttpApi implementations for organization endpoints. */
 export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) =>
   HttpApiBuilder.group(ExternalNativeApi, "organization", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readAppointmentManagement", ({ request }) =>
-          toHttpApiResponse(request, readAppointmentManagement, errorResponse),
+          webHandler(request, readAppointmentManagement),
         )
         .handleRaw("executeLifecycle", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => executeLifecycle(webRequest, input),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => executeLifecycle(webRequest, input)),
         )
-        .handleRaw("listDepartments", ({ request }) =>
-          toHttpApiResponse(request, listDepartments, errorResponse),
-        )
-        .handleRaw("listTeams", ({ request }) =>
-          toHttpApiResponse(request, listTeams, errorResponse),
-        )
-        .handleRaw("listFieldOfStudies", ({ request }) =>
-          toHttpApiResponse(request, listFieldOfStudies, errorResponse),
-        )
+        .handleRaw("listDepartments", ({ request }) => webHandler(request, listDepartments))
+        .handleRaw("listTeams", ({ request }) => webHandler(request, listTeams))
+        .handleRaw("listFieldOfStudies", ({ request }) => webHandler(request, listFieldOfStudies))
         .handleRaw("listTeamInterest", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listTeamInterest(webRequest, input),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => listTeamInterest(webRequest, input)),
         )
         .handleRaw("listMailingLists", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listMailingLists(webRequest, input),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => listMailingLists(webRequest, input)),
         )
         .handleRaw("createDepartment", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => createDepartment(webRequest, input),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => createDepartment(webRequest, input)),
         )
         .handleRaw("createTeam", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => createTeam(webRequest, input), errorResponse),
+          webHandler(request, (webRequest) => createTeam(webRequest, input)),
         )
         .handleRaw("createFieldOfStudy", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => createFieldOfStudy(webRequest, input),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => createFieldOfStudy(webRequest, input)),
         ),
     ),
   );

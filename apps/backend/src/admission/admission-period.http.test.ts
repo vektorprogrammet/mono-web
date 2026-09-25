@@ -40,7 +40,9 @@ const departmentId = "department-periods";
 
 const leaderPersonId = "periods-leader";
 
-/** One open autumn period and an empty spring semester, managed by one department leader. */
+const adminPersonId = "periods-admin";
+
+/** One open autumn period and an empty spring semester, a department leader, and a global administrator. */
 const seed = Database.use((sql) =>
   Effect.gen(function* () {
     yield* sql`INSERT INTO admission_period_departments (department_id, name) VALUES (${departmentId}, 'Trondheim')`;
@@ -56,7 +58,8 @@ const seed = Database.use((sql) =>
     `;
     yield* sql`INSERT INTO organization_departments (department_id, name, short_name, email, city) VALUES (${departmentId}, 'Trondheim', 'TRD', 'periods@example.invalid', 'Trondheim')`;
     yield* sql`INSERT INTO organization_teams (team_id, department_id, name) VALUES ('periods-team', ${departmentId}, 'Styret')`;
-    yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${leaderPersonId}, 'Lise', 'Leader')`;
+    yield* sql`INSERT INTO person_profiles (person_id, first_name, last_name) VALUES (${leaderPersonId}, 'Lise', 'Leader'), (${adminPersonId}, 'Ada', 'Admin')`;
+    yield* sql`INSERT INTO organization_global_administrator_grants (grant_id, person_id, start_at) VALUES ('periods-admin-grant', ${adminPersonId}, '2020-01-01T00:00:00.000Z')`;
     yield* sql`
       INSERT INTO organization_memberships (membership_id, person_id, team_id, start_at, position_id, is_team_leader)
       VALUES ('periods-leader-membership', ${leaderPersonId}, 'periods-team', '2020-01-01T00:00:00.000Z', 'leader', TRUE)
@@ -161,9 +164,9 @@ const fixture = async () => {
     unavailableAuthHandler,
   );
 
-  const manage = (path: string, init: RequestInit = {}) => {
+  const manage = (path: string, init: RequestInit = {}, personId = leaderPersonId) => {
     const headers = new Headers(init.headers);
-    headers.set("cookie", `better-auth.session_token=${leaderPersonId}`);
+    headers.set("cookie", `better-auth.session_token=${personId}`);
 
     if (init.method !== undefined && init.method !== "GET") {
       headers.set("origin", "http://127.0.0.1:5174");
@@ -399,6 +402,60 @@ describe("admission period management over HTTP and PostgreSQL", () => {
     ).resolves.toMatchObject({
       code: "validation.failed",
       validation: { errors: [makeNativeValidationError("/endAt", "invalid")], truncated: false },
+    });
+    await expect(
+      count("SELECT count(*)::integer AS count FROM admission_period_command_receipts"),
+    ).resolves.toBe(0);
+  });
+
+  it("names the semester or department that a create cannot resolve", async () => {
+    const { manage, count } = await fixture();
+
+    const create = (key: string, semesterId: string, personId?: string) =>
+      manage(
+        "/api/admission-periods",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": key.padEnd(22, "0"),
+          },
+          body: JSON.stringify({
+            semesterId,
+            startAt: "2032-01-10T08:00:00.000Z",
+            endAt: "2032-02-01T20:00:00.000Z",
+          }),
+        },
+        personId,
+      );
+
+    const unknownSemester = await create("unknownSemester", "semester-unknown");
+
+    // A global administrator acts in no department of its own, so the create must name one.
+    const withoutDepartment = await create(
+      "globalWithoutDepartment",
+      "semester-spring",
+      adminPersonId,
+    );
+
+    expect([unknownSemester.status, withoutDepartment.status]).toEqual([422, 422]);
+    await expect(
+      decodeStrict(AdmissionsCreateAdmissionPeriodProblem, unknownSemester),
+    ).resolves.toMatchObject({
+      code: "validation.failed",
+      validation: {
+        errors: [makeNativeValidationError("/semesterId", "invalid")],
+        truncated: false,
+      },
+    });
+    await expect(
+      decodeStrict(AdmissionsCreateAdmissionPeriodProblem, withoutDepartment),
+    ).resolves.toMatchObject({
+      code: "validation.failed",
+      validation: {
+        errors: [makeNativeValidationError("/departmentId", "missing")],
+        truncated: false,
+      },
     });
     await expect(
       count("SELECT count(*)::integer AS count FROM admission_period_command_receipts"),

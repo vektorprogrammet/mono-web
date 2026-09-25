@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { Data, Schema } from "effect";
-import { allowHeader, nativeProblemResponse } from "./http-semantics.js";
+import { allowHeader } from "./http-semantics.js";
 
 const Deployment = Schema.Literals(["local", "preview", "production"]);
 
@@ -198,9 +198,6 @@ export const decideTrustedOrigin = (
     ? OriginDecision.Allowed({ origin: null })
     : OriginDecision.Rejected();
 };
-
-export const trustedOriginRejectedResponse = (): Response =>
-  nativeProblemResponse("origin.denied", 403, { vary: "Origin" });
 
 /**
  * Browser-controlled headers supported by the current native API contract.

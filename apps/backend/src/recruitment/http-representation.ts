@@ -1,4 +1,4 @@
-/** Recruitment HTTP representations: cache policies, response schemas, ETags, and conditional reads. */
+/** Recruitment HTTP representations: ETags and scheduling items. */
 import type {
   RecruitmentAuthorityHttpSource,
   RecruitmentInterviewHttpSource,
@@ -6,29 +6,7 @@ import type {
   RecruitmentSchedulingBoard,
 } from "@vektorprogrammet/domain/recruitment";
 import type { StrongETag } from "@vektorprogrammet/http-api";
-import { Effect, Predicate, Schema, flow } from "effect";
-import {
-  HttpSemanticFailure,
-  deriveStrongETag,
-  evaluateReadPreconditions,
-  nativeProblemResponse,
-  notModifiedResponse,
-  parseIfNoneMatch,
-  parseReadIfMatch,
-} from "../http-semantics.js";
-import { headerValues } from "./http-decode.js";
-import { knownRecruitmentFailure } from "./http-problem.js";
-
-export const NO_STORE = "no-store";
-
-export const PRIVATE_NO_STORE = "private, no-store";
-
-/** A domain observation that does not fit its response schema is an internal error. */
-export const strictOutput = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
-  flow(
-    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
-  );
+import { deriveStrongETag } from "../http-semantics.js";
 
 export const invitationETag = (source: RecruitmentInvitationHttpSource): StrongETag =>
   deriveStrongETag({
@@ -68,32 +46,3 @@ export const schedulingBoardWithETags = (
     }),
   })),
 });
-
-export const conditionalJsonResponse = (request: Request, body: Schema.Json, etag: StrongETag) =>
-  Effect.try({
-    try: () => {
-      const decision = evaluateReadPreconditions({
-        currentETag: etag,
-        ifMatch: parseReadIfMatch(headerValues(request, "if-match")),
-        ifNoneMatch: parseIfNoneMatch(headerValues(request, "if-none-match")),
-      });
-
-      if (Predicate.isTagged(decision, "Failed"))
-        return nativeProblemResponse(decision.code, decision.status);
-
-      if (Predicate.isTagged(decision, "NotModified")) {
-        return notModifiedResponse({ etag, cacheControl: PRIVATE_NO_STORE, vary: "Origin" });
-      }
-
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: {
-          "cache-control": PRIVATE_NO_STORE,
-          "content-type": "application/json",
-          etag,
-          vary: "Origin",
-        },
-      });
-    },
-    catch: knownRecruitmentFailure,
-  });

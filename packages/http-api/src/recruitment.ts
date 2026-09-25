@@ -665,6 +665,7 @@ const RecruitmentMaintenanceProblem = problemUnion("RecruitmentMaintenanceProble
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "transaction.conflict",
   "resource.not-found",
   "precondition.failed",
   "recruitment.invalid-command",

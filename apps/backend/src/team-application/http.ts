@@ -39,7 +39,6 @@ import {
 import {
   type CredentialPresentation,
   makeNativeValidationError,
-  nativeUserChallenges,
   type NativeValidationError,
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
@@ -50,31 +49,30 @@ import type { TeamApplicationApiConfig } from "../config.js";
 import {
   authorizeAnonymous,
   authorizePerson,
-  classifyCredential,
   commandOutcomeResponse,
   commandReceiptProblems,
+  httpIdentity,
+  idempotencyKeyOf,
+  personPresentation,
   problemMapper,
-  semanticProblem,
-  semanticProblems,
+  readJsonBody,
+  requireCurrentETag,
+  requiredIfMatchOf,
+  requireNoQuery,
   unreachable,
   webHandler,
 } from "../http-api/problem.js";
 import { publicRateLimitKey } from "../http-api/public-rate-limit.js";
-import { readBoundedJson } from "../http-api/read-json.js";
 import {
   executeNativeHttpCommandPostgres,
   type NativeHttpResponseCapsule,
 } from "../http-api/receipt-transaction.js";
 import {
-  deriveHttpIdentity,
   deriveStrongETag,
   encodePathIdentity,
-  evaluateMutationPrecondition,
   jsonBodyBytes,
   normalizeTarget,
   NO_STORE,
-  parseIdempotencyKey,
-  parseRequiredIfMatch,
   PRIVATE_NO_STORE,
   semanticMutationRequest,
   semanticRequestDigest,
@@ -117,26 +115,12 @@ const teamApplicationProblems = problemMapper<
     failure.conflict ? Problem.make("transaction.conflict") : Problem.make("internal.error"),
 });
 
-/** The credential the request itself presented, recorded once for every rejection. */
-const staffPresentation = (request: Request) =>
-  classifyCredential(
-    request.headers.get("authorization"),
-    request.headers.get("cookie"),
-    nativeUserChallenges(),
-  );
-
 /** A staff credential rejected inside the transaction is answered from the request's evidence. */
 const staffCredentialProblems = (presentation: CredentialPresentation) =>
   problemMapper<UnauthenticatedActor | IdentityEngineError>()({
     UnauthenticatedActor: () => Problem.unauthenticated(presentation),
     IdentityEngineError: () => Problem.make("internal.error"),
   });
-
-const headerValues = (request: Request, name: string) =>
-  request.headers.has(name) ? [request.headers.get(name)!] : [];
-
-const requireNoQuery = (request: Request) =>
-  new URL(request.url).search === "" ? Effect.void : Effect.fail(Problem.make("request.malformed"));
 
 const json = (body: Schema.Json, cacheControl: string) =>
   new Response(JSON.stringify(body), {
@@ -237,27 +221,6 @@ const snapshotRead = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       }),
     ),
   ).pipe(Effect.catchTag("SqlError", () => Effect.fail(Problem.make("internal.error"))));
-
-const readJsonBody = (request: Request, mediaType: RegExp, maxBytes: number) =>
-  mediaType.test(request.headers.get("content-type") ?? "")
-    ? semanticProblems(readBoundedJson(request, maxBytes), [
-        "request.malformed",
-        "request.too-large",
-        "internal.error",
-      ])
-    : Effect.fail(Problem.make("media-type.unsupported"));
-
-const idempotencyKeyOf = (request: Request) =>
-  semanticProblem(
-    () => parseIdempotencyKey(headerValues(request, "idempotency-key")),
-    ["idempotency-key.invalid"],
-  );
-
-const httpIdentity = (input: Parameters<typeof deriveHttpIdentity>[0]) =>
-  semanticProblem(
-    () => deriveHttpIdentity(input),
-    ["request.malformed", "idempotency-key.invalid"],
-  );
 
 const JsonObject = Schema.Record(Schema.String, Schema.Json);
 
@@ -441,7 +404,7 @@ const cursorQuery = (request: Request) =>
   });
 
 const listApplications = (request: Request, teamId: TeamId) => {
-  const presentation = staffPresentation(request);
+  const presentation = personPresentation(request);
 
   return snapshotRead(
     Effect.gen(function* () {
@@ -478,7 +441,7 @@ const listApplications = (request: Request, teamId: TeamId) => {
 };
 
 const readApplication = (request: Request, applicationId: TeamApplicationId) => {
-  const presentation = staffPresentation(request);
+  const presentation = personPresentation(request);
 
   return snapshotRead(
     Effect.gen(function* () {
@@ -515,7 +478,7 @@ const deleteApplication = (request: Request, applicationId: TeamApplicationId) =
     yield* requireNoQuery(request);
 
     const idempotencyKey = yield* idempotencyKeyOf(request);
-    const presentation = staffPresentation(request);
+    const presentation = personPresentation(request);
 
     const operationId = "team-applications.deleteTeamApplication";
 
@@ -610,13 +573,10 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
       ]);
     }
 
-    const ifMatch = yield* semanticProblem(
-      () => parseRequiredIfMatch(headerValues(request, "if-match")),
-      ["precondition.required", "precondition.invalid"],
-    );
+    const ifMatch = yield* requiredIfMatchOf(request);
 
     const idempotencyKey = yield* idempotencyKeyOf(request);
-    const presentation = staffPresentation(request);
+    const presentation = personPresentation(request);
 
     const operationId = "team-applications.reviseTeamApplicationIntake";
 
@@ -666,16 +626,9 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
             operationId,
           },
           execute: TeamApplications.use((service) =>
-            service.reviseIntake(command, staff.principal, (current) => {
-              const precondition = evaluateMutationPrecondition(
-                intakeETag(teamId, current.revision),
-                ifMatch,
-              );
-
-              return Predicate.isTagged(precondition, "Failed")
-                ? Effect.fail(Problem.make("precondition.failed"))
-                : Effect.void;
-            }),
+            service.reviseIntake(command, staff.principal, (current) =>
+              requireCurrentETag(intakeETag(teamId, current.revision), ifMatch),
+            ),
           ).pipe(
             Effect.map(({ intake }) => {
               const resource = intakeResource(teamId, intake);

@@ -93,6 +93,7 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   "idempotency.in-flight",
   "idempotency.digest-conflict",
   "idempotency.response-expired",
+  "idempotency.unavailable",
   "transaction.conflict",
   "internal.error",
   "media-type.unsupported",
