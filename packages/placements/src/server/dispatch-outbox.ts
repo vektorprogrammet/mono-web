@@ -7,6 +7,14 @@ import {
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { flow, Data, Predicate, Effect, Schema } from "effect";
 import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
+import {
+  markOutboxDelivered,
+  markOutboxFailed,
+  outboxClaimAssignments,
+  quarantineOutboxClaim,
+  recoverStaleOutboxClaims,
+  type OutboxTable,
+} from "@vektorprogrammet/database/outbox-lifecycle";
 
 const ClaimedRow = Schema.Struct({
   effectId: Schema.String,
@@ -74,13 +82,18 @@ const decode = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
     Effect.mapError((cause) => outboxError("decode school service dispatch notification", cause)),
   );
 
+const dispatchOutbox: OutboxTable = {
+  name: "public.school_service_dispatch_notification_outbox",
+  terminalPayload: "Retain",
+};
+
 const quarantine = (
   sql: DatabaseOperations,
   effectId: string,
   claimId: string,
   failureTag: string,
 ) =>
-  sql`UPDATE public.school_service_dispatch_notification_outbox SET status='Quarantined',claim_id=NULL,claimed_at=NULL,last_failure_tag=${failureTag} WHERE effect_id=${effectId} AND status='Processing' AND claim_id=${claimId}`.pipe(
+  quarantineOutboxClaim(sql, dispatchOutbox, { effectId, claimId }, failureTag).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(outboxError("quarantine school service dispatch notification", cause)),
     ),
@@ -98,8 +111,7 @@ const claimInTransaction = (sql: DatabaseOperations, claimId: string, claimedAt:
         LIMIT 1
       )
       UPDATE public.school_service_dispatch_notification_outbox AS outbox
-      SET status='Processing',claim_id=${claimId},claimed_at=${claimedAt},
-        attempts=outbox.attempts+1,last_failure_tag=NULL
+      SET ${outboxClaimAssignments(sql, "outbox", claimId, claimedAt)}
       FROM candidate
       WHERE outbox.effect_id=candidate.effect_id
       RETURNING outbox.effect_id AS "effectId",outbox.offer_id AS "offerId",
@@ -251,10 +263,10 @@ export const claimNextSchoolServiceDispatchNotification = (claimId: string, clai
 
 export const recoverStaleSchoolServiceDispatchNotifications = (claimedBefore: string) =>
   Database.use((sql) =>
-    sql<{
-      readonly count: string;
-    }>`WITH recovered AS (UPDATE public.school_service_dispatch_notification_outbox SET status='Failed',claim_id=NULL,claimed_at=NULL,last_failure_tag='StaleClaim' WHERE status='Processing' AND claimed_at<${claimedBefore} RETURNING 1) SELECT count(*)::text AS count FROM recovered`.pipe(
-      Effect.map((rows) => Number(rows[0]?.count ?? 0)),
+    recoverStaleOutboxClaims(sql, dispatchOutbox, claimedBefore, {
+      status: "Failed",
+      failureTag: "StaleClaim",
+    }).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(outboxError("recover school service dispatch notification claims", cause)),
       ),
@@ -287,10 +299,7 @@ export const deliverNextSchoolServiceDispatchNotification = (
     return yield* interpreter(claim.request).pipe(
       Effect.matchEffect({
         onFailure: (failure) =>
-          Database.use(
-            (sql) =>
-              sql`UPDATE public.school_service_dispatch_notification_outbox SET status='Failed',claim_id=NULL,claimed_at=NULL,last_failure_tag=${failure._tag} WHERE effect_id=${claim.effectId} AND status='Processing' AND claim_id=${claim.claimId}`,
-          ).pipe(
+          Database.use((sql) => markOutboxFailed(sql, dispatchOutbox, claim, failure._tag)).pipe(
             Effect.as(
               SchoolServiceDispatchNotificationDeliveryResult.Failed({
                 claim,
@@ -302,9 +311,8 @@ export const deliverNextSchoolServiceDispatchNotification = (
             ),
           ),
         onSuccess: () =>
-          Database.use(
-            (sql) =>
-              sql`UPDATE public.school_service_dispatch_notification_outbox SET status='Delivered',claim_id=NULL,claimed_at=NULL,delivered_at=${claimedAt},last_failure_tag=NULL WHERE effect_id=${claim.effectId} AND status='Processing' AND claim_id=${claim.claimId}`,
+          Database.use((sql) =>
+            markOutboxDelivered(sql, dispatchOutbox, claim, { deliveredAt: claimedAt }),
           ).pipe(
             Effect.as(SchoolServiceDispatchNotificationDeliveryResult.Delivered({ claim })),
             Effect.catchTag("SqlError", (cause) =>

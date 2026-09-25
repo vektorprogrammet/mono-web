@@ -1,4 +1,11 @@
 import { Database } from "../service.js";
+import {
+  markOutboxDelivered,
+  markOutboxFailed,
+  outboxClaimAssignments,
+  recoverStaleOutboxClaim,
+  type OutboxTable,
+} from "../outbox-lifecycle.js";
 import { Match, Effect, Schema, Semaphore, Clock } from "effect";
 import {
   ReceiptAuxiliaryEffects,
@@ -24,10 +31,6 @@ interface ClaimedOutboxRow {
   readonly payload_json: unknown;
 }
 
-interface CountRow {
-  readonly count: string;
-}
-
 interface ClaimIdRow {
   readonly claim_id: string;
 }
@@ -35,11 +38,11 @@ interface ClaimIdRow {
 const persistenceError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
 
-const requireSingleUpdate = (
-  rows: ReadonlyArray<unknown>,
+const requireActiveClaim = (
+  transitioned: boolean,
   operation: string,
 ): Effect.Effect<void, ReceiptPersistenceError> =>
-  rows.length === 1
+  transitioned
     ? Effect.void
     : Effect.fail(
         new ReceiptPersistenceError({
@@ -47,6 +50,8 @@ const requireSingleUpdate = (
           message: "active Receipt outbox claim was not found",
         }),
       );
+
+const receiptOutbox: OutboxTable = { name: "economy_receipt_outbox", terminalPayload: "Retain" };
 
 export const claimNextReceiptOutbox = (
   claimId: string,
@@ -88,12 +93,8 @@ export const claimNextReceiptOutbox = (
         FOR UPDATE OF outbox SKIP LOCKED
         LIMIT 1
       )
-      UPDATE economy_receipt_outbox AS claimed SET
-        status = 'Processing',
-        attempts = claimed.attempts + 1,
-        claim_id = ${claimId},
-        claimed_at = ${claimedAt},
-        last_failure_tag = NULL
+      UPDATE economy_receipt_outbox AS claimed
+      SET ${outboxClaimAssignments(sql, "claimed", claimId, claimedAt)}
       FROM candidate
       WHERE claimed.effect_id = candidate.effect_id
       RETURNING claimed.effect_id, claimed.command_id, claimed.ordinal,
@@ -139,48 +140,23 @@ export const claimNextReceiptOutbox = (
 export const completeReceiptOutbox = (
   claim: ClaimedReceiptOutbox,
 ): Effect.Effect<void, ReceiptPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effect_id: string }>`
-    UPDATE economy_receipt_outbox SET
-      status = 'Delivered', claim_id = NULL, claimed_at = NULL, last_failure_tag = NULL
-    WHERE effect_id = ${claim.effectId}
-      AND status = 'Processing'
-      AND claim_id = ${claim.claimId}
-    RETURNING effect_id
-  `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("complete Receipt outbox", cause)),
-      ),
-    );
-
-    yield* requireSingleUpdate(rows, "complete Receipt outbox");
-  });
+  Database.use((sql) => markOutboxDelivered(sql, receiptOutbox, claim)).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("complete Receipt outbox", cause)),
+    ),
+    Effect.flatMap((delivered) => requireActiveClaim(delivered, "complete Receipt outbox")),
+  );
 
 export const failReceiptOutbox = (
   claim: ClaimedReceiptOutbox,
   failureTag: string,
 ): Effect.Effect<void, ReceiptPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effect_id: string }>`
-    UPDATE economy_receipt_outbox SET
-      status = 'Failed', claim_id = NULL, claimed_at = NULL,
-      last_failure_tag = ${failureTag}
-    WHERE effect_id = ${claim.effectId}
-      AND status = 'Processing'
-      AND claim_id = ${claim.claimId}
-    RETURNING effect_id
-  `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("fail Receipt outbox", cause)),
-      ),
-    );
-
-    yield* requireSingleUpdate(rows, "fail Receipt outbox");
-  });
+  Database.use((sql) => markOutboxFailed(sql, receiptOutbox, claim, failureTag)).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("fail Receipt outbox", cause)),
+    ),
+    Effect.flatMap((failed) => requireActiveClaim(failed, "fail Receipt outbox")),
+  );
 
 export const listStaleReceiptOutboxClaimIds = (
   claimedBefore: string,
@@ -217,28 +193,16 @@ export const recoverStaleReceiptOutbox = (
   claimId: string,
   claimedBefore: string,
 ): Effect.Effect<number, ReceiptPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<CountRow>`
-    WITH recovered AS (
-      UPDATE economy_receipt_outbox SET
-        status = 'Failed', claim_id = NULL, claimed_at = NULL,
-        last_failure_tag = 'StaleReceiptOutboxClaim'
-      WHERE status = 'Processing'
-        AND claim_id = ${claimId}
-        AND claimed_at < ${claimedBefore}
-      RETURNING 1
-    )
-    SELECT count(*)::text AS count FROM recovered
-  `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("recover stale Receipt outbox", cause)),
-      ),
-    );
-
-    return Number(rows[0]?.count ?? "0");
-  });
+  Database.use((sql) =>
+    recoverStaleOutboxClaim(sql, receiptOutbox, claimId, claimedBefore, {
+      status: "Failed",
+      failureTag: "StaleReceiptOutboxClaim",
+    }),
+  ).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("recover stale Receipt outbox", cause)),
+    ),
+  );
 
 const interpretReceiptOutbox = (
   request: ReceiptOutboxRequest,
