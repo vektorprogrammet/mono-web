@@ -13,6 +13,11 @@ import {
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
 import { ListSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
 import { Predicate, Effect, Option, Schema } from "effect";
+import { isSerializationConflict } from "../http-api/problem.js";
+import {
+  NativeHttpReceiptInvalid,
+  NativeHttpReceiptPersistenceError,
+} from "../http-api/receipt-transaction.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
 
@@ -67,6 +72,16 @@ export const schoolsErrorResponse = (cause: unknown): Response => {
       case "Invalid":
         return nativeProblemResponse("schools.invalid-command", 422);
     }
+  }
+
+  if (cause instanceof NativeHttpReceiptPersistenceError) {
+    return isSerializationConflict(cause)
+      ? nativeProblemResponse("transaction.conflict", 409)
+      : nativeProblemResponse("idempotency.unavailable", 503);
+  }
+
+  if (cause instanceof NativeHttpReceiptInvalid) {
+    return nativeProblemResponse("internal.error", 500);
   }
 
   const tag =
