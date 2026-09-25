@@ -23,7 +23,6 @@ import {
   type CredentialOutcome,
   type ReceiptAccessFacts,
 } from "@vektorprogrammet/domain/authz";
-import { reflectAccessSpec } from "../../../../packages/http-api/src/access.js";
 import { readOwnedReceiptFile } from "@vektorprogrammet/database/receipt/postgres";
 import { randomUUID } from "node:crypto";
 
@@ -73,7 +72,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import { readBoundedJson } from "../http-api/read-json.js";
-import { readBoundedReceiptForm } from "@vektorprogrammet/http-api";
+import { readBoundedReceiptForm, reflectAccessSpec } from "@vektorprogrammet/http-api";
 import {
   HttpSemanticFailure,
   deriveHttpIdentity,
