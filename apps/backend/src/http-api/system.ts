@@ -46,6 +46,7 @@ import {
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
 import { identityRequestContext } from "../session-security.js";
+import { isSerializationConflict } from "./problem.js";
 import { toHttpApiResponse } from "./transport.js";
 
 const jsonResponse = (
@@ -100,6 +101,29 @@ const identityErrorResponse = (cause: unknown): Response => {
   }
 
   return nativeProblemResponse("identity.unavailable", 503);
+};
+
+/**
+ * Session mutations answer the frozen command table: an identity engine
+ * failure is an unavailable dependency, and the receipt failures are answered
+ * as every native command answers them.
+ */
+const sessionMutationErrorResponse = (cause: unknown): Response => {
+  if (Predicate.isTagged(cause, "NativeHttpReceiptPersistenceError")) {
+    return isSerializationConflict(cause)
+      ? nativeProblemResponse("transaction.conflict", 409)
+      : nativeProblemResponse("idempotency.unavailable", 503);
+  }
+
+  if (Predicate.isTagged(cause, "NativeHttpReceiptInvalid")) {
+    return nativeProblemResponse("internal.error", 500);
+  }
+
+  if (cause instanceof IdentityEngineError) {
+    return nativeProblemResponse("dependency.unavailable", 503);
+  }
+
+  return identityErrorResponse(cause);
 };
 
 const projection = (personId: string, session: IdentitySession) => ({
@@ -341,7 +365,7 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
                 mutate: (identity, actor) =>
                   identity.revokeCurrentSession(actor, identityRequestContext(webRequest)),
               }),
-            identityErrorResponse,
+            sessionMutationErrorResponse,
           ),
         )
         .handleRaw("listSessions", ({ request }) =>
@@ -388,7 +412,7 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
                     identityRequestContext(webRequest),
                   ),
               }),
-            identityErrorResponse,
+            sessionMutationErrorResponse,
           ),
         )
         .handleRaw("revokeOtherSessions", ({ request }) =>
@@ -404,7 +428,7 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
                 mutate: (identity, actor) =>
                   identity.revokeOtherSessions(actor, identityRequestContext(webRequest)),
               }),
-            identityErrorResponse,
+            sessionMutationErrorResponse,
           ),
         )
         .handleRaw("revokeAllSessions", ({ request }) =>
@@ -420,7 +444,7 @@ export const SystemApiHandlers = (options: SystemOptions = {}) =>
                 mutate: (identity, actor) =>
                   identity.revokeAllSessions(actor, identityRequestContext(webRequest)),
               }),
-            identityErrorResponse,
+            sessionMutationErrorResponse,
           ),
         ),
     ),
