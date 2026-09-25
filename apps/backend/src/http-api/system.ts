@@ -62,8 +62,13 @@ const jsonResponse = (
   });
 
 const identityErrorResponse = (cause: unknown): Response => {
+  // A session resource is secured by the session cookie alone, so it challenges only that scheme.
   if (cause instanceof HttpSemanticFailure) {
-    return nativeProblemResponse(cause.code, cause.status);
+    return nativeProblemResponse(
+      cause.code,
+      cause.status,
+      cause.status === 401 ? { "www-authenticate": 'VektorSession realm="native-api"' } : {},
+    );
   }
 
   if (cause instanceof IdentityOwnedSessionNotFound) {
