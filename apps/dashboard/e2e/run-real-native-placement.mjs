@@ -90,10 +90,10 @@ let failure;
 
 let cleanupPromise;
 
-const start = (command, args, cwd) => {
+const start = (command, args, cwd, childEnvironment = environment) => {
   const child = spawn(command, args, {
     cwd,
-    env: environment,
+    env: childEnvironment,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -334,6 +334,7 @@ try {
         "--strictPort",
       ],
       join(root, "apps/homepage"),
+      { ...environment, NODE_ENV: "development" },
     );
 
     homepage.stdout.on("data", (value) => {
