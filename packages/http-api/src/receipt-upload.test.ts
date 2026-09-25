@@ -53,15 +53,17 @@ describe("receipt transfer bounds", () => {
     },
   );
 
-  it("retains exact private file bytes through a valid bounded multipart transfer", async () => {
+  it.each([";", " ;"])("preserves opaque binary bytes with separator %s", async (separator) => {
     const form = new FormData();
     const bytes = new Uint8Array([0, 255, 17, 42]);
     form.set("file", new File([bytes], "receipt.png", { type: "image/png" }));
 
-    const parsed = await readBoundedReceiptForm(
-      new Request("http://receipt.test", { method: "POST", body: form }),
-      bytes.length,
+    const request = new Request("http://receipt.test", { method: "POST", body: form });
+    request.headers.set(
+      "content-type",
+      request.headers.get("content-type")!.replace(";", separator),
     );
+    const parsed = await readBoundedReceiptForm(request, bytes.length);
 
     const file = parsed.get("file");
     assert.ok(file instanceof File);
@@ -76,5 +78,39 @@ describe("receipt transfer bounds", () => {
     await expect(
       readBoundedReceiptForm(new Request("http://receipt.test", { method: "POST", body: form }), 4),
     ).rejects.toBeInstanceOf(RangeError);
+  });
+  it("cancels an incomplete multipart source when the request is aborted", async () => {
+    const abort = new AbortController();
+    const started = Promise.withResolvers<void>();
+    const cancelled = Promise.withResolvers<void>();
+
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            '--receipt\r\nContent-Disposition: form-data; name="file"; filename="receipt.png"\r\nContent-Type: image/png\r\n\r\n',
+          ),
+        );
+      },
+      pull() {
+        started.resolve();
+      },
+      cancel() {
+        cancelled.resolve();
+      },
+    });
+
+    const options: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=receipt" },
+      body,
+      signal: abort.signal,
+      duplex: "half",
+    };
+    const pending = readBoundedReceiptForm(new Request("http://receipt.test", options), 1024);
+    await started.promise;
+    abort.abort();
+    await expect(pending).rejects.toThrow();
+    await cancelled.promise;
   });
 });

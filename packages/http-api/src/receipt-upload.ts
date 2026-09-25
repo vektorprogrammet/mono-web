@@ -1,7 +1,7 @@
 import { Effect, Stream } from "effect";
 import * as Multipart from "effect/unstable/http/Multipart";
 
-/** Bound the transfer before parsing; preserve opaque binary bytes on Bun and Node. */
+/** Bound transfer bytes before parsing and cancel the source with its request. */
 export const readBoundedReceiptForm = async (
   request: Request,
   maxFileBytes: number,
@@ -16,31 +16,42 @@ export const readBoundedReceiptForm = async (
   if (length !== null && Number(length) > maxBytes)
     throw new RangeError("Receipt body is too large");
 
-  if (!request.body) throw new TypeError("Receipt body is required");
+  const body = request.body;
+
+  if (!body) throw new TypeError("Receipt body is required");
   const contentType = request.headers.get("content-type") ?? "";
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
   let size = 0;
 
-  const bounded = request.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        size += chunk.byteLength;
+  const source = Stream.fromReadableStream({
+    evaluate: () => body,
+    onError: (cause) => new TypeError("Receipt transfer failed", { cause }),
+  }).pipe(
+    Stream.map((chunk) => {
+      size += chunk.byteLength;
 
-        if (size > maxBytes) throw new RangeError("Receipt body is too large");
-        controller.enqueue(chunk);
-      },
+      if (size > maxBytes) throw new RangeError("Receipt body is too large");
+
+      return chunk;
     }),
   );
 
-  if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
-    return new Response(bounded, { headers: { "content-type": contentType } }).formData();
+  const form = new FormData();
+
+  if (mediaType === "application/x-www-form-urlencoded") {
+    const encoded = await Effect.runPromise(source.pipe(Stream.decodeText(), Stream.mkString), {
+      signal: request.signal,
+    });
+
+    for (const [key, value] of new URLSearchParams(encoded)) form.append(key, value);
+
+    return form;
   }
 
-  const form = new FormData();
+  if (mediaType !== "multipart/form-data") throw new TypeError("Unsupported receipt content type");
+
   await Effect.runPromise(
-    Stream.fromReadableStream({
-      evaluate: () => bounded,
-      onError: (cause) => new TypeError("Receipt transfer failed", { cause }),
-    }).pipe(
+    source.pipe(
       Stream.pipeThroughChannel(Multipart.makeChannel({ "content-type": contentType })),
       Stream.runForEach(
         Effect.fnUntraced(function* (part) {
@@ -74,6 +85,7 @@ export const readBoundedReceiptForm = async (
         }),
       ),
     ),
+    { signal: request.signal },
   );
 
   return form;

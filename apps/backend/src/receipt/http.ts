@@ -425,7 +425,7 @@ const decodeMultipartFields = (request: Request, maxFileBytes: number) =>
     try: async () => {
       const contentType = request.headers.get("content-type") ?? "";
 
-      if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
+      if (contentType.split(";", 1)[0]?.trim().toLowerCase() !== "multipart/form-data") {
         throw new ReceiptDecodeError({ message: "multipart form required" });
       }
 
