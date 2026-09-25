@@ -1,7 +1,5 @@
-import { Predicate } from "effect";
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";
-import { type ProfileBridgeFailure, toProfileBridgeFailure } from "./bridge";
 import type { ProfileClient } from "./browser-client";
 import { FailedProfileSave, SucceededProfileSave, type Message } from "./message";
 import { ProfileCommand, type ProfileCommand as ProfileCommandValue } from "./model";
@@ -13,16 +11,6 @@ export interface ProfileCommands {
   }) => Command.Command<Message>;
 }
 
-const decodeFailure = (cause: unknown): ProfileBridgeFailure => {
-  if (Predicate.isObjectOrArray(cause) && cause !== null && "_tag" in cause) {
-    const tag = cause._tag;
-
-    if (Predicate.isString(tag)) return toProfileBridgeFailure({ ...cause, _tag: tag });
-  }
-
-  return toProfileBridgeFailure(cause);
-};
-
 export const commandsFor = (client: ProfileClient): ProfileCommands => {
   const SaveProfile = Command.define("SaveProfile", {
     args: { requestId: S.Int, command: ProfileCommand },
@@ -30,9 +18,7 @@ export const commandsFor = (client: ProfileClient): ProfileCommands => {
     execute: ({ requestId, command }) =>
       client.profile.updateOwnProfile(command).pipe(
         Effect.map(({ profile, etag }) => SucceededProfileSave({ requestId, profile, etag })),
-        Effect.catch((failure) =>
-          Effect.succeed(FailedProfileSave({ requestId, failure: decodeFailure(failure) })),
-        ),
+        Effect.catch((failure) => Effect.succeed(FailedProfileSave({ requestId, failure }))),
       ),
   });
 
