@@ -6,6 +6,7 @@ The internal ingress never starts these workers. Recruitment and other existing 
 ## Configuration
 
 Both mode variables are required, including for internal ingress and local development.
+The [backend configuration](../apps/backend/src/config.ts), [mail parser](../apps/backend/src/mail/http.ts), and [receipt parser](../apps/backend/src/receipt/delivery.ts) define these values.
 
 | Variable                              | Values or requirement                                            |
 | ------------------------------------- | ---------------------------------------------------------------- |
@@ -135,4 +136,4 @@ Separate fault scenarios suspend a real owner or rename a private table to test 
 The runner requires a clean committed tree and compares source identity after the run.
 It retains sanitized evidence outside the repository, including status, checks, process IDs, ports, and cleanup results.
 It removes private database and file resources and verifies that its listener ports are available again.
-The parent performs project-wide checks after integration.
+See [STATE.md](../STATE.md) for the current acceptance scope.
