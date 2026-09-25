@@ -237,6 +237,17 @@ const ReceiptRow = Schema.Struct({
   body: Schema.NullOr(Schema.String),
 });
 
+/** The submit result an HTTP replay receipt stores and every replay returns. */
+const ConfirmationJson = Schema.fromJsonString(
+  Schema.Struct({
+    applicationId: Schema.String,
+    teamId: Schema.String,
+    submittedAt: Schema.String,
+  }),
+);
+
+const decodeConfirmation = Schema.decodeSync(ConfirmationJson, { onExcessProperty: "error" });
+
 /** The private mail envelope an undelivered outbox row retains. */
 const Envelope = Schema.Struct({
   deliveryId: Schema.String,
@@ -373,17 +384,19 @@ export const teamApplicationObserver = (input: {
 
   const expectations = (step: TeamApplicationStep, record: JourneyRecord) => {
     const at = (name: TeamApplicationStep) => stepIndex(step, steps) >= stepIndex(name, steps);
-    const { first: d1, second: d2 } = record.deadlines;
+    const { first: d1, second: d2, expired: d3 } = record.deadlines;
 
-    const alfa: Intake = at("intake-closed")
-      ? [false, d2, 5]
-      : at("intake-stale")
-        ? [true, d2, 4]
-        : at("intake-revised")
-          ? [true, null, 3]
-          : at("intake-opened")
-            ? [true, null, 1]
-            : [null, null, 0];
+    const alfa: Intake = at("intake-expired")
+      ? [true, d3, 7]
+      : at("intake-closed")
+        ? [false, d2, 5]
+        : at("intake-stale")
+          ? [true, d2, 4]
+          : at("intake-revised")
+            ? [true, null, 3]
+            : at("intake-opened")
+              ? [true, null, 1]
+              : [null, null, 0];
 
     const revised = (
       actor: string,
@@ -420,6 +433,12 @@ export const teamApplicationObserver = (input: {
 
     if (at("intake-closed"))
       audit.push(revised(leaderAlfa, fixture.alfa, [true, false], [d2, d2], 5));
+
+    if (at("intake-expired"))
+      audit.push(
+        revised(leaderAlfa, fixture.alfa, [false, true], [d2, d2], 6),
+        revised(leaderAlfa, fixture.alfa, [true, true], [d2, d3], 7),
+      );
 
     for (const deletion of record.deletions)
       audit.push({
@@ -564,11 +583,13 @@ export const teamApplicationObserver = (input: {
       "stored applications",
     );
 
-    for (const row of facts.applications)
-      assert.match(
-        row.submitted_at,
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u,
-        "submission instant",
+    // Item 6: each stored instant is exactly the one the visitor's confirmation stated.
+    for (const submission of live)
+      assert.equal(
+        facts.applications.find(({ application_id }) => application_id === submission.applicationId)
+          ?.submitted_at,
+        submission.submittedAt,
+        `${submission.label} stored submission instant`,
       );
 
     // Command receipts: one per committed command, no rejected command recorded.
@@ -612,9 +633,15 @@ export const teamApplicationObserver = (input: {
 
       assert.ok(stored !== undefined, `HTTP receipt for the ${submission.label} form key`);
       assert.equal(stored.status, 201);
-      assert.ok(
-        stored.body?.includes(submission.applicationId),
-        "receipt replays the original result",
+      assert.ok(stored.body !== null, `${submission.label} receipt keeps the original result`);
+      assert.deepEqual(
+        decodeConfirmation(stored.body),
+        {
+          applicationId: submission.applicationId,
+          teamId: submission.teamId,
+          submittedAt: submission.submittedAt,
+        },
+        `${submission.label} receipt replays the original confirmation`,
       );
     }
 
