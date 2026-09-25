@@ -272,7 +272,7 @@ const printReport = () => {
     `Ledger: ${ledgerPath}\n` +
       `Now: MemAvailable ${gib(memory.available)} of ${gib(memory.total)}, swap used ${gib(memory.swapUsed)}, ` +
       `load1 ${load1.toFixed(2)}, logical CPUs ${logicalCpus}\n` +
-      `Admit if: MemAvailable - peak RSS >= ${gib(memory.total * 0.2)} and load1 + peak cores <= ${(logicalCpus * 0.8).toFixed(1)}\n\n`,
+      `Admit if: MemAvailable - peak RSS >= ${gib(memory.total * 0.2)} and load1 + mean cores <= ${(logicalCpus * 0.8).toFixed(1)}\n\n`,
   );
   const classes = new Map<string, Array<LedgerRow>>();
 
@@ -284,7 +284,16 @@ const printReport = () => {
   }
 
   const table = [
-    ["class", "runs", "failed", "median wall", "max wall", "max peak RSS", "max peak cores"],
+    [
+      "class",
+      "runs",
+      "failed",
+      "median wall",
+      "max wall",
+      "max peak RSS",
+      "max peak cores",
+      "max mean cores",
+    ],
   ];
 
   for (const [name, runs] of [...classes].sort(([left], [right]) => left.localeCompare(right))) {
@@ -296,6 +305,7 @@ const printReport = () => {
       duration(Math.max(...runs.map((run) => run.wallMs))),
       gib(Math.max(...runs.map((run) => run.peakRssBytes))),
       Math.max(...runs.map((run) => run.peakCores)).toFixed(1),
+      Math.max(...runs.map((run) => run.meanCores)).toFixed(1),
     ]);
   }
 

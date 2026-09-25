@@ -151,15 +151,17 @@ Run a heavy job through `bun run measure-job --class <class> -- <command...>` to
 The ledger is `${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl`.
 It is machine runtime evidence. Do not commit it.
 
-Before a heavy job, run `bun run measure-job --report`. Read the max peak RSS and max peak cores of the class.
+Before a heavy job, run `bun run measure-job --report`. Read the max peak RSS and max mean cores of the class.
 If the class has no ledger row, measure it first while no other heavy job runs.
 Start the job only if both conditions are true:
 
 - `MemAvailable - peak RSS >= 20% of MemTotal`
-- `1-minute load + peak cores <= 80% of logical CPUs`
+- `1-minute load + mean cores <= 80% of logical CPUs`
+
+Memory is the hard limit, and CPU is the soft limit because oversubscription only slows jobs.
 
 If a condition is false, wait and check again.
-Load and `MemAvailable` lag a job that started in the last minute. Include that job's peak values before you compare.
+Load and `MemAvailable` lag a job that started in the last minute. Include its peak RSS and mean cores before you compare.
 
 Bound worker counts and PostgreSQL connections.
 Use private database instances and ports. Dispose runtimes before removing their storage.
