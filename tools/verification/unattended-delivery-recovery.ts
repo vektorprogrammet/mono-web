@@ -442,7 +442,7 @@ try {
   await stop(current!);
   await boot({
     BACKEND_INGRESS: "internal",
-    OAUTH_INTERNAL_SOURCE_NETWORKS: '["127.0.0.1/32"]',
+    OAUTH_INTERNAL_SOURCE_NETWORKS: "127.0.0.1/32",
     PASSWORD_RESET_DELIVERY_POLL_MS: "100",
     RECEIPT_DELIVERY_POLL_MS: "100",
   });
