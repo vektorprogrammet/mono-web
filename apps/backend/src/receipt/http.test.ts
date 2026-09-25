@@ -730,7 +730,7 @@ const harness = (options: HarnessOptions = {}) => {
   );
 
   const httpOptions = {
-    config: { ...config, e2eTestMode: true },
+    config: { ...config, e2e: {} },
     identity: {
       resolveApprovalCredential:
         serviceCredential === undefined

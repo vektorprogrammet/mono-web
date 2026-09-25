@@ -20,7 +20,11 @@ import {
 } from "@vektorprogrammet/database";
 import { decodeAdmissionApiConfig, type AdmissionApiConfig } from "./admission/config.js";
 import { decodeOrganizationApiConfig, type OrganizationApiConfig } from "./organization/config.js";
-import { decodeReceiptApiConfig, type ReceiptApiConfig } from "./receipt/config.js";
+import {
+  decodeReceiptApiConfig,
+  decodeReceiptE2EComposition,
+  type ReceiptApiConfig,
+} from "./receipt/config.js";
 import { recruitmentApiConfig, type RecruitmentApiConfig } from "./recruitment/config.js";
 import {
   decodeNativeSessionBoundaryPolicy,
@@ -263,8 +267,14 @@ export const decodeBackendConfig = (
 ): BackendConfig => {
   const provider = ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true });
   const admission = decodeAdmissionApiConfig(env);
-  const receipt = decodeReceiptApiConfig(env);
   const sessionBoundary = decodeNativeSessionBoundaryPolicy(env);
+  const receiptE2E = decodeReceiptE2EComposition(env, sessionBoundary.deployment);
+
+  const receipt: ReceiptApiConfig =
+    receiptE2E === undefined
+      ? decodeReceiptApiConfig(env)
+      : { ...decodeReceiptApiConfig(env), e2e: receiptE2E };
+
   const effects = publicApplicationEffectConfig(env, provider);
   const schoolServiceNotifications = schoolServiceNotificationConfig(env);
   const schoolServiceDispatchNotifications = schoolServiceDispatchNotificationConfig(env);
