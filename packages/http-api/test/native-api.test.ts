@@ -824,6 +824,48 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
     "surveys.exportAdminResults",
     surveyAdmin("surveys.admin-results-export", "SnapshotRead", ["Scope"]),
   ],
+  [
+    "GET",
+    "/api/teams/:teamId/application-intake",
+    "team-applications.readTeamApplicationIntake",
+    anonymous("team-applications.public-intake"),
+  ],
+  [
+    "GET",
+    "/api/team-application-intakes",
+    "team-applications.listTeamApplicationIntakes",
+    anonymous("team-applications.public-intakes"),
+  ],
+  [
+    "POST",
+    "/api/teams/:teamId/applications",
+    "team-applications.submitTeamApplication",
+    anonymous("team-applications.application-create", "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/teams/:teamId/applications",
+    "team-applications.listTeamApplications",
+    person("team-applications.read", "team-applications.team-applications", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/team-applications/:applicationId",
+    "team-applications.readTeamApplication",
+    person("team-applications.read", "team-applications.application-by-id", [], "SnapshotRead"),
+  ],
+  [
+    "DELETE",
+    "/api/team-applications/:applicationId",
+    "team-applications.deleteTeamApplication",
+    person("team-applications.manage", "team-applications.application-by-id", [], "Transaction"),
+  ],
+  [
+    "PATCH",
+    "/api/teams/:teamId/application-intake",
+    "team-applications.reviseTeamApplicationIntake",
+    person("team-applications.manage", "team-applications.intake-by-team", [], "Transaction"),
+  ],
 
   [
     "GET",
@@ -877,6 +919,7 @@ const createdMutationOperations = [
   "social-events.create",
   "surveys.submitSchoolSurveyResponse",
   "surveys.createAdminSurvey",
+  "team-applications.submitTeamApplication",
 ];
 
 const entityMutationOperations = [
@@ -903,6 +946,7 @@ const entityMutationOperations = [
   "content.reviseArticle",
   "content.publishArticle",
   "content.unpublishArticle",
+  "team-applications.reviseTeamApplicationIntake",
 ] as const;
 
 const bodyPreconditionMutationOperations = [
@@ -921,6 +965,7 @@ const plainNoContentMutationOperations = [
   "system.deleteOwnedSession",
   "system.revokeOtherSessions",
   "system.revokeAllSessions",
+  "team-applications.deleteTeamApplication",
 ] as const;
 
 const privateBinaryReadOperations = [
@@ -961,12 +1006,16 @@ const privateReadOperations = [
   "surveys.readAdminCatalog",
   "surveys.listAdminSurveys",
   "surveys.readAdminResults",
+  "team-applications.listTeamApplications",
+  "team-applications.readTeamApplication",
 ] as const;
 
 const noStoreReadOperations = [
   "system.health",
   "admissions.readApplicationConfirmation",
   "admissions.readReturningAssistantOptions",
+  "team-applications.readTeamApplicationIntake",
+  "team-applications.listTeamApplicationIntakes",
   "surveys.readSchoolSurvey",
 ];
 
@@ -1308,6 +1357,7 @@ describe("native API reflection", () => {
       ["social-events", "Social events"],
       ["surveys", "School surveys"],
       ["system", "System"],
+      ["team-applications", "Team applications"],
     ]);
 
     for (const [operationId, documented] of byId) {
@@ -1377,6 +1427,7 @@ describe("native API reflection", () => {
       "profile.updateOwnProfile",
       "admissions.reviseAdmissionPeriod",
       "content.reviseArticle",
+      "team-applications.reviseTeamApplicationIntake",
     ]) {
       expect(Object.keys(operation(operationId).requestBody?.content ?? {})).toEqual([
         "application/merge-patch+json",

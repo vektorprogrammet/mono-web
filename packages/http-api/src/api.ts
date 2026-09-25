@@ -17,6 +17,7 @@ import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";
 import { RecruitmentApi } from "./recruitment.js";
 import { SocialEventsApi } from "./social-events.js";
 import { SchoolSurveysApi } from "./surveys.js";
+import { TeamApplicationsApi } from "./team-application.js";
 import { RequestSchemaErrorMiddleware } from "./common.js";
 import { NativeApiReleaseVersion } from "./release.js";
 import { SystemApi } from "./system.js";
@@ -45,6 +46,7 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
   .add(ContentApi)
   .add(SocialEventsApi)
   .add(SchoolSurveysApi)
+  .add(TeamApplicationsApi)
   .middleware(RequestSchemaErrorMiddleware)
   .annotateMerge(
     OpenApi.annotations({
@@ -66,7 +68,7 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
           { name: "Platform", tags: ["System", "Profile"] },
           { name: "Directories", tags: ["Organization", "Directories"] },
           { name: "Admissions", tags: ["Admissions", "Substitute pool"] },
-          { name: "Recruitment", tags: ["Recruitment"] },
+          { name: "Recruitment", tags: ["Recruitment", "Team applications"] },
           { name: "Economy", tags: ["Receipts"] },
           { name: "Content", tags: ["Content and news"] },
           { name: "Social", tags: ["Social events", "School surveys"] },

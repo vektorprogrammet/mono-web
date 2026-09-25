@@ -599,6 +599,48 @@
       "method": "POST",
       "operationId": "system.revokeOtherSessions",
       "path": "/api/sessions:revoke-others"
+    },
+    {
+      "group": "team-applications",
+      "method": "DELETE",
+      "operationId": "team-applications.deleteTeamApplication",
+      "path": "/api/team-applications/{applicationId}"
+    },
+    {
+      "group": "team-applications",
+      "method": "GET",
+      "operationId": "team-applications.listTeamApplicationIntakes",
+      "path": "/api/team-application-intakes"
+    },
+    {
+      "group": "team-applications",
+      "method": "GET",
+      "operationId": "team-applications.listTeamApplications",
+      "path": "/api/teams/{teamId}/applications"
+    },
+    {
+      "group": "team-applications",
+      "method": "GET",
+      "operationId": "team-applications.readTeamApplication",
+      "path": "/api/team-applications/{applicationId}"
+    },
+    {
+      "group": "team-applications",
+      "method": "GET",
+      "operationId": "team-applications.readTeamApplicationIntake",
+      "path": "/api/teams/{teamId}/application-intake"
+    },
+    {
+      "group": "team-applications",
+      "method": "PATCH",
+      "operationId": "team-applications.reviseTeamApplicationIntake",
+      "path": "/api/teams/{teamId}/application-intake"
+    },
+    {
+      "group": "team-applications",
+      "method": "POST",
+      "operationId": "team-applications.submitTeamApplication",
+      "path": "/api/teams/{teamId}/applications"
     }
   ],
   "release": {

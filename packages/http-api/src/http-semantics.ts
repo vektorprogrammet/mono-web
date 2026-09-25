@@ -442,6 +442,12 @@ export const NativeProblemRegistry = {
     status: 400,
     detail: "The application is not in the substitute pool.",
   },
+  "team-application.intake-closed": {
+    type: "urn:vektorprogrammet:problem:v0.2:team-application.intake-closed",
+    title: "Team application intake closed",
+    status: 409,
+    detail: "The team is not accepting applications now.",
+  },
   "transaction.conflict": {
     type: "urn:vektorprogrammet:problem:v0.2:transaction.conflict",
     title: "Concurrent transaction conflict",
