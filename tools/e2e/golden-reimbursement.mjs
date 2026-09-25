@@ -354,6 +354,7 @@ const cleanup = () =>
       groupsDrained,
       listenersReleased: errors.length === 0,
       privateResourcesRemoved: groupsDrained && errors.length === 0,
+      ports: [...ports],
       processes: children.map(({ child, label }) => ({
         pid: child.pid,
         label,
