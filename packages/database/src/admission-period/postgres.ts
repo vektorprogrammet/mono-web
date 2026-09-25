@@ -53,8 +53,17 @@ interface PeriodCommandReceiptRow {
   readonly admission_period_id: string;
 }
 
-const periodPersistenceError = (operation: string, cause: unknown) =>
-  new AdmissionPeriodPersistenceError({ operation, message: String(cause) });
+/**
+ * The failure stays the standard error cause, so the HTTP command executor can
+ * recognize a lost serialization race and restart the transaction on a fresh snapshot.
+ */
+const periodPersistenceError = (operation: string, cause: unknown) => {
+  const error = new AdmissionPeriodPersistenceError({ operation, message: String(cause) });
+
+  error.cause = cause;
+
+  return error;
+};
 
 const decodePeriodRow = (
   row: typeof AdmissionPeriod.Encoded,

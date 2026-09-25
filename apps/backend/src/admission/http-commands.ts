@@ -273,6 +273,9 @@ export const createAdmissionPeriod = (request: Request, input: AdmissionApiHttpO
           ),
         };
       }),
+      // A concurrent create for the same department and semester commits after this
+      // snapshot; the restarted transaction sees it and answers that the period exists.
+      { retry: "serialization-once" },
     );
 
     return nativeCommandOutcomeResponse(result);
@@ -427,6 +430,9 @@ export const reviseAdmissionPeriod = (
           ),
         };
       }),
+      // A concurrent revision commits after this snapshot; the restarted transaction reads
+      // the new revision, so the stale If-Match answers precondition.failed.
+      { retry: "serialization-once" },
     );
 
     return nativeCommandOutcomeResponse(result);
