@@ -7,6 +7,7 @@ import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { postgresMajor, postgresProgram } from "@monoweb/postgres";
 import {
   emitNativeRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
@@ -431,21 +432,24 @@ try {
   await Promise.all(
     [postgresPort, dashboardPort, backendPort, upstreamPort].map(assertPortAvailable),
   );
-  const version = run("postgres", ["--version"], { label: "PostgreSQL version" }).stdout.trim();
-  assert.match(version, /PostgreSQL\) 17\./u, "the Schools journey requires PostgreSQL 17");
+
+  const version = run(postgresProgram("postgres"), ["--version"], {
+    label: "PostgreSQL version",
+  }).stdout.trim();
+
   run(
-    "initdb",
+    postgresProgram("initdb"),
     ["-D", postgresData, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"],
     { label: "PostgreSQL initialization" },
   );
   postgres = start(
-    "postgres",
+    postgresProgram("postgres"),
     ["-D", postgresData, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
-    { cwd: repositoryRoot, env: process.env, label: "PostgreSQL 17" },
+    { cwd: repositoryRoot, env: process.env, label: `PostgreSQL ${postgresMajor}` },
   );
-  await waitForPort(postgresPort, "PostgreSQL 17 startup");
+  await waitForPort(postgresPort, `PostgreSQL ${postgresMajor} startup`);
   run(
-    "createdb",
+    postgresProgram("createdb"),
     ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "schools_e2e_0061"],
     { label: "Schools disposable database creation" },
   );

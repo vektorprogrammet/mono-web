@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { Pool } from "pg";
+import { postgresProgram } from "@monoweb/postgres";
 import { Schema, flow, Predicate, Effect, Redacted } from "effect";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
@@ -147,7 +148,7 @@ let evidence: Record<string, Schema.Json> | undefined;
 
 try {
   const port = await freePort();
-  command("initdb", [
+  command(postgresProgram("initdb"), [
     "-D",
     pgdata,
     "-A",
@@ -159,7 +160,7 @@ try {
   ]);
 
   const postgres = spawn(
-    "postgres",
+    postgresProgram("postgres"),
     ["-D", pgdata, "-p", String(port), "-h", "127.0.0.1", "-k", artifacts],
     { stdio: "ignore" },
   );
@@ -1195,7 +1196,7 @@ try {
   await disposeAuth?.();
   disposeAuth = undefined;
   authPool = undefined;
-  command("pg_dump", ["--format=custom", "--file", backup, databaseUrl]);
+  command(postgresProgram("pg_dump"), ["--format=custom", "--file", backup, databaseUrl]);
   await chmod(backup, 0o600);
 
   const backupDigest = createHash("sha256")
@@ -1204,7 +1205,7 @@ try {
 
   await pool.query("CREATE DATABASE identity_cohort_restored");
   const restoredUrl = `postgres://postgres@127.0.0.1:${port}/identity_cohort_restored`;
-  command("pg_restore", ["--exit-on-error", "--dbname", restoredUrl, backup]);
+  command(postgresProgram("pg_restore"), ["--exit-on-error", "--dbname", restoredUrl, backup]);
   await startEngine({ ...config, postgresUrl: restoredUrl });
   assert.equal(
     (await login("cohort-accepted-0@example.invalid", newPassword)).status,

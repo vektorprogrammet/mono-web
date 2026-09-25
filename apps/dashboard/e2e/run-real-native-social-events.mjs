@@ -7,6 +7,7 @@ import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import { chromium } from "@playwright/test";
 import pg from "pg";
 
@@ -993,9 +994,9 @@ const exerciseJourney = async ({ browser, ledger }) => {
   };
 };
 
-const version = run("postgres", ["--version"], { label: "PostgreSQL version" }).stdout.trim();
-
-assert.match(version, /PostgreSQL\) 17\./u, "0110 requires PostgreSQL 17");
+const version = run(postgresProgram("postgres"), ["--version"], {
+  label: "PostgreSQL version",
+}).stdout.trim();
 
 const initialRevision = run("git", ["rev-parse", "HEAD"], {
   label: "runtime revision",
@@ -1032,20 +1033,20 @@ let cleanupError;
 try {
   await Promise.all([postgresPort, backendPort, proxyPort, dashboardPort].map(assertPortAvailable));
   run(
-    "initdb",
+    postgresProgram("initdb"),
     ["-D", postgresData, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"],
     {
       label: "0110 PostgreSQL initialization",
     },
   );
   postgres = start(
-    "postgres",
+    postgresProgram("postgres"),
     ["-D", postgresData, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
     { cwd: repositoryRoot, env: process.env, label: "0110 PostgreSQL" },
   );
   await waitForPort(postgresPort, "0110 PostgreSQL startup");
   run(
-    "createdb",
+    postgresProgram("createdb"),
     ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "social_events_e2e_0110"],
     {
       label: "0110 database creation",

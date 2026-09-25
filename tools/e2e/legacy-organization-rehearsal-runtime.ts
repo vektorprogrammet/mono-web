@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
@@ -161,7 +162,16 @@ export const withOrganizationDatabases = async <A>(
     );
 
   const target = async (database: string): Promise<RehearsalTarget> => {
-    await runLocal(["createdb", "-h", postgresRoot, "-p", "5432", "-U", "postgres", database]);
+    await runLocal([
+      postgresProgram("createdb"),
+      "-h",
+      postgresRoot,
+      "-p",
+      "5432",
+      "-U",
+      "postgres",
+      database,
+    ]);
     const selection = new URL(`postgresql://postgres@localhost/${database}`);
     selection.searchParams.set("host", postgresRoot);
     selection.searchParams.set("port", "5432");
@@ -221,7 +231,7 @@ export const withOrganizationDatabases = async <A>(
 
     await mysql(fixtureSql);
     await runLocal([
-      "initdb",
+      postgresProgram("initdb"),
       "-D",
       postgresRoot,
       "-A",
@@ -233,7 +243,7 @@ export const withOrganizationDatabases = async <A>(
     ]);
     postgresStarted = true;
     await runLocal([
-      "pg_ctl",
+      postgresProgram("pg_ctl"),
       "-D",
       postgresRoot,
       "-l",
@@ -260,9 +270,17 @@ export const withOrganizationDatabases = async <A>(
     });
 
   if (postgresStarted) {
-    await runLocal(["pg_ctl", "-D", postgresRoot, "-m", "fast", "-t", "10", "-w", "stop"]).catch(
-      (cause) => cleanupErrors.push(new Error("PostgreSQL cleanup failed", { cause })),
-    );
+    await runLocal([
+      postgresProgram("pg_ctl"),
+      "-D",
+      postgresRoot,
+      "-m",
+      "fast",
+      "-t",
+      "10",
+      "-w",
+      "stop",
+    ]).catch((cause) => cleanupErrors.push(new Error("PostgreSQL cleanup failed", { cause })));
 
     if (
       await lstat(join(postgresRoot, "postmaster.pid")).then(

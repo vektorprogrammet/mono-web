@@ -4,9 +4,10 @@ import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createRequire } from "node:module";
 import { setTimeout as pause } from "node:timers/promises";
+import { postgresProgram } from "@monoweb/postgres";
 import { dashboardBuildInventory, sha256 } from "./golden-school-service-evidence.mjs";
 import {
   people,
@@ -164,7 +165,7 @@ const start = (binary, args, env = safeEnvironment, cwd = root) => {
 
   const owned = {
     child,
-    label: args.includes("apps/backend/src/main.ts") ? "backend" : binary,
+    label: args.includes("apps/backend/src/main.ts") ? "backend" : basename(binary),
     log: "",
   };
 
@@ -406,7 +407,7 @@ try {
 
   const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
   const pgRoot = join(privateRoot, "postgres");
-  await run("initdb", [
+  await run(postgresProgram("initdb"), [
     "-D",
     pgRoot,
     "-A",
@@ -416,7 +417,7 @@ try {
     "--no-locale",
     "--encoding=UTF8",
   ]);
-  start("postgres", [
+  start(postgresProgram("postgres"), [
     "-D",
     pgRoot,
     "-p",
@@ -751,7 +752,7 @@ const receipt = {
   runtime: {
     bun: process.versions.bun,
     node: command("node", ["--version"]).trim(),
-    postgres: command("postgres", ["--version"]).trim(),
+    postgres: command(postgresProgram("postgres"), ["--version"]).trim(),
   },
 };
 

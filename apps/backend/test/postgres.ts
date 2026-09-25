@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { postgresProgram } from "@monoweb/postgres";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
@@ -47,7 +48,7 @@ export const backendPostgres = () => {
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "vkr-http-pg-"));
     await exec(
-      "initdb",
+      postgresProgram("initdb"),
       [
         "-D",
         root,
@@ -61,7 +62,7 @@ export const backendPostgres = () => {
     );
     startupAttempted = true;
     await exec(
-      "pg_ctl",
+      postgresProgram("pg_ctl"),
       ["-D", root, "-o", `-h '' -k ${root} -F`, "-l", join(root, "postgres.log"), "-w", "start"],
       { timeout: 15_000 },
     );
@@ -81,7 +82,7 @@ export const backendPostgres = () => {
       } finally {
         if (root !== undefined) {
           if (startupAttempted) {
-            const running = await exec("pg_ctl", ["-D", root, "status"]).then(
+            const running = await exec(postgresProgram("pg_ctl"), ["-D", root, "status"]).then(
               () => true,
               (cause) => {
                 if (isStopped(cause)) return false;
@@ -90,7 +91,7 @@ export const backendPostgres = () => {
             );
 
             if (running) {
-              await exec("pg_ctl", ["-D", root, "-m", "immediate", "-w", "stop"], {
+              await exec(postgresProgram("pg_ctl"), ["-D", root, "-m", "immediate", "-w", "stop"], {
                 timeout: 15_000,
               });
             }

@@ -8,6 +8,7 @@ import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import AxeBuilder from "@axe-core/playwright";
 import { chromium } from "@playwright/test";
 import pg from "pg";
@@ -1433,18 +1434,18 @@ try {
     [postgresPort, backendPort, proxyPort, dashboardPort, apexPort].map(assertPortAvailable),
   );
   run(
-    "initdb",
+    postgresProgram("initdb"),
     ["-D", postgresData, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"],
     { label: "0111 PostgreSQL initialization" },
   );
   postgres = start(
-    "postgres",
+    postgresProgram("postgres"),
     ["-D", postgresData, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
     { cwd: repositoryRoot, env: process.env, label: "0111 PostgreSQL" },
   );
   await waitForPort(postgresPort, "0111 PostgreSQL startup");
   run(
-    "createdb",
+    postgresProgram("createdb"),
     ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "school_survey_e2e_0111"],
     { label: "0111 database creation" },
   );

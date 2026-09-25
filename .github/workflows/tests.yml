@@ -11,6 +11,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  postgresql:
+    name: PostgreSQL target
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      major: ${{ steps.postgresql.outputs.major }}
+    steps:
+      - uses: actions/checkout@v4
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            package.json
+            .github/actions
+          sparse-checkout-cone-mode: false
+      - name: Read declared PostgreSQL major
+        id: postgresql
+        uses: ./.github/actions/postgresql
+        with:
+          install: "false"
+
   placements-docs:
     name: Placements documentation (required-capable gate)
     runs-on: ubuntu-24.04
@@ -83,17 +106,12 @@ jobs:
       - name: Reject unsafe golden evidence regressions
         timeout-minutes: 1
         run: bun test tools/e2e/golden-school-service-evidence.test.mjs
-      - name: Install private PostgreSQL and diagnostic tools
+      - name: Install declared PostgreSQL
         timeout-minutes: 3
-        run: |
-          key="$RUNNER_TEMP/golden-postgresql.asc"
-          curl --fail --silent --show-error --location https://www.postgresql.org/media/keys/ACCC4CF8.asc --output "$key"
-          gpg --batch --show-keys --with-colons "$key" | grep -Fx "fpr:::::::::B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8:"
-          sudo install -m 644 "$key" /usr/share/keyrings/golden-postgresql.asc
-          echo "deb [signed-by=/usr/share/keyrings/golden-postgresql.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/golden-pgdg.list
-          sudo apt-get update
-          sudo apt-get install --yes postgresql-17 postgresql-contrib-17 unzip
-          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/postgresql
+      - name: Install diagnostic tools
+        timeout-minutes: 2
+        run: sudo apt-get install --yes unzip
       - name: Install isolated Chromium
         timeout-minutes: 3
         working-directory: apps/dashboard
@@ -119,9 +137,10 @@ jobs:
   ts:
     name: TypeScript (build, test)
     runs-on: ubuntu-latest
+    needs: postgresql
     services:
       receipt-postgres:
-        image: postgres:17-alpine
+        image: postgres:${{ needs.postgresql.outputs.major }}-alpine
         env:
           POSTGRES_DB: receipt_proof
           POSTGRES_USER: receipt
@@ -150,11 +169,8 @@ jobs:
       - name: Build
         run: bun turbo build
 
-      - name: Install private PostgreSQL test tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes postgresql postgresql-contrib
-          pg_config --bindir >> "$GITHUB_PATH"
+      - name: Install declared PostgreSQL
+        uses: ./.github/actions/postgresql
 
       - name: Test
         run: bun turbo test
@@ -168,11 +184,12 @@ jobs:
     name: Native identity (PostgreSQL lifecycle)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: postgresql
     permissions:
       contents: read
     services:
       identity-postgres:
-        image: postgres:17-alpine
+        image: postgres:${{ needs.postgresql.outputs.major }}-alpine
         env:
           POSTGRES_DB: identity_proof_0054
           POSTGRES_USER: identity
@@ -252,6 +269,8 @@ jobs:
       - name: Install isolated Chromium
         working-directory: apps/dashboard
         run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Install declared PostgreSQL
+        uses: ./.github/actions/postgresql
       - name: Create private identity browser evidence directory
         run: install -d -m 700 "$RUNNER_TEMP/native-identity-0065"
       - name: Run bounded native Identity browser capsule

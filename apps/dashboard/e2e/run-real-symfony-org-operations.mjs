@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { postgresMajor, postgresProgram } from "@monoweb/postgres";
 import {
   emitRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
@@ -131,18 +132,6 @@ function requireOpenSsl() {
 
   if (result.error || result.status !== 0) {
     throw new Error("Missing prerequisite: openssl must be installed and available on PATH.");
-  }
-}
-
-function requirePostgres17() {
-  const result = spawnSync("postgres", ["--version"], { encoding: "utf8" });
-
-  if (
-    result.error ||
-    result.status !== 0 ||
-    !/PostgreSQL\) 17\./u.test(`${result.stdout ?? ""}${result.stderr ?? ""}`)
-  ) {
-    throw new Error("Missing prerequisite: PostgreSQL 17 must be installed and available on PATH.");
   }
 }
 
@@ -352,7 +341,6 @@ function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
 
 async function main() {
   requireOpenSsl();
-  requirePostgres17();
   await Promise.all([legacyPort, nativePort, dashboardPort, postgresPort].map(assertPortAvailable));
 
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-hybrid-org-operations-0032-"));
@@ -533,7 +521,7 @@ async function main() {
     }
 
     await runCommand(
-      "initdb",
+      postgresProgram("initdb"),
       [
         "-D",
         postgresDataDir,
@@ -546,13 +534,13 @@ async function main() {
       { cwd: repositoryRoot, env: process.env },
     );
     postgresProcess = startProcess(
-      "postgres",
+      postgresProgram("postgres"),
       ["-D", postgresDataDir, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
       { cwd: repositoryRoot, env: process.env },
     );
-    await waitForPort(postgresPort, postgresProcess, "PostgreSQL 17");
+    await waitForPort(postgresPort, postgresProcess, `PostgreSQL ${postgresMajor}`);
     await runCommand(
-      "createdb",
+      postgresProgram("createdb"),
       ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", postgresDatabase],
       { cwd: repositoryRoot, env: process.env },
     );

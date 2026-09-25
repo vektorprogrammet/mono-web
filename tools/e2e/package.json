@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:effect-v4",
+    "@monoweb/postgres": "workspace:*",
     "@vektorprogrammet/backend": "workspace:*",
     "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",

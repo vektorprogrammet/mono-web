@@ -75,9 +75,13 @@ requests and callable Fetch inputs across runtimes. SDK type checks cover both
 contracts, including Bun types. Remove the patch when upstream declarations pass
 those checks without it.
 
+The root manifest declares the PostgreSQL major as `engines.postgresql`. Tests, proofs, journeys,
+and CI use only that major. Programs come from `PATH` when it provides that major, and otherwise
+from `nixpkgs#postgresql_<major>`. The [PostgreSQL toolchain](tools/postgres/index.ts) resolves
+them and fails for any other major. Include the contrib extensions, such as `btree_gist`.
+
 Backend tests start private PostgreSQL clusters and create an isolated database
-for each fixture. Put `initdb`, `pg_ctl`, and `psql` on `PATH`. Install the
-PostgreSQL contrib extensions, including `btree_gist`. No shared database is used.
+for each fixture. No shared database is used.
 
 Run commands from this repository root:
 
@@ -169,7 +173,7 @@ bun run rehearsal:current-assignment
 nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
 ```
 
-The reviewed-source journey also requires PostgreSQL tools on `PATH`. Its evidence directory must not exist.
+The reviewed-source journey also requires the declared PostgreSQL major. Its evidence directory must not exist.
 It creates private, disposable MariaDB and PostgreSQL instances and uses synthetic legacy-shaped data.
 It removes those instances after the run and retains an owner-only `report.json`. It does not access production or external providers.
 
@@ -191,7 +195,7 @@ Run the reviewed Organization journey:
 nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-organization --evidence-dir=/tmp/vektor-organization-review
 ```
 
-This journey requires PostgreSQL tools on `PATH` and a new evidence directory. It uses synthetic records and private, disposable databases.
+This journey requires the declared PostgreSQL major and a new evidence directory. It uses synthetic records and private, disposable databases.
 The cutover requires `--organization=none` or `--organization=PATH`. The first choice leaves Organization unchanged.
 
 The [review schema](packages/domain/src/organization/review.ts) defines the required source evidence, intervals, and exclusions.
@@ -206,7 +210,7 @@ Run the reviewed receipt journey:
 nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
 ```
 
-This journey requires PostgreSQL tools on `PATH`, a clean committed tree, and a new evidence directory.
+This journey requires the declared PostgreSQL major, a clean committed tree, and a new evidence directory.
 It uses invented records, private file bytes, and disposable databases. It does not access production or external providers.
 
 The receipt command runs separately, after accepted Person and reference reconciliation:
@@ -229,7 +233,7 @@ Run the combined synthetic journey:
 nix shell nixpkgs#mariadb nixpkgs#php -c bun run rehearsal:legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
 ```
 
-The command requires PostgreSQL tools on `PATH`, a clean committed tree, and a new evidence directory.
+The command requires the declared PostgreSQL major, a clean committed tree, and a new evidence directory.
 PHP generates compatible synthetic password hashes. The command uses no production data or external providers.
 
 The existing cutover and receipt commands share one source, accepted Person identities, and PostgreSQL target.

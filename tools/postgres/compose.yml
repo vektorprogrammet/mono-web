@@ -1,0 +1,17 @@
+# Disposable PostgreSQL for journey runners with the Docker topology.
+# Runners pass VEKTOR_POSTGRES_MAJOR from the root manifest (engines.postgresql)
+# on every compose command. The image keeps its data in an anonymous volume.
+services:
+  receipt-postgres:
+    image: postgres:${VEKTOR_POSTGRES_MAJOR:?set it from package.json engines.postgresql}-alpine
+    environment:
+      POSTGRES_DB: receipt_proof
+      POSTGRES_USER: receipt
+      POSTGRES_PASSWORD: receipt
+    ports:
+      - "127.0.0.1:${RECEIPT_APPROVAL_PG_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U receipt -d receipt_proof"]
+      interval: 2s
+      timeout: 5s
+      retries: 10

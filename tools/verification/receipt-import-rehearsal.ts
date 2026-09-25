@@ -24,6 +24,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pool } from "pg";
+import { postgresProgram } from "@monoweb/postgres";
 import { Schema, Cause, Predicate, Effect, Redacted } from "effect";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
@@ -170,7 +171,7 @@ try {
 
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
-  command("initdb", [
+  command(postgresProgram("initdb"), [
     "-D",
     pgdata,
     "-A",
@@ -181,7 +182,7 @@ try {
     "--encoding=UTF8",
   ]);
   start(
-    "postgres",
+    postgresProgram("postgres"),
     ["-D", pgdata, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts],
     process.env,
   );
@@ -353,7 +354,12 @@ try {
   const baseline = await snapshot(),
     baselineCredentials = await credentialDigest();
 
-  command("pg_dump", ["--format=custom", "--file", join(artifacts, "baseline.dump"), pgUrl]);
+  command(postgresProgram("pg_dump"), [
+    "--format=custom",
+    "--file",
+    join(artifacts, "baseline.dump"),
+    pgUrl,
+  ]);
   await chmod(join(artifacts, "baseline.dump"), 0o600);
   await cp(storage, join(artifacts, "baseline-files"), { recursive: true });
   const bytes = Buffer.from("%PDF-1.4\nSynthetic receipt 0095 only\n%%EOF\n");
@@ -766,7 +772,7 @@ try {
   backend = undefined;
   await pool.query("CREATE DATABASE receipt_0095_restored");
   const restoredUrl = `postgres://postgres@127.0.0.1:${pgPort}/receipt_0095_restored`;
-  command("pg_restore", [
+  command(postgresProgram("pg_restore"), [
     "--exit-on-error",
     "--dbname",
     restoredUrl,

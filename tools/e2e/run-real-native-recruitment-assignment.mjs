@@ -6,6 +6,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { postgresProgram } from "@monoweb/postgres";
 import {
   databaseMigrationDefinitions,
   databaseSchemaRevision,
@@ -357,7 +358,7 @@ const waitForHttp = async (url, child, label) => {
 
 const runPsql = async (sql, environment, label) => {
   const output = await run(
-    "psql",
+    postgresProgram("psql"),
     [
       "-h",
       "127.0.0.1",
@@ -790,7 +791,7 @@ const main = async () => {
     if (postgresStarted) {
       try {
         if (await pathExists(join(postgresRoot, "postmaster.pid"))) {
-          await run("pg_ctl", ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
+          await run(postgresProgram("pg_ctl"), ["-D", postgresRoot, "-m", "fast", "-w", "stop"], {
             cwd: repositoryRoot,
             env: baseEnvironment,
             label: "native recruitment PostgreSQL cleanup",
@@ -823,7 +824,7 @@ const main = async () => {
 
   try {
     await run(
-      "initdb",
+      postgresProgram("initdb"),
       [
         "-D",
         postgresRoot,
@@ -841,7 +842,7 @@ const main = async () => {
     );
     postgresStarted = true;
     await run(
-      "pg_ctl",
+      postgresProgram("pg_ctl"),
       [
         "-D",
         postgresRoot,
