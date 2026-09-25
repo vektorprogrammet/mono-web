@@ -193,7 +193,8 @@ const Replays = Schema.Array(Schema.Struct({ status: Schema.Int, text: Schema.St
 const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 // A confirmation may say the application was received; it must not claim that mail left.
-const deliveryClaim = /sendt|levert|bekreftelse på e-post|e-post er på vei/iu;
+// Whole words only: "du sendte inn" describes the applicant's submission, not a delivery.
+const deliveryClaim = /\b(?:sendt|levert)\b|bekreftelse på e-post|e-post er på vei/iu;
 
 const osloMinute = new Intl.DateTimeFormat("sv-SE", {
   timeZone: "Europe/Oslo",
