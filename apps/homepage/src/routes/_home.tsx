@@ -235,9 +235,9 @@ function AppFooter() {
 function FooterSponsors() {
   return (
     <ul className="text-white">
-      <b>
-        <li>{"Sponsorer og samarbeidspartnere (DEV CONTENT)"}</li>
-      </b>
+      <li>
+        <b>{"Sponsorer og samarbeidspartnere (DEV CONTENT)"}</b>
+      </li>
       {DEV_CONTENT.sponsors.map((sponsor) => (
         <li key={sponsor.id}>
           <a className="text-sm hover:underline" href={sponsor.href}>
