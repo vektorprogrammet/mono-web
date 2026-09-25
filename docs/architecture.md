@@ -23,15 +23,18 @@ Placements contracts and adapters share packages/placements, with separate expor
 Other business contracts remain in packages/domain.
 ```
 
-`apps/server` retains Symfony modernization source, not an exact production
-snapshot. Import commit `da8d3e8b` names the monolith modernization branch as its
-source. [PR #1592](https://github.com/vektorprogrammet/vektorprogrammet/pull/1592)
-describes that separate upgrade. Production contracts use the operator-designated
-legacy `master` baseline and observed live workflows. The retained server
-OpenAPI snapshot therefore does not define production operational parity.
+### Legacy source
 
-The Symfony code is outside the target dependency graph. An authorized cutover
-must transfer every required writer and reader before the legacy system retires.
+The legacy Symfony source is not in this repository. Production runs the default
+branch of [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet).
+The Symfony modernization attempt that this repository kept as `apps/server` continues
+there as branch `modernize/mono-web-server` (`908368a8`), with its full history.
+The last mono-web commit that contains `apps/server` is `2163076f`.
+
+That modernization source is not an exact production snapshot. Production contracts
+use the operator-designated legacy `master` baseline and observed live workflows.
+An authorized cutover must transfer every required writer and reader before the legacy
+system retires.
 
 ## Ownership
 

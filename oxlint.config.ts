@@ -351,7 +351,6 @@ export default defineConfig({
     },
   ],
   ignorePatterns: [
-    "apps/server/**",
     "tools/oxlint/anti-slop/**",
     "apps/docs/components/mdxcn/**",
     "**/build/**",

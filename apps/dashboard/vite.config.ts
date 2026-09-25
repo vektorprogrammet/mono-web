@@ -7,7 +7,7 @@ import { defineConfig, type Plugin, AliasOptions, ServerOptions } from "vite";
 import { dashboardMount } from "./dashboard-base.ts";
 
 const defaultProfileImagePath = fileURLToPath(
-  new URL("../server/assets/images/defaultProfile.png", import.meta.url),
+  new URL("./assets/images/defaultProfile.png", import.meta.url),
 );
 
 const defaultProfileImage = (): Plugin => ({

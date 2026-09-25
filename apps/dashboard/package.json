@@ -36,9 +36,6 @@
     "e2e:real-owner": "bun e2e/run-real-receipt-owner.mjs",
     "e2e:real-admission-periods": "bun e2e/run-real-admission-period-management.mjs",
     "e2e:real-recruitment": "bun ../../tools/e2e/run-real-native-recruitment-assignment.mjs",
-    "e2e:real-core-journeys": "bun --no-env-file ../../scripts/require-legacy-profile.ts && bun e2e/run-real-symfony-core-journeys.mjs",
-    "e2e:real-org-operations": "bun --no-env-file ../../scripts/require-legacy-profile.ts && bun e2e/run-real-symfony-org-operations.mjs",
-    "e2e:real-background-operations": "bun --no-env-file ../../scripts/require-legacy-profile.ts && bun e2e/run-real-symfony-background-operations.mjs",
     "e2e:real-scheduling": "bun e2e/run-real-native-recruitment-interview-scheduling.mjs",
     "e2e:real-conduct": "bun e2e/run-real-native-recruitment-interview-conduct.mjs",
     "e2e:real-organization": "bun e2e/run-real-native-organization-administration.mjs",
@@ -46,7 +43,6 @@
     "e2e:real-schools": "bun e2e/run-real-native-schools-directory.mjs",
     "e2e:real-interview-response": "bun e2e/run-real-interview-response.mjs",
     "e2e:real-profile": "node e2e/run-real-native-profile-self-edit.mjs",
-    "e2e:real-content-ops": "bun --no-env-file ../../scripts/require-legacy-profile.ts && bun e2e/run-real-content-ops.mjs",
     "e2e:real-identity": "bun --no-env-file e2e/run-real-native-identity-browser.mjs",
     "e2e:real-oauth": "node ./node_modules/@playwright/test/cli.js test e2e/native-oauth-consent.spec.ts --project=chromium --workers=1 --retries=0"
   },

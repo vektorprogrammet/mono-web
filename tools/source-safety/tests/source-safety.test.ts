@@ -40,8 +40,8 @@ describe("paths", () => {
       "keys/server.pem",
       "var/backups/db.sql",
       "payloads/request.ndjson",
-      "apps/server/config/jwt/private.pem",
-      "apps/server/config/jwt/public.pem",
+      "apps/example/config/jwt/private.pem",
+      "apps/example/config/jwt/public.pem",
     ]) {
       expect(sourcePathSafetyReason(path)).toBe("UNSAFE_SOURCE");
     }
@@ -50,12 +50,12 @@ describe("paths", () => {
       ".env",
       ".env.local",
       "apps/homepage/.env.example",
-      "apps/server/.env.test",
+      "apps/example/.env.test",
       "migrations/0001.sql",
       "var/logs/.gitkeep",
       "composer.lock",
       "tests/AppBundle/Service/CompanyEmailMakerTest.php",
-      "apps/server/src/App/Interview/Infrastructure/Subscriber/InterviewSubscriber.php",
+      "apps/example/src/App/Interview/Infrastructure/Subscriber/InterviewSubscriber.php",
       "apps/homepage/src/routes/_home.team.bergen.styret.tsx",
     ]) {
       expect(sourcePathSafetyReason(path)).toBeNull();
@@ -90,30 +90,30 @@ describe("dotenv", () => {
       "APP_ENV=test\nAPP_SECRET=test_app_secret_for_testing_only\nDATABASE_URL=sqlite:///:memory:\nJWT_PASSPHRASE=\n",
     );
 
-    expect(sourceTextSafetyReason("apps/server/.env.test", envBytes)).toBeNull();
+    expect(sourceTextSafetyReason("apps/example/.env.test", envBytes)).toBeNull();
   });
 
   test("admits sentinels only in .env.test and rejects concrete values", () => {
     expect(
       unsafeEnvSourceTextReason(
         "APP_SECRET=test_app_secret_for_testing_only",
-        "apps/server/.env.production",
+        "apps/example/.env.production",
       ),
     ).toBe("UNSAFE_SOURCE");
     expect(
       unsafeEnvSourceTextReason(
         "APP.SECRET=test_app_secret_for_testing_only",
-        "apps/server/.env.test",
+        "apps/example/.env.test",
       ),
     ).toBe("UNSAFE_SOURCE");
-    expect(unsafeEnvSourceTextReason("CLIENT.SECRET=", "apps/server/.env.test")).toBeNull();
-    expect(unsafeEnvSourceTextReason("APP_ENV=@placeholder@", "apps/server/.env.test")).toBe(
+    expect(unsafeEnvSourceTextReason("CLIENT.SECRET=", "apps/example/.env.test")).toBeNull();
+    expect(unsafeEnvSourceTextReason("APP_ENV=@placeholder@", "apps/example/.env.test")).toBe(
       "UNSAFE_SOURCE",
     );
     expect(
-      unsafeEnvSourceTextReason("APP_SECRET=${PRODUCTION_SECRET}", "apps/server/.env.production"),
+      unsafeEnvSourceTextReason("APP_SECRET=${PRODUCTION_SECRET}", "apps/example/.env.production"),
     ).toBe("UNSAFE_SOURCE");
-    expect(unsafeEnvSourceTextReason("APP_SECRET=", "apps/server/.env.production")).toBeNull();
+    expect(unsafeEnvSourceTextReason("APP_SECRET=", "apps/example/.env.production")).toBeNull();
   });
 });
 
@@ -278,14 +278,14 @@ describe("SQL", () => {
 describe("index scan", () => {
   test("rejects unsafe staged paths, dotenv, SQL, and invalid UTF-8", () => {
     for (const [path, contents] of [
-      ["apps/server/.env.test", "DATABASE_URL=mysql://vektor:concrete-secret@db/app\n"],
-      ["apps/server/.env.production", "APP_SECRET=@correct-horse-battery-staple@\n"],
+      ["apps/example/.env.test", "DATABASE_URL=mysql://vektor:concrete-secret@db/app\n"],
+      ["apps/example/.env.production", "APP_SECRET=@correct-horse-battery-staple@\n"],
       [
         "packages/database/migrations/0100-malicious.sql",
         "INSERT INTO users (email) VALUES ('alice@university.no');\n",
       ],
       ["var/backups/latest.dump", "binary"],
-      ["apps/server/.env.test", new Uint8Array([0x41, 0xff, 0xfe])],
+      ["apps/example/.env.test", new Uint8Array([0x41, 0xff, 0xfe])],
     ] as const) {
       withGitFixture((root) => {
         put(root, "README.md", "safe\n");
@@ -306,7 +306,7 @@ describe("index scan", () => {
 
   test("checks the staged bytes, not the working tree", () => {
     withGitFixture((root) => {
-      const path = "apps/server/.env.production";
+      const path = "apps/example/.env.production";
 
       put(root, path, "APP_SECRET=\n");
       stage(root);

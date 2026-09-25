@@ -8,8 +8,9 @@ Read [STATE.md](STATE.md) for current work.
 Read [docs/system.md](docs/system.md) for intended product behavior.
 Read [docs/architecture.md](docs/architecture.md) for technical boundaries.
 
-The migration targets the native application. Symfony source establishes legacy
-behavior to assess. It is not the target architecture.
+The migration targets the native application. Legacy behavior comes from the live
+legacy system and its source in the separate vektorprogrammet repository; see
+[docs/architecture.md](docs/architecture.md#legacy-source). It is not the target architecture.
 
 For a non-trivial journey, create one active contract under `docs/specs/`.
 Remove it after the accepted intent is represented by the system document, code,
@@ -70,7 +71,6 @@ Focused Vitest does not prove those additional gates or the dashboard bundle gat
 | `apps/backend`        | Native Effect HTTP process and workers                   |
 | `apps/homepage`       | Public React application                                 |
 | `apps/dashboard`      | Authenticated React Router and Foldkit application       |
-| `apps/server`         | Retained Symfony modernization source                    |
 | `packages/domain`     | Business values, transitions, failures, and authority    |
 | `packages/database`   | PostgreSQL schema, persistence, locks, audit, and outbox |
 | `packages/http-api`   | HTTP contracts, middleware declarations, and OpenAPI     |
@@ -212,23 +212,3 @@ A failed aggregate command is not a passing suite because its earlier tests pass
 A local browser journey is not provider proof. A deployed provider journey is not production cutover authority.
 `STATE.md` holds current state only: current acceptance, open gaps, and the next gates. Remove an item when it is resolved; Git keeps the history.
 Keep enduring behavior in the system and architecture documents.
-
-## Symfony source
-
-Use `apps/server/CLAUDE.md` for Symfony-specific commands and constraints.
-Server commands run through Composer inside `devenv --profile legacy shell`:
-
-```bash
-devenv --profile legacy shell
-cd apps/server
-composer install
-composer test
-composer lint
-composer analyse
-```
-
-After a database constraint or validation change, verify that fixtures load:
-
-```bash
-APP_ENV=test php bin/console doctrine:fixtures:load --no-interaction
-```

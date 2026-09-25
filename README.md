@@ -43,7 +43,6 @@ The local development instructions below do not establish migration completion.
 apps/backend       native Effect HTTP process and workers
 apps/homepage      public React application
 apps/dashboard     authenticated React Router and Foldkit application
-apps/server        retained Symfony source for legacy behavior
 packages/domain    business values, transitions, failures, and authority
 packages/database  PostgreSQL migrations, persistence, locks, audit, and outbox
 packages/placements portable Placements contracts and private server implementation
@@ -54,8 +53,9 @@ tools              other bounded development and migration tools
 docs               intended system, architecture, operations, and active specs
 ```
 
-The legacy Symfony source is an input to migration decisions. It is not the
-target architecture.
+The legacy Symfony source lives in the separate
+[vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository. It is an input to
+migration decisions, not the target architecture.
 
 ## Toolchain
 
@@ -197,7 +197,7 @@ The launcher does not inherit provider configuration, and the backend does not l
 These boundaries do not prevent database writes.
 
 The homepage development server accepts local edits and labels its provenance `working-tree`.
-Release builds still require clean committed source. The retained Symfony application uses `bun run dev:server` in the `legacy` profile.
+Release builds still require clean committed source.
 No development command authorizes production access or cloud provisioning.
 
 ### Current-assignment migration rehearsal

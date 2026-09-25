@@ -39,7 +39,6 @@
     "changelog:check": "bun scripts/changelog.ts --check",
     "dev:homepage": "turbo -F @monoweb/homepage dev",
     "dev:dashboard": "turbo -F @monoweb/dashboard dev",
-    "dev:server": "bun --no-env-file scripts/require-legacy-profile.ts && turbo -F @monoweb/server dev",
     "build:homepage": "turbo -F @monoweb/homepage worker:build",
     "worker:homepage": "turbo -F @monoweb/homepage worker:dev",
     "check": "bun run format:check && bun run lint && bun run source-safety && bun run check-types",
