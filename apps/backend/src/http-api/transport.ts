@@ -13,7 +13,7 @@ import { CONTACT_BACKEND_HEADER } from "@vektorprogrammet/domain/contact";
 import { Identity } from "@vektorprogrammet/domain/identity";
 import { credentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Match, Effect, Layer, Redacted, Result, type SchemaIssue } from "effect";
-import { HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
 import {
   resolveAuthenticatedPerson,
@@ -23,22 +23,6 @@ import {
 } from "../authority.js";
 import type { ContactConfig } from "../contact/config.js";
 import { classifyCredential, problemWebResponse } from "./problem.js";
-
-/**
- * Flattens one Effect-native Web transport operation into an HTTP API response.
- * The caller supplies the group's frozen error translation while the handler's
- * service requirements remain visible to the enclosing HttpApiBuilder Layer.
- */
-export const toHttpApiResponse = <E, R>(
-  request: HttpServerRequest.HttpServerRequest,
-  handle: (request: Request) => Effect.Effect<Response, E, R>,
-  mapError: (cause: E | HttpServerError.RequestError) => Response,
-): Effect.Effect<HttpServerResponse.HttpServerResponse, never, R> =>
-  HttpServerRequest.toWeb(request).pipe(
-    Effect.flatMap(handle),
-    Effect.catch((cause) => Effect.succeed(mapError(cause))),
-    Effect.map(HttpServerResponse.fromWeb),
-  );
 
 const issueAtHeader = (
   issue: SchemaIssue.Issue,

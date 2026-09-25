@@ -1,18 +1,33 @@
-import { Effect } from "effect";
-import { HttpSemanticFailure, parseJsonWithoutDuplicateMembers } from "../http-semantics.js";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Schema } from "effect";
+import { parseJsonWithoutDuplicateMembers } from "../http-semantics.js";
 
-/** Bound bytes while reading, including requests without Content-Length. */
-export const readBoundedJson = (request: Request, maxBytes: number) => {
+type ReadJsonProblem =
+  | Problem<"request.malformed">
+  | Problem<"request.too-large">
+  | Problem<"internal.error">;
+
+/**
+ * Bound bytes while reading, including requests without Content-Length. A
+ * body that cannot be read at all is an internal error; everything else the
+ * client sent wrong is request.malformed or request.too-large.
+ *
+ * @construct http-transport
+ */
+export const readBoundedJson = (
+  request: Request,
+  maxBytes: number,
+): Effect.Effect<Schema.Json, ReadJsonProblem> => {
   const declared = request.headers.get("content-length");
 
   if (declared !== null && (!/^\d+$/u.test(declared) || !Number.isSafeInteger(Number(declared))))
-    return Effect.fail(new HttpSemanticFailure("request.malformed", 400));
+    return Effect.fail(Problem.make("request.malformed"));
 
   if (declared !== null && Number(declared) > maxBytes)
-    return Effect.fail(new HttpSemanticFailure("request.too-large", 413));
+    return Effect.fail(Problem.make("request.too-large"));
   const reader = request.body?.getReader();
 
-  if (!reader) return Effect.fail(new HttpSemanticFailure("request.malformed", 400));
+  if (!reader) return Effect.fail(Problem.make("request.malformed"));
 
   return Effect.gen(function* () {
     const chunks: Uint8Array[] = [];
@@ -21,10 +36,7 @@ export const readBoundedJson = (request: Request, maxBytes: number) => {
     for (;;) {
       const next = yield* Effect.tryPromise({
         try: () => reader.read(),
-        catch: (cause) =>
-          cause instanceof HttpSemanticFailure
-            ? cause
-            : new HttpSemanticFailure("internal.error", 500),
+        catch: () => Problem.make("internal.error"),
       });
 
       if (next.done) break;
@@ -33,13 +45,10 @@ export const readBoundedJson = (request: Request, maxBytes: number) => {
       if (size > maxBytes) {
         yield* Effect.tryPromise({
           try: () => reader.cancel(),
-          catch: (cause) =>
-            cause instanceof HttpSemanticFailure
-              ? cause
-              : new HttpSemanticFailure("internal.error", 500),
+          catch: () => Problem.make("internal.error"),
         });
 
-        return yield* Effect.fail(new HttpSemanticFailure("request.too-large", 413));
+        return yield* Problem.make("request.too-large");
       }
 
       chunks.push(next.value);
@@ -53,12 +62,10 @@ export const readBoundedJson = (request: Request, maxBytes: number) => {
       offset += chunk.byteLength;
     }
 
+    // The parser throws only request.malformed problems.
     return yield* Effect.try({
       try: () => parseJsonWithoutDuplicateMembers(bytes),
-      catch: (cause) =>
-        cause instanceof HttpSemanticFailure
-          ? cause
-          : new HttpSemanticFailure("request.malformed", 400),
+      catch: () => Problem.make("request.malformed"),
     });
   }).pipe(Effect.ensuring(Effect.sync(() => reader.releaseLock())));
 };

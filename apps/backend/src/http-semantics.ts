@@ -4,12 +4,10 @@ import { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semant
 import {
   type IdempotencyKey,
   IdempotencyKey as IdempotencyKeySchema,
-  makeNativeProblem,
+  isProblem,
   makeNativeValidationError,
-  type NativeProblemCode,
   type NativeValidationError,
-  normalizeValidationErrors,
-  nativeUserChallenges,
+  Problem,
   Sha256Hex,
   type StrongETag,
   type ValidationProblemCode,
@@ -18,8 +16,6 @@ import {
 import { Array as Arr, Data, Predicate, Schema } from "effect";
 
 const encoder = new TextEncoder();
-
-const lowerSha256Pattern = /^[a-f0-9]{64}$/u;
 
 const entityTagPattern = /^(W\/)?"([\x21\x23-\x7E]*)"$/u;
 
@@ -51,17 +47,6 @@ export type CanonicalSemanticRequest = {
   readonly query?: Schema.JsonObject;
 };
 
-export class HttpSemanticFailure extends Error {
-  readonly name = "HttpSemanticFailure";
-
-  constructor(
-    readonly code: NativeProblemCode,
-    readonly status: number,
-  ) {
-    super(code);
-  }
-}
-
 const sha256Bytes = (bytes: Uint8Array): Uint8Array =>
   new Uint8Array(createHash("sha256").update(bytes).digest());
 
@@ -91,21 +76,21 @@ const validateJcsValue = (value: Schema.Json, seen: Set<object>): void => {
   if (value === null || Predicate.isBoolean(value)) return;
 
   if (Predicate.isString(value)) {
-    if (!isUnicodeScalarString(value)) throw new HttpSemanticFailure("request.malformed", 400);
+    if (!isUnicodeScalarString(value)) throw Problem.make("request.malformed");
 
     return;
   }
 
   if (Predicate.isNumber(value)) {
-    if (!Number.isFinite(value)) throw new HttpSemanticFailure("request.malformed", 400);
+    if (!Number.isFinite(value)) throw Problem.make("request.malformed");
 
     return;
   }
 
   if (!(value === null || Predicate.isObjectOrArray(value)))
-    throw new HttpSemanticFailure("request.malformed", 400);
+    throw Problem.make("request.malformed");
 
-  if (seen.has(value)) throw new HttpSemanticFailure("request.malformed", 400);
+  if (seen.has(value)) throw Problem.make("request.malformed");
   seen.add(value);
 
   if (Arr.isArray<Schema.Json>(value)) {
@@ -114,11 +99,11 @@ const validateJcsValue = (value: Schema.Json, seen: Set<object>): void => {
     const prototype = Object.getPrototypeOf(value);
 
     if (prototype !== Object.prototype && prototype !== null) {
-      throw new HttpSemanticFailure("request.malformed", 400);
+      throw Problem.make("request.malformed");
     }
 
     for (const [key, item] of Object.entries<Schema.Json>(value)) {
-      if (!isUnicodeScalarString(key)) throw new HttpSemanticFailure("request.malformed", 400);
+      if (!isUnicodeScalarString(key)) throw Problem.make("request.malformed");
       validateJcsValue(item, seen);
     }
   }
@@ -126,14 +111,22 @@ const validateJcsValue = (value: Schema.Json, seen: Set<object>): void => {
   seen.delete(value);
 };
 
-/** Encodes one I-JSON value with the repository RFC 8785 encoder. */
+/**
+ * Encodes one I-JSON value with the repository RFC 8785 encoder.
+ *
+ * @construct http-transport
+ */
 export const jcsBytes = (value: Schema.Json): Uint8Array => {
   validateJcsValue(value, new Set());
 
   return canonicalJsonBytes(value);
 };
 
-/** Decodes UTF-8 JSON while rejecting duplicate member names before schema decoding. */
+/**
+ * Decodes UTF-8 JSON while rejecting duplicate member names before schema decoding.
+ *
+ * @construct http-transport
+ */
 export const parseJsonWithoutDuplicateMembers = (bytes: Uint8Array): Schema.Json => {
   try {
     const decoded = parseJsonWithUniqueMembers(bytes);
@@ -141,8 +134,8 @@ export const parseJsonWithoutDuplicateMembers = (bytes: Uint8Array): Schema.Json
 
     return decoded;
   } catch (cause) {
-    if (cause instanceof HttpSemanticFailure) throw cause;
-    throw new HttpSemanticFailure("request.malformed", 400);
+    if (isProblem(cause)) throw cause;
+    throw Problem.make("request.malformed");
   }
 };
 
@@ -176,7 +169,11 @@ const isJsonObject = (value: Schema.Json): value is Schema.JsonObject =>
 const jsonPointerProperty = (property: string): string =>
   `/${property.replaceAll("~", "~0").replaceAll("/", "~1")}`;
 
-/** Preserves absence, value, and explicit deletion before typed merge-patch decoding. */
+/**
+ * Preserves absence, value, and explicit deletion before typed merge-patch decoding.
+ *
+ * @construct http-transport
+ */
 export const interpretMergePatchSource = <const Fields extends ReadonlyArray<string>>(
   source: Schema.Json,
   allowedFields: Fields,
@@ -214,7 +211,7 @@ export const interpretMergePatchSource = <const Fields extends ReadonlyArray<str
     if (!Object.hasOwn(record, field)) return [field, MergePatchFieldState.Absent()] as const;
     const value = record[field];
 
-    if (value === undefined) throw new HttpSemanticFailure("request.malformed", 400);
+    if (value === undefined) throw Problem.make("request.malformed");
 
     return [
       field,
@@ -251,34 +248,42 @@ export const interpretAdmissionPeriodMergePatchSource = (source: Schema.Json) =>
 export const interpretArticleMergePatchSource = (source: Schema.Json) =>
   interpretMergePatchSource(source, articleMergePatchFields);
 
-/** Decodes one non-combinable Idempotency-Key field. */
+/**
+ * Decodes one non-combinable Idempotency-Key field.
+ *
+ * @construct http-transport
+ */
 export const parseIdempotencyKey = (values: ReadonlyArray<string>): IdempotencyKey => {
   if (values.length !== 1 || values[0]?.includes(",") === true) {
-    throw new HttpSemanticFailure("idempotency-key.invalid", 400);
+    throw Problem.make("idempotency-key.invalid");
   }
 
   try {
     return Schema.decodeUnknownSync(IdempotencyKeySchema)(values[0]);
   } catch {
-    throw new HttpSemanticFailure("idempotency-key.invalid", 400);
+    throw Problem.make("idempotency-key.invalid");
   }
 };
 
-/** Decodes the required single strong If-Match value for an item mutation. */
+/**
+ * Decodes the required single strong If-Match value for an item mutation.
+ *
+ * @construct http-transport
+ */
 export const parseRequiredIfMatch = (values: ReadonlyArray<string>): StrongETag => {
-  if (values.length === 0) throw new HttpSemanticFailure("precondition.required", 428);
+  if (values.length === 0) throw Problem.make("precondition.required");
 
-  if (values.length !== 1) throw new HttpSemanticFailure("precondition.invalid", 400);
+  if (values.length !== 1) throw Problem.make("precondition.invalid");
   const canonical = values[0]?.trim();
 
   if (canonical === undefined || canonical.includes(",") || !entityTagPattern.test(canonical)) {
-    throw new HttpSemanticFailure("precondition.invalid", 400);
+    throw Problem.make("precondition.invalid");
   }
 
   try {
     return Schema.decodeUnknownSync(StrongETagSchema)(canonical);
   } catch {
-    throw new HttpSemanticFailure("precondition.invalid", 400);
+    throw Problem.make("precondition.invalid");
   }
 };
 
@@ -298,7 +303,7 @@ const splitEntityTagList = (value: string): ReadonlyArray<string> => {
     }
   }
 
-  if (quoted) throw new HttpSemanticFailure("precondition.invalid", 400);
+  if (quoted) throw Problem.make("precondition.invalid");
   items.push(value.slice(start));
 
   return items;
@@ -313,7 +318,7 @@ const parseOptionalEntityTagCondition = (
   if (combined.trim() === "*") return "*";
 
   if (combined.trim().length === 0) {
-    throw new HttpSemanticFailure("precondition.invalid", 400);
+    throw Problem.make("precondition.invalid");
   }
 
   const tuples: Array<readonly [boolean, string]> = [];
@@ -322,7 +327,7 @@ const parseOptionalEntityTagCondition = (
   for (const item of splitEntityTagList(combined)) {
     const match = entityTagPattern.exec(item.trim());
 
-    if (match === null) throw new HttpSemanticFailure("precondition.invalid", 400);
+    if (match === null) throw Problem.make("precondition.invalid");
     const weak = match[1] !== undefined;
     const opaque = match[2]!;
     const key = `${weak ? "1" : "0"}:${opaque}`;
@@ -343,17 +348,29 @@ const parseOptionalEntityTagCondition = (
   return tuples;
 };
 
-/** Canonicalizes an optional read If-Match wildcard or entity-tag list. */
+/**
+ * Canonicalizes an optional read If-Match wildcard or entity-tag list.
+ *
+ * @construct http-transport
+ */
 export const parseReadIfMatch = (values: ReadonlyArray<string>): CanonicalIfMatch | null =>
   parseOptionalEntityTagCondition(values);
 
-/** Canonicalizes an optional If-None-Match wildcard or entity-tag list. */
+/**
+ * Canonicalizes an optional If-None-Match wildcard or entity-tag list.
+ *
+ * @construct http-transport
+ */
 export const parseIfNoneMatch = (values: ReadonlyArray<string>): CanonicalIfNoneMatch | null =>
   parseOptionalEntityTagCondition(values);
 
-/** Encodes one decoded identity as an uppercase RFC 3986 path segment. */
+/**
+ * Encodes one decoded identity as an uppercase RFC 3986 path segment.
+ *
+ * @construct http-transport
+ */
 export const encodePathIdentity = (identity: string): string => {
-  if (!isUnicodeScalarString(identity)) throw new HttpSemanticFailure("request.malformed", 400);
+  if (!isUnicodeScalarString(identity)) throw Problem.make("request.malformed");
 
   return encodeURIComponent(identity).replace(
     /[!'()*]/gu,
@@ -361,6 +378,11 @@ export const encodePathIdentity = (identity: string): string => {
   );
 };
 
+/**
+ * Fills a route template with its encoded identities; a missing identity is a malformed request.
+ *
+ * @construct http-transport
+ */
 export const normalizeTarget = (
   routeTemplate: string,
   identities: Readonly<Record<string, string>>,
@@ -368,7 +390,7 @@ export const normalizeTarget = (
   routeTemplate.replaceAll(/\{([^}]+)\}/gu, (_match, name: string) => {
     const identity = identities[name];
 
-    if (identity === undefined) throw new HttpSemanticFailure("request.malformed", 400);
+    if (identity === undefined) throw Problem.make("request.malformed");
 
     return encodePathIdentity(identity);
   });
@@ -385,20 +407,24 @@ const validQualifiedOperationId =
 
 const validNormalizedTarget = /^\/(?:api(?:\/[^\s?#]*)?|health)$/u;
 
-/** Derives the private storage digest and domain command ID from the identity tuple. */
+/**
+ * Derives the private storage digest and domain command ID from the identity tuple.
+ *
+ * @construct http-transport
+ */
 export const deriveHttpIdentity = (identity: NativeIdempotencyIdentity): DerivedHttpIdentity => {
   if (
     !validCredentialSubject.test(identity.credentialSubject) ||
     !validQualifiedOperationId.test(identity.qualifiedOperationId) ||
     !validNormalizedTarget.test(identity.normalizedTarget)
   ) {
-    throw new HttpSemanticFailure("request.malformed", 400);
+    throw Problem.make("request.malformed");
   }
 
   try {
     Schema.decodeUnknownSync(IdempotencyKeySchema)(identity.idempotencyKey);
   } catch {
-    throw new HttpSemanticFailure("idempotency-key.invalid", 400);
+    throw Problem.make("idempotency-key.invalid");
   }
 
   const tuple = [
@@ -548,87 +574,6 @@ export const admissionCacheControl = (
   return `public, max-age=${ttl}, s-maxage=${ttl}, must-revalidate`;
 };
 
-/** The request-wide error a validation problem names when no member is singled out. */
-const requestValidationError = {
-  "validation.failed": makeNativeValidationError("", "invalid"),
-  "validation.no-change": makeNativeValidationError("", "no-change"),
-  "validation.field-not-deletable": makeNativeValidationError("", "field-not-deletable"),
-} as const satisfies Record<ValidationProblemCode, NativeValidationError>;
-
-const isValidationProblemCode = (code: NativeProblemCode): code is ValidationProblemCode =>
-  Object.hasOwn(requestValidationError, code);
-
-/**
- * Creates an RFC 9457 response without leaking the internal failure. A
- * validation code carries its mandatory extension, naming the whole request,
- * and a credential problem without its own challenge names the person
- * credentials every native user endpoint accepts.
- */
-export const nativeProblemResponse = (
-  code: NativeProblemCode,
-  status: number,
-  headers: ConstructorParameters<typeof Headers>[0] = {},
-): Response => {
-  const responseHeaders = new Headers(headers);
-  responseHeaders.set("cache-control", NO_STORE);
-  responseHeaders.set("content-type", "application/problem+json");
-
-  if ((status === 409 && code === "idempotency.in-flight") || status === 503) {
-    responseHeaders.set("retry-after", status === 409 ? "1" : "5");
-  }
-
-  if (status === 401 && !responseHeaders.has("www-authenticate")) {
-    responseHeaders.set("www-authenticate", nativeUserChallenges());
-  }
-
-  const problem = makeNativeProblem(code, status);
-
-  const body = isValidationProblemCode(code)
-    ? {
-        ...problem,
-        validation: normalizeValidationErrors([requestValidationError[code]]),
-      }
-    : problem;
-
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: responseHeaders,
-  });
-};
-
-/** Emits the bounded dynamic retry delay for a native rate-limit response. */
-export const rateLimitProblemResponse = (retryAfterSeconds: number): Response => {
-  if (!Number.isInteger(retryAfterSeconds) || retryAfterSeconds < 1 || retryAfterSeconds > 3600) {
-    throw new HttpSemanticFailure("internal.error", 500);
-  }
-
-  return nativeProblemResponse("rate-limit.exceeded", 429, {
-    "retry-after": String(retryAfterSeconds),
-  });
-};
-
-/** Emits one bounded validation extension without rejected values. */
-export const validationProblemResponse = (
-  code: "validation.failed" | "validation.no-change" | "validation.field-not-deletable",
-  errors: ReadonlyArray<NativeValidationError>,
-): Response => {
-  const validation = normalizeValidationErrors(errors);
-
-  return new Response(
-    JSON.stringify({
-      ...makeNativeProblem(code, 422),
-      validation,
-    }),
-    {
-      status: 422,
-      headers: {
-        "cache-control": NO_STORE,
-        "content-type": "application/problem+json",
-      },
-    },
-  );
-};
-
 const methodOrder = ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"] as const;
 
 /** Produces the path-specific Allow value in the frozen order. */
@@ -639,63 +584,6 @@ export const allowHeader = (methods: ReadonlyArray<string>): string => {
   allowed.add("OPTIONS");
 
   return methodOrder.filter((method) => allowed.has(method)).join(", ");
-};
-
-export const methodNotAllowedResponse = (methods: ReadonlyArray<string>): Response =>
-  nativeProblemResponse("method.not-allowed", 405, { allow: allowHeader(methods) });
-
-/** Emits a JSON mutation result with the frozen status and replayable headers. */
-export const jsonMutationResponse = (input: {
-  readonly status: 200 | 201;
-  readonly body: Schema.Json;
-  readonly etag: StrongETag;
-  readonly location?: string;
-}): Response => {
-  if (
-    input.status === 201 &&
-    (input.location === undefined ||
-      !/^\/api\/[^\s?#]+$/u.test(input.location) ||
-      input.location.startsWith("//"))
-  ) {
-    throw new HttpSemanticFailure("internal.error", 500);
-  }
-
-  if (input.status !== 201 && input.location !== undefined) {
-    throw new HttpSemanticFailure("internal.error", 500);
-  }
-
-  try {
-    Schema.decodeUnknownSync(StrongETagSchema)(input.etag);
-  } catch {
-    throw new HttpSemanticFailure("internal.error", 500);
-  }
-
-  const headers = new Headers({
-    "cache-control": NO_STORE,
-    "content-type": "application/json",
-    etag: input.etag,
-  });
-
-  if (input.location !== undefined) headers.set("location", input.location);
-
-  return new Response(JSON.stringify(input.body), { status: input.status, headers });
-};
-
-/** Emits a bodyless mutation result with no media type or Location. */
-export const noContentMutationResponse = (etag?: StrongETag): Response => {
-  if (etag !== undefined) {
-    try {
-      Schema.decodeUnknownSync(StrongETagSchema)(etag);
-    } catch {
-      throw new HttpSemanticFailure("internal.error", 500);
-    }
-  }
-
-  const headers = new Headers({ "cache-control": NO_STORE });
-
-  if (etag !== undefined) headers.set("etag", etag);
-
-  return new Response(null, { status: 204, headers });
 };
 
 /** Creates the frozen bodyless 304 projection of a selected 200 response. */
@@ -752,11 +640,6 @@ export const responseFromCapsule = (capsule: HttpResponseCapsule): Response => {
     status: capsule.status,
     headers,
   });
-};
-
-/** Rejects values that are not exact lowercase SHA-256 strings at persistence boundaries. */
-export const assertSha256Hex = (value: string): asserts value is Sha256Hex => {
-  if (!lowerSha256Pattern.test(value)) throw new HttpSemanticFailure("request.malformed", 400);
 };
 
 /** Deterministic JSON body bytes used by first responses and replays. */

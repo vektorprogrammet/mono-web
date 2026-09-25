@@ -26,6 +26,7 @@ import {
   type Organization,
 } from "@vektorprogrammet/domain";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Schema, Cause, Predicate, Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -47,9 +48,9 @@ import {
 import type { BackendConfig } from "./config.js";
 import { ContentApiHandlers } from "./content/http.js";
 import { SystemApiHandlers } from "./http-api/system.js";
-import { ProblemBoundaryLive } from "./http-api/problem.js";
+import { ProblemBoundaryLive, problemWebResponse } from "./http-api/problem.js";
 import { nativeHttpApiMiddlewareLayer } from "./http-api/transport.js";
-import { methodNotAllowedResponse, nativeProblemResponse } from "./http-semantics.js";
+import { allowHeader } from "./http-semantics.js";
 import { externalNativePreflightMethodsForPath } from "./native-api-preflight.js";
 
 import { decideNativePreflight } from "./native-preflight.js";
@@ -70,11 +71,26 @@ import {
   allowsNativePreflightHeaders,
   decideTrustedOrigin,
   prepareIdentityBoundaryRequest,
-  trustedOriginRejectedResponse,
   trustedPreflightResponse,
   withTrustedOriginCors,
   type NativeSessionBoundaryPolicy,
 } from "./session-security.js";
+
+/** A browser request from an origin the session boundary does not trust; the answer varies by Origin. */
+const originRejected = (): Response => {
+  const response = problemWebResponse(Problem.make("origin.denied"));
+  response.headers.set("vary", "Origin");
+
+  return response;
+};
+
+/** A method outside the resource's frozen method set, with the path's Allow header. */
+const methodNotAllowed = (methods: ReadonlyArray<string>): Response => {
+  const response = problemWebResponse(Problem.make("method.not-allowed"));
+  response.headers.set("allow", allowHeader(methods));
+
+  return response;
+};
 
 export const nativeHttpRouterConfig = {
   // FindMyWay matches the encoded path segment: every accepted UTF-8 byte can occupy "%HH".
@@ -255,7 +271,7 @@ export const ExternalNativeApiRouterLive = (
       "*",
       "*",
       Effect.sync(() =>
-        HttpServerResponse.fromWeb(nativeProblemResponse("resource.not-found", 404)),
+        HttpServerResponse.fromWeb(problemWebResponse(Problem.make("resource.not-found"))),
       ),
     ),
   );
@@ -299,7 +315,7 @@ export const InternalNativeApiRouterLive = (
       "*",
       "*",
       Effect.sync(() =>
-        HttpServerResponse.fromWeb(nativeProblemResponse("resource.not-found", 404)),
+        HttpServerResponse.fromWeb(problemWebResponse(Problem.make("resource.not-found"))),
       ),
     ),
   );
@@ -453,7 +469,7 @@ export const backendHttpHandler = (
         .recordTrustedOriginRejection(prepared.context, credentialFlow)
         .catch(() => undefined);
 
-      return trustedOriginRejectedResponse();
+      return originRejected();
     }
 
     if (prepared.request.method === "OPTIONS") {
@@ -462,7 +478,7 @@ export const backendHttpHandler = (
           .recordTrustedOriginRejection(prepared.context, credentialFlow)
           .catch(() => undefined);
 
-        return trustedOriginRejectedResponse();
+        return originRejected();
       }
 
       const requestedMethod = prepared.request.headers.get("access-control-request-method");
@@ -476,13 +492,13 @@ export const backendHttpHandler = (
 
       if (Predicate.isTagged(preflight, "HeaderMalformed")) {
         return withTrustedOriginCors(
-          nativeProblemResponse("header.malformed", 400),
+          problemWebResponse(Problem.make("header.malformed")),
           acceptedOrigin,
         );
       }
 
       if (Predicate.isTagged(preflight, "MethodNotAllowed")) {
-        return withTrustedOriginCors(methodNotAllowedResponse(preflight.methods), acceptedOrigin);
+        return withTrustedOriginCors(methodNotAllowed(preflight.methods), acceptedOrigin);
       }
 
       if (Predicate.isTagged(preflight, "Ready")) {
@@ -495,7 +511,7 @@ export const backendHttpHandler = (
       ) {
         if (!allowsNativePreflightHeaders(prepared.request)) {
           return withTrustedOriginCors(
-            nativeProblemResponse("header.malformed", 400),
+            problemWebResponse(Problem.make("header.malformed")),
             acceptedOrigin,
           );
         }
@@ -508,7 +524,7 @@ export const backendHttpHandler = (
       }
 
       return withTrustedOriginCors(
-        nativeProblemResponse("resource.not-found", 404),
+        problemWebResponse(Problem.make("resource.not-found")),
         acceptedOrigin,
       );
     }

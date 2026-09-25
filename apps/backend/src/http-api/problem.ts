@@ -31,7 +31,6 @@ import {
   deriveHttpIdentity,
   evaluateMutationPrecondition,
   evaluateReadPreconditions,
-  HttpSemanticFailure,
   type NativeIdempotencyIdentity,
   notModifiedResponse,
   parseIdempotencyKey,
@@ -97,20 +96,9 @@ export const webHandler = <E, R>(
     Effect.map(HttpServerResponse.fromWeb),
   );
 
-const declaredProblem = <Code extends PlainProblemCode>(
-  cause: unknown,
-  codes: ReadonlyArray<Code>,
-): Effect.Effect<never, Problem<Code>> => {
-  const code =
-    cause instanceof HttpSemanticFailure
-      ? codes.find((declared) => declared === cause.code)
-      : undefined;
-
-  return code === undefined ? Effect.die(cause) : Effect.fail(Problem.make(code));
-};
-
 /**
- * Runs a throwing semantic parser. Its declared codes become problems; anything else is a defect.
+ * Runs a throwing semantic parser. A thrown problem with one of the declared
+ * codes fails the effect; anything else is a defect.
  *
  * @construct http-problem
  */
@@ -122,20 +110,11 @@ export const semanticProblem = <A, const Code extends PlainProblemCode>(
     try {
       return Effect.succeed(parse());
     } catch (cause) {
-      return declaredProblem(cause, codes);
+      const code = isProblem(cause) ? codes.find((declared) => declared === cause.code) : undefined;
+
+      return code === undefined ? Effect.die(cause) : Effect.fail(Problem.make(code));
     }
   });
-
-/**
- * Narrows an untyped semantic failure channel to its declared codes.
- *
- * @construct http-problem
- */
-export const semanticProblems = <A, R, const Code extends PlainProblemCode>(
-  effect: Effect.Effect<A, HttpSemanticFailure, R>,
-  codes: ReadonlyArray<Code>,
-): Effect.Effect<A, Problem<Code>, R> =>
-  Effect.catch(effect, (cause) => declaredProblem(cause, codes));
 
 interface TaggedFailure {
   readonly _tag: string;
@@ -205,13 +184,19 @@ export const requireNoQuery = (
  *
  * @construct http-problem
  */
-export const readJsonBody = (request: Request, mediaType: RegExp, maxBytes: number) =>
+export const readJsonBody = (
+  request: Request,
+  mediaType: RegExp,
+  maxBytes: number,
+): Effect.Effect<
+  Schema.Json,
+  | Problem<"media-type.unsupported">
+  | Problem<"request.malformed">
+  | Problem<"request.too-large">
+  | Problem<"internal.error">
+> =>
   mediaType.test(request.headers.get("content-type") ?? "")
-    ? semanticProblems(readBoundedJson(request, maxBytes), [
-        "request.malformed",
-        "request.too-large",
-        "internal.error",
-      ])
+    ? readBoundedJson(request, maxBytes)
     : Effect.fail(Problem.make("media-type.unsupported"));
 
 /**
@@ -416,7 +401,7 @@ export const authorizeAnonymous = (
 ): Effect.Effect<void> =>
   authorizeAnonymousNativeOperation(spec, resolution, now).pipe(
     Effect.catch((failure) =>
-      Effect.die(new Error(`anonymous access denied with ${failure.code}`)),
+      Effect.die(new Error(`anonymous access denied with HTTP ${failure.status}`)),
     ),
   );
 
@@ -444,17 +429,18 @@ export const authorizePerson = (
 /**
  * Marks problems a shared mapper can produce but this operation cannot, such
  * as a serialization conflict inside a read-only snapshot. Reaching one is a
- * defect, answered by the boundary as internal.error.
+ * defect, answered by the boundary as internal.error. At least one code is
+ * required: an empty list would widen to every code and erase them all.
  *
  * @construct http-problem
  */
 export const unreachable =
-  <const Code extends NativeProblemCode>(...codes: ReadonlyArray<Code>) =>
+  <const Code extends NativeProblemCode>(code: Code, ...codes: ReadonlyArray<Code>) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, Exclude<E, Problem<Code>>, R> => {
+    const listed: ReadonlyArray<NativeProblemCode> = [code, ...codes];
+
     const narrowed = Effect.catch(effect, (error) =>
-      isProblem(error) && codes.some((code) => code === error.code)
-        ? Effect.die(error)
-        : Effect.fail(error),
+      isProblem(error) && listed.includes(error.code) ? Effect.die(error) : Effect.fail(error),
     );
 
     // SAFETY: only the listed problems left the error channel; every other failure re-fails unchanged.

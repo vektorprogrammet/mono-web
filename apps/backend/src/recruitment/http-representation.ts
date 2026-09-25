@@ -1,4 +1,4 @@
-/** Recruitment HTTP representations: ETags, scheduling items, and a legacy conditional read. */
+/** Recruitment HTTP representations: ETags and scheduling items. */
 import type {
   RecruitmentAuthorityHttpSource,
   RecruitmentInterviewHttpSource,
@@ -6,18 +6,7 @@ import type {
   RecruitmentSchedulingBoard,
 } from "@vektorprogrammet/domain/recruitment";
 import type { StrongETag } from "@vektorprogrammet/http-api";
-import { Cause, Effect, Predicate, type Schema } from "effect";
-import { headerValues } from "../http-api/problem.js";
-import {
-  HttpSemanticFailure,
-  PRIVATE_NO_STORE,
-  deriveStrongETag,
-  evaluateReadPreconditions,
-  nativeProblemResponse,
-  notModifiedResponse,
-  parseIfNoneMatch,
-  parseReadIfMatch,
-} from "../http-semantics.js";
+import { deriveStrongETag } from "../http-semantics.js";
 
 export const invitationETag = (source: RecruitmentInvitationHttpSource): StrongETag =>
   deriveStrongETag({
@@ -57,37 +46,3 @@ export const schedulingBoardWithETags = (
     }),
   })),
 });
-
-/**
- * Legacy raw-problem conditional read that substitutes still imports.
- * Recruitment's own reads answer through the shared `conditionalJson`.
- */
-export const conditionalJsonResponse = (request: Request, body: Schema.Json, etag: StrongETag) =>
-  Effect.try({
-    try: () => {
-      const decision = evaluateReadPreconditions({
-        currentETag: etag,
-        ifMatch: parseReadIfMatch(headerValues(request, "if-match")),
-        ifNoneMatch: parseIfNoneMatch(headerValues(request, "if-none-match")),
-      });
-
-      if (Predicate.isTagged(decision, "Failed"))
-        return nativeProblemResponse(decision.code, decision.status);
-
-      if (Predicate.isTagged(decision, "NotModified")) {
-        return notModifiedResponse({ etag, cacheControl: PRIVATE_NO_STORE, vary: "Origin" });
-      }
-
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: {
-          "cache-control": PRIVATE_NO_STORE,
-          "content-type": "application/json",
-          etag,
-          vary: "Origin",
-        },
-      });
-    },
-    catch: (cause) =>
-      cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
-  });

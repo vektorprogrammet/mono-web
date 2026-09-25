@@ -80,12 +80,13 @@ Legacy usernames and company emails are not supported as login aliases. No impor
 
 Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction-over-trust)).
 
-- Typed endpoint problems: only team applications fail with declared `Problem` values.
-  The other backend groups still render raw problem Responses through `toHttpApiResponse`.
+- Typed endpoint problems: every backend group fails with declared `Problem` values; the raw problem path is gone.
+  Defects found and left open: `packages/database/src/content/postgres.ts` never recognizes a department foreign-key violation (503, not 422);
+  `Schema.Struct({})` request bodies accept excess members; a sanitizer rejection of article HTML answers 500; a lost serialization race
+  inside the survey, content, school, or recruitment-maintenance domain answers 503, not 409 (survey and content errors keep only the cause's text);
+  the dashboard maps a command's `transaction.conflict` to its unknown-error branch (`receipt-view.ts`, `__foldkit.surveys.ts`).
 - `apps/homepage/src/lib/public-application.ts` lists its problem codes by hand and omits `header.malformed`.
   The homepage problem mappers (`mapPublicApplicationError`, `publicTeamApplicationPageFailure`, `failedPublicTeamApplication`) still accept a plain problem-shaped object besides the SDK's `Problem`; the dashboard reads problems only through `nativeProblemFrom`.
-- Three operations do not declare the `internal.error` that `ProblemBoundaryLive` can answer: `organization.readAppointmentManagement`,
-  `organization.executeLifecycle`, and `admissions.readReturningAssistantOptions`.
 - Instants: domain fields still use `Rfc3339InstantSchema`, not `Instant` (`packages/domain/src/time.ts`).
   The authority instant (M2), per-slice cutovers (M3), and deletion of the string helpers such as `compareRfc3339Instants` (M4) remain.
 - Receipt keyset cursors carry microsecond text (`packages/database/src/receipt/cursor.ts`). They stay exact because storage is millisecond; M3 moves them to `Instant`.
