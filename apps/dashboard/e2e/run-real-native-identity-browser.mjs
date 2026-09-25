@@ -1,4 +1,5 @@
-import { Predicate } from "effect";
+import { NativeProblem, SessionResponse } from "@vektorprogrammet/http-api";
+import { Predicate, Schema } from "effect";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -8,6 +9,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { postgresProgram } from "@monoweb/postgres";
+import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+
+/** The owner-only session metadata fields that the API contract defines. */
+const sessionFields = Object.keys(SessionResponse.fields).sort();
+
+const credentialProblemCodes = ["credential.missing", "credential.invalid"];
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -225,8 +232,23 @@ const run = (command, args, options) => {
   return promise;
 };
 
-const start = (command, args, env, cwd) =>
-  spawn(command, args, { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+const outputTailBytes = 16_384;
+
+/** Starts a long-running process; its output stays in a bounded tail for readiness failures. */
+const start = (command, args, env, cwd) => {
+  const child = spawn(command, args, { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  let tail = "";
+
+  const remember = (chunk) => {
+    tail = `${tail}${chunk}`.slice(-outputTailBytes);
+  };
+
+  child.stdout.on("data", remember);
+  child.stderr.on("data", remember);
+  child.outputTail = () => sanitizedCommandFailure(tail.trim());
+
+  return child;
+};
 
 const stop = async (child) => {
   if (child === undefined || child.exitCode !== null || child.pid === undefined) return;
@@ -248,7 +270,9 @@ const waitForHttp = async (url, child, label) => {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`${label} exited before readiness`);
+    if (child.exitCode !== null) {
+      throw new Error(`${label} exited before readiness\n${child.outputTail()}`);
+    }
 
     try {
       const response = await fetch(url, { redirect: "manual" });
@@ -323,30 +347,13 @@ const startRecordingBoundary = async (targetOrigin) => {
 
       if (target.pathname === "/api/session") {
         if (upstream.status === 200) {
-          const projection = JSON.parse(bodyText);
-          assert.deepEqual(Object.keys(projection).sort(), [
-            "createdAt",
-            "current",
-            "expiresAt",
-            "ipAddress",
-            "sessionId",
-            "updatedAt",
-            "userAgent",
-          ]);
-          assert.ok(Predicate.isString(projection.sessionId) && projection.sessionId.length > 0);
+          const projection = Schema.decodeUnknownSync(SessionResponse, {
+            onExcessProperty: "error",
+          })(JSON.parse(bodyText));
+
           assert.equal(projection.current, true);
-
-          for (const field of ["createdAt", "updatedAt", "expiresAt"]) {
-            assert.ok(
-              Predicate.isString(projection[field]) &&
-                Number.isFinite(Date.parse(projection[field])),
-            );
-          }
-
           assert.ok(Date.parse(projection.expiresAt) > Date.now());
-          assert.ok(projection.ipAddress === null || Predicate.isString(projection.ipAddress));
-          assert.ok(projection.userAgent === null || Predicate.isString(projection.userAgent));
-          assert.equal(bodyText, JSON.stringify(projection));
+          assert.equal(bodyText, JSON.stringify(JSON.parse(bodyText)));
           record.sessionProjection = {
             keys: Object.keys(projection),
             sessionId: projection.sessionId,
@@ -356,12 +363,15 @@ const startRecordingBoundary = async (targetOrigin) => {
             exactJsonBytes: true,
           };
         } else if (upstream.status === 401) {
-          const expectedBody = { error: { tag: "UnauthenticatedActor" } };
-          assert.deepEqual(JSON.parse(bodyText), expectedBody);
-          assert.equal(bodyText, JSON.stringify(expectedBody));
+          const problem = Schema.decodeUnknownSync(NativeProblem, { onExcessProperty: "error" })(
+            JSON.parse(bodyText),
+          );
+
+          assert.ok(credentialProblemCodes.includes(problem.code), `unexpected ${problem.code}`);
+          assert.equal(bodyText, JSON.stringify(JSON.parse(bodyText)));
           record.unauthenticatedProjection = {
-            keys: ["error.tag"],
-            tag: "UnauthenticatedActor",
+            keys: ["code"],
+            code: problem.code,
             bodyByteLength: bytes.byteLength,
             exactJsonBytes: true,
           };
@@ -547,16 +557,13 @@ const main = async () => {
       ["run", "--cwd", "apps/backend", "start"],
       {
         ...baseEnvironment,
+        ...localBackendEnvironment({
+          backendOrigin,
+          dashboardOrigin,
+          postgresUrl,
+          betterAuthSecret: secret,
+        }),
         NODE_ENV: "production",
-        BACKEND_HOST: "127.0.0.1",
-        BACKEND_PORT: String(backendPort),
-        BACKEND_PG_URL: postgresUrl,
-        BETTER_AUTH_SECRET: secret,
-        NATIVE_IDENTITY_DEPLOYMENT: "local",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
-        PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-        PASSWORD_RESET_DELIVERY_MODE: "disabled",
-        RECEIPT_DELIVERY_MODE: "disabled",
       },
       repositoryRoot,
     );
@@ -574,6 +581,7 @@ const main = async () => {
         API_URL: boundary.origin,
         VITE_API_URL: boundary.origin,
         DASHBOARD_ORIGIN: dashboardOrigin,
+        DASHBOARD_MOUNT: "/",
       },
       label: "Identity dashboard production build",
     });
@@ -583,6 +591,7 @@ const main = async () => {
       API_URL: boundary.origin,
       VITE_API_URL: boundary.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
+      DASHBOARD_MOUNT: "/",
       REAL_NATIVE_IDENTITY_E2E: "1",
       IDENTITY_EVIDENCE_EMAIL: "admin.identity-0065@example.invalid",
       IDENTITY_EVIDENCE_PASSWORD: password,
@@ -622,15 +631,7 @@ const main = async () => {
     const hardeningEvidence = JSON.parse(await readFile(hardeningEvidencePath, "utf8"));
     assert.equal(hardeningEvidence.specId, "0054.1");
     assert.equal(hardeningEvidence.passed, true);
-    assert.deepEqual(hardeningEvidence.sessionProjection.fields, [
-      "createdAt",
-      "current",
-      "expiresAt",
-      "ipAddress",
-      "sessionId",
-      "updatedAt",
-      "userAgent",
-    ]);
+    assert.deepEqual(hardeningEvidence.sessionProjection.fields, sessionFields);
     assert.deepEqual(hardeningEvidence.sessionProjection.credentialFieldsObserved, []);
     assert.equal(hardeningEvidence.sessionProjection.oneCurrent, 1);
     assert.deepEqual(hardeningEvidence.revocation.revokeOthers, [204, 204]);
@@ -744,8 +745,7 @@ const main = async () => {
           projection.current === true &&
           Predicate.isString(projection.sessionId) &&
           projection.sessionId.length > 0 &&
-          [...projection.keys].sort().join(",") ===
-            "createdAt,current,expiresAt,ipAddress,sessionId,updatedAt,userAgent",
+          [...projection.keys].sort().join(",") === sessionFields.join(","),
       ),
       "successful session projections must be exact credential-free metadata",
     );
@@ -754,7 +754,7 @@ const main = async () => {
         (projection) =>
           projection !== undefined &&
           projection.exactJsonBytes === true &&
-          projection.tag === "UnauthenticatedActor",
+          credentialProblemCodes.includes(projection.code),
       ),
     );
     const forbidden = boundary.records.filter((entry) => entry.legacyOrProvider);
@@ -822,11 +822,21 @@ const main = async () => {
         expiredJourneyPersonRules: 1,
       },
     );
+
+    // The journey's backend stored Better Auth keys encrypted with the journey secret, and the
+    // focused test uses its own secret, so it proves the adapter on a database of its own.
+    const authLiveDatabase = "identity_auth_live_proof_0065";
+
+    await run(
+      postgresProgram("createdb"),
+      ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", authLiveDatabase],
+      { cwd: repositoryRoot, env: baseEnvironment, label: "Identity adapter proof database" },
+    );
     await run("bunx", ["vitest", "run", "src/auth-live.test.ts"], {
       cwd: join(repositoryRoot, "packages/database"),
       env: {
         ...baseEnvironment,
-        AUTH_TEST_PG_URL: postgresUrl,
+        AUTH_TEST_PG_URL: `postgres://postgres@127.0.0.1:${postgresPort}/${authLiveDatabase}`,
       },
       capture: true,
       label: "Identity adapter audit rollback proof",
@@ -973,6 +983,19 @@ const main = async () => {
     };
   } catch (error) {
     failure = error;
+
+    for (const [label, child] of [
+      ["backend", backend],
+      ["dashboard", dashboard],
+    ]) {
+      if (child !== undefined) process.stderr.write(`${label} output tail:\n${child.outputTail()}\n`);
+    }
+
+    const boundaryTail = (boundary?.records ?? [])
+      .slice(-40)
+      .map(({ method, path, status }) => `${method} ${path} ${status}`);
+
+    process.stderr.write(`dashboard-to-backend requests:\n${boundaryTail.join("\n")}\n`);
   }
 
   const cleanupErrors = [];
