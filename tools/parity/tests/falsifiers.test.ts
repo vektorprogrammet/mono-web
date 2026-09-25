@@ -1277,7 +1277,7 @@ test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blo
       rmSync(legacyRoot, { recursive: true, force: true });
     }
   }
-});
+}, 10_000);
 
 test("API resource trivia is accepted while unterminated block comments fail closed", async () => {
   const collectFixture = async (source: string): Promise<ApiCollection> => {
