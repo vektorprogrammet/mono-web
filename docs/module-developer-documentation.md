@@ -95,8 +95,8 @@ Their commands state required tools, configuration, cleanup, and evidence limits
 ## Existing tooling and adoption
 
 The repository already has a documentation entry point, system guides, package export maps, and generated HTTP artifacts.
-The [system-guide renderer](../tools/system-guide/build.ts) produces standalone HTML from trusted MDX.
-It is currently a single-document renderer, not a module reference or example-validation system.
+The [documentation site](../apps/docs/site.ts) renders the repository's Markdown and MDX documents in place with Vocs.
+It publishes existing documents; it is not a module reference or example-validation system.
 The [HTTP generator](../packages/http-api/scripts/generate-openapi.ts) derives OpenAPI from the contract before each type check, so no committed copy can drift.
 
 The pilot evaluated [Effect docgen](https://github.com/Effect-TS/docgen) before selecting a maintained alternative.
@@ -106,7 +106,7 @@ Tool availability alone does not establish compatibility with this repository.
 
 If docgen does not fit, retain executable TypeScript examples and existing compiler/runtime checks.
 Evaluate another maintained reference generator only for a concrete unmet requirement.
-Do not start with a new documentation website or a custom compiler-based documentation generator.
+Publish a module guide by adding it to the documentation site. Do not start another documentation website or a custom compiler-based documentation generator.
 Do not import temporary parity tooling into durable product documentation tools.
 
 The [Diataxis framework](https://diataxis.fr/) separates tutorials, task guides, reference material, and explanations.

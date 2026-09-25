@@ -277,7 +277,7 @@ The pilot avoids duplicate barrel documentation and uses TypeDoc to follow the e
 TypeDoc generates the local reference, renders this guide, and includes the exact example files through its built-in include directive.
 The [Placements documentation command](../../tools/system-guide/placements.ts) derives entry points from the export map and compares fresh output.
 It does not parse TypeScript itself.
-The existing [MDX system renderer](../../tools/system-guide/build.ts) remains unchanged for the system walkthrough.
+The [documentation site](../../apps/docs/site.ts) renders this guide beside the other repository documents and links the generated reference.
 The [HTTP generator](../http-api/scripts/generate-openapi.ts) remains the owner of HTTP reference artifacts.
 
 ## Cleanup and evidence

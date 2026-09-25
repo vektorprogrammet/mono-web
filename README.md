@@ -20,7 +20,7 @@ The durable documentation set is:
 | [docs/architecture.md](docs/architecture.md)                                     | Runtime, dependencies, persistence, delivery, and interface boundaries                     |
 | [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, and replacement contracts                              |
 | [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the system documents                                  |
-| [docs/system-walkthrough.mdx](docs/system-walkthrough.mdx)                       | Layered reading guide with MDXCN figures; source for the standalone HTML                   |
+| [docs/system-walkthrough.mdx](docs/system-walkthrough.mdx)                       | Layered reading guide with MDXCN figures                                                   |
 | [Placements developer guide](packages/placements/README.md)                      | Public imports, executable examples, API reference generation, and maintainer tasks        |
 | [Substitutes developer guide](packages/domain/src/substitutes/README.md)         | Pool service, caller authority, transaction ownership, and the continuous coverage journey |
 | [Receipt developer guide](packages/domain/src/receipt/README.md)                 | Claim, approval, settlement evidence, private files, bounded reads, and recovery           |
@@ -136,20 +136,22 @@ Homepage builds require a clean committed source artifact. Do not weaken that pr
 Only the bundle build applies the guard. Homepage type checks, tests, and the development server accept a dirty tree.
 Use a separate source-matched committed snapshot for acceptance, as described in [AGENTS.md](AGENTS.md#verification-and-resources).
 
-### Layered system walkthrough
+### Documentation site
 
-Render [the MDX source](docs/system-walkthrough.mdx), then open the standalone `docs/system-walkthrough.html` in a browser:
+[The documentation site](https://vektorprogrammet.github.io/mono-web/) renders the documents above in place.
+[apps/docs](apps/docs/site.ts) names the published sources and their navigation.
+The build mirrors them into an ignored Vocs pages directory; edit only the source documents.
+The build fails on a relative link to a path that does not exist. It does not check anchors.
+A link to a published document opens its page. A link to another repository file opens it on GitHub.
 
 ```bash
 bun install --frozen-lockfile
-bun run docs:system
+bun run --cwd apps/docs dev
+bun run --cwd apps/docs build
 ```
 
-Git ignores the rendered HTML. Edit only the MDX source.
-
-The build uses the vendored MIT MDXCN component and embeds all styles.
-The resulting HTML needs no server, JavaScript, or external assets.
-The renderer records upstream provenance in [its manifest](tools/system-guide/vendor/mdxcn/provenance.json).
+Every Markdown file in `docs/` and `docs/specs/` must appear in a navigation section.
+The walkthrough figures use the vendored MIT MDXCN component. Its [manifest](apps/docs/components/mdxcn/provenance.json) records upstream provenance.
 
 ### Local native development
 

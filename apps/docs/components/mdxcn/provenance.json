@@ -8,7 +8,7 @@
   "installation": "https://www.mdxcn.dev/docs/installation",
   "files": [
     {
-      "path": "vendor/mdxcn/graph-frame.tsx",
+      "path": "graph-frame.tsx",
       "upstreamPath": "registry/default/graph-frame/graph-frame.tsx",
       "sha256": "f9c35b5c3c24d86b9fa58f671f60fccccad47e71d2569da15c0f83c2c0436889",
       "changes": [
@@ -16,7 +16,7 @@
       ]
     },
     {
-      "path": "vendor/mdxcn/graph-motion.ts",
+      "path": "graph-motion.ts",
       "upstreamPath": "registry/default/graph-frame/graph-motion.ts",
       "sha256": "c94ab7fca8f73a21fd4b024812e32cfe2cff09ea07c3ea60e09246ee8d705411",
       "changes": [
@@ -24,7 +24,7 @@
       ]
     },
     {
-      "path": "vendor/mdxcn/graph-arrow.tsx",
+      "path": "graph-arrow.tsx",
       "upstreamPath": "registry/default/graph-frame/graph-arrow.tsx",
       "sha256": "2bdf641db8f72c7fa0e2cf9b0321dc0a02f3c6a11f12a8b1c555713cdccf0230",
       "changes": [
@@ -32,7 +32,7 @@
       ]
     },
     {
-      "path": "vendor/mdxcn/graph-flow.tsx",
+      "path": "graph-flow.tsx",
       "upstreamPath": "registry/default/graph-flow/graph-flow.tsx",
       "sha256": "8c95e14e53a52db2162c2db2735d6a847cb3cc384d72fa0462027c15f10e1181",
       "changes": [
@@ -42,7 +42,7 @@
       ]
     },
     {
-      "path": "vendor/mdxcn/utils.ts",
+      "path": "utils.ts",
       "upstreamPath": "lib/utils.ts",
       "sha256": "14300d758170c270c75b057f38fedb3793a5920ea872f0477e29fb131185e8a7",
       "changes": [
@@ -52,9 +52,9 @@
   ],
   "styles": {
     "upstreamPath": "app/globals.css",
-    "localPath": "../../style.css",
+    "localPath": "../../src/pages/_root.css",
     "changes": [
-      "Copy only the graph-frame utility; use local accessible light colors and system fonts."
+      "Copy only the graph-frame utility; use local accessible light and dark colors."
     ]
   }
 }
