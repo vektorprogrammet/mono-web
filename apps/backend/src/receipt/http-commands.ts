@@ -677,8 +677,12 @@ export const settleReceipt = <E, R>(
     }
 
     const response = nativeCommandOutcomeResponse(outcome);
-    response.headers.set("cache-control", "private, no-store");
-    response.headers.set("vary", "Origin");
+
+    // Only the settlement evidence is private; an idempotency problem keeps its declared policy.
+    if (Predicate.isTagged(outcome, "Committed") || Predicate.isTagged(outcome, "Replay")) {
+      response.headers.set("cache-control", "private, no-store");
+      response.headers.set("vary", "Origin");
+    }
 
     return response;
   });

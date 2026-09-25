@@ -140,12 +140,3 @@ export const publicReceiptErrorResponse = (cause: unknown): Response => {
       return nativeProblemResponse("receipts.unavailable", 503);
   }
 };
-
-/** Public problem mapping for finance endpoints whose responses are private to the caller. */
-export const privateReceiptErrorResponse = (cause: unknown): Response => {
-  const response = publicReceiptErrorResponse(cause);
-  response.headers.set("cache-control", "private, no-store");
-  response.headers.set("vary", "Origin");
-
-  return response;
-};

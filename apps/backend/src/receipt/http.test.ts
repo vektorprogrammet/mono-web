@@ -1036,7 +1036,7 @@ describe("receipt v0.2 HTTP contract", () => {
     );
 
     expect(changedReplay.status).toBe(409);
-    expect(changedReplay.headers.get("cache-control")).toBe("private, no-store");
+    expect(changedReplay.headers.get("cache-control")).toBe("no-store");
     expect(await changedReplay.json()).toMatchObject({ code: "idempotency.digest-conflict" });
 
     expect(recorded.status).toBe(200);
@@ -1067,7 +1067,7 @@ describe("receipt v0.2 HTTP contract", () => {
       { receiptId: ReceiptId.make("not-visible"), personId },
     ]);
     expect(concealed.status).toBe(404);
-    expect(concealed.headers.get("cache-control")).toBe("private, no-store");
+    expect(concealed.headers.get("cache-control")).toBe("no-store");
     expect(await concealed.json()).toMatchObject({ code: "receipt.not-found" });
   });
 

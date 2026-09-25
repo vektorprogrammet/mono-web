@@ -14,11 +14,7 @@ import {
   withdrawReceipt,
 } from "./http-commands.js";
 import type { ReceiptApiHttpOptions } from "./http-context.js";
-import {
-  internalReceiptErrorResponse,
-  privateReceiptErrorResponse,
-  publicReceiptErrorResponse,
-} from "./http-problem.js";
+import { internalReceiptErrorResponse, publicReceiptErrorResponse } from "./http-problem.js";
 import {
   listOwnedReceipts,
   listReceiptsForApproval,
@@ -98,21 +94,21 @@ export const ReceiptApiHandlers = <E, R>(input: ReceiptApiHttpOptions<E, R>) =>
           toHttpApiResponse(
             request,
             (webRequest) => listReceiptsForSettlement(webRequest, input),
-            privateReceiptErrorResponse,
+            publicReceiptErrorResponse,
           ),
         )
         .handleRaw("readReceiptSettlementForFinance", ({ request, params }) =>
           toHttpApiResponse(
             request,
             (webRequest) => readSettlementForFinance(webRequest, params.receiptId, input),
-            privateReceiptErrorResponse,
+            publicReceiptErrorResponse,
           ),
         )
         .handleRaw("settleReceipt", ({ request, params }) =>
           toHttpApiResponse(
             request,
             (webRequest) => settleReceipt(webRequest, params.receiptId, input, fileStore),
-            privateReceiptErrorResponse,
+            publicReceiptErrorResponse,
           ),
         )
         .handleRaw("approveReceipt", ({ request, params }) =>
