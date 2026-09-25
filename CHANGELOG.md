@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Bounded reimbursement journey
+
+- Qualify claim submission, scoped approval, separate settlement evidence, and fresh-session owner visibility through the native dashboard.
+- Check private-file custody, command replay, authority denials, process restart, and unattended notification recovery against independent persisted facts.
+- Bound receipt upload bytes, file-transfer buffers, concurrent delivery, and collection pages without hiding older authorized claims.
+- Preserve opaque uploaded bytes under Bun and cancel intake when its request aborts. Keep durable file-effect identity across restart.
+- Add a receipt consumer and maintainer guide, a public-import example, and `test:golden-reimbursement`. Local evidence does not establish production or real-provider acceptance.
+
 ### Recruitment to first placement
 
 - Add a continuous native browser journey from public application through interview, onboarding, affiliation, and first school placement.
