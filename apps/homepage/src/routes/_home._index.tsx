@@ -12,7 +12,7 @@ export async function loader(): Promise<
   const teaser = await loadNewsTeaser();
 
   // Fresh server-side news read per render; DEV_CONTENT still feeds
-  // sponsors/teams/statistics until their own journeys cut over, but no
+  // sponsors/statistics until their own journeys cut over, but no
   // article byte comes from it (spec law 2).
   return { ...DEV_CONTENT, newsTeaser: teaser.articles };
 }
@@ -52,7 +52,7 @@ export default function MainPage() {
             {BUILD_ROUTE_DIGEST}
           </p>
           <Button variant="green" asChild>
-            <Link to="/team">Se DEV CONTENT-team</Link>
+            <Link to="/team">Se våre team</Link>
           </Button>
         </div>
       </div>

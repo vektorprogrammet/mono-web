@@ -4,12 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  DEV_CONTENT,
-  DEV_CONTENT_SOURCE,
-  DEV_ROUTE_CENSUS,
-  getDevTeamMembers,
-} from "../src/lib/dev-content";
+import { DEV_CONTENT, DEV_CONTENT_SOURCE, DEV_ROUTE_CENSUS } from "../src/lib/dev-content";
 import {
   ROUTE_SOURCE_ROOTS,
   buildHomepageDigestInputs,
@@ -31,7 +26,6 @@ describe("DEV CONTENT contract", () => {
   it("keeps one typed, local, synthetic content source", () => {
     expect(DEV_CONTENT_SOURCE).toBe("dev-content");
     expect(DEV_CONTENT.sponsors.length).toBeGreaterThan(0);
-    expect(DEV_CONTENT.teams.length).toBeGreaterThan(0);
     expect(DEV_CONTENT.departments.length).toBeGreaterThan(0);
 
     const serialized = JSON.stringify(DEV_CONTENT);
@@ -40,13 +34,6 @@ describe("DEV CONTENT contract", () => {
     for (const sponsor of DEV_CONTENT.sponsors) {
       expect(sponsor.image).toMatch(/^\//);
       expect(sponsor.href).toMatch(/^https:\/\/example\.invalid\//);
-    }
-
-    for (const team of DEV_CONTENT.teams) {
-      expect(team.url).toMatch(/^\//);
-      expect(team.image).toMatch(/^\//);
-      expect(team.email).toMatch(/@example\.invalid$/);
-      expect(getDevTeamMembers(team.id)).toHaveLength(team.numberOfMembers);
     }
 
     for (const department of DEV_CONTENT.departments) {
@@ -58,29 +45,15 @@ describe("DEV CONTENT contract", () => {
     }
   });
 
-  it("derives a complete deterministic route and people census", () => {
+  it("derives a complete deterministic route census", () => {
     expect(new Set(DEV_ROUTE_CENSUS.paths).size).toBe(DEV_ROUTE_CENSUS.paths.length);
     expect(DEV_ROUTE_CENSUS.paths).toContain("/");
     expect(DEV_ROUTE_CENSUS.paths).toContain("/team");
     expect(DEV_ROUTE_CENSUS.paths).toContain("/kontakt/trondheim");
-    expect(DEV_ROUTE_CENSUS.teams.map(({ id }) => id)).toEqual([
-      "aas-evaluering",
-      "aas-skole",
-      "aas-sosialt",
-      "aas-sponsor",
-      "aas-styre",
-      "bergen-rekruttering",
-      "bergen-skole",
-      "bergen-styre",
-      "hovedstyret",
-      "trondheim-evaluering",
-      "trondheim-it",
-      "trondheim-okonomi",
-      "trondheim-profilering",
-      "trondheim-rekruttering",
-      "trondheim-skole",
-      "trondheim-sponsor",
-      "trondheim-styre",
+    expect(DEV_ROUTE_CENSUS.paths.filter((path) => path.startsWith("/team"))).toEqual([
+      "/team",
+      "/team/:department",
+      "/team/:teamId/soknad",
     ]);
     expect(DEV_ROUTE_CENSUS.departments.map(({ id }) => id)).toEqual([
       "aas",
@@ -88,59 +61,7 @@ describe("DEV CONTENT contract", () => {
       "hovedstyret",
       "trondheim",
     ]);
-    expect(DEV_ROUTE_CENSUS.people.map(({ id }) => id)).toEqual([
-      "aas-evaluering-member-1",
-      "aas-evaluering-member-2",
-      "aas-skole-member-1",
-      "aas-skole-member-2",
-      "aas-sosialt-member-1",
-      "aas-sosialt-member-2",
-      "aas-sponsor-member-1",
-      "aas-sponsor-member-2",
-      "aas-styre-member-1",
-      "aas-styre-member-2",
-      "aas-styre-member-3",
-      "bergen-rekruttering-member-1",
-      "bergen-rekruttering-member-2",
-      "bergen-skole-member-1",
-      "bergen-skole-member-2",
-      "bergen-styre-member-1",
-      "bergen-styre-member-2",
-      "hovedstyret-member-1",
-      "hovedstyret-member-2",
-      "hovedstyret-member-3",
-      "hovedstyret-member-4",
-      "trondheim-evaluering-member-1",
-      "trondheim-evaluering-member-2",
-      "trondheim-evaluering-member-3",
-      "trondheim-it-member-1",
-      "trondheim-it-member-2",
-      "trondheim-okonomi-member-1",
-      "trondheim-okonomi-member-2",
-      "trondheim-profilering-member-1",
-      "trondheim-profilering-member-2",
-      "trondheim-rekruttering-member-1",
-      "trondheim-rekruttering-member-2",
-      "trondheim-rekruttering-member-3",
-      "trondheim-skole-member-1",
-      "trondheim-skole-member-2",
-      "trondheim-sponsor-member-1",
-      "trondheim-sponsor-member-2",
-      "trondheim-styre-member-1",
-      "trondheim-styre-member-2",
-      "trondheim-styre-member-3",
-      "trondheim-styre-member-4",
-    ]);
     expect(DEV_ROUTE_CENSUS.paths).toEqual([...DEV_ROUTE_CENSUS.paths].sort());
-
-    for (const team of DEV_CONTENT.teams) {
-      expect(DEV_ROUTE_CENSUS.paths).toContain(team.url);
-      expect(DEV_ROUTE_CENSUS.teams).toContainEqual({
-        id: team.id,
-        path: team.url,
-        memberCount: team.numberOfMembers,
-      });
-    }
 
     for (const department of DEV_CONTENT.departments) {
       expect(DEV_ROUTE_CENSUS.paths).toContain(`/kontakt/${department.id}`);
@@ -151,29 +72,18 @@ describe("DEV CONTENT contract", () => {
         contacts: department.contacts,
       });
     }
-
-    const expectedPeople = DEV_CONTENT.teams.reduce(
-      (total, team) => total + team.numberOfMembers,
-      0,
-    );
-
-    expect(DEV_ROUTE_CENSUS.people).toHaveLength(expectedPeople);
-    expect(new Set(DEV_ROUTE_CENSUS.people.map((person) => person.id)).size).toBe(expectedPeople);
-    expect(DEV_ROUTE_CENSUS.people.every((person) => person.name.startsWith("DEV Member "))).toBe(
-      true,
-    );
   });
 
   it("independently recomputes canonical content and route digests", () => {
     const inputs = buildHomepageDigestInputs(projectRoot);
 
     expect(implementationCanonicalJson({ "2": "two", "10": "ten", z: undefined, a: [3, { y: null, x: true }] })).toBe('{"10":"ten","2":"two","a":[3,{"x":true,"y":null}]}');
-    const contentBytes = '{"DEV_CONTENT":{"departments":[],"sponsors":[],"statistics":{"assistantCount":0,"teamMemberCount":0},"teams":[]},"assetManifest":[]}\n';
-    expect(computeContentDigest({ departments: [], sponsors: [], statistics: { assistantCount: 0, teamMemberCount: 0 }, teams: [] }, [])).toBe(
+    const contentBytes = '{"DEV_CONTENT":{"departments":[],"sponsors":[],"statistics":{"assistantCount":0,"teamMemberCount":0}},"assetManifest":[]}\n';
+    expect(computeContentDigest({ departments: [], sponsors: [], statistics: { assistantCount: 0, teamMemberCount: 0 } }, [])).toBe(
       `sha256:${createHash("sha256").update(contentBytes).digest("hex")}`,
     );
-    const routeBytes = '{"DEV_ROUTE_CENSUS":{"departments":[],"paths":[],"people":[],"teams":[]},"assetManifest":[],"routeContentProjectionManifest":[],"routeSourceManifest":[]}\n';
-    expect(computeRouteDigest({ departments: [], paths: [], people: [], teams: [] }, { assetManifest: [], routeContentProjectionManifest: [], routeSourceManifest: [] })).toBe(
+    const routeBytes = '{"DEV_ROUTE_CENSUS":{"departments":[],"paths":[]},"assetManifest":[],"routeContentProjectionManifest":[],"routeSourceManifest":[]}\n';
+    expect(computeRouteDigest({ departments: [], paths: [] }, { assetManifest: [], routeContentProjectionManifest: [], routeSourceManifest: [] })).toBe(
       `sha256:${createHash("sha256").update(routeBytes).digest("hex")}`,
     );
 
@@ -207,10 +117,11 @@ describe("DEV CONTENT contract", () => {
     );
 
     const expectedAssetPaths = {
-      "/": ["/images/teacher2.png", "/images/vektor-logo-circle.svg", "/images/vektor-logo.svg"],
-      "/team": ["/images/teacher2.png", "/images/vektor-logo-circle.svg"],
+      "/": ["/images/vektor-logo-circle.svg", "/images/vektor-logo.svg"],
+      "/team": [],
+      "/team/:department": [],
+      "/team/:teamId/soknad": [],
       "/kontakt/trondheim": ["/images/vektor-logo-circle.svg"],
-      "/team/aas/skolekoordinering": ["/images/teacher2.png"],
     };
 
     for (const [path, assetPaths] of Object.entries(expectedAssetPaths)) {

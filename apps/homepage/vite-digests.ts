@@ -148,35 +148,22 @@ function assetUrlForManifestPath(path: string): string {
   return `/${path.replace(/^public\//, "")}`;
 }
 
-function routeProjection(path: string, content: DevContent, census: DevRouteCensus) {
+function routeProjection(path: string, content: DevContent) {
   if (path === "/") {
     return {
       source: DEV_CONTENT_SOURCE,
       sponsors: content.sponsors,
       statistics: content.statistics,
-      teams: content.teams,
       departments: content.departments,
-      people: census.people,
     };
   }
 
-  if (path === "/team") {
-    return { teams: content.teams, departments: content.departments, people: census.people };
+  if (path === "/team" || path === "/team/:department") {
+    return { source: "native-backend:/api/departments,/api/teams,/api/team-application-intakes" };
   }
 
-  if (path === "/team/:department") {
-    return { teams: content.teams, people: census.people };
-  }
-
-  if (path.startsWith("/team/")) {
-    const team = content.teams.find((item) => item.url === path);
-
-    if (!team) throw new Error(`Missing DEV CONTENT team for route ${path}`);
-
-    return {
-      team,
-      people: census.people.filter((person) => person.teamId === team.id),
-    };
+  if (path === "/team/:teamId/soknad") {
+    return { source: "native-backend:/api/teams/:teamId/application-intake" };
   }
 
   if (path === "/kontakt" || path === "/kontakt/:department") {
@@ -208,7 +195,7 @@ export function buildRouteContentProjectionManifest(
   assetManifest: readonly AssetManifestEntry[] = [],
 ): readonly RouteContentProjection[] {
   return census.paths.map((path) => {
-    const projection = routeProjection(path, content, census);
+    const projection = routeProjection(path, content);
     const assetPaths = collectAssetPaths(projection);
 
     const assets = assetManifest.filter((entry) =>

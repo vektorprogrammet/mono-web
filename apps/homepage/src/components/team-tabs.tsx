@@ -1,155 +1,168 @@
-import { Mail, Users } from "lucide-react";
-import { useState } from "react";
-import { NavLink as RouterNavLink, type To } from "react-router";
-import { TabMenu } from "~/components/tab-menu";
-import {
-  type DepartmentContent,
-  type TeamContent,
-} from "~/lib/dev-content";
-import type { DepartmentPretty } from "~/lib/types";
+import { Mail } from "lucide-react";
+import { useId } from "react";
+import { Link } from "react-router";
+import type {
+  TeamDirectory,
+  TeamDirectoryDepartment,
+  TeamDirectoryTeam,
+} from "~/lib/team-directory";
+import { cn } from "~/lib/utils";
 
-export type TeamLoaderData = {
-  readonly teams: readonly TeamContent[];
-  readonly departments: readonly DepartmentContent[];
-};
+const deadlineFormat = new Intl.DateTimeFormat("nb-NO", {
+  dateStyle: "long",
+  timeStyle: "short",
+  timeZone: "Europe/Oslo",
+});
 
+const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+
+/** Department navigation and team cards; without a slug the first department is selected. */
 export function TeamTabs({
-  department,
-  teams,
-  departments: contentDepartments,
+  directory,
+  selectedSlug,
 }: {
-  department: DepartmentPretty;
-  teams: readonly TeamContent[];
-  departments: readonly DepartmentContent[];
+  readonly directory: TeamDirectory;
+  readonly selectedSlug?: string;
 }) {
-  const [active, setActive] = useState<DepartmentPretty>(department);
-  const tabs = contentDepartments.map((item) => item.name);
+  const selected =
+    selectedSlug === undefined
+      ? directory.departments.at(0)
+      : directory.departments.find((department) => department.slug === selectedSlug);
 
   return (
-    <div
-      className="mb-6 flex max-w-[256px] flex-col items-start sm:max-w-[544px] md:mb-auto md:max-w-6xl md:flex-row"
-      role="tablist"
-    >
-      <div className="md:absolute md:left-3 lg:left-12">
-        <TabMenu
-          tabs={tabs}
-          activeTab={active}
-          setActiveTab={setActive}
-        />
-      </div>
-      <div className="flex w-full max-w-5xl flex-col items-start">
-        {active === "Hovedstyret" ? (
-          <HovedstyretTab teams={teams} />
+    <div className="mb-6 flex w-full flex-col gap-8 px-5 lg:flex-row">
+      {directory.departments.length > 0 && (
+        <nav aria-label="Velg avdeling" className="flex flex-wrap gap-2 lg:w-48 lg:shrink-0 lg:flex-col">
+          {directory.departments.map((department) => {
+            const current = department.departmentId === selected?.departmentId;
+
+            return (
+              <Link
+                key={department.departmentId}
+                to={`/team/${department.slug}`}
+                aria-current={current ? "page" : undefined}
+                className={cn(
+                  "inline-flex min-h-10 max-w-full items-center justify-center rounded-full px-4 py-2 text-center font-medium text-sm transition-colors wrap-anywhere",
+                  focusRing,
+                  current
+                    ? "bg-vektor-darkblue text-white"
+                    : "text-black hover:bg-vektor-light-blue dark:text-white dark:hover:text-black",
+                )}
+              >
+                {department.shortName}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+      <div className="w-full min-w-0">
+        {selected !== undefined ? (
+          <DepartmentTeams department={selected} intakeAvailable={directory.intakeAvailable} />
+        ) : selectedSlug === undefined ? (
+          <p role="status">Ingen team er publisert ennå.</p>
         ) : (
-          <TeamTab team={active} teams={teams} />
+          <DepartmentNotFound />
         )}
       </div>
     </div>
   );
 }
 
-function HovedstyretTab({ teams }: { teams: readonly TeamContent[] }) {
-  const team = teams.find((item) => item.city === "Hovedstyret");
-
-  if (!team) return null;
+function DepartmentTeams({
+  department,
+  intakeAvailable,
+}: {
+  readonly department: TeamDirectoryDepartment;
+  readonly intakeAvailable: boolean;
+}) {
+  const headingId = useId();
 
   return (
-    <div className="flex flex-col md:ml-24 md:max-w-2xl md:flex-row lg:ml-16 xl:ml-auto">
-      <div className="flex-1 object-contain">
-        <h2 className="font-bold text-2xl text-gray-600 sm:text-4xl dark:text-gray-200">
-          {team.title}
-        </h2>
-        <p className="mt-4 mb-4 text-md sm:text-lg dark:text-gray-300">{team.text}</p>
-        <div className="flex items-center space-x-1">
-          <Mail className="h-5 w-5 text-black" />
-          <a className="truncate text-sm hover:underline dark:text-white" href={`mailto:${team.email}`}>
-            {team.email}
-          </a>
-        </div>
-        <div className="mt-2 flex items-center space-x-1">
-          <Users className="h-5 w-5 text-black" />
-          <span>{`${team.numberOfMembers} medlemmer`}</span>
-        </div>
-        <br />
-        <RouterNavLink
-          to={team.url}
-          className="rounded border border-blue-500 bg-transparent px-4 py-2 font-semibold text-blue-700 transition duration-300 hover:border-transparent hover:bg-blue-500 hover:text-white dark:bg-vektor-darkblue dark:text-white dark:hover:bg-blue-600"
-          prefetch="intent"
-        >
-          Les mer
-        </RouterNavLink>
-      </div>
-      <div className="mt-6 flex max-h-80 items-center justify-center md:col-span-1 md:mt-auto md:p-4">
-        <img src={team.image} alt={team.imageAlt} className="max-h-80 object-contain" />
-      </div>
-    </div>
+    <section aria-labelledby={headingId} className="flex flex-col gap-6">
+      <h2
+        id={headingId}
+        className="font-bold text-2xl text-gray-600 wrap-anywhere dark:text-gray-200"
+      >
+        {department.name}
+      </h2>
+      {!intakeAvailable && (
+        <p className="rounded-md bg-amber-100 p-3 text-amber-950" role="status">
+          Søknadsstatus er midlertidig utilgjengelig. Prøv igjen senere.
+        </p>
+      )}
+      {department.teams.length === 0 ? (
+        <p role="status">Ingen team er publisert ennå.</p>
+      ) : (
+        <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+          {department.teams.map((team) => (
+            <li key={team.teamId} className="min-w-0">
+              <TeamCard team={team} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
-function TeamTab({
-  team,
-  teams,
-}: {
-  team: Exclude<DepartmentPretty, "Hovedstyret">;
-  teams: readonly TeamContent[];
-}) {
-  const cityTeams = teams.filter((item) => item.city === team);
-
+function TeamCard({ team }: { readonly team: TeamDirectoryTeam }) {
   return (
-    <div className="grid grid-cols-1 place-items-center gap-8 sm:grid-cols-2 xl:grid-cols-3">
-      {cityTeams.map((item) => (
-        <Division
-          key={item.id}
-          title={item.title}
-          text={item.text}
-          mail={item.email}
-          numberOfMembers={item.numberOfMembers}
-          buttonName="Les mer"
-          url={item.url}
-        />
-      ))}
-    </div>
-  );
-}
-
-function Division({
-  title,
-  text,
-  mail: _mail,
-  numberOfMembers,
-  buttonName,
-  url,
-}: {
-  title: string;
-  text: string;
-  mail: string;
-  numberOfMembers: number;
-  buttonName: string;
-  url: To;
-}) {
-  return (
-    <RouterNavLink
-      className="flex h-48 w-64 flex-col justify-between rounded-md bg-vektor-light-blue shadow-md dark:bg-gray-600 dark:text-white"
-      to={url}
-      prefetch="intent"
-    >
-      <div className="h-20 content-center rounded-t-md bg-vektor-blue dark:bg-vektor-darblue">
-        <h3 className="text-center font-medium text-lg text-vektor-darblue dark:text-white">
-          {title}
+    <article className="flex h-full min-h-48 flex-col rounded-md bg-vektor-light-blue shadow-md dark:bg-gray-600 dark:text-white">
+      <div className="flex min-h-20 items-center justify-center rounded-t-md bg-vektor-blue px-3 py-2 dark:bg-vektor-darkblue">
+        <h3 className="min-w-0 text-center font-medium text-lg text-vektor-darkblue wrap-anywhere dark:text-white">
+          {team.name}
         </h3>
       </div>
-      <div className="mx-3 my-2 h-full text-sm">
-        <p>{text}</p>
+      <div className="flex grow flex-col gap-3 p-3 text-sm">
+        {team.shortDescription !== null && <p className="wrap-anywhere">{team.shortDescription}</p>}
+        {team.email !== null && (
+          <p className="flex items-start gap-2">
+            <Mail aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            <a className={cn("min-w-0 break-all hover:underline", focusRing)} href={`mailto:${team.email}`}>
+              {team.email}
+            </a>
+          </p>
+        )}
+        {team.applyHref !== null && (
+          <div className="mt-auto flex flex-col items-start gap-2 pt-2">
+            {team.deadline !== null && (
+              <p>
+                {"Søknadsfrist: "}
+                {/* Server and browser ICU data may format the same instant differently. */}
+                <time dateTime={team.deadline} suppressHydrationWarning>
+                  {deadlineFormat.format(new Date(team.deadline))}
+                </time>
+              </p>
+            )}
+            <Link
+              to={team.applyHref}
+              className={cn(
+                "inline-flex min-h-10 max-w-full items-center rounded-full bg-vektor-green-hover px-4 py-2 font-medium text-sm text-white transition-colors wrap-anywhere hover:bg-vektor-darkblue",
+                focusRing,
+              )}
+            >
+              {`Søk på ${team.name}`}
+            </Link>
+          </div>
+        )}
       </div>
-      <div className="mx-3 flex flex-row content-end gap-1 text-sm">
-        <Users className="h-5 w-5 text-black" />
-        <span>{`${numberOfMembers} medlemmer`}</span>
-      </div>
-      <div className="mr-1.5 mb-1.5 flex w-full justify-end self-end">
-        <span className="inline-flex h-8 items-center justify-center gap-2 whitespace-nowrap overflow-clip rounded-full bg-success px-3 text-sm font-medium text-white transition-colors hover:bg-vektor-green-hover">
-          {buttonName}
-        </span>
-      </div>
-    </RouterNavLink>
+    </article>
+  );
+}
+
+function DepartmentNotFound() {
+  const headingId = useId();
+
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col items-start gap-4">
+      <h2 id={headingId} className="font-bold text-2xl text-gray-600 dark:text-gray-200">
+        Fant ikke avdelingen
+      </h2>
+      <p>Avdelingen finnes ikke eller er ikke aktiv.</p>
+      <Link className={cn("font-medium underline", focusRing)} to="/team">
+        Tilbake til teamoversikten
+      </Link>
+    </section>
   );
 }
