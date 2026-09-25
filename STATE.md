@@ -322,6 +322,29 @@ Three isolated service regressions and the public-import example passed. The for
 Type checks passed for the affected domain, database, backend, dashboard, E2E, and verification packages.
 The completed operational specification is retired. This local proof does not establish current-data parity or real-provider acceptance.
 
+### Recruitment and delivery recovery
+
+Combined revision `9965f0c6f77b3dfa518ed6d4020e6152ed92ebf7` passed three serial local acceptance commands on 2026-09-25.
+
+| Command                                                                                | Observed result                                                                                                         | Retained evidence                                                 |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `bun run test:golden-recruitment`                                                      | All 19 checkpoints passed, from public application to a fresh volunteer session with the first placement.               | `/tmp/vektor-placements-0096-W2xup1/receipt.json`                 |
+| `bun run verify:delivery-recovery`                                                     | All 10 observations passed, including unattended recovery, payload drift, stale claims, interruption, and root failure. | `/tmp/vektor-delivery-recovery-GG5Rm8/evidence.json`              |
+| `bun --no-env-file tools/e2e/golden-school-service-ci.mjs <absolute-output-directory>` | The CI wrapper and all 31 school-service checkpoints passed.                                                            | `/tmp/vektor-repaired-final-school-1790299189033/ci-summary.json` |
+
+The volunteer projection returns only active placements for the authenticated Person, department, and semester.
+The browser displayed the first placement without coordinator controls. A placement remains separate from a confirmed roster or dated commitment.
+All six placement persistence tests passed after correction of a fixture-ID collision.
+The parent checked the recruitment and school-service artifact hashes, 32 stopped processes, and 13 released ports across the three runs.
+The runners removed their private databases, credential manifests, and browser traces.
+The consumer contracts remain in the system document, the Placements guide, and the delivery guide. Both completed specifications are retired.
+These synthetic local observations do not establish current-data reconciliation, real-provider behavior, or production readiness.
+
+Earlier integrated runs failed during local Worker startup, before browser acceptance.
+Two installed Workerd platform executables contained JavaScript launchers, hard-linked to wrappers that recursively launched the same files.
+Restoration from the locked package archives separated the launchers from their native executables. No application source or machine limits changed for this repair.
+The original overwrite operation remains unknown. The diagnosis and corrupted launchers remain outside the repository at `/tmp/vektor-workerd-repair-1790299070365`.
+
 ### Remaining migration work
 
 | Workstream                      | Remaining deliverable                                                                                                                                                               | Completion gate                                                                                                                                                                 | Authority                                                                          |
