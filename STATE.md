@@ -13,8 +13,11 @@ Production still uses legacy PHP. Local implementation and acceptance do not aut
 
 The operator selected a portable Bun backend with PostgreSQL, not a Cloudflare Worker backend.
 Development remains local. Paid infrastructure provisioning is deferred until migration cutover preparation.
-DigitalOcean, Netlify, and other managed-database hosts remain candidates, not selected deployments.
-Free plans can be evaluated, but no cloud provisioning or source-data upload is authorized.
+The operator selected DigitalOcean as the host on 2026-09-25. Deployment and provisioning stay deferred until cutover preparation.
+No cloud provisioning or source-data upload is authorized yet.
+The 2024-08-22 private legacy backup remains the working source for import and parity rehearsals. Its schema shape is expected to match current production; its contents are historical, not current.
+The native target is PostgreSQL 18, declared once as `engines.postgresql` in the root manifest.
+`main` was pushed to `origin` on 2026-09-25, so hosted CI now runs.
 The previous Cloudflare development contract is superseded, not accepted. The backend Worker composition and its Alchemy development stage were removed on 2026-09-25.
 Its Hyperdrive transport conflicts with the PostgreSQL advisory locks that the native backend uses.
 The existing local Bun runtime remains the development path. Provider adapters and deployed acceptance remain unverified.
