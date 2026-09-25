@@ -4,9 +4,9 @@ Lifecycle: build
 
 ## Current
 
-The [reimbursement golden journey](docs/specs/reimbursement-golden-journey.md) is frozen for local implementation.
-It covers continuous browser acceptance, private-file custody, settlement authority, delivery recovery, and explicit resource bounds.
-The receipt guide and public-import example accompany this slice. Production and provider actions remain unauthorized.
+The reimbursement journey now has [source-bound local acceptance](#reimbursement-golden-journey).
+It covers private-file custody, separate settlement authority, delivery recovery, and explicit resource bounds.
+The [receipt guide](packages/domain/src/receipt/README.md) includes a public-import example. Production and provider actions remain unauthorized.
 
 Documentation reconciled against source and retained local evidence on 2026-09-24.
 Production still uses legacy PHP. Local implementation and acceptance do not authorize replacement.
@@ -348,6 +348,36 @@ Earlier integrated runs failed during local Worker startup, before browser accep
 Two installed Workerd platform executables contained JavaScript launchers, hard-linked to wrappers that recursively launched the same files.
 Restoration from the locked package archives separated the launchers from their native executables. No application source or machine limits changed for this repair.
 The original overwrite operation remains unknown. The diagnosis and corrupted launchers remain outside the repository at `/tmp/vektor-workerd-repair-1790299070365`.
+
+### Reimbursement golden journey
+
+Integrated revision `7af9e51d2f03b528fecdfaeaae86cd3f208aba4b` passed serial local acceptance on 2026-09-25.
+The runtime used Bun 1.3.10, Node 22.22.0, PostgreSQL 17.11, synthetic people, private local files, and a loopback provider.
+
+| Mode                                                   | Observed result                                           | Retained receipt                                |
+| ------------------------------------------------------ | --------------------------------------------------------- | ----------------------------------------------- |
+| `bun run test:golden-reimbursement`                    | All 12 primary checkpoints and resource probes passed.    | `/tmp/vektor-reimbursement-EX1Szj/receipt.json` |
+| `GOLDEN_REIMBURSEMENT_FAULT=after-submitted`           | Expected exit 1 after submission; cleanup passed.         | `/tmp/vektor-reimbursement-WGVN3O/receipt.json` |
+| `GOLDEN_REIMBURSEMENT_FAULT=interrupt-after-submitted` | Expected exit 1; SIGTERM reason retained; cleanup passed. | `/tmp/vektor-reimbursement-yq4xwF/receipt.json` |
+
+Both fault modes use the same root command. They are expected failures, not successful business journeys.
+Independent PostgreSQL and private-byte observations bind submission, scoped approval, separate settlement evidence, replay, denials, restart, and unattended recovery.
+The fresh owner sees the settlement evidence. Approval remains distinct from payment, and the program executes no payment.
+Actual Next and First controls traverse all three queues: owner pages contain 50 and 2 records; approval and settlement pages contain 50 and 1.
+The resource corpus preserves 52 claims and recovers all 261 outbox entries. Oversized intake returns 413 without changing business facts.
+Concurrent uploads preserve exact opaque bytes when the worker is disabled. The installed Effect multipart parser replaces Bun parsing that lost leading-zero bytes.
+
+The loopback fixture observed one active request. Blocked attempts aborted after 498 and 500 milliseconds, then recovered with unchanged envelopes.
+This bounds local client attempts, not work that a remote provider continues after an abort. Retry eligibility remains intact.
+Desktop and narrow screenshots were inspected; narrow tables scroll horizontally. Recorded accessibility checks found no serious violations.
+The largest sampled aggregate RSS was 3.96 GiB across 32 processes. These are runner-and-descendant samples, not measured peaks or allocation-free guarantees.
+The parent verified 31 artifact hashes and inventories, 991 source-file hashes, 107 stopped recorded processes, 12 released ports, and removal of all private directories.
+
+All 55 focused regressions passed. Six affected package type checks passed with non-failing Effect suggestions.
+The public-import example and changed-source Oxlint checks passed. Upload regressions also passed under Node 24.20.0 after finite fixture encoding was isolated.
+Checks were invoked explicitly; the commit hook reported that Lefthook was unavailable.
+The [receipt guide](packages/domain/src/receipt/README.md) owns consumer and maintainer guidance. The completed specification is retired.
+Current-data reconciliation, unresolved operational policies, real-provider acceptance, cutover, and rollback remain separate gates.
 
 ### Remaining migration work
 
