@@ -65,18 +65,19 @@ Focused Vitest does not prove those additional gates or the dashboard bundle gat
 
 ## Packages
 
-| Path                | Responsibility                                           |
-| ------------------- | -------------------------------------------------------- |
-| `apps/backend`      | Native Effect HTTP process and workers                   |
-| `apps/homepage`     | Public React application                                 |
-| `apps/dashboard`    | Authenticated React Router and Foldkit application       |
-| `apps/server`       | Retained Symfony modernization source                    |
-| `packages/domain`   | Business values, transitions, failures, and authority    |
-| `packages/database` | PostgreSQL schema, persistence, locks, audit, and outbox |
-| `packages/http-api` | HTTP contracts, middleware declarations, and OpenAPI     |
-| `packages/sdk`      | Generated native API client                              |
-| `tools/e2e`         | Disposable local journey drivers                         |
-| `tools/parity`      | Temporary migration analysis and safe runtime helpers    |
+| Path                  | Responsibility                                           |
+| --------------------- | -------------------------------------------------------- |
+| `apps/backend`        | Native Effect HTTP process and workers                   |
+| `apps/homepage`       | Public React application                                 |
+| `apps/dashboard`      | Authenticated React Router and Foldkit application       |
+| `apps/server`         | Retained Symfony modernization source                    |
+| `packages/domain`     | Business values, transitions, failures, and authority    |
+| `packages/database`   | PostgreSQL schema, persistence, locks, audit, and outbox |
+| `packages/http-api`   | HTTP contracts, middleware declarations, and OpenAPI     |
+| `packages/sdk`        | Generated native API client                              |
+| `tools/e2e`           | Disposable local journey drivers                         |
+| `tools/parity`        | Temporary migration analysis and safe runtime helpers    |
+| `tools/source-safety` | Staged-tree scan for credentials and personal data       |
 
 Keep the dependency graph in [docs/architecture.md](docs/architecture.md).
 Product packages must not import migration tools or application source.

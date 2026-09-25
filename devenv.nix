@@ -154,6 +154,17 @@ in
       priority = 0;
       fail_fast = true;
     };
+    # The whole staged tree, whatever the task cache holds: no credential, personal data, or
+    # literal SQL data enters the public repository.
+    source-safety = hook {
+      entry = "${hookEnv} bun --no-env-file tools/source-safety/src/check.ts";
+      stages = [
+        "pre-commit"
+        "pre-merge-commit"
+      ];
+      priority = 0;
+      fail_fast = true;
+    };
     # Type checks and tests of the packages that the staged tree changes.
     changed-packages = hook {
       entry = "${hookEnv} bun --no-env-file scripts/check-staged.ts --class hook-pre-commit";

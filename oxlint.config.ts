@@ -289,6 +289,7 @@ export default defineConfig({
         "tools/parity/tests/journey-evidence.test.ts",
         "tools/parity/tests/legacy-journey-evidence.test.ts",
         "tools/parity/tests/unsafe-diagnostics.test.ts",
+        "tools/source-safety/tests/source-safety.test.ts",
       ],
       rules: {
         // Bun owns these exact suites; they deliberately exercise Node-compatible filesystem seams.

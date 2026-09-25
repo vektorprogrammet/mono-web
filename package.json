@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "bun --no-env-file scripts/dev.ts",
     "measure-job": "bun --no-env-file scripts/measure-job.ts",
+    "source-safety": "bun --no-env-file tools/source-safety/src/check.ts",
     "test:golden-school-service": "bun --no-env-file tools/e2e/placement-check.ts --golden-school-service",
     "test:golden-recruitment": "bun --no-env-file tools/e2e/placement-check.ts --golden-recruitment",
     "test:golden-reimbursement": "bun --no-env-file tools/e2e/golden-reimbursement.mjs",
@@ -41,7 +42,7 @@
     "dev:server": "bun --no-env-file scripts/require-legacy-profile.ts && turbo -F @monoweb/server dev",
     "build:homepage": "turbo -F @monoweb/homepage worker:build",
     "worker:homepage": "turbo -F @monoweb/homepage worker:dev",
-    "check": "bun run format:check && bun run lint && bun run check-types",
+    "check": "bun run format:check && bun run lint && bun run source-safety && bun run check-types",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "prepare": "effect-tsgo patch --typescript --oxlint"

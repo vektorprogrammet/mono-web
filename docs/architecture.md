@@ -48,6 +48,7 @@ must transfer every required writer and reader before the legacy system retires.
 | `tools/verification`  | Cross-application PostgreSQL proofs, migration rehearsals, and their fixtures                                   |
 | `tools/e2e`           | Disposable local migration and journey drivers                                                                  |
 | `tools/parity`        | Temporary migration analysis and safe runtime helpers                                                           |
+| `tools/source-safety` | Source-safety rules and the staged-tree scan that blocks credentials, personal data, and literal SQL data       |
 
 A business fact has one owner. Other modules use its public contract. They do not
 write its tables or duplicate its rules.

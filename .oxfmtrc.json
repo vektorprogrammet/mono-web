@@ -44,6 +44,7 @@
     "!/tools/",
     "/tools/*",
     "!/tools/verification/",
+    "!/tools/source-safety/",
     "!/tools/e2e/",
     "/tools/e2e/*",
     "!/tools/e2e/package.json",

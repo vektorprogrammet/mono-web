@@ -86,6 +86,10 @@ Then it type checks and tests the packages that the staged change modifies.
 It uses a temporary Git worktree of the staged tree, so unstaged and untracked files do not change the result.
 A change outside all packages, for example to documentation only, runs no type check or test.
 A merge without conflicts type checks and tests the merge result, including the dependents of the changed packages.
+Every commit, including a merge, also scans each file in the staged tree with
+[tools/source-safety](tools/source-safety/src/source-safety.ts), whatever the task cache holds. The scan rejects
+paths that name credential, backup, or database material, secrets and personal data in dotenv files and SQL, and
+invalid UTF-8. `bun run source-safety` runs it by hand; `bun run check` includes it.
 The pre-push hook runs `bun run check` and the tests of packages changed from `main`.
 It checks the working tree, not the pushed commits. Push from a clean worktree.
 While hooks run, the hook runner (prek) moves unstaged changes aside and restores them afterwards.
