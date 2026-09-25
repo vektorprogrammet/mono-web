@@ -26,10 +26,7 @@ export * from "./recruitment/config.js";
 
 export * from "./recruitment/http.js";
 
-export type {
-  RecruitmentApiHttpOptions,
-  RecruitmentConductContextResolution,
-} from "./recruitment/http-context.js";
+export type { RecruitmentApiHttpOptions } from "./recruitment/http-context.js";
 
 export { recruitmentInterviewAccessContext } from "./recruitment/http-access.js";
 
