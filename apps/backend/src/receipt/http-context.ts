@@ -42,13 +42,17 @@ export interface ReceiptApiHttpOptions<E = never, R = never> {
   readonly outboxClaimId?: string;
 }
 
-/** A missing actor with a presented session cookie is an invalid credential, not an absent one. */
+/**
+ * A missing actor whose request presented a credential, a bearer token or a
+ * session cookie, is an invalid credential, not an absent one.
+ */
 export const invalidSessionFailure = <E>(request: Request, cause: E): E | HttpSemanticFailure =>
   cause !== null &&
   (cause === null || Predicate.isObjectOrArray(cause)) &&
   "_tag" in cause &&
   Predicate.isTagged(cause, "UnauthenticatedActor") &&
-  hasBetterAuthSessionCredential(request.headers.get("cookie"))
+  (request.headers.has("authorization") ||
+    hasBetterAuthSessionCredential(request.headers.get("cookie")))
     ? new HttpSemanticFailure("credential.invalid", 401)
     : cause;
 
@@ -80,6 +84,11 @@ export const authorizationPrincipalInTransaction = <E, R>(
             personId: authenticated.credential.principal.personId,
             authorizationInstant: authenticated.authorizationInstant,
           })
-        : Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+        : Effect.fail(
+            invalidSessionFailure(
+              request,
+              new UnauthenticatedActor({ message: "authentication required" }),
+            ),
+          ),
     ),
   );

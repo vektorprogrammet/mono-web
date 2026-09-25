@@ -330,7 +330,7 @@ export const readOwnerReceiptFile = <E, R>(
           request,
           "OAuthUserBearer",
           { now: options.now },
-        );
+        ).pipe(Effect.mapError((cause) => invalidSessionFailure(request, cause)));
 
         const principal = authenticated.credential.principal;
 
