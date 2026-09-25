@@ -9,6 +9,7 @@ import {
   type NativeProblemCode,
   type NativeValidationError,
   normalizeValidationErrors,
+  nativeUserChallenges,
   Sha256Hex,
   type StrongETag,
   type ValidationProblemCode,
@@ -559,7 +560,9 @@ const isValidationProblemCode = (code: NativeProblemCode): code is ValidationPro
 
 /**
  * Creates an RFC 9457 response without leaking the internal failure. A
- * validation code carries its mandatory extension, naming the whole request.
+ * validation code carries its mandatory extension, naming the whole request,
+ * and a credential problem without its own challenge names the person
+ * credentials every native user endpoint accepts.
  */
 export const nativeProblemResponse = (
   code: NativeProblemCode,
@@ -572,6 +575,10 @@ export const nativeProblemResponse = (
 
   if ((status === 409 && code === "idempotency.in-flight") || status === 503) {
     responseHeaders.set("retry-after", status === 409 ? "1" : "5");
+  }
+
+  if (status === 401 && !responseHeaders.has("www-authenticate")) {
+    responseHeaders.set("www-authenticate", nativeUserChallenges());
   }
 
   const problem = makeNativeProblem(code, status);
