@@ -7,6 +7,7 @@ This file records current state only. Remove an item when it is resolved. Git ke
 ## Current
 
 Production uses the legacy PHP application. Production replacement is not authorized or rehearsed.
+The legacy source is in the [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository; the former `apps/server` continues there as branch `modernize/mono-web-server` (`908368a8`), and `2163076f` is the last mono-web commit that contains it.
 Local implementation and acceptance do not authorize production, provider, or source-data actions.
 
 Operator decisions:
@@ -101,11 +102,12 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - `Team.email` (`packages/domain/src/organization/schema.ts`) accepts text that is not a mailbox. Open team intake requires a deliverable mailbox; the write boundary does not check it.
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
 - PR previews (operator decision, 2026-09-25): keep Cloudflare frontend previews for now; they need the `CLOUDFLARE_API_TOKEN` repository secret (operator step).
+  Previews are frontend-only until the native backend gets a preview host; full-stack previews on a container host are the planned follow-up.
   Later, move to full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
   The [PR preview contract](docs/specs/worker-pr-previews.md) requires workspace validation before deployment. `.github/workflows/preview-pr.yml` only builds.
 - Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane. Hosted Alchemy deployment is unobserved.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
-- `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy` adds PHP, Composer, and MariaDB. CI runs in the same shell; its hosted cost is unmeasured.
+- `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy-data` adds MariaDB and the PHP 8.4 CLI for the legacy data rehearsals. CI runs in the same shell; its hosted cost is unmeasured.
 
 ## Next
 
