@@ -165,8 +165,10 @@ as a separate command and authority.
 A returning volunteer may use an existing account and history. They still need an
 explicit affiliation for the relevant chapter and an explicit placement.
 
-The onboarding claim link is a bearer capability. Its holder can link an existing account without changing that account's email.
-Claiming the account grants neither affiliation nor a placement. A consumed claim capability cannot be used again.
+The onboarding claim link is a bearer capability for one invitation. A consumed claim capability cannot be used again.
+A holder without an account presents only the link and creates an account; a request that also carries a session or bearer fails.
+A signed-in holder links the existing account without changing that account's email. The session is then the one principal, and the link is a requirement bound to its invitation, not a second credential.
+Claiming the account grants neither affiliation nor a placement.
 
 Applicant progress shows the same facts in sequence. Interview or returning
 registration completion can lead to a pending affiliation, active affiliation,
@@ -445,7 +447,9 @@ frontend may hide unavailable actions, but hiding is not enforcement.
 
 A request presents one credential. A request that carries both a session cookie and
 a bearer token fails, whether they name one Person, two Persons, or a Person and a
-service. The backend never chooses between them.
+service. The backend never chooses between them. In the existing-account onboarding
+claim, the signed-in Person is the one principal, and the claim link is a single-use
+requirement bound to its invitation, not a second credential.
 
 A service caller is a separate principal, not a synthetic Person. A valid machine
 credential proves its identity, but a current grant must also cover the operation,

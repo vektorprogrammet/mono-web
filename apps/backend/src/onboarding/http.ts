@@ -28,7 +28,12 @@ import {
 import { DomainId } from "@vektorprogrammet/domain/authz";
 import { flow, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import {
+  currentInstant,
+  headerCredentialCount,
+  resolveRequestPersonAuthorityInTransaction,
+} from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -303,7 +308,21 @@ export const OnboardingApiHandlers = (input: {
       });
       const body = yield* decode(OnboardingClaim)(yield* readBody(request));
       const digest = yield* tokenDigest(body.token);
-      yield* checkOnboardingClaim(digest, yield* now);
+
+      // A new-account claim presents one credential: its token. An existing-account claim has one
+      // principal, the signed-in Person. Its token is then a single-use requirement bound to one
+      // invitation, which claimOnboarding checks and consumes after the Person is resolved.
+      if (body.mode === "NewAccount") {
+        if (
+          headerCredentialCount(
+            request.headers.get("cookie"),
+            request.headers.get("authorization"),
+          ) > 0
+        )
+          return yield* new UnauthenticatedActor({ message: "authentication required" });
+
+        yield* checkOnboardingClaim(digest, yield* now);
+      }
 
       const passwordHash =
         body.mode === "NewAccount"

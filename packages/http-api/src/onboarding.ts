@@ -128,7 +128,7 @@ export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboa
   .annotateMerge(
     operationAnnotations(
       "Claim applicant account invitation",
-      "A purpose-specific token in the body is required; existing-account mode additionally requires an authenticated Person.",
+      "A purpose-specific token in the body is required and works once. In new-account mode the token is the one credential, so a session or bearer beside it is rejected. In existing-account mode the authenticated Person is the one principal, and the token must name the claimed invitation.",
     ),
   );
 
