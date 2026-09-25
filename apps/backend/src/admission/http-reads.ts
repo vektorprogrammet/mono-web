@@ -1,10 +1,8 @@
 /** Admission read handlers: admission periods, public applications, and returning assistants. */
 import { Database } from "@vektorprogrammet/database";
-import { AdmissionPeriodPersistenceError } from "@vektorprogrammet/domain/admission-period";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
   ApplicantProgressResponseSchema,
-  PublicApplicationPersistenceError,
   ReturningAssistantOptionsSchema,
   ReturningAssistants,
 } from "@vektorprogrammet/domain/application";
@@ -20,6 +18,7 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Predicate, Schema } from "effect";
 import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
+import { strictOutput } from "../http-api/problem.js";
 import { HttpSemanticFailure, PRIVATE_NO_STORE, deriveStrongETag } from "../http-semantics.js";
 import {
   authorizeAnonymousNativeOperation,
@@ -53,9 +52,7 @@ export const readReturningAssistantOptions = (request: Request, input: Admission
       }),
     );
 
-    const body = yield* Schema.decodeUnknownEffect(ReturningAssistantOptionsSchema)(options, {
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+    const body = yield* strictOutput(ReturningAssistantOptionsSchema)(options);
 
     return jsonResponse(body);
   });
@@ -101,17 +98,9 @@ export const listAdmissionPeriods = (request: Request, input: AdmissionApiHttpOp
       }),
     }));
 
-    const body = yield* Schema.decodeUnknownEffect(
+    const body = yield* strictOutput(
       Schema.Struct({ items: Schema.Array(AdmissionPeriodManagementItem), totalItems: Schema.Int }),
-    )({ items, totalItems: items.length }, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(
-        () =>
-          new AdmissionPeriodPersistenceError({
-            operation: "HTTP",
-            message: "Invalid admission response",
-          }),
-      ),
-    );
+    )({ items, totalItems: items.length });
 
     return yield* conditionalJsonResponse({
       request,
@@ -278,17 +267,7 @@ export const readApplicantProgress = (request: Request, input: AdmissionApiHttpO
           ),
         );
 
-        const decoded = yield* Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(body, {
-          onExcessProperty: "error",
-        }).pipe(
-          Effect.mapError(
-            () =>
-              new PublicApplicationPersistenceError({
-                operation: "HTTP",
-                message: "Invalid application response",
-              }),
-          ),
-        );
+        const decoded = yield* strictOutput(ApplicantProgressResponseSchema)(body);
 
         return new Response(JSON.stringify(decoded), {
           headers: {
