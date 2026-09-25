@@ -471,6 +471,11 @@ jobs:
         env:
           APP_ENV: test
           COMPOSER_PROCESS_TIMEOUT: "900"
+          # The test environment reads its key pair from these variables; .env.test points them
+          # at /dev/null so metadata commands boot without keys. The API tests sign real tokens.
+          TEST_JWT_PRIVATE_PATH: "%kernel.project_dir%/config/jwt/private.pem"
+          TEST_JWT_PUBLIC_PATH: "%kernel.project_dir%/config/jwt/public.pem"
+          TEST_JWT_PASSPHRASE: ${{ env.JWT_PASSPHRASE }}
         run: |
 
           set +e
