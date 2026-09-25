@@ -35,7 +35,7 @@ const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url)
 
 const runnerPath = fileURLToPath(import.meta.url);
 
-const contractPath = join(repositoryRoot, "docs/specs/0113-school-survey-operations.md");
+const contractPath = join(repositoryRoot, "docs/system.md");
 
 const manifestPath =
   process.env.SURVEY_OPERATIONS_EVIDENCE_MANIFEST_PATH ??
