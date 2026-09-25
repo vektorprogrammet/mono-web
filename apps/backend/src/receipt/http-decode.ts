@@ -1,4 +1,4 @@
-/** Receipt request decoding: query strings, list cursors, preconditions, multipart, and JSON bodies. */
+/** Receipt request decoding: query strings, list cursors, multipart, and JSON bodies. */
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import {
   ReceiptDecodeError,
@@ -7,10 +7,9 @@ import {
   type ReceiptStatus,
 } from "@vektorprogrammet/domain/receipt";
 import { RecordReceiptSettlementRequest, readBoundedReceiptForm } from "@vektorprogrammet/http-api";
-import { Effect, Predicate, Schema } from "effect";
-import { readBoundedJson } from "../http-api/read-json.js";
-import { HttpSemanticFailure, parseRequiredIfMatch } from "../http-semantics.js";
-import { knownReceiptFailure } from "./http-problem.js";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Predicate } from "effect";
+import { decodeRequest, readJsonBody, requestInvalid } from "../http-api/problem.js";
 
 const SUPPORTED_CONTENT_TYPES = ["image/jpeg", "image/png", "application/pdf"] as const;
 
@@ -33,89 +32,72 @@ const isReceiptStatus = (value: string): value is ReceiptStatus => {
 const isSupportedContentType = (value: string): value is SupportedContentType =>
   SUPPORTED_CONTENT_TYPES.some((contentType) => contentType === value);
 
-export const headerValues = (request: Request, name: string): ReadonlyArray<string> => {
-  const value = request.headers.get(name);
-
-  return value === null ? [] : [value];
-};
-
-export const requiredIfMatch = (request: Request) =>
-  Effect.try({
-    try: () => parseRequiredIfMatch(headerValues(request, "if-match")),
-    catch: knownReceiptFailure,
-  });
-
-/** Commands and single-resource reads accept no query string. */
-export const rejectQueryString = (request: Request) =>
-  Effect.try({
-    try: () => {
-      if (new URL(request.url).search.length > 0) {
-        throw new HttpSemanticFailure("request.malformed", 400);
-      }
-    },
-    catch: knownReceiptFailure,
-  });
-
 /** Decodes `status` and `cursor`; a present cursor must decode before any read. */
 export const decodeReceiptListQuery = (request: Request, allowStatus = true) =>
   Effect.gen(function* () {
-    const query = yield* Effect.try({
-      try: () => {
-        const search = new URL(request.url).searchParams;
+    const search = new URL(request.url).searchParams;
 
-        if (
-          [...search.keys()].some(
-            (key) => key !== "cursor" && !(allowStatus && key === "status"),
-          ) ||
-          search.getAll("status").length > 1 ||
-          search.getAll("cursor").length > 1
-        ) {
-          throw new HttpSemanticFailure("request.malformed", 400);
-        }
+    if (
+      [...search.keys()].some((key) => key !== "cursor" && !(allowStatus && key === "status")) ||
+      search.getAll("status").length > 1 ||
+      search.getAll("cursor").length > 1
+    ) {
+      return yield* Effect.fail(Problem.make("request.malformed"));
+    }
 
-        const status = search.get("status") ?? undefined;
+    const status = search.get("status") ?? undefined;
 
-        if (status !== undefined && !isReceiptStatus(status))
-          throw new HttpSemanticFailure("request.malformed", 400);
+    if (status !== undefined && !isReceiptStatus(status)) {
+      return yield* Effect.fail(Problem.make("request.malformed"));
+    }
 
-        return { status, cursor: search.get("cursor") ?? undefined };
-      },
-      catch: () => new HttpSemanticFailure("request.malformed", 400),
-    });
+    const cursor = search.get("cursor") ?? undefined;
 
-    if (query.cursor !== undefined) {
-      yield* decodeReceiptCursor(query.cursor).pipe(
-        Effect.mapError(() => new HttpSemanticFailure("request.malformed", 400)),
+    if (cursor !== undefined) {
+      yield* decodeReceiptCursor(cursor).pipe(
+        Effect.mapError(() => Problem.make("request.malformed")),
       );
     }
 
-    return query;
+    return { status, cursor };
   });
 
 /** Decodes the optional single `departmentId` submit query parameter. */
 export const decodeSubmitQuery = (request: Request) =>
-  Effect.try({
-    try: () => {
-      const entries = [...new URL(request.url).searchParams.entries()];
+  Effect.gen(function* () {
+    const entries = [...new URL(request.url).searchParams.entries()];
 
-      if (
-        entries.some(([name]) => name !== "departmentId") ||
-        entries.filter(([name]) => name === "departmentId").length > 1
-      ) {
-        throw new HttpSemanticFailure("request.malformed", 400);
-      }
+    if (
+      entries.some(([name]) => name !== "departmentId") ||
+      entries.filter(([name]) => name === "departmentId").length > 1
+    ) {
+      return yield* Effect.fail(Problem.make("request.malformed"));
+    }
 
-      const value = entries[0]?.[1];
+    const value = entries[0]?.[1];
 
-      if (value === undefined) return undefined;
+    if (value === undefined) return undefined;
 
-      if (value.trim().length === 0) {
-        throw new ReceiptDecodeError({ message: "invalid departmentId" });
-      }
+    if (value.trim().length === 0) return yield* Effect.fail(requestInvalid());
 
-      return DepartmentId.make(value);
-    },
-    catch: knownReceiptFailure,
+    return DepartmentId.make(value);
+  });
+
+/**
+ * Runs throwing field checks: a ReceiptDecodeError fails the request's
+ * validation, anything else is a defect.
+ *
+ * @construct http-problem
+ */
+const validated = <A>(decode: () => A): Effect.Effect<A, Problem<"validation.failed">> =>
+  Effect.suspend(() => {
+    try {
+      return Effect.succeed(decode());
+    } catch (cause) {
+      return cause instanceof ReceiptDecodeError
+        ? Effect.fail(requestInvalid())
+        : Effect.die(cause);
+    }
   });
 
 const parseSafeAmountOre = (value: string): number => {
@@ -140,50 +122,44 @@ const readSingleField = (fields: MultipartFields, name: string): string => {
 };
 
 const decodeMultipartFields = (request: Request, maxFileBytes: number) =>
-  Effect.tryPromise({
-    try: async () => {
-      const contentType = request.headers.get("content-type") ?? "";
+  Effect.gen(function* () {
+    const contentType = request.headers.get("content-type") ?? "";
 
-      if (contentType.split(";", 1)[0]?.trim().toLowerCase() !== "multipart/form-data") {
-        throw new ReceiptDecodeError({ message: "multipart form required" });
-      }
+    if (contentType.split(";", 1)[0]?.trim().toLowerCase() !== "multipart/form-data") {
+      return yield* Effect.fail(requestInvalid());
+    }
 
-      const contentLength = request.headers.get("content-length");
+    const contentLength = request.headers.get("content-length");
 
-      if (contentLength === null || !/^\d+$/.test(contentLength)) {
-        throw new ReceiptDecodeError({ message: "valid body length required" });
-      }
+    if (contentLength === null || !/^\d+$/.test(contentLength)) {
+      return yield* Effect.fail(requestInvalid());
+    }
 
-      const bodyLength = Number(contentLength);
+    const bodyLength = Number(contentLength);
 
-      if (
-        !Number.isSafeInteger(bodyLength) ||
-        bodyLength <= 0 ||
-        bodyLength > maxFileBytes + 131_072
-      ) {
-        throw new ReceiptDecodeError({ message: "multipart body exceeds configured limit" });
-      }
+    if (
+      !Number.isSafeInteger(bodyLength) ||
+      bodyLength <= 0 ||
+      bodyLength > maxFileBytes + 131_072
+    ) {
+      return yield* Effect.fail(requestInvalid());
+    }
 
-      let form: FormData;
+    const form = yield* Effect.tryPromise({
+      try: () => readBoundedReceiptForm(request, maxFileBytes),
+      catch: requestInvalid,
+    });
 
-      try {
-        form = await readBoundedReceiptForm(request, maxFileBytes);
-      } catch {
-        throw new ReceiptDecodeError({ message: "invalid multipart body" });
-      }
+    const fields = new Map<string, Array<string | File>>();
 
-      const fields = new Map<string, Array<string | File>>();
+    for (const [name, value] of form.entries()) {
+      const values = fields.get(name);
 
-      for (const [name, value] of form.entries()) {
-        const values = fields.get(name);
+      if (values === undefined) fields.set(name, [value]);
+      else values.push(value);
+    }
 
-        if (values === undefined) fields.set(name, [value]);
-        else values.push(value);
-      }
-
-      return fields;
-    },
-    catch: knownReceiptFailure,
+    return fields;
   });
 
 const requireMultipartFields = (
@@ -246,41 +222,38 @@ export const decodeSubmitMultipart = (request: Request, maxFileBytes: number) =>
   Effect.gen(function* () {
     const fields = yield* decodeMultipartFields(request, maxFileBytes);
 
-    return yield* Effect.try({
-      try: () => {
-        requireMultipartFields(fields, {
-          description: true,
-          amountOre: true,
-          receiptDate: true,
-          file: true,
-        });
-        const description = readSingleField(fields, "description");
-        const amountOre = parseSafeAmountOre(readSingleField(fields, "amountOre"));
-        const receiptDate = readSingleField(fields, "receiptDate");
+    return yield* validated(() => {
+      requireMultipartFields(fields, {
+        description: true,
+        amountOre: true,
+        receiptDate: true,
+        file: true,
+      });
+      const description = readSingleField(fields, "description");
+      const amountOre = parseSafeAmountOre(readSingleField(fields, "amountOre"));
+      const receiptDate = readSingleField(fields, "receiptDate");
 
-        if (description.length < 1 || description.length > 5000) {
-          throw new ReceiptDecodeError({ message: "invalid receipt description" });
-        }
+      if (description.length < 1 || description.length > 5000) {
+        throw new ReceiptDecodeError({ message: "invalid receipt description" });
+      }
 
-        if (!isIsoDate(receiptDate)) {
-          throw new ReceiptDecodeError({ message: "invalid receipt date" });
-        }
+      if (!isIsoDate(receiptDate)) {
+        throw new ReceiptDecodeError({ message: "invalid receipt date" });
+      }
 
-        const decodedFile = decodeReceiptFile(fields, maxFileBytes, true);
+      const decodedFile = decodeReceiptFile(fields, maxFileBytes, true);
 
-        if (decodedFile.file === undefined || decodedFile.contentType === undefined) {
-          throw new ReceiptDecodeError({ message: "receipt file is required" });
-        }
+      if (decodedFile.file === undefined || decodedFile.contentType === undefined) {
+        throw new ReceiptDecodeError({ message: "receipt file is required" });
+      }
 
-        return {
-          description,
-          amountOre,
-          receiptDate,
-          file: decodedFile.file,
-          contentType: decodedFile.contentType,
-        };
-      },
-      catch: knownReceiptFailure,
+      return {
+        description,
+        amountOre,
+        receiptDate,
+        file: decodedFile.file,
+        contentType: decodedFile.contentType,
+      };
     });
   });
 
@@ -288,101 +261,85 @@ export const decodeReviseMultipart = (request: Request, maxFileBytes: number) =>
   Effect.gen(function* () {
     const fields = yield* decodeMultipartFields(request, maxFileBytes);
 
-    return yield* Effect.try({
-      try: () => {
-        requireMultipartFields(
-          fields,
-          {},
-          {
-            description: true,
-            amountOre: true,
-            receiptDate: true,
-            file: true,
-          },
-        );
+    return yield* validated(() => {
+      requireMultipartFields(
+        fields,
+        {},
+        {
+          description: true,
+          amountOre: true,
+          receiptDate: true,
+          file: true,
+        },
+      );
 
-        if (fields.size === 0) {
-          throw new ReceiptDecodeError({
-            message: "receipt revision must change at least one field",
-          });
-        }
+      if (fields.size === 0) {
+        throw new ReceiptDecodeError({
+          message: "receipt revision must change at least one field",
+        });
+      }
 
-        const description = fields.has("description")
-          ? readSingleField(fields, "description")
-          : undefined;
+      const description = fields.has("description")
+        ? readSingleField(fields, "description")
+        : undefined;
 
-        if (description !== undefined && (description.length < 1 || description.length > 5000)) {
-          throw new ReceiptDecodeError({ message: "invalid receipt description" });
-        }
+      if (description !== undefined && (description.length < 1 || description.length > 5000)) {
+        throw new ReceiptDecodeError({ message: "invalid receipt description" });
+      }
 
-        const amountOre = fields.has("amountOre")
-          ? parseSafeAmountOre(readSingleField(fields, "amountOre"))
-          : undefined;
+      const amountOre = fields.has("amountOre")
+        ? parseSafeAmountOre(readSingleField(fields, "amountOre"))
+        : undefined;
 
-        const receiptDate = fields.has("receiptDate")
-          ? readSingleField(fields, "receiptDate")
-          : undefined;
+      const receiptDate = fields.has("receiptDate")
+        ? readSingleField(fields, "receiptDate")
+        : undefined;
 
-        if (receiptDate !== undefined && !isIsoDate(receiptDate)) {
-          throw new ReceiptDecodeError({ message: "invalid receipt date" });
-        }
+      if (receiptDate !== undefined && !isIsoDate(receiptDate)) {
+        throw new ReceiptDecodeError({ message: "invalid receipt date" });
+      }
 
-        const decodedFile = decodeReceiptFile(fields, maxFileBytes, false);
+      const decodedFile = decodeReceiptFile(fields, maxFileBytes, false);
 
-        const parsedFields: DecodedReceiptFile & {
-          description?: string;
-          amountOre?: number;
-          receiptDate?: string;
-        } = { ...decodedFile };
+      const parsedFields: DecodedReceiptFile & {
+        description?: string;
+        amountOre?: number;
+        receiptDate?: string;
+      } = { ...decodedFile };
 
-        if (description !== undefined) parsedFields.description = description;
+      if (description !== undefined) parsedFields.description = description;
 
-        if (amountOre !== undefined) parsedFields.amountOre = amountOre;
+      if (amountOre !== undefined) parsedFields.amountOre = amountOre;
 
-        if (receiptDate !== undefined) parsedFields.receiptDate = receiptDate;
+      if (receiptDate !== undefined) parsedFields.receiptDate = receiptDate;
 
-        return parsedFields;
-      },
-      catch: knownReceiptFailure,
+      return parsedFields;
     });
   });
 
-const decodeJsonObject = (request: Request) => {
-  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+/**
+ * One bounded `application/json` object; media type parameters and
+ * surrounding space are accepted.
+ *
+ * @construct http-problem
+ */
+const decodeJsonObject = (request: Request) =>
+  Effect.gen(function* () {
+    const body = yield* readJsonBody(request, /^\s*application\/json\s*(?:;|$)/iu, 65_536);
 
-  if (mediaType !== "application/json") {
-    return Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
-  }
+    if (body === null || !Predicate.isObjectOrArray(body) || Array.isArray(body)) {
+      return yield* Effect.fail(requestInvalid());
+    }
 
-  return readBoundedJson(request, 65_536).pipe(
-    Effect.flatMap((body) =>
-      body === null || !(body === null || Predicate.isObjectOrArray(body)) || Array.isArray(body)
-        ? Effect.fail(new ReceiptDecodeError({ message: "request body must be an object" }))
-        : Effect.succeed(body),
-    ),
-  );
-};
+    return body;
+  });
 
 export const decodeExactEmptyJson = (request: Request) =>
   decodeJsonObject(request).pipe(
     Effect.flatMap((body) =>
-      Object.keys(body).length === 0
-        ? Effect.succeed({})
-        : Effect.fail(
-            new ReceiptDecodeError({ message: "request body must be the exact empty object" }),
-          ),
+      Object.keys(body).length === 0 ? Effect.succeed({}) : Effect.fail(requestInvalid()),
     ),
   );
 
 export const decodeSettlementRequest = (request: Request) =>
-  decodeJsonObject(request).pipe(
-    Effect.flatMap((body) =>
-      Schema.decodeUnknownEffect(RecordReceiptSettlementRequest)(body, {
-        onExcessProperty: "error",
-      }).pipe(
-        Effect.mapError(
-          () => new ReceiptDecodeError({ message: "invalid settlement evidence request" }),
-        ),
-      ),
-    ),
-  );
+  decodeJsonObject(request).pipe(Effect.flatMap(decodeRequest(RecordReceiptSettlementRequest)));

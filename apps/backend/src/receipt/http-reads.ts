@@ -38,32 +38,28 @@ import {
 import { nativeCookieChallenge, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Option, Predicate, Schema } from "effect";
 import { currentInstant, resolveRequestCredentialInTransaction } from "../authority.js";
-import { personPresentation, problemWebResponse } from "../http-api/problem.js";
-import { HttpSemanticFailure } from "../http-semantics.js";
+import { personPresentation, requireNoQuery } from "../http-api/problem.js";
 import {
   RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER,
   type ReceiptE2ETransactionBarrier,
 } from "./e2e-support.js";
 import type { ReceiptFileStore } from "./filesystem.js";
+import type { ReceiptApiHttpOptions, ReceiptIdentityFailure } from "./http-context.js";
+import { decodeReceiptListQuery } from "./http-decode.js";
 import {
-  authorizationPrincipalFor,
-  invalidSessionFailure,
-  type ReceiptApiHttpOptions,
-} from "./http-context.js";
-import { decodeReceiptListQuery, rejectQueryString } from "./http-decode.js";
-import { jsonResponse, knownReceiptFailure, privateJsonResponse } from "./http-problem.js";
+  receiptCredentialProblems,
+  receiptProblems,
+  storedReceiptProblems,
+} from "./http-problem.js";
 import {
+  jsonResponse,
   ownedReceiptResource,
+  privateJsonResponse,
+  projected,
   readPrivateReceiptFile,
   receiptEtag,
   receiptSettlementEvidenceResource,
 } from "./http-representation.js";
-
-/** A stored receipt value a read cannot decode is the receipt store failing, not the request. */
-const storedReceiptUnavailable = <E>(cause: E): E | HttpSemanticFailure =>
-  Predicate.isTagged(cause, "ReceiptDecodeError")
-    ? new HttpSemanticFailure("receipts.unavailable", 503)
-    : cause;
 
 interface ReceiptAccessRow {
   readonly ownerPersonId: string;
@@ -72,31 +68,31 @@ interface ReceiptAccessRow {
   readonly revision: number;
 }
 
-export const listOwnedReceipts = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, R>) =>
+export const listOwnedReceipts = <R>(
+  request: Request,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
+) =>
   Effect.gen(function* () {
     const { status: selectedStatus, cursor } = yield* decodeReceiptListQuery(request);
 
-    const principal = yield* authorizationPrincipalFor(request, options);
+    const principal = yield* options.identity.resolveAuthorizationPrincipal(request);
 
     const rows = yield* Economy.use(({ listOwnedReceipts }) =>
       listOwnedReceipts(principal.personId, selectedStatus, cursor),
-    ).pipe(Effect.mapError(storedReceiptUnavailable));
+    ).pipe(storedReceiptProblems);
 
-    const items = yield* Effect.try({
-      try: () => rows.items.map(ownedReceiptResource),
-      catch: knownReceiptFailure,
-    });
+    const items = yield* projected(() => rows.items.map(ownedReceiptResource));
 
     return jsonResponse(
       rows.nextCursor === undefined ? { items } : { items, nextCursor: rows.nextCursor },
       200,
       "private, no-store",
     );
-  });
+  }).pipe(receiptProblems, receiptCredentialProblems(personPresentation(request)));
 
-export const listReceiptsForApproval = <E, R>(
+export const listReceiptsForApproval = <R>(
   request: Request,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
 ) =>
   Effect.gen(function* () {
     const { status, cursor } = yield* decodeReceiptListQuery(request);
@@ -104,9 +100,7 @@ export const listReceiptsForApproval = <E, R>(
     const resolved =
       options.identity.resolveApprovalCredential === undefined
         ? undefined
-        : yield* options.identity
-            .resolveApprovalCredential(request)
-            .pipe(Effect.catch((cause) => Effect.fail(invalidSessionFailure(request, cause))));
+        : yield* options.identity.resolveApprovalCredential(request);
 
     if (
       resolved !== undefined &&
@@ -140,52 +134,49 @@ export const listReceiptsForApproval = <E, R>(
       );
 
       if (!Predicate.isTagged(evaluation, "Allow")) {
-        return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+        return yield* Effect.fail(Problem.make("authority.denied"));
       }
 
-      const items = yield* Effect.try({
-        try: () => {
-          const allowed = new Set<string>(
-            evaluation.resolution.contexts.flatMap((context) =>
-              context.resource === null ? [] : [context.resource.id],
-            ),
-          );
+      const items = yield* projected(() => {
+        const allowed = new Set<string>(
+          evaluation.resolution.contexts.flatMap((context) =>
+            context.resource === null ? [] : [context.resource.id],
+          ),
+        );
 
-          const seen = new Set<string>();
+        const seen = new Set<string>();
 
-          return authority.candidates.flatMap(({ receipt }) => {
-            if (seen.has(receipt.receiptId) || !allowed.has(receipt.receiptId)) return [];
-            seen.add(receipt.receiptId);
+        return authority.candidates.flatMap(({ receipt }) => {
+          if (seen.has(receipt.receiptId) || !allowed.has(receipt.receiptId)) return [];
+          seen.add(receipt.receiptId);
 
-            if (status !== undefined && receipt.status !== status) return [];
-            const amountOre = Number(receipt.amountOre);
+          if (status !== undefined && receipt.status !== status) return [];
+          const amountOre = Number(receipt.amountOre);
 
-            if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
-              throw new ReceiptPersistenceError({
-                operation: "decode service approver projection",
-                message: "invalid amount",
-              });
-            }
+          if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+            throw new ReceiptPersistenceError({
+              operation: "decode service approver projection",
+              message: "invalid amount",
+            });
+          }
 
-            return [
-              {
-                receiptId: receipt.receiptId,
-                visualId: receipt.visualId,
-                ownerPersonId: receipt.ownerPersonId,
-                departmentId: receipt.departmentId,
-                amountOre,
-                currency: receipt.currency,
-                description: receipt.description,
-                receiptDate: receipt.receiptDate,
-                status: receipt.status,
-                approvedAt: receipt.approvedAt,
-                revision: receipt.revision,
-                etag: receiptEtag(receipt.receiptId, receipt.revision),
-              },
-            ];
-          });
-        },
-        catch: knownReceiptFailure,
+          return [
+            {
+              receiptId: receipt.receiptId,
+              visualId: receipt.visualId,
+              ownerPersonId: receipt.ownerPersonId,
+              departmentId: receipt.departmentId,
+              amountOre,
+              currency: receipt.currency,
+              description: receipt.description,
+              receiptDate: receipt.receiptDate,
+              status: receipt.status,
+              approvedAt: receipt.approvedAt,
+              revision: receipt.revision,
+              etag: receiptEtag(receipt.receiptId, receipt.revision),
+            },
+          ];
+        });
       });
 
       return jsonResponse(
@@ -203,57 +194,55 @@ export const listReceiptsForApproval = <E, R>(
             personId: resolved.credential.principal.personId,
             authorizationInstant: resolved.authorizationInstant,
           }
-        : yield* authorizationPrincipalFor(request, options);
+        : yield* options.identity.resolveAuthorizationPrincipal(request);
 
     const rows = yield* Economy.use(({ listReceiptsForApproval }) =>
       listReceiptsForApproval(principal.personId, principal.authorizationInstant, status, cursor),
-    ).pipe(Effect.mapError(storedReceiptUnavailable));
+    ).pipe(storedReceiptProblems);
 
-    const items = yield* Effect.try({
-      try: () =>
-        rows.items.map((row) => {
-          const amountOre = Number(row.amountOre);
+    const items = yield* projected(() =>
+      rows.items.map((row) => {
+        const amountOre = Number(row.amountOre);
 
-          if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
-            throw new ReceiptPersistenceError({
-              operation: "decode approver projection",
-              message: "invalid amount",
-            });
-          }
+        if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+          throw new ReceiptPersistenceError({
+            operation: "decode approver projection",
+            message: "invalid amount",
+          });
+        }
 
-          return {
-            receiptId: row.receiptId,
-            visualId: row.visualId,
-            ownerPersonId: row.ownerPersonId,
-            departmentId: row.departmentId,
-            amountOre,
-            currency: row.currency,
-            description: row.description,
-            receiptDate: row.receiptDate,
-            status: row.status,
-            approvedAt: row.approvedAt,
-            revision: row.revision,
-            etag: receiptEtag(row.receiptId, row.revision),
-          };
-        }),
-      catch: knownReceiptFailure,
-    });
+        return {
+          receiptId: row.receiptId,
+          visualId: row.visualId,
+          ownerPersonId: row.ownerPersonId,
+          departmentId: row.departmentId,
+          amountOre,
+          currency: row.currency,
+          description: row.description,
+          receiptDate: row.receiptDate,
+          status: row.status,
+          approvedAt: row.approvedAt,
+          revision: row.revision,
+          etag: receiptEtag(row.receiptId, row.revision),
+        };
+      }),
+    );
 
     return jsonResponse(
       rows.nextCursor === undefined ? { items } : { items, nextCursor: rows.nextCursor },
       200,
       "private, no-store",
     );
-  });
+  }).pipe(receiptProblems, receiptCredentialProblems(personPresentation(request)));
 
-export const readSettlementForFinance = <E, R>(
+export const readSettlementForFinance = <R>(
   request: Request,
   receiptId: string,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
 ) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
-    const principal = yield* authorizationPrincipalFor(request, options);
+    yield* requireNoQuery(request);
+    const principal = yield* options.identity.resolveAuthorizationPrincipal(request);
 
     const settlement = yield* Economy.use(({ readReceiptSettlementForFinance }) =>
       readReceiptSettlementForFinance(
@@ -261,71 +250,71 @@ export const readSettlementForFinance = <E, R>(
         principal.personId,
         principal.authorizationInstant,
       ),
-    ).pipe(Effect.mapError(storedReceiptUnavailable));
+    ).pipe(storedReceiptProblems);
 
     return privateJsonResponse(receiptSettlementEvidenceResource(settlement));
-  });
+  }).pipe(receiptProblems, receiptCredentialProblems(personPresentation(request)));
 
-export const listReceiptsForSettlement = <E, R>(
+export const listReceiptsForSettlement = <R>(
   request: Request,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
 ) =>
   Effect.gen(function* () {
     const { cursor } = yield* decodeReceiptListQuery(request, false);
-    const principal = yield* authorizationPrincipalFor(request, options);
+    const principal = yield* options.identity.resolveAuthorizationPrincipal(request);
 
     const rows = yield* Economy.use(({ listReceiptsForSettlement }) =>
       listReceiptsForSettlement(principal.personId, principal.authorizationInstant, cursor),
-    ).pipe(Effect.mapError(storedReceiptUnavailable));
+    ).pipe(storedReceiptProblems);
 
-    const items = yield* Effect.try({
-      try: () =>
-        rows.items.map((row): typeof ReceiptSettlementQueueItem.Type => {
-          const amountOre = Number(row.amountOre);
+    const items = yield* projected(() =>
+      rows.items.map((row): typeof ReceiptSettlementQueueItem.Type => {
+        const amountOre = Number(row.amountOre);
 
-          if (
-            !Number.isSafeInteger(amountOre) ||
-            amountOre <= 0 ||
-            row.status !== "Approved" ||
-            row.approvedAt.length === 0
-          ) {
-            throw new ReceiptPersistenceError({
-              operation: "decode settlement queue projection",
-              message: "invalid settlement queue item",
-            });
-          }
+        if (
+          !Number.isSafeInteger(amountOre) ||
+          amountOre <= 0 ||
+          row.status !== "Approved" ||
+          row.approvedAt.length === 0
+        ) {
+          throw new ReceiptPersistenceError({
+            operation: "decode settlement queue projection",
+            message: "invalid settlement queue item",
+          });
+        }
 
-          return {
-            receiptId: row.receiptId,
-            visualId: row.visualId,
-            ownerPersonId: row.ownerPersonId,
-            departmentId: row.departmentId,
-            description: row.description,
-            amountOre,
-            currency: row.currency,
-            receiptDate: row.receiptDate,
-            status: row.status,
-            approvedAt: row.approvedAt,
-            revision: row.revision,
-            etag: receiptEtag(row.receiptId, row.revision),
-          };
-        }),
-      catch: knownReceiptFailure,
-    });
+        return {
+          receiptId: row.receiptId,
+          visualId: row.visualId,
+          ownerPersonId: row.ownerPersonId,
+          departmentId: row.departmentId,
+          description: row.description,
+          amountOre,
+          currency: row.currency,
+          receiptDate: row.receiptDate,
+          status: row.status,
+          approvedAt: row.approvedAt,
+          revision: row.revision,
+          etag: receiptEtag(row.receiptId, row.revision),
+        };
+      }),
+    );
 
     return privateJsonResponse(
       rows.nextCursor === undefined ? { items } : { items, nextCursor: rows.nextCursor },
     );
-  });
+  }).pipe(receiptProblems, receiptCredentialProblems(personPresentation(request)));
 
 /** Reads the owner's receipt file after an owner grant evaluates inside one snapshot. */
-export const readOwnerReceiptFile = <E, R>(
+export const readOwnerReceiptFile = <R>(
   request: Request,
   receiptId: string,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
-) =>
-  Effect.gen(function* () {
+) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
     const sql = yield* Database;
 
     const file = yield* sql.withTransaction(
@@ -336,18 +325,18 @@ export const readOwnerReceiptFile = <E, R>(
           request,
           "OAuthUserBearer",
           { now: options.now },
-        ).pipe(Effect.mapError((cause) => invalidSessionFailure(request, cause)));
+        );
 
         const principal = authenticated.credential.principal;
 
         if (!Predicate.isTagged(principal, "Person")) {
-          return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+          return yield* Effect.fail(Problem.unauthenticated(presentation));
         }
 
         const owned = yield* readOwnedReceiptFile(receiptId, principal.personId);
 
         if (owned === undefined) {
-          return yield* Effect.fail(new HttpSemanticFailure("resource.not-found", 404));
+          return yield* Effect.fail(Problem.make("resource.not-found"));
         }
 
         const resource = {
@@ -393,7 +382,7 @@ export const readOwnerReceiptFile = <E, R>(
         });
 
         if (!Predicate.isTagged(evaluation, "Allow")) {
-          return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+          return yield* Effect.fail(Problem.make("authority.denied"));
         }
 
         return owned.file;
@@ -401,19 +390,21 @@ export const readOwnerReceiptFile = <E, R>(
     );
 
     return yield* readPrivateReceiptFile(file, fileStore, options.config.maxFileBytes);
-  });
+  }).pipe(receiptProblems, receiptCredentialProblems(presentation));
+};
 
 /**
  * Reads one approver-visible receipt file without granting owner access.
  * Credential resolution and rule-aware metadata selection share one snapshot.
  */
-export const readApprovalReceiptFile = <E, R>(
+export const readApprovalReceiptFile = <R>(
   request: Request,
   receiptId: string,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
   barrier: ReceiptE2ETransactionBarrier | undefined,
 ) => {
+  const presentation = personPresentation(request);
   let synchronized = false;
 
   return Effect.gen(function* () {
@@ -427,12 +418,12 @@ export const readApprovalReceiptFile = <E, R>(
           request,
           "OAuthUserBearer",
           { now: options.now },
-        ).pipe(Effect.mapError((cause) => invalidSessionFailure(request, cause)));
+        );
 
         const principal = authenticated.credential.principal;
 
         if (!Predicate.isTagged(principal, "Person")) {
-          return yield* Effect.fail(new HttpSemanticFailure("credential.invalid", 401));
+          return yield* Effect.fail(Problem.unauthenticated(presentation));
         }
 
         if (barrier !== undefined) {
@@ -444,14 +435,10 @@ export const readApprovalReceiptFile = <E, R>(
             receiptId,
             principal.personId,
             authenticated.authorizationInstant,
-          ).pipe(
-            Effect.catchTag("ReceiptNotFound", () =>
-              Effect.fail(new HttpSemanticFailure("resource.not-found", 404)),
-            ),
-            Effect.catchTag("ReceiptDecodeError", () =>
-              Effect.fail(new HttpSemanticFailure("receipts.unavailable", 503)),
-            ),
           ),
+        ).pipe(
+          Effect.catchTag("ReceiptNotFound", () => Effect.fail(Problem.make("resource.not-found"))),
+          storedReceiptProblems,
         );
       }),
     );
@@ -462,14 +449,14 @@ export const readApprovalReceiptFile = <E, R>(
       options.config.maxFileBytes,
       synchronized ? { [RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER]: "1" } : {},
     );
-  });
+  }).pipe(receiptProblems, receiptCredentialProblems(presentation));
 };
 
 /** Internal lifecycle evidence; enabled only by the E2E test-mode access fact. */
-export const readReceiptLifecycleEvidence = <E, R>(
+export const readReceiptLifecycleEvidence = <R>(
   request: Request,
   receiptId: string,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
 ) =>
   Effect.gen(function* () {
     const authorizationInstant = AuthorizationInstant.make(yield* currentInstant(options.now));
@@ -482,25 +469,18 @@ export const readReceiptLifecycleEvidence = <E, R>(
           SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY
         `.pipe(Effect.asVoid);
 
-        const credential = yield* IdentitySnapshot.use(({ resolveSession }) =>
+        // Only the Cookie credential reaches this operation, so a rejection challenges for it alone.
+        const actor = yield* IdentitySnapshot.use(({ resolveSession }) =>
           resolveSession(request.headers.get("cookie") ?? undefined, authorizationInstant),
         ).pipe(
-          Effect.match({
-            onFailure: (error) => ({ _tag: "Failure" as const, error }),
-            onSuccess: (actor) => ({ _tag: "Success" as const, actor }),
-          }),
+          Effect.catchTag("IdentitySessionNotFound", () =>
+            Effect.fail(
+              Problem.unauthenticated(personPresentation(request, nativeCookieChallenge)),
+            ),
+          ),
         );
 
-        // Only the Cookie credential reaches this operation, so a rejection challenges for it alone.
-        if (Predicate.isTagged(credential, "Failure")) {
-          return problemWebResponse(
-            Predicate.isTagged(credential.error, "IdentitySessionNotFound")
-              ? Problem.unauthenticated(personPresentation(request, nativeCookieChallenge))
-              : Problem.make("receipts.unavailable"),
-          );
-        }
-
-        const personId = credential.actor.personId;
+        const personId = actor.personId;
 
         const rows = yield* sql<ReceiptAccessRow>`
           SELECT owner_person_id AS "ownerPersonId", department_id AS "departmentId",
@@ -563,16 +543,18 @@ export const readReceiptLifecycleEvidence = <E, R>(
 
         // The evidence spec reveals every denial of its accepted credential.
         if (!Predicate.isTagged(evaluation, "Allow")) {
-          return problemWebResponse(Problem.make("authority.denied"));
+          return yield* Effect.fail(Problem.make("authority.denied"));
         }
 
         const evidence = yield* Economy.use(({ readReceiptLifecycleEvidence }) =>
           readReceiptLifecycleEvidence(receiptId, personId),
         );
 
-        const encoded = yield* Schema.encodeEffect(ReceiptLifecycleEvidenceResponse)(evidence);
+        const encoded = yield* Schema.encodeEffect(ReceiptLifecycleEvidenceResponse)(evidence).pipe(
+          Effect.mapError(() => Problem.make("receipts.unavailable")),
+        );
 
         return jsonResponse(encoded);
       }),
     );
-  });
+  }).pipe(receiptProblems);

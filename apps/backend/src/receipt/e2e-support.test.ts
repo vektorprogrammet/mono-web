@@ -1,7 +1,7 @@
+import { isProblem, type Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Cause, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
-import { HttpSemanticFailure } from "../http-semantics.js";
 import { runTestPromise } from "../../test/runtime.js";
 import {
   RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER,
@@ -17,8 +17,8 @@ const probe = (lane: ReceiptE2EConcurrencyLane | null) =>
 const runWithTestClock = <A, E>(effect: Effect.Effect<A, E>) =>
   runTestPromise(effect.pipe(Effect.provide(TestClock.layer())));
 
-const malformedStatus = (failure: HttpSemanticFailure | Cause.TimeoutError) =>
-  failure instanceof HttpSemanticFailure ? `${failure.code}:${failure.status}` : "other";
+const malformedStatus = (failure: Problem<"request.malformed"> | Cause.TimeoutError) =>
+  isProblem(failure) ? `${failure.code}:${failure.status}` : "other";
 
 describe("receipt E2E transaction barrier", () => {
   it("holds probed lanes until all three arrive and then admits their retries", async () => {

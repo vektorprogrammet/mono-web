@@ -10,37 +10,49 @@ import {
   ReceiptVisualId,
   type ReceiptCommandPrincipal,
   type ReceiptCommandRequest,
+  type ReceiptFile,
   type ReceiptMutationAuthorization,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
-import { Effect, Match, Predicate, Schema } from "effect";
+import { Problem, type StrongETag } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Match, Predicate, type Schema } from "effect";
+import {
+  commandOutcomeResponse,
+  commandReceiptProblems,
+  decodeRequest,
+  httpIdentity,
+  idempotencyKeyOf,
+  personPresentation,
+  problemWebResponse,
+  requireCurrentETag,
+  requiredIfMatchOf,
+  requireNoQuery,
+  unreachable,
+} from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
-  HttpSemanticFailure,
-  deriveHttpIdentity,
-  parseIdempotencyKey,
+  PRIVATE_NO_STORE,
   semanticMutationRequest,
   semanticRequestDigest,
-  type NativeIdempotencyIdentity,
 } from "../http-semantics.js";
-import { nativeCommandOutcomeResponse } from "../native-operation.js";
 import {
   RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER,
   type ReceiptE2ETransactionBarrier,
 } from "./e2e-support.js";
 import type { ReceiptFileStore, StagedReceiptFile } from "./filesystem.js";
-import { authorizationPrincipalInTransaction, type ReceiptApiHttpOptions } from "./http-context.js";
+import {
+  authorizationPrincipalInTransaction,
+  type ReceiptApiHttpOptions,
+  type ReceiptIdentityFailure,
+} from "./http-context.js";
 import {
   decodeExactEmptyJson,
   decodeReviseMultipart,
   decodeSettlementRequest,
   decodeSubmitMultipart,
   decodeSubmitQuery,
-  headerValues,
-  rejectQueryString,
-  requiredIfMatch,
 } from "./http-decode.js";
-import { knownReceiptFailure, publicReceiptErrorResponse } from "./http-problem.js";
+import { receiptCredentialProblems, receiptProblems } from "./http-problem.js";
 import {
   receiptEtag,
   receiptMutationCapsule,
@@ -59,16 +71,16 @@ const mutationIdentity = (
   qualifiedOperationId: string,
   normalizedTarget: string,
 ) =>
-  Effect.try({
-    try: () =>
-      deriveHttpIdentity({
+  idempotencyKeyOf(request).pipe(
+    Effect.flatMap((idempotencyKey) =>
+      httpIdentity({
         credentialSubject: `Person:${principal.personId}`,
         qualifiedOperationId,
         normalizedTarget,
-        idempotencyKey: parseIdempotencyKey(headerValues(request, "idempotency-key")),
-      } satisfies NativeIdempotencyIdentity),
-    catch: knownReceiptFailure,
-  });
+        idempotencyKey,
+      }),
+    ),
+  );
 
 interface PreparedReceiptMutation {
   readonly identity: {
@@ -78,14 +90,10 @@ interface PreparedReceiptMutation {
   readonly operationId: string;
   readonly requestSha256: string;
   readonly command: ReceiptCommandRequest;
-  readonly principal: ReceiptCommandPrincipal;
   readonly authorization: ReceiptMutationAuthorization;
-  readonly response: {
-    readonly status: 200 | 201;
-    readonly location?: string;
-    readonly ifMatch?: string;
-    readonly currentEtag?: string;
-  };
+  readonly response:
+    | { readonly status: 201; readonly location: string }
+    | { readonly status: 200; readonly ifMatch: StrongETag; readonly currentEtag: StrongETag };
   readonly allocation?: ReceiptSubmissionAllocation;
 }
 
@@ -130,12 +138,8 @@ const executeReceiptMutation = <E, R>(
         },
         execute: Economy.use(({ executeAuthorizedReceipt }) =>
           Effect.gen(function* () {
-            if (
-              prepared.response.ifMatch !== undefined &&
-              prepared.response.currentEtag !== undefined &&
-              prepared.response.ifMatch !== prepared.response.currentEtag
-            ) {
-              return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
+            if (prepared.response.status === 200) {
+              yield* requireCurrentETag(prepared.response.currentEtag, prepared.response.ifMatch);
             }
 
             const result = yield* executeAuthorizedReceipt(
@@ -144,11 +148,7 @@ const executeReceiptMutation = <E, R>(
               prepared.allocation,
             );
 
-            return receiptMutationCapsule(
-              result.receipt,
-              prepared.response.status,
-              prepared.response.location,
-            );
+            return receiptMutationCapsule(result.receipt, prepared.response);
           }),
         ),
       };
@@ -156,15 +156,35 @@ const executeReceiptMutation = <E, R>(
     execution,
   );
 
+/** Stages uploaded bytes; bytes past the limit fail validation and any other failure is the store's. */
+const stageReceiptFile = (
+  fileStore: ReceiptFileStore,
+  file: File,
+  commandId: string,
+  contentType: ReceiptFile["contentType"],
+  maxFileBytes: number,
+) =>
+  Effect.tryPromise({
+    try: () => fileStore.stageBytes(file, commandId, contentType, maxFileBytes),
+    catch: (cause) =>
+      cause instanceof ReceiptDecodeError
+        ? cause
+        : new ReceiptPersistenceError({
+            operation: "stage receipt file",
+            message: "receipt file staging failed",
+            cause,
+          }),
+  });
+
 const cleanupStagedFile = (fileStore: ReceiptFileStore, staged: StagedReceiptFile) =>
   Effect.tryPromise({
     try: () => fileStore.cleanupStage(staged.file),
     catch: () => undefined,
   }).pipe(Effect.catch(() => Effect.void));
 
-export const submitReceipt = <E, R>(
+export const submitReceipt = <R>(
   request: Request,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
 ) => {
   let staged: StagedReceiptFile | undefined;
@@ -175,6 +195,7 @@ export const submitReceipt = <E, R>(
     const departmentId = yield* decodeSubmitQuery(request);
     const fields = yield* decodeSubmitMultipart(request, options.config.maxFileBytes);
 
+    // Failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeReceiptMutation(() =>
       Effect.gen(function* () {
         const principal = yield* authorizationPrincipalInTransaction(request, options);
@@ -193,16 +214,13 @@ export const submitReceipt = <E, R>(
           "/api/receipts",
         );
 
-        const nextStaged = yield* Effect.tryPromise({
-          try: () =>
-            fileStore.stageBytes(
-              fields.file,
-              identity.commandId,
-              fields.contentType,
-              options.config.maxFileBytes,
-            ),
-          catch: knownReceiptFailure,
-        });
+        const nextStaged = yield* stageReceiptFile(
+          fileStore,
+          fields.file,
+          identity.commandId,
+          fields.contentType,
+          options.config.maxFileBytes,
+        );
 
         staged = nextStaged;
         yield* fileStore.service.stage(nextStaged.file);
@@ -244,7 +262,6 @@ export const submitReceipt = <E, R>(
           operationId: "receipts.submitReceipt",
           requestSha256: semanticRequestDigest({ body: semanticBody }),
           command,
-          principal,
           authorization,
           response: {
             status: 201,
@@ -271,8 +288,13 @@ export const submitReceipt = <E, R>(
       yield* cleanupStagedFile(fileStore, staged);
     }
 
-    return nativeCommandOutcomeResponse(outcome);
+    return yield* commandOutcomeResponse(outcome);
   }).pipe(
+    receiptProblems,
+    commandReceiptProblems,
+    receiptCredentialProblems(personPresentation(request)),
+    // A submission names no existing receipt: none is missing, stale, or in another state.
+    unreachable("receipt.not-found", "precondition.failed", "receipt.invalid-transition"),
     Effect.ensuring(
       Effect.suspend(() =>
         !committed && staged?.created === true ? cleanupStagedFile(fileStore, staged) : Effect.void,
@@ -281,17 +303,17 @@ export const submitReceipt = <E, R>(
   );
 };
 
-export const reviseReceipt = <E, R>(
+export const reviseReceipt = <R>(
   request: Request,
   receiptId: string,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
 ) => {
   let staged: StagedReceiptFile | undefined;
   let committed = false;
 
   return Effect.gen(function* () {
-    const ifMatch = yield* requiredIfMatch(request);
+    const ifMatch = yield* requiredIfMatchOf(request);
     const fields = yield* decodeReviseMultipart(request, options.config.maxFileBytes);
 
     const outcome = yield* executeReceiptMutation(() =>
@@ -320,38 +342,28 @@ export const reviseReceipt = <E, R>(
             return yield* Effect.fail(new ReceiptDecodeError({ message: "invalid receipt file" }));
           }
 
-          const nextStaged = yield* Effect.tryPromise({
-            try: () =>
-              fileStore.stageBytes(
-                file,
-                identity.commandId,
-                contentType,
-                options.config.maxFileBytes,
-              ),
-            catch: knownReceiptFailure,
-          });
+          const nextStaged = yield* stageReceiptFile(
+            fileStore,
+            file,
+            identity.commandId,
+            contentType,
+            options.config.maxFileBytes,
+          );
 
           staged = nextStaged;
           yield* fileStore.service.stage(nextStaged.file);
         }
 
-        const amountOre =
-          fields.amountOre ??
-          (yield* Effect.try({
-            try: () => {
-              const value = Number(current.amountOre);
+        const amountOre = fields.amountOre ?? Number(current.amountOre);
 
-              if (!Number.isSafeInteger(value) || value <= 0) {
-                throw new ReceiptPersistenceError({
-                  operation: "decode current receipt amount",
-                  message: "invalid amount",
-                });
-              }
-
-              return value;
-            },
-            catch: knownReceiptFailure,
-          }));
+        if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+          return yield* Effect.fail(
+            new ReceiptPersistenceError({
+              operation: "decode current receipt amount",
+              message: "invalid amount",
+            }),
+          );
+        }
 
         const semanticBody: Schema.JsonObject = {};
 
@@ -392,7 +404,6 @@ export const reviseReceipt = <E, R>(
           operationId: "receipts.reviseReceipt",
           requestSha256: semanticRequestDigest(semanticMutationRequest(semanticBody, ifMatch)),
           command,
-          principal,
           authorization,
           response: {
             status: 200,
@@ -410,8 +421,13 @@ export const reviseReceipt = <E, R>(
       yield* cleanupStagedFile(fileStore, staged);
     }
 
-    return nativeCommandOutcomeResponse(outcome);
+    return yield* commandOutcomeResponse(outcome);
   }).pipe(
+    receiptProblems,
+    commandReceiptProblems,
+    receiptCredentialProblems(personPresentation(request)),
+    // Only a submission allocates a receipt identity that can already exist.
+    unreachable("receipt.already-exists"),
     Effect.ensuring(
       Effect.suspend(() =>
         !committed && staged?.created === true ? cleanupStagedFile(fileStore, staged) : Effect.void,
@@ -420,14 +436,14 @@ export const reviseReceipt = <E, R>(
   );
 };
 
-export const withdrawReceipt = <E, R>(
+export const withdrawReceipt = <R>(
   request: Request,
   receiptId: string,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
 ) =>
   Effect.gen(function* () {
-    const ifMatch = yield* requiredIfMatch(request);
+    const ifMatch = yield* requiredIfMatchOf(request);
     const body = yield* decodeExactEmptyJson(request);
 
     const outcome = yield* executeReceiptMutation(() =>
@@ -457,7 +473,6 @@ export const withdrawReceipt = <E, R>(
             receiptId: current.receiptId,
             expectedRevision: current.revision,
           }),
-          principal,
           authorization,
           response: {
             status: 200,
@@ -472,25 +487,42 @@ export const withdrawReceipt = <E, R>(
       yield* drainReceiptOutbox(options, fileStore, receiptId);
     }
 
-    return nativeCommandOutcomeResponse(outcome);
-  });
+    return yield* commandOutcomeResponse(outcome);
+  }).pipe(
+    receiptProblems,
+    commandReceiptProblems,
+    receiptCredentialProblems(personPresentation(request)),
+    // Only a submission allocates a receipt identity that can already exist.
+    unreachable("receipt.already-exists"),
+  );
+
+/**
+ * A lane the E2E barrier synchronized says so on its answer.
+ *
+ * @construct test-harness
+ */
+const markSynchronized = (response: Response) => {
+  response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
+
+  return response;
+};
 
 /**
  * Approve, reject, or reopen one receipt. Approve and reject join the E2E concurrency barrier
  * when one is composed, and mark synchronized responses, including failures.
  */
-export const approvalCommand = <E, R>(
+export const approvalCommand = <R>(
   request: Request,
   route: ReceiptApprovalRoute,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
   barrier: ReceiptE2ETransactionBarrier | undefined,
 ) => {
   let synchronized = false;
 
   return Effect.gen(function* () {
-    yield* rejectQueryString(request);
-    const ifMatch = yield* requiredIfMatch(request);
+    yield* requireNoQuery(request);
+    const ifMatch = yield* requiredIfMatchOf(request);
     const body = yield* decodeExactEmptyJson(request);
 
     const operationId = Match.value(route.action).pipe(
@@ -501,119 +533,117 @@ export const approvalCommand = <E, R>(
 
     const normalizedTarget = `/api/receipts/${encodeURIComponent(route.receiptId)}/${route.action}`;
 
-    const execution = yield* executeReceiptMutation(
-      () =>
-        Effect.gen(function* () {
-          const principal = yield* authorizationPrincipalInTransaction(request, options);
+    const answer = Effect.gen(function* () {
+      const outcome = yield* executeReceiptMutation(
+        () =>
+          Effect.gen(function* () {
+            const principal = yield* authorizationPrincipalInTransaction(request, options);
 
-          if (route.action !== "reopen") {
-            synchronized =
-              barrier === undefined
-                ? false
-                : yield* barrier(request, route.receiptId, route.action);
-          }
+            if (route.action !== "reopen") {
+              synchronized =
+                barrier === undefined
+                  ? false
+                  : yield* barrier(request, route.receiptId, route.action);
+            }
 
-          const authorization = yield* authorizeReceiptMutationInTransaction(
-            Match.value(route.action).pipe(
-              Match.when("approve", () =>
-                ReceiptMutationAuthorizationTarget.ApproveReceipt({ receiptId: route.receiptId }),
+            const authorization = yield* authorizeReceiptMutationInTransaction(
+              Match.value(route.action).pipe(
+                Match.when("approve", () =>
+                  ReceiptMutationAuthorizationTarget.ApproveReceipt({ receiptId: route.receiptId }),
+                ),
+                Match.when("reopen", () =>
+                  ReceiptMutationAuthorizationTarget.ReopenRejectedReceipt({
+                    receiptId: route.receiptId,
+                  }),
+                ),
+                Match.orElse(() =>
+                  ReceiptMutationAuthorizationTarget.RejectReceipt({ receiptId: route.receiptId }),
+                ),
               ),
-              Match.when("reopen", () =>
-                ReceiptMutationAuthorizationTarget.ReopenRejectedReceipt({
-                  receiptId: route.receiptId,
-                }),
-              ),
-              Match.orElse(() =>
-                ReceiptMutationAuthorizationTarget.RejectReceipt({ receiptId: route.receiptId }),
-              ),
-            ),
-            principal,
-          );
+              principal,
+            );
 
-          const current = authorization.current;
+            const current = authorization.current;
 
-          const identity = yield* mutationIdentity(
-            request,
-            principal,
-            operationId,
-            normalizedTarget,
-          );
+            const identity = yield* mutationIdentity(
+              request,
+              principal,
+              operationId,
+              normalizedTarget,
+            );
 
-          return {
-            identity,
-            operationId,
-            requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
-            command: Match.value(route.action).pipe(
-              Match.when("approve", () =>
-                ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
-                  commandId: identity.commandId,
-                  receiptId: current.receiptId,
-                  expectedRevision: current.revision,
-                }),
+            return {
+              identity,
+              operationId,
+              requestSha256: semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
+              command: Match.value(route.action).pipe(
+                Match.when("approve", () =>
+                  ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
+                    commandId: identity.commandId,
+                    receiptId: current.receiptId,
+                    expectedRevision: current.revision,
+                  }),
+                ),
+                Match.when("reopen", () =>
+                  ReceiptCommandRequestSchema.cases.ReopenRejectedReceipt.make({
+                    commandId: identity.commandId,
+                    receiptId: current.receiptId,
+                    expectedRevision: current.revision,
+                  }),
+                ),
+                Match.orElse(() =>
+                  ReceiptCommandRequestSchema.cases.RejectReceipt.make({
+                    commandId: identity.commandId,
+                    receiptId: current.receiptId,
+                    expectedRevision: current.revision,
+                  }),
+                ),
               ),
-              Match.when("reopen", () =>
-                ReceiptCommandRequestSchema.cases.ReopenRejectedReceipt.make({
-                  commandId: identity.commandId,
-                  receiptId: current.receiptId,
-                  expectedRevision: current.revision,
-                }),
-              ),
-              Match.orElse(() =>
-                ReceiptCommandRequestSchema.cases.RejectReceipt.make({
-                  commandId: identity.commandId,
-                  receiptId: current.receiptId,
-                  expectedRevision: current.revision,
-                }),
-              ),
-            ),
-            principal,
-            authorization,
-            response: {
-              status: 200,
-              ifMatch,
-              currentEtag: receiptEtag(route.receiptId, current.revision),
-            },
-          };
-        }),
-      route.action === "reopen" ? {} : { retry: "serialization-once" },
-    ).pipe(
-      Effect.match({
-        onFailure: (cause) => ({ _tag: "Failure" as const, cause }),
-        onSuccess: (outcome) => ({ _tag: "Success" as const, outcome }),
-      }),
+              authorization,
+              response: {
+                status: 200,
+                ifMatch,
+                currentEtag: receiptEtag(route.receiptId, current.revision),
+              },
+            };
+          }),
+        route.action === "reopen" ? {} : { retry: "serialization-once" },
+      );
+
+      if (Predicate.isTagged(outcome, "Committed") && route.action !== "reopen") {
+        yield* drainReceiptOutbox(options, fileStore, route.receiptId);
+      }
+
+      return yield* commandOutcomeResponse(outcome);
+    }).pipe(
+      receiptProblems,
+      commandReceiptProblems,
+      receiptCredentialProblems(personPresentation(request)),
+      // Only a submission allocates a receipt identity that can already exist.
+      unreachable("receipt.already-exists"),
     );
 
-    if (Predicate.isTagged(execution, "Failure")) {
-      if (!synchronized) return yield* Effect.fail(execution.cause);
-      const response = publicReceiptErrorResponse(execution.cause);
-      response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
-
-      return response;
-    }
-
-    const outcome = execution.outcome;
-
-    if (Predicate.isTagged(outcome, "Committed") && route.action !== "reopen") {
-      yield* drainReceiptOutbox(options, fileStore, route.receiptId);
-    }
-
-    const response = nativeCommandOutcomeResponse(outcome);
-
-    if (synchronized) response.headers.set(RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER, "1");
-
-    return response;
+    // A synchronized lane answers its problem itself, so the answer can carry the mark.
+    return yield* answer.pipe(
+      Effect.map((response) => (synchronized ? markSynchronized(response) : response)),
+      Effect.catch((problem) =>
+        synchronized
+          ? Effect.succeed(markSynchronized(problemWebResponse(problem)))
+          : Effect.fail(problem),
+      ),
+    );
   });
 };
 
-export const settleReceipt = <E, R>(
+export const settleReceipt = <R>(
   request: Request,
   receiptId: typeof ReceiptId.Type,
-  options: ReceiptApiHttpOptions<E, R>,
+  options: ReceiptApiHttpOptions<ReceiptIdentityFailure, R>,
   fileStore: ReceiptFileStore,
 ) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
-    const ifMatch = yield* requiredIfMatch(request);
+    yield* requireNoQuery(request);
+    const ifMatch = yield* requiredIfMatchOf(request);
     const body = yield* decodeSettlementRequest(request);
 
     const outcome = yield* executeNativeHttpCommandPostgres(
@@ -631,7 +661,7 @@ export const settleReceipt = <E, R>(
           `/api/receipts/${encodeURIComponent(receiptId)}/settle`,
         );
 
-        const command = yield* Schema.decodeUnknownEffect(ReceiptSettlementCommandRequestSchema)(
+        const command = yield* decodeRequest(ReceiptSettlementCommandRequestSchema)(
           ReceiptSettlementCommandRequestSchema.cases.RecordReceiptSettlement.make({
             commandId: identity.commandId,
             receiptId,
@@ -640,11 +670,6 @@ export const settleReceipt = <E, R>(
             externalReference: body.externalReference,
             settledAt: body.settledAt,
           }),
-          { onExcessProperty: "error" },
-        ).pipe(
-          Effect.mapError(
-            () => new ReceiptDecodeError({ message: "invalid receipt settlement command" }),
-          ),
         );
 
         return {
@@ -655,11 +680,10 @@ export const settleReceipt = <E, R>(
           },
           execute: Economy.use(({ recordReceiptSettlement }) =>
             Effect.gen(function* () {
-              if (
-                ifMatch !== receiptEtag(receiptId, revision) ||
-                body.expectedRevision !== revision
-              ) {
-                return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
+              yield* requireCurrentETag(receiptEtag(receiptId, revision), ifMatch);
+
+              if (body.expectedRevision !== revision) {
+                return yield* Effect.fail(Problem.make("precondition.failed"));
               }
 
               const result = yield* recordReceiptSettlement(command, principal);
@@ -676,13 +700,14 @@ export const settleReceipt = <E, R>(
       yield* drainReceiptOutbox(options, fileStore, receiptId);
     }
 
-    const response = nativeCommandOutcomeResponse(outcome);
-
     // Only the settlement evidence is private; an idempotency problem keeps its declared policy.
-    if (Predicate.isTagged(outcome, "Committed") || Predicate.isTagged(outcome, "Replay")) {
-      response.headers.set("cache-control", "private, no-store");
-      response.headers.set("vary", "Origin");
-    }
+    const response = yield* commandOutcomeResponse(outcome);
+    response.headers.set("cache-control", PRIVATE_NO_STORE);
+    response.headers.set("vary", "Origin");
 
     return response;
-  });
+  }).pipe(
+    receiptProblems,
+    commandReceiptProblems,
+    receiptCredentialProblems(personPresentation(request)),
+  );

@@ -52,7 +52,7 @@ import { NativeHttpApiMiddlewareLive } from "../http-api/transport.js";
 import { OrganizationApiHandlers, type OrganizationApiHttpOptions } from "../organization/http.js";
 import { ProfileApiHandlers, type ProfileApiHttpOptions } from "../profile/http.js";
 import { InternalReceiptApiHandlers, ReceiptApiHandlers } from "../receipt/http.js";
-import type { ReceiptApiHttpOptions } from "../receipt/http-context.js";
+import type { ReceiptApiHttpOptions, ReceiptIdentityFailure } from "../receipt/http-context.js";
 import { ReceiptFileStoreResource, type ReceiptFileStore } from "../receipt/filesystem.js";
 import { RecruitmentApiHandlers } from "../recruitment/http.js";
 import type { RecruitmentApiHttpOptions } from "../recruitment/http-context.js";
@@ -302,11 +302,14 @@ export const makeRecruitmentTestHttp = <S extends TestServiceLayer>(
   ),
 });
 
-export interface ReceiptTestHttpOptions<E, R> extends ReceiptApiHttpOptions<E, R> {
+export interface ReceiptTestHttpOptions<
+  E extends ReceiptIdentityFailure,
+  R,
+> extends ReceiptApiHttpOptions<E, R> {
   readonly fileStore: ReceiptFileStore;
 }
 
-export const makeReceiptTestHttp = <E, S extends TestServiceLayer>(
+export const makeReceiptTestHttp = <E extends ReceiptIdentityFailure, S extends TestServiceLayer>(
   options: ReceiptTestHttpOptions<E, BackendTestServices>,
   services: S,
 ) => ({
@@ -323,7 +326,10 @@ export const makeReceiptTestHttp = <E, S extends TestServiceLayer>(
   ),
 });
 
-export const makeInternalReceiptTestHttp = <E, S extends TestServiceLayer>(
+export const makeInternalReceiptTestHttp = <
+  E extends ReceiptIdentityFailure,
+  S extends TestServiceLayer,
+>(
   options: ReceiptApiHttpOptions<E, BackendTestServices>,
   services: S,
 ) => ({

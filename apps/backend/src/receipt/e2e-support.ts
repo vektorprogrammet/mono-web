@@ -2,16 +2,21 @@
  * Local E2E concurrency probe for receipt approval evidence.
  * Composed only when `ReceiptApiConfig.e2e` is present (local deployments only).
  */
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Cause, Clock, Deferred, Duration, Effect } from "effect";
-import { HttpSemanticFailure } from "../http-semantics.js";
 import type { ReceiptApiConfig } from "./config.js";
 
 export type ReceiptE2EConcurrencyLane = "file-read" | "approve" | "reject";
 
-/** `false` for unprobed requests; `true` once all three lanes are synchronized. */
+/**
+ * `false` for unprobed requests; `true` once all three lanes are synchronized. A probe that
+ * names another lane or receipt, or repeats before synchronization, is a malformed request.
+ *
+ * @construct test-harness
+ */
 export type ReceiptE2EBarrierArrival = Effect.Effect<
   boolean,
-  HttpSemanticFailure | Cause.TimeoutError
+  Problem<"request.malformed"> | Cause.TimeoutError
 >;
 
 /** Holds each probed request inside its transaction until all three lanes have arrived. */
@@ -41,7 +46,7 @@ export const makeReceiptE2ETransactionBarrier: Effect.Effect<ReceiptE2ETransacti
     let deadline: number | undefined;
     let synchronized = false;
 
-    const malformed = Effect.fail(new HttpSemanticFailure("request.malformed", 400));
+    const malformed = Effect.fail(Problem.make("request.malformed"));
 
     const expired = Effect.fail(
       new Cause.TimeoutError("Receipt E2E transaction concurrency barrier timed out"),
