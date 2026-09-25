@@ -6,6 +6,7 @@ import {
   ReceiptPersistenceError,
   UnauthenticatedActor,
 } from "@vektorprogrammet/domain/receipt";
+import { isSerializationConflict } from "../http-api/problem.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 
 /** Keeps receipt-classified failures and wraps every other thrown value as unknown. */
@@ -93,6 +94,13 @@ export const publicReceiptErrorResponse = (cause: unknown): Response => {
       return nativeProblemResponse("idempotency.digest-conflict", 409);
     case "InvalidReceiptTransition":
       return nativeProblemResponse("receipt.invalid-transition", 409);
+    // The command receipt's own failures answer as every native command's do.
+    case "NativeHttpReceiptInvalid":
+      return nativeProblemResponse("internal.error", 500);
+    case "NativeHttpReceiptPersistenceError":
+      return isSerializationConflict(cause)
+        ? nativeProblemResponse("transaction.conflict", 409)
+        : nativeProblemResponse("idempotency.unavailable", 503);
     default:
       return nativeProblemResponse("receipts.unavailable", 503);
   }

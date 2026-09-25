@@ -763,6 +763,7 @@ export const ReceiptsSubmitReceiptProblem = problemUnion("ReceiptsSubmitReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.already-exists",
   "receipt.file-not-staged",
 ]);
@@ -789,6 +790,7 @@ export const ReceiptsReviseReceiptProblem = problemUnion("ReceiptsReviseReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
   "receipt.file-not-staged",
@@ -814,6 +816,7 @@ export const ReceiptsWithdrawReceiptProblem = problemUnion("ReceiptsWithdrawRece
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
 ]);
@@ -890,6 +893,7 @@ export const ReceiptsSettleReceiptProblem = problemUnion("ReceiptsSettleReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
 ]);
 
 /** Problems for `receipts.approveReceipt`. */
@@ -912,6 +916,7 @@ export const ReceiptsApproveReceiptProblem = problemUnion("ReceiptsApproveReceip
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
 ]);
@@ -936,6 +941,7 @@ export const ReceiptsRejectReceiptProblem = problemUnion("ReceiptsRejectReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
 ]);
@@ -960,6 +966,7 @@ export const ReceiptsReopenReceiptProblem = problemUnion("ReceiptsReopenReceiptP
   "dependency.unavailable",
   "receipts.unavailable",
   "idempotency.unavailable",
+  "transaction.conflict",
   "receipt.not-found",
   "receipt.invalid-transition",
 ]);
