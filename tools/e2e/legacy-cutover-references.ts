@@ -1,10 +1,9 @@
-import { createHash } from "node:crypto";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import type { Pool, PoolClient } from "pg";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
 import { flow } from "effect";
 
-const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
 const positiveId = (value: number | string): string => {
   const id = String(value);

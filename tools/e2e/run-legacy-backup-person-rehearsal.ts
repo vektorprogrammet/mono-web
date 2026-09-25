@@ -31,7 +31,7 @@ import {
   type PersonCohortSnapshot,
 } from "@vektorprogrammet/database/person-cohort";
 import { readOwnProfile } from "@vektorprogrammet/database/profile";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { flow, Predicate, Effect, Redacted, Schema } from "effect";
 import { Pool } from "pg";
@@ -68,7 +68,7 @@ const expectedLegacyInventory = {
 const sha256 = (value: string | Uint8Array): string =>
   createHash("sha256").update(value).digest("hex");
 
-const digest = flow(canonicalJson, sha256);
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
 const Aggregate = Schema.Union([Schema.Number, Schema.String]);
 
@@ -831,14 +831,12 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     assert.equal(users.length, expectedLegacyInventory.people);
 
-    const toolRevision = sha256(
-      canonicalJson(
-        await Promise.all(
-          [
-            fileURLToPath(new URL("./legacy-person-snapshot.ts", import.meta.url)),
-            fileURLToPath(import.meta.resolve("@vektorprogrammet/database/person-cohort")),
-          ].map((path) => readFile(path, "utf8")),
-        ),
+    const toolRevision = digest(
+      await Promise.all(
+        [
+          fileURLToPath(new URL("./legacy-person-snapshot.ts", import.meta.url)),
+          fileURLToPath(import.meta.resolve("@vektorprogrammet/database/person-cohort")),
+        ].map((path) => readFile(path, "utf8")),
       ),
     );
 

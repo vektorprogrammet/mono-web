@@ -1,4 +1,8 @@
-import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJsonBytes,
+  canonicalJsonValue,
+  sha256Hex,
+} from "@vektorprogrammet/domain/evidence";
 import { ReceiptOutboxRequestSchema } from "@vektorprogrammet/domain/receipt";
 /** 0095: owned local PostgreSQL/auth/SDK/files import and restore rehearsal. */
 import assert from "node:assert/strict";
@@ -36,7 +40,6 @@ import { ReceiptFileService } from "@vektorprogrammet/domain/receipt";
 import type { ReceiptImportResult } from "@vektorprogrammet/domain/receipt";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
-import { canonicalJson } from "../../packages/domain/src/tutor/evidence.js";
 import {
   ReceiptFileStoreResource,
   ReceiptFileStoreLive,
@@ -229,8 +232,8 @@ try {
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
     RECEIPT_STAGING_ROOT: join(storage, "staging"),
     RECEIPT_COMMITTED_ROOT: join(storage, "committed"),
   };
@@ -282,14 +285,14 @@ try {
             await p.query(`SELECT to_jsonb(t) AS row FROM ${table} t ORDER BY to_jsonb(t)::text`)
           ).rows;
 
-          return [table, digest(canonicalJson(rows))];
+          return [table, sha256Hex(canonicalJsonBytes(rows))];
         }),
       ),
     );
 
   const credentialDigest = async (p = pool!) =>
-    digest(
-      canonicalJson(
+    sha256Hex(
+      canonicalJsonBytes(
         (
           await p.query(
             'SELECT u.id,u.email,u."emailVerified",a."providerId",a.password FROM auth."user" u JOIN auth."account" a ON a."userId"=u.id ORDER BY u.id',
@@ -789,7 +792,7 @@ try {
     specId: "0095",
     deliveryObservation,
     revision,
-    manifestDigest: digest(canonicalJson(manifest)),
+    manifestDigest: sha256Hex(canonicalJsonBytes(manifest)),
     counts: {
       input: rows.length,
       accepted: accepted.length,

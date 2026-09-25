@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto";
 import type {
   PersonCohortReport,
   PersonCohortSnapshot,
 } from "@vektorprogrammet/database/person-cohort";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   CurrentAssignmentReview,
   type ReconciledCurrentAssignmentSnapshot,
@@ -15,7 +14,7 @@ import type { LegacySourceSnapshot } from "./legacy-source-snapshot";
 
 const repository = "vektorprogrammet/vektorprogrammet";
 
-const digest = flow(canonicalJson, (json) => createHash("sha256").update(json).digest("hex"));
+const digest = flow(canonicalJsonBytes, sha256Hex);
 
 const personSourceId = Schema.decodeUnknownSync(Schema.Struct({ sourceUserId: Schema.String }));
 

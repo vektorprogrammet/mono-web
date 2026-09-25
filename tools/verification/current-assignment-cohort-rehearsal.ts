@@ -10,7 +10,11 @@ import { Schema, flow, Match, Predicate, Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { CurrentAssignmentSnapshot } from "@vektorprogrammet/placements/contracts";
 import { databaseHealth } from "@vektorprogrammet/database";
-import { canonicalJsonValue, canonicalJson } from "@vektorprogrammet/domain/evidence";
+import {
+  canonicalJsonBytes,
+  canonicalJsonValue,
+  sha256Hex,
+} from "@vektorprogrammet/domain/evidence";
 import {
   CurrentAssignmentFailure,
   currentAssignmentPlacementId,
@@ -74,9 +78,7 @@ const stop = async (child: ChildProcess): Promise<void> => {
   });
 };
 
-const digest = flow(Schema.decodeUnknownSync(Schema.Json), (value) =>
-  createHash("sha256").update(canonicalJson(value)).digest("hex"),
-);
+const digest = flow(Schema.decodeUnknownSync(Schema.Json), canonicalJsonBytes, sha256Hex);
 
 const snapshotWithDigest = <
   Snapshot extends Omit<typeof CurrentAssignmentSnapshot.Encoded, "snapshotDigest"> & {

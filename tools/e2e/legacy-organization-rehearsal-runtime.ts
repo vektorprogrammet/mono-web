@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -8,15 +7,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { Effect, flow, Predicate, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
-export const digest = flow(canonicalJson, (json) =>
-  createHash("sha256").update(json).digest("hex"),
-);
+export const digest = flow(canonicalJsonBytes, sha256Hex);
 
 // The current-assignment rehearsal's bounded subprocess and private-socket lifecycle.
 // This helper is proof-local: it does not connect to supplied databases or run migrations itself.
