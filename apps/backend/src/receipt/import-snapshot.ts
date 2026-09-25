@@ -11,7 +11,7 @@ import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Match, Predicate, Schema } from "effect";
-import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
 
 import type { ReceiptFileStore } from "./filesystem.js";
@@ -71,7 +71,7 @@ export type ReceiptSnapshot = typeof ReceiptSnapshot.Type;
 export const digest = (value: Uint8Array | string): string =>
   createHash("sha256").update(value).digest("hex");
 
-export const rowDigest = (row: Schema.Json): string => digest(canonicalJson(row));
+export const rowDigest = (row: Schema.Json): string => sha256Hex(canonicalJsonBytes(row));
 
 export const decodeSnapshot = Schema.decodeUnknownSync(ReceiptSnapshot, {
   onExcessProperty: "error",
