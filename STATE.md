@@ -18,6 +18,7 @@ Operator decisions:
   Its schema shape is expected to match current production. Its contents are historical, not current.
 - The native target is PostgreSQL 18. The root manifest declares it once as `engines.postgresql`.
 - `main` is pushed to `origin` (2026-09-25), so hosted CI runs.
+  The SDK is not published (operator decision, 2026-09-25). `@vektorprogrammet/sdk` is private; the Release SDK workflow and Changesets are removed.
 
 Development stays local. `bun dev` starts both frontends and the native Bun backend; PostgreSQL is a separate prerequisite.
 See [local development](README.md#local-native-development). External delivery is disabled in local development.
@@ -97,7 +98,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   Later, move to full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
   The [PR preview contract](docs/specs/worker-pr-previews.md) requires workspace validation before deployment. `.github/workflows/preview-pr.yml` only builds.
 - Hosted CI at `49f38ccc` fails. `Tests` run `36118163912` fails the PHPUnit suite, `TypeScript (build, test)`, native identity (PostgreSQL lifecycle),
-  native identity browser evidence, and public applicant browser jobs. `Release SDK` fails its publish step.
+  native identity browser evidence, and public applicant browser jobs.
   Hosted Alchemy deployment is unobserved.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
 - `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy` adds PHP, Composer, and MariaDB. CI runs in the same shell; its hosted cost is unmeasured.

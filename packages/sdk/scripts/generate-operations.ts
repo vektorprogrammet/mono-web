@@ -9,7 +9,7 @@ import { Schema } from "effect";
 import assert from "node:assert/strict";
 
 // Writes the ignored operation index that `@vektorprogrammet/sdk/operations` publishes.
-// Turbo runs this `generate` task before type checks and builds; `prepack` runs it before packing.
+// Turbo runs this `generate` task before type checks and builds.
 const methods = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
 
 const packageManifest = Schema.decodeSync(

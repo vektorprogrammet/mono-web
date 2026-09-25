@@ -255,7 +255,7 @@ and explicit lifecycle handling. A path string is not authority.
 ## HTTP and generated client
 
 `packages/http-api/src/api.ts` composes the public and internal native APIs. The
-OpenAPI document and the published SDK operation index are generated from that
+OpenAPI document and the SDK operation index are generated from that
 contract by the package `generate` tasks, which Turbo runs before type checks and builds.
 
 A generated artifact must name its source and generator. Generation must be

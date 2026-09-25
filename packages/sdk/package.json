@@ -1,11 +1,8 @@
 {
   "name": "@vektorprogrammet/sdk",
   "version": "0.2.0",
+  "private": true,
   "homepage": "https://github.com/vektorprogrammet/mono-web",
-  "files": [
-    "dist",
-    "native-api-operations.json"
-  ],
   "type": "module",
   "exports": {
     ".": {
@@ -25,9 +22,7 @@
     "build": "tsc -p tsconfig.json",
     "check-types": "tsc -p tsconfig.json --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "oxlint",
-    "test": "vitest run",
-    "prepack": "bun run generate",
-    "release": "changeset publish"
+    "test": "vitest run"
   },
   "dependencies": {
     "@vektorprogrammet/http-api": "workspace:*",
