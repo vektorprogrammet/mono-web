@@ -6,6 +6,7 @@ import {
   type EconomyOperations,
 } from "@vektorprogrammet/domain/receipt";
 import { Effect, Predicate } from "effect";
+import { currentInstant } from "../authority.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 import type { ReceiptApiConfig } from "./config.js";
 
@@ -58,7 +59,7 @@ export const drainReceiptOutboxWith = (
 ) =>
   Effect.gen(function* () {
     const claimId = `${options.outboxClaimId ?? DEFAULT_OUTBOX_CLAIM_ID}-${randomUUID()}`;
-    const claimedBefore = staleOutboxCutoff(options.config.now());
+    const claimedBefore = staleOutboxCutoff(yield* currentInstant(options.config.now));
 
     const staleClaimIds = yield* economy
       .listStaleOutboxClaims(claimedBefore, receiptId)
@@ -74,12 +75,12 @@ export const drainReceiptOutboxWith = (
     );
 
     const last = yield* repeatReceiptDelivery(
-      Effect.suspend(() =>
-        economy.deliverNextOutboxEffect(claimId, options.config.now(), receiptId),
-      ).pipe(
-        Effect.provideService(ReceiptFileService, fileStore.service),
-        Effect.orElseSucceed(() => ({ _tag: "Failed" as const })),
-      ),
+      currentInstant(options.config.now)
+        .pipe(Effect.flatMap((now) => economy.deliverNextOutboxEffect(claimId, now, receiptId)))
+        .pipe(
+          Effect.provideService(ReceiptFileService, fileStore.service),
+          Effect.orElseSucceed(() => ({ _tag: "Failed" as const })),
+        ),
     );
 
     return Predicate.isTagged(last, "Delivered") ? ("Limit" as const) : last._tag;

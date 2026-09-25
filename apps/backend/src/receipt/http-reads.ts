@@ -38,7 +38,7 @@ import {
   type ReceiptSettlementQueueItem,
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Predicate, Schema } from "effect";
-import { resolveRequestCredentialInTransaction } from "../authority.js";
+import { currentInstant, resolveRequestCredentialInTransaction } from "../authority.js";
 import { HttpSemanticFailure } from "../http-semantics.js";
 import {
   RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER,
@@ -466,9 +466,7 @@ export const readReceiptLifecycleEvidence = <E, R>(
   options: ReceiptApiHttpOptions<E, R>,
 ) =>
   Effect.gen(function* () {
-    const authorizationInstant = yield* Effect.sync(() =>
-      AuthorizationInstant.make(options.now?.() ?? new Date().toISOString()),
-    );
+    const authorizationInstant = AuthorizationInstant.make(yield* currentInstant(options.now));
 
     const sql = yield* Database;
 

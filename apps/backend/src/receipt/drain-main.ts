@@ -54,6 +54,7 @@ const result = await Effect.runPromise(
     const last = yield* repeatReceiptDelivery(
       Effect.gen(function* () {
         const now = DateTime.formatIso(yield* DateTime.now);
+
         return yield* deliverNextReceiptOutbox(randomUUID(), now, receiptId);
       }),
     );

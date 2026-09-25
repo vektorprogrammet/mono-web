@@ -14,7 +14,8 @@ export interface ReceiptApiConfig {
   readonly stagingRoot: string;
   readonly committedRoot: string;
   readonly maxFileBytes: number;
-  readonly now: () => string;
+  /** Evidence compositions can pin the instant; absence reads the Effect Clock. */
+  readonly now?: () => string;
   readonly nextReceiptId: () => string;
   readonly nextVisualId: () => string;
   readonly e2e?: ReceiptE2EComposition;
@@ -54,7 +55,6 @@ export const decodeReceiptApiConfig = (
     "RECEIPT_COMMITTED_ROOT",
   ),
   maxFileBytes: parseMaxFileBytes(env.RECEIPT_MAX_FILE_BYTES),
-  now: () => new Date().toISOString(),
   nextReceiptId: () => `receipt_${randomUUID()}`,
   nextVisualId: () => `visual_${randomUUID()}`,
 });
