@@ -220,10 +220,15 @@ jobs:
           bun run --cwd packages/database proof:identity-postgres | tee "$proof_path"
           test -s "$proof_path"
 
+      # The proof leaves Better Auth signing keys encrypted with its own secret. The focused tests
+      # use another secret, so they run on a database of their own.
       - name: Run focused AuthLive PostgreSQL lifecycle tests
         env:
-          AUTH_TEST_PG_URL: postgres://identity:identity@127.0.0.1:55433/identity_proof_0054
-        run: bun run --cwd packages/database test -- src/auth-live.test.ts
+          AUTH_TEST_PG_URL: postgres://identity:identity@127.0.0.1:55433/identity_auth_live_test
+        run: |
+          psql postgres://identity:identity@127.0.0.1:55433/identity_proof_0054 \
+            --set=ON_ERROR_STOP=1 --command='CREATE DATABASE identity_auth_live_test'
+          bun run --cwd packages/database test -- src/auth-live.test.ts
 
       - name: Upload sanitized native identity evidence
         if: ${{ always() }}
