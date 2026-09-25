@@ -31,7 +31,7 @@ import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
 import { CredentialOutcomeSchema } from "@vektorprogrammet/domain/authz";
 import { Economy } from "@vektorprogrammet/domain/receipt";
-import { DateTime, Effect, Layer } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeBackendConfig } from "./config.js";
 import {
@@ -525,6 +525,8 @@ describe("unified backend router", () => {
   describe("classifies absent and rejected credentials at ingress", () => {
     const personChallenge = 'VektorSession realm="native-api", Bearer realm="native-api"';
 
+    const decodeProblemCode = Schema.decodeUnknownSync(Schema.Struct({ code: Schema.String }));
+
     const classifyingBackend = backendHttpHandler(
       config,
       Layer.mergeAll(
@@ -575,7 +577,7 @@ describe("unified backend router", () => {
 
         expect({
           status: response.status,
-          code: (await response.json()).code,
+          code: decodeProblemCode(await response.json()).code,
           challenge: response.headers.get("www-authenticate"),
         }).toEqual({ status: 401, code, challenge });
       }
