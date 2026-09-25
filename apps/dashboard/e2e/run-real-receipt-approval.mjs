@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+import { startReceiptDeliverySink } from "../../../tools/e2e/receipt-delivery-sink.ts";
 import {
   emitNativeRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
@@ -1662,101 +1663,6 @@ function assertRequestLedger(records, journeyEvidence) {
   return receiptOperations;
 }
 
-async function startReceiptDeliverySink() {
-  const token = randomBytes(32).toString("hex");
-  const deliveries = new Map();
-
-  const server = createServer(async (request, response) => {
-    try {
-      if (
-        request.method !== "POST" ||
-        request.url !== "/receipts" ||
-        request.headers.authorization !== `Bearer ${token}` ||
-        request.headers["content-type"] !== "application/json"
-      ) {
-        response.writeHead(401).end();
-
-        return;
-      }
-
-      const chunks = [];
-      let byteLength = 0;
-
-      for await (const chunk of request) {
-        const bytes = Buffer.from(chunk);
-        byteLength += bytes.byteLength;
-
-        if (byteLength > 65_536) throw new Error("Receipt delivery envelope is too large");
-        chunks.push(bytes);
-      }
-
-      const envelope = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-
-      if (
-        envelope === null ||
-        !Predicate.isObjectOrArray(envelope) ||
-        !Predicate.isString(envelope.deliveryId) ||
-        request.headers["idempotency-key"] !== envelope.deliveryId
-      ) {
-        throw new Error("Receipt delivery envelope is invalid");
-      }
-
-      const previous = deliveries.get(envelope.deliveryId);
-
-      if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(envelope)) {
-        response.writeHead(409).end();
-
-        return;
-      }
-
-      deliveries.set(envelope.deliveryId, envelope);
-      response.writeHead(204).end();
-    } catch {
-      response.writeHead(400).end();
-    }
-  });
-
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-
-  if (address === null || Predicate.isString(address)) {
-    server.closeAllConnections?.();
-    await new Promise((resolve) => server.close(resolve));
-    throw new Error("Receipt delivery sink did not bind a TCP port");
-  }
-
-  return {
-    environment: {
-      RECEIPT_DELIVERY_URL: `http://127.0.0.1:${address.port}/receipts`,
-      RECEIPT_DELIVERY_TOKEN: token,
-      RECEIPT_DELIVERY_TIMEOUT_MS: "2000",
-      RECEIPT_DELIVERY_SENDER: receiptDeliverySender,
-      RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: JSON.stringify(receiptEconomyRecipients),
-    },
-    evidence: () =>
-      [...deliveries.values()].sort((left, right) =>
-        left.deliveryId.localeCompare(right.deliveryId),
-      ),
-    close: async () => {
-      server.closeAllConnections?.();
-      await new Promise((resolve, reject) => {
-        server.close((error) =>
-          error === undefined ||
-          (Predicate.isObjectOrArray(error) &&
-            error !== null &&
-            "code" in error &&
-            error.code === "ERR_SERVER_NOT_RUNNING")
-            ? resolve()
-            : reject(error),
-        );
-      });
-    },
-  };
-}
-
 async function main() {
   await Promise.all([
     assertPortAvailable(dashboardPort),
@@ -1976,7 +1882,10 @@ export default {
 
     const seedEvidence = JSON.parse(seed.stdout.trim().split(/\r?\n/u).at(-1));
     assertEqual(seedEvidence.fixtureCounts, expectedFixtureCounts, "Seeded authority counts");
-    deliverySink = await startReceiptDeliverySink();
+    deliverySink = await startReceiptDeliverySink({
+      sender: receiptDeliverySender,
+      economyRecipients: receiptEconomyRecipients,
+    });
 
     const runtimeApiEnvironment = {
       ...apiEnvironment,
