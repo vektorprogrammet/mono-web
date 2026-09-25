@@ -531,6 +531,15 @@ export const submitApplication = (request: Request, input: AdmissionApiHttpOptio
           ),
         };
       }),
+      // A concurrent submission for the same normalized email commits after this snapshot;
+      // the restarted transaction sees it and answers the duplicate instead of a write failure.
+      {
+        retry: "serialization-or-unique-once",
+        retryUniqueConstraints: [
+          "admission_applicants_normalized_email_key",
+          "native_http_idempotency_receipts_pkey",
+        ],
+      },
     );
 
     return nativeCommandOutcomeResponse(result);

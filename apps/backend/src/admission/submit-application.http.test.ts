@@ -1,7 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { Database } from "@vektorprogrammet/database";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
+import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
+import { Admissions } from "@vektorprogrammet/domain/admissions";
+import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
 import { AdmissionsSubmitApplicationProblem } from "@vektorprogrammet/http-api";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Schedule, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
@@ -81,7 +85,27 @@ const fixture = () => {
       ).pipe(Effect.map((rows) => rows[0]?.count ?? 0)),
     );
 
-  return { database, submit, count };
+  /** A second PostgreSQL session on the fixture database, outside the handler's connection. */
+  const competitor = async () => {
+    const [target] = await database.run(
+      Database.use(
+        (sql) =>
+          sql<{
+            readonly host: string;
+            readonly database: string;
+            readonly username: string;
+          }>`SELECT current_setting('unix_socket_directories') AS host, current_database() AS database, current_user AS username`,
+      ),
+    );
+
+    if (target === undefined) throw new Error("Missing PostgreSQL connection configuration");
+
+    return ManagedRuntime.make(
+      DatabaseRuntimeLive({ ...target, maxConnections: 1 }).pipe(Layer.orDie),
+    );
+  };
+
+  return { database, submit, count, competitor };
 };
 
 /** Decodes a rejection through the endpoint's closed Problem Details union. */
@@ -111,6 +135,91 @@ describe("public application submission over HTTP", () => {
       },
     });
     await expect(count("admission_applications")).resolves.toBe(0);
+    await expect(count("native_http_idempotency_receipts")).resolves.toBe(0);
+  });
+
+  it("answers the loser of a concurrent same-applicant race as a duplicate", async () => {
+    const { submit, count, competitor } = fixture();
+    const runtime = await competitor();
+
+    try {
+      const lockHeld = Promise.withResolvers<void>();
+
+      // The competing submission commits only after the HTTP submission waits for the
+      // applicant identity lock, so the HTTP transaction's SERIALIZABLE snapshot is
+      // older than the committed winner.
+      const winner = runtime.runPromise(
+        Database.use((sql) =>
+          sql.withTransaction(
+            Effect.gen(function* () {
+              yield* Admissions.use((admissions) =>
+                admissions.executePublicApplication(
+                  Schema.decodeUnknownSync(PublicApplicationSubmitInputSchema)({
+                    ...application,
+                    commandId: "race-winner",
+                  }),
+                  {
+                    now: environment.ADMISSION_FIXED_NOW,
+                    activationToken: randomBytes(32).toString("base64url"),
+                  },
+                ),
+              );
+              yield* Effect.sync(() => lockHeld.resolve());
+
+              return yield* sql<{ readonly waiting: number }>`
+                SELECT count(*)::integer AS waiting
+                FROM pg_locks
+                WHERE locktype = 'advisory' AND NOT granted
+              `.pipe(
+                Effect.map((rows) => rows[0]?.waiting ?? 0),
+                Effect.repeat({
+                  until: (waiting) => waiting > 0,
+                  times: 400,
+                  schedule: Schedule.spaced("10 millis"),
+                }),
+              );
+            }),
+          ),
+        ).pipe(Effect.provide(AdmissionsLive)),
+      );
+
+      await lockHeld.promise;
+
+      const loser = await submit(
+        "raceLoser",
+        JSON.stringify({ ...application, email: "ADA@example.invalid" }),
+      );
+
+      await expect(winner).resolves.toBe(1);
+      expect(loser.status).toBe(409);
+      expect((await problem(loser)).code).toBe("application.duplicate");
+    } finally {
+      await runtime.dispose();
+    }
+
+    await expect(count("admission_applicants")).resolves.toBe(1);
+    await expect(count("admission_applications")).resolves.toBe(1);
+    await expect(count("native_http_idempotency_receipts")).resolves.toBe(0);
+  });
+
+  it("answers a failed application write as dependency.unavailable", async () => {
+    const { database, submit, count } = fixture();
+
+    await database.run(
+      Database.use((sql) =>
+        Effect.gen(function* () {
+          yield* sql`CREATE FUNCTION reject_application_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'application write rejected'; END $$`;
+          yield* sql`CREATE TRIGGER reject_application_write BEFORE INSERT ON admission_applications FOR EACH ROW EXECUTE FUNCTION reject_application_write()`;
+        }),
+      ),
+    );
+
+    const response = await submit("rejectedWrite");
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("5");
+    expect((await problem(response)).code).toBe("dependency.unavailable");
+    await expect(count("admission_applicants")).resolves.toBe(0);
     await expect(count("native_http_idempotency_receipts")).resolves.toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { flow, Effect, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   AdmissionDepartment,
   AdmissionFieldOfStudy,
@@ -119,11 +120,23 @@ interface ApplicantProgressRow {
   readonly hasActivePlacement: boolean;
 }
 
-const persistenceError = (operation: string): PublicApplicationPersistenceError =>
-  new PublicApplicationPersistenceError({
+/**
+ * The SQL failure stays the standard error cause, so the HTTP command executor can
+ * recognize a lost serialization race and restart the transaction on a fresh snapshot.
+ */
+const persistenceError = (
+  operation: string,
+  cause?: SqlError,
+): PublicApplicationPersistenceError => {
+  const error = new PublicApplicationPersistenceError({
     operation,
     message: "public application persistence failed",
   });
+
+  if (cause !== undefined) error.cause = cause;
+
+  return error;
+};
 
 const decodeApplicantRow = (
   row: typeof ApplicantRecord.Encoded,
@@ -171,7 +184,9 @@ const departmentExists = (
     WHERE department_id = ${departmentId}
   `.pipe(
     Effect.map((rows) => rows.length === 1),
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read application department"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read application department", cause)),
+    ),
   );
 
 const findEligiblePeriod = (
@@ -216,8 +231,8 @@ const findEligiblePeriod = (
           : decodeAdmissionPeriodRow(rows[0]);
       },
     ),
-    Effect.catchTag("SqlError", () =>
-      Effect.fail(persistenceError("find eligible admission period")),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("find eligible admission period", cause)),
     ),
   );
 
@@ -238,7 +253,9 @@ const findFieldOfStudy = (
             onExcessProperty: "error",
           }).pipe(Effect.mapError(() => persistenceError("decode field of study row"))),
     ),
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read field of study"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read field of study", cause)),
+    ),
   );
 
 const findApplicantForUpdate = (
@@ -263,7 +280,9 @@ const findApplicantForUpdate = (
     Effect.flatMap((rows) =>
       rows[0] === undefined ? Effect.succeed(undefined) : decodeApplicantRow(rows[0]),
     ),
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("lock applicant identity"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("lock applicant identity", cause)),
+    ),
   );
 
 const findApplicationForApplicantPeriod = (
@@ -288,7 +307,9 @@ const findApplicationForApplicantPeriod = (
     Effect.flatMap((rows) =>
       rows[0] === undefined ? Effect.succeed(undefined) : decodeApplicationRow(rows[0]),
     ),
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read duplicate application"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read duplicate application", cause)),
+    ),
   );
 
 const findApplicationById = (
@@ -312,7 +333,9 @@ const findApplicationById = (
     Effect.flatMap((rows) =>
       rows[0] === undefined ? Effect.succeed(undefined) : decodeApplicationRow(rows[0]),
     ),
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read application identity"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read application identity", cause)),
+    ),
   );
 
 const findCommandReceipt = (
@@ -326,8 +349,8 @@ const findCommandReceipt = (
     FOR UPDATE
   `.pipe(
     Effect.map((rows) => rows[0]),
-    Effect.catchTag("SqlError", () =>
-      Effect.fail(persistenceError("read application command receipt")),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read application command receipt", cause)),
     ),
   );
 
@@ -347,7 +370,9 @@ const writeApplicant = (
   )
 `.pipe(
     Effect.asVoid,
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert applicant"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("insert applicant", cause)),
+    ),
   );
 
 const updateApplicant = (
@@ -367,7 +392,9 @@ const updateApplicant = (
   WHERE applicant_id = ${applicant.id}
 `.pipe(
     Effect.asVoid,
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("update applicant profile"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("update applicant profile", cause)),
+    ),
   );
 
 const writeApplication = (
@@ -386,7 +413,9 @@ const writeApplication = (
   )
 `.pipe(
     Effect.asVoid,
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert application"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("insert application", cause)),
+    ),
   );
 
 const writeCommandReceipt = (
@@ -407,8 +436,8 @@ const writeCommandReceipt = (
   )
 `.pipe(
     Effect.asVoid,
-    Effect.catchTag("SqlError", () =>
-      Effect.fail(persistenceError("insert application command receipt")),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("insert application command receipt", cause)),
     ),
   );
 
@@ -427,7 +456,9 @@ const writeAudit = (
   )
 `.pipe(
     Effect.asVoid,
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert application audit"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("insert application audit", cause)),
+    ),
   );
 
 const writeOutbox = (
@@ -448,7 +479,9 @@ const writeOutbox = (
     `.pipe(Effect.asVoid),
     { discard: true },
   ).pipe(
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert application outbox"))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("insert application outbox", cause)),
+    ),
   );
 
 const executeCommandInTransaction = (
@@ -461,7 +494,9 @@ const executeCommandInTransaction = (
     const commandDigest = publicApplicationCommandDigest(command);
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`.pipe(
       Effect.asVoid,
-      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("lock application command"))),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("lock application command", cause)),
+      ),
     );
     const stored = yield* findCommandReceipt(sql, command.commandId);
 
@@ -480,7 +515,9 @@ const executeCommandInTransaction = (
     const normalizedEmail = command.email;
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${"applicant:" + normalizedEmail}, 0))`.pipe(
       Effect.asVoid,
-      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("lock applicant identity"))),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("lock applicant identity", cause)),
+      ),
     );
 
     if (!(yield* departmentExists(sql, command.departmentId))) {
@@ -604,8 +641,8 @@ export const executePublicApplicationCommand = (
     return yield* sql
       .withTransaction(executeCommandInTransaction(command, context, sql, now))
       .pipe(
-        Effect.catchTag("SqlError", () =>
-          Effect.fail(persistenceError("public application transaction")),
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("public application transaction", cause)),
         ),
       );
   });
@@ -656,8 +693,8 @@ export const listPublicApplicationCatalog = (
     WHERE e.period_rank = 1 AND e.period_count = 1
     ORDER BY d.department_id, f.field_of_study_id
   `.pipe(
-      Effect.catchTag("SqlError", () =>
-        Effect.fail(persistenceError("read public application catalog")),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read public application catalog", cause)),
       ),
     );
 
@@ -684,8 +721,8 @@ export const listPublicApplicationCatalog = (
         ) AS "upperBound"
       FROM boundaries
     `.pipe(
-      Effect.catchTag("SqlError", () =>
-        Effect.fail(persistenceError("read public application catalog interval")),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read public application catalog interval", cause)),
       ),
     );
 
@@ -770,8 +807,8 @@ export const findPublicApplicationConfirmation = (
     FROM admission_applications
     WHERE application_id = ${normalizedId}
   `.pipe(
-      Effect.catchTag("SqlError", () =>
-        Effect.fail(persistenceError("read application confirmation")),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read application confirmation", cause)),
       ),
     );
 
@@ -836,8 +873,8 @@ export const readApplicantContacts = (
         ON applicant.applicant_id = application.applicant_id
       ORDER BY application.application_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", () =>
-        Effect.fail(persistenceError("read applicant contact projections")),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read applicant contact projections", cause)),
       ),
     );
 
@@ -962,7 +999,9 @@ export const readApplicantProgress = (
         AND ${now}::timestamptz < semester.end_at
       ORDER BY application.submitted_at DESC, application.application_id ASC
     `.pipe(
-      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read applicant progress"))),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read applicant progress", cause)),
+      ),
     );
 
     const applications: Array<typeof ApplicantProgressItemSchema.Encoded> = [];

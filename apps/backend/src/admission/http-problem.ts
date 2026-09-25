@@ -1,6 +1,10 @@
 /** Admission HTTP failure classification and JSON response helpers. */
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
-import { makeNativeValidationError, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import {
+  makeNativeValidationError,
+  type NativeProblemCode,
+  Problem,
+} from "@vektorprogrammet/http-api/http-semantics";
 import { Cause, Match, Predicate, type Schema } from "effect";
 import { problemWebResponse } from "../http-api/problem.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
@@ -30,8 +34,41 @@ const errorTag = (cause: unknown): string =>
     ? cause._tag
     : "AdmissionPeriodPersistenceError";
 
-/** Native problem mapping for admission and public application endpoints. */
-export const admissionHttpErrorResponse = (cause: unknown): Response => {
+/** The closed Problem Details union that one admission endpoint declares. */
+export interface AdmissionEndpointProblems {
+  readonly members: ReadonlyArray<{
+    readonly fields: {
+      readonly code: { readonly literal: NativeProblemCode };
+      readonly status: { readonly literal: number };
+    };
+  }>;
+}
+
+/**
+ * The 503 problem an endpoint answers for a failure that no case classifies: its own
+ * service problem when its union declares one, otherwise the dependency problem. The
+ * idempotency problem names the receipt store only, so it is never the fallback.
+ */
+const unavailableProblem = (problems: AdmissionEndpointProblems) => {
+  const unavailable = problems.members
+    .map((member) => member.fields)
+    .filter(
+      (fields) =>
+        fields.status.literal === 503 && fields.code.literal !== "idempotency.unavailable",
+    );
+
+  const fields =
+    unavailable.find((candidate) => candidate.code.literal !== "dependency.unavailable") ??
+    unavailable[0];
+
+  if (fields === undefined)
+    throw new Error("An admission endpoint declares no unavailable problem");
+
+  return fields;
+};
+
+/** Classifies one admission failure; an unclassified failure answers `undefined`. */
+const classifiedAdmissionFailure = (cause: unknown): Response | undefined => {
   while (Cause.isUnknownError(cause)) cause = cause.cause;
 
   if (cause instanceof HttpSemanticFailure) {
@@ -133,6 +170,15 @@ export const admissionHttpErrorResponse = (cause: unknown): Response => {
     case "DuplicateAdmissionPeriodCommandConflict":
       return nativeProblemResponse("idempotency.digest-conflict", 409);
     default:
-      return nativeProblemResponse("admissions.unavailable", 503);
+      return undefined;
   }
+};
+
+/** Native problem mapping for one admission endpoint, falling back to its own 503 problem. */
+export const admissionHttpErrorResponse = (problems: AdmissionEndpointProblems) => {
+  // The code and its status come from the same declared union member.
+  const { code, status } = unavailableProblem(problems);
+
+  return (cause: unknown): Response =>
+    classifiedAdmissionFailure(cause) ?? nativeProblemResponse(code.literal, status.literal);
 };
