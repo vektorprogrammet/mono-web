@@ -3,7 +3,6 @@ import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   DepartmentId,
   SemesterId,
-  OrganizationDecodeError,
   OrganizationPersistenceError,
   AppointmentManagement,
   OrganizationLifecycleCommand,
@@ -100,8 +99,6 @@ export interface OrganizationApiHttpOptions {
   >;
 }
 
-type TaggedHttpError = OrganizationDecodeError | HttpSemanticFailure;
-
 const jsonResponse = (body: Schema.Json, status = 200, cacheControl = "no-store"): Response =>
   new Response(JSON.stringify(body), {
     status,
@@ -174,7 +171,7 @@ const errorResponse = (cause: unknown): Response => {
         return nativeProblemResponse("idempotency.digest-conflict", 409);
       }),
       Match.when(Predicate.isTagged("OrganizationDecodeError"), () => {
-        return nativeProblemResponse("validation.failed", 422);
+        return nativeProblemResponse("organization.unavailable", 503);
       }),
       Match.when(Predicate.isTagged("RequestBodyTooLarge"), () => {
         return nativeProblemResponse("request.too-large", 413);
@@ -191,7 +188,7 @@ const errorResponse = (cause: unknown): Response => {
 const assertNoQuery = (request: Request) =>
   new URL(request.url).search.length === 0
     ? Effect.void
-    : Effect.fail(new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }));
+    : Effect.fail(new HttpSemanticFailure("validation.failed", 422));
 
 /** A public directory read accepts no query. */
 const rejectPublicQuery = (request: Request) =>
@@ -208,12 +205,11 @@ const readBoundedBody = (request: Request, maxBytes: number) =>
       const contentLength = request.headers.get("content-length");
 
       if (contentLength !== null) {
-        if (!/^\d+$/u.test(contentLength))
-          throw new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" });
+        if (!/^\d+$/u.test(contentLength)) throw new HttpSemanticFailure("validation.failed", 422);
         const declaredLength = Number(contentLength);
 
         if (!Number.isSafeInteger(declaredLength)) {
-          throw new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" });
+          throw new HttpSemanticFailure("validation.failed", 422);
         }
 
         if (declaredLength > maxBytes) throw new HttpSemanticFailure("request.too-large", 413);
@@ -254,39 +250,33 @@ const readBoundedBody = (request: Request, maxBytes: number) =>
       return new TextDecoder("utf-8", { fatal: true }).decode(body);
     },
     catch: (cause) =>
-      cause instanceof HttpSemanticFailure || cause instanceof OrganizationDecodeError
+      cause instanceof HttpSemanticFailure
         ? cause
-        : new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
+        : new HttpSemanticFailure("validation.failed", 422),
   });
 
 const decodeCommand = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
   schema: S,
   input: OrganizationApiHttpOptions,
-): Effect.Effect<S["Type"], TaggedHttpError> =>
+): Effect.Effect<S["Type"], HttpSemanticFailure> =>
   Effect.gen(function* () {
     const contentType = request.headers.get("content-type") ?? "";
 
     if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(
-        new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-      );
+      return yield* Effect.fail(new HttpSemanticFailure("validation.failed", 422));
     }
 
     const raw = yield* readBoundedBody(request, input.config.maxBodyBytes);
 
     const body = yield* Effect.try({
       try: () => Schema.decodeUnknownSync(Schema.Json)(JSON.parse(raw)),
-      catch: () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
+      catch: () => new HttpSemanticFailure("validation.failed", 422),
     });
 
     return yield* Schema.decodeUnknownEffect(schema)(body, {
       onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-      ),
-    );
+    }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
   });
 
 /**
