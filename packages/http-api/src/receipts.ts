@@ -13,6 +13,8 @@ import {
   ConcealmentPolicySchema,
 } from "@vektorprogrammet/domain/authz";
 import {
+  ReceiptCursor,
+  RECEIPT_PAGE_SIZE,
   Receipt,
   ReceiptId,
   ReceiptSettlementEvidenceSchema,
@@ -186,15 +188,14 @@ export const ReceiptListItem = Schema.Struct({
  * @category Schemas
  */
 export const ReceiptListResponse = Schema.Struct({
-  items: Schema.Array(ReceiptListItem),
-  totalItems: Schema.Int,
+  items: Schema.Array(ReceiptListItem).pipe(Schema.check(Schema.isMaxLength(RECEIPT_PAGE_SIZE))),
+  nextCursor: Schema.optional(ReceiptCursor),
 }).annotate({
   identifier: "ReceiptListResponse",
-  description: "Receipts and matching total count.",
+  description: "One bounded receipt page and optional continuation.",
   examples: [
     {
       items: [ReceiptListItemExample],
-      totalItems: 1,
     },
   ],
 });
@@ -218,11 +219,13 @@ export const ReceiptApprovalQueueItem = Schema.Struct({
 });
 
 export const ReceiptApprovalQueueResponse = Schema.Struct({
-  items: Schema.Array(ReceiptApprovalQueueItem),
-  totalItems: Schema.Int,
+  items: Schema.Array(ReceiptApprovalQueueItem).pipe(
+    Schema.check(Schema.isMaxLength(RECEIPT_PAGE_SIZE)),
+  ),
+  nextCursor: Schema.optional(ReceiptCursor),
 }).annotate({
   identifier: "ReceiptApprovalQueueResponse",
-  description: "Receipts in the current approver queue and their count.",
+  description: "One bounded page of receipts in the current approver queue.",
 });
 
 export const ReceiptSettlementQueueItem = Schema.Struct({
@@ -244,11 +247,13 @@ export const ReceiptSettlementQueueItem = Schema.Struct({
 });
 
 export const ReceiptSettlementQueueResponse = Schema.Struct({
-  items: Schema.Array(ReceiptSettlementQueueItem),
-  totalItems: Schema.Int,
+  items: Schema.Array(ReceiptSettlementQueueItem).pipe(
+    Schema.check(Schema.isMaxLength(RECEIPT_PAGE_SIZE)),
+  ),
+  nextCursor: Schema.optional(ReceiptCursor),
 }).annotate({
   identifier: "ReceiptSettlementQueueResponse",
-  description: "Approved, unsettled receipts in the current settlement scope and their count.",
+  description: "One bounded page of approved, unsettled receipts in the current settlement scope.",
 });
 
 /**
@@ -293,10 +298,12 @@ export const ReceiptLifecycleEvidenceResponse = Schema.Struct({
 });
 
 const ReceiptStatusQuery = {
+  cursor: Schema.optional(ReceiptCursor),
   status: Schema.optional(ReceiptStatusSchema),
 };
 
 const OwnerReceiptStatusQuery = {
+  cursor: Schema.optional(ReceiptCursor),
   status: Schema.optional(Schema.Union([ReceiptStatusSchema, Schema.Array(ReceiptStatusSchema)])),
 };
 
@@ -522,6 +529,7 @@ export const ListReceiptsForSettlementEndpoint = HttpApiEndpoint.get(
   "listReceiptsForSettlement",
   "/api/receipt-settlement-queue",
   {
+    query: { cursor: Schema.optional(ReceiptCursor) },
     success: privateReadResponse(ReceiptSettlementQueueResponse),
     error: endpointProblemResponses(ReceiptsListReceiptsForSettlementProblem),
   },

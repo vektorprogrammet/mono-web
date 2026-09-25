@@ -1,11 +1,21 @@
+import { ReceiptPagination } from "@/components/receipts/ReceiptPagination";
 import { Predicate } from "effect";
 import { OwnedReceiptList } from "@/components/receipts/OwnedReceiptList";
 import {
   ReceiptSubmitForm,
   type ReceiptSubmissionNotice,
 } from "@/components/receipts/ReceiptSubmitForm";
-import { isUnauthorizedError, mapOwnedReceiptError, mapOwnedReceiptView, type ReceiptOwnerMutationFailure, type ReceiptOwnerMutationNotice, type ReceiptRevisionDraft, ReceiptUiError, type ReceiptUiErrorField } from "@/lib/receipt-view";
-import { ReceiptId } from "@vektorprogrammet/http-api"
+import {
+  isUnauthorizedError,
+  mapOwnedReceiptError,
+  mapOwnedReceiptView,
+  type ReceiptOwnerMutationFailure,
+  type ReceiptOwnerMutationNotice,
+  type ReceiptRevisionDraft,
+  ReceiptUiError,
+  type ReceiptUiErrorField,
+} from "@/lib/receipt-view";
+import { ReceiptId } from "@vektorprogrammet/http-api";
 import {
   IdempotencyKey,
   StrongETag,
@@ -51,8 +61,7 @@ function readFormText(form: FormData, name: string): string | null {
 }
 
 function receiptDecodeError(message: string, field?: ReceiptUiErrorField): ReceiptUiError {
-  return ReceiptUiError.ReceiptDecodeError({message,
-field});
+  return ReceiptUiError.ReceiptDecodeError({ message, field });
 }
 
 function decodeIdempotencyKey(value: string): IdempotencyKeyValue | undefined {
@@ -197,12 +206,14 @@ function receiptMultipartPayload(
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
+  const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
 
   try {
-    const result = await client.receipts.listReceipts({ query: {} });
+    const result = await client.receipts.listReceipts({ query: { cursor } });
 
     return {
       receipts: result.body.items.map(mapOwnedReceiptView),
+      nextCursor: result.body.nextCursor,
       error: undefined,
     };
   } catch (error) {
@@ -211,6 +222,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
 
     return {
+      nextCursor: undefined,
       receipts: [],
       error: mapOwnedReceiptError(error),
     };
@@ -369,10 +381,13 @@ export async function action({ request }: Route.ActionArgs) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         ...identity.value,
-        commandId:
-          Predicate.isTagged(mappedError, "StaleReceiptRevision") ? crypto.randomUUID() : commandIdText,
+        commandId: Predicate.isTagged(mappedError, "StaleReceiptRevision")
+          ? crypto.randomUUID()
+          : commandIdText,
         error: mappedError,
-        draft: Predicate.isTagged(mappedError, "StaleReceiptRevision") ? undefined : fields.value.draft,
+        draft: Predicate.isTagged(mappedError, "StaleReceiptRevision")
+          ? undefined
+          : fields.value.draft,
       };
 
       return { success: false as const, intent, mutationFailure };
@@ -493,6 +508,7 @@ export default function MineUtlegg() {
           draft={submissionDraft}
         />
 
+        <ReceiptPagination nextCursor={loaderData.nextCursor} busy={navigation.state !== "idle"} />
         <OwnedReceiptList
           receipts={loaderData.receipts}
           error={loaderData.error}

@@ -492,14 +492,14 @@ const harness = (options: HarnessOptions = {}) => {
       readReceiptSettlementRevision,
       recordReceiptSettlement,
       listReceiptsForSettlement: () =>
-        Effect.succeed(
-          (options.settlementRows ?? []).map((row) => {
+        Effect.succeed({
+          items: (options.settlementRows ?? []).map((row) => {
             if (row.status !== "Approved" || row.approvedAt === null)
               throw new Error("Settlement queue fixtures must be approved");
 
             return { ...row, status: row.status, approvedAt: row.approvedAt };
           }),
-        ),
+        }),
       readReceiptSettlementForFinance: (requestedReceiptId, queryPersonId) =>
         Effect.suspend(() => {
           settlementReads.push({ receiptId: requestedReceiptId, personId: queryPersonId });
@@ -510,19 +510,19 @@ const harness = (options: HarnessOptions = {}) => {
             : Effect.succeed(evidence);
         }),
       listOwnedReceipts: () =>
-        Effect.succeed(
-          (options.ownedRows ?? []).map((row) => ({
+        Effect.succeed({
+          items: (options.ownedRows ?? []).map((row) => ({
             ...row,
             settlement:
               options.settlementEvidence?.receiptId === row.receiptId
                 ? options.settlementEvidence
                 : null,
           })),
-        ),
+        }),
       listReceiptsForApproval: (queryPersonId, authorizationInstant, status) => {
         approvalQueries.push({ personId: queryPersonId, authorizationInstant, status });
 
-        return Effect.succeed(options.approvalRows ?? []);
+        return Effect.succeed({ items: options.approvalRows ?? [] });
       },
       readReceiptFileForApproval: (requestedReceiptId, queryPersonId, authorizationInstant) =>
         transactionIsolation
@@ -917,7 +917,6 @@ describe("receipt v0.2 HTTP contract", () => {
           etag: receiptEtag(receiptId, 0),
         }),
       ],
-      totalItems: 1,
     });
     expect(state.authorizationPrincipalCalls()).toBe(1);
   });
@@ -952,7 +951,6 @@ describe("receipt v0.2 HTTP contract", () => {
           etag: receiptEtag(receiptId, 2),
         },
       ],
-      totalItems: 1,
     });
   });
 
@@ -1569,7 +1567,6 @@ describe("receipt v0.2 HTTP contract", () => {
     const listed = await request(state.http, "/api/receipt-approval-queue", bearer, false);
     expect(listed.status).toBe(200);
     expect(await readJson(listed)).toMatchObject({
-      totalItems: 1,
       items: [{ receiptId }],
     });
     expect(state.authorizationPrincipalCalls()).toBe(0);
@@ -1591,7 +1588,7 @@ describe("receipt v0.2 HTTP contract", () => {
     const person = harness({ approvalRows: [scoped] });
     const human = await request(person.http, "/api/receipt-approval-queue");
     expect(human.status).toBe(200);
-    expect(await readJson(human)).toMatchObject({ totalItems: 1, items: [{ receiptId }] });
+    expect(await readJson(human)).toMatchObject({ items: [{ receiptId }] });
 
     const userBearer = await request(
       state.http,
@@ -1601,7 +1598,7 @@ describe("receipt v0.2 HTTP contract", () => {
     );
 
     expect(userBearer.status).toBe(200);
-    expect(await readJson(userBearer)).toMatchObject({ totalItems: 1, items: [{ receiptId }] });
+    expect(await readJson(userBearer)).toMatchObject({ items: [{ receiptId }] });
   });
 
   it("uses the queue's canonical receipt ETag for approval and reopening commands", async () => {
@@ -1647,7 +1644,6 @@ describe("receipt v0.2 HTTP contract", () => {
           revision: 2,
         },
       ],
-      totalItems: 1,
     });
     expect(state.approvalQueries).toEqual([
       { personId, authorizationInstant: evaluatedAt, status: "Pending" },

@@ -92,27 +92,21 @@ export const makeReceiptApprovalContext = (
  * Evaluates every collection row against its canonical receipt context. The
  * result never widens one accepted row into department-wide visibility.
  */
-export const selectAuthorizedReceiptApprovals = (
+export interface ReceiptApprovalSelectionEvidence {
+  readonly receiptIds: ReadonlyArray<string>;
+  readonly candidateSeen: boolean;
+  readonly denialReason: DecisionReason | undefined;
+  readonly inactiveGrantSeen: boolean;
+}
+
+export const evaluateReceiptApprovalCandidates = (
   organization: OrganizationPersonAuthority,
   directAuthority: ReceiptAuthority,
   candidates: ReadonlyArray<ReceiptApprovalCandidate>,
   rules: ReadonlyArray<AuthzRule>,
   tagAssignments: ReadonlyArray<AuthzTagAssignment>,
-): Decision<ReceiptApprovalSelection> => {
-  if (directAuthority.organizationAuthority !== "Active") {
-    return deny("AuthorityInactive");
-  }
-
+): ReceiptApprovalSelectionEvidence => {
   const directEvidence = { approvalGrants: directAuthority.approvalGrants };
-
-  if (candidates.length === 0) {
-    if (directAuthority.approvalGrants.some(({ active }) => active)) {
-      return allow({ receiptIds: [] });
-    }
-
-    return deny(directAuthority.approvalGrants.length > 0 ? "AuthorityInactive" : "NotInScope");
-  }
-
   const receiptIds: string[] = [];
   let denialReason: DecisionReason | undefined;
   let inactiveGrantSeen = directAuthority.approvalGrants.length > 0;
@@ -147,12 +141,45 @@ export const selectAuthorizedReceiptApprovals = (
     }
   }
 
-  if (receiptIds.length > 0) return allow({ receiptIds });
-
-  if (denialReason !== undefined) return deny(denialReason);
-
-  return deny(inactiveGrantSeen ? "AuthorityInactive" : "NotInScope");
+  return { receiptIds, candidateSeen: candidates.length > 0, denialReason, inactiveGrantSeen };
 };
+
+export const receiptApprovalSelectionDecision = (
+  directAuthority: ReceiptAuthority,
+  evidence: ReceiptApprovalSelectionEvidence,
+): Decision<ReceiptApprovalSelection> => {
+  if (directAuthority.organizationAuthority !== "Active") return deny("AuthorityInactive");
+
+  if (!evidence.candidateSeen) {
+    return directAuthority.approvalGrants.some(({ active }) => active)
+      ? allow({ receiptIds: [] })
+      : deny(directAuthority.approvalGrants.length > 0 ? "AuthorityInactive" : "NotInScope");
+  }
+
+  if (evidence.receiptIds.length > 0) return allow({ receiptIds: evidence.receiptIds });
+
+  if (evidence.denialReason !== undefined) return deny(evidence.denialReason);
+
+  return deny(evidence.inactiveGrantSeen ? "AuthorityInactive" : "NotInScope");
+};
+
+export const selectAuthorizedReceiptApprovals = (
+  organization: OrganizationPersonAuthority,
+  directAuthority: ReceiptAuthority,
+  candidates: ReadonlyArray<ReceiptApprovalCandidate>,
+  rules: ReadonlyArray<AuthzRule>,
+  tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+): Decision<ReceiptApprovalSelection> =>
+  receiptApprovalSelectionDecision(
+    directAuthority,
+    evaluateReceiptApprovalCandidates(
+      organization,
+      directAuthority,
+      candidates,
+      rules,
+      tagAssignments,
+    ),
+  );
 
 const isPendingReceiptRequirement = (rule: AuthzRule): boolean =>
   rule.effectKind === "requirement" && rule.params.requirementId === "receipts.pending";

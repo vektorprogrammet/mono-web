@@ -20,6 +20,8 @@ export * from "./outbox.js";
 
 export * from "./projections.js";
 
+export * from "./pagination.js";
+
 export * from "./service.js";
 
 export * from "./schema.js";

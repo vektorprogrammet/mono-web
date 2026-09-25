@@ -14,9 +14,14 @@ import { z } from "zod";
 import { dashboardBaseUrl, dashboardMount } from "../dashboard-base";
 
 type JourneyOutcome = Data.TaggedEnum<{
-  Authenticated: {}; Rejected: { readonly errorText: string }; TimedOut: {};
-  Observed: { readonly status: number }; NotObserved: {};
-  ExpectedError: {}; UrlChanged: {}; PageError: { readonly errorText: string };
+  Authenticated: {};
+  Rejected: { readonly errorText: string };
+  TimedOut: {};
+  Observed: { readonly status: number };
+  NotObserved: {};
+  ExpectedError: {};
+  UrlChanged: {};
+  PageError: { readonly errorText: string };
 }>;
 
 const JourneyOutcome = Data.taggedEnum<JourneyOutcome>();
@@ -96,7 +101,7 @@ const receiptResourceSchema = receiptProjectionSchema.extend({
 const receiptPageSchema = z
   .object({
     items: z.array(receiptProjectionSchema),
-    totalItems: z.number().int().nonnegative(),
+    nextCursor: z.string().optional(),
   })
   .strict();
 
@@ -197,9 +202,8 @@ async function authenticate(
       .then(() => JourneyOutcome.Authenticated()),
     loginError
       .waitFor({ state: "visible", timeout: 15_000 })
-      .then(
-        async () =>
-          JourneyOutcome.Rejected({errorText: (await loginError.innerText()).trim()}),
+      .then(async () =>
+        JourneyOutcome.Rejected({ errorText: (await loginError.innerText()).trim() }),
       ),
     page.waitForTimeout(15_000).then(() => JourneyOutcome.TimedOut()),
   ]);
@@ -419,7 +423,7 @@ test.describe("Native Receipt owner journey", () => {
             new URL(response.url()).pathname === OWNED_RECEIPT_DATA_PATH
           );
         })
-        .then((response) => JourneyOutcome.Observed({status: response.status()})),
+        .then((response) => JourneyOutcome.Observed({ status: response.status() })),
       page.waitForTimeout(15_000).then(() => JourneyOutcome.NotObserved()),
     ]);
 
@@ -444,9 +448,8 @@ test.describe("Native Receipt owner journey", () => {
         .then(() => JourneyOutcome.UrlChanged()),
       pageLevelError
         .waitFor({ state: "visible", timeout: 20_000 })
-        .then(
-          async () =>
-            JourneyOutcome.PageError({errorText: (await pageLevelError.innerText()).trim()}),
+        .then(async () =>
+          JourneyOutcome.PageError({ errorText: (await pageLevelError.innerText()).trim() }),
         ),
       page.waitForTimeout(15_000).then(() => JourneyOutcome.TimedOut()),
     ]);
@@ -458,24 +461,25 @@ test.describe("Native Receipt owner journey", () => {
       unsupportedFileOutcome,
     ]);
 
-    if (!Predicate.isTagged(responseObservation, "Observed") || !Predicate.isTagged(validationOutcome, "ExpectedError")) {
+    if (
+      !Predicate.isTagged(responseObservation, "Observed") ||
+      !Predicate.isTagged(validationOutcome, "ExpectedError")
+    ) {
       const formErrorText = (await submissionError.isVisible().catch(() => false))
         ? (await submissionError.innerText()).trim()
         : "";
 
-      const pageErrorText =
-        Predicate.isTagged(validationOutcome, "PageError")
-          ? validationOutcome.errorText
-          : (await pageLevelError.isVisible().catch(() => false))
-            ? (await pageLevelError.innerText()).trim()
-            : "";
+      const pageErrorText = Predicate.isTagged(validationOutcome, "PageError")
+        ? validationOutcome.errorText
+        : (await pageLevelError.isVisible().catch(() => false))
+          ? (await pageLevelError.innerText()).trim()
+          : "";
 
       const renderedError = pageErrorText || formErrorText || "<no rendered error>";
 
-      const responseStatus =
-        Predicate.isTagged(responseObservation, "Observed")
-          ? String(responseObservation.status)
-          : "<not observed>";
+      const responseStatus = Predicate.isTagged(responseObservation, "Observed")
+        ? String(responseObservation.status)
+        : "<not observed>";
 
       throw new Error(
         `Unsupported receipt file validation failed: POST ${OWNED_RECEIPT_DATA_PATH} status=${responseStatus}; outcome=${validationOutcome._tag}; currentUrl=${JSON.stringify(page.url())}; renderedError=${JSON.stringify(renderedError)}`,
@@ -566,7 +570,6 @@ test.describe("Native Receipt owner journey", () => {
 
     expect(ownedAtRevisionZeroResponse.status()).toBe(200);
     const ownedAtRevisionZero = receiptPageSchema.parse(await ownedAtRevisionZeroResponse.json());
-    expect(ownedAtRevisionZero.totalItems).toBe(1);
     expect(ownedAtRevisionZero.items).toHaveLength(1);
     const revisionZero = ownedAtRevisionZero.items[0];
 
@@ -644,15 +647,13 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
-    await reviseForm
-      .locator('input[name="idempotencyKey"]')
-      .evaluate((element, idempotencyKey) => {
-        if (!(element instanceof HTMLInputElement)) throw new Error("Expected an idempotency input");
-        const input = element;
-        input.value = idempotencyKey;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-      }, REPLACEMENT_IDEMPOTENCY_KEY);
+    await reviseForm.locator('input[name="idempotencyKey"]').evaluate((element, idempotencyKey) => {
+      if (!(element instanceof HTMLInputElement)) throw new Error("Expected an idempotency input");
+      const input = element;
+      input.value = idempotencyKey;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, REPLACEMENT_IDEMPOTENCY_KEY);
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     await expect(revisionNotice).toHaveAttribute("data-revision", "2");
@@ -765,9 +766,7 @@ test.describe("Native Receipt owner journey", () => {
 
     expect(concurrentRevisionResponse.status()).toBe(200);
 
-    const concurrentRevision = receiptResourceSchema.parse(
-      await concurrentRevisionResponse.json(),
-    );
+    const concurrentRevision = receiptResourceSchema.parse(await concurrentRevisionResponse.json());
 
     expect(concurrentRevisionResponse.headers()["etag"]).toBe(concurrentRevision.etag);
     expect(concurrentRevision).toMatchObject({
@@ -777,10 +776,7 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
-    await expect(reviseError).not.toHaveAttribute(
-      "data-idempotency-key",
-      staleDraftIdempotencyKey,
-    );
+    await expect(reviseError).not.toHaveAttribute("data-idempotency-key", staleDraftIdempotencyKey);
     await expect(reviseError).toHaveAttribute("data-error-code", "precondition.failed");
     await expect(reviseError).toHaveAttribute("data-if-match", revisionTwoEtag);
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
@@ -821,18 +817,12 @@ test.describe("Native Receipt owner journey", () => {
       await foreignContext.close();
     }
 
-    const foreignOwnerTag = await expectProblemCode(
-      foreignOwnerResponse,
-      403,
-      "authority.denied",
-    );
+    const foreignOwnerTag = await expectProblemCode(foreignOwnerResponse, 403, "authority.denied");
 
     await receiptRow.getByRole("button", { name: "Trekk tilbake", exact: true }).click();
     const withdrawForm = page.getByRole("form", { name: "Trekk tilbake utlegg" });
     await expect(withdrawForm).toBeVisible();
-    await expect(withdrawForm.locator('input[name="etag"]')).toHaveValue(
-      concurrentRevision.etag,
-    );
+    await expect(withdrawForm.locator('input[name="etag"]')).toHaveValue(concurrentRevision.etag);
 
     const withdrawalIdempotencyKey = await withdrawForm
       .locator('input[name="idempotencyKey"]')
@@ -916,7 +906,6 @@ test.describe("Native Receipt owner journey", () => {
 
     expect(finalOwnedResponse.status()).toBe(200);
     const finalOwned = receiptPageSchema.parse(await finalOwnedResponse.json());
-    expect(finalOwned.totalItems).toBe(1);
     expect(finalOwned.items).toHaveLength(1);
     expect(finalOwned.items[0]).toMatchObject({
       receiptId,

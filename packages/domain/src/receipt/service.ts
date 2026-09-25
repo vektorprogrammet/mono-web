@@ -4,10 +4,12 @@
  * @since 0.1.0
  */
 import { Data, Context, Effect } from "effect";
+import type { ReceiptPage } from "./pagination.js";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
 import type { DepartmentId, PersonId } from "../organization/schema.js";
 import type { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
 import type {
+  ReceiptDecodeError,
   ReceiptApprovalFileReadFailure,
   ReceiptApprovalListFailure,
   ReceiptFailure,
@@ -120,16 +122,22 @@ export interface EconomyOperations {
   readonly listOwnedReceipts: (
     ownerPersonId: string,
     status?: ReceiptStatus,
-  ) => Effect.Effect<ReadonlyArray<OwnedReceiptProjectionItem>, ReceiptPersistenceError>;
+    after?: string,
+  ) => Effect.Effect<
+    ReceiptPage<OwnedReceiptProjectionItem>,
+    ReceiptPersistenceError | ReceiptDecodeError
+  >;
   readonly listReceiptsForApproval: (
     personId: PersonId,
     authorizationInstant: OrganizationAuthorityInstant,
     status?: ReceiptStatus,
-  ) => Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptApprovalListFailure>;
+    after?: string,
+  ) => Effect.Effect<ReceiptPage<ReceiptListItem>, ReceiptApprovalListFailure>;
   readonly listReceiptsForSettlement: (
     personId: PersonId,
     authorizationInstant: OrganizationAuthorityInstant,
-  ) => Effect.Effect<ReadonlyArray<ReceiptSettlementQueueItem>, ReceiptSettlementListFailure>;
+    after?: string,
+  ) => Effect.Effect<ReceiptPage<ReceiptSettlementQueueItem>, ReceiptSettlementListFailure>;
   /**
    * Resolves one approved receipt's private-file metadata on the caller-owned
    * repeatable-read, read-only transaction. The caller authenticates in that
