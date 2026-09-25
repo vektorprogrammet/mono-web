@@ -35,7 +35,6 @@ import {
   admissionActorForDepartment,
   unscopedAdmissionActorFrom,
   organizationActorFrom,
-  profileRoleFrom,
   recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
   resolveAuthenticatedPersonAtInstant,
@@ -50,11 +49,7 @@ import { ContentApiHandlers } from "./content/http.js";
 import { SystemApiHandlers } from "./http-api/system.js";
 import { ProblemBoundaryLive } from "./http-api/problem.js";
 import { nativeHttpApiMiddlewareLayer } from "./http-api/transport.js";
-import {
-  HttpSemanticFailure,
-  methodNotAllowedResponse,
-  nativeProblemResponse,
-} from "./http-semantics.js";
+import { methodNotAllowedResponse, nativeProblemResponse } from "./http-semantics.js";
 import { externalNativePreflightMethodsForPath } from "./native-api-preflight.js";
 
 import { decideNativePreflight } from "./native-preflight.js";
@@ -243,24 +238,7 @@ export const ExternalNativeApiRouterLive = (
     ContentApiHandlers((request) => resolveRequestPersonAtInstant(request, { now: options.now })),
     ProfileApiHandlers({
       config,
-      resolveActor: (request) =>
-        resolveRequestPersonAuthority(request, { now: options.now }).pipe(
-          Effect.flatMap((authority) => {
-            const decision = profileRoleFrom(authority);
-
-            if (Predicate.isTagged(decision, "Deny")) {
-              return Effect.fail(
-                decision.reason === "Unauthenticated"
-                  ? new UnauthenticatedActor({
-                      message: "profile authority is unauthenticated",
-                    })
-                  : new HttpSemanticFailure("authority.denied", 403),
-              );
-            }
-
-            return Effect.succeed({ personId: authority.personId, role: decision.value });
-          }),
-        ),
+      resolveActor: (request) => resolveRequestPersonAuthority(request, { now: options.now }),
     }),
     SocialEventsApiHandlers({ transactionHook: options.socialEventsTransactionHook }),
     SchoolSurveysApiHandlers(),

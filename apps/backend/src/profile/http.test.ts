@@ -1,5 +1,4 @@
 import { backendDatabase } from "../../test/database.js";
-import { HttpSemanticFailure } from "../http-semantics.js";
 import { backendTestConfig } from "../../test/config.js";
 import { Database, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
@@ -8,16 +7,33 @@ import {
   IdentitySessionNotFound,
   type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
-import { OrganizationPersistenceError, PersonId } from "@vektorprogrammet/domain/organization";
+import {
+  OrganizationPersistenceError,
+  type OrganizationPersonAuthority,
+  OrganizationPersonAuthoritySchema,
+  PersonId,
+} from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
-import { DateTime, Effect, Layer } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.js";
 
-type ProfileAuthorityTestFailure = HttpSemanticFailure;
-
-const tagged = (_tag: "AuthorityInactive" | "NotInScope") =>
-  new HttpSemanticFailure("authority.denied", 403);
+const authority = (
+  personId: string,
+  globalAdministrator: "Active" | "Inactive" | "Absent",
+  memberships: ReadonlyArray<{ readonly active: boolean; readonly teamLeader: boolean }>,
+) =>
+  Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
+    personId,
+    evaluatedAt: "2032-04-01T12:00:00.000Z",
+    globalAdministrator,
+    memberships: memberships.map((membership, index) => ({
+      membershipId: `membership-${index}`,
+      teamId: "team-1",
+      departmentId: "department-1",
+      ...membership,
+    })),
+  });
 
 const authorityDeniedProblem = {
   type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
@@ -69,12 +85,12 @@ const securityServices = Layer.mergeAll(
 );
 
 const request = async (
-  cause: ProfileAuthorityTestFailure | OrganizationPersistenceError,
+  resolved: Effect.Effect<OrganizationPersonAuthority, OrganizationPersistenceError>,
 ): Promise<Response> =>
   makeProfileApiHttp(
     {
       config: backendTestConfig,
-      resolveActor: () => Effect.fail(cause),
+      resolveActor: () => resolved,
     },
     securityServices,
   ).fetch(
@@ -84,23 +100,28 @@ const request = async (
   );
 
 describe("Profile HTTP authority failures", () => {
-  it.each(["AuthorityInactive", "NotInScope"] as const)(
-    "preserves %s as a typed scope denial",
-    async (tag) => {
-      const response = await request(tagged(tag));
+  it.each([
+    [
+      "AuthorityInactive",
+      authority("profile-test-person", "Inactive", [{ active: false, teamLeader: false }]),
+    ],
+    ["NotInScope", authority("profile-test-person", "Absent", [])],
+  ] as const)("preserves %s as a typed scope denial", async (_, resolved) => {
+    const response = await request(Effect.succeed(resolved));
 
-      expect(response.status).toBe(403);
-      expect(response.headers.get("content-type")).toBe("application/problem+json");
-      expect(await response.json()).toEqual(authorityDeniedProblem);
-    },
-  );
+    expect(response.status).toBe(403);
+    expect(response.headers.get("content-type")).toBe("application/problem+json");
+    expect(await response.json()).toEqual(authorityDeniedProblem);
+  });
 
   it("maps an unavailable authority provider failure to unavailable", async () => {
     const response = await request(
-      new OrganizationPersistenceError({
-        operation: "resolve profile test authority",
-        message: "provider unavailable",
-      }),
+      Effect.fail(
+        new OrganizationPersistenceError({
+          operation: "resolve profile test authority",
+          message: "provider unavailable",
+        }),
+      ),
     );
 
     expect(response.status).toBe(503);
@@ -146,7 +167,12 @@ describe("Profile HTTP ETag", () => {
     return makeProfileApiHttp(
       {
         config: backendTestConfig,
-        resolveActor: () => Effect.succeed({ personId: profile.personId, role }),
+        resolveActor: () =>
+          Effect.succeed(
+            authority(profile.personId, "Absent", [
+              { active: true, teamLeader: role === "ROLE_TEAM_LEADER" },
+            ]),
+          ),
       },
       services,
     ).fetch(
