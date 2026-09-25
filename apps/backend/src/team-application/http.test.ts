@@ -9,6 +9,7 @@ import {
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import {
   PublicTeamApplicationIntake,
+  SessionUnauthorizedProblem,
   TeamApplicationConfirmation,
   TeamApplicationIntakeResource,
   TeamApplicationListResponse,
@@ -286,7 +287,8 @@ describe("team application staff routes over HTTP", () => {
     const member = await request("/api/teams/http-open/applications", { person: "http-member" });
 
     expect(anonymous.status).toBe(401);
-    expect((await decoded(anonymous, TeamApplicationsStaffReadProblem)).status).toBe(401);
+    // The security middleware declares credential problems for every staff route.
+    expect((await decoded(anonymous, SessionUnauthorizedProblem)).code).toBe("credential.missing");
     expect(outsider.status).toBe(403);
     expect((await decoded(outsider, TeamApplicationsStaffReadProblem)).code).toBe(
       "authority.denied",

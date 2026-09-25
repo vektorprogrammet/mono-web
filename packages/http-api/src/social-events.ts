@@ -33,8 +33,6 @@ export {
 export const SocialEventsReadScopeProblem = problemUnion("SocialEventsReadScopeProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "internal.error",
@@ -45,8 +43,6 @@ export const SocialEventsReadScopeProblem = problemUnion("SocialEventsReadScopeP
 export const SocialEventsListProblem = problemUnion("SocialEventsListProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "scope.invalid",
@@ -58,8 +54,6 @@ export const SocialEventsListProblem = problemUnion("SocialEventsListProblem", [
 export const SocialEventsCreateProblem = problemUnion("SocialEventsCreateProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",

@@ -57,7 +57,6 @@ export const SubstituteProblem = problemUnion("SubstituteProblem", [
   "header.malformed",
   "validation.failed",
   "scope.invalid",
-  "credential.invalid",
   "authority.denied",
   "resource.not-found",
   "substitute.already-active",

@@ -655,8 +655,6 @@ export const CancelInterviewEndpoint = HttpApiEndpoint.post(
  */
 
 const RecruitmentMaintenanceProblem = problemUnion("RecruitmentMaintenanceProblem", [
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "request.malformed",

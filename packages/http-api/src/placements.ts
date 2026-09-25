@@ -62,7 +62,6 @@ export const PlacementProblem = problemUnion("PlacementProblem", [
   "header.malformed",
   "validation.failed",
   "scope.invalid",
-  "credential.invalid",
   "authority.denied",
   "resource.not-found",
   "affiliation.transition-invalid",

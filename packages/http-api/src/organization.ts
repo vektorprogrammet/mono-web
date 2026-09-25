@@ -389,8 +389,6 @@ export const CreateFieldOfStudyEndpoint = HttpApiEndpoint.post(
  * @category Groups
  */
 const OrganizationLifecycleProblem = problemUnion("OrganizationLifecycleProblem", [
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "resource.not-found",

@@ -48,7 +48,6 @@ export const ContactProblem = problemUnion("ContactProblem", [
   "header.malformed",
   "request.too-large",
   "validation.failed",
-  "credential.invalid",
   "rate-limit.exceeded",
   "contact.unavailable",
   "media-type.unsupported",

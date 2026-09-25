@@ -47,14 +47,24 @@ export const OAuthServiceBearer = HttpApiSecurity.bearer.pipe(
 );
 
 /**
+ * The credential problems every security middleware declares; secured
+ * endpoint unions do not repeat them.
+ *
+ * @since 0.2.0
+ * @category Schemas
+ */
+export const SessionUnauthorizedProblem = problemUnion("SessionUnauthorizedProblem", [
+  "credential.missing",
+  "credential.invalid",
+]);
+
+/**
  * Standard missing or invalid session response.
  *
  * @since 0.1.0
  * @category Schemas
  */
-export const SessionUnauthorizedResponse = problemStatusResponse(
-  problemUnion("SessionUnauthorizedProblem", ["credential.missing", "credential.invalid"]),
-);
+export const SessionUnauthorizedResponse = problemStatusResponse(SessionUnauthorizedProblem);
 
 /**
  * Contract security marker for session-authenticated native operations.

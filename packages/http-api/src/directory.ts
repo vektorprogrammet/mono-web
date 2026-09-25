@@ -168,8 +168,6 @@ export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/scho
 export { SchoolCommand, SchoolCommandResult, SchoolManagement };
 
 const SchoolAdministrationProblem = problemUnion("SchoolAdministrationProblem", [
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "request.malformed",

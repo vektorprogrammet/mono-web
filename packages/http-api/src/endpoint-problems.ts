@@ -9,8 +9,6 @@ export const SystemHealthProblem = problemUnion("SystemHealthProblem", [
 
 /** Problems for `system.readSession`. */
 export const SystemReadSessionProblem = problemUnion("SystemReadSessionProblem", [
-  "credential.missing",
-  "credential.invalid",
   "internal.error",
   "identity.unavailable",
 ]);
@@ -19,8 +17,6 @@ export const SystemReadSessionProblem = problemUnion("SystemReadSessionProblem",
 export const SystemDeleteSessionProblem = problemUnion("SystemDeleteSessionProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -36,8 +32,6 @@ export const SystemDeleteSessionProblem = problemUnion("SystemDeleteSessionProbl
 export const SystemListSessionsProblem = problemUnion("SystemListSessionsProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "internal.error",
   "identity.unavailable",
 ]);
@@ -46,8 +40,6 @@ export const SystemListSessionsProblem = problemUnion("SystemListSessionsProblem
 export const SystemDeleteOwnedSessionProblem = problemUnion("SystemDeleteOwnedSessionProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "resource.not-found",
@@ -64,8 +56,6 @@ export const SystemDeleteOwnedSessionProblem = problemUnion("SystemDeleteOwnedSe
 export const SystemRevokeOtherSessionsProblem = problemUnion("SystemRevokeOtherSessionsProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -81,8 +71,6 @@ export const SystemRevokeOtherSessionsProblem = problemUnion("SystemRevokeOtherS
 export const SystemRevokeAllSessionsProblem = problemUnion("SystemRevokeAllSessionsProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -100,8 +88,6 @@ export const ProfileReadOwnProfileProblem = problemUnion("ProfileReadOwnProfileP
   "header.malformed",
   "precondition.invalid",
   "precondition.failed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "internal.error",
@@ -113,8 +99,6 @@ export const ProfileReadOwnProfileProblem = problemUnion("ProfileReadOwnProfileP
 export const ProfileUpdateOwnProfileProblem = problemUnion("ProfileUpdateOwnProfileProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -176,8 +160,6 @@ export const OrganizationListTeamInterestProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -192,8 +174,6 @@ export const OrganizationListMailingListsProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -208,8 +188,6 @@ export const OrganizationCreateDepartmentProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency-key.invalid",
@@ -230,8 +208,6 @@ export const OrganizationCreateDepartmentProblem = problemUnion(
 export const OrganizationCreateTeamProblem = problemUnion("OrganizationCreateTeamProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -253,8 +229,6 @@ export const OrganizationCreateFieldOfStudyProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency-key.invalid",
@@ -275,8 +249,6 @@ export const OrganizationCreateFieldOfStudyProblem = problemUnion(
 export const DirectoryListPeopleProblem = problemUnion("DirectoryListPeopleProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "internal.error",
@@ -288,8 +260,6 @@ export const DirectoryListPeopleProblem = problemUnion("DirectoryListPeopleProbl
 export const DirectoryListSchoolsProblem = problemUnion("DirectoryListSchoolsProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "internal.error",
@@ -329,8 +299,6 @@ export const AdmissionsReadApplicantProgressProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -344,8 +312,6 @@ export const AdmissionsReadReturningAssistantOptionsProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "validation.failed",
@@ -364,8 +330,6 @@ export const AdmissionsRegisterReturningAssistantProblem = problemUnion(
     "request.malformed",
     "header.malformed",
     "idempotency-key.invalid",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency.in-flight",
@@ -432,8 +396,6 @@ export const AdmissionsListAdmissionPeriodsProblem = problemUnion(
     "header.malformed",
     "precondition.invalid",
     "precondition.failed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -447,8 +409,6 @@ export const AdmissionsCreateAdmissionPeriodProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency-key.invalid",
@@ -472,8 +432,6 @@ export const AdmissionsReviseAdmissionPeriodProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency-key.invalid",
@@ -576,8 +534,6 @@ export const RecruitmentReadAssignmentBoardProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -592,8 +548,6 @@ export const RecruitmentReadSchedulingBoardProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -608,8 +562,6 @@ export const RecruitmentReadInterviewReportProblem = problemUnion(
     "request.malformed",
     "header.malformed",
     "validation.failed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "transaction.conflict",
@@ -624,8 +576,6 @@ export const RecruitmentCreateApplicationInterviewProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency-key.invalid",
@@ -652,8 +602,6 @@ export const RecruitmentScheduleInterviewProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency-key.invalid",
@@ -683,8 +631,6 @@ export const RecruitmentReadInterviewConductProblem = problemUnion(
     "header.malformed",
     "precondition.invalid",
     "precondition.failed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -701,8 +647,6 @@ export const RecruitmentFinalizeInterviewProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency-key.invalid",
@@ -733,8 +677,6 @@ export const RecruitmentCorrectInterviewAssessmentProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "idempotency-key.invalid",
@@ -763,8 +705,6 @@ export const RecruitmentCorrectInterviewAssessmentProblem = problemUnion(
 export const RecruitmentCancelInterviewProblem = problemUnion("RecruitmentCancelInterviewProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -789,8 +729,6 @@ export const RecruitmentCancelInterviewProblem = problemUnion("RecruitmentCancel
 export const ReceiptsSubmitReceiptProblem = problemUnion("ReceiptsSubmitReceiptProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -812,8 +750,6 @@ export const ReceiptsSubmitReceiptProblem = problemUnion("ReceiptsSubmitReceiptP
 export const ReceiptsReviseReceiptProblem = problemUnion("ReceiptsReviseReceiptProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -841,8 +777,6 @@ export const ReceiptsReviseReceiptProblem = problemUnion("ReceiptsReviseReceiptP
 export const ReceiptsWithdrawReceiptProblem = problemUnion("ReceiptsWithdrawReceiptProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -867,8 +801,6 @@ export const ReceiptsWithdrawReceiptProblem = problemUnion("ReceiptsWithdrawRece
 export const ReceiptsListReceiptsProblem = problemUnion("ReceiptsListReceiptsProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "internal.error",
@@ -881,8 +813,6 @@ export const ReceiptsListReceiptsForApprovalProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -896,8 +826,6 @@ export const ReceiptsListReceiptsForSettlementProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "origin.denied",
     "internal.error",
     "receipts.unavailable",
@@ -910,8 +838,6 @@ export const ReceiptsReadReceiptSettlementForFinanceProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "origin.denied",
     "receipt.not-found",
     "internal.error",
@@ -923,8 +849,6 @@ export const ReceiptsReadReceiptSettlementForFinanceProblem = problemUnion(
 export const ReceiptsSettleReceiptProblem = problemUnion("ReceiptsSettleReceiptProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "origin.denied",
   "idempotency-key.invalid",
   "idempotency.in-flight",
@@ -951,8 +875,6 @@ export const ReceiptsSettleReceiptProblem = problemUnion("ReceiptsSettleReceiptP
 export const ReceiptsApproveReceiptProblem = problemUnion("ReceiptsApproveReceiptProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -977,8 +899,6 @@ export const ReceiptsApproveReceiptProblem = problemUnion("ReceiptsApproveReceip
 export const ReceiptsRejectReceiptProblem = problemUnion("ReceiptsRejectReceiptProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -1003,8 +923,6 @@ export const ReceiptsRejectReceiptProblem = problemUnion("ReceiptsRejectReceiptP
 export const ReceiptsReopenReceiptProblem = problemUnion("ReceiptsReopenReceiptProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -1031,8 +949,6 @@ export const ContentReadContentWorkspaceProblem = problemUnion(
   [
     "request.malformed",
     "header.malformed",
-    "credential.missing",
-    "credential.invalid",
     "authority.denied",
     "origin.denied",
     "internal.error",
@@ -1045,8 +961,6 @@ export const ContentReadContentWorkspaceProblem = problemUnion(
 export const ContentCreateArticleProblem = problemUnion("ContentCreateArticleProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -1070,8 +984,6 @@ export const ContentReadArticleProblem = problemUnion("ContentReadArticleProblem
   "header.malformed",
   "precondition.invalid",
   "precondition.failed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "internal.error",
@@ -1084,8 +996,6 @@ export const ContentReadArticleProblem = problemUnion("ContentReadArticleProblem
 export const ContentReviseArticleProblem = problemUnion("ContentReviseArticleProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -1113,8 +1023,6 @@ export const ContentReviseArticleProblem = problemUnion("ContentReviseArticlePro
 export const ContentPublishArticleProblem = problemUnion("ContentPublishArticleProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -1139,8 +1047,6 @@ export const ContentPublishArticleProblem = problemUnion("ContentPublishArticleP
 export const ContentUnpublishArticleProblem = problemUnion("ContentUnpublishArticleProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -1204,8 +1110,6 @@ export const InternalReadReceiptEvidenceProblem = problemUnion(
 export const ReceiptsReadReceiptFileProblem = problemUnion("ReceiptsReadReceiptFileProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "resource.not-found",

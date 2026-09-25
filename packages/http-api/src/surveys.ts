@@ -78,8 +78,6 @@ export const SchoolSurveySubmitProblem = problemUnion("SchoolSurveySubmitProblem
 const schoolSurveyAdminReadProblems = [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "resource.not-found",
@@ -91,8 +89,6 @@ const schoolSurveyAdminReadProblems = [
 export const SchoolSurveyAdminCatalogProblem = problemUnion("SchoolSurveyAdminCatalogProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "internal.error",
@@ -108,8 +104,6 @@ export const SchoolSurveyAdminListProblem = problemUnion("SchoolSurveyAdminListP
 export const SchoolSurveyAdminCreateProblem = problemUnion("SchoolSurveyAdminCreateProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",
@@ -129,8 +123,6 @@ export const SchoolSurveyAdminCreateProblem = problemUnion("SchoolSurveyAdminCre
 export const SchoolSurveyAdminCloseProblem = problemUnion("SchoolSurveyAdminCloseProblem", [
   "request.malformed",
   "header.malformed",
-  "credential.missing",
-  "credential.invalid",
   "authority.denied",
   "origin.denied",
   "idempotency-key.invalid",

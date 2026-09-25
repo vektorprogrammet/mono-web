@@ -32,11 +32,10 @@ export const OnboardingResource = Schema.Struct({
   etag: StrongETag,
 }).annotate({ identifier: "OnboardingResource" });
 
-export const OnboardingProblem = problemUnion("OnboardingProblem", [
+const onboardingProblems = [
   "request.malformed",
   "request.too-large",
   "validation.failed",
-  "credential.invalid",
   "authority.denied",
   "resource.not-found",
   "precondition.required",
@@ -52,6 +51,15 @@ export const OnboardingProblem = problemUnion("OnboardingProblem", [
   "onboarding.claim-invalid",
   "onboarding.sign-in-required",
   "onboarding.already-linked",
+] as const;
+
+/** Problems of the person-secured operations; PersonSecurity declares their credential problems. */
+export const OnboardingProblem = problemUnion("OnboardingProblem", onboardingProblems);
+
+/** The capability claim has no security middleware, so it declares its own credential problem. */
+export const OnboardingClaimProblem = problemUnion("OnboardingClaimProblem", [
+  ...onboardingProblems,
+  "credential.invalid",
 ]);
 
 const access = (write = false) =>
@@ -94,7 +102,7 @@ export const CommandOnboardingEndpoint = HttpApiEndpoint.post("command", "/api/o
 export const ClaimOnboardingEndpoint = HttpApiEndpoint.post("claim", "/api/onboarding/claim", {
   payload: OnboardingClaim,
   success: privateReadResponse(OnboardingClaimResult),
-  error: endpointProblemResponses(OnboardingProblem),
+  error: endpointProblemResponses(OnboardingClaimProblem),
 })
   .pipe((e) =>
     annotateAccessSpec(
