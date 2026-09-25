@@ -256,7 +256,7 @@ export async function observeInterviewReport(o: Options) {
   const link = async (key: string, client = pool) => {
     const invitation = `report-link-${key}`;
     await client.query(
-      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,CURRENT_TIMESTAMP+interval '1 day','Claimed',$5,CURRENT_TIMESTAMP)`,
+      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '1 day','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
       [
         invitation,
         `report-application-${key}`,
@@ -266,7 +266,7 @@ export async function observeInterviewReport(o: Options) {
       ],
     );
     await client.query(
-      `INSERT INTO public.applicant_account_links VALUES($1,$2,CURRENT_TIMESTAMP,$3)`,
+      `INSERT INTO public.applicant_account_links VALUES($1,$2,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),$3)`,
       [`report-applicant-${key}`, ids.person, invitation],
     );
   };

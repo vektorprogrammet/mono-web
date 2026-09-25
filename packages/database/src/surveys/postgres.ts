@@ -482,7 +482,7 @@ export const persistSchoolSurveyResponsePostgres = (input: {
         open_survey.survey_id,
         open_survey.department_id,
         ${input.prepared.schoolId},
-        transaction_timestamp()
+        date_trunc('milliseconds', transaction_timestamp(), 'UTC')
       FROM open_survey
       RETURNING
         response_id AS "responseId",

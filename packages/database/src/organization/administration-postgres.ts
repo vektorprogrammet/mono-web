@@ -266,7 +266,7 @@ const storeReceiptAndAudit = (
         ${entityId},
         ${sql.json(actor)},
         ${actor.personId},
-        CURRENT_TIMESTAMP
+        date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
       )
     `;
     const action = `${entityKind}Created`;

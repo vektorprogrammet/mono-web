@@ -76,7 +76,7 @@ export const drainOnboardingDelivery = (
         secret: string;
         recipient: string;
         envelope: unknown;
-      }>`UPDATE public.applicant_account_delivery d SET state='Claimed',claim_id=${claimId},claimed_at=clock_timestamp(),attempts=attempts+1 FROM public.applicant_account_invitations i WHERE d.invitation_id=i.invitation_id AND i.application_id=${applicationId} AND i.state='Open' AND i.expires_at>clock_timestamp() AND (d.state='Pending' OR(d.state='Claimed' AND d.claimed_at<clock_timestamp()-interval '60 seconds')) RETURNING d.invitation_id AS "invitationId",d.secret,d.recipient,d.envelope`;
+      }>`UPDATE public.applicant_account_delivery d SET state='Claimed',claim_id=${claimId},claimed_at=date_trunc('milliseconds',clock_timestamp(),'UTC'),attempts=attempts+1 FROM public.applicant_account_invitations i WHERE d.invitation_id=i.invitation_id AND i.application_id=${applicationId} AND i.state='Open' AND i.expires_at>clock_timestamp() AND (d.state='Pending' OR(d.state='Claimed' AND d.claimed_at<clock_timestamp()-interval '60 seconds')) RETURNING d.invitation_id AS "invitationId",d.secret,d.recipient,d.envelope`;
 
       const row = selected[0];
 

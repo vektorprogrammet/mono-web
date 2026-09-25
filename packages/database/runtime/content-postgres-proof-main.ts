@@ -447,7 +447,7 @@ const program = Effect.scoped(
       const sql = yield* Database;
       yield* sql`
         UPDATE public.content_articles
-        SET title = ${snapshotTitle}, updated_at = now(), revision = revision + 1
+        SET title = ${snapshotTitle}, updated_at = date_trunc('milliseconds', now(), 'UTC'), revision = revision + 1
         WHERE article_id = ${raceArticle.success.articleId}
       `;
 

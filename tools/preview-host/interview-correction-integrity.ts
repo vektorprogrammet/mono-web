@@ -190,7 +190,7 @@ const insertAssessment = async (
       (interview_id, predecessor_revision, resulting_revision, answers,
        explanatory_power, role_model, suitability, recommendation,
        corrected_by_person_id, corrected_at, command_id)
-     VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,CURRENT_TIMESTAMP,$10)`,
+     VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),$10)`,
     [
       interviewId,
       predecessorRevision,
@@ -230,7 +230,7 @@ const insertReceipt = async (
     `INSERT INTO public.recruitment_interview_correction_command_receipts
       (command_id, command_sha256, command_json, observation_json, interview_id,
        predecessor_revision, resulting_revision, committed_at)
-     VALUES ($1, repeat('a', 64), '{}'::jsonb, '{}'::jsonb, $2, $3, $4, CURRENT_TIMESTAMP)`,
+     VALUES ($1, repeat('a', 64), '{}'::jsonb, '{}'::jsonb, $2, $3, $4, date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC'))`,
     [commandId, interviewId, predecessorRevision, resultingRevision],
   );
 };
@@ -331,7 +331,7 @@ export async function assertInterviewCorrectionIntegrity(
     (client) =>
       client.query(
         `UPDATE public.recruitment_interview_correction_audit
-            SET occurred_at=CURRENT_TIMESTAMP
+            SET occurred_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')
           WHERE command_id=$1`,
         [commandId],
       ),
@@ -435,7 +435,7 @@ export async function assertInterviewCorrectionIntegrity(
         `INSERT INTO public.recruitment_interview_correction_audit
           (command_id, interview_id, actor_person_id, predecessor_revision,
            resulting_revision, occurred_at)
-         VALUES ($1,$2,$3,$4,$5,CURRENT_TIMESTAMP)`,
+         VALUES ($1,$2,$3,$4,$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
         [
           candidateCommandId,
           interviewId,

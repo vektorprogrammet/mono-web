@@ -15,10 +15,10 @@ export const ContactQuotaLive = Layer.effect(
 
           const admitted = yield* sql`
       INSERT INTO public.contact_rate_windows (visitor_ip, attempts, expires_at)
-      VALUES (${ip}::inet, 1, statement_timestamp() + interval '1 hour')
+      VALUES (${ip}::inet, 1, date_trunc('milliseconds', statement_timestamp(), 'UTC') + interval '1 hour')
       ON CONFLICT (visitor_ip) DO UPDATE SET
         attempts = CASE WHEN contact_rate_windows.expires_at <= statement_timestamp() THEN 1 ELSE contact_rate_windows.attempts + 1 END,
-        expires_at = CASE WHEN contact_rate_windows.expires_at <= statement_timestamp() THEN statement_timestamp() + interval '1 hour' ELSE contact_rate_windows.expires_at END
+        expires_at = CASE WHEN contact_rate_windows.expires_at <= statement_timestamp() THEN date_trunc('milliseconds', statement_timestamp(), 'UTC') + interval '1 hour' ELSE contact_rate_windows.expires_at END
       WHERE contact_rate_windows.expires_at <= statement_timestamp() OR contact_rate_windows.attempts < 5
       RETURNING attempts`;
 

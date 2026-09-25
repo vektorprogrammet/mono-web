@@ -373,7 +373,7 @@ try {
     [department],
   );
   await pool.query(
-    "INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES('delivery-recovery-membership',$1,'delivery-recovery-team',CURRENT_TIMESTAMP-INTERVAL '1 day',false)",
+    "INSERT INTO organization_memberships(membership_id,person_id,team_id,start_at,is_team_leader) VALUES('delivery-recovery-membership',$1,'delivery-recovery-team',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '1 day',false)",
     [person],
   );
   await pool.query(
@@ -381,7 +381,7 @@ try {
     [person, email],
   );
   await pool.query(
-    "INSERT INTO economy_payment_authorities(payment_authority_id,person_id,department_id,payment_account_ciphertext,start_at,revision) VALUES('delivery-recovery-payment',$1,$2,'synthetic:delivery-recovery',CURRENT_TIMESTAMP-INTERVAL '1 day',0)",
+    "INSERT INTO economy_payment_authorities(payment_authority_id,person_id,department_id,payment_account_ciphertext,start_at,revision) VALUES('delivery-recovery-payment',$1,$2,'synthetic:delivery-recovery',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '1 day',0)",
     [person, department],
   );
   await boot();

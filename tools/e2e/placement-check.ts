@@ -628,8 +628,8 @@ try {
       INSERT INTO organization_teams(team_id,department_id,name,active,revision) VALUES
         ('golden-team','${departmentId}','Koordinator',true,0),('golden-wrong-team','${wrongDepartmentId}','Annet team',true,0);
       INSERT INTO organization_memberships(membership_id,person_id,team_id,deleted_team_name,start_at,end_at,position_id,is_team_leader,is_suspended,revision) VALUES
-        ('golden-leader','${leaderId}','golden-team',NULL,now()-interval '1 day',NULL,'teamleader',true,false,0),
-        ('golden-wrong','${wrongId}','golden-wrong-team',NULL,now()-interval '1 day',NULL,'teamleader',true,false,0);
+        ('golden-leader','${leaderId}','golden-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0),
+        ('golden-wrong','${wrongId}','golden-wrong-team',NULL,date_trunc('milliseconds',now(),'UTC')-interval '1 day',NULL,'teamleader',true,false,0);
       INSERT INTO person_contact_profiles(person_id,email,phone,revision) VALUES
         ('${leaderId}','lina.leader@example.invalid','+47 900 00 049',0),
         ('${volunteerId}','irene.intervjuer@example.invalid','+47 900 00 052',0),

@@ -269,7 +269,7 @@ describe("Receipt settlement evidence in PGlite", () => {
             file_ref, file_object_key, file_content_type, file_byte_length, file_sha256, revision
           ) SELECT 'settlement-page-' || lpad(n::text, 3, '0'), 'SETTLEMENT-PAGE-' || n,
             owner_person_id, department_id, amount_ore, currency, description, receipt_date,
-            '2038-06-13T10:00:00Z', 'Approved', '2038-06-13T11:00:00.123456Z', payment_account_ciphertext,
+            '2038-06-13T10:00:00Z', 'Approved', '2038-06-13T11:00:00.123Z', payment_account_ciphertext,
             'settlement-page-file-' || n, 'settlement-page-object-' || n,
             file_content_type, file_byte_length, file_sha256, 0
           FROM public.economy_receipts CROSS JOIN generate_series(0, 51) AS n

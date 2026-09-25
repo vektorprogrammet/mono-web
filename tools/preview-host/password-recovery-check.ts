@@ -346,7 +346,7 @@ try {
 
   assert.equal((await requestReset()).status, 200);
   await pool.query(
-    `UPDATE auth.verification SET "expiresAt"=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE identifier LIKE 'reset-password:%'`,
+    `UPDATE auth.verification SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '1 second' WHERE identifier LIKE 'reset-password:%'`,
   );
   assert.equal(await drain(), "Quarantined");
   await page.goto(
@@ -388,7 +388,7 @@ try {
   gates.push("enqueue failure replaces swallowed engine success with503");
   await requestReset();
   await pool.query(
-    `UPDATE auth.password_reset_email_outbox SET status='Processing',claim_id=gen_random_uuid(),claimed_at=CURRENT_TIMESTAMP-INTERVAL '2 minutes' WHERE status='Pending'`,
+    `UPDATE auth.password_reset_email_outbox SET status='Processing',claim_id=gen_random_uuid(),claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '2 minutes' WHERE status='Pending'`,
   );
   assert.equal(await drain(), "Delivered");
   await requestReset();
@@ -471,7 +471,7 @@ try {
   gates.push("session deletion failure returns5xx; password changed with old session still live");
   const expiredToken = await nextToken();
   await pool.query(
-    `UPDATE auth.verification SET "expiresAt"=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE identifier=$1`,
+    `UPDATE auth.verification SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '1 second' WHERE identifier=$1`,
     [`reset-password:${expiredToken}`],
   );
   await page.goto(
@@ -500,7 +500,7 @@ try {
     ],
   ]) {
     await pool.query(
-      `INSERT INTO auth.verification(id,identifier,value,"expiresAt","createdAt","updatedAt") VALUES($1,$2,$3,CURRENT_TIMESTAMP+INTERVAL '1 hour',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+      `INSERT INTO auth.verification(id,identifier,value,"expiresAt","createdAt","updatedAt") VALUES($1,$2,$3,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+INTERVAL '1 hour',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'),date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
       [id, identifier, value],
     );
     await pool.query(

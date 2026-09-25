@@ -349,7 +349,7 @@ export const runApplicantProgress0107 = async (input: {
   assert.deepEqual(decodeApplicantProgressResponse(await unlinkedResponse.json()).applications, []);
 
   const expiredSessions = await input.pool.query(
-    `UPDATE auth.session SET "expiresAt"=CURRENT_TIMESTAMP-interval '1 minute' WHERE "userId"=$1`,
+    `UPDATE auth.session SET "expiresAt"=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-interval '1 minute' WHERE "userId"=$1`,
     [applicantProgressUnlinkedIdentity.personId],
   );
 

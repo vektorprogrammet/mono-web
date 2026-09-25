@@ -1373,7 +1373,7 @@ const runRehearsal = async (temporaryRoot: string) => {
 
     const simulatedClaim = await cutoverPool.query(
       `INSERT INTO auth."account"(id,"accountId","providerId",issuer,"userId",password,"updatedAt")
-       SELECT $1,$2,'credential',issuer,$2,password,now()
+       SELECT $1,$2,'credential',issuer,$2,password,date_trunc('milliseconds',now(),'UTC')
          FROM auth."account" WHERE "providerId" = 'credential' ORDER BY id LIMIT 1`,
       [claimAccountId, candidate.person_id],
     );
