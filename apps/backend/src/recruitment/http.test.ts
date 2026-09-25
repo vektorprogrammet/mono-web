@@ -1,9 +1,10 @@
-import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
-import { NativeHttpReceiptPersistenceError } from "../http-api/receipt-transaction.js";
+import { IdentitySnapshot } from "@vektorprogrammet/database";
 import {
-  UnauthenticatedActor,
   AdmissionPeriodActorSchema,
+  InactiveActor,
+  UnauthenticatedActor,
 } from "@vektorprogrammet/domain/admission-period";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import {
   PrincipalSchema,
   Scope,
@@ -18,172 +19,352 @@ import {
   CredentialEvidenceRef,
   DomainId,
 } from "@vektorprogrammet/domain/authz";
-import { ReadInterviewReportEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
-import { Predicate, Option } from "effect";
 import { evaluateRequirement, RequirementId } from "@vektorprogrammet/domain/authz";
-import { PersonId, DepartmentId } from "@vektorprogrammet/domain/organization";
+import { IdentityActor, IdentitySessionNotFound } from "@vektorprogrammet/domain/identity";
 import {
-  RecruitmentInactiveActor,
+  DepartmentId,
+  Organization,
+  OrganizationPersistenceError,
+  PersonId,
+  type OrganizationOperations,
+} from "@vektorprogrammet/domain/organization";
+import { ProfileContactNotFound } from "@vektorprogrammet/domain/profile";
+import {
+  InterviewQuestionsUnavailable,
+  InterviewSchemaId,
+  Recruitment,
   RecruitmentAdmissionPeriodNotFound,
   RecruitmentAmbiguousAdmissionPeriod,
-  RecruitmentApplicationNotFound,
-  RecruitmentInterviewSchemaNotFound,
-  InterviewSchemaId,
   RecruitmentApplicationAlreadyAssigned,
-  RecruitmentInterviewSchemaInactive,
-  RecruitmentInterviewNotFound,
-  RecruitmentInterviewAlreadyScheduled,
-  RecruitmentInterviewStaleRevision,
-  RecruitmentScheduleInPast,
-  RecruitmentInvitationNotFound,
-  RecruitmentInvitationAlreadyResponded,
-  RecruitmentInterviewAlreadyFinalized,
-  RecruitmentInterviewAlreadyCancelled,
-  RecruitmentInterviewNotScheduled,
-  RecruitmentInvitationNotAccepted,
-  RecruitmentConductValidationError,
+  RecruitmentApplicationNotFound,
   RecruitmentAssignmentCommandConflict,
   RecruitmentAssignmentCommandId,
+  RecruitmentConductCommandId,
+  RecruitmentConductValidationError,
+  RecruitmentDecodeError,
+  RecruitmentInactiveActor,
+  RecruitmentInterviewAlreadyCancelled,
+  RecruitmentInterviewAlreadyFinalized,
+  RecruitmentInterviewAlreadyScheduled,
+  RecruitmentInterviewerNotEligible,
+  RecruitmentInterviewId,
+  RecruitmentInterviewNotFound,
+  RecruitmentInterviewNotScheduled,
+  RecruitmentInterviewSchemaInactive,
+  RecruitmentInterviewSchemaNotFound,
+  RecruitmentInterviewStaleRevision,
+  RecruitmentInvalidContext,
+  RecruitmentInvitationAlreadyResponded,
+  RecruitmentInvitationHttpSnapshotSchema,
+  RecruitmentInvitationId,
+  RecruitmentInvitationNotAccepted,
+  RecruitmentInvitationNotFound,
+  RecruitmentInvitationTransition,
+  RecruitmentLifecycleCommandConflict,
+  RecruitmentPersistenceError,
+  RecruitmentRoleDenied,
   RecruitmentScheduleCommandConflict,
   RecruitmentScheduleCommandId,
-  RecruitmentLifecycleCommandConflict,
-  RecruitmentConductCommandId,
-  RecruitmentDecodeError,
-  RecruitmentPersistenceError,
-  RecruitmentInterviewId,
+  RecruitmentScheduleInPast,
+  RecruitmentSchedulingBoardSchema,
+  RecruitmentScopeDenied,
+  type RecruitmentFailure,
+  type RecruitmentOperations,
 } from "@vektorprogrammet/domain/recruitment";
-import { SchedulingBoard } from "@vektorprogrammet/http-api";
-import { RecruitmentSchedulingBoardSchema } from "@vektorprogrammet/domain/recruitment";
-import { Schema } from "effect";
 import {
-  PreconditionDecision,
-  deriveStrongETag,
-  evaluateMutationPrecondition,
-  HttpSemanticFailure,
-} from "../http-semantics.js";
+  NativeProblem,
+  ReadInterviewReportEndpoint,
+  SchedulingBoard,
+  reflectAccessSpec,
+} from "@vektorprogrammet/http-api";
+import { DateTime, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { runTestPromise } from "../../test/runtime.js";
+import { PreconditionDecision, evaluateMutationPrecondition } from "../http-semantics.js";
+import { makeRecruitmentTestHttp } from "../test/native-http.js";
 import { recruitmentInterviewAccessContext } from "./http-access.js";
-import { readRecruitmentRequestBody } from "./http-decode.js";
-import { recruitmentHttpErrorResponse } from "./http-problem.js";
-import {
-  conditionalJsonResponse,
-  interviewETag,
-  schedulingBoardWithETags,
-} from "./http-representation.js";
+import type { RecruitmentApiHttpOptions } from "./http-context.js";
+import { interviewETag, invitationETag, schedulingBoardWithETags } from "./http-representation.js";
+
+const at = "2031-09-15T12:00:00.000Z";
+
+const departmentId = DepartmentId.make("http-department");
+
+const leader = AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+  personId: PersonId.make("http-leader"),
+  departmentId,
+  active: true,
+});
+
+const observation = {
+  scheduledAt: "2031-09-20T10:00:00.000Z",
+  room: "A101",
+  campus: "Gløshaugen",
+  responseState: "Pending",
+  responseMessage: null,
+} as const;
+
+const snapshot = Schema.decodeUnknownSync(RecruitmentInvitationHttpSnapshotSchema)({
+  source: {
+    capabilitySha256: "a".repeat(64),
+    invitationId: "http-invitation",
+    interviewId: "http-interview",
+    departmentId,
+    scheduleRevision: 2,
+    responseRevision: 0,
+    responseState: "Pending",
+    supersededAt: null,
+  },
+  observation,
+});
+
+/** The failure every domain call answers; without one, an invitation reads and answers. */
+let injected: RecruitmentFailure | undefined;
+
+const transitions: Array<RecruitmentInvitationTransition> = [];
+
+const injectedFailure = () =>
+  Effect.suspend(() =>
+    injected === undefined ? Effect.die("no recruitment failure injected") : Effect.fail(injected),
+  );
+
+const recruitment = {
+  readInvitationSnapshot: () =>
+    Effect.suspend(() =>
+      injected === undefined ? Effect.succeed(snapshot) : Effect.fail(injected),
+    ),
+  transitionInvitation: ({
+    transition,
+  }: {
+    readonly transition: RecruitmentInvitationTransition;
+  }) =>
+    Effect.sync(() => {
+      transitions.push(transition);
+
+      return { ...snapshot, source: { ...snapshot.source, responseRevision: 1 } };
+    }),
+  readAssignmentBoard: injectedFailure,
+  readSchedulingBoard: injectedFailure,
+  resolveInterviewReportLeader: injectedFailure,
+  prepareAssignment: injectedFailure,
+  prepareInterview: injectedFailure,
+} satisfies Partial<RecruitmentOperations>;
+
+const organization = {
+  resolvePersonAuthority: (personId: PersonId) =>
+    Effect.succeed({
+      personId,
+      evaluatedAt: at,
+      globalAdministrator: "Absent",
+      memberships: [],
+    }),
+} satisfies Partial<OrganizationOperations>;
+
+const identitySnapshot = IdentitySnapshot.of({
+  resolveSession: (cookie) => {
+    const person = /better-auth\.session_token=([^;]+)/u.exec(cookie ?? "")?.[1];
+
+    return person === undefined
+      ? Effect.fail(new IdentitySessionNotFound())
+      : Effect.succeed(
+          new IdentityActor({
+            personId: PersonId.make(person),
+            sessionId: `session-${person}`,
+            expiresAt: DateTime.makeUnsafe(new Date("2099-01-01T00:00:00.000Z")),
+          }),
+        );
+  },
+  revokeCurrentSession: () => Effect.die("unexpected session mutation"),
+  revokeSession: () => Effect.die("unexpected session mutation"),
+  revokeOtherSessions: () => Effect.die("unexpected session mutation"),
+  revokeAllSessions: () => Effect.die("unexpected session mutation"),
+});
+
+/** The recruitment ingress as a department leader reaches it. */
+const ingress = (
+  resolveActor: RecruitmentApiHttpOptions["resolveActor"] = () => Effect.succeed(leader),
+) =>
+  makeRecruitmentTestHttp(
+    {
+      config: {
+        maxBodyBytes: 256,
+        now: () => at,
+        nextInterviewId: () => RecruitmentInterviewId.make("http-unexpected-interview"),
+        nextInvitationId: () => RecruitmentInvitationId.make("http-unexpected-invitation"),
+        nextResponseCapability: () => "unexpected".padEnd(43, "_"),
+      },
+      resolveActor,
+    },
+    Layer.mergeAll(
+      Layer.mock(Recruitment, recruitment),
+      Layer.mock(Organization, organization),
+      Layer.succeed(IdentitySnapshot, identitySnapshot),
+    ),
+  );
+
+/** An invitation capability holder's read (`""`) or response. */
+const invitation = (
+  action: "" | ":confirm" | ":reject",
+  init: {
+    readonly headers?: Record<string, string>;
+    readonly body?: string | ReadableStream<Uint8Array>;
+  } = {},
+) => {
+  const headers = new Headers({ "x-recruitment-invitation-capability": "http".padEnd(43, "_") });
+
+  if (action !== "") {
+    headers.set("content-type", "application/json");
+    headers.set("if-match", invitationETag(snapshot.source));
+    headers.set("origin", "http://127.0.0.1:5174");
+  }
+
+  for (const [name, value] of Object.entries(init.headers ?? {})) headers.set(name, value);
+
+  return new Request(`http://backend.test/api/recruitment/invitation-response${action}`, {
+    method: action === "" ? "GET" : "POST",
+    headers,
+    body: init.body,
+    duplex: "half",
+  } satisfies RequestInit & { readonly duplex: "half" });
+};
+
+/** A request of a person with a current session; a method makes it a command. */
+const person = (
+  path: string,
+  init: {
+    readonly method?: string;
+    readonly body?: string;
+    readonly headers?: Record<string, string>;
+  } = {},
+) => {
+  const headers = new Headers({ cookie: "better-auth.session_token=http-leader" });
+
+  if (init.method !== undefined) {
+    headers.set("content-type", "application/json");
+    headers.set("idempotency-key", "http-command".padEnd(22, "0"));
+    headers.set("origin", "http://127.0.0.1:5174");
+  }
+
+  for (const [name, value] of Object.entries(init.headers ?? {})) headers.set(name, value);
+
+  return new Request(`http://backend.test${path}`, {
+    method: init.method ?? "GET",
+    headers,
+    body: init.body,
+  });
+};
+
+const anyValidator = '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"';
+
+const schedulingBoard = () => person("/api/recruitment/interviews");
+
+const assignmentBoard = () => person("/api/recruitment/application-assignments?status=new");
+
+const interviewConduct = () => person("/api/recruitment/interviews/http-interview");
+
+const interviewReport = () => person("/api/recruitment/interview-report");
+
+const createInterview = () =>
+  person("/api/recruitment/applications/http-application/interviews", {
+    method: "POST",
+    body: JSON.stringify({ interviewerPersonId: "http-leader", interviewSchemaId: "http-schema" }),
+  });
+
+const scheduleInterview = () =>
+  person("/api/recruitment/interviews/http-interview:schedule", {
+    method: "POST",
+    headers: { "if-match": anyValidator },
+    body: JSON.stringify({
+      scheduledAt: "2031-09-20T10:00:00.000Z",
+      room: "A101",
+      campus: null,
+      mapLink: null,
+      message: "Velkommen.",
+    }),
+  });
+
+const finalizeInterview = () =>
+  person("/api/recruitment/interviews/http-interview:finalize", {
+    method: "POST",
+    headers: { "if-match": anyValidator },
+    body: JSON.stringify({
+      answers: [{ questionId: "q-1", answer: "Svar" }],
+      score: { explanatoryPower: 4, roleModel: 5, suitability: 6 },
+      recommendation: "Ja",
+    }),
+  });
+
+const invitationResponse = () => invitation("");
+
+const rejectInvitation = () => invitation(":reject", { body: "{}" });
+
+const problemOf = async (response: Response) => ({
+  status: response.status,
+  code: Schema.decodeUnknownSync(NativeProblem)(await response.json()).code,
+});
 
 describe("native recruitment HTTP boundary", () => {
   it("accepts one bounded JSON object and rejects invalid transport bodies", async () => {
-    await expect(
-      runTestPromise(
-        readRecruitmentRequestBody(
-          new Request("http://backend.test/api/recruitment/invitation-response:reject", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ message: "Another time" }),
-          }),
-          64,
+    const http = ingress();
+    transitions.length = 0;
+
+    const accepted = await http.fetch(
+      invitation(":reject", { body: JSON.stringify({ message: "Another time" }) }),
+    );
+
+    expect(accepted.status).toBe(204);
+    expect(transitions).toEqual([
+      RecruitmentInvitationTransition.Reject({ message: "Another time" }),
+    ]);
+
+    expect(
+      await problemOf(
+        await http.fetch(invitation(":reject", { body: '{"message":"first","message":"second"}' })),
+      ),
+    ).toEqual({ status: 400, code: "request.malformed" });
+
+    expect(
+      await problemOf(
+        await http.fetch(
+          invitation(":reject", { headers: { "content-type": "text/plain" }, body: "{}" }),
         ),
       ),
-    ).resolves.toEqual({ message: "Another time" });
+    ).toEqual({ status: 415, code: "media-type.unsupported" });
 
-    const duplicate = runTestPromise(
-      readRecruitmentRequestBody(
-        new Request("http://backend.test/api/recruitment/invitation-response:reject", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: '{"message":"first","message":"second"}',
-        }),
-        128,
+    // request.malformed is the only client problem a confirmation declares.
+    expect(
+      await problemOf(
+        await http.fetch(
+          invitation(":confirm", { body: JSON.stringify({ unexpected: "x".repeat(256) }) }),
+        ),
       ),
-    );
-
-    await expect(duplicate).rejects.toMatchObject({
-      name: "HttpSemanticFailure",
-      code: "request.malformed",
-      status: 400,
-    });
-
-    const unsupported = runTestPromise(
-      readRecruitmentRequestBody(
-        new Request("http://backend.test/api/recruitment/invitation-response:reject", {
-          method: "POST",
-          headers: { "content-type": "text/plain" },
-          body: "{}",
-        }),
-        64,
-      ),
-    );
-
-    await expect(unsupported).rejects.toMatchObject({
-      code: "media-type.unsupported",
-      status: 415,
-    });
-
-    const oversizedConfirm = runTestPromise(
-      readRecruitmentRequestBody(
-        new Request("http://backend.test/api/recruitment/invitation-response:confirm", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ unexpected: "x".repeat(64) }),
-        }),
-        16,
-        true,
-      ),
-    );
-
-    await expect(oversizedConfirm).rejects.toMatchObject({
-      code: "request.malformed",
-      status: 400,
-    });
+    ).toEqual({ status: 400, code: "request.malformed" });
 
     let cancelled = false;
+    let chunks = 0;
 
     const streamed = new ReadableStream<Uint8Array>({
-      pull: (controller) => controller.enqueue(new Uint8Array(12)),
+      pull: (controller) => {
+        chunks += 1;
+
+        if (chunks > 32) controller.close();
+        else controller.enqueue(new Uint8Array(12));
+      },
       cancel: () => {
         cancelled = true;
       },
     });
 
-    await expect(
-      runTestPromise(
-        readRecruitmentRequestBody(
-          new Request("http://backend.test/api/recruitment/invitation-response:reject", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: streamed,
-            duplex: "half",
-          } satisfies RequestInit & { readonly duplex: "half" }),
-          16,
-        ),
-      ),
-    ).rejects.toMatchObject({ code: "request.too-large", status: 413 });
+    expect(await problemOf(await http.fetch(invitation(":reject", { body: streamed })))).toEqual({
+      status: 413,
+      code: "request.too-large",
+    });
     expect(cancelled).toBe(true);
   });
 
   it("applies strong validators only after the private representation exists", async () => {
-    const etag = deriveStrongETag({
-      representationKind: "InvitationResponseObservation",
-      resourceIdentity: "recruitment-invitation:invitation-1",
-      version: [2, 3],
-    });
-
-    const body = {
-      scheduledAt: "2031-09-20T10:00:00.000Z",
-      room: "A101",
-      campus: "Gløshaugen",
-      responseState: "Pending",
-      responseMessage: null,
-    };
-
-    const fresh = await runTestPromise(
-      conditionalJsonResponse(
-        new Request("http://backend.test/api/recruitment/invitation-response"),
-        body,
-        etag,
-      ),
-    );
+    const http = ingress();
+    const etag = invitationETag(snapshot.source);
+    const fresh = await http.fetch(invitation(""));
 
     expect({
       status: fresh.status,
@@ -196,18 +377,10 @@ describe("native recruitment HTTP boundary", () => {
       etag,
       cacheControl: "private, no-store",
       vary: "Origin",
-      body,
+      body: observation,
     });
 
-    const notModified = await runTestPromise(
-      conditionalJsonResponse(
-        new Request("http://backend.test/api/recruitment/invitation-response", {
-          headers: { "if-none-match": etag },
-        }),
-        body,
-        etag,
-      ),
-    );
+    const notModified = await http.fetch(invitation("", { headers: { "if-none-match": etag } }));
 
     expect({
       status: notModified.status,
@@ -223,21 +396,11 @@ describe("native recruitment HTTP boundary", () => {
       body: "",
     });
 
-    const stale = await runTestPromise(
-      conditionalJsonResponse(
-        new Request("http://backend.test/api/recruitment/invitation-response", {
-          headers: { "if-match": '"vkr2.stale"' },
-        }),
-        body,
-        etag,
+    expect(
+      await problemOf(
+        await http.fetch(invitation("", { headers: { "if-match": '"vkr2.stale"' } })),
       ),
-    );
-
-    expect(stale.status).toBe(412);
-    await expect(stale.json()).resolves.toMatchObject({
-      status: 412,
-      type: "urn:vektorprogrammet:problem:v0.2:precondition.failed",
-    });
+    ).toEqual({ status: 412, code: "precondition.failed" });
   });
 
   it("exposes mutation-compatible strong ETags on scheduling items", () => {
@@ -347,201 +510,233 @@ describe("native recruitment HTTP boundary", () => {
   });
 
   it("maps recruitment failures to the frozen RFC 9457 problem vocabulary", async () => {
+    const http = ingress();
+    const personId = PersonId.make("fixture-person");
+    const interviewId = RecruitmentInterviewId.make("fixture-id");
+    const applicationId = PublicApplicationIdSchema.make("fixture-id");
+    const interviewSchemaId = InterviewSchemaId.make("fixture-id");
+
+    // Each failure is answered by an operation that declares its problem.
     const cases = [
+      [new RecruitmentInactiveActor({ personId }), schedulingBoard, 403, "authority.denied"],
+      [new InactiveActor({ personId }), schedulingBoard, 403, "authority.denied"],
+      [new RecruitmentRoleDenied({ personId }), schedulingBoard, 403, "authority.denied"],
       [
-        new RecruitmentInactiveActor({ personId: PersonId.make("fixture-person") }),
+        new RecruitmentScopeDenied({ personId, departmentId }),
+        interviewConduct,
         403,
         "authority.denied",
       ],
       [
-        new RecruitmentAdmissionPeriodNotFound({
-          departmentId: DepartmentId.make("fixture-department"),
-        }),
+        new RecruitmentInterviewerNotEligible({ personId, departmentId }),
+        createInterview,
+        403,
+        "authority.denied",
+      ],
+      [
+        new RecruitmentAdmissionPeriodNotFound({ departmentId }),
+        assignmentBoard,
         404,
         "recruitment.admission-period-not-found",
       ],
       [
-        new RecruitmentAmbiguousAdmissionPeriod({
-          departmentId: DepartmentId.make("fixture-department"),
-        }),
+        new RecruitmentAmbiguousAdmissionPeriod({ departmentId }),
+        assignmentBoard,
         409,
         "application.ambiguous-period",
       ],
       [
-        new RecruitmentApplicationNotFound({
-          applicationId: PublicApplicationIdSchema.make("fixture-id"),
-        }),
+        new RecruitmentApplicationNotFound({ applicationId }),
+        createInterview,
         404,
         "recruitment.application-not-found",
       ],
       [
-        new RecruitmentInterviewSchemaNotFound({
-          interviewSchemaId: InterviewSchemaId.make("fixture-id"),
-        }),
+        new RecruitmentInterviewSchemaNotFound({ interviewSchemaId }),
+        createInterview,
         404,
         "recruitment.interview-schema-not-found",
       ],
       [
-        new RecruitmentApplicationAlreadyAssigned({
-          applicationId: PublicApplicationIdSchema.make("fixture-id"),
-        }),
+        new RecruitmentApplicationAlreadyAssigned({ applicationId }),
+        createInterview,
         409,
         "recruitment.application-already-assigned",
       ],
       [
-        new RecruitmentInterviewSchemaInactive({
-          interviewSchemaId: InterviewSchemaId.make("fixture-id"),
-        }),
+        new RecruitmentInterviewSchemaInactive({ interviewSchemaId }),
+        createInterview,
         422,
         "recruitment.interview-schema-inactive",
-      ],
-      [
-        new RecruitmentInterviewNotFound({
-          interviewId: RecruitmentInterviewId.make("fixture-id"),
-        }),
-        404,
-        "recruitment.interview-not-found",
-      ],
-      [
-        new RecruitmentInterviewAlreadyScheduled({
-          interviewId: RecruitmentInterviewId.make("fixture-id"),
-        }),
-        409,
-        "recruitment.already-scheduled",
-      ],
-      [
-        new RecruitmentInterviewStaleRevision({
-          interviewId: RecruitmentInterviewId.make("fixture-id"),
-          expectedRevision: 1,
-          actualRevision: 2,
-        }),
-        412,
-        "precondition.failed",
-      ],
-      [
-        new RecruitmentScheduleInPast({ interviewId: RecruitmentInterviewId.make("fixture-id") }),
-        422,
-        "recruitment.schedule-in-past",
-      ],
-      [new RecruitmentInvitationNotFound({}), 404, "resource.not-found"],
-      [new RecruitmentInvitationAlreadyResponded({}), 409, "invitation.already-responded"],
-      [
-        new RecruitmentInterviewAlreadyFinalized({
-          interviewId: RecruitmentInterviewId.make("fixture-id"),
-        }),
-        409,
-        "recruitment.already-finalized",
-      ],
-      [
-        new RecruitmentInterviewAlreadyCancelled({
-          interviewId: RecruitmentInterviewId.make("fixture-id"),
-        }),
-        409,
-        "recruitment.already-cancelled",
-      ],
-      [
-        new RecruitmentInterviewNotScheduled({
-          interviewId: RecruitmentInterviewId.make("fixture-id"),
-        }),
-        409,
-        "recruitment.interview-not-scheduled",
-      ],
-      [
-        new RecruitmentInvitationNotAccepted({
-          interviewId: RecruitmentInterviewId.make("fixture-id"),
-          responseState: "fixture",
-        }),
-        409,
-        "recruitment.invitation-not-accepted",
-      ],
-      [
-        new RecruitmentConductValidationError({
-          interviewId: RecruitmentInterviewId.make("fixture-id"),
-          message: "fixture",
-        }),
-        422,
-        "recruitment.conduct-invalid",
       ],
       [
         new RecruitmentAssignmentCommandConflict({
           commandId: RecruitmentAssignmentCommandId.make("fixture-id"),
         }),
+        createInterview,
         409,
         "idempotency.digest-conflict",
+      ],
+      [
+        new InterviewQuestionsUnavailable({ interviewSchemaId, reason: "fixture" }),
+        createInterview,
+        503,
+        "dependency.unavailable",
+      ],
+      [
+        new RecruitmentInterviewNotFound({ interviewId }),
+        interviewConduct,
+        404,
+        "recruitment.interview-not-found",
+      ],
+      [
+        new RecruitmentInterviewNotScheduled({ interviewId }),
+        interviewConduct,
+        409,
+        "recruitment.interview-not-scheduled",
+      ],
+      [
+        new RecruitmentInvitationNotAccepted({ interviewId, responseState: "fixture" }),
+        interviewConduct,
+        409,
+        "recruitment.invitation-not-accepted",
+      ],
+      [
+        new RecruitmentInterviewAlreadyScheduled({ interviewId }),
+        scheduleInterview,
+        409,
+        "recruitment.already-scheduled",
+      ],
+      [
+        new RecruitmentInterviewStaleRevision({
+          interviewId,
+          expectedRevision: 1,
+          actualRevision: 2,
+        }),
+        scheduleInterview,
+        412,
+        "precondition.failed",
+      ],
+      [
+        new RecruitmentScheduleInPast({ interviewId }),
+        scheduleInterview,
+        422,
+        "recruitment.schedule-in-past",
       ],
       [
         new RecruitmentScheduleCommandConflict({
           commandId: RecruitmentScheduleCommandId.make("fixture-id"),
         }),
+        scheduleInterview,
         409,
         "idempotency.digest-conflict",
+      ],
+      [
+        new RecruitmentInterviewAlreadyFinalized({ interviewId }),
+        finalizeInterview,
+        409,
+        "recruitment.already-finalized",
+      ],
+      [
+        new RecruitmentInterviewAlreadyCancelled({ interviewId }),
+        finalizeInterview,
+        409,
+        "recruitment.already-cancelled",
+      ],
+      [
+        new RecruitmentConductValidationError({ interviewId, message: "fixture" }),
+        finalizeInterview,
+        422,
+        "recruitment.conduct-invalid",
       ],
       [
         new RecruitmentLifecycleCommandConflict({
           commandId: RecruitmentConductCommandId.make("fixture-id"),
         }),
+        finalizeInterview,
         409,
         "idempotency.digest-conflict",
       ],
+      [new RecruitmentInvitationNotFound({}), invitationResponse, 404, "resource.not-found"],
       [
-        new NativeHttpReceiptPersistenceError({
-          operation: "execute",
-          cause: new Error("fixture"),
-        }),
-        503,
-        "idempotency.unavailable",
+        new RecruitmentInvitationAlreadyResponded({}),
+        rejectInvitation,
+        409,
+        "invitation.already-responded",
       ],
       [
         new RecruitmentPersistenceError({ operation: "fixture", message: "fixture" }),
+        schedulingBoard,
+        503,
+        "recruitment.unavailable",
+      ],
+      [
+        new RecruitmentPersistenceError({ operation: "fixture", message: "fixture" }),
+        rejectInvitation,
         503,
         "dependency.unavailable",
       ],
-      [new RecruitmentDecodeError({ message: "fixture" }), 500, "internal.error"],
+      [new ProfileContactNotFound({ personId }), rejectInvitation, 503, "dependency.unavailable"],
+      [new RecruitmentDecodeError({ message: "fixture" }), schedulingBoard, 500, "internal.error"],
+      [
+        new RecruitmentInvalidContext({ message: "fixture" }),
+        assignmentBoard,
+        500,
+        "internal.error",
+      ],
+      [
+        new OrganizationPersistenceError({ operation: "fixture", message: "fixture" }),
+        schedulingBoard,
+        500,
+        "internal.error",
+      ],
     ] as const;
 
-    for (const [failure, status, code] of cases) {
-      const response = recruitmentHttpErrorResponse(failure);
-      expect(response.status).toBe(status);
-      await expect(response.json()).resolves.toMatchObject({
+    for (const [failure, request, status, code] of cases) {
+      injected = failure;
+
+      expect({ failure: failure._tag, ...(await problemOf(await http.fetch(request()))) }).toEqual({
+        failure: failure._tag,
         status,
-        type: `urn:vektorprogrammet:problem:v0.2:${code}`,
+        code,
       });
     }
 
-    const unauthorized = recruitmentHttpErrorResponse(
-      new UnauthenticatedActor({ message: "Authentication required" }),
-    );
+    injected = undefined;
 
-    expect(unauthorized.status).toBe(401);
-    expect(unauthorized.headers.get("www-authenticate")).toBe(
+    const unauthenticated = await ingress(() =>
+      Effect.fail(new UnauthenticatedActor({ message: "Authentication required" })),
+    ).fetch(schedulingBoard());
+
+    expect(unauthenticated.headers.get("www-authenticate")).toBe(
       'VektorSession realm="native-api", Bearer realm="native-api"',
     );
+    expect(await problemOf(unauthenticated)).toEqual({ status: 401, code: "credential.invalid" });
 
-    const malformed = recruitmentHttpErrorResponse(
-      new HttpSemanticFailure("request.malformed", 400),
-    );
-
-    expect(malformed.status).toBe(400);
-    await expect(malformed.json()).resolves.toMatchObject({
+    expect(await problemOf(await http.fetch(person("/api/recruitment/interviews?x=1")))).toEqual({
       status: 400,
-      type: "urn:vektorprogrammet:problem:v0.2:request.malformed",
+      code: "request.malformed",
     });
   });
 });
 
 it("preserves the native conflict protocol for PostgreSQL snapshot and deadlock failures", async () => {
-  for (const code of ["40001", "40P01"]) {
-    const response = recruitmentHttpErrorResponse(
-      new RecruitmentPersistenceError({
-        operation: "fixture",
-        message: "Transaction failed",
-        cause: { cause: { code } },
-      }),
-    );
+  const http = ingress();
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ code: "transaction.conflict" });
+  for (const code of ["40001", "40P01"]) {
+    injected = new RecruitmentPersistenceError({
+      operation: "fixture",
+      message: "Transaction failed",
+      cause: { cause: { code } },
+    });
+
+    expect(await problemOf(await http.fetch(interviewReport()))).toEqual({
+      status: 409,
+      code: "transaction.conflict",
+    });
   }
+
+  injected = undefined;
 });
 
 it("denies a suspended assigned member in the HTTP access context used before receipt replay", () => {

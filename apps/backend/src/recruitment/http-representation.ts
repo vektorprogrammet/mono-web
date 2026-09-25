@@ -1,4 +1,4 @@
-/** Recruitment HTTP representations: cache policies, response schemas, ETags, and conditional reads. */
+/** Recruitment HTTP representations: ETags, scheduling items, and a legacy conditional read. */
 import type {
   RecruitmentAuthorityHttpSource,
   RecruitmentInterviewHttpSource,
@@ -6,9 +6,11 @@ import type {
   RecruitmentSchedulingBoard,
 } from "@vektorprogrammet/domain/recruitment";
 import type { StrongETag } from "@vektorprogrammet/http-api";
-import { Effect, Predicate, Schema, flow } from "effect";
+import { Cause, Effect, Predicate, type Schema } from "effect";
+import { headerValues } from "../http-api/problem.js";
 import {
   HttpSemanticFailure,
+  PRIVATE_NO_STORE,
   deriveStrongETag,
   evaluateReadPreconditions,
   nativeProblemResponse,
@@ -16,19 +18,6 @@ import {
   parseIfNoneMatch,
   parseReadIfMatch,
 } from "../http-semantics.js";
-import { headerValues } from "./http-decode.js";
-import { knownRecruitmentFailure } from "./http-problem.js";
-
-export const NO_STORE = "no-store";
-
-export const PRIVATE_NO_STORE = "private, no-store";
-
-/** A domain observation that does not fit its response schema is an internal error. */
-export const strictOutput = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
-  flow(
-    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
-  );
 
 export const invitationETag = (source: RecruitmentInvitationHttpSource): StrongETag =>
   deriveStrongETag({
@@ -69,6 +58,10 @@ export const schedulingBoardWithETags = (
   })),
 });
 
+/**
+ * Legacy raw-problem conditional read that substitutes still imports.
+ * Recruitment's own reads answer through the shared `conditionalJson`.
+ */
 export const conditionalJsonResponse = (request: Request, body: Schema.Json, etag: StrongETag) =>
   Effect.try({
     try: () => {
@@ -95,5 +88,6 @@ export const conditionalJsonResponse = (request: Request, body: Schema.Json, eta
         },
       });
     },
-    catch: knownRecruitmentFailure,
+    catch: (cause) =>
+      cause instanceof HttpSemanticFailure ? cause : new Cause.UnknownError(cause),
   });

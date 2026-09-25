@@ -2,16 +2,18 @@
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { toHttpApiResponse } from "../http-api/transport.js";
+import { webHandler } from "../http-api/problem.js";
 import {
+  cancelInterview,
+  confirmInvitation,
   correctInterviewAssessment,
   createApplicationInterview,
-  invitationMutation,
-  lifecycleInterview,
+  finalizeInterview,
+  rejectInvitation,
+  requestNewInvitationTime,
   scheduleInterview,
 } from "./http-commands.js";
 import type { RecruitmentApiHttpOptions } from "./http-context.js";
-import { recruitmentHttpErrorResponse } from "./http-problem.js";
 import {
   readAssignmentBoard,
   readInterviewConduct,
@@ -19,123 +21,75 @@ import {
   readInvitationResponse,
   readSchedulingBoard,
 } from "./http-reads.js";
-import {
-  maintainRecruitmentHttp,
-  readRecruitmentMaintenanceHttp,
-  recruitmentMaintenanceErrorResponse,
-} from "./maintenance-http.js";
+import { maintainRecruitmentHttp, readRecruitmentMaintenanceHttp } from "./maintenance-http.js";
 
 /** Native HttpApi implementations for all frozen recruitment operations. */
-export const RecruitmentApiHandlers = <E, R>(input: RecruitmentApiHttpOptions<E, R>) =>
+export const RecruitmentApiHandlers = <R>(input: RecruitmentApiHttpOptions<R>) =>
   HttpApiBuilder.group(ExternalNativeApi, "recruitment", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readQuestionnaires", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readRecruitmentMaintenanceHttp(webRequest, "questionnaires"),
-            recruitmentMaintenanceErrorResponse,
+          webHandler(request, (webRequest) =>
+            readRecruitmentMaintenanceHttp(webRequest, "questionnaires"),
           ),
         )
         .handleRaw("readInterviewStaffing", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readRecruitmentMaintenanceHttp(webRequest, "staffing"),
-            recruitmentMaintenanceErrorResponse,
+          webHandler(request, (webRequest) =>
+            readRecruitmentMaintenanceHttp(webRequest, "staffing"),
           ),
         )
         .handleRaw("maintainRecruitment", ({ request }) =>
-          toHttpApiResponse(request, maintainRecruitmentHttp, recruitmentMaintenanceErrorResponse),
+          webHandler(request, maintainRecruitmentHttp),
         )
         .handleRaw("readInterviewReport", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readInterviewReport(webRequest, input),
-            (cause) => recruitmentHttpErrorResponse(cause, "recruitment.unavailable"),
-          ),
+          webHandler(request, (webRequest) => readInterviewReport(webRequest, input)),
         )
         .handleRaw("readInvitationResponse", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readInvitationResponse(webRequest, input),
-            (cause) => recruitmentHttpErrorResponse(cause, "recruitment.unavailable"),
-          ),
+          webHandler(request, (webRequest) => readInvitationResponse(webRequest, input)),
         )
         .handleRaw("confirmInvitation", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => invitationMutation(webRequest, "Confirm", input),
-            recruitmentHttpErrorResponse,
-          ),
+          webHandler(request, (webRequest) => confirmInvitation(webRequest, input)),
         )
         .handleRaw("rejectInvitation", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => invitationMutation(webRequest, "Reject", input),
-            recruitmentHttpErrorResponse,
-          ),
+          webHandler(request, (webRequest) => rejectInvitation(webRequest, input)),
         )
         .handleRaw("requestNewInvitationTime", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => invitationMutation(webRequest, "RequestNewTime", input),
-            recruitmentHttpErrorResponse,
-          ),
+          webHandler(request, (webRequest) => requestNewInvitationTime(webRequest, input)),
         )
         .handleRaw("readAssignmentBoard", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readAssignmentBoard(webRequest, input),
-            (cause) => recruitmentHttpErrorResponse(cause, "recruitment.unavailable"),
-          ),
+          webHandler(request, (webRequest) => readAssignmentBoard(webRequest, input)),
         )
         .handleRaw("readSchedulingBoard", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readSchedulingBoard(webRequest, input),
-            (cause) => recruitmentHttpErrorResponse(cause, "recruitment.unavailable"),
-          ),
+          webHandler(request, (webRequest) => readSchedulingBoard(webRequest, input)),
         )
         .handleRaw("createApplicationInterview", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => createApplicationInterview(webRequest, params.applicationId, input),
-            recruitmentHttpErrorResponse,
+          webHandler(request, (webRequest) =>
+            createApplicationInterview(webRequest, params.applicationId, input),
           ),
         )
         .handleRaw("scheduleInterview", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => scheduleInterview(webRequest, params.interviewId, input),
-            recruitmentHttpErrorResponse,
+          webHandler(request, (webRequest) =>
+            scheduleInterview(webRequest, params.interviewId, input),
           ),
         )
         .handleRaw("readInterviewConduct", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readInterviewConduct(webRequest, params.interviewId, input),
-            (cause) => recruitmentHttpErrorResponse(cause, "recruitment.unavailable"),
+          webHandler(request, (webRequest) =>
+            readInterviewConduct(webRequest, params.interviewId, input),
           ),
         )
         .handleRaw("finalizeInterview", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => lifecycleInterview(webRequest, params.interviewId, "Finalize", input),
-            recruitmentHttpErrorResponse,
+          webHandler(request, (webRequest) =>
+            finalizeInterview(webRequest, params.interviewId, input),
           ),
         )
         .handleRaw("correctInterviewAssessment", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => correctInterviewAssessment(webRequest, params.interviewId, input),
-            recruitmentHttpErrorResponse,
+          webHandler(request, (webRequest) =>
+            correctInterviewAssessment(webRequest, params.interviewId, input),
           ),
         )
         .handleRaw("cancelInterview", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => lifecycleInterview(webRequest, params.interviewId, "Cancel", input),
-            recruitmentHttpErrorResponse,
+          webHandler(request, (webRequest) =>
+            cancelInterview(webRequest, params.interviewId, input),
           ),
         ),
     ),
