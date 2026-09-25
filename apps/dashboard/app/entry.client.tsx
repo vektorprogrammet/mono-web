@@ -10,6 +10,7 @@ import { registerRecruitmentMaintenanceElements } from "./foldkit/recruitment-ma
 import { registerContentWorkspaceElement } from "./foldkit/content/elements";
 import { registerSocialEventsElement } from "./foldkit/social-events/elements";
 import { registerSchoolSurveysElement } from "./foldkit/surveys/elements";
+import { registerTeamApplicationsElement } from "./foldkit/team-applications/elements";
 
 import { registerDatedServiceElement } from "./foldkit/dated-school-service/elements";
 
@@ -24,6 +25,7 @@ function HydrationSafeRouter() {
     registerSchoolSurveysElement();
     registerDatedServiceElement();
     registerProfileEditorElement();
+    registerTeamApplicationsElement();
 
     // Preview devtools (design spec 0074): production registers the ordinary
     // dashboard element. Only a build-time true constant can fetch the preview
