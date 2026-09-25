@@ -255,7 +255,14 @@ const spawnOwned = (ledger: Ledger) =>
       Effect.exit,
       Effect.flatMap((exit) =>
         Effect.gen(function* () {
-          entry.exit = Exit.isSuccess(exit) ? `code ${exit.value}` : Cause.pretty(exit.cause);
+          const error = Exit.isSuccess(exit) ? undefined : Cause.squash(exit.cause);
+
+          // The spawner wraps the signal report in a PlatformError cause.
+          entry.exit = Exit.isSuccess(exit)
+            ? `code ${exit.value}`
+            : error instanceof Error && error.cause instanceof Error
+              ? error.cause.message
+              : String(error);
 
           if (spec.supervised === true && !entry.stopping)
             yield* Deferred.succeed(
