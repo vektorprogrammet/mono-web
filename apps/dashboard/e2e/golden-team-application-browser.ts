@@ -9,12 +9,16 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import AxeBuilder from "@axe-core/playwright";
-import { chromium, expect, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, expect as baseExpect, type BrowserContext, type Page } from "@playwright/test";
 import { OrganizationLifecycleCommand } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
+
+// Production bundles load their workflow before rendering server facts; five seconds is too tight.
+const expect = baseExpect.configure({ timeout: 15_000 });
 
 /** Ordered checkpoints and the frozen journey items each binds. */
 export const teamApplicationCheckpoints = [
@@ -908,6 +912,26 @@ export const runTeamApplicationBrowser = async (
     await checkpoint("unattended-recovery");
 
     return checks;
+  } catch (error) {
+    // Keep what every open page showed, so a failed run explains itself.
+    const pages = browser.contexts().flatMap((context) => context.pages());
+
+    const observed = await Promise.all(
+      pages.map(async (page, index) => {
+        await page.screenshot({ path: join(input.artifacts, `failure-${index}.png`), fullPage: true }).catch(() => undefined);
+
+        return {
+          url: page.url(),
+          text: String(await page.evaluate("document.body.innerText").catch(() => "")).slice(0, 2_000),
+        };
+      }),
+    );
+
+    await writeFile(join(input.artifacts, "browser-failure.json"), JSON.stringify({ checks, observed }, null, 2), {
+      mode: 0o600,
+    }).catch(() => undefined);
+
+    throw error;
   } finally {
     signal.removeEventListener("abort", abort);
     await browser.close();
