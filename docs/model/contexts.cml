@@ -1,0 +1,2019 @@
+/*
+ * Vektorprogrammet: intended bounded contexts, context map and aggregates (Context Mapper CML).
+ *
+ * docs/system.md is the product authority and docs/architecture.md holds the technical boundaries.
+ * This model states intent; it does not describe the code on main. docs/model/authority.als states
+ * and checks the role and principal algebra that the AccessControl context publishes.
+ *
+ * Decisions that this model encodes:
+ * - Semesters are derived from the calendar; AcademicCalendar is upstream.
+ * - TeamApplications owns team intake with its own revision.
+ * - Recruitment owns the onboarding invitation; Identity owns the one-time account claim.
+ * - Positions are managed reference data. Free-text titles are mapped once at import.
+ * - Admissions owns the application's year of study; Substitutes reads it.
+ * - Event payloads carry identifiers plus closed non-personal values; no names, contact details or free text.
+ * - A request that presents more than one credential fails, whatever their kinds.
+ * - The existing-account claim uses the session as its principal; the claim token is the named
+ *   requirement onboarding.claim-token, single-use and bound to its claim target.
+ * - Principal-side grants and roles are independent; ending a grant removes no role authority.
+ * - A department board (Styret) and the national board (Hovedstyret) are units like teams: scopes,
+ *   never holders. A board position carries capabilities with its board's reach: Styret reaches its
+ *   department, Hovedstyret every department. The global-administrator grant is a separate
+ *   principal-side grant for system administration; a Hovedstyret seat does not imply it.
+ * - Roster member, offer candidate and applicant are role types.
+ * - An interviewer schedules under the named requirement recruitment.interviewer-appointment.
+ * - The substitute pool is keyed by Person; until the Substitutes cutover re-keys it, the holder is
+ *   derived through the applicant link.
+ * - The payment destination is Economy-private data keyed by the payment-authority grant.
+ * - Contact submission is anonymous and rate limited; the homepage deployment secret names no principal.
+ * - School contacts are data, not principals or role holders.
+ *
+ * Conventions used in this file:
+ * - Identity value objects (XId) are declared once, in the owning context. Downstream contexts hold
+ *   the identifier value as a plain attribute type (no "-" reference): they reference the published
+ *   language, not the upstream entity.
+ * - Authority on a write is a doc string on the operation or command:
+ *   "capability: <id>; requirement: <relationship>; scope: <resolver>; decisionTime: Transaction".
+ *   AccessControl owns the vocabulary; the aggregate treats the resolved actor as a guard input.
+ *   Requirement words: "team.member" and "team.leader" are appointments on an ordinary team, with team
+ *   reach. "board.seat covering X" is an effective seat on a board whose position carries the
+ *   capability and whose reach covers X (a department board reaches its department, the national board
+ *   every department). "coordinator(X)" is a board seat covering X whose position carries a placement
+ *   or coverage capability. "global.administrator" is an active principal-side grant. A named
+ *   requirement is written "requirement <id>"; it restricts a permit and never grants one.
+ * - Invariants are doc strings that start with "invariant:" on the aggregate.
+ * - Lifecycle enums hold persisted states only. Time-derived states (Future/Current/Ended appointment,
+ *   Open/Closed intake, Overdue commitment) are policies over state and an instant, not stored states.
+ *
+ * Validate with Context Mapper CLI 6.12.0 (Maven Central, org.contextmapper:context-mapper-cli):
+ *   cm validate -i docs/model/contexts.cml
+ */
+
+Domain Vektorprogrammet {
+  domainVisionStatement = "Connect volunteer university students with partner schools that need mathematics tutoring, and run the organization that recruits, places, schedules and follows up those volunteers."
+
+  Subdomain SchoolService {
+    type = CORE_DOMAIN
+    domainVisionStatement = "School demand plus eligible assistant supply becomes a reviewed proposal, a confirmed roster, dated school-service commitments, absence and substitute coverage, one terminal outcome per commitment, and immutable service history."
+  }
+  Subdomain VolunteerRecruitment {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Admission periods, applications, interviews, recommendations and onboarding invitations, kept as separate decisions."
+  }
+  Subdomain OrganizationStructure {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Departments, teams, department boards, the national board, positions and effective-dated appointments."
+  }
+  Subdomain PartnerSchools {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Partner-school identities, contacts, department associations and capacity plans."
+  }
+  Subdomain ExpenseReimbursement {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Claims with private receipt files, approval, rejection and reopening, and separately authorized settlement evidence. Approval is not proof of payment."
+  }
+  Subdomain TeamRecruitment {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Public applications to join one team, intake settings, staff reads and deletion."
+  }
+  Subdomain SchoolFeedback {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Anonymous school surveys with an explicit results policy."
+  }
+  Subdomain CommunityLife {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Social events and team interest for student members."
+  }
+  Subdomain Outreach {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Mailing lists with Workspace synchronization, consented notices, reminders and digests."
+  }
+  Subdomain PeopleRegistry {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "The stable Person identity, its contact profile, and evidence-based reconciliation of legacy people."
+  }
+  Subdomain IdentityAndAccess {
+    type = GENERIC_SUBDOMAIN
+    domainVisionStatement = "Authentication of people and machines, and relationship-based, time-aware, default-deny authorization."
+  }
+  Subdomain PublicPresence {
+    type = GENERIC_SUBDOMAIN
+    domainVisionStatement = "Public content, page text, sponsor presentation and contact messages."
+  }
+  Subdomain DurableDelivery {
+    type = GENERIC_SUBDOMAIN
+    domainVisionStatement = "Outbox envelopes committed with the business fact and delivered after commit with retry, fencing and quarantine."
+  }
+  Subdomain FileCustodyDomain {
+    type = GENERIC_SUBDOMAIN
+    domainVisionStatement = "Private files with ownership, custody and restore."
+  }
+  Subdomain AcademicCalendarDomain {
+    type = GENERIC_SUBDOMAIN
+    domainVisionStatement = "Semester identities derived from the calendar. Vektorprogrammet uses semesters but does not own their lifecycle."
+  }
+  Subdomain OperationalReporting {
+    type = SUPPORTING_DOMAIN
+    domainVisionStatement = "Read models over owned facts that distinguish current from historical state and recorded decisions from inferred labels."
+  }
+  Subdomain LegacyMigration {
+    type = GENERIC_SUBDOMAIN
+    domainVisionStatement = "Temporary: evidence-based import of legacy facts and a read-only archive for the rest."
+  }
+}
+
+ContextMap VektorprogrammetToBe {
+  type = SYSTEM_LANDSCAPE
+  state = TO_BE
+
+  contains AccessControl, Identity, People, AcademicCalendar
+  contains Organization, Schools, Admissions, Recruitment
+  contains Placements, Substitutes, Economy, FileCustody
+  contains TeamApplications, Surveys, SocialEvents, Content, Contact
+  contains Mailing, Messaging, Delivery, Reporting
+  contains LegacySymfony, GoogleWorkspace, MailProvider, HkDirCatalogue
+
+  /* ---------------- Identity and access ---------------- */
+
+  Identity [P]<->[P] AccessControl : IdentityAccessPartnership {
+    implementationTechnology = "Identity publishes the authenticated principal and account usability; AccessControl publishes the decision language and owns the last-usable-global-administrator invariant that account disabling must respect. One transaction, one lock order (administrator set, then person)."
+  }
+
+  AccessControl [U,OHS,PL] -> [D,CF] Organization {
+    implementationTechnology = "In-process interpreter; Organization implements the RelationshipFactPort inside the caller's transaction: a team appointment has team reach, a department-board seat reaches its department, a national-board seat reaches every department"
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] People {
+    exposedAggregates = PrincipalAlgebra
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Schools {
+    implementationTechnology = "Scope resolver: school -> associated departments (all must be covered)"
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Admissions {
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Recruitment {
+    implementationTechnology = "Recruitment implements the RelationshipFactPort for interview assignment (interviewer, co-interviewer); the named requirement recruitment.interviewer-appointment reads Organization's appointments"
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Placements {
+    implementationTechnology = "Placements implements the RelationshipFactPort for affiliation, placement, roster membership and substitute offers"
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Substitutes {
+    implementationTechnology = "Substitutes implements the RelationshipFactPort for pool membership; until its cutover it derives the holder through the applicant link"
+    exposedAggregates = PrincipalAlgebra
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Economy {
+    implementationTechnology = "Payment authority, approval and settlement grants are AccessControl grants; Economy keeps the payment destination keyed by the payment-authority grant and implements the RelationshipFactPort for claim ownership"
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry, Grants
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] TeamApplications {
+    implementationTechnology = "Requirement team.member (read) and team.leader (change); global administration and board seats grant no implicit access"
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Surveys {
+    implementationTechnology = "The survey results policy selects a requirement; it is not a transport rule"
+    exposedAggregates = PrincipalAlgebra, CapabilityRegistry
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] SocialEvents {
+    exposedAggregates = PrincipalAlgebra
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Content {
+    exposedAggregates = PrincipalAlgebra
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Mailing {
+    exposedAggregates = PrincipalAlgebra
+  }
+  AccessControl [U,OHS,PL] -> [D,CF] Reporting {
+    exposedAggregates = PrincipalAlgebra
+  }
+
+  People [U,OHS,PL] -> [D,CF] Identity {
+    implementationTechnology = "An Account authenticates exactly one Person; the account key is the PersonId"
+    exposedAggregates = Person
+  }
+  People [U,OHS,PL] -> [D,CF] Organization {
+    exposedAggregates = Person
+  }
+  People [U,OHS,PL] -> [D,CF] Recruitment {
+    exposedAggregates = Person, Profile
+  }
+  People [U,OHS,PL] -> [D,CF] Placements {
+    exposedAggregates = Person, Profile
+  }
+  People [U,OHS,PL] -> [D,CF] Economy {
+    exposedAggregates = Person
+  }
+  People [U,OHS,PL] -> [D,CF] Content {
+    exposedAggregates = Profile
+  }
+  People [U,OHS,PL] -> [D,ACL] Mailing {
+    implementationTechnology = "Contact profile -> copyable recipient address; a missing contact is absent, an infrastructure failure is not an empty success"
+    exposedAggregates = Profile
+  }
+  People [U,OHS,PL] -> [D,CF] Reporting {
+    exposedAggregates = Person, Profile
+  }
+
+  /* ---------------- Reference data ---------------- */
+
+  AcademicCalendar [U,OHS,PL] -> [D,CF] Admissions {
+    exposedAggregates = SemesterCatalogue
+  }
+  AcademicCalendar [U,OHS,PL] -> [D,CF] Schools {
+    exposedAggregates = SemesterCatalogue
+  }
+  AcademicCalendar [U,OHS,PL] -> [D,CF] Placements {
+    exposedAggregates = SemesterCatalogue
+  }
+  AcademicCalendar [U,OHS,PL] -> [D,CF] Surveys {
+    exposedAggregates = SemesterCatalogue
+  }
+  AcademicCalendar [U,OHS,PL] -> [D,CF] SocialEvents {
+    exposedAggregates = SemesterCatalogue
+  }
+  AcademicCalendar [U,OHS,PL] -> [D,CF] Mailing {
+    exposedAggregates = SemesterCatalogue
+  }
+  AcademicCalendar [U,OHS,PL] -> [D,CF] Reporting {
+    exposedAggregates = SemesterCatalogue
+  }
+
+  Organization [D,ACL] <- [U,OHS,PL] HkDirCatalogue {
+    implementationTechnology = "Candidate source for fields of study; not selected"
+  }
+
+  /* ---------------- Organization as upstream of scoped work ---------------- */
+
+  Organization [U,OHS,PL] -> [D,ACL] TeamApplications {
+    implementationTechnology = "Team and department activity plus mailbox, translated into TeamIntakeFacts; the intake itself is TeamApplications' own, and TeamApplications never writes Organization state"
+    exposedAggregates = Team, Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] Schools {
+    exposedAggregates = Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] Admissions {
+    exposedAggregates = Department, FieldOfStudy
+  }
+  Organization [U,OHS,PL] -> [D,CF] Recruitment {
+    exposedAggregates = Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] Placements {
+    exposedAggregates = Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] Economy {
+    exposedAggregates = Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] Surveys {
+    exposedAggregates = Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] SocialEvents {
+    exposedAggregates = Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] Content {
+    exposedAggregates = Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] Contact {
+    implementationTechnology = "Department mailbox and activity"
+    exposedAggregates = Department
+  }
+  Organization [U,OHS,PL] -> [D,CF] Mailing {
+    implementationTechnology = "Nonsuspended appointments overlapping a semester (touching a boundary does not qualify)"
+    exposedAggregates = Appointment
+  }
+  Organization [U,OHS,PL] -> [D,CF] Reporting {
+    exposedAggregates = Department, Team
+  }
+
+  /* ---------------- Recruitment chain ---------------- */
+
+  Admissions [U,S] -> [D,C] Recruitment {
+    implementationTechnology = "Interview assignment reads the application and its admission period"
+    exposedAggregates = AdmissionApplication, AdmissionPeriod
+  }
+  Identity [U,S] -> [D,C] Recruitment {
+    implementationTechnology = "An onboarding invitation carries an Identity claim capability; claiming links an account and grants neither affiliation nor placement"
+    exposedAggregates = AccountClaim
+  }
+  Admissions [U,S] -> [D,C] Messaging {
+    implementationTechnology = "Admission-opening notices with subscription consent"
+    exposedAggregates = AdmissionPeriod
+  }
+  Recruitment [U,S] -> [D,C] Messaging {
+    implementationTechnology = "Accept-interview reminders and staff interview digests"
+    exposedAggregates = Interview
+  }
+
+  /* ---------------- School service core ---------------- */
+
+  Schools [U,S] -> [D,C] Placements {
+    implementationTechnology = "Active school, department association and capacity; Placements answers the dependent-records query Schools needs before an association is removed"
+    exposedAggregates = School, CapacityPlan
+  }
+  Schools [U,OHS,PL] -> [D,CF] Surveys {
+    implementationTechnology = "Eligible schools for a department and semester"
+    exposedAggregates = School
+  }
+  Placements [P]<->[P] Substitutes : SchoolServiceSupplyPartnership {
+    implementationTechnology = "Pool membership needs an active affiliation; dispatch eligibility needs pool membership, availability and no placement or coverage conflict"
+  }
+  Admissions [U,OHS,PL] -> [D,CF] Substitutes {
+    implementationTechnology = "A pool entry references an admission application; Substitutes reads the year of study from it and never writes it"
+    exposedAggregates = AdmissionApplication
+  }
+  Placements [U,OHS,PL] -> [D,CF] Mailing {
+    implementationTechnology = "Assistant recipients: accepted historical service and active placements for a department and semester"
+    exposedAggregates = Placement, HistoricalService
+  }
+
+  /* ---------------- Economy ---------------- */
+
+  FileCustody [U,OHS,PL] -> [D,CF] Economy {
+    implementationTechnology = "Private receipt files; SQL and file storage never share a transaction"
+    exposedAggregates = PrivateFile
+  }
+
+  /* ---------------- Durable delivery ---------------- */
+
+  Delivery [U,OHS,PL] -> [D,CF] Identity {
+    exposedAggregates = OutboxEnvelope
+  }
+  Delivery [U,OHS,PL] -> [D,CF] Admissions {
+    exposedAggregates = OutboxEnvelope
+  }
+  Delivery [U,OHS,PL] -> [D,CF] Recruitment {
+    exposedAggregates = OutboxEnvelope
+  }
+  Delivery [U,OHS,PL] -> [D,CF] Placements {
+    exposedAggregates = OutboxEnvelope
+  }
+  Delivery [U,OHS,PL] -> [D,CF] Economy {
+    exposedAggregates = OutboxEnvelope
+  }
+  Delivery [U,OHS,PL] -> [D,CF] TeamApplications {
+    exposedAggregates = OutboxEnvelope
+  }
+  Delivery [U,OHS,PL] -> [D,CF] Messaging {
+    exposedAggregates = OutboxEnvelope
+  }
+  Delivery [U,OHS,PL] -> [D,CF] Contact {
+    implementationTechnology = "Contact relays a transient message; the quota commits first and delivery uses the shared Mail port"
+    exposedAggregates = OutboxEnvelope
+  }
+  Delivery [D,ACL] <- [U,OHS] MailProvider {
+    implementationTechnology = "Provider Layer; a provider failure never rolls back a business fact"
+  }
+  Mailing [D,ACL] <- [U,OHS] GoogleWorkspace {
+    implementationTechnology = "Automated list synchronization"
+  }
+
+  /* ---------------- Reporting ---------------- */
+
+  Admissions [U,OHS,PL] -> [D,CF] Reporting {
+    exposedAggregates = AdmissionApplication
+  }
+  Recruitment [U,OHS,PL] -> [D,CF] Reporting {
+    exposedAggregates = Interview, OnboardingInvitation
+  }
+  Placements [U,OHS,PL] -> [D,CF] Reporting {
+    exposedAggregates = VolunteerAffiliation, Placement, SchoolServiceCommitment
+  }
+
+  /* ---------------- Legacy migration (temporary) ---------------- */
+
+  People [D,ACL] <- [U] LegacySymfony {
+    implementationTechnology = "Explicit source-to-Person mapping with identity evidence; quarantine without partial writes"
+  }
+  Identity [D,ACL] <- [U] LegacySymfony {
+    implementationTechnology = "Account import requires accepted Person evidence; legacy aliases never become login identities"
+  }
+  Organization [D,ACL] <- [U] LegacySymfony {
+    implementationTechnology = "Reviewed cohort; historical membership never becomes current authority by inference"
+  }
+  Placements [D,ACL] <- [U] LegacySymfony {
+    implementationTechnology = "Reviewed current assignments and append-only historical service"
+  }
+  Economy [D,ACL] <- [U] LegacySymfony {
+    implementationTechnology = "Reviewed receipts; a legacy refund becomes approval, not proof of payment"
+  }
+  TeamApplications [D,ACL] <- [U] LegacySymfony {
+    implementationTechnology = "Applications open at cutover"
+  }
+}
+
+/* ======================================================================================
+ * Identity and access
+ * ====================================================================================== */
+
+BoundedContext AccessControl implements IdentityAndAccess {
+  type = SYSTEM
+  domainVisionStatement = "Publishes the principal, scope, role, capability and decision language every context authorizes against. permit = exactly one usable principal AND (an effective role whose reach covers the resource, with its named requirements met, OR an active principal-side grant that covers it, OR an unconsumed bearer capability for exactly this resource). A unit sits at one scope: an ordinary team at itself, a department board at its department, the national board at national scope. Default deny; resolved inside the committing transaction; revocation applies on the next interaction."
+  responsibilities = "Principal algebra", "Role algebra", "Capability registry", "Grants", "Capability interpreter", "Relationship fact port"
+  implementationTechnology = "Pure interpreter in the domain package; each fact-owning context implements the fact port in its adapter"
+
+  "invariant: a request that presents more than one credential is denied, whatever their kinds; a requirement token is not a credential. invariant: a service principal inherits no human role. invariant: roles and principal-side grants are independent: a seat confers no grant, and ending a grant removes no role authority. invariant: system administration is permitted only through an active global-administrator grant. invariant: at least one usable global administrator exists after every committed command."
+  Aggregate PrincipalAlgebra {
+    responsibilities = "Who acts, under which credential, over which scope, and with what outcome"
+
+    abstract ValueObject Principal
+    ValueObject AnonymousPrincipal extends Principal
+    ValueObject PersonPrincipal extends Principal {
+      PersonId personId
+    }
+    ValueObject ServicePrincipal extends Principal {
+      - ServicePrincipalId servicePrincipalId
+    }
+    ValueObject CapabilityHolder extends Principal {
+      - BearerCapabilityId capabilityId
+    }
+    ValueObject ServicePrincipalId {
+      String value key
+    }
+    ValueObject BearerCapabilityId {
+      String value key
+    }
+
+    abstract ValueObject Scope
+    ValueObject GlobalScope extends Scope
+    ValueObject DomainScope extends Scope {
+      String domainId
+    }
+    ValueObject DepartmentScope extends Scope {
+      DepartmentId departmentId
+    }
+    ValueObject ResourceScope extends Scope {
+      String resourceKind
+      String resourceId
+    }
+    "invariant: recursion depth and encoded size are bounded"
+    ValueObject AllOfScope extends Scope {
+      - Scope left
+      - Scope right
+    }
+    ValueObject AnyOfScope extends Scope {
+      - Scope left
+      - Scope right
+    }
+
+    "A role instance is (holder, role type, scope, interval, status). The holder is a Person; units are scopes, never holders. The assistants of a department in a semester are a derived cohort, not a unit."
+    ValueObject RoleInstance {
+      PersonId holder
+      - RoleType roleType
+      - Scope roleScope
+      Instant startAt
+      Instant endAt
+      boolean suspended
+    }
+    enum RoleType {
+      TeamMemberRole, TeamLeaderRole, BoardSeatRole, AssistantRole, PlacedAssistantRole, PoolMemberRole, RosterMemberRole, OfferCandidateRole, InterviewerRole, CoInterviewerRole, ReceiptOwnerRole, ApplicantRole
+    }
+
+    abstract ValueObject Decision
+    "The witness is the context's typed actor (for example TeamLeader of a team); a decider takes it as a guard input."
+    ValueObject Allow extends Decision {
+      String witness
+    }
+    ValueObject Deny extends Decision {
+      - DenialReason reason
+    }
+    enum DenialReason {
+      Unauthenticated, NotInScope, AuthorityInactive, Ambiguous, RequirementFailed
+    }
+
+    Service CapabilityInterpreter {
+      "Default deny. Evaluates every applicable grant and relationship fact for one capability at the authorization instant, inside the caller's transaction."
+      @Decision permit(@Principal principal, @CapabilityType capability, @Scope resource, Instant authorizationInstant) : read-only;
+    }
+  }
+
+  Aggregate CapabilityRegistry {
+    responsibilities = "One registry binds each command to its capability, requirement, scope resolver and decision time"
+
+    Entity CapabilityType {
+      aggregateRoot
+      - CapabilityTypeId capabilityTypeId
+      String owningContext
+      - Requirement requirement
+      - ScopeResolver scopeResolver
+      - DecisionTime decisionTime
+    }
+    ValueObject CapabilityTypeId {
+      String value key
+    }
+    "Named requirements restrict a permit and never grant one: onboarding.claim-token (a usable claim capability bound to the claim target), recruitment.interviewer-appointment (an effective appointment in the interview's department), recruitment.correction-window (the scoped correction capability is active)."
+    ValueObject Requirement {
+      String requirementId
+      String relationship
+    }
+    ValueObject ScopeResolver {
+      String scopeResolverId
+      String resourceKind
+    }
+    enum DecisionTime {
+      Transaction, SnapshotRead
+    }
+  }
+
+  "invariant: a grant interval is half-open and startAt < endAt when endAt is present. invariant: grants of one capability to one subject over one area do not overlap. invariant: ending and revoking have one meaning for every grant kind. invariant: a grant carries no private data."
+  Aggregate Grants {
+    responsibilities = "Explicit, time-bound authority: global administration (system administration, with a one-time bootstrap grant at cutover), payment authority, receipt approval, receipt settlement, service-principal grants and delegated rules. No role implies a grant."
+
+    Entity Grant {
+      aggregateRoot
+      - GrantId grantId
+      - Principal subject
+      - CapabilityType capability
+      - Scope grantScope
+      Instant startAt
+      Instant endAt
+      int revision
+      - GrantLifecycle lifecycle
+
+      "capability: access.grants.manage; requirement: global.administrator; scope: global; decisionTime: Transaction"
+      def void issueGrant(@Principal subject, @CapabilityType capability, @Scope grantScope, Instant startAt) : write [ -> ActiveGrant ];
+      "capability: access.grants.manage; requirement: global.administrator; scope: global; decisionTime: Transaction. Ending the last usable global administrator grant fails without changes."
+      def void endGrant(Instant endAt, int expectedRevision) : write [ ActiveGrant -> EndedGrant* ];
+    }
+    ValueObject GrantId {
+      String value key
+    }
+    enum GrantLifecycle {
+      aggregateLifecycle
+      ActiveGrant, EndedGrant
+    }
+  }
+
+  Service RelationshipFactPort {
+    "Implemented by each fact-owning context inside the caller's transaction: Organization (team member, team leader, board seat with its position), Recruitment (interviewer, co-interviewer), Economy (receipt owner), Placements (affiliation, placement, roster member, offer candidate), Substitutes (pool member) and Admissions (applicant, through the applicant link). Each owner normalizes its status to an interval and a status. School contacts are data and hold no role."
+    boolean relationshipIsActive(PersonId person, @ResourceScope resource, Instant instant) : read-only;
+    boolean relationshipCovers(PersonId person, @Scope grantScope, Instant instant) : read-only;
+  }
+}
+
+BoundedContext Identity implements IdentityAndAccess {
+  type = SYSTEM
+  domainVisionStatement = "Authenticates people and machines. An Account authenticates exactly one Person; credentials, sessions, recovery and claim capabilities belong to the account lifecycle. A service caller is a separate principal, never a synthetic Person."
+  responsibilities = "Accounts", "Credentials", "Sessions", "Password recovery", "Account claim capability", "Machine credentials", "Security audit"
+  implementationTechnology = "Better Auth behind an anti-corruption adapter; the auth schema is written and read by this context only"
+
+  "invariant: disabling access blocks native sessions, human OAuth access and recovery. invariant: re-enabling requires fresh authentication and revives no session, recovery token or human OAuth credential. invariant: self-offboarding fails."
+  Aggregate Account {
+    Entity Account {
+      aggregateRoot
+      PersonId personId
+      - Credential credential
+      int accessRevision
+      - AccountAccess access
+
+      "capability: identity.account-access.manage; requirement: global.administrator; scope: global; decisionTime: Transaction"
+      def void disableAccess(PersonId actorPersonId, int expectedRevision) : write [ Enabled -> Disabled ];
+      "capability: identity.account-access.manage; requirement: global.administrator; scope: global; decisionTime: Transaction"
+      def void enableAccess(PersonId actorPersonId, int expectedRevision) : write [ Disabled -> Enabled ];
+      "An upgrade requires the stored credential to equal the one authentication verified; a concurrent reset or upgrade wins."
+      def void upgradeCredential(@Credential verified, @Credential replacement) : write;
+    }
+    ValueObject Credential {
+      - CredentialFormat format
+      String encodedHash
+    }
+    enum CredentialFormat {
+      Argon2id, NativeScrypt, LegacyBcrypt
+    }
+    enum AccountAccess {
+      aggregateLifecycle
+      Enabled, Disabled
+    }
+  }
+
+  Aggregate Session {
+    Entity HumanSession {
+      aggregateRoot
+      - SessionId sessionId
+      PersonId personId
+      int accessRevisionAtIssue
+      Instant expiresAt
+      - SessionLifecycle lifecycle
+      def void issueSession(PersonId personId) : write [ -> ActiveSession ];
+      def void revokeSession() : write [ ActiveSession -> RevokedSession* ];
+    }
+    ValueObject SessionId {
+      String value key
+    }
+    enum SessionLifecycle {
+      aggregateLifecycle
+      ActiveSession, RevokedSession
+    }
+  }
+
+  Aggregate PasswordRecovery {
+    Entity RecoveryRequest {
+      aggregateRoot
+      - RecoveryRequestId recoveryRequestId
+      PersonId personId
+      String tokenDigest
+      - RecoveryLifecycle lifecycle
+      def void requestRecovery(ContactEmail canonicalEmail) : write [ -> RecoveryRequested ];
+      "Recovery replaces a retained legacy hash and revokes older sessions."
+      def void completeRecovery(String token, String newPassword) : write [ RecoveryRequested -> RecoveryCompleted* ];
+      def void quarantineRecovery() : write [ RecoveryRequested -> RecoveryQuarantined* ];
+    }
+    ValueObject RecoveryRequestId {
+      String value key
+    }
+    enum RecoveryLifecycle {
+      aggregateLifecycle
+      RecoveryRequested, RecoveryCompleted, RecoveryQuarantined
+    }
+  }
+
+  "Identity owns the one-time account claim; Recruitment owns the onboarding invitation that requests it. invariant: a consumed claim capability cannot be used again. invariant: claiming links an account without changing its email and grants neither affiliation nor placement. In new-account mode the token holder is the principal; in existing-account mode the session's account is the principal and the token is the named requirement onboarding.claim-token."
+  Aggregate AccountClaim {
+    Entity ClaimCapability {
+      aggregateRoot
+      - ClaimCapabilityId claimCapabilityId
+      PersonId personId
+      String capabilityDigest
+      - ClaimLifecycle lifecycle
+      def void issueClaim(PersonId personId) : write [ -> ClaimIssued ];
+      "capability: onboarding.claim; principal: the bearer capability; scope: its claim target; decisionTime: Transaction"
+      def void claimNewAccount(String capability) : write [ ClaimIssued -> Claimed* ];
+      "capability: onboarding.claim; principal: the session's account; requirement onboarding.claim-token (single-use, bound to its claim target); decisionTime: Transaction"
+      def void claimForExistingAccount(PersonId sessionPerson, String capability) : write [ ClaimIssued -> Claimed* ];
+      def void revokeClaim() : write [ ClaimIssued -> ClaimRevoked* ];
+    }
+    ValueObject ClaimCapabilityId {
+      String value key
+    }
+    enum ClaimLifecycle {
+      aggregateLifecycle
+      ClaimIssued, Claimed, ClaimRevoked
+    }
+  }
+
+  Aggregate MachineCredential {
+    Entity OAuthClient {
+      aggregateRoot
+      - OAuthClientId oauthClientId
+      String servicePrincipalId
+      - MachineCredentialLifecycle lifecycle
+      def void registerClient(String servicePrincipalId) : write [ -> ClientActive ];
+      def void revokeClient() : write [ ClientActive -> ClientRevoked* ];
+    }
+    ValueObject OAuthClientId {
+      String value key
+    }
+    enum MachineCredentialLifecycle {
+      aggregateLifecycle
+      ClientActive, ClientRevoked
+    }
+  }
+
+  Aggregate SecurityAudit {
+    "Append-only, closed kinds and outcome codes, no secrets."
+    DomainEvent IdentitySecurityEvent {
+      PersonId personId
+      String eventKind
+      String outcomeCode
+      Instant occurredAt
+    }
+  }
+
+  Application IdentityApplication {
+    "capability: identity.account-access.manage; requirement: global.administrator; scope: global; decisionTime: Transaction"
+    Command ChangeAccountAccess {
+      String commandId
+      PersonId personId
+      int expectedRevision
+      boolean disabled
+    }
+    DomainEvent AccountAccessDisabled {
+      PersonId personId
+      int accessRevision
+    }
+    DomainEvent AccountAccessEnabled {
+      PersonId personId
+      int accessRevision
+    }
+    Flow AccountAccessFlow {
+      command ChangeAccountAccess [ initiated by "Global administrator" ] delegates to Account [ Enabled -> Disabled ] emits event AccountAccessDisabled
+    }
+  }
+}
+
+BoundedContext People implements PeopleRegistry {
+  type = FEATURE
+  domainVisionStatement = "Owns the stable human identity and its contact profile. Legacy data must resolve to a Person through explicit mapping and identity evidence before credentials, affiliations, placements or history can reference it."
+  responsibilities = "Person", "Profile", "Person reconciliation"
+
+  Aggregate Person {
+    Entity Person {
+      aggregateRoot
+      - PersonId personId
+      - PersonLifecycle lifecycle
+      "Creating a Person writes the initial name and contact profile."
+      def void establishPerson(@PersonName name, @ContactPoint contact) : write [ -> Established ];
+    }
+    ValueObject PersonId {
+      String value key
+    }
+    enum PersonLifecycle {
+      aggregateLifecycle
+      Established
+    }
+  }
+
+  Aggregate Profile {
+    Entity Profile {
+      aggregateRoot
+      PersonId personId
+      - PersonName name
+      - ContactPoint contact
+      int nameRevision
+      int contactRevision
+      "capability: profile.own.revise; requirement: self; scope: own person; decisionTime: Transaction"
+      def void reviseOwnProfile(@PersonName name, @ContactPoint contact, int expectedNameRevision, int expectedContactRevision) : write;
+    }
+    ValueObject PersonName {
+      String firstName
+      String lastName
+    }
+    ValueObject ContactPoint {
+      ContactEmail emailAddress
+      String phone
+    }
+  }
+
+  "invariant: linking an existing Person never overwrites native profile facts and requires the expected profile revisions. invariant: inactive, ambiguous, stale, conflicting or unattested mappings are quarantined without partial Person writes."
+  Aggregate PersonReconciliation {
+    Entity SourcePersonMapping {
+      aggregateRoot
+      String sourceRepository
+      String sourceUserId
+      PersonId targetPerson
+      String evidenceDigest
+      - MappingDisposition disposition
+      def void acceptMapping(PersonId targetPerson, String evidenceDigest) : write [ -> MappingAccepted* ];
+      def void quarantineMapping(String reason) : write [ -> MappingQuarantined* ];
+    }
+    enum MappingDisposition {
+      aggregateLifecycle
+      MappingAccepted, MappingQuarantined
+    }
+  }
+}
+
+BoundedContext AcademicCalendar implements AcademicCalendarDomain {
+  type = SYSTEM
+  domainVisionStatement = "Identifies semesters. Vektorprogrammet uses semesters but does not own their lifecycle; future semesters are derived from the calendar with no manual step."
+  responsibilities = "Semester references"
+
+  Aggregate SemesterCatalogue {
+    ValueObject SemesterRef {
+      - SemesterId semesterId
+      - Term term
+      int year
+      Instant startsAt
+      Instant endsAt
+    }
+    ValueObject SemesterId {
+      String value key
+    }
+    enum Term {
+      Spring, Autumn
+    }
+    Service SemesterCalendar {
+      "Total and pure: every instant lies in exactly one semester."
+      @SemesterRef semesterAt(Instant instant) : read-only;
+      @SemesterRef semesterOf(@Term term, int year) : read-only;
+    }
+  }
+}
+
+/* ======================================================================================
+ * Organization and reference contexts
+ * ====================================================================================== */
+
+BoundedContext Organization implements OrganizationStructure {
+  type = FEATURE
+  domainVisionStatement = "Local departments, teams, department boards (Styret), the national board (Hovedstyret), positions and effective-dated appointments. Units are scopes, never holders: an ordinary team sits at its own scope, a department board at its department, the national board at national scope. Appointments are relationship facts that AccessControl reads. A board position carries capabilities with its board's reach; a label is never authority. A Hovedstyret seat does not make a person a global administrator."
+  responsibilities = "Departments", "Teams", "Department boards", "National board", "Positions", "Appointments", "Fields of study", "Team interest"
+
+  Aggregate Department {
+    Entity Department {
+      aggregateRoot
+      - DepartmentId departmentId
+      String name
+      ContactEmail mailbox
+      int revision
+      - DepartmentLifecycle lifecycle
+      def void createDepartment(String name, ContactEmail mailbox) : write [ -> DepartmentActive ];
+      def void reviseDepartment(String name, ContactEmail mailbox, int expectedRevision) : write [ DepartmentActive -> DepartmentActive ];
+      def void deactivateDepartment(int expectedRevision) : write [ DepartmentActive -> DepartmentInactive ];
+      def void reactivateDepartment(int expectedRevision) : write [ DepartmentInactive -> DepartmentActive ];
+    }
+    ValueObject DepartmentId {
+      String value key
+    }
+    enum DepartmentLifecycle {
+      aggregateLifecycle
+      DepartmentActive, DepartmentInactive
+    }
+  }
+
+  "invariant: a department has at most one department board (Styret). A department board sits at its department's scope; an ordinary team sits at its own scope."
+  Aggregate Team {
+    Entity Team {
+      aggregateRoot
+      - TeamId teamId
+      DepartmentId departmentId
+      String name
+      ContactEmail mailbox
+      - TeamKind kind
+      int revision
+      - TeamLifecycle lifecycle
+      def void createTeam(DepartmentId departmentId, String name) : write [ -> TeamActive ];
+      def void reviseTeam(String name, ContactEmail mailbox, int expectedRevision) : write [ TeamActive -> TeamActive ];
+      def void deactivateTeam(int expectedRevision) : write [ TeamActive -> TeamInactive ];
+    }
+    ValueObject TeamId {
+      String value key
+    }
+    enum TeamLifecycle {
+      aggregateLifecycle
+      TeamActive, TeamInactive
+    }
+    enum TeamKind {
+      OrdinaryTeam, DepartmentBoard
+    }
+  }
+
+  "invariant: exactly one national board exists, Hovedstyret, established once at cutover. It sits at national scope, which covers every department."
+  Aggregate NationalBoard {
+    Entity NationalBoard {
+      aggregateRoot
+      - NationalBoardId nationalBoardId
+      String name
+      "capability: organization.boards.create; requirement: global.administrator; scope: global; decisionTime: Transaction. A one-time bootstrap: it fails when the national board exists."
+      def void createNationalBoard(String name) : write;
+    }
+    ValueObject NationalBoardId {
+      String value key
+    }
+  }
+
+  "Positions are managed reference data. An appointment references a PositionId; existing free-text titles are mapped once to positions at import. Positions can be revised and deactivated. A board position carries capabilities, and a seat reaches its board's scope. A position held on an ordinary team is a title and carries nothing. The capabilities a position carries are authority data."
+  Aggregate Position {
+    Entity Position {
+      aggregateRoot
+      - PositionId positionId
+      String name
+      List<String> carriedCapabilities
+      int revision
+      - PositionLifecycle lifecycle
+      "capability: organization.reference-data.manage; requirement: board.seat covering every department (Hovedstyret) OR global.administrator; scope: global; decisionTime: Transaction"
+      def void definePosition(String name) : write [ -> PositionActive ];
+      def void revisePosition(String name, int expectedRevision) : write [ PositionActive -> PositionActive ];
+      def void deactivatePosition(int expectedRevision) : write [ PositionActive -> PositionInactive ];
+      "capability: access.position-capabilities.manage; requirement: global.administrator; scope: global; decisionTime: Transaction. Changing what a position carries is system administration."
+      def void setCarriedCapabilities(List<String> capabilityTypeIds, int expectedRevision) : write [ PositionActive -> PositionActive ];
+    }
+    ValueObject PositionId {
+      String value key
+    }
+    enum PositionLifecycle {
+      aggregateLifecycle
+      PositionActive, PositionInactive
+    }
+  }
+
+  "invariant: endAt is absent or startAt < endAt. invariant: an appointment on a board carries no leadership flag: board authority comes from the position, with the board's reach. invariant: ending or suspending one appointment changes no other appointment, affiliation or placement. Temporal state Future/Current/Ended is derived from the interval at the authorization instant."
+  Aggregate Appointment {
+    Entity Appointment {
+      aggregateRoot
+      - AppointmentId appointmentId
+      PersonId personId
+      - AppointmentUnit unit
+      PositionId position
+      boolean leadership
+      Instant startAt
+      Instant endAt
+      int revision
+      - AppointmentLifecycle lifecycle
+
+      "capability: organization.appointments.manage; requirement: board.seat covering the unit OR global.administrator; scope: appointment-unit; decisionTime: Transaction"
+      def void appoint(PersonId personId, @AppointmentUnit unit, boolean leadership, Instant startAt) : write [ -> AppointmentActive ];
+      "capability: organization.appointments.manage; requirement: board.seat covering the unit OR global.administrator; scope: appointment; decisionTime: Transaction"
+      def void reviseAppointment(boolean leadership, Instant startAt, Instant endAt, int expectedRevision) : write [ AppointmentActive -> AppointmentActive ];
+      def void suspendAppointment(int expectedRevision) : write [ AppointmentActive -> AppointmentSuspended ];
+      def void reinstateAppointment(int expectedRevision) : write [ AppointmentSuspended -> AppointmentActive ];
+      "A leadership handover can appoint the successor before the predecessor leaves; the end of the last leadership appointment revokes only its scope."
+      def void endAppointment(Instant endAt, int expectedRevision) : write [ AppointmentActive, AppointmentSuspended -> AppointmentEnded* ];
+    }
+    ValueObject AppointmentId {
+      String value key
+    }
+    abstract ValueObject AppointmentUnit
+    ValueObject TeamUnit extends AppointmentUnit {
+      TeamId teamId
+    }
+    ValueObject NationalBoardUnit extends AppointmentUnit {
+      NationalBoardId nationalBoardId
+    }
+    enum AppointmentLifecycle {
+      aggregateLifecycle
+      AppointmentActive, AppointmentSuspended, AppointmentEnded
+    }
+  }
+
+  Aggregate FieldOfStudy {
+    Entity FieldOfStudy {
+      aggregateRoot
+      - FieldOfStudyId fieldOfStudyId
+      DepartmentId departmentId
+      String name
+      boolean active
+      def void defineFieldOfStudy(DepartmentId departmentId, String name) : write;
+      def void reviseFieldOfStudy(String name, boolean active, int expectedRevision) : write;
+    }
+    ValueObject FieldOfStudyId {
+      String value key
+    }
+  }
+
+  Aggregate TeamInterest {
+    Entity TeamInterestRegistration {
+      aggregateRoot
+      int registrationNumber
+      TeamId teamId
+      ContactEmail submitterEmail
+      def void registerInterest(TeamId teamId, ContactEmail submitterEmail) : write;
+    }
+  }
+
+  Application OrganizationApplication {
+    "capability: organization.appointments.manage; requirement: board.seat covering the unit OR global.administrator; scope: appointment-unit; decisionTime: Transaction"
+    Command Appoint {
+      String commandId
+      PersonId personId
+      - AppointmentUnit unit
+      PositionId position
+      boolean leadership
+      Instant startAt
+      Instant endAt
+    }
+    Command ReviseAppointment {
+      String commandId
+      - AppointmentId appointmentId
+      int expectedRevision
+    }
+    Command EndAppointment {
+      String commandId
+      - AppointmentId appointmentId
+      int expectedRevision
+      Instant endAt
+    }
+    Command SuspendAppointment {
+      String commandId
+      - AppointmentId appointmentId
+      int expectedRevision
+    }
+    Command ReinstateAppointment {
+      String commandId
+      - AppointmentId appointmentId
+      int expectedRevision
+    }
+    "capability: organization.boards.create; requirement: global.administrator; scope: global; decisionTime: Transaction"
+    Command CreateNationalBoard {
+      String commandId
+    }
+
+    // Event payloads carry identifiers and closed non-personal values only (operator decision 2026-09-25); names, reasons and free text stay in projections or private annotations.
+    DomainEvent AppointmentMade {
+      - AppointmentId appointmentId
+      PersonId personId
+      - AppointmentUnit unit
+      PositionId position
+      boolean leadership
+      Instant startAt
+      Instant endAt
+    }
+    DomainEvent AppointmentRevised {
+      - AppointmentId appointmentId
+      PositionId position
+      boolean leadership
+      Instant startAt
+      Instant endAt
+    }
+    DomainEvent AppointmentEnded {
+      - AppointmentId appointmentId
+      Instant endAt
+    }
+    DomainEvent AppointmentSuspended {
+      - AppointmentId appointmentId
+    }
+    DomainEvent AppointmentReinstated {
+      - AppointmentId appointmentId
+    }
+    DomainEvent NationalBoardCreated {
+      - NationalBoardId nationalBoardId
+    }
+
+    Flow AppointmentFlow {
+      command Appoint [ initiated by "Board seat or global administrator" ] delegates to Appointment [ -> AppointmentActive ] emits event AppointmentMade
+      command ReviseAppointment delegates to Appointment [ AppointmentActive -> AppointmentActive ] emits event AppointmentRevised
+      command SuspendAppointment delegates to Appointment [ AppointmentActive -> AppointmentSuspended ] emits event AppointmentSuspended
+      command ReinstateAppointment delegates to Appointment [ AppointmentSuspended -> AppointmentActive ] emits event AppointmentReinstated
+      command EndAppointment delegates to Appointment [ AppointmentActive, AppointmentSuspended -> AppointmentEnded* ] emits event AppointmentEnded
+      command CreateNationalBoard [ initiated by "Global administrator" ] emits event NationalBoardCreated
+    }
+  }
+
+  Service AppointmentFactSource {
+    "Organization's implementation of AccessControl's RelationshipFactPort: current, nonsuspended appointments of active units in active departments. An appointment on an ordinary team yields a team member or team leader role with team reach. An appointment on a board yields a board seat whose position carries capabilities, with the board's reach."
+    boolean isTeamMember(PersonId person, TeamId team, Instant instant) : read-only;
+    boolean isTeamLeader(PersonId person, TeamId team, Instant instant) : read-only;
+    boolean boardSeatCovers(PersonId person, String capabilityTypeId, DepartmentId department, Instant instant) : read-only;
+  }
+}
+
+BoundedContext Schools implements PartnerSchools {
+  type = FEATURE
+  domainVisionStatement = "Partner-school identities, contacts, language, activity and department associations, and capacity plans per school, department and semester. There is no school deletion. Directory membership grants no maintenance authority."
+  responsibilities = "Schools", "Department associations", "Capacity plans"
+
+  "invariant: shared details require authority over every associated department; association changes require authority over the current and requested departments; a school without associations requires global authority. invariant: new schools and replacement association sets have at least one department. invariant: an association with dependent records (including saved placement proposals) cannot be removed."
+  Aggregate School {
+    Entity School {
+      aggregateRoot
+      - SchoolId schoolId
+      String name
+      - SchoolContact contact
+      String language
+      List<DepartmentId> associatedDepartments
+      int revision
+      - SchoolLifecycle lifecycle
+      "capability: schools.manage; requirement: global.administrator OR board.seat covering each requested department; scope: requested-departments; decisionTime: Transaction"
+      def void registerSchool(String name, List<DepartmentId> departments, String reason) : write [ -> SchoolActive ];
+      "capability: schools.manage; requirement: covers every associated department; scope: school; decisionTime: Transaction"
+      def void reviseSchoolDetails(String name, @SchoolContact contact, String reason, int expectedRevision) : write [ SchoolActive -> SchoolActive ];
+      "capability: schools.manage; requirement: covers current and requested departments; scope: school; decisionTime: Transaction"
+      def void replaceDepartmentAssociations(List<DepartmentId> departments, String reason, int expectedRevision) : write [ SchoolActive -> SchoolActive ];
+      "Deactivation preserves capacity, placement, demand and history."
+      def void deactivateSchool(String reason, int expectedRevision) : write [ SchoolActive -> SchoolInactive ];
+      def void reactivateSchool(String reason, int expectedRevision) : write [ SchoolInactive -> SchoolActive ];
+    }
+    ValueObject SchoolId {
+      int value key
+    }
+    "Contact details are data. A school contact is not a principal and holds no role; a coordinator records evidence that a contact supplies."
+    ValueObject SchoolContact {
+      String contactName
+      ContactEmail emailAddress
+      String phone
+    }
+    enum SchoolLifecycle {
+      aggregateLifecycle
+      SchoolActive, SchoolInactive
+    }
+  }
+
+  "invariant: weekday counts are nonnegative; maintenance requires an active school, its department association and current authority for that department."
+  Aggregate CapacityPlan {
+    Entity CapacityPlan {
+      aggregateRoot
+      - CapacityPlanId capacityPlanId
+      SchoolId schoolId
+      DepartmentId departmentId
+      SemesterId semesterId
+      - WeekdayCounts counts
+      int revision
+      "capability: schools.capacity.manage; requirement: board.seat covering departmentId OR global.administrator; scope: department; decisionTime: Transaction"
+      def void setCapacity(@WeekdayCounts counts, String reason, int expectedRevision) : write;
+    }
+    ValueObject CapacityPlanId {
+      int value key
+    }
+    ValueObject WeekdayCounts {
+      int monday
+      int tuesday
+      int wednesday
+      int thursday
+      int friday
+    }
+  }
+}
+
+/* ======================================================================================
+ * Volunteer recruitment
+ * ====================================================================================== */
+
+BoundedContext Admissions implements VolunteerRecruitment {
+  type = FEATURE
+  domainVisionStatement = "Admission periods per department and semester, public applications, and returning-assistant registrations. There is no inferred generic accepted-applicant fact."
+  responsibilities = "Admission periods", "Applications", "Applicants", "Returning registrations"
+
+  "invariant: one period per department and semester; the window is ordered and lies inside the semester. Openness is derived from the window and an instant."
+  Aggregate AdmissionPeriod {
+    Entity AdmissionPeriod {
+      aggregateRoot
+      - AdmissionPeriodId admissionPeriodId
+      DepartmentId departmentId
+      SemesterId semesterId
+      Instant opensAt
+      Instant closesAt
+      int revision
+      "capability: admissions.periods.manage; requirement: board.seat covering departmentId OR global.administrator; scope: department; decisionTime: Transaction"
+      def void defineAdmissionPeriod(DepartmentId departmentId, SemesterId semesterId, Instant opensAt, Instant closesAt) : write;
+      def void reviseAdmissionPeriod(Instant opensAt, Instant closesAt, int expectedRevision) : write;
+    }
+    ValueObject AdmissionPeriodId {
+      String value key
+    }
+  }
+
+  Aggregate Applicant {
+    "An applicant exists before a Person does; the account claim links it to a Person."
+    Entity Applicant {
+      aggregateRoot
+      - ApplicantId applicantId
+      ContactEmail normalizedEmail
+      PersonId linkedPerson
+    }
+    ValueObject ApplicantId {
+      String value key
+    }
+  }
+
+  "invariant: one application per applicant and admission period. invariant: the field of study is active and belongs to the period's department. Admissions is the only writer of the year of study; Substitutes reads it."
+  Aggregate AdmissionApplication {
+    Entity AdmissionApplication {
+      aggregateRoot
+      - ApplicationId applicationId
+      ApplicantId applicantId
+      AdmissionPeriodId admissionPeriodId
+      FieldOfStudyId fieldOfStudyId
+      int yearOfStudy
+      String answers
+      Instant submittedAt
+      int revision
+      - ApplicationLifecycle lifecycle
+      "capability: public; the anonymous submitter is rate limited by transport"
+      def void submitApplication(ApplicantId applicantId, AdmissionPeriodId admissionPeriodId, int yearOfStudy) : write [ -> ApplicationSubmitted ];
+      "capability: admissions.applications.revise; requirement: the applicant's linked Person (returning registration); a correction path for department managers, if kept, has its own specification; scope: own application; decisionTime: Transaction"
+      def void reviseYearOfStudy(int yearOfStudy, int expectedRevision) : write [ ApplicationSubmitted -> ApplicationSubmitted ];
+    }
+    ValueObject ApplicationId {
+      String value key
+    }
+    enum ApplicationLifecycle {
+      aggregateLifecycle
+      ApplicationSubmitted
+    }
+  }
+
+  "invariant: registration requires accepted service history for the person; revisions are append-only."
+  Aggregate ReturningRegistration {
+    Entity ReturningRegistration {
+      aggregateRoot
+      - ReturningRegistrationId returningRegistrationId
+      PersonId personId
+      AdmissionPeriodId admissionPeriodId
+      String preferences
+      int revision
+      "capability: admissions.returning.register; requirement: self with accepted history; scope: own person; decisionTime: Transaction"
+      def void registerReturning(AdmissionPeriodId admissionPeriodId, String preferences, int expectedRevision) : write;
+    }
+    ValueObject ReturningRegistrationId {
+      String value key
+    }
+  }
+}
+
+BoundedContext Recruitment implements VolunteerRecruitment {
+  type = FEATURE
+  domainVisionStatement = "Interview staffing, scheduling, invitations and responses, conduct, recommendation, corrections and onboarding invitations. Recommendation, invitation, account claim, affiliation and placement stay separate decisions."
+  responsibilities = "Interviews", "Questionnaires", "Onboarding invitations"
+
+  "invariant: primary and co-interviewer are eligible, distinct people and neither is the linked applicant. invariant: completed or cancelled interviews reject staffing changes. invariant: an explicit recommendation is required to complete. invariant: each assigned interview keeps its saved questions; questionnaire changes affect future assignments only. invariant: a replacement schedule supersedes the previous invitation and resets the response to Pending; old links cannot reach the replacement."
+  Aggregate Interview {
+    Entity Interview {
+      aggregateRoot
+      - InterviewId interviewId
+      ApplicationId applicationId
+      DepartmentId departmentId
+      PersonId interviewer
+      PersonId coInterviewer
+      - InterviewInvitation currentInvitation
+      String questionSnapshot
+      String recommendation
+      int revision
+      - InterviewLifecycle lifecycle
+
+      "capability: recruitment.interviews.assign; requirement: board.seat covering departmentId; scope: department; decisionTime: Transaction"
+      def void assignApplicant(ApplicationId applicationId, PersonId interviewer) : write [ -> InterviewAssigned ];
+      "capability: recruitment.staffing.manage; requirement: board.seat covering departmentId OR global.administrator; scope: interview; decisionTime: Transaction. Sends no new invitation."
+      def void changeStaffing(PersonId interviewer, PersonId coInterviewer, String reason, int expectedRevision) : write;
+      "capability: recruitment.interviews.schedule; requirement: the interviewer with requirement recruitment.interviewer-appointment, OR board.seat covering departmentId; scope: interview; decisionTime: Transaction"
+      def void scheduleInterview(Instant startsAt, String location) : write [ InterviewAssigned -> InterviewScheduled ];
+      "Only after the applicant requested a new time; a replacement creates a new schedule and invitation."
+      def void replaceSchedule(Instant startsAt, String location, int expectedRevision) : write [ InterviewScheduled -> InterviewScheduled ];
+      "capability: bearer invitation link; only the current invitation accepts a response"
+      def void respondToInvitation(String capability, String response) : write [ InterviewScheduled -> InterviewScheduled ];
+      "capability: recruitment.interviews.conduct; requirement: interview.participant; scope: interview; decisionTime: Transaction"
+      def void completeInterview(String assessment, String recommendation) : write [ InterviewScheduled -> InterviewCompleted ];
+      "A distinct no-show outcome with evidence, then rebook or close."
+      def void recordNoShow(String evidence) : write [ InterviewScheduled -> InterviewNoShow ];
+      def void rebookAfterNoShow(Instant startsAt, String location) : write [ InterviewNoShow -> InterviewScheduled ];
+      def void cancelInterview(String reason) : write [ InterviewAssigned, InterviewScheduled, InterviewNoShow -> InterviewCancelled* ];
+      "capability: recruitment.interviews.correct; requirement: interview.participant with requirement recruitment.correction-window; scope: interview; decisionTime: Transaction"
+      def void correctAssessment(String assessment, String recommendation, int expectedRevision) : write [ InterviewCompleted -> InterviewCompleted ];
+    }
+    ValueObject InterviewId {
+      String value key
+    }
+    Entity InterviewInvitation {
+      - InvitationId invitationId
+      String capabilityDigest
+      Instant startsAt
+      String responseState
+      Instant supersededAt
+    }
+    ValueObject InvitationId {
+      String value key
+    }
+    enum InterviewLifecycle {
+      aggregateLifecycle
+      InterviewAssigned, InterviewScheduled, InterviewNoShow, InterviewCompleted, InterviewCancelled
+    }
+  }
+
+  Aggregate Questionnaire {
+    Entity Questionnaire {
+      aggregateRoot
+      - QuestionnaireId questionnaireId
+      String questions
+      int revision
+      - QuestionnaireLifecycle lifecycle
+      "capability: recruitment.questionnaires.manage; requirement: global.administrator; scope: global; decisionTime: Transaction"
+      def void createQuestionnaire(String questions, String reason) : write [ -> QuestionnaireInactive ];
+      def void reviseQuestionnaire(String questions, String reason, int expectedRevision) : write;
+      def void activateQuestionnaire(String reason, int expectedRevision) : write [ QuestionnaireInactive -> QuestionnaireActive ];
+      def void deactivateQuestionnaire(String reason, int expectedRevision) : write [ QuestionnaireActive -> QuestionnaireInactive ];
+    }
+    ValueObject QuestionnaireId {
+      String value key
+    }
+    enum QuestionnaireLifecycle {
+      aggregateLifecycle
+      QuestionnaireActive, QuestionnaireInactive
+    }
+  }
+
+  "Recruitment owns the invitation; Identity owns the account claim it requests. The invitation becomes Claimed when Identity reports the claim consumed, not through a shared row."
+  Aggregate OnboardingInvitation {
+    Entity OnboardingInvitation {
+      aggregateRoot
+      - OnboardingInvitationId onboardingInvitationId
+      ApplicantId applicantId
+      DepartmentId departmentId
+      String claimCapabilityId
+      - OnboardingInvitationLifecycle lifecycle
+      "capability: recruitment.onboarding.invite; requirement: board.seat covering departmentId; scope: department; decisionTime: Transaction. Reissue revokes the open invitation."
+      def void issueInvitation(ApplicantId applicantId) : write [ -> InvitationIssued ];
+      def void revokeInvitation() : write [ InvitationIssued -> InvitationRevoked* ];
+      def void markInvitationClaimed() : write [ InvitationIssued -> InvitationClaimed* ];
+    }
+    ValueObject OnboardingInvitationId {
+      String value key
+    }
+    enum OnboardingInvitationLifecycle {
+      aggregateLifecycle
+      InvitationIssued, InvitationRevoked, InvitationClaimed
+    }
+  }
+}
+
+/* ======================================================================================
+ * School service (core)
+ * ====================================================================================== */
+
+BoundedContext Placements implements SchoolService {
+  type = FEATURE
+  domainVisionStatement = "Assistant supply (affiliation), semester placements, school demand, reviewed proposals and confirmed rosters, dated school-service commitments, absence and substitute coverage, and immutable service outcomes and history."
+  responsibilities = "Volunteer affiliation", "Placements", "Demand", "Proposals and rosters", "Commitments", "Absence and coverage", "Service history"
+  implementationTechnology = "packages/placements: portable contracts plus a private PostgreSQL server entry"
+
+  Aggregate VolunteerAffiliation {
+    Entity VolunteerAffiliation {
+      aggregateRoot
+      - AffiliationId affiliationId
+      PersonId personId
+      DepartmentId departmentId
+      int revision
+      - AffiliationLifecycle lifecycle
+      "capability: self; requirement: linked Person identity"
+      def void requestAffiliation(DepartmentId departmentId) : write [ -> AffiliationPending ];
+      "capability: placements.affiliations.establish; requirement: board.seat covering departmentId; scope: department; decisionTime: Transaction"
+      def void establishAffiliation(int expectedRevision) : write [ AffiliationPending -> AffiliationActive ];
+      def void deactivateAffiliation(int expectedRevision) : write [ AffiliationActive -> AffiliationInactive ];
+      def void reactivateAffiliation(int expectedRevision) : write [ AffiliationInactive -> AffiliationActive ];
+    }
+    ValueObject AffiliationId {
+      String value key
+    }
+    enum AffiliationLifecycle {
+      aggregateLifecycle
+      AffiliationPending, AffiliationActive, AffiliationInactive
+    }
+  }
+
+  "invariant: a placement requires an active affiliation in the school's associated department. invariant: placement history survives edits and removal; proposal generation never changes a placement."
+  Aggregate Placement {
+    Entity Placement {
+      aggregateRoot
+      - PlacementId placementId
+      AffiliationId affiliationId
+      SchoolId schoolId
+      SemesterId semesterId
+      - Weekday weekday
+      String teachingBlock
+      int revision
+      - PlacementLifecycle lifecycle
+      "capability: placements.manage; requirement: coordinator(department) OR global.administrator; scope: department; decisionTime: Transaction"
+      def void placeAssistant(AffiliationId affiliationId, SchoolId schoolId, SemesterId semesterId) : write [ -> Placed ];
+      def void revisePlacement(int expectedRevision) : write [ Placed -> Placed ];
+      def void removePlacement(int expectedRevision) : write [ Placed -> PlacementRemoved* ];
+    }
+    ValueObject PlacementId {
+      String value key
+    }
+    enum Weekday {
+      Monday, Tuesday, Wednesday, Thursday, Friday
+    }
+    enum PlacementLifecycle {
+      aggregateLifecycle
+      Placed, PlacementRemoved
+    }
+  }
+
+  Aggregate PlacementDemand {
+    Entity PlacementDemand {
+      aggregateRoot
+      - DemandId demandId
+      SchoolId schoolId
+      SemesterId semesterId
+      String weekday
+      String teachingBlock
+      int requiredVolunteers
+      int revision
+      "capability: placements.demand.manage; requirement: coordinator(department); scope: school-department; decisionTime: Transaction. The school is active."
+      def void recordDemand(SchoolId schoolId, int requiredVolunteers) : write;
+    }
+    ValueObject DemandId {
+      String value key
+    }
+  }
+
+  "invariant: a proposal snapshots demand and the current active placements; every mismatch is explicit; confirmation requires an exact review of those exceptions and freezes the roster."
+  Aggregate PlacementProposal {
+    Entity PlacementProposal {
+      aggregateRoot
+      - ProposalId proposalId
+      DemandId demandId
+      String rosterSnapshot
+      String exceptions
+      - ProposalLifecycle lifecycle
+      def void generateProposal(DemandId demandId) : write [ -> ProposalDrafted ];
+      "Queues one notification per assigned assistant; proves no dated service."
+      def void confirmRoster(String reviewedExceptions) : write [ ProposalDrafted -> RosterConfirmed* ];
+      def void discardProposal() : write [ ProposalDrafted -> ProposalDiscarded* ];
+    }
+    ValueObject ProposalId {
+      String value key
+    }
+    enum ProposalLifecycle {
+      aggregateLifecycle
+      ProposalDrafted, RosterConfirmed, ProposalDiscarded
+    }
+  }
+
+  "invariant: the interval starts before it ends and required demand is positive. invariant: Completed needs an immutable occurrence whose attendance and acknowledged substitutes meet demand. invariant: a terminal decision is immutable and unique; concurrent or repeated commands cannot create a second one. invariant: outstanding offers resolve before a terminal decision. Overdue is derived from the end time and an instant; time alone proves nothing."
+  Aggregate SchoolServiceCommitment {
+    Entity SchoolServiceCommitment {
+      aggregateRoot
+      - CommitmentId commitmentId
+      SchoolId schoolId
+      ProposalId confirmedRoster
+      Instant startsAt
+      Instant endsAt
+      int requiredAssistants
+      String scheduledAssignments
+      - CommitmentLifecycle lifecycle
+
+      "capability: placements.commitments.establish; requirement: coordinator(school, semester); scope: school-semester; decisionTime: Transaction"
+      def void establishCommitment(ProposalId confirmedRoster, Instant startsAt, Instant endsAt, int requiredAssistants) : write [ -> CommitmentOpen ];
+      "capability: placements.commitments.decide; requirement: coordinator(school, semester); scope: commitment; decisionTime: Transaction"
+      def void recordCompletion(@ServiceOccurrence occurrence) : write [ CommitmentOpen -> CommitmentCompleted* ];
+      def void recordCancellation(String reason, String source) : write [ CommitmentOpen -> CommitmentCancelled* ];
+      def void recordUnfulfilled(String unmetDemand, String evidence) : write [ CommitmentOpen -> CommitmentUnfulfilled* ];
+    }
+    ValueObject CommitmentId {
+      String value key
+    }
+    "Attendance lists only the people recorded as present; empty attendance is explicit."
+    Entity ServiceOccurrence {
+      - OccurrenceId occurrenceId
+      String attendance
+      Instant recordedAt
+    }
+    ValueObject OccurrenceId {
+      String value key
+    }
+    enum CommitmentLifecycle {
+      aggregateLifecycle
+      CommitmentOpen, CommitmentCompleted, CommitmentCancelled, CommitmentUnfulfilled
+    }
+  }
+
+  "invariant: an absence affects one scheduled assignment and stores no medical reason or free text; it does not erase the placement or the school's need."
+  Aggregate Absence {
+    Entity Absence {
+      aggregateRoot
+      - AbsenceId absenceId
+      CommitmentId commitmentId
+      PersonId absentAssistant
+      - AbsenceLifecycle lifecycle
+      "capability: placements.absence.report; requirement: roster member (self) OR coordinator(school, semester); scope: commitment; decisionTime: Transaction"
+      def void reportAbsence(CommitmentId commitmentId, PersonId absentAssistant) : write [ -> AbsenceReported ];
+      def void closeAbsence(CommitmentId occurrenceCommitment) : write [ AbsenceReported -> AbsenceCovered* X AbsenceUncovered* ];
+    }
+    ValueObject AbsenceId {
+      String value key
+    }
+    enum AbsenceLifecycle {
+      aggregateLifecycle
+      AbsenceReported, AbsenceCovered, AbsenceUncovered
+    }
+  }
+
+  "invariant: one eligible substitute at a time; eligibility and school-name snapshots are kept; provider failure does not roll back the offer."
+  Aggregate SubstituteOffer {
+    Entity SubstituteOffer {
+      aggregateRoot
+      - OfferId offerId
+      AbsenceId absenceId
+      PersonId substitute
+      String eligibilitySnapshot
+      String schoolNameSnapshot
+      - OfferLifecycle lifecycle
+      "capability: placements.coverage.dispatch; requirement: coordinator(school, semester); scope: absence; decisionTime: Transaction"
+      def void dispatchOffer(AbsenceId absenceId, PersonId substitute) : write [ -> OfferPending ];
+      "capability: placements.coverage.respond; requirement: offer candidate (self); only the addressed substitute"
+      def void acceptOffer() : write [ OfferPending -> OfferAccepted ];
+      def void declineOffer() : write [ OfferPending -> OfferDeclined* ];
+      def void withdrawOffer() : write [ OfferPending -> OfferWithdrawn* ];
+      def void acknowledgeCoverage() : write [ OfferAccepted -> CoverageAcknowledged* ];
+    }
+    ValueObject OfferId {
+      String value key
+    }
+    enum OfferLifecycle {
+      aggregateLifecycle
+      OfferPending, OfferAccepted, OfferDeclined, OfferWithdrawn, CoverageAcknowledged
+    }
+  }
+
+  "invariant: append-only; importing history never creates a current affiliation, placement, demand, absence, occurrence, account or admission decision."
+  Aggregate HistoricalService {
+    Entity HistoricalServiceRecord {
+      aggregateRoot
+      String sourceIdentity
+      PersonId personId
+      DepartmentId departmentId
+      SemesterId semesterId
+      SchoolId schoolId
+    }
+  }
+
+  Service DependentRecordQuery {
+    "Placements' answer to Schools: does a school-department association have dependent records, including saved proposals?"
+    boolean associationInUse(SchoolId schoolId, DepartmentId departmentId) : read-only;
+  }
+}
+
+BoundedContext Substitutes implements SchoolService {
+  type = FEATURE
+  domainVisionStatement = "The substitute pool: opt-in membership of affiliated volunteers, weekday availability and language preference. The year of study is Admissions' fact: the pool reads it and never writes it."
+  responsibilities = "Substitute pool"
+
+  "The pool is keyed by Person. Until the Substitutes cutover re-keys it, the fact port derives the holder through the applicant link."
+  Aggregate SubstitutePool {
+    Entity PoolMembership {
+      aggregateRoot
+      PersonId personId
+      DepartmentId departmentId
+      String weekdayAvailability
+      int revision
+      - PoolLifecycle lifecycle
+      "capability: self; requirement: active affiliation"
+      def void optIn(String weekdayAvailability) : write [ -> InPool ];
+      def void revisePreferences(String weekdayAvailability, int expectedRevision) : write [ InPool -> InPool ];
+      def void optOut(int expectedRevision) : write [ InPool -> OutOfPool ];
+      def void rejoin(int expectedRevision) : write [ OutOfPool -> InPool ];
+    }
+    enum PoolLifecycle {
+      aggregateLifecycle
+      InPool, OutOfPool
+    }
+  }
+}
+
+/* ======================================================================================
+ * Economy and file custody
+ * ====================================================================================== */
+
+BoundedContext Economy implements ExpenseReimbursement {
+  type = FEATURE
+  domainVisionStatement = "Expense claims with private receipt files, approval, rejection and reopening. A different, explicit settlement grant records immutable evidence after an external settlement. Claim state, file custody, payment destinations, approval authority, settlement authority, delivery attempts and settlement history are separate facts."
+  responsibilities = "Expense claims", "Payment destinations", "Settlement evidence"
+
+  "invariant: approval does not prove payment and leaves the claim Approved. invariant: only pending claims can be revised, withdrawn, approved or rejected."
+  Aggregate ExpenseClaim {
+    Entity ExpenseClaim {
+      aggregateRoot
+      - ClaimId claimId
+      PersonId claimant
+      DepartmentId departmentId
+      - Money amount
+      String receiptFileRef
+      String paymentAccountCiphertext
+      int revision
+      - ClaimLifecycle lifecycle
+      "capability: economy.claims.submit; requirement: self with an active payment-authority grant for departmentId; scope: own claim; decisionTime: Transaction. The claim keeps the ciphertext of the destination it was submitted against."
+      def void submitClaim(@Money amount, String receiptFileRef) : write [ -> ClaimPending ];
+      def void revisePendingClaim(@Money amount, int expectedRevision) : write [ ClaimPending -> ClaimPending ];
+      def void withdrawPendingClaim(int expectedRevision) : write [ ClaimPending -> ClaimWithdrawn* ];
+      "capability: economy.claims.approve; requirement: approval grant covering departmentId; scope: claim-department; decisionTime: Transaction"
+      def void approveClaim(int expectedRevision) : write [ ClaimPending -> ClaimApproved ];
+      def void rejectClaim(String reason, int expectedRevision) : write [ ClaimPending -> ClaimRejected ];
+      def void reopenRejectedClaim(int expectedRevision) : write [ ClaimRejected -> ClaimPending ];
+    }
+    ValueObject ClaimId {
+      String value key
+    }
+    ValueObject Money {
+      int amountOre
+      String currency
+    }
+    enum ClaimLifecycle {
+      aggregateLifecycle
+      ClaimPending, ClaimApproved, ClaimRejected, ClaimWithdrawn
+    }
+  }
+
+  "A payment destination is Economy-private data keyed by one payment-authority grant, recorded in the same transaction as the grant. The grant in AccessControl carries no private data."
+  Aggregate PaymentDestination {
+    Entity PaymentDestination {
+      aggregateRoot
+      GrantId paymentAuthorityGrantId key
+      String paymentAccountCiphertext
+      int revision
+    }
+  }
+
+  "invariant: one settlement per claim; the claim is Approved at the observed revision; settledAt <= recordedAt; an external reference is unique per external authority; evidence is immutable."
+  Aggregate Settlement {
+    Entity SettlementEvidence {
+      aggregateRoot
+      - SettlementId settlementId
+      ClaimId claimId
+      int claimRevision
+      int amountOre
+      String destinationFingerprint
+      String externalAuthority
+      String externalReference
+      Instant settledAt
+      Instant recordedAt
+      PersonId recordedBy
+      "capability: economy.claims.settle; requirement: settlement grant covering the claim department; scope: claim-department; decisionTime: Transaction"
+      def void recordSettlement(ClaimId claimId, int claimRevision, String externalReference, Instant settledAt) : write;
+    }
+    ValueObject SettlementId {
+      String value key
+    }
+  }
+}
+
+BoundedContext FileCustody implements FileCustodyDomain {
+  type = SYSTEM
+  domainVisionStatement = "Private files with no-follow traversal, ownership checks, restricted permissions and explicit lifecycle. A path string is not authority."
+  responsibilities = "Private files"
+
+  Aggregate PrivateFile {
+    Entity PrivateFile {
+      aggregateRoot
+      - PrivateFileId privateFileId
+      String owningFact
+      String sha256
+      - FileLifecycle lifecycle
+      def void stageFile(String sha256) : write [ -> FileStaged ];
+      def void promoteFile() : write [ FileStaged -> FileCommitted ];
+      def void deleteFile() : write [ FileStaged, FileCommitted -> FileDeleted* ];
+    }
+    ValueObject PrivateFileId {
+      String value key
+    }
+    enum FileLifecycle {
+      aggregateLifecycle
+      FileStaged, FileCommitted, FileDeleted
+    }
+  }
+}
+
+/* ======================================================================================
+ * Supporting contexts
+ * ====================================================================================== */
+
+BoundedContext TeamApplications implements TeamRecruitment {
+  type = FEATURE
+  domainVisionStatement = "A visitor applies to one team. Team members read the team's applications; the current team leader changes intake and deletes applications. Global administration grants no implicit access. No review outcome, hiring state or appointment."
+  responsibilities = "Team applications", "Team intake"
+
+  "invariant: a submission stores one application with its submission instant; exact replay returns the original result; a distinct submission is a second application. invariant: deletion removes the application and its private fields from every stored notification. invariant: audit records no applicant contact details or free text. Applications are purged after a fixed retention period (period to be set)."
+  Aggregate TeamApplication {
+    Entity TeamApplication {
+      aggregateRoot
+      - TeamApplicationId teamApplicationId
+      TeamId teamId
+      - ApplicantDetails details
+      Instant submittedAt
+      - TeamApplicationLifecycle lifecycle
+      "capability: public; the anonymous submitter is rate limited by transport; guard: the team's intake is Open at the Clock instant"
+      def void submitTeamApplication(TeamId teamId, @ApplicantDetails details) : write [ -> ApplicationStored ];
+      "capability: team-applications.manage; requirement: team.leader(teamId), current and nonsuspended; scope: team-of(application); decisionTime: Transaction"
+      def void deleteTeamApplication() : write [ ApplicationStored -> ApplicationDeleted* ];
+      "Purges the application after the fixed retention period (period to be set)."
+      def void purgeTeamApplication() : write [ ApplicationStored -> ApplicationPurged* ];
+    }
+    ValueObject TeamApplicationId {
+      String value key
+    }
+    ValueObject ApplicantDetails {
+      String name
+      ContactEmail emailAddress
+      String phone
+      String yearOfStudy
+      String fieldOfStudy
+      String biography
+      String motivation
+    }
+    enum TeamApplicationLifecycle {
+      aggregateLifecycle
+      ApplicationStored, ApplicationDeleted, ApplicationPurged
+    }
+  }
+
+  "TeamApplications owns the intake with its own revision; the intake is not stored on Organization's team row. invariant: the intake revision belongs to the intake, not to the Organization team. Open is derived: team and department active, intake accepts applications, deadline absent or later than now (the deadline instant is closed), and a deliverable mailbox exists (team email, else department email; an undeliverable team email does not fall back)."
+  Aggregate TeamIntake {
+    Entity TeamIntake {
+      aggregateRoot
+      TeamId teamId
+      boolean acceptApplication
+      Instant deadline
+      int revision
+      "capability: team-applications.manage; requirement: team.leader(teamId), current and nonsuspended; scope: team; decisionTime: Transaction; precondition: observed revision"
+      def void reviseIntake(boolean acceptApplication, Instant deadline, int expectedRevision) : write;
+    }
+    Service TeamIntakePolicy {
+      String evaluateIntake(String teamIntakeFacts, Instant now) : read-only;
+    }
+  }
+
+  Application TeamApplicationsApplication {
+    "capability: public; rate limited"
+    Command SubmitTeamApplication {
+      String commandId
+      TeamId teamId
+      - ApplicantDetails details
+    }
+    "capability: team-applications.manage; requirement: team.leader; scope: team-of(application); decisionTime: Transaction"
+    Command DeleteTeamApplication {
+      String commandId
+      - TeamApplicationId teamApplicationId
+    }
+    "capability: team-applications.manage; requirement: team.leader; scope: team; decisionTime: Transaction"
+    Command ReviseTeamIntake {
+      String commandId
+      TeamId teamId
+      boolean acceptApplication
+      Instant deadline
+    }
+    Command QueueApplicantReceipt
+    Command QueueTeamNotification
+    Command CancelTeamApplicationEnvelopes
+
+    DomainEvent TeamApplicationSubmitted {
+      - TeamApplicationId teamApplicationId
+      TeamId teamId
+      Instant submittedAt
+    }
+    DomainEvent TeamApplicationDeleted {
+      - TeamApplicationId teamApplicationId
+      TeamId teamId
+    }
+    DomainEvent TeamIntakeRevised {
+      TeamId teamId
+      boolean acceptApplication
+      Instant deadline
+      int revision
+    }
+    // Applications are purged after a fixed retention period (period to be set).
+    DomainEvent TeamApplicationPurged {
+      - TeamApplicationId teamApplicationId
+      TeamId teamId
+      String retentionPolicy
+    }
+
+    Flow TeamApplicationFlow {
+      command SubmitTeamApplication [ initiated by "Visitor" ] delegates to TeamApplication [ -> ApplicationStored ] emits event TeamApplicationSubmitted
+      event TeamApplicationSubmitted triggers command QueueApplicantReceipt + QueueTeamNotification
+      command DeleteTeamApplication [ initiated by "Team leader" ] delegates to TeamApplication [ ApplicationStored -> ApplicationDeleted* ] emits event TeamApplicationDeleted
+      event TeamApplicationDeleted triggers command CancelTeamApplicationEnvelopes
+      command ReviseTeamIntake [ initiated by "Team leader" ] emits event TeamIntakeRevised
+    }
+  }
+}
+
+BoundedContext Surveys implements SchoolFeedback {
+  type = FEATURE
+  domainVisionStatement = "Department-scoped school surveys with text, list, radio and checkbox questions, a completion message and an explicit results policy. Anonymous responses name the school, never the respondent."
+  responsibilities = "School surveys", "Survey responses", "Results policy"
+
+  "invariant: a survey closes once and never reopens; a closed survey conceals its public form and rejects responses. invariant: the results policy controls counts, rows and exports alike, and unauthorized readers cannot learn whether confidential results exist."
+  Aggregate SchoolSurvey {
+    Entity SchoolSurvey {
+      aggregateRoot
+      - SurveyId surveyId
+      DepartmentId departmentId
+      SemesterId semesterId
+      String questions
+      String completionMessage
+      - ResultsPolicy resultsPolicy
+      - SurveyLifecycle lifecycle
+      "capability: surveys.manage; requirement: board.seat covering departmentId OR global.administrator; scope: department; decisionTime: Transaction"
+      def void createSurvey(DepartmentId departmentId, SemesterId semesterId, @ResultsPolicy resultsPolicy) : write [ -> SurveyOpen ];
+      def void closeSurvey() : write [ SurveyOpen -> SurveyClosed* ];
+    }
+    ValueObject SurveyId {
+      String value key
+    }
+    enum ResultsPolicy {
+      DepartmentManagers, GlobalAdministratorsOnly
+    }
+    enum SurveyLifecycle {
+      aggregateLifecycle
+      SurveyOpen, SurveyClosed
+    }
+  }
+
+  Aggregate SurveyResponse {
+    Entity SurveyResponse {
+      aggregateRoot
+      - SurveyResponseId surveyResponseId
+      SurveyId surveyId
+      SchoolId schoolId
+      String answers
+      "capability: public; the school is eligible for the survey's department and semester"
+      def void respond(SurveyId surveyId, SchoolId schoolId, String answers) : write;
+    }
+    ValueObject SurveyResponseId {
+      String value key
+    }
+  }
+}
+
+BoundedContext SocialEvents implements CommunityLife {
+  type = FEATURE
+  domainVisionStatement = "Social events for student members of a department in a semester."
+  responsibilities = "Social events"
+
+  Aggregate SocialEvent {
+    Entity SocialEvent {
+      aggregateRoot
+      - SocialEventId socialEventId
+      DepartmentId departmentId
+      SemesterId semesterId
+      String audience
+      String title
+      Instant startsAt
+      Instant endsAt
+      "capability: social-events.create; requirement: department member with the event grant; scope: department; decisionTime: Transaction"
+      def void announceEvent(DepartmentId departmentId, SemesterId semesterId, String title, Instant startsAt, Instant endsAt) : write;
+    }
+    ValueObject SocialEventId {
+      String value key
+    }
+  }
+}
+
+BoundedContext Content implements PublicPresence {
+  type = FEATURE
+  domainVisionStatement = "Public articles with drafts and published versions, public page text and sponsor presentation. Bodies are sanitized; slugs are unique."
+  responsibilities = "Articles", "Page text", "Sponsors"
+
+  Aggregate Article {
+    Entity Article {
+      aggregateRoot
+      - ArticleId articleId
+      String slug
+      String draftBody
+      int publishedVersion
+      int revision
+      - ArticleLifecycle lifecycle
+      "capability: content.articles.edit; requirement: editor in an active department; scope: article-departments; decisionTime: Transaction"
+      def void createDraft(String title, String body) : write [ -> ArticleDraft ];
+      def void reviseDraft(String body, int expectedRevision) : write;
+      "capability: content.articles.publish; requirement: publisher; a leader may not publish organization-wide articles"
+      def void publishArticle(int expectedRevision) : write [ ArticleDraft, ArticleUnpublished -> ArticlePublished ];
+      def void unpublishArticle(int expectedRevision) : write [ ArticlePublished -> ArticleUnpublished ];
+    }
+    ValueObject ArticleId {
+      int value key
+    }
+    enum ArticleLifecycle {
+      aggregateLifecycle
+      ArticleDraft, ArticlePublished, ArticleUnpublished
+    }
+  }
+
+  Aggregate PageText {
+    Entity PageText {
+      aggregateRoot
+      String pageKey
+      String body
+      int revision
+      def void revisePageText(String body, int expectedRevision) : write;
+    }
+  }
+
+  Aggregate SponsorPresentation {
+    Entity Sponsor {
+      aggregateRoot
+      String sponsorKey
+      String name
+      String logoRef
+      int revision
+      def void reviseSponsor(String name, String logoRef, int expectedRevision) : write;
+    }
+  }
+}
+
+BoundedContext Contact implements PublicPresence {
+  type = FEATURE
+  domainVisionStatement = "Relays a visitor's contact message to an active department mailbox. The message is transient; only the quota is durable. Submission is anonymous and rate limited per visitor address. The homepage server authenticates to the backend with a deployment secret; that secret names no principal."
+  responsibilities = "Contact quota", "Contact relay"
+
+  "invariant: at most a fixed number of attempts per visitor address per rolling window; the attempt is consumed before recipient lookup or delivery and is never refunded."
+  Aggregate ContactQuota {
+    Entity ContactQuota {
+      aggregateRoot
+      String visitorAddress
+      Instant windowStart
+      int attempts
+      def void consumeAttempt(Instant now) : write;
+    }
+  }
+}
+
+BoundedContext Mailing implements Outreach {
+  type = FEATURE
+  domainVisionStatement = "Mailing recipients for a department, semester and cohort (assistants, team members, union), native list administration and automated Google Workspace synchronization. Reads do not administer subscriptions or send mail."
+  responsibilities = "Recipient projection", "Mailing lists", "Workspace synchronization"
+
+  Aggregate MailingList {
+    Entity MailingList {
+      aggregateRoot
+      - MailingListId mailingListId
+      DepartmentId departmentId
+      String cohort
+      String workspaceGroup
+      - MailingListLifecycle lifecycle
+      def void defineList(DepartmentId departmentId, String cohort) : write [ -> ListActive ];
+      def void retireList() : write [ ListActive -> ListRetired* ];
+      def void synchronizeWorkspace() : write;
+    }
+    ValueObject MailingListId {
+      String value key
+    }
+    enum MailingListLifecycle {
+      aggregateLifecycle
+      ListActive, ListRetired
+    }
+  }
+
+  Service RecipientProjection {
+    "Current authority and recipient facts share one read snapshot. An explicit semester must exist; an omitted semester resolves to the unique current one. capability: mailing.recipients.read; requirement: board.seat covering departmentId OR global.administrator (every department); decisionTime: SnapshotRead"
+    String recipients(DepartmentId departmentId, SemesterId semesterId, String cohort) : read-only;
+  }
+}
+
+BoundedContext Messaging implements Outreach {
+  type = FEATURE
+  domainVisionStatement = "Admission-opening notices with subscription consent and unsubscribe, accept-interview reminders and staff interview digests. Email only."
+  responsibilities = "Notice subscriptions", "Reminders", "Digests"
+
+  Aggregate NoticeSubscription {
+    Entity NoticeSubscription {
+      aggregateRoot
+      - SubscriptionId subscriptionId
+      ContactEmail emailAddress
+      DepartmentId departmentId
+      - SubscriptionLifecycle lifecycle
+      def void subscribeToNotices(ContactEmail emailAddress, DepartmentId departmentId) : write [ -> Subscribed ];
+      def void unsubscribeFromNotices(String unsubscribeToken) : write [ Subscribed -> Unsubscribed* ];
+    }
+    ValueObject SubscriptionId {
+      String value key
+    }
+    enum SubscriptionLifecycle {
+      aggregateLifecycle
+      Subscribed, Unsubscribed
+    }
+  }
+}
+
+BoundedContext Delivery implements DurableDelivery {
+  type = SYSTEM
+  domainVisionStatement = "Every command that needs external work commits one immutable envelope with its business fact. Workers claim, attempt, acknowledge or retry after commit. Retry reuses the envelope and effect identity; a provider failure never rolls back the business fact."
+  responsibilities = "Outbox envelopes", "Claims and fencing", "Retry and quarantine", "Mail port"
+
+  "invariant: the first envelope is immutable. invariant: a claim is exclusive and fenced; a lost claim is a typed failure. invariant: an effect stays behind an undelivered predecessor of the same owner when ordering is declared. invariant: historical import never enqueues."
+  Aggregate OutboxEnvelope {
+    Entity OutboxEnvelope {
+      aggregateRoot
+      - EffectId effectId
+      String owningContext
+      String owningFact
+      String payload
+      int attempts
+      - EnvelopeLifecycle lifecycle
+      def void enqueue(String owningFact, String payload) : write [ -> EnvelopePending ];
+      def void claim(String claimId) : write [ EnvelopePending -> EnvelopeClaimed ];
+      def void acknowledge(String claimId) : write [ EnvelopeClaimed -> EnvelopeDelivered* ];
+      def void failAttempt(String claimId) : write [ EnvelopeClaimed -> EnvelopePending ];
+      def void quarantine(String claimId) : write [ EnvelopeClaimed -> EnvelopeQuarantined* ];
+      "The owning context cancels undelivered work (for example a deleted team application) and clears the private payload."
+      def void cancel() : write [ EnvelopePending, EnvelopeClaimed -> EnvelopeCancelled* ];
+    }
+    ValueObject EffectId {
+      String value key
+    }
+    enum EnvelopeLifecycle {
+      aggregateLifecycle
+      EnvelopePending, EnvelopeClaimed, EnvelopeDelivered, EnvelopeQuarantined, EnvelopeCancelled
+    }
+  }
+}
+
+BoundedContext Reporting implements OperationalReporting {
+  type = FEATURE
+  domainVisionStatement = "Read models over owned facts: applicant progress and coordinator reports (an archive export at cutover; each report is built for a named consumer). Reports accept no commands."
+  responsibilities = "Applicant progress", "Coordinator reports"
+
+  Aggregate ApplicantProgressView {
+    "Shows recorded facts in sequence (interview, invitation, claim, affiliation, placement); it never invents an admission answer."
+    ValueObject ApplicantProgress {
+      ApplicantId applicantId
+      String stage
+    }
+    Service ApplicantProgressProjection {
+      @ApplicantProgress progressOf(ApplicantId applicantId) : read-only;
+    }
+  }
+}
+
+/* ======================================================================================
+ * External systems
+ * ====================================================================================== */
+
+BoundedContext LegacySymfony implements LegacyMigration {
+  type = SYSTEM
+  domainVisionStatement = "The retained Symfony application and its database snapshots. Read-only source for evidence-based import; everything without an import path goes to an access-controlled read-only archive."
+}
+
+BoundedContext GoogleWorkspace {
+  type = SYSTEM
+  domainVisionStatement = "External directory and group mail provider for list synchronization."
+}
+
+BoundedContext MailProvider {
+  type = SYSTEM
+  domainVisionStatement = "External mail delivery; selected at cutover preparation."
+}
+
+BoundedContext HkDirCatalogue {
+  type = SYSTEM
+  domainVisionStatement = "NTNU or DBH (HK-dir) catalogue of fields of study; candidate source only."
+}
