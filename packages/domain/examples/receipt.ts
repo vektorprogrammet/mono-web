@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { decideReceipt, Receipt } from "@vektorprogrammet/domain/receipt";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain";
+import {
+  ApprovalScopeSchema,
+  AuthorizedReceiptCommandSchema,
+  decideReceipt,
+  Receipt,
+} from "@vektorprogrammet/domain/receipt";
 import { Effect, Schema } from "effect";
 
 const context = {
@@ -10,23 +16,22 @@ const context = {
 
 // Synthetic decision inputs, not authenticated authority or stored private bytes.
 const owner = {
-  personId: "example-owner",
-  departmentId: "example-department",
+  personId: PersonId.make("example-owner"),
+  departmentId: DepartmentId.make("example-department"),
   active: true,
-  approvalScope: { _tag: "None" },
+  approvalScope: ApprovalScopeSchema.cases.None.make({}),
 };
 
 const approver = {
   ...owner,
-  personId: "example-approver",
-  approvalScope: { _tag: "Department", departmentId: owner.departmentId },
+  personId: PersonId.make("example-approver"),
+  approvalScope: ApprovalScopeSchema.cases.Department.make({ departmentId: owner.departmentId }),
 };
 
 const program = Effect.gen(function* () {
   const submitted = yield* decideReceipt(
     undefined,
-    {
-      _tag: "SubmitReceipt",
+    AuthorizedReceiptCommandSchema.cases.SubmitReceipt.make({
       commandId: "example-submit",
       actor: owner,
       departmentId: owner.departmentId,
@@ -41,19 +46,18 @@ const program = Effect.gen(function* () {
         byteLength: 1,
         sha256: "0".repeat(64),
       },
-    },
+    }),
     context,
   );
 
   assert.equal(submitted.receipt.status, "Pending");
 
-  const approval = {
-    _tag: "ApproveReceipt",
+  const approval = AuthorizedReceiptCommandSchema.cases.ApproveReceipt.make({
     commandId: "example-approve",
     receiptId: submitted.receipt.receiptId,
     expectedRevision: submitted.receipt.revision,
     actor: approver,
-  };
+  });
 
   const denied = yield* Effect.flip(
     decideReceipt(submitted.receipt, { ...approval, actor: owner }, context),
