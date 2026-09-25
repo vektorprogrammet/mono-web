@@ -419,6 +419,18 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "GET",
+    "/api/schools/management",
+    "directory.readSchoolManagement",
+    person("schools.manage", "schools.management", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/schools/commands",
+    "directory.executeSchoolCommand",
+    person("schools.manage", "schools.management", [], "Transaction"),
+  ],
+  [
+    "GET",
     "/api/open-admission-periods",
     "admissions.listOpenAdmissionPeriods",
     anonymous("admissions.public-open-periods"),
@@ -593,6 +605,24 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
       ["recruitment.assigned-interviewer-or-co-interviewer", "recruitment.not-known-self"],
       "Transaction",
     ),
+  ],
+  [
+    "GET",
+    "/api/recruitment/questionnaires",
+    "recruitment.readQuestionnaires",
+    person("recruitment.maintain", "recruitment.maintenance", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/recruitment/interview-staffing",
+    "recruitment.readInterviewStaffing",
+    person("recruitment.maintain", "recruitment.maintenance", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/recruitment/maintenance/commands",
+    "recruitment.maintainRecruitment",
+    person("recruitment.maintain", "recruitment.maintenance", [], "Transaction"),
   ],
   [
     "POST",
@@ -952,6 +982,8 @@ const entityMutationOperations = [
 const bodyPreconditionMutationOperations = [
   "organization.executeLifecycle",
   "surveys.closeAdminSurvey",
+  "directory.executeSchoolCommand",
+  "recruitment.maintainRecruitment",
 ] as const;
 
 const taggedNoContentMutationOperations = [
@@ -995,6 +1027,9 @@ const privateReadOperations = [
   "recruitment.readAssignmentBoard",
   "recruitment.readInterviewReport",
   "recruitment.readSchedulingBoard",
+  "directory.readSchoolManagement",
+  "recruitment.readQuestionnaires",
+  "recruitment.readInterviewStaffing",
   "receipts.listReceipts",
   "receipts.listReceiptsForApproval",
   "receipts.listReceiptsForSettlement",
