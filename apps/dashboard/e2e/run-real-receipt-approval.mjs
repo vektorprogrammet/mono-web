@@ -1562,7 +1562,7 @@ function assertRequestLedger(records, journeyEvidence) {
 
   assertEqual(
     concurrencyRecords.map(({ concurrencyProbe }) => concurrencyProbe),
-    ["file-read", "approve", "reject"],
+    ["approve", "file-read", "reject"],
     "Receipt transaction concurrency barrier lanes",
   );
   assertEqual(
