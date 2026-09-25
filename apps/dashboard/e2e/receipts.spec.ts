@@ -394,13 +394,13 @@ test.describe("Native Receipt owner journey", () => {
     await submissionButton.click();
 
     const submissionError = submissionForm.getByRole("alert");
-    await expect(submissionError).toHaveAttribute("data-error-code", "validation.failed");
+    await expect(submissionError).toHaveAttribute("data-error-tag", "ReceiptDecodeError");
     await expect(submissionError).toHaveAttribute("data-error-field", "amountNok");
     await expect(submissionForm).toHaveAttribute("aria-busy", "false");
     await expect(submissionButton).toBeEnabled();
 
     const submissionIdempotencyKey = await submissionForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(submissionIdempotencyKey).not.toBe("");
@@ -486,7 +486,7 @@ test.describe("Native Receipt owner journey", () => {
       );
     }
 
-    await expect(submissionForm.locator('input[name="idempotencyKey"]')).toHaveValue(
+    await expect(submissionForm.locator('input[name="commandId"]')).toHaveValue(
       submissionIdempotencyKey,
     );
 
@@ -499,7 +499,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(submissionError).toContainText(
       "Kvitteringsfilen kan ikke være større enn 10 MiB.",
     );
-    await expect(submissionForm.locator('input[name="idempotencyKey"]')).toHaveValue(
+    await expect(submissionForm.locator('input[name="commandId"]')).toHaveValue(
       submissionIdempotencyKey,
     );
 
@@ -513,7 +513,7 @@ test.describe("Native Receipt owner journey", () => {
     const submissionSuccess = submissionForm.getByRole("status");
     await expect(submissionSuccess).toBeVisible();
     await expect(submissionSuccess).toHaveAttribute(
-      "data-idempotency-key",
+      "data-command-id",
       submissionIdempotencyKey,
     );
     let receiptRow = page.locator("[data-receipt-id]").filter({ hasText: DESCRIPTION });
@@ -601,12 +601,12 @@ test.describe("Native Receipt owner journey", () => {
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     const reviseError = page.locator('[role="alert"][data-action-intent="revise"]');
-    await expect(reviseError).toHaveAttribute("data-error-code", "validation.failed");
+    await expect(reviseError).toHaveAttribute("data-error-tag", "ReceiptDecodeError");
     await expect(reviseError).toHaveAttribute("data-error-field", "amountNok");
-    await expect(reviseError).toHaveAttribute("data-if-match", revisionZero.etag);
+    await expect(reviseError).toHaveAttribute("data-etag", revisionZero.etag);
 
     const stableRevisionIdempotencyKey = await reviseForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(stableRevisionIdempotencyKey).not.toBe("");
@@ -617,7 +617,7 @@ test.describe("Native Receipt owner journey", () => {
     const revisionNotice = page.locator('[role="status"][data-action-intent="revise"]');
     await expect(revisionNotice).toBeVisible();
     await expect(revisionNotice).toHaveAttribute(
-      "data-idempotency-key",
+      "data-command-id",
       stableRevisionIdempotencyKey,
     );
     await expect(revisionNotice).toHaveAttribute("data-revision", "1");
@@ -647,7 +647,7 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
-    await reviseForm.locator('input[name="idempotencyKey"]').evaluate((element, idempotencyKey) => {
+    await reviseForm.locator('input[name="commandId"]').evaluate((element, idempotencyKey) => {
       if (!(element instanceof HTMLInputElement)) throw new Error("Expected an idempotency input");
       const input = element;
       input.value = idempotencyKey;
@@ -658,7 +658,7 @@ test.describe("Native Receipt owner journey", () => {
 
     await expect(revisionNotice).toHaveAttribute("data-revision", "2");
     await expect(revisionNotice).toHaveAttribute(
-      "data-idempotency-key",
+      "data-command-id",
       REPLACEMENT_IDEMPOTENCY_KEY,
     );
     const replacementIdempotencyKey = REPLACEMENT_IDEMPOTENCY_KEY;
@@ -740,7 +740,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(revisionTwoEtag);
 
     const staleDraftIdempotencyKey = await reviseForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(staleDraftIdempotencyKey).not.toBe("");
@@ -776,9 +776,9 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
-    await expect(reviseError).not.toHaveAttribute("data-idempotency-key", staleDraftIdempotencyKey);
-    await expect(reviseError).toHaveAttribute("data-error-code", "precondition.failed");
-    await expect(reviseError).toHaveAttribute("data-if-match", revisionTwoEtag);
+    await expect(reviseError).not.toHaveAttribute("data-command-id", staleDraftIdempotencyKey);
+    await expect(reviseError).toHaveAttribute("data-error-tag", "StaleReceiptRevision");
+    await expect(reviseError).toHaveAttribute("data-etag", revisionTwoEtag);
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
     await expect(reviseForm).toBeVisible();
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(CONCURRENT_DESCRIPTION);
@@ -786,7 +786,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(concurrentRevision.etag);
 
     const refreshedIdempotencyKey = await reviseForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(refreshedIdempotencyKey).not.toBe("");
@@ -825,7 +825,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(withdrawForm.locator('input[name="etag"]')).toHaveValue(concurrentRevision.etag);
 
     const withdrawalIdempotencyKey = await withdrawForm
-      .locator('input[name="idempotencyKey"]')
+      .locator('input[name="commandId"]')
       .inputValue();
 
     expect(withdrawalIdempotencyKey).not.toBe("");
@@ -836,7 +836,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(withdrawalNotice).toHaveAttribute("data-status", "Withdrawn");
     await expect(withdrawalNotice).toHaveAttribute("data-revision", "4");
     await expect(withdrawalNotice).toHaveAttribute(
-      "data-idempotency-key",
+      "data-command-id",
       withdrawalIdempotencyKey,
     );
     const withdrawalEtag = await withdrawalNotice.getAttribute("data-etag");

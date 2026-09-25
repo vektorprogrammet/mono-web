@@ -11,6 +11,8 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { dashboardMount } from "../dashboard-base.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -21,32 +23,9 @@ const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url)
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
-function configuredLoopbackPort(name, fallback) {
-  const value = process.env[name] ?? String(fallback);
+const disposablePorts = await reserveLoopbackPorts(4);
 
-  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer`);
-  const port = Number(value);
-
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`${name} must be between 1 and 65535`);
-  }
-
-  return port;
-}
-
-const dashboardPort = configuredLoopbackPort("RECEIPT_E2E_DASHBOARD_PORT", 5174);
-
-const backendPort = configuredLoopbackPort("RECEIPT_E2E_BACKEND_PORT", 8790);
-
-const internalBackendPort = configuredLoopbackPort("RECEIPT_E2E_INTERNAL_BACKEND_PORT", 8791);
-
-const postgresPort = 55432;
-
-const disposablePorts = [dashboardPort, backendPort, internalBackendPort, postgresPort];
-
-if (new Set(disposablePorts).size !== disposablePorts.length) {
-  throw new Error("Real Receipt owner loopback ports must be distinct");
-}
+const [dashboardPort, backendPort, internalBackendPort, postgresPort] = disposablePorts;
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -574,8 +553,6 @@ function assertDurableEvidence(postgres, privateFile, lifecycle) {
 }
 
 async function main() {
-  await Promise.all(disposablePorts.map(assertPortAvailable));
-
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-owner-0036-"));
   const stagingRoot = join(temporaryRoot, "staging");
   const committedRoot = join(temporaryRoot, "committed");
@@ -605,7 +582,11 @@ async function main() {
     password: personaPassword,
   };
 
-  const baseEnvironment = postgresComposeEnvironment(process.env);
+  const baseEnvironment = postgresComposeEnvironment({
+    ...process.env,
+    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
+  });
+
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
 
@@ -627,12 +608,7 @@ async function main() {
 
   const apiEnvironment = {
     ...sharedEnvironment,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: String(backendPort),
-    BACKEND_PG_URL: postgresUrl,
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
+    ...localBackendEnvironment({ backendOrigin, dashboardOrigin, postgresUrl, betterAuthSecret }),
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
@@ -644,6 +620,8 @@ async function main() {
     ...apiEnvironment,
     BACKEND_INGRESS: "internal",
     BACKEND_PORT: String(internalBackendPort),
+    // Internal ingress requires its source networks; this runner reaches it over loopback only.
+    OAUTH_INTERNAL_SOURCE_NETWORKS: "127.0.0.1/32",
   };
 
   const dashboardEnvironment = {
