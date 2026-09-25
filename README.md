@@ -151,6 +151,7 @@ bun run --cwd apps/docs build
 ```
 
 Every Markdown file in `docs/` and `docs/specs/` must appear in a navigation section.
+The [documentation workflow](.github/workflows/docs.yml) builds the site on each push to `main` and publishes it to GitHub Pages.
 The walkthrough figures use the vendored MIT MDXCN component. Its [manifest](apps/docs/components/mdxcn/provenance.json) records upstream provenance.
 
 ### Local native development
