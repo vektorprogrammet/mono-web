@@ -1,5 +1,5 @@
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
-import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   Organization,
@@ -7,19 +7,24 @@ import {
   directoryRowInScope,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
-import { ProfileDecodeError, Profile } from "@vektorprogrammet/domain/profile";
+import { Profile, type ProfileFailure } from "@vektorprogrammet/domain/profile";
 import {
   ExternalNativeApi,
   ListPeopleEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
+import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import type { OrganizationResolutionError } from "../authority.js";
-import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
-import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
-import { webHandler } from "../http-api/problem.js";
-import { toHttpApiResponse } from "../http-api/transport.js";
+import { genericContext } from "../native-operation.js";
+import {
+  authorizePerson,
+  personPresentation,
+  problemMapper,
+  unreachable,
+  webHandler,
+} from "../http-api/problem.js";
 import { listSchools, type SchoolsApiHttpOptions } from "../schools/http.js";
 import {
   readSchoolManagementHttp,
@@ -75,38 +80,49 @@ const DirectoryResponseSchema = Schema.Struct({
 
 const DIRECTORY_PAGE_LIMIT = 200;
 
-const errorResponse = (cause: unknown): Response => {
-  if (cause instanceof HttpSemanticFailure) {
-    return nativeProblemResponse(cause.code, cause.status);
-  }
+const unavailable = () => Problem.make("directory.unavailable");
 
-  const tag =
-    cause !== null &&
-    (cause === null || Predicate.isObjectOrArray(cause)) &&
-    "_tag" in cause &&
-    Predicate.isString(cause._tag)
-      ? cause._tag
-      : "ProfilePersistenceError";
+/**
+ * The one answer for every people-directory failure. A read that cannot
+ * complete, or a response that does not fit its schema, leaves the directory
+ * unavailable.
+ *
+ * @construct http-problem
+ */
+const directoryProblems = problemMapper<
+  OrganizationResolutionError | ProfileFailure | Schema.SchemaError
+>()({
+  OrganizationDecodeError: unavailable,
+  OrganizationPersistenceError: unavailable,
+  ProfileDecodeError: unavailable,
+  ProfileQueryLimitExceeded: unavailable,
+  ProfileNotFound: unavailable,
+  ProfileContactNotFound: unavailable,
+  ProfileStaleRevision: unavailable,
+  ProfileCommandConflict: unavailable,
+  ProfilePersistenceError: unavailable,
+  SchemaError: unavailable,
+});
 
-  switch (tag) {
-    case "UnauthenticatedActor":
-      return nativeProblemResponse("credential.invalid", 401, {
-        "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
-      });
-    case "InactiveActor":
-    case "NotInScope":
-      return nativeProblemResponse("authority.denied", 403);
-    case "DirectoryCursorMalformed":
-      return nativeProblemResponse("directory.cursor-malformed", 422);
-    default:
-      return nativeProblemResponse("directory.unavailable", 503);
-  }
-};
+/**
+ * A person credential rejected after ingress is answered from the request's
+ * own evidence; an unavailable identity provider leaves the directory
+ * unavailable.
+ *
+ * @construct http-problem
+ */
+const directoryCredentialProblems = (presentation: CredentialPresentation) =>
+  problemMapper<UnauthenticatedActor | IdentityEngineError>()({
+    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+    IdentityEngineError: unavailable,
+  });
 
-const listPeople = (request: Request, input: DirectoryApiHttpOptions) =>
-  Effect.gen(function* () {
+const listPeople = (request: Request, input: DirectoryApiHttpOptions) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
     if (new URL(request.url).search !== "") {
-      return nativeProblemResponse("directory.cursor-malformed", 422);
+      return yield* Problem.make("directory.cursor-malformed");
     }
 
     // One captured authorizationInstant drives the gate and every row
@@ -115,11 +131,7 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) =>
     const decision = resolveDirectoryGateScope(authority);
 
     if (Predicate.isTagged(decision, "Deny")) {
-      return yield* Effect.fail(
-        decision.reason === "AuthorityInactive"
-          ? new HttpSemanticFailure("authority.denied", 403)
-          : new HttpSemanticFailure("authority.denied", 403),
-      );
+      return yield* Problem.make("authority.denied");
     }
 
     const scope = decision.value;
@@ -146,14 +158,17 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) =>
           departmentId,
         }));
 
-    yield* authorizePersonNativeOperation({
-      request,
-      personId: authority.personId,
-      spec: Option.getOrThrow(reflectAccessSpec(ListPeopleEndpoint)),
-      resolution: { selection: "AllMatching", contexts },
-      grantScopes,
-      now: authority.evaluatedAt,
-    });
+    yield* authorizePerson(
+      {
+        request,
+        personId: authority.personId,
+        spec: Option.getOrThrow(reflectAccessSpec(ListPeopleEndpoint)),
+        resolution: { selection: "AllMatching", contexts },
+        grantScopes,
+        now: authority.evaluatedAt,
+      },
+      presentation,
+    );
 
     const response = yield* Effect.gen(function* () {
       const organization = yield* Organization;
@@ -199,13 +214,17 @@ const listPeople = (request: Request, input: DirectoryApiHttpOptions) =>
       return yield* Schema.decodeUnknownEffect(DirectoryResponseSchema)(
         { activePeople, inactivePeople, nextCursor: cursor ?? null },
         { onExcessProperty: "error" },
-      ).pipe(
-        Effect.mapError(() => new ProfileDecodeError({ message: "Invalid directory response" })),
       );
     });
 
     return privateJsonResponse(response);
-  });
+  }).pipe(
+    directoryProblems,
+    directoryCredentialProblems(presentation),
+    // A revealing AccessSpec answers every authority failure as a denial, never as 404.
+    unreachable("resource.not-found"),
+  );
+};
 
 /** Native HttpApi implementation for the people and school directories. */
 export const DirectoryApiHandlers = (
@@ -222,7 +241,7 @@ export const DirectoryApiHandlers = (
           webHandler(request, executeSchoolCommandHttp),
         )
         .handleRaw("listPeople", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => listPeople(webRequest, input), errorResponse),
+          webHandler(request, (webRequest) => listPeople(webRequest, input)),
         )
         .handleRaw("listSchools", ({ request }) =>
           webHandler(request, (webRequest) => listSchools(webRequest, schools)),
