@@ -135,6 +135,10 @@ The [Substitutes guide](../packages/domain/src/substitutes/README.md) applies th
 It links to an executable public-import example and the continuous coverage journey.
 The generated API reference remains scoped to Placements. No second generator or documentation website is introduced.
 
+The [Receipt guide](../packages/domain/src/receipt/README.md) extends the same pattern to claims, approval, settlement evidence, private files, and recovery.
+Its [public-import example](../packages/domain/examples/receipt.ts) runs pure decisions and public encoding, not persistence or delivery.
+The domain compiler includes the example. The continuous reimbursement gate supplies separate native runtime evidence.
+
 ## Acceptance
 
 The pilot is complete only when all conditions hold:

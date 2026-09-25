@@ -322,6 +322,30 @@ It checks source identity after execution and removes owned processes, PostgreSQ
 The source-owned runner defines the artifact inventory. This command does not add a hosted CI job or broaden the school-service upload contract.
 See [STATE.md](../STATE.md) for the exercised revision and evidence limits.
 
+### Claim to settlement evidence
+
+The [reimbursement runner](../tools/e2e/golden-reimbursement.mjs) owns the checkpoints for the continuous native receipt journey.
+The [Receipt guide](../packages/domain/src/receipt/README.md) explains its service, authority, private storage, and recovery boundaries.
+
+Use the local gate prerequisites and a clean committed checkout:
+
+```bash
+bun run test:golden-reimbursement
+```
+
+The journey uses synthetic people, disposable PostgreSQL, private local files, and a loopback notification provider.
+It connects submission, scoped approval, separate settlement authority, and the owner’s fresh-session result through actual dashboard controls.
+Settlement records external evidence. The program does not execute a payment.
+
+Independent database and file observations must agree with the browser’s claim, actors, decisions, and exact private bytes.
+Negative commands require valid transport preconditions before they can establish an authorization denial.
+Replay, concurrent commands, process restart, and unattended delivery recovery preserve the original business facts.
+
+The gate checks resource bounds without changing machine limits. It retains source-bound, sanitized evidence outside the checkout.
+Only one heavy acceptance job runs at a time. Owned runtime resources must be released after success, failure, or handled interruption.
+Local observations do not establish current-data reconciliation, real-provider delivery, production readiness, or cutover authority.
+See [STATE.md](../STATE.md) for the exercised source revision and remaining gates.
+
 ### Golden CI implementation
 
 The [CI workflow](../.github/workflows/ci.yml) runs the existing journey through the [CI wrapper](../tools/e2e/golden-school-service-ci.mjs).

@@ -12,6 +12,7 @@
     "docs:system": "bun --no-env-file tools/system-guide/build.ts",
     "test:golden-school-service": "bun --no-env-file tools/e2e/placement-check.ts --golden-school-service",
     "test:golden-recruitment": "bun --no-env-file tools/e2e/placement-check.ts --golden-recruitment",
+    "test:golden-reimbursement": "bun --no-env-file tools/e2e/golden-reimbursement.mjs",
     "verify:delivery-recovery": "bun --no-env-file tools/verification/unattended-delivery-recovery.ts",
     "proof:completion-receipt": "bun run tools/verification/completion-receipt-postgres-proof-main.ts",
     "rehearsal:organization-import": "bun run tools/verification/organization-import-rehearsal-main.ts",

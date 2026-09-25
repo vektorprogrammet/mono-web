@@ -237,9 +237,10 @@ business transaction
   -> acknowledgement or retry state
 ```
 
-The first envelope is immutable. Retry is bounded. A restart may resume pending
-work. Historical import must not send notifications. Provider-specific code belongs
-in a Layer and may not define business state.
+The first envelope is immutable. Provider deadlines bound individual requests.
+Domain-specific recovery rules define retries and quarantine. A deadline does not imply a finite lifetime retry count.
+A restart may resume pending work. Historical import must not send notifications.
+Provider-specific code belongs in a Layer and may not define business state.
 
 Private files require no-follow traversal, ownership checks, restricted permissions,
 and explicit lifecycle handling. A path string is not authority.

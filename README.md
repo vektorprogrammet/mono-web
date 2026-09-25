@@ -23,6 +23,7 @@ The durable documentation set is:
 | [docs/system-walkthrough.mdx](docs/system-walkthrough.mdx)                       | Layered reading guide with MDXCN figures; source for the standalone HTML                   |
 | [Placements developer guide](packages/placements/README.md)                      | Public imports, executable examples, API reference generation, and maintainer tasks        |
 | [Substitutes developer guide](packages/domain/src/substitutes/README.md)         | Pool service, caller authority, transaction ownership, and the continuous coverage journey |
+| [Receipt developer guide](packages/domain/src/receipt/README.md)                 | Claim, approval, settlement evidence, private files, bounded reads, and recovery           |
 | [Delivery recovery guide](docs/delivery-recovery.md)                             | Native worker configuration, lifecycle, retry limits, and recovery proof                   |
 
 Create one file in `docs/specs/` only while a non-trivial journey is active.
