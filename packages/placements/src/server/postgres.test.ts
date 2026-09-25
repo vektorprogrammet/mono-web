@@ -117,12 +117,31 @@ describe("canonical placement persistence", () => {
               ),
             );
 
-            return { board, audit, people, inactive };
+            const otherDepartment = DepartmentId.make("placement-other-department");
+            const otherSemester = SemesterId.make("placement-other-semester");
+            yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${otherDepartment},'Other department','OD','other-placement@example.invalid','Bergen')`;
+            yield* sql`INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES(${otherSemester},'2025-01-01T00:00:00Z','2025-06-30T00:00:00Z')`;
+            yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${otherDepartment})`;
+            yield* sql`INSERT INTO organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES(${coordinator},${scope.departmentId},'Active',1),(${volunteer},${otherDepartment},'Active',1)`;
+            yield* sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES
+              (${"placement-" + "3".repeat(64)},${coordinator},${scope.departmentId},${scope.semesterId},${schoolId},'Monday',4,'1',true,1),
+              (${"placement-" + "4".repeat(64)},${volunteer},${otherDepartment},${scope.semesterId},${schoolId},'Monday',4,'1',true,1),
+              (${"placement-" + "5".repeat(64)},${volunteer},${scope.departmentId},${otherSemester},${schoolId},'Monday',4,'1',true,1)`;
+            const ownPlacements = (yield* readOwnCoverage(scope, volunteer)).placements;
+            const otherPlacements = (yield* readOwnCoverage(scope, coordinator)).placements;
+
+            return { board, audit, people, inactive, ownPlacements, otherPlacements };
           }),
         ),
       ),
     );
 
+    expect(observed.ownPlacements.map((placement) => placement.placementId)).toEqual([
+      "placement-" + "2".repeat(64),
+    ]);
+    expect(observed.otherPlacements.map((placement) => placement.placementId)).toEqual([
+      "placement-" + "3".repeat(64),
+    ]);
     expect(observed.board.placements).toMatchObject([
       { active: false, revision: 3, day: "Friday", workdays: 8, block: "1" },
       { active: true, revision: 1, day: "Monday", workdays: 4, block: "2" },

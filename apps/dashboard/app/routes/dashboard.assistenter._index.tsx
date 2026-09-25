@@ -155,27 +155,45 @@ export async function action({ request }: Route.ActionArgs) {
 
       const payload = Schema.decodeUnknownSync(CoverageCommand)(
         Match.value(action).pipe(
-Match.when("ReportAbsenceForVolunteer", (action) => ({
-              action,
-              commitmentId: form.get("commitmentId"),
-              personId: form.get("personId"),
-            })),
-Match.when("DispatchSubstituteOffer", (action) => ({
-                action,
-                absenceId: form.get("absenceId"),
-                candidatePersonId: form.get("candidatePersonId"),
-              })),
-Match.orElse((action) => (action === "WithdrawSubstituteOffer" || action === "AcknowledgeCoverage"
+          Match.when("ReportAbsenceForVolunteer", (action) => ({
+            action,
+            commitmentId: form.get("commitmentId"),
+            personId: form.get("personId"),
+          })),
+          Match.when("DispatchSubstituteOffer", (action) => ({
+            action,
+            absenceId: form.get("absenceId"),
+            candidatePersonId: form.get("candidatePersonId"),
+          })),
+          Match.orElse((action) =>
+            action === "WithdrawSubstituteOffer" || action === "AcknowledgeCoverage"
               ? {
                   action,
                   offerId: form.get("offerId"),
                 }
               : action === "CancelService"
-                ? { action, commitmentId: form.get("commitmentId"), reason: form.get("reason"), evidenceSource: form.get("evidenceSource") }
+                ? {
+                    action,
+                    commitmentId: form.get("commitmentId"),
+                    reason: form.get("reason"),
+                    evidenceSource: form.get("evidenceSource"),
+                  }
                 : action === "MarkUnfulfilledService"
-                  ? { action, commitmentId: form.get("commitmentId"), attendedPersonIds: form.getAll("attendedPersonId"), evidenceSource: form.get("evidenceSource"), reason: form.get("reason") }
-                  : { action, commitmentId: form.get("commitmentId"), attendedPersonIds: form.getAll("attendedPersonId"), evidenceSource: form.get("evidenceSource") }))
-),
+                  ? {
+                      action,
+                      commitmentId: form.get("commitmentId"),
+                      attendedPersonIds: form.getAll("attendedPersonId"),
+                      evidenceSource: form.get("evidenceSource"),
+                      reason: form.get("reason"),
+                    }
+                  : {
+                      action,
+                      commitmentId: form.get("commitmentId"),
+                      attendedPersonIds: form.getAll("attendedPersonId"),
+                      evidenceSource: form.get("evidenceSource"),
+                    },
+          ),
+        ),
         { onExcessProperty: "error" },
       );
 
@@ -215,28 +233,44 @@ Match.orElse((action) => (action === "WithdrawSubstituteOffer" || action === "Ac
         block: form.get("block"),
       };
 
-      const command =
-        Match.value(action).pipe(
-Match.when("Affiliation", (action) => ({ action, personId: form.get("personId"), transition: form.get("transition") })),
-Match.when("Create", (action) => ({ action, personId: form.get("personId"), ...values })),
-Match.when("Edit", (action) => ({ action, placementId: form.get("placementId"), ...values })),
-Match.when("Remove", (action) => ({ action, placementId: form.get("placementId") })),
-Match.when("SetDemand", (action) => ({
-                      action,
-                      schoolId: Number(form.get("schoolId")),
-                      day: form.get("day"),
-                      block: form.get("block"),
-                      requiredVolunteers: Number(form.get("requiredVolunteers")),
-                    })),
-Match.when("GenerateProposal", (action) => ({ action })),
-Match.when("ConfirmProposal", (action) => ({
-                          action,
-                          proposalId: form.get("proposalId"),
-                          reviewedExceptionIds: form.getAll("reviewedExceptionId"),
-                        })),
-Match.when("ScheduleService", (action) => ({ action, proposalId: form.get("proposalId"), schoolId: Number(form.get("schoolId")), day: form.get("day"), block: form.get("block"), serviceDate: form.get("serviceDate"), startTime: form.get("startTime"), endTime: form.get("endTime") })),
-Match.orElse((action) => ({ action }))
-);
+      const command = Match.value(action).pipe(
+        Match.when("Affiliation", (action) => ({
+          action,
+          personId: form.get("personId"),
+          transition: form.get("transition"),
+        })),
+        Match.when("Create", (action) => ({ action, personId: form.get("personId"), ...values })),
+        Match.when("Edit", (action) => ({
+          action,
+          placementId: form.get("placementId"),
+          ...values,
+        })),
+        Match.when("Remove", (action) => ({ action, placementId: form.get("placementId") })),
+        Match.when("SetDemand", (action) => ({
+          action,
+          schoolId: Number(form.get("schoolId")),
+          day: form.get("day"),
+          block: form.get("block"),
+          requiredVolunteers: Number(form.get("requiredVolunteers")),
+        })),
+        Match.when("GenerateProposal", (action) => ({ action })),
+        Match.when("ConfirmProposal", (action) => ({
+          action,
+          proposalId: form.get("proposalId"),
+          reviewedExceptionIds: form.getAll("reviewedExceptionId"),
+        })),
+        Match.when("ScheduleService", (action) => ({
+          action,
+          proposalId: form.get("proposalId"),
+          schoolId: Number(form.get("schoolId")),
+          day: form.get("day"),
+          block: form.get("block"),
+          serviceDate: form.get("serviceDate"),
+          startTime: form.get("startTime"),
+          endTime: form.get("endTime"),
+        })),
+        Match.orElse((action) => ({ action })),
+      );
 
       const payload = Schema.decodeUnknownSync(PlacementCommand)(command, {
         onExcessProperty: "error",
@@ -296,14 +330,20 @@ Match.orElse((action) => ({ action }))
         "Tjenesteplanen er ikke lenger et aktivt utkast. Hent oppdatert oversikt.",
       "school-service.exception-review-invalid":
         "Alle avvik må gjennomgås og bekreftes før planen kan låses.",
-      "commitment.target-invalid": "Dato, skole, bolk eller tjenesteplan passer ikke med den bekreftede tjenesten.",
-      "commitment.interval-invalid": "Velg et gyldig tidsrom samme skoledag. Starttid må være før sluttid.",
-      "commitment.duplicate": "Det finnes allerede en datert tjeneste for denne skolen, datoen og bolken.",
+      "commitment.target-invalid":
+        "Dato, skole, bolk eller tjenesteplan passer ikke med den bekreftede tjenesten.",
+      "commitment.interval-invalid":
+        "Velg et gyldig tidsrom samme skoledag. Starttid må være før sluttid.",
+      "commitment.duplicate":
+        "Det finnes allerede en datert tjeneste for denne skolen, datoen og bolken.",
       "commitment.closed": "Tjenesten har allerede en endelig beslutning og kan ikke endres.",
-      "commitment.attendance-invalid": "Registrer bare faktisk møtte planlagte frivillige eller bekreftede vikarer. Oppmøtet må samsvare med behovet og valgt utfall.",
-      "commitment.outcome-invalid": "Dette utfallet kan ikke dokumenteres før tidsrommet er over, eller bevisene er ikke tilstrekkelige.",
+      "commitment.attendance-invalid":
+        "Registrer bare faktisk møtte planlagte frivillige eller bekreftede vikarer. Oppmøtet må samsvare med behovet og valgt utfall.",
+      "commitment.outcome-invalid":
+        "Dette utfallet kan ikke dokumenteres før tidsrommet er over, eller bevisene er ikke tilstrekkelige.",
       "commitment.pending-offer": "Avklar alle åpne vikartilbud før tjenesten får endelig utfall.",
-      "absence.target-invalid": "Fravær kan bare meldes for en åpen, datert tjeneste der personen er planlagt.",
+      "absence.target-invalid":
+        "Fravær kan bare meldes for en åpen, datert tjeneste der personen er planlagt.",
       "absence.duplicate": "Fravær er allerede meldt for dette oppmøtet. Hent oppdatert oversikt.",
       "absence.closed": "Denne fraværssaken er allerede avsluttet og kan ikke endres.",
       "offer.candidate-ineligible":
@@ -389,7 +429,7 @@ function CommandForm({
   const refreshedSummary =
     refreshed === null
       ? null
-      : "placements" in refreshed
+      : "placements" in refreshed && !("rosterSlots" in refreshed)
         ? `Oppdatert oversikt: ${refreshed.placements.filter((placement) => placement.active).length} aktive plasseringer. ${refreshed.placements
             .filter((placement) => placement.active)
             .map(
@@ -420,7 +460,9 @@ function CommandForm({
         event.currentTarget.dataset.pending = "true";
         setDirty(true);
         const draft = new FormData(event.currentTarget);
-        const submitter = event.nativeEvent instanceof SubmitEvent ? event.nativeEvent.submitter : null;
+
+        const submitter =
+          event.nativeEvent instanceof SubmitEvent ? event.nativeEvent.submitter : null;
 
         if (submitter instanceof HTMLButtonElement && submitter.name)
           draft.set(submitter.name, submitter.value);
@@ -741,7 +783,8 @@ function SchoolServicePanel({
           <ul className="list-disc pl-5">
             {board.occurrences.map((occurrence) => (
               <li key={occurrence.occurrenceId}>
-                {occurrence.schoolName}, {occurrence.occurredOn}, bolk {occurrence.block}: {occurrence.attendedPersonIds.length} møtte
+                {occurrence.schoolName}, {occurrence.occurredOn}, bolk {occurrence.block}:{" "}
+                {occurrence.attendedPersonIds.length} møtte
               </li>
             ))}
           </ul>
@@ -777,9 +820,10 @@ const closureOutcomeLabel = { Covered: "Dekket", Uncovered: "Ikke dekket" } as c
 type CoverageOffer = (typeof CoverageBoardResource.Type)["offers"][number];
 
 const offerServiceTitle = (offer: CoverageOffer): string => {
-  const interval = offer.startTime === null || offer.endTime === null
-    ? "tidspunkt ikke registrert for historisk tilbud"
-    : `kl. ${offer.startTime}–${offer.endTime}`;
+  const interval =
+    offer.startTime === null || offer.endTime === null
+      ? "tidspunkt ikke registrert for historisk tilbud"
+      : `kl. ${offer.startTime}–${offer.endTime}`;
 
   return `${offer.schoolName}, ${offer.serviceDate} ${interval} — ${offer.day}, bolk ${offer.block}`;
 };
@@ -852,12 +896,35 @@ function OwnCoveragePanel({
     >
       <header>
         <h2 id="own-coverage-title" className="text-xl font-semibold">
-          Min fravær og vikardekning
+          Mine skoleplasseringer og vikardekning
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Her vises bare dine bekreftede oppmøter, fravær og vikartilbud som er adressert til deg.
+          Her vises bare dine skoleplasseringer, bekreftede oppmøter, fravær og vikartilbud.
         </p>
       </header>
+      <section className="space-y-3" aria-labelledby="own-placements-title">
+        <h3 id="own-placements-title" className="font-semibold">
+          Mine skoleplasseringer
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Daterte oppmøter avtales separat fra skoleplasseringen.
+        </p>
+        {coverage.placements.length === 0 && (
+          <p>Du har ingen aktiv skoleplassering i valgt semester.</p>
+        )}
+        {coverage.placements.map((placement) => (
+          <article
+            key={placement.placementId}
+            data-own-placement-id={placement.placementId}
+            className="min-w-0 rounded-md border p-4"
+          >
+            <h4 className="font-semibold break-words">{placement.schoolName}</h4>
+            <p>
+              {placement.day}, bolk {placement.block}, {placement.workdays} undervisningsdager
+            </p>
+          </article>
+        ))}
+      </section>
       <section className="space-y-3" aria-labelledby="own-absences-title">
         <h3 id="own-absences-title" className="font-semibold">
           Registrerte fravær
@@ -883,9 +950,7 @@ function OwnCoveragePanel({
 
           return (
             <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
-              <h4 className="break-words font-medium">
-                {offerServiceTitle(offer)}
-              </h4>
+              <h4 className="break-words font-medium">{offerServiceTitle(offer)}</h4>
               <OfferLifecycle
                 offer={offer}
                 response={response}
@@ -944,7 +1009,11 @@ function CoordinatorCoveragePanel({
 
   for (const acknowledgement of coverage.acknowledgements)
     acknowledgementsByOfferId.set(acknowledgement.offerId, acknowledgement);
-  const closuresByAbsenceId = new Map(coverage.closures.map((closure) => [closure.absenceId, closure]));
+
+  const closuresByAbsenceId = new Map(
+    coverage.closures.map((closure) => [closure.absenceId, closure]),
+  );
+
   const candidatesByAbsenceId = new Map<string, Array<CoverageCandidate>>();
 
   for (const candidate of coverage.candidates) {
@@ -954,10 +1023,17 @@ function CoordinatorCoveragePanel({
     else candidates.push(candidate);
   }
 
-  const openCommitments = coverage.commitments.filter((commitment) =>
-    commitment.decision === null && commitment.assignments.some((assignment) =>
-      !coverage.absences.some((absence) => absence.commitmentId === commitment.commitmentId && absence.personId === assignment.personId),
-    ),
+  const openCommitments = coverage.commitments.filter(
+    (commitment) =>
+      commitment.decision === null &&
+      commitment.assignments.some(
+        (assignment) =>
+          !coverage.absences.some(
+            (absence) =>
+              absence.commitmentId === commitment.commitmentId &&
+              absence.personId === assignment.personId,
+          ),
+      ),
   );
 
   return (
@@ -970,7 +1046,8 @@ function CoordinatorCoveragePanel({
           Fravær og vikardekning
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Koordinatorer kan velge kvalifiserte vikarer og følge leveringen. Tjenesteutfallet registreres separat nedenfor.
+          Koordinatorer kan velge kvalifiserte vikarer og følge leveringen. Tjenesteutfallet
+          registreres separat nedenfor.
         </p>
       </header>
       <section className="space-y-3" aria-labelledby="coordinator-absence-title">
@@ -985,17 +1062,43 @@ function CoordinatorCoveragePanel({
               key={commitment.commitmentId}
               etag={coverage.etag}
               refreshResource="coverage"
-              hidden={{ ...scope, action: "ReportAbsenceForVolunteer", commitmentId: commitment.commitmentId }}
+              hidden={{
+                ...scope,
+                action: "ReportAbsenceForVolunteer",
+                commitmentId: commitment.commitmentId,
+              }}
               label={`Fravær: ${commitment.schoolName}, ${commitment.serviceDate}, bolk ${commitment.block}, koordinator`}
             >
-              <p>{commitment.schoolName}, {commitment.serviceDate} kl. {commitment.startTime}–{commitment.endTime}</p>
+              <p>
+                {commitment.schoolName}, {commitment.serviceDate} kl. {commitment.startTime}–
+                {commitment.endTime}
+              </p>
               <label htmlFor={`coordinator-absence-person-${commitment.commitmentId}`}>
                 Frivillig
-                <select id={`coordinator-absence-person-${commitment.commitmentId}`} name="personId" required defaultValue="" className={selectClass}>
-                  <option value="" disabled>Velg frivillig</option>
-                  {commitment.assignments.filter((assignment) => !coverage.absences.some((absence) => absence.commitmentId === commitment.commitmentId && absence.personId === assignment.personId)).map((assignment) => (
-                    <option key={assignment.personId} value={assignment.personId}>{assignment.firstName} {assignment.lastName}</option>
-                  ))}
+                <select
+                  id={`coordinator-absence-person-${commitment.commitmentId}`}
+                  name="personId"
+                  required
+                  defaultValue=""
+                  className={selectClass}
+                >
+                  <option value="" disabled>
+                    Velg frivillig
+                  </option>
+                  {commitment.assignments
+                    .filter(
+                      (assignment) =>
+                        !coverage.absences.some(
+                          (absence) =>
+                            absence.commitmentId === commitment.commitmentId &&
+                            absence.personId === assignment.personId,
+                        ),
+                    )
+                    .map((assignment) => (
+                      <option key={assignment.personId} value={assignment.personId}>
+                        {assignment.firstName} {assignment.lastName}
+                      </option>
+                    ))}
                 </select>
               </label>
               <Button type="submit">Rapporter fravær</Button>
@@ -1022,24 +1125,37 @@ function CoordinatorCoveragePanel({
           const closure = closuresByAbsenceId.get(absence.absenceId);
           const absenceId = absence.absenceId;
 
-          const assignment = absence.commitmentId === null
-            ? coverage.rosterAssignments.find((row) =>
-                row.proposalId === absence.proposalId && row.personId === absence.personId &&
-                row.schoolId === absence.schoolId && row.day === absence.day && row.block === absence.block,
-              )
-            : coverage.commitments.find((commitment) => commitment.commitmentId === absence.commitmentId)
-                ?.assignments.find((row) => row.personId === absence.personId);
+          const assignment =
+            absence.commitmentId === null
+              ? coverage.rosterAssignments.find(
+                  (row) =>
+                    row.proposalId === absence.proposalId &&
+                    row.personId === absence.personId &&
+                    row.schoolId === absence.schoolId &&
+                    row.day === absence.day &&
+                    row.block === absence.block,
+                )
+              : coverage.commitments
+                  .find((commitment) => commitment.commitmentId === absence.commitmentId)
+                  ?.assignments.find((row) => row.personId === absence.personId);
 
-          const absentName = assignment ? `${assignment.firstName} ${assignment.lastName}`.trim() : "";
+          const absentName = assignment
+            ? `${assignment.firstName} ${assignment.lastName}`.trim()
+            : "";
 
           return (
             <article key={absenceId} className="min-w-0 space-y-3 rounded-md border p-4">
               <h4 className="break-words font-medium">
                 {absence.schoolName}, {absence.serviceDate} — {absence.day}, bolk {absence.block}
               </h4>
-              <p className="[overflow-wrap:anywhere]">Fraværende: {absentName || absence.personId}</p>
+              <p className="[overflow-wrap:anywhere]">
+                Fraværende: {absentName || absence.personId}
+              </p>
               {closure ? (
-                <p>Fraværsutfall: {closureOutcomeLabel[closure.outcome]} (gjelder denne plassen, ikke hele tjenesten).</p>
+                <p>
+                  Fraværsutfall: {closureOutcomeLabel[closure.outcome]} (gjelder denne plassen, ikke
+                  hele tjenesten).
+                </p>
               ) : activeOffer ? (
                 <p>
                   {activeOffer.status === "Acknowledged"
@@ -1093,9 +1209,7 @@ function CoordinatorCoveragePanel({
 
           return (
             <article key={offer.offerId} className="min-w-0 space-y-3 rounded-md border p-4">
-              <h4 className="break-words font-medium">
-                {offerServiceTitle(offer)}
-              </h4>
+              <h4 className="break-words font-medium">{offerServiceTitle(offer)}</h4>
               <OfferLifecycle
                 offer={offer}
                 response={response}
@@ -1155,7 +1269,9 @@ export default function Assistenter() {
         fordeler frivillige på skoler.
       </p>
       {error && <p role="alert">{error}</p>}
-      {actionResult && <p role={actionResult.success ? "status" : "alert"}>{actionResult.message}</p>}
+      {actionResult && (
+        <p role={actionResult.success ? "status" : "alert"}>{actionResult.message}</p>
+      )}
       {scopes && (
         <Form method="get" className="grid gap-3 sm:grid-cols-3">
           <label htmlFor="department">
@@ -1337,10 +1453,11 @@ export default function Assistenter() {
         </div>
       )}
       {coverage && <CoordinatorCoveragePanel coverage={coverage} scope={scope} />}
-      {(board || ownCoverage || coverage) && createElement(DATED_SERVICE_ELEMENT, {
-        key: `${departmentId}-${semesterId}-${board?.etag ?? ""}-${ownCoverage?.etag ?? ""}-${coverage?.etag ?? ""}`,
-        "data-state": JSON.stringify({ departmentId, semesterId, board, coverage, ownCoverage }),
-      })}
+      {(board || ownCoverage || coverage) &&
+        createElement(DATED_SERVICE_ELEMENT, {
+          key: `${departmentId}-${semesterId}-${board?.etag ?? ""}-${ownCoverage?.etag ?? ""}-${coverage?.etag ?? ""}`,
+          "data-state": JSON.stringify({ departmentId, semesterId, board, coverage, ownCoverage }),
+        })}
     </section>
   );
 }

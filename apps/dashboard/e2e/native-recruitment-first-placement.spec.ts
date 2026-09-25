@@ -33,7 +33,9 @@ test("continuous recruitment to first placement", async ({ browser }) => {
   test.setTimeout(180_000);
 
   const contexts = await Promise.all(
-    Array.from({ length: 4 }, () => browser.newContext({ viewport: { width: 1280, height: 900 } })),
+    Array.from({ length: 4 }, () =>
+      browser.newContext({ viewport: { width: 1280, height: 900 }, ignoreHTTPSErrors: true }),
+    ),
   );
 
   const [staff, applicant, other, wrong] = await Promise.all(
@@ -104,7 +106,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await page.route(publicOrigin + "/**", async (route) => {
       const response = await route.fetch({
         url: route.request().url().replace(publicOrigin, m.homepageOrigin),
-        ignoreHTTPSErrors: true,
+
         headers: { ...route.request().headers(), host: new URL(publicOrigin).host },
       });
 
@@ -312,7 +314,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
         headers: {
           origin: m.dashboardOrigin,
           "if-match": fields.etag,
-          "idempotency-key": "wrong-scope-approval",
+          "idempotency-key": crypto.randomUUID(),
         },
         data: { action: "Affiliation", personId: fields.personId, transition: "Establish" },
       },
@@ -346,13 +348,13 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await fresh.tracing.start({ screenshots: false, snapshots: false, sources: false });
     const volunteer = await fresh.newPage();
     await signIn(volunteer, m.persons.applicant, placements);
-    await expect(volunteer.locator("[data-placement-id]")).toHaveCount(1);
-    await expect(volunteer.locator("[data-placement-id]")).toContainText("Rekrutt skole");
+    await expect(volunteer.locator("[data-own-placement-id]")).toHaveCount(1);
+    await expect(volunteer.locator("[data-own-placement-id]")).toContainText("Rekrutt skole");
     await volunteer.reload();
-    await expect(volunteer.locator("[data-placement-id]")).toHaveCount(1);
+    await expect(volunteer.locator("[data-own-placement-id]")).toHaveCount(1);
     await expect(volunteer.getByRole("form", { name: "Ny skoleplassering" })).toHaveCount(0);
     await other.goto(m.dashboardOrigin + placements);
-    await expect(other.locator("[data-placement-id]")).toHaveCount(0);
+    await expect(other.locator("[data-own-placement-id]")).toHaveCount(0);
     expect(await other.locator("body").innerText()).not.toContain("Ada Rekrutt");
     expect((await new AxeBuilder({ page: volunteer }).analyze()).violations).toEqual([]);
     await volunteer.screenshot({

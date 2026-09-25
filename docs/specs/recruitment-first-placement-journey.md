@@ -39,6 +39,11 @@ A local delivery failure preserves the business decision; recovery delivers the 
 Browser evidence binds the same continuous actors and application to the final placement.
 Visual evidence stays outside the strict upload inventory.
 
+The own-coverage resource includes current active placements for the authenticated person, department, and semester.
+Its separate placements array does not imply a confirmed roster or a dated service commitment.
+The Assistenter page displays these placements without management controls.
+The server filters this projection before returning it; the client never filters a coordinator board.
+
 ## Reuse and ownership
 
 - `tools/e2e/run-real-native-recruitment-assignment.mjs`: assignment API, session, migration, and persistence precedents.

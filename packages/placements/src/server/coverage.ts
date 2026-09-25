@@ -384,6 +384,20 @@ export const readOwnCoverage = (scope: PlacementScope, personId: PersonId) =>
     Effect.gen(function* () {
       yield* ensureCoverageScope(sql, scope);
 
+      const placements = yield* sql`
+        SELECT x.placement_id AS "placementId",x.person_id AS "personId",
+          x.department_id AS "departmentId",x.semester_id AS "semesterId",
+          x.school_id::double precision AS "schoolId",x.day,x.workdays,x.block,x.active,x.revision,
+          p.first_name AS "firstName",p.last_name AS "lastName",s.name AS "schoolName"
+        FROM public.assistant_placements x
+        JOIN public.person_profiles p USING(person_id)
+        JOIN public.schools_directory_schools s USING(school_id)
+        WHERE x.department_id=${scope.departmentId}
+          AND x.semester_id=${scope.semesterId}
+          AND x.person_id=${personId} AND x.active
+        ORDER BY x.placement_id
+      `;
+
       const rosterRows = yield* sql`
         SELECT proposal.proposal_id AS "proposalId",(assignment->>'schoolId')::double precision AS "schoolId",
           assignment->>'schoolName' AS "schoolName",assignment->>'day' AS day,assignment->>'block' AS block
@@ -427,6 +441,7 @@ export const readOwnCoverage = (scope: PlacementScope, personId: PersonId) =>
       return yield* decode(OwnCoverageView)({
         ...scope,
         personId,
+        placements,
         rosterSlots: rosterRows,
         commitments: yield* readSchoolServiceCommitments(sql, scope, personId),
         absences,

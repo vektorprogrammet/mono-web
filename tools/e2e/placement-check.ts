@@ -766,6 +766,7 @@ try {
       assert.equal(browserEvidence.passed, true);
       assert.equal(browserEvidence.revision, revision);
       assert.deepEqual(browserEvidence.steps, recruitmentSteps.slice(1));
+      assert.equal(run("git", ["rev-parse", "HEAD"]).trim(), revision);
       assert.equal(
         run("git", ["status", "--porcelain"]).trim(),
         "",
