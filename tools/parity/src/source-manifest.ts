@@ -752,6 +752,12 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/database/migrations/0065-person-cohort-accepted-mappings.sql",
     "sha256:019627c25f2ac1a6699421e8c4d5bdeaea65454773dbcc3425670d6af4772b72",
   ],
+  // Reviewed: the only literals are date_trunc's 'milliseconds' unit and 'UTC' zone; the flagged
+  // targets are timestamp columns such as "accessTokenExpiresAt" and secret_expires_at.
+  [
+    "packages/database/migrations/0072-instant-millisecond-precision.sql",
+    "sha256:a852bc336490c1d51df9931b3c7886acf80b521bf21b527410669b9d2d56cd67",
+  ],
 ]);
 
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;
