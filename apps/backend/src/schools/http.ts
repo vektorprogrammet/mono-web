@@ -32,11 +32,6 @@ export interface SchoolsApiHttpOptions {
   >;
 }
 
-class SchoolsHttpQueryDecodeError extends Error {
-  readonly _tag = "SchoolsDecodeError";
-  readonly status = 422;
-}
-
 const privateJsonResponse = (body: Schema.Json): Response =>
   new Response(JSON.stringify(body), {
     status: 200,
@@ -95,9 +90,10 @@ export const schoolsErrorResponse = (cause: unknown): Response => {
   }
 };
 
+/** The directory accepts one optional department and no other query member. */
 const decodeQuery = (
   request: Request,
-): Effect.Effect<SchoolDirectoryQuery, SchoolsHttpQueryDecodeError> => {
+): Effect.Effect<SchoolDirectoryQuery, HttpSemanticFailure> => {
   const parameters = [...new URL(request.url).searchParams];
 
   const encoded =
@@ -107,11 +103,11 @@ const decodeQuery = (
         ? { departmentId: parameters[0]![1] }
         : undefined;
 
-  if (encoded === undefined) return Effect.fail(new SchoolsHttpQueryDecodeError());
+  if (encoded === undefined) return Effect.fail(new HttpSemanticFailure("request.malformed", 400));
 
   return Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(encoded, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError(() => new SchoolsHttpQueryDecodeError()));
+  }).pipe(Effect.mapError(() => new HttpSemanticFailure("request.malformed", 400)));
 };
 
 /** Native Schools directory adapter. It owns transport only, never SQL or authority policy. */

@@ -166,7 +166,7 @@ const expectedProblemForTag = (tag: string, status: number) => {
       "schools.invalid-department",
       "Invalid school department",
       status,
-      "The requested department is not valid for the school directory.",
+      "The selected department is not valid for the school directory.",
     );
   }
 
@@ -258,29 +258,23 @@ describe("Schools native HTTP adapter", () => {
       services,
     );
 
-    for (const [query, expected] of [
-      [
-        "unknown=1",
-        expectedProblem(
-          "schools.unavailable",
-          "Schools unavailable",
-          503,
-          "The school directory is temporarily unavailable.",
-        ),
-      ],
-      [
-        "department=a&department=b",
-        expectedProblem("request.malformed", "Malformed request", 400, "The request is malformed."),
-      ],
-      [
-        "department=",
-        expectedProblem("request.malformed", "Malformed request", 400, "The request is malformed."),
-      ],
-    ] as const) {
+    const malformed = expectedProblem(
+      "request.malformed",
+      "Malformed request",
+      400,
+      "The request is malformed.",
+    );
+
+    for (const query of [
+      "unknown=1",
+      `department=${departmentA}&unknown=1`,
+      "department=a&department=b",
+      "department=",
+    ]) {
       const response = await api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`));
       expect({ status: response.status, body: await responseBody(response) }, query).toEqual({
-        status: expected.status,
-        body: expected,
+        status: 400,
+        body: malformed,
       });
     }
 
@@ -327,14 +321,14 @@ describe("Schools native HTTP adapter", () => {
       },
       {
         name: "unknown department",
-        expectedStatus: 503,
+        expectedStatus: 422,
         expectedTag: "SchoolsDepartmentNotFound",
         query: `department=${departmentB}`,
         readDepartment: (departmentId) => Effect.fail(new DepartmentNotFound({ departmentId })),
       },
       {
         name: "outside scope",
-        expectedStatus: 503,
+        expectedStatus: 403,
         expectedTag: "SchoolsDepartmentOutOfScope",
         query: `department=${departmentB}`,
       },
@@ -379,7 +373,7 @@ describe("Schools native HTTP adapter", () => {
       );
 
       const query = testCase.query === undefined ? "" : `?${testCase.query}`;
-      const response = await api.fetch(sessionRequest(`http://backend.test/api/schools?${query}`));
+      const response = await api.fetch(sessionRequest(`http://backend.test/api/schools${query}`));
       expect(
         { status: response.status, body: await responseBody(response) },
         testCase.name,
