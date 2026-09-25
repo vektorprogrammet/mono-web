@@ -1,3 +1,4 @@
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { flow, Effect, Schema } from "effect";
@@ -492,8 +493,7 @@ const executeCommandInTransaction = (
 ): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError> =>
   Effect.gen(function* () {
     const commandDigest = publicApplicationCommandDigest(command);
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`.pipe(
-      Effect.asVoid,
+    yield* lockAdvisory(sql, AdvisoryLockKey.publicApplicationCommand(command.commandId)).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("lock application command", cause)),
       ),
@@ -513,8 +513,7 @@ const executeCommandInTransaction = (
     }
 
     const normalizedEmail = command.email;
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${"applicant:" + normalizedEmail}, 0))`.pipe(
-      Effect.asVoid,
+    yield* lockAdvisory(sql, AdvisoryLockKey.applicantEmail(normalizedEmail)).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("lock applicant identity", cause)),
       ),

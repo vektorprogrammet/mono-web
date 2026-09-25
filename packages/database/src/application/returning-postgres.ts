@@ -1,4 +1,5 @@
 import { flow, Predicate, Effect, Schema } from "effect";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
@@ -194,11 +195,6 @@ const readTeams = (sql: DatabaseOperations, departmentId: string) =>
     SELECT team_id AS "teamId", name FROM public.organization_teams
     WHERE department_id=${departmentId} ORDER BY team_id FOR SHARE`;
 
-const lockPersonCustody = (sql: DatabaseOperations, personId: string) =>
-  sql`SELECT pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended(${"vektorprogrammet:person-authorization:v1:" + personId}, 0)
-  )`.pipe(Effect.asVoid);
-
 const authorize = (
   sql: DatabaseOperations,
   context: { readonly personId: PersonId; readonly now: string },
@@ -230,7 +226,7 @@ const validateRegistrationEligibility = (
   context: RegistrationContext,
 ) =>
   Effect.gen(function* () {
-    yield* lockPersonCustody(sql, context.personId);
+    yield* lockAdvisory(sql, AdvisoryLockKey.personAuthorization(context.personId));
 
     const identity = yield* authorize(sql, {
       personId: context.personId,
@@ -277,7 +273,7 @@ const decodeCurrentPreferences = (row: CurrentPreferencesRow | undefined) =>
 export const readReturningAssistantOptions = (context: RegistrationContext) =>
   Database.use((sql) =>
     Effect.gen(function* () {
-      yield* lockPersonCustody(sql, context.personId);
+      yield* lockAdvisory(sql, AdvisoryLockKey.personAuthorization(context.personId));
 
       const identity = yield* authorize(sql, {
         personId: context.personId,
@@ -402,8 +398,8 @@ const registerInTransaction = (
   ReturningAssistantError
 > =>
   Effect.gen(function* () {
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${"returning:" + input.commandId},0))`;
-    yield* lockPersonCustody(sql, context.personId);
+    yield* lockAdvisory(sql, AdvisoryLockKey.returningAssistantCommand(input.commandId));
+    yield* lockAdvisory(sql, AdvisoryLockKey.personAuthorization(context.personId));
     const now = nowFor(context);
     const identity = yield* authorize(sql, { personId: context.personId, now });
     const period = identity.periods.find((candidate) => candidate.id === input.admissionPeriodId);
