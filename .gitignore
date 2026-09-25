@@ -11,7 +11,10 @@ build
 # Derived from committed sources; regenerate them, never commit them
 /packages/http-api/openapi.json
 /packages/sdk/native-api-operations.json
-/docs/system-walkthrough.html
+# Mirrored from repository Markdown by apps/docs/scripts/sync-pages.ts
+/apps/docs/src/pages/*
+!/apps/docs/src/pages/_*
+/apps/docs/src/pages.gen.ts
 
 artifacts/
 # Environment variables

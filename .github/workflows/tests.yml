@@ -59,7 +59,7 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Check retained-artifact rejection rules
         timeout-minutes: 1
-        run: bun test tools/system-guide/placements-artifact.test.mjs
+        run: bun test tools/placements-docs/placements-artifact.test.mjs
       - name: Check examples and generate exact-source reference
         id: docs
         timeout-minutes: 4

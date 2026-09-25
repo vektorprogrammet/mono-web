@@ -206,7 +206,7 @@ test("generated API source links resolve to actual repository source", async () 
   try {
     const rendered = spawnSync(
       process.execPath,
-      ["--no-env-file", "tools/system-guide/placements.ts", "generate", output],
+      ["--no-env-file", "tools/placements-docs/placements.ts", "generate", output],
       { cwd: root, encoding: "utf8", timeout: 30000 },
     );
 

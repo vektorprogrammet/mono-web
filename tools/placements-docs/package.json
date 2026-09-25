@@ -1,0 +1,13 @@
+{
+  "name": "@monoweb/placements-docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "effect": "catalog:effect-v4"
+  },
+  "devDependencies": {
+    "typedoc": "0.28.20",
+    "typescript": "6.0.3"
+  }
+}
