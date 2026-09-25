@@ -249,6 +249,7 @@ export const createRecruitmentObserver = (pool, mailbox) => {
       const application = facts.applications.find(
         (a) => a.email === recruitmentPeople.applicant.email,
       );
+
       assert.equal(facts.interviews[0].application_id, application.application_id);
       assert.equal(facts.interviews[0].interviewer_person_id, recruitmentPeople.leader.personId);
 

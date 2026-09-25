@@ -499,6 +499,7 @@ async function startDeliverySink() {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const bytes = await readIncoming(request);
     const envelope = parseJson(bytes);
+
     const loopback =
       request.socket.remoteAddress === "127.0.0.1" || request.socket.remoteAddress === "::1";
 
@@ -722,6 +723,7 @@ async function login(browser, persona) {
     baseURL: dashboardOrigin,
     viewport: { width: 1440, height: 900 },
   });
+
   const page = await context.newPage();
   const loginUrl = new URL(`${dashboardMount({})}login`, dashboardOrigin).toString();
   await page.goto(loginUrl);
@@ -1113,10 +1115,12 @@ async function main() {
       cookie: owner.cookie,
       origin: dashboardOrigin,
     });
+
     const approverSdk = createPromiseClient(proxy.origin, {
       cookie: approver.cookie,
       origin: dashboardOrigin,
     });
+
     const settlerSdk = createPromiseClient(proxy.origin, {
       cookie: settler.cookie,
       origin: dashboardOrigin,
@@ -1157,6 +1161,7 @@ async function main() {
     const submittedReceipt = ownedAfterSubmission.items.find(
       (item) => item?.description === claimDescription,
     );
+
     assert.ok(submittedReceipt, "Submitted receipt is missing from owner projection");
     assert.equal(submittedReceipt.status, "Pending", "Dashboard submission begins pending");
     assert.equal(submittedReceipt.revision, 0, "Dashboard submission begins at revision zero");
@@ -1190,6 +1195,7 @@ async function main() {
       submittedReceipt.receiptId,
       "owner after approval",
     );
+
     assert.equal(
       ownerAfterApproval.status,
       "Approved",
@@ -1346,11 +1352,13 @@ async function main() {
       "receipt.not-found",
       "unknown receipt settlement concealment",
     );
+
     const unknownEvidenceResponse = await requestFinanceEvidence(
       proxy.origin,
       settler.cookie,
       unknownReceiptId,
     );
+
     await expectProblem(
       unknownEvidenceResponse,
       404,
@@ -1364,6 +1372,7 @@ async function main() {
     );
 
     const ownerSeededItems = (await listOwned()).items;
+
     const seededReceipt = (kind) =>
       receiptById(ownerSeededItems, seed.seededReceiptIds[kind], `seeded ${kind} receipt`);
 
@@ -1479,10 +1488,12 @@ async function main() {
       [],
       "Settlement confirmation has no blocking accessibility violations",
     );
+
     const confirmationButton = confirmation.getByRole("button", {
       name: "Bekreft oppgjør",
       exact: true,
     });
+
     await confirmationButton.focus();
     await confirmationButton.press("Enter");
     const settlementSuccess = settler.page.getByTestId("receipt-settlement-success");
@@ -1665,6 +1676,7 @@ async function main() {
       "Owner list identifies the canonical settlement",
     );
     const financeSettlementResponse = await readFinanceSettlement(submittedReceipt.receiptId);
+
     const financeSettlementDetail =
       financeSettlementResponse.settlement ?? financeSettlementResponse;
 
@@ -1877,14 +1889,17 @@ async function main() {
     const concurrentStatuses = concurrentResponses
       .map(({ status }) => status)
       .sort((left, right) => left - right);
+
     assert.deepEqual(
       concurrentStatuses,
       [200, 200],
       `Concurrent duplicate settlement returned unexpected statuses: ${JSON.stringify(concurrentStatuses)}`,
     );
+
     const concurrentBodies = await Promise.all(
       concurrentResponses.map((response) => response.json()),
     );
+
     assert.deepEqual(
       concurrentBodies[1],
       concurrentBodies[0],
@@ -1935,6 +1950,7 @@ async function main() {
     const failedOutbox = failedDeliveryEvidence.outbox.find(
       (row) => row.effectType === "NotifyReceiptSettled",
     );
+
     assert.deepEqual(
       {
         ordinal: failedOutbox?.ordinal,
@@ -1989,6 +2005,7 @@ async function main() {
     const recoveredOutbox = recoveredDeliveryEvidence.outbox.find(
       (row) => row.effectType === "NotifyReceiptSettled",
     );
+
     assert.equal(
       recoveredDeliveryEvidence.settlements.length,
       1,

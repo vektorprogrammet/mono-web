@@ -16,12 +16,14 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 // A partial failed-run receipt exercises diagnostic custody, not journey acceptance.
 const diagnostic = async (directory, path, text) => {
   const bytes = Buffer.from(text);
+
   const sources = await Promise.all(
     goldenRunnerPaths.map(async (path) => ({
       path,
       sha256: sha256(await readFile(join(root, path))),
     })),
   );
+
   const artifacts = [{ path, sha256: sha256(bytes), bytes: bytes.length }];
   await writeFile(join(directory, path), bytes);
   await writeFile(
@@ -57,6 +59,7 @@ const stage = async (directory, destination) =>
 
 test("diagnostic custody rejects encoded credentials before any upload file exists", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "golden-diagnostic-custody-"));
+
   try {
     const cases = [
       ["evidence.json", '{"authoriz\\u0061tion":"Bearer private-value"}'],
@@ -66,6 +69,7 @@ test("diagnostic custody rejects encoded credentials before any upload file exis
       ["failure.log", "DATABASE_PASSWORD=private-value"],
       ["private-trace-1.zip", "unlisted raw trace"],
     ];
+
     for (const [index, [path, text]] of cases.entries()) {
       const directory = join(temporary, String(index));
       const destination = join(temporary, String(index) + "-upload");
@@ -75,6 +79,7 @@ test("diagnostic custody rejects encoded credentials before any upload file exis
       await expect(stage(directory, destination)).rejects.toThrow();
       expect(await readdir(destination)).toEqual([]);
     }
+
     const directory = join(temporary, "safe");
     const destination = join(temporary, "safe-upload");
     await mkdir(directory);
@@ -90,9 +95,11 @@ test("diagnostic custody rejects encoded credentials before any upload file exis
 
 test("a setup failure publishes only its failed summary for upload", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "golden-output-custody-"));
+
   try {
     const destination = join(temporary, "upload");
     const output = join(temporary, "github-output");
+
     const result = spawnSync(
       process.execPath,
       ["--no-env-file", join(root, "tools/e2e/golden-school-service-ci.mjs"), destination],
@@ -106,6 +113,7 @@ test("a setup failure publishes only its failed summary for upload", async () =>
         timeout: 10_000,
       },
     );
+
     expect(result.status).toBe(1);
     const [header, ...lines] = (await readFile(output, "utf8")).trimEnd().split("\n");
     expect(header.startsWith("artifact_paths<<")).toBe(true);
