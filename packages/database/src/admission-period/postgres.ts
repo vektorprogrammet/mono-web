@@ -1,4 +1,5 @@
 import { canonicalJsonValue } from "@vektorprogrammet/domain/evidence";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import type { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { flow, Predicate, Effect, Schema } from "effect";
@@ -398,8 +399,7 @@ export const executeAdmissionPeriodCommand = (
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`.pipe(
-            Effect.asVoid,
+          yield* lockAdvisory(sql, AdvisoryLockKey.admissionPeriodCommand(command.commandId)).pipe(
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(periodPersistenceError("lock admission command receipt", cause)),
             ),
@@ -431,12 +431,10 @@ export const executeAdmissionPeriodCommand = (
 
           if (Predicate.isTagged(command, "CreateAdmissionPeriod")) {
             const departmentId = yield* effectiveCreateDepartment(command, context.actor);
-            yield* sql`
-            SELECT pg_advisory_xact_lock(
-              hashtextextended(${`${departmentId}:${command.semesterId}`}, 0)
-            )
-          `.pipe(
-              Effect.asVoid,
+            yield* lockAdvisory(
+              sql,
+              AdvisoryLockKey.admissionPeriodSemester(departmentId, command.semesterId),
+            ).pipe(
               Effect.catchTag("SqlError", (cause) =>
                 Effect.fail(periodPersistenceError("lock admission department semester", cause)),
               ),
