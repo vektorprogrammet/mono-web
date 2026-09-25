@@ -46,7 +46,7 @@
     "changeset": "changeset",
     "version": "changeset version",
     "release": "changeset publish",
-    "prepare": "effect-tsgo patch --typescript --oxlint"
+    "prepare": "effect-tsgo patch --typescript --oxlint && lefthook install"
   },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
@@ -58,6 +58,7 @@
     "conventional-changelog-cli": "5.0.0",
     "conventional-changelog-conventionalcommits": "8.0.0",
     "effect": "catalog:effect-v4",
+    "lefthook": "2.1.12",
     "oxfmt": "0.61.0",
     "oxlint": "1.77.0",
     "oxlint-tsgolint": "7.0.2001",
