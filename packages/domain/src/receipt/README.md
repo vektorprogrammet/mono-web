@@ -79,7 +79,7 @@ A scoped approver can read the attachment and apply permitted review commands.
 Finance readers and settlement writers require the separate current settlement scope.
 The server conceals out-of-scope records. A missing result does not establish whether a record exists elsewhere.
 
-The native HTTP boundary authenticates reads in their database snapshot.
+The native HTTP boundary authenticates each read and binds owner identifiers to the authenticated principal.
 `listOwnedReceipts` and owner evidence reads accept a Person identifier. The caller must bind that identifier to the authenticated owner.
 Do not expose those arguments as arbitrary client-selected identities.
 
