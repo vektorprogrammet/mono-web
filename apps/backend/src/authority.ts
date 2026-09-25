@@ -90,6 +90,19 @@ const sessionEffect = (
     }),
   );
 
+/**
+ * Counts the credentials a request presents in its headers. A Better Auth session
+ * cookie and an Authorization header count one each. A request presents one
+ * credential at most: with two, it fails before either one is resolved, so no
+ * principal is ever chosen between them, whether they name one Person or two.
+ */
+export const headerCredentialCount = (
+  cookieHeader: string | null | undefined,
+  authorization: string | null | undefined,
+): number =>
+  (hasBetterAuthSessionCredential(cookieHeader ?? null) ? 1 : 0) +
+  (Predicate.isNotNullish(authorization) ? 1 : 0);
+
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 
 const requestCredentialEffect = (
@@ -100,15 +113,14 @@ const requestCredentialEffect = (
   IdentityEngineError | UnauthenticatedActor,
   Identity | OAuthCredentialAuthority
 > => {
-  if (
-    expected === "Either" &&
-    request.headers.has("authorization") &&
-    hasBetterAuthSessionCredential(request.headers.get("cookie"))
-  ) {
+  const authorization = request.headers.get("authorization");
+  const cookieHeader = request.headers.get("cookie");
+
+  if (headerCredentialCount(cookieHeader, authorization) > 1) {
     return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
   }
 
-  if (request.headers.has("authorization")) {
+  if (authorization !== null) {
     return OAuthCredentialAuthority.use(({ resolve }) =>
       Effect.tryPromise({
         try: () => resolve(request, expected),
@@ -129,7 +141,7 @@ const requestCredentialEffect = (
     );
   }
 
-  return Effect.map(sessionEffect(request.headers.get("cookie") ?? undefined), (actor) => ({
+  return Effect.map(sessionEffect(cookieHeader ?? undefined), (actor) => ({
     _tag: "Accepted" as const,
     mechanism: { _tag: "BetterAuthCookie" as const },
     principal: { _tag: "Person" as const, personId: actor.personId },
@@ -159,15 +171,14 @@ const requestCredentialInTransactionEffect = (
   IdentityEngineError | UnauthenticatedActor,
   Database | IdentitySnapshot | OAuthCredentialAuthority
 > => {
-  if (
-    expected === "Either" &&
-    request.headers.has("authorization") &&
-    hasBetterAuthSessionCredential(request.headers.get("cookie"))
-  ) {
+  const authorization = request.headers.get("authorization");
+  const cookieHeader = request.headers.get("cookie");
+
+  if (headerCredentialCount(cookieHeader, authorization) > 1) {
     return Effect.fail(new UnauthenticatedActor({ message: "authentication required" }));
   }
 
-  if (request.headers.has("authorization")) {
+  if (authorization !== null) {
     return OAuthCredentialAuthority.use(({ resolveInTransaction }) =>
       resolveInTransaction(request, expected, new Date(authorizationInstant)),
     ).pipe(
@@ -184,7 +195,7 @@ const requestCredentialInTransactionEffect = (
   }
 
   return IdentitySnapshot.use(({ resolveSession }) =>
-    resolveSession(request.headers.get("cookie") ?? undefined, authorizationInstant),
+    resolveSession(cookieHeader ?? undefined, authorizationInstant),
   ).pipe(
     Effect.map((actor) => ({
       _tag: "Accepted" as const,
@@ -227,11 +238,17 @@ export interface TransactionPersonAuthorityResolutionOptions {
   readonly now?: () => string;
 }
 
-/** Resolves the authenticated session while preserving infrastructure failures. */
+/**
+ * Resolves the session of a session-only operation. An Authorization header beside the
+ * session cookie is a second credential, so the request fails without resolving either.
+ */
 export const resolveAuthenticatedSession = (
   cookieHeader: string | undefined,
+  authorization: string | undefined,
 ): Effect.Effect<IdentityActor, IdentityEngineError | UnauthenticatedActor, Identity> =>
-  sessionEffect(cookieHeader);
+  headerCredentialCount(cookieHeader, authorization) > 1
+    ? Effect.fail(new UnauthenticatedActor({ message: "authentication required" }))
+    : sessionEffect(cookieHeader);
 
 /** Cookie -> canonical PersonId only; for adapters that authenticate without roles. */
 export const resolveAuthenticatedPerson = (

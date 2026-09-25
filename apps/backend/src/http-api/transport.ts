@@ -128,17 +128,17 @@ const sessionSecurityLayer = Layer.effect(
     SessionSecurity.of({
       cookieHeader: (httpEffect, { credential }) =>
         Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+
           const authentication = yield* Effect.result(
-            resolveAuthenticatedSession(Redacted.value(credential)).pipe(
-              Effect.provideService(Identity, identity),
-            ),
+            resolveAuthenticatedSession(
+              Redacted.value(credential),
+              request.headers.authorization,
+            ).pipe(Effect.provideService(Identity, identity)),
           );
 
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return yield* rejectCredential(
-              yield* HttpServerRequest.HttpServerRequest,
-              'VektorSession realm="native-api"',
-            );
+            return yield* rejectCredential(request, 'VektorSession realm="native-api"');
           }
 
           return yield* httpEffect;

@@ -443,10 +443,13 @@ Examples:
 Default deny. The backend checks authority at the command and query boundary. The
 frontend may hide unavailable actions, but hiding is not enforcement.
 
+A request presents one credential. A request that carries both a session cookie and
+a bearer token fails, whether they name one Person, two Persons, or a Person and a
+service. The backend never chooses between them.
+
 A service caller is a separate principal, not a synthetic Person. A valid machine
 credential proves its identity, but a current grant must also cover the operation,
-resource scope, and time. It inherits no human appointment. A request with both
-human and machine credentials must fail rather than choose one silently.
+resource scope, and time. It inherits no human appointment.
 
 ## Durable effects
 
