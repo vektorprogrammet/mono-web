@@ -48,7 +48,7 @@ Keep infrastructure dependencies separate from the application catalog.
 ## Commands
 
 `devenv shell` is the entry point. Run commands inside it, or one at a time with `devenv shell -- <command>`.
-Commands that start PHP, Composer, or MariaDB need `devenv --profile legacy shell`.
+Legacy data rehearsals that start MariaDB or the PHP CLI need `devenv --profile legacy-data shell`.
 [README.md#toolchain](README.md#toolchain) lists what devenv provides and the local commands.
 Package manifests own exact scripts. Use `bun run`, not `bun test`, for package scripts.
 
@@ -140,7 +140,7 @@ Record instances you cannot fix in `STATE.md` with their location. Remove the re
 | ----------------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A string names a closed set, and a second value repeats a fact about it | Derive the type and every related fact from one registry | `NativeProblemRegistry` in `packages/http-api/src/http-semantics.ts` owns code, status, and body; `Problem.make(code)` takes no status. Counter-example: `PlacementFailure` carries a `status` beside its registry `code`. |
 | A value is validated at the edge but travels as a plain string          | Decode once to the domain type at the boundary           | Instants belong in `DateTime.Utc`. Counter-example: `compareRfc3339Instants` parses both strings at each call.                                                                                                             |
-| A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source              | `devenv.nix` reads tool versions from `package.json`, `bun.lock`, and `composer.json`. It and `.oxfmtrc.json` hold the only hook and formatter definitions.                                                                |
+| A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source              | `devenv.nix` reads tool versions from `package.json` and `bun.lock`. It and `.oxfmtrc.json` hold the only hook and formatter definitions.                                                                                  |
 | A test pins the observed output                                         | Decode the response with the contract schema             | `apps/dashboard/e2e/receipt-approval.spec.ts` decodes with the exported receipt schemas. Counter-example: suites that re-pinned `credential.invalid` after 042e808d.                                                       |
 | An operation reports success when its precondition was lost             | Return a typed failure that the caller must handle       | `OutboxClaimLost` in `packages/database/src/outbox-lifecycle.ts`.                                                                                                                                                          |
 | A runtime flag grants test authority                                    | Let only the test composition construct it               | `decodeReceiptE2EComposition` rejects receipt E2E flags outside the `local` deployment.                                                                                                                                    |

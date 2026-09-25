@@ -72,10 +72,10 @@ See [development practices](AGENTS.md#building-reference) before changing it.
 - the Chromium build of the `@playwright/test` version in `bun.lock`, through `PLAYWRIGHT_BROWSERS_PATH` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`;
 - openssl, Git, and the Git hooks.
 
-The `legacy` profile adds the Symfony toolchain: PHP at the `apps/server/composer.json` version, Composer, and MariaDB.
-Enter it with `devenv --profile legacy shell`. `dev:server`, `rehearsal:account-cohort`, the `rehearsal:legacy-*` scripts,
-and the Symfony browser suites (`e2e:real-core-journeys`, `e2e:real-org-operations`, `e2e:real-background-operations`,
-`e2e:real-content-ops`) refuse to start without it. The default shell has no legacy tools.
+The `legacy-data` profile adds the legacy data tools: MariaDB, to restore and read legacy-shaped databases, and the
+PHP 8.4 CLI without Composer, to make legacy-format bcrypt hashes. Enter it with `devenv --profile legacy-data shell`.
+`rehearsal:account-cohort` and the `rehearsal:legacy-*` scripts refuse to start without it. The default shell has no
+legacy tools.
 [devenv.lock](devenv.lock) pins nixpkgs. Bun and Playwright come from the historical nixpkgs revision that shipped
 their exact versions, selected through the `nixpkgs-multiverse` input.
 The Checks and Tests workflows run their steps in the same shell through [.github/actions/devenv](.github/actions/devenv/action.yml).
@@ -206,7 +206,7 @@ Run the original synthetic boundary and the reviewed-source journey separately:
 
 ```bash
 bun run rehearsal:current-assignment
-devenv --profile legacy shell -- bun run rehearsal:legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
+devenv --profile legacy-data shell -- bun run rehearsal:legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
 ```
 
 The reviewed-source journey also requires the selected PostgreSQL major. Its evidence directory must not exist.
@@ -228,7 +228,7 @@ Current production data, human review, provider acceptance, and cutover authorit
 Run the reviewed Organization journey:
 
 ```bash
-devenv --profile legacy shell -- bun run rehearsal:legacy-organization --evidence-dir=/tmp/vektor-organization-review
+devenv --profile legacy-data shell -- bun run rehearsal:legacy-organization --evidence-dir=/tmp/vektor-organization-review
 ```
 
 This journey requires the selected PostgreSQL major and a new evidence directory. It uses synthetic records and private, disposable databases.
@@ -243,7 +243,7 @@ Current source data, human review, provider acceptance, and cutover authority re
 Run the reviewed receipt journey:
 
 ```bash
-devenv --profile legacy shell -- bun run rehearsal:legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
+devenv --profile legacy-data shell -- bun run rehearsal:legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
 ```
 
 This journey requires the selected PostgreSQL major, a clean committed tree, and a new evidence directory.
@@ -266,7 +266,7 @@ Legacy refunded status never creates settlement evidence. Historical import stil
 Run the combined synthetic journey:
 
 ```bash
-devenv --profile legacy shell -- bun run rehearsal:legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
+devenv --profile legacy-data shell -- bun run rehearsal:legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
 ```
 
 The command requires the selected PostgreSQL major, a clean committed tree, and a new evidence directory.

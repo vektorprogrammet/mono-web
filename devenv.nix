@@ -1,5 +1,5 @@
 # The development environment. `devenv shell` is the entry point, locally and in CI.
-# README.md#toolchain lists what it owns and which commands need the `legacy` profile.
+# README.md#toolchain lists what it owns and which commands need the `legacy-data` profile.
 {
   pkgs,
   lib,
@@ -216,16 +216,13 @@ in
       | grep --fixed-strings --quiet '<p>devenv</p>'
   '';
 
-  profiles.legacy.module = {
-    # The retained Symfony application and the legacy rehearsals.
-    languages.php = {
-      enable = true;
-      version = lib.head (
-        builtins.match ">=([0-9]+\\.[0-9]+)" (lib.importJSON ./apps/server/composer.json).require.php
-      );
-      lsp.enable = false;
-    };
-    packages = [ pkgs.mariadb ];
-    env.VEKTOR_LEGACY_TOOLCHAIN = "1";
+  profiles.legacy-data.module = {
+    # Legacy data rehearsals: MariaDB restores and reads legacy-shaped databases, and the
+    # PHP CLI (the legacy 8.4 line, without Composer) makes legacy-format bcrypt hashes.
+    packages = [
+      pkgs.mariadb
+      pkgs.php84
+    ];
+    env.VEKTOR_LEGACY_DATA = "1";
   };
 }
