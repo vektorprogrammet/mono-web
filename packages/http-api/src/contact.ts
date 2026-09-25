@@ -51,6 +51,7 @@ export const ContactProblem = problemUnion("ContactProblem", [
   "rate-limit.exceeded",
   "contact.unavailable",
   "media-type.unsupported",
+  "internal.error",
 ]);
 
 export const SubmitContactMessageEndpoint = HttpApiEndpoint.post(
