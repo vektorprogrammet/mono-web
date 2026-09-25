@@ -496,6 +496,8 @@ try {
     OAUTH_DASHBOARD_ORIGIN: ui,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: effectMode,
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
 
     API_URL: api,
     VITE_API_URL: api,

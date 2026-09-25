@@ -85,7 +85,7 @@ const authorityDataPatterns = [
 ];
 
 const findAuthorityData = (value) =>
-  authorityDataPatterns.flatMap(({ pattern, label }) => pattern.test(value) ? [label] : []);
+  authorityDataPatterns.flatMap(({ pattern, label }) => (pattern.test(value) ? [label] : []));
 
 const isLegacyOrProviderPath = (path) =>
   /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
@@ -128,8 +128,7 @@ const sanitizationFacts = (candidate, capturedCookieValues) => {
     ["identity-password", password],
     ["wrong-password", wrongPassword],
     ["better-auth-secret", secret],
-  ]
-    .flatMap(([label, value]) => value.length > 0 && serialized.includes(value) ? [label] : []);
+  ].flatMap(([label, value]) => (value.length > 0 && serialized.includes(value) ? [label] : []));
 
   const databaseUrlMatches = /postgres(?:ql)?:\/\//iu.test(serialized) ? ["database-url"] : [];
 
@@ -140,7 +139,8 @@ const sanitizationFacts = (candidate, capturedCookieValues) => {
   const capturedCookieValueMatches = [];
 
   for (const value of capturedCookieValues) {
-    if (value.length > 0 && serialized.includes(value)) capturedCookieValueMatches.push(`captured-cookie-${capturedCookieValueMatches.length + 1}`);
+    if (value.length > 0 && serialized.includes(value))
+      capturedCookieValueMatches.push(`captured-cookie-${capturedCookieValueMatches.length + 1}`);
   }
 
   assert.deepEqual(processSecretMatches, []);
@@ -554,6 +554,8 @@ const main = async () => {
         NATIVE_IDENTITY_DEPLOYMENT: "local",
         NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
         PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+        PASSWORD_RESET_DELIVERY_MODE: "disabled",
+        RECEIPT_DELIVERY_MODE: "disabled",
       },
       repositoryRoot,
     );

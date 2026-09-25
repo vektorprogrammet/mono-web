@@ -130,4 +130,6 @@ export const cloudflareDevelopmentStack = Effect.gen(function* () {
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     },
   });
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
 });

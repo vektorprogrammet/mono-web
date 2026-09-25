@@ -99,6 +99,8 @@ try {
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
     JOURNEY_SEED_PG_URL: postgresUrl,
   };
 

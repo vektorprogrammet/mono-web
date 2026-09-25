@@ -9,4 +9,6 @@ export const backendTestConfig = decodeBackendConfig({
   OAUTH_DASHBOARD_ORIGIN: "http://127.0.0.1:5174",
   OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
 });

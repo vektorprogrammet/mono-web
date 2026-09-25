@@ -280,7 +280,9 @@ export const decodeBackendConfig = (
     if (!transport) throw new Error("Password reset delivery requires mail configuration");
     passwordResetDelivery = {
       transport,
-      sender: Schema.decodeUnknownSync(ContactEmail)(env.MAIL_SENDER),
+      sender: Redacted.value(
+        Effect.runSync(Config.schema(Schema.Redacted(ContactEmail), "MAIL_SENDER").parse(provider)),
+      ),
       pollIntervalMilliseconds: Effect.runSync(
         Config.schema(PositiveInteger, "PASSWORD_RESET_DELIVERY_POLL_MS")
           .pipe(Config.withDefault(1000))

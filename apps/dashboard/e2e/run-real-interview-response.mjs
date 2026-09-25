@@ -411,7 +411,12 @@ function assertPortAvailable(port) {
     socket.once("error", (error) => {
       socket.destroy();
 
-      if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ECONNREFUSED") {
+      if (
+        error &&
+        (error === null || Predicate.isObjectOrArray(error)) &&
+        "code" in error &&
+        error.code === "ECONNREFUSED"
+      ) {
         resolvePort();
 
         return;
@@ -445,7 +450,12 @@ function signalProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (!error || !(error === null || Predicate.isObjectOrArray(error)) || !("code" in error) || error.code !== "ESRCH") {
+    if (
+      !error ||
+      !(error === null || Predicate.isObjectOrArray(error)) ||
+      !("code" in error) ||
+      error.code !== "ESRCH"
+    ) {
       throw error;
     }
   }
@@ -713,7 +723,12 @@ async function pathExists(path) {
 
     return true;
   } catch (error) {
-    if (error && (error === null || Predicate.isObjectOrArray(error)) && "code" in error && error.code === "ENOENT") {
+    if (
+      error &&
+      (error === null || Predicate.isObjectOrArray(error)) &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
       return false;
     }
 
@@ -822,10 +837,9 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
       ? capabilityHeader[0]
       : capabilityHeader;
 
-    const invitationActor =
-      Predicate.isString(capabilityValue)
-        ? (actorsByCapability.get(capabilityValue) ?? null)
-        : null;
+    const invitationActor = Predicate.isString(capabilityValue)
+      ? (actorsByCapability.get(capabilityValue) ?? null)
+      : null;
 
     const nonCapabilityHeaders = Object.entries(request.headers)
       .filter(([name]) => name !== invitationCapabilityHeader)
@@ -850,10 +864,9 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
         containsRawCapability(requestBytes.toString("utf8")) ||
         containsRawCapability(nonCapabilityHeaders),
       requestJson,
-      idempotencyKey:
-        Predicate.isString(request.headers["idempotency-key"])
-          ? request.headers["idempotency-key"]
-          : null,
+      idempotencyKey: Predicate.isString(request.headers["idempotency-key"])
+        ? request.headers["idempotency-key"]
+        : null,
       ifMatch: Predicate.isString(request.headers["if-match"]) ? request.headers["if-match"] : null,
       responseHasResponseCapabilityField: false,
       responseRawCapability: false,
@@ -894,7 +907,9 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
       const responseJson = parseJsonBody(responseBytes);
 
       const responseHeaders = [...upstream.headers.entries()]
-        .flatMap(([name, value]) => name !== invitationCapabilityHeader ? [`${name}:${value}`] : [])
+        .flatMap(([name, value]) =>
+          name !== invitationCapabilityHeader ? [`${name}:${value}`] : [],
+        )
         .join("\n");
 
       record.status = upstream.status;
@@ -1003,7 +1018,10 @@ async function expectNativeProblem(path, init, expectedStatus, expectedCode) {
         contentType: response.headers.get("content-type"),
         code: problem?.code,
         type: problem?.type,
-        keys: problem === null || !Predicate.isObjectOrArray(problem) ? [] : Object.keys(problem).sort(),
+        keys:
+          problem === null || !Predicate.isObjectOrArray(problem)
+            ? []
+            : Object.keys(problem).sort(),
       })}`,
     );
   }
@@ -2136,6 +2154,8 @@ async function main() {
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
     ADMISSION_FIXED_NOW: fixedClock,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
@@ -2488,7 +2508,11 @@ async function main() {
       ["dashboard", dashboardProcess?.diagnostics?.()],
       ["transport", transportDiagnostics],
     ]
-      .flatMap(([label, diagnostics]) => Predicate.isString(diagnostics) && diagnostics.length > 0 ? [`${label}:\n${diagnostics}`] : [])
+      .flatMap(([label, diagnostics]) =>
+        Predicate.isString(diagnostics) && diagnostics.length > 0
+          ? [`${label}:\n${diagnostics}`]
+          : [],
+      )
       .join("\n");
 
     primaryError =

@@ -334,6 +334,8 @@ const main = async () => {
         NATIVE_IDENTITY_DEPLOYMENT: "local",
         NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
         PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+        PASSWORD_RESET_DELIVERY_MODE: "disabled",
+        RECEIPT_DELIVERY_MODE: "disabled",
       },
       repositoryRoot,
     );
@@ -442,7 +444,8 @@ const main = async () => {
     );
     assert.equal(
       ledger.some(
-        (entry) => entry.path === "/api/profile" && entry.method === "PATCH" && entry.status === 200,
+        (entry) =>
+          entry.path === "/api/profile" && entry.method === "PATCH" && entry.status === 200,
       ),
       true,
     );
@@ -463,7 +466,9 @@ const main = async () => {
       true,
     );
     assert.equal(
-      ledger.some((entry) => /symfony|mock\/api|fixtures|\/api\/(?:admin|me)(?:\/|$)/u.test(entry.path)),
+      ledger.some((entry) =>
+        /symfony|mock\/api|fixtures|\/api\/(?:admin|me)(?:\/|$)/u.test(entry.path),
+      ),
       false,
     );
 

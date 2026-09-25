@@ -749,6 +749,8 @@ const main = async () => {
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     ADMISSION_FIXED_NOW: fixedClock,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
     RECEIPT_STAGING_ROOT: receiptStagingRoot,
     RECEIPT_COMMITTED_ROOT: receiptCommittedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",

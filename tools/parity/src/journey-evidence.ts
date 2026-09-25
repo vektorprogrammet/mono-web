@@ -1242,6 +1242,8 @@ export const runClaimSpecificJourneyEvidence = (
           NATIVE_IDENTITY_DEPLOYMENT: "local",
           NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([origin]),
           PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
           RECEIPT_COMMITTED_ROOT: committedRoot,
           RECEIPT_E2E_TEST_MODE: "1",
           RECEIPT_MAX_FILE_BYTES: "10485760",

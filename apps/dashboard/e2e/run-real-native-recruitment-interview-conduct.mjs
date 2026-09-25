@@ -406,6 +406,8 @@ const main = async () => {
       NATIVE_IDENTITY_DEPLOYMENT: "local",
       NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+      PASSWORD_RESET_DELIVERY_MODE: "disabled",
+      RECEIPT_DELIVERY_MODE: "disabled",
     };
 
     backend = start(

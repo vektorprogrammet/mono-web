@@ -19,6 +19,8 @@ Environment=OAUTH_CANONICAL_ORIGIN=https://vektor.phibkro.org
 Environment=OAUTH_DASHBOARD_ORIGIN=https://vektor.phibkro.org
 Environment=OAUTH_NATIVE_API_RESOURCE=urn:vektorprogrammet:native-api
 Environment=PUBLIC_APPLICATION_EFFECT_MODE=disabled
+Environment=PASSWORD_RESET_DELIVERY_MODE=disabled
+Environment=RECEIPT_DELIVERY_MODE=disabled
 Environment=ADMISSION_AUTH_TOKENS={}
 Environment=RECEIPT_AUTH_TOKENS={}
 Environment=ORGANIZATION_AUTH_TOKENS={}

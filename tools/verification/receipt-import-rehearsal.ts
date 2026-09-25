@@ -229,6 +229,8 @@ try {
     OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
     OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+  PASSWORD_RESET_DELIVERY_MODE: "disabled",
+  RECEIPT_DELIVERY_MODE: "disabled",
     RECEIPT_STAGING_ROOT: join(storage, "staging"),
     RECEIPT_COMMITTED_ROOT: join(storage, "committed"),
   };
