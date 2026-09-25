@@ -11,6 +11,10 @@
     "run-legacy-organization-rehearsal.ts",
     "run-legacy-receipt-rehearsal.ts",
     "run-legacy-candidate-rehearsal.ts",
-    "run-legacy-receipt-import.ts"
+    "run-legacy-receipt-import.ts",
+    "golden-harness.ts",
+    "golden-harness-self-test.ts",
+    "golden-team-application.ts",
+    "golden-team-application-evidence.ts"
   ]
 }
