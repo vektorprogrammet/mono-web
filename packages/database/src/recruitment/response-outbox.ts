@@ -1,6 +1,15 @@
 import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { Database, type DatabaseOperations } from "../service.js";
+import {
+  markOutboxDelivered,
+  markOutboxFailed,
+  outboxClaimAssignments,
+  quarantineOutboxClaim,
+  recoverStaleOutboxClaims,
+  releaseOutboxClaim,
+  type OutboxTable,
+} from "../outbox-lifecycle.js";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
@@ -132,41 +141,27 @@ const decodeForClaim = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
     Effect.catch(() => Effect.succeed({ _tag: "Invalid" as const })),
   );
 
-const quarantineResponseClaim = (
-  sql: DatabaseOperations,
-  effectId: string,
-  claimId: string,
-  failureTag: string,
-): Effect.Effect<void, RecruitmentPersistenceError> =>
-  Effect.gen(function* () {
-    const rows = yield* sql<{ readonly effectId: string }>`
-      UPDATE recruitment_invitation_response_outbox
-      SET status = 'Quarantined',
-        claim_id = NULL,
-        claimed_at = NULL,
-        last_failure_tag = ${failureTag},
-        payload_json = '{}'::jsonb
-      WHERE effect_id = ${effectId}
-        AND status = 'Processing'
-        AND claim_id = ${claimId}
-      RETURNING effect_id AS "effectId"
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("quarantine invitation response claim", cause)),
-      ),
-    );
-
-    if (rows.length !== 1 || rows[0]?.effectId !== effectId) {
-      return yield* persistenceError("quarantine missing invitation response claim");
-    }
-  });
+const responseOutbox: OutboxTable = {
+  name: "recruitment_invitation_response_outbox",
+  terminalPayload: "Scrub",
+};
 
 const quarantineAndSkip = (
   sql: DatabaseOperations,
   row: Pick<ClaimedInvitationResponseRow, "effectId" | "claimId">,
   failureTag: string,
 ): Effect.Effect<undefined, RecruitmentPersistenceError> =>
-  quarantineResponseClaim(sql, row.effectId, row.claimId, failureTag).pipe(Effect.as(undefined));
+  quarantineOutboxClaim(sql, responseOutbox, row, failureTag).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("quarantine invitation response claim", cause)),
+    ),
+    Effect.flatMap((quarantined) =>
+      quarantined
+        ? Effect.void
+        : Effect.fail(persistenceError("quarantine missing invitation response claim")),
+    ),
+    Effect.as(undefined),
+  );
 
 const canonicalEnvelopeMatches = (
   row: typeof ClaimedInvitationResponseRowSchema.Type,
@@ -292,7 +287,8 @@ const validateEnvelope = (
       return yield* reject("AuthorityEnvelopeMismatch");
     }
 
-    if (canonicalRows[0]?.superseded === true) return yield* reject("SupersededRecruitmentInvitation");
+    if (canonicalRows[0]?.superseded === true)
+      return yield* reject("SupersededRecruitmentInvitation");
 
     const decodedCanonical = yield* decodeForClaim(CanonicalInvitationResponseRowSchema)(
       canonicalRows[0],
@@ -414,11 +410,7 @@ const claimInTransaction = (
     // Recheck with a fresh snapshot after acquiring the outbox lock.
     const rows = yield* sql<ClaimedInvitationResponseRow>`
       UPDATE recruitment_invitation_response_outbox AS outbox
-      SET status = 'Processing',
-        claim_id = ${claimId},
-        claimed_at = ${claimedAt},
-        attempts = outbox.attempts + 1,
-        last_failure_tag = NULL
+      SET ${outboxClaimAssignments(sql, "outbox", claimId, claimedAt)}
       WHERE outbox.effect_id = ${candidate.effectId}
         AND EXISTS (
           SELECT 1 FROM recruitment_invitations AS invitation
@@ -505,105 +497,59 @@ export const completeRecruitmentInvitationResponse = (
   claim: ClaimedRecruitmentInvitationResponse,
   evidence: RecruitmentNotificationEvidence,
 ): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effectId: string }>`
-      UPDATE recruitment_invitation_response_outbox
-      SET status = 'Delivered',
-        claim_id = NULL,
-        claimed_at = NULL,
-        delivered_at = ${evidence.deliveredAt},
-        last_failure_tag = NULL,
-        payload_json = '{}'::jsonb
-      WHERE effect_id = ${claim.effectId}
-        AND status = 'Processing'
-        AND claim_id = ${claim.claimId}
-      RETURNING effect_id AS "effectId"
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("complete invitation response claim", cause)),
-      ),
-    );
-
-    if (rows[0]?.effectId !== claim.effectId) {
-      return yield* persistenceError("complete missing invitation response claim");
-    }
-  });
+  Database.use((sql) =>
+    markOutboxDelivered(sql, responseOutbox, claim, { deliveredAt: evidence.deliveredAt }),
+  ).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("complete invitation response claim", cause)),
+    ),
+    Effect.flatMap((delivered) =>
+      delivered
+        ? Effect.void
+        : Effect.fail(persistenceError("complete missing invitation response claim")),
+    ),
+  );
 
 export const failRecruitmentInvitationResponse = (
   claim: ClaimedRecruitmentInvitationResponse,
   failureTag: string,
 ): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effectId: string }>`
-      UPDATE recruitment_invitation_response_outbox
-      SET status = 'Failed',
-        claim_id = NULL,
-        claimed_at = NULL,
-        last_failure_tag = ${failureTag}
-      WHERE effect_id = ${claim.effectId}
-        AND status = 'Processing'
-        AND claim_id = ${claim.claimId}
-      RETURNING effect_id AS "effectId"
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("fail invitation response claim", cause)),
-      ),
-    );
-
-    if (rows[0]?.effectId !== claim.effectId) {
-      return yield* persistenceError("fail missing invitation response claim");
-    }
-  });
+  Database.use((sql) => markOutboxFailed(sql, responseOutbox, claim, failureTag)).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("fail invitation response claim", cause)),
+    ),
+    Effect.flatMap((failed) =>
+      failed
+        ? Effect.void
+        : Effect.fail(persistenceError("fail missing invitation response claim")),
+    ),
+  );
 
 export const releaseRecruitmentInvitationResponse = (
   claim: ClaimedRecruitmentInvitationResponse,
 ): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-    yield* sql`
-      UPDATE recruitment_invitation_response_outbox
-      SET status = 'Pending',
-        claim_id = NULL,
-        claimed_at = NULL,
-        last_failure_tag = 'InterruptedRecruitmentInvitationResponseClaim'
-      WHERE effect_id = ${claim.effectId}
-        AND status = 'Processing'
-        AND claim_id = ${claim.claimId}
-    `.pipe(
-      Effect.asVoid,
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("release invitation response claim", cause)),
-      ),
-    );
-  });
+  Database.use((sql) =>
+    releaseOutboxClaim(sql, responseOutbox, claim, "InterruptedRecruitmentInvitationResponseClaim"),
+  ).pipe(
+    Effect.asVoid,
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("release invitation response claim", cause)),
+    ),
+  );
 
 export const recoverStaleRecruitmentInvitationResponses = (
   claimedBefore: string,
 ): Effect.Effect<number, RecruitmentPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effectId: string }>`
-      UPDATE recruitment_invitation_response_outbox
-      SET status = 'Failed',
-        claim_id = NULL,
-        claimed_at = NULL,
-        last_failure_tag = 'StaleClaimRecovered'
-      WHERE status = 'Processing'
-        AND claimed_at < ${claimedBefore}
-      RETURNING effect_id AS "effectId"
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("recover stale invitation response claims", cause)),
-      ),
-    );
-
-    return rows.length;
-  });
+  Database.use((sql) =>
+    recoverStaleOutboxClaims(sql, responseOutbox, claimedBefore, {
+      status: "Failed",
+      failureTag: "StaleClaimRecovered",
+    }),
+  ).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("recover stale invitation response claims", cause)),
+    ),
+  );
 
 export const deliverNextRecruitmentInvitationResponse = (
   claimId: string,

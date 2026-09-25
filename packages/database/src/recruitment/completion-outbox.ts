@@ -2,6 +2,15 @@ import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application"
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
 import { Database, type DatabaseOperations } from "../service.js";
+import {
+  markOutboxDelivered,
+  markOutboxFailed,
+  outboxClaimAssignments,
+  quarantineOutboxClaim,
+  recoverStaleOutboxClaims,
+  releaseOutboxClaim,
+  type OutboxTable,
+} from "../outbox-lifecycle.js";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
 import { personProfileDisplayName } from "@vektorprogrammet/domain/profile";
@@ -117,27 +126,27 @@ const decodeForClaim = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
     Effect.catch(() => Effect.succeed({ _tag: "Invalid" as const })),
   );
 
+const completionOutbox: OutboxTable = {
+  name: "public.recruitment_interview_completion_outbox",
+  terminalPayload: "Scrub",
+};
+
 const quarantineClaim = (
   sql: DatabaseOperations,
   effectId: string,
   claimId: string,
   failureTag: string,
 ): Effect.Effect<undefined, RecruitmentPersistenceError> =>
-  sql<{ readonly effectId: string }>`
-    UPDATE public.recruitment_interview_completion_outbox
-    SET status = 'Quarantined', claim_id = NULL, claimed_at = NULL,
-      last_failure_tag = ${failureTag}, payload_json = '{}'::jsonb
-    WHERE effect_id = ${effectId} AND status = 'Processing' AND claim_id = ${claimId}
-    RETURNING effect_id AS "effectId"
-  `.pipe(
+  quarantineOutboxClaim(sql, completionOutbox, { effectId, claimId }, failureTag).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("quarantine interview completion claim", cause)),
     ),
-    Effect.flatMap((rows) =>
-      rows[0]?.effectId === effectId
-        ? Effect.succeed(undefined)
+    Effect.flatMap((quarantined) =>
+      quarantined
+        ? Effect.void
         : Effect.fail(persistenceError("quarantine missing interview completion claim")),
     ),
+    Effect.as(undefined),
   );
 
 const staticEnvelopeMatches = (
@@ -277,8 +286,7 @@ const claimInTransaction = (
         LIMIT 1
       )
       UPDATE public.recruitment_interview_completion_outbox AS outbox
-      SET status = 'Processing', claim_id = ${claimId}, claimed_at = ${claimedAt},
-        attempts = outbox.attempts + 1, last_failure_tag = NULL
+      SET ${outboxClaimAssignments(sql, "outbox", claimId, claimedAt)}
       FROM candidate
       WHERE outbox.effect_id = candidate.effect_id
       RETURNING outbox.effect_id AS "effectId", outbox.effect_type AS "effectType",
@@ -433,84 +441,63 @@ export const completeRecruitmentInterviewCompletion = (
       return yield* persistenceError("completion delivery evidence effect mismatch");
     const sql = yield* Database;
 
-    const rows = yield* sql<{ readonly effectId: string }>`
-      UPDATE public.recruitment_interview_completion_outbox
-      SET status = 'Delivered', claim_id = NULL, claimed_at = NULL,
-        delivered_at = ${evidence.deliveredAt}, provider_reference = ${evidence.providerReference},
-        last_failure_tag = NULL, payload_json = '{}'::jsonb
-      WHERE effect_id = ${claim.effectId} AND status = 'Processing' AND claim_id = ${claim.claimId}
-      RETURNING effect_id AS "effectId"
-    `.pipe(
+    const delivered = yield* markOutboxDelivered(sql, completionOutbox, claim, {
+      deliveredAt: evidence.deliveredAt,
+      providerReference: evidence.providerReference,
+    }).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("complete interview completion claim", cause)),
       ),
     );
 
-    if (rows[0]?.effectId !== claim.effectId)
-      return yield* persistenceError("complete missing interview completion claim");
+    if (!delivered) return yield* persistenceError("complete missing interview completion claim");
   });
 
 export const failRecruitmentInterviewCompletion = (
   claim: ClaimedRecruitmentInterviewCompletion,
   failureTag: string,
 ): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effectId: string }>`
-      UPDATE public.recruitment_interview_completion_outbox
-      SET status = 'Failed', claim_id = NULL, claimed_at = NULL,
-        last_failure_tag = ${failureTag}
-      WHERE effect_id = ${claim.effectId} AND status = 'Processing' AND claim_id = ${claim.claimId}
-      RETURNING effect_id AS "effectId"
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("fail interview completion claim", cause)),
-      ),
-    );
-
-    if (rows[0]?.effectId !== claim.effectId)
-      return yield* persistenceError("fail missing interview completion claim");
-  });
+  Database.use((sql) => markOutboxFailed(sql, completionOutbox, claim, failureTag)).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("fail interview completion claim", cause)),
+    ),
+    Effect.flatMap((failed) =>
+      failed
+        ? Effect.void
+        : Effect.fail(persistenceError("fail missing interview completion claim")),
+    ),
+  );
 
 export const releaseRecruitmentInterviewCompletion = (
   claim: ClaimedRecruitmentInterviewCompletion,
 ): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-    yield* sql`
-      UPDATE public.recruitment_interview_completion_outbox
-      SET status = 'Pending', claim_id = NULL, claimed_at = NULL,
-        last_failure_tag = 'InterruptedRecruitmentInterviewCompletionClaim'
-      WHERE effect_id = ${claim.effectId} AND status = 'Processing' AND claim_id = ${claim.claimId}
-    `.pipe(
-      Effect.asVoid,
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("release interview completion claim", cause)),
-      ),
-    );
-  });
+  Database.use((sql) =>
+    releaseOutboxClaim(
+      sql,
+      completionOutbox,
+      claim,
+      "InterruptedRecruitmentInterviewCompletionClaim",
+    ),
+  ).pipe(
+    Effect.asVoid,
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("release interview completion claim", cause)),
+    ),
+  );
 
 export const recoverStaleRecruitmentInterviewCompletions = (
   claimedBefore: string,
 ): Effect.Effect<number, RecruitmentPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effectId: string }>`
-      UPDATE public.recruitment_interview_completion_outbox
-      SET status = 'Failed', claim_id = NULL, claimed_at = NULL,
-        last_failure_tag = 'StaleClaimRecovered'
-      WHERE status = 'Processing' AND claimed_at < ${claimedBefore}
-      RETURNING effect_id AS "effectId"
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("recover stale interview completion claims", cause)),
-      ),
-    );
-
-    return rows.length;
-  });
+  Database.use((sql) =>
+    recoverStaleOutboxClaims(sql, completionOutbox, claimedBefore, {
+      status: "Failed",
+      failureTag: "StaleClaimRecovered",
+    }),
+  ).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("recover stale interview completion claims", cause)),
+    ),
+  );
 
 export const deliverNextRecruitmentInterviewCompletion = (
   claimId: string,

@@ -1,4 +1,13 @@
 import { Database } from "../service.js";
+import {
+  markOutboxDelivered,
+  markOutboxFailed,
+  outboxClaimAssignments,
+  quarantineOutboxClaim,
+  recoverStaleOutboxClaims,
+  releaseOutboxClaim,
+  type OutboxTable,
+} from "../outbox-lifecycle.js";
 import { Data, Predicate, Effect, Schema } from "effect";
 import {
   type PublicApplicationEffectEvidence,
@@ -32,10 +41,6 @@ interface CanonicalOutboxIdentityRow {
   readonly linked_registration_id: string | null;
 }
 
-interface CountRow {
-  readonly count: string;
-}
-
 export interface ClaimedPublicApplicationOutbox {
   readonly effectId: string;
   readonly commandId: string;
@@ -67,11 +72,10 @@ const persistenceError = (operation: string): PublicApplicationPersistenceError 
     message: "public application persistence failed",
   });
 
-const requireSingleUpdate = (
-  rows: ReadonlyArray<unknown>,
-  operation: string,
-): Effect.Effect<void, PublicApplicationPersistenceError> =>
-  rows.length === 1 ? Effect.void : Effect.fail(persistenceError(operation));
+const applicationOutbox: OutboxTable = {
+  name: "admission_application_outbox",
+  terminalPayload: "Scrub",
+};
 
 export const claimNextPublicApplicationOutbox = (
   claimId: string,
@@ -85,14 +89,9 @@ export const claimNextPublicApplicationOutbox = (
     const sql = yield* Database;
 
     const quarantine = (effectId: string, failureTag: string) =>
-      sql`
-        UPDATE admission_application_outbox
-        SET status = 'Quarantined', claim_id = NULL, claimed_at = NULL,
-          last_failure_tag = ${failureTag}, payload_json = '{}'::jsonb
-        WHERE effect_id = ${effectId}
-          AND status = 'Processing'
-          AND claim_id = ${claimId}
-      `.pipe(Effect.asVoid);
+      quarantineOutboxClaim(sql, applicationOutbox, { effectId, claimId }, failureTag).pipe(
+        Effect.asVoid,
+      );
 
     return yield* sql
       .withTransaction(
@@ -121,11 +120,7 @@ export const claimNextPublicApplicationOutbox = (
               LIMIT 1
             )
             UPDATE admission_application_outbox AS claimed
-            SET status = 'Processing',
-              attempts = claimed.attempts + 1,
-              claim_id = ${claimId},
-              claimed_at = ${claimedAt},
-              last_failure_tag = NULL
+            SET ${outboxClaimAssignments(sql, "claimed", claimId, claimedAt)}
             FROM candidate
             WHERE claimed.effect_id = candidate.effect_id
             RETURNING claimed.effect_id, claimed.effect_type, claimed.application_id,
@@ -287,92 +282,47 @@ export const claimNextPublicApplicationOutbox = (
 export const completePublicApplicationOutbox = (
   claim: ClaimedPublicApplicationOutbox,
 ): Effect.Effect<void, PublicApplicationPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effect_id: string }>`
-    UPDATE admission_application_outbox
-    SET status = 'Delivered', claim_id = NULL, claimed_at = NULL,
-      last_failure_tag = NULL, payload_json = '{}'::jsonb
-    WHERE effect_id = ${claim.effectId}
-      AND status = 'Processing'
-      AND claim_id = ${claim.claimId}
-    RETURNING effect_id
-  `.pipe(
-      Effect.catchTag("SqlError", () =>
-        Effect.fail(persistenceError("complete application outbox")),
-      ),
-    );
-
-    yield* requireSingleUpdate(rows, "complete application outbox");
-  });
+  Database.use((sql) => markOutboxDelivered(sql, applicationOutbox, claim)).pipe(
+    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("complete application outbox"))),
+    Effect.flatMap((delivered) =>
+      delivered ? Effect.void : Effect.fail(persistenceError("complete application outbox")),
+    ),
+  );
 
 export const failPublicApplicationOutbox = (
   claim: ClaimedPublicApplicationOutbox,
   failureTag: string,
 ): Effect.Effect<void, PublicApplicationPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<{ readonly effect_id: string }>`
-    UPDATE admission_application_outbox
-    SET status = 'Failed', claim_id = NULL, claimed_at = NULL,
-      last_failure_tag = ${failureTag}
-    WHERE effect_id = ${claim.effectId}
-      AND status = 'Processing'
-      AND claim_id = ${claim.claimId}
-    RETURNING effect_id
-  `.pipe(
-      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("fail application outbox"))),
-    );
-
-    yield* requireSingleUpdate(rows, "fail application outbox");
-  });
+  Database.use((sql) => markOutboxFailed(sql, applicationOutbox, claim, failureTag)).pipe(
+    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("fail application outbox"))),
+    Effect.flatMap((failed) =>
+      failed ? Effect.void : Effect.fail(persistenceError("fail application outbox")),
+    ),
+  );
 
 export const releasePublicApplicationOutbox = (
   claim: ClaimedPublicApplicationOutbox,
 ): Effect.Effect<void, PublicApplicationPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-    yield* sql`
-      UPDATE admission_application_outbox
-      SET status = 'Pending', claim_id = NULL, claimed_at = NULL,
-        last_failure_tag = 'InterruptedPublicApplicationOutboxClaim'
-      WHERE effect_id = ${claim.effectId}
-        AND status = 'Processing'
-        AND claim_id = ${claim.claimId}
-    `.pipe(
-      Effect.asVoid,
-      Effect.catchTag("SqlError", () =>
-        Effect.fail(persistenceError("release application outbox")),
-      ),
-    );
-  });
+  Database.use((sql) =>
+    releaseOutboxClaim(sql, applicationOutbox, claim, "InterruptedPublicApplicationOutboxClaim"),
+  ).pipe(
+    Effect.asVoid,
+    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("release application outbox"))),
+  );
 
 export const recoverAllStalePublicApplicationOutbox = (
   claimedBefore: string,
 ): Effect.Effect<number, PublicApplicationPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    const rows = yield* sql<CountRow>`
-      WITH recovered AS (
-        UPDATE admission_application_outbox
-        SET status = 'Pending', claim_id = NULL, claimed_at = NULL,
-          last_failure_tag = 'StalePublicApplicationOutboxClaim'
-        WHERE status = 'Processing'
-          AND claimed_at < ${claimedBefore}
-        RETURNING 1
-      )
-      SELECT count(*)::text AS count FROM recovered
-    `.pipe(
-      Effect.catchTag("SqlError", () =>
-        Effect.fail(persistenceError("recover all application outbox claims")),
-      ),
-    );
-
-    return Number(rows[0]?.count ?? "0");
-  });
+  Database.use((sql) =>
+    recoverStaleOutboxClaims(sql, applicationOutbox, claimedBefore, {
+      status: "Pending",
+      failureTag: "StalePublicApplicationOutboxClaim",
+    }),
+  ).pipe(
+    Effect.catchTag("SqlError", () =>
+      Effect.fail(persistenceError("recover all application outbox claims")),
+    ),
+  );
 
 export const deliverNextPublicApplicationOutbox = (
   claimId: string,
