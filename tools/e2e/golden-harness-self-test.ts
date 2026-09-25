@@ -16,7 +16,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BunRuntime } from "@effect/platform-bun";
+// The package index pulls Bun's global types into this program; the subpath does not.
+import * as BunRuntime from "@effect/platform-bun/BunRuntime";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { sha256Hex, canonicalJsonBytes } from "@vektorprogrammet/domain/evidence";
 import { Effect, FileSystem, Schema, Stream } from "effect";
