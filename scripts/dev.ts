@@ -15,7 +15,10 @@ const args = process.argv.slice(2).filter((argument) => argument !== "--");
 if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
   process.stdout.write(`Usage: bun dev [--help]
 
-Required environment (shell or root .env):
+\`devenv up\` starts the devenv PostgreSQL service and then this launcher with
+BACKEND_PG_URL set to that service's database.
+
+Required environment:
   BACKEND_PG_URL       Dedicated local PostgreSQL database URL.
                       Use postgres:// or postgresql:// with 127.0.0.1,
                       localhost, or [::1]. Query parameters are not allowed.
