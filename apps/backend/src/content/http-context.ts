@@ -1,4 +1,4 @@
-/** Content HTTP operation inventory, request actor types, and request actor resolution. */
+/** Content HTTP operation identities, request actor types, and request actor resolution. */
 import {
   ContentAuthorityInactive,
   ContentNotInScope,
@@ -6,7 +6,9 @@ import {
   type ContentActor,
 } from "@vektorprogrammet/domain/content";
 import { Organization, type PersonId } from "@vektorprogrammet/domain/organization";
+import { ContentApi } from "@vektorprogrammet/http-api";
 import { Effect, Predicate } from "effect";
+import type { HttpApiGroup } from "effect/unstable/httpapi";
 import {
   resolveRequestPersonAuthorityInTransaction,
   type TransactionPersonAuthority,
@@ -22,16 +24,15 @@ export type ContentRequestActorResolver<E, R> = (
   request: Request,
 ) => Effect.Effect<ContentRequestActor, E, R>;
 
-export const CONTENT_NATIVE_OPERATION_IDS = [
-  "content.readContentWorkspace",
-  "content.createArticle",
-  "content.readArticle",
-  "content.reviseArticle",
-  "content.publishArticle",
-  "content.unpublishArticle",
-  "content.listNews",
-  "content.readNewsArticle",
-] as const;
+/** An endpoint declared by the content HttpApi contract. */
+export type ContentEndpoint = HttpApiGroup.Endpoints<typeof ContentApi>;
+
+/**
+ * Qualified operation id published for a content endpoint, derived by the native
+ * provenance rule `HttpApiGroup.identifier.HttpApiEndpoint.identifier`.
+ */
+export const contentOperationId = (endpoint: ContentEndpoint) =>
+  `${ContentApi.identifier}.${endpoint.identifier}` as const;
 
 export interface AuthorizedContentActor extends ContentRequestActor {
   readonly contentActor: ContentActor;
