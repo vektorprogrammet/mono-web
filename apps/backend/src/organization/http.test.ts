@@ -27,6 +27,7 @@ import {
   OrganizationPersistenceError,
   OrganizationInvalidReference,
 } from "@vektorprogrammet/domain/organization";
+import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
 import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeOrganizationApiConfig } from "./config.js";
@@ -328,6 +329,16 @@ const expectedProblem = (code: string, title: string, status: number, detail: st
   code,
 });
 
+const requestValidationProblem = {
+  ...expectedProblem(
+    "validation.failed",
+    "Validation failed",
+    422,
+    "The request contains invalid semantic values.",
+  ),
+  validation: { errors: [makeNativeValidationError("", "invalid")], truncated: false },
+};
+
 describe("Organization HTTP boundary", () => {
   it("returns only canonical Organization JSON projections from all public routes", async () => {
     const [departments, teams, fields] = await Promise.all([
@@ -494,15 +505,7 @@ describe("Organization HTTP boundary", () => {
     );
 
     for (const response of [malformed, wrongContentType, excess]) {
-      expect(await responseBody(response)).toEqual({
-        status: 422,
-        body: expectedProblem(
-          "validation.failed",
-          "Validation failed",
-          422,
-          "The request contains invalid semantic values.",
-        ),
-      });
+      expect(await responseBody(response)).toEqual({ status: 422, body: requestValidationProblem });
     }
 
     expect(await responseBody(oversized)).toEqual({
@@ -529,15 +532,7 @@ describe("Organization HTTP boundary", () => {
       },
     });
 
-    expect(await responseBody(queried)).toEqual({
-      status: 422,
-      body: expectedProblem(
-        "validation.failed",
-        "Validation failed",
-        422,
-        "The request contains invalid semantic values.",
-      ),
-    });
+    expect(await responseBody(queried)).toEqual({ status: 422, body: requestValidationProblem });
     expect(publicListCalls).toBe(before);
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5174");

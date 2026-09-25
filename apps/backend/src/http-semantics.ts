@@ -547,7 +547,20 @@ export const admissionCacheControl = (
   return `public, max-age=${ttl}, s-maxage=${ttl}, must-revalidate`;
 };
 
-/** Creates an RFC 9457 response without leaking the internal failure. */
+/** The request-wide error a validation problem names when no member is singled out. */
+const requestValidationError = {
+  "validation.failed": makeNativeValidationError("", "invalid"),
+  "validation.no-change": makeNativeValidationError("", "no-change"),
+  "validation.field-not-deletable": makeNativeValidationError("", "field-not-deletable"),
+} as const satisfies Record<ValidationProblemCode, NativeValidationError>;
+
+const isValidationProblemCode = (code: NativeProblemCode): code is ValidationProblemCode =>
+  Object.hasOwn(requestValidationError, code);
+
+/**
+ * Creates an RFC 9457 response without leaking the internal failure. A
+ * validation code carries its mandatory extension, naming the whole request.
+ */
 export const nativeProblemResponse = (
   code: NativeProblemCode,
   status: number,
@@ -561,7 +574,16 @@ export const nativeProblemResponse = (
     responseHeaders.set("retry-after", status === 409 ? "1" : "5");
   }
 
-  return new Response(JSON.stringify(makeNativeProblem(code, status)), {
+  const problem = makeNativeProblem(code, status);
+
+  const body = isValidationProblemCode(code)
+    ? {
+        ...problem,
+        validation: normalizeValidationErrors([requestValidationError[code]]),
+      }
+    : problem;
+
+  return new Response(JSON.stringify(body), {
     status,
     headers: responseHeaders,
   });
