@@ -14,10 +14,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
-import {
-  emitRuntimeEvidenceReceipt,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -137,15 +133,6 @@ INSERT INTO organization_global_administrator_grants (
 COMMIT;
 `;
 
-const journeyRefId = "intent://journey:parity:org_admin:v1";
-
-const journeyStepIds = [
-  "org-admin-api-operation",
-  "org-admin-command-write",
-  "org-admin-legacy-route",
-  "org-admin-mono-route",
-];
-
 const commandIds = {
   department: "organization-department-create-0052",
   team: "organization-team-create-0052",
@@ -158,10 +145,6 @@ const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
 
 const postgresTopology = dockerAvailable ? "docker" : "local";
-
-const runnerPath = fileURLToPath(import.meta.url);
-
-const specPath = join(dashboardRoot, "e2e/native-organization-administration.spec.ts");
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -935,50 +918,6 @@ function assertDatabaseEvidence(evidence) {
   }
 }
 
-const receiptRequested = () =>
-  [
-    "RUNTIME_EVIDENCE_RECEIPT_PATH",
-    "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-async function emitReceipt(playwrightOutput) {
-  if (!receiptRequested()) return;
-
-  const sourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-
-  const sourcePaths = [runnerPath, specPath];
-
-  if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
-    throw new Error("Native Organization runtime evidence expects one or two source references");
-  }
-
-  const runnerSourceInputBytes = await Promise.all(
-    sourceRefIds.map(async (sourceRefId, index) => ({
-      sourceRefId,
-      bytes: await readFile(sourcePaths[index]),
-    })),
-  );
-
-  const fixtureInputBytes = Buffer.from(
-    JSON.stringify({ adminPersonId, memberPersonId, commandIds }),
-    "utf8",
-  );
-
-  await emitRuntimeEvidenceReceipt({
-    journeyRefId,
-    stepIds: journeyStepIds,
-    fixtureId: "native-organization-administration-0052",
-    runnerSourceInputBytes,
-    fixtureInputBytes,
-    artifactBytes: sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8")),
-  });
-}
-
 async function main() {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-organization-0052-"));
   const postgresDataRoot = join(temporaryRoot, "postgres");
@@ -1246,26 +1185,13 @@ async function main() {
       "--retries=0",
     ];
 
-    if (receiptRequested()) playwrightArgs.push("--reporter=json");
-
-    const playwright = await runCommand(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      playwrightArgs,
-      {
-        cwd: dashboardRoot,
-        env: journeyEnvironment,
-        label: "Native Organization Playwright journey",
-        captureOutput: receiptRequested(),
-      },
-    );
+    await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", playwrightArgs, {
+      cwd: dashboardRoot,
+      env: journeyEnvironment,
+      label: "Native Organization Playwright journey",
+    });
 
     const browser = await readJsonFile(browserEvidencePath, "Native Organization browser evidence");
-    assertEqual(browser.journeyRefId, journeyRefId, "Organization journey reference");
-    assertEqual(
-      [...browser.acceptedStepIds].sort(),
-      [...journeyStepIds].sort(),
-      "Organization steps",
-    );
     assertEqual(browser.browser.legacyBrowserRequests, [], "Symfony Organization browser requests");
     assertEqual(browser.browser.pageErrors, [], "Organization browser page errors");
     assertEqual(
@@ -1651,8 +1577,6 @@ async function main() {
       "Native Organization exact replay ETag",
     );
 
-    if (receiptRequested()) await emitReceipt(playwright.stdout);
-
     evidence = {
       topology: {
         dashboard: "loopback-react-router-production-server",
@@ -1664,8 +1588,6 @@ async function main() {
         browser: "real-chromium",
         symfonyProcessesStarted: 0,
       },
-      journeyRefId,
-      acceptedStepIds: journeyStepIds,
       browser,
       nativeTransport: organizationRequests.map(
         ({

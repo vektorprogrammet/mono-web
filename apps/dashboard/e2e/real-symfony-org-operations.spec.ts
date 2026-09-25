@@ -34,31 +34,6 @@ const createdSchoolName = "Org operations created school 0032";
 
 const createdSemester = { semesterTime: "Vår", year: "2032" };
 
-const journeys = {
-  identityAdmin: {
-    journeyRefId: "intent://journey:parity:identity_admin:v1",
-    stepIds: [
-      "identity-admin-api-operation",
-      "identity-admin-command-write",
-      "identity-admin-legacy-route",
-      "identity-admin-mono-route",
-    ],
-  },
-  schoolScheduling: {
-    journeyRefId: "intent://journey:parity:school_scheduling:v1",
-    stepIds: [
-      "school-scheduling-api-operation",
-      "school-scheduling-command-write",
-      "school-scheduling-legacy-route",
-      "school-scheduling-mono-route",
-    ],
-  },
-} as const;
-
-export { journeys };
-
-
-
 function requiredLegacyOrigin(): string {
   const origin = process.env.LEGACY_SYMFONY_URL;
 

@@ -1,15 +1,11 @@
 import { Predicate } from "effect";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  emitRuntimeEvidenceReceipts,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 
 const apiOrigin = "http://127.0.0.1:8000";
 
@@ -19,95 +15,9 @@ const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const runnerSourcePath = fileURLToPath(
-  new URL("./run-real-symfony-core-journeys.mjs", import.meta.url),
-);
-
-const specSourcePath = fileURLToPath(
-  new URL("./real-symfony-core-journeys.spec.ts", import.meta.url),
-);
-
-const fixtureSourcePath = fileURLToPath(
-  new URL("../../server/tests/Fixtures/CoreUserJourneyFixture.php", import.meta.url),
-);
-
-const receiptImageSourcePath = fileURLToPath(
-  new URL("../../server/images/receipts/698c00086228f.png", import.meta.url),
-);
-
 const commandTimeoutMs = 120_000;
 
 const shutdownTimeoutMs = 5_000;
-
-const journeys = [
-  {
-    journeyRefId: "intent://journey:parity:applicant_admission:v1",
-    stepIds: [
-      "applicant-admission-api-operation",
-      "applicant-admission-command-write",
-      "applicant-admission-legacy-route",
-      "applicant-admission-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:contact_public:v1",
-    stepIds: [
-      "contact-public-api-operation",
-      "contact-public-command-write",
-      "contact-public-legacy-route",
-      "contact-public-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:content_public:v1",
-    stepIds: [
-      "content-public-api-operation",
-      "content-public-command-write",
-      "content-public-legacy-route",
-      "content-public-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:files_media:v1",
-    stepIds: ["files-media-command-write", "files-media-legacy-route", "files-media-mono-route"],
-  },
-  {
-    journeyRefId: "intent://journey:parity:identity_self:v1",
-    stepIds: [
-      "identity-self-api-operation",
-      "identity-self-command-write",
-      "identity-self-legacy-route",
-      "identity-self-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:receipt_self:v1",
-    stepIds: [
-      "receipt-self-api-operation",
-      "receipt-self-command-write",
-      "receipt-self-legacy-route",
-      "receipt-self-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:survey_participate:v1",
-    stepIds: [
-      "survey-participate-api-operation",
-      "survey-participate-command-write",
-      "survey-participate-legacy-route",
-      "survey-participate-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:team_interest_self:v1",
-    stepIds: [
-      "team-interest-self-api-operation",
-      "team-interest-self-command-write",
-      "team-interest-self-legacy-route",
-      "team-interest-self-mono-route",
-    ],
-  },
-];
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -135,17 +45,12 @@ function assertPortAvailable(port) {
 
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
-    const captureOutput = options.captureOutput === true;
-
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: captureOutput ? ["ignore", "pipe", "inherit"] : "inherit",
+      stdio: "inherit",
     });
 
-    const stdoutChunks = [];
-
-    if (captureOutput) child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
     let settled = false;
 
     const settle = (callback, value) => {
@@ -168,9 +73,9 @@ function runCommand(command, args, options) {
 
     timeout.unref();
     child.once("error", (error) => settle(rejectCommand, error));
-    child.once(captureOutput ? "close" : "exit", (code, signal) => {
+    child.once("exit", (code, signal) => {
       if (code === 0) {
-        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
+        settle(resolveCommand, undefined);
 
         return;
       }
@@ -461,11 +366,6 @@ async function main() {
       { cwd: serverRoot, env: serverEnv },
     );
 
-    const fixtureInputBytes = Buffer.concat([
-      await readFile(fixtureSourcePath),
-      await readFile(receiptImageSourcePath),
-    ]);
-
     await writeFile(
       routerPath,
       `<?php
@@ -498,59 +398,16 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
 
-    const receiptRequested = [
-      "RUNTIME_EVIDENCE_RECEIPT_PATH",
-      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-    const e2eArgs = [
-      resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
-      "test",
-      "e2e/real-symfony-core-journeys.spec.ts",
-      "--project=real-symfony",
-    ];
-
-    if (receiptRequested) e2eArgs.push("--reporter=json");
-
-    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
-      cwd: dashboardRoot,
-      env: dashboardEnv,
-      captureOutput: receiptRequested,
-    });
-
-    if (receiptRequested) {
-      const runnerSourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0);
-
-      if (runnerSourceRefIds.length !== 2) {
-        throw new Error(
-          "Runtime evidence requires exactly two runner source references for the core journey runner and spec.",
-        );
-      }
-
-      const runnerSourceInputBytes = [
-        {
-          sourceRefId: runnerSourceRefIds[0],
-          bytes: await readFile(runnerSourcePath),
-        },
-        {
-          sourceRefId: runnerSourceRefIds[1],
-          bytes: await readFile(specSourcePath),
-        },
-      ];
-
-      await emitRuntimeEvidenceReceipts({
-        journeys,
-        fixtureId: "core-user-journeys-0032",
-        runnerSourceInputBytes,
-        fixtureInputBytes,
-        artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
-      });
-    }
+    await runCommand(
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+      [
+        resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
+        "test",
+        "e2e/real-symfony-core-journeys.spec.ts",
+        "--project=real-symfony",
+      ],
+      { cwd: dashboardRoot, env: dashboardEnv },
+    );
   } catch (error) {
     primaryError = error;
     primaryFailed = true;

@@ -1,15 +1,11 @@
 import { Predicate } from "effect";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import {
-  emitRuntimeEvidenceReceipts,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 
 const apiOrigin = "http://127.0.0.1:8000";
 
@@ -19,38 +15,11 @@ const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const runnerSourcePath = fileURLToPath(new URL("./run-real-content-ops.mjs", import.meta.url));
-
-const specPaths = [
-  fileURLToPath(new URL("./real-content-publication.spec.ts", import.meta.url)),
-  fileURLToPath(new URL("./real-survey-admin.spec.ts", import.meta.url)),
-  fileURLToPath(new URL("./real-platform-ops.spec.ts", import.meta.url)),
-  fileURLToPath(new URL("./real-framework-runtime-plumbing.spec.ts", import.meta.url)),
-];
-
 const specRelativePaths = [
   "e2e/real-content-publication.spec.ts",
   "e2e/real-survey-admin.spec.ts",
   "e2e/real-platform-ops.spec.ts",
   "e2e/real-framework-runtime-plumbing.spec.ts",
-];
-
-const fixturePaths = [
-  fileURLToPath(
-    new URL("../../server/tests/Fixtures/ContentPublicationJourneyFixture.php", import.meta.url),
-  ),
-  fileURLToPath(
-    new URL("../../server/tests/Fixtures/SurveyAdminJourneyFixture.php", import.meta.url),
-  ),
-  fileURLToPath(
-    new URL("../../server/tests/Fixtures/PlatformOpsJourneyFixture.php", import.meta.url),
-  ),
-  fileURLToPath(
-    new URL(
-      "../../server/tests/Fixtures/FrameworkRuntimePlumbingJourneyFixture.php",
-      import.meta.url,
-    ),
-  ),
 ];
 
 const fixtureGroups = [
@@ -85,22 +54,14 @@ function requireOpenSsl() {
   if (result.status !== 0) throw new Error("openssl is required to create disposable e2e JWT keys");
 }
 
-function runCommand(command, args, { cwd, env, captureOutput = false } = {}) {
+function runCommand(command, args, { cwd, env } = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, {
       cwd,
       env,
       detached: true,
-      stdio: captureOutput ? ["ignore", "pipe", "pipe"] : "inherit",
+      stdio: "inherit",
     });
-
-    const stdout = [];
-    const stderr = [];
-
-    if (captureOutput) {
-      child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
-      child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
-    }
 
     const timeout = setTimeout(() => {
       signalProcessGroup(child, "SIGKILL");
@@ -113,20 +74,14 @@ function runCommand(command, args, { cwd, env, captureOutput = false } = {}) {
     });
     child.once("close", (code, signal) => {
       clearTimeout(timeout);
-      const output = Buffer.concat(stdout).toString("utf8");
-      const errorOutput = Buffer.concat(stderr).toString("utf8");
 
       if (code === 0) {
-        resolvePromise({ stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) });
+        resolvePromise();
 
         return;
       }
 
-      rejectPromise(
-        new Error(
-          `${command} ${args.join(" ")} failed (${code ?? signal})${errorOutput ? `: ${errorOutput.slice(-4000)}` : output ? `: ${output.slice(-4000)}` : ""}`,
-        ),
-      );
+      rejectPromise(new Error(`${command} ${args.join(" ")} failed (${code ?? signal})`));
     });
   });
 }
@@ -377,10 +332,6 @@ async function main() {
     for (const group of fixtureGroups) fixtureArgs.push(`--group=${group}`);
     await runCommand("php", fixtureArgs, { cwd: serverRoot, env: serverEnv });
 
-    const fixtureInputBytes = Buffer.concat(
-      await Promise.all(fixturePaths.map((path) => readFile(path))),
-    );
-
     await writeFile(
       routerPath,
       `<?php
@@ -409,96 +360,16 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
 
-    const receiptRequested = [
-      "RUNTIME_EVIDENCE_RECEIPT_PATH",
-      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-    const e2eArgs = [
-      resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
-      "test",
-      ...specRelativePaths,
-      "--project=real-symfony",
-    ];
-
-    if (receiptRequested) e2eArgs.push("--reporter=json");
-
-    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
-      cwd: dashboardRoot,
-      env: dashboardEnv,
-      captureOutput: receiptRequested,
-    });
-
-    if (receiptRequested) {
-      const runnerSourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0);
-
-      if (runnerSourceRefIds.length !== specPaths.length + 1) {
-        throw new Error(
-          `Runtime evidence requires exactly ${specPaths.length + 1} runner source references for this batch runner and its specs.`,
-        );
-      }
-
-      const runnerSourceInputBytes = await Promise.all([
-        (async () => ({
-          sourceRefId: runnerSourceRefIds[0],
-          bytes: await readFile(runnerSourcePath),
-        }))(),
-        ...specPaths.map(async (path, index) => ({
-          sourceRefId: runnerSourceRefIds[index + 1],
-          bytes: await readFile(path),
-        })),
-      ]);
-
-      const journeys = [
-        {
-          journeyRefId: "intent://journey:parity:content_publication:v1",
-          stepIds: [
-            "content-publication-api-operation",
-            "content-publication-command-write",
-            "content-publication-legacy-route",
-            "content-publication-mono-route",
-          ],
-        },
-        {
-          journeyRefId: "intent://journey:parity:survey_admin:v1",
-          stepIds: [
-            "survey-admin-api-operation",
-            "survey-admin-command-write",
-            "survey-admin-legacy-route",
-            "survey-admin-mono-route",
-          ],
-        },
-        {
-          journeyRefId: "intent://journey:parity:platform_ops:v1",
-          stepIds: [
-            "platform-ops-api-operation",
-            "platform-ops-command-write",
-            "platform-ops-legacy-route",
-            "platform-ops-mono-route",
-          ],
-        },
-        {
-          journeyRefId: "intent://journey:parity:framework_runtime_plumbing:v1",
-          stepIds: [
-            "framework-runtime-plumbing-api-operation",
-            "framework-runtime-plumbing-mono-route",
-          ],
-        },
-      ];
-
-      await emitRuntimeEvidenceReceipts({
-        journeys,
-        fixtureId: "content-ops-journeys-0032",
-        runnerSourceInputBytes,
-        fixtureInputBytes,
-        artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
-      });
-    }
+    await runCommand(
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+      [
+        resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
+        "test",
+        ...specRelativePaths,
+        "--project=real-symfony",
+      ],
+      { cwd: dashboardRoot, env: dashboardEnv },
+    );
   } catch (error) {
     primaryError = error;
     primaryFailed = true;

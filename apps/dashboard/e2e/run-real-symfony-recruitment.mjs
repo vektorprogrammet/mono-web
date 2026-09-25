@@ -1,35 +1,12 @@
 import { Predicate } from "effect";
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  emitRuntimeEvidenceReceipts,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
-
-const journeyRefId = "intent://journey:recruitment:applicant-assignment:v1";
-
-const journeyStepIds = [
-  "assign-interview",
-  "fresh-read-applicant-list",
-  "load-applicant-list",
-  "load-interview-schema-options",
-  "load-interviewer-options",
-  "mono-session-login",
-];
-
-const defaultJourneyEntries = [
-  { journeyRefId, stepIds: journeyStepIds },
-  {
-    journeyRefId: "intent://journey:recruitment:review-applicants:v1",
-    stepIds: ["list-current-applicants", "mono-session-login"],
-  },
-];
 
 const apiOrigin = "http://127.0.0.1:8000";
 
@@ -48,17 +25,12 @@ const sleep = (milliseconds) =>
 
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
-    const captureOutput = options.captureOutput === true;
-
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: captureOutput ? ["ignore", "pipe", "inherit"] : "inherit",
+      stdio: "inherit",
     });
 
-    const stdoutChunks = [];
-
-    if (captureOutput) child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
     let settled = false;
 
     const timeout = setTimeout(() => {
@@ -82,9 +54,9 @@ function runCommand(command, args, options) {
     };
 
     child.once("error", (error) => settle(rejectCommand, error));
-    child.once(captureOutput ? "close" : "exit", (code, signal) => {
+    child.once("exit", (code, signal) => {
       if (code === 0) {
-        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
+        settle(resolveCommand, undefined);
 
         return;
       }
@@ -340,10 +312,6 @@ async function main() {
       { cwd: serverRoot, env: serverEnv },
     );
 
-    const fixtureInputBytes = await readFile(
-      join(serverRoot, "tests/Fixtures/RecruitmentAssignmentFixture.php"),
-    );
-
     symfonyProcess = startProcess(
       "php",
       ["-d", "variables_order=EGPCS", "-S", "127.0.0.1:8000", "-t", "public", "public/index.php"],
@@ -365,70 +333,16 @@ async function main() {
     });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
-    const receiptRequested = [
-      "RUNTIME_EVIDENCE_RECEIPT_PATH",
-      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-    const e2eArgs = [
-      resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
-      "test",
-      "e2e/real-symfony-recruitment.spec.ts",
-      "--project=real-symfony",
-    ];
-
-    if (receiptRequested) e2eArgs.push("--reporter=json");
-
-    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
-      cwd: dashboardRoot,
-      env: dashboardEnv,
-      captureOutput: receiptRequested,
-    });
-
-    if (receiptRequested) {
-      const runnerSourceInputBytes = [
-        {
-          sourceRefId:
-            process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[0]?.trim() ?? "",
-          bytes: await readFile(
-            fileURLToPath(new URL("./run-real-symfony-recruitment.mjs", import.meta.url)),
-          ),
-        },
-        {
-          sourceRefId:
-            process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[1]?.trim() ?? "",
-          bytes: await readFile(
-            fileURLToPath(new URL("./real-symfony-recruitment.spec.ts", import.meta.url)),
-          ),
-        },
-      ];
-
-      const explicitJourneyOverride =
-        process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID !== undefined ||
-        process.env.RUNTIME_EVIDENCE_STEP_IDS !== undefined;
-
-      const evidenceJourneys = explicitJourneyOverride
-        ? [
-            {
-              journeyRefId: process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID ?? journeyRefId,
-              stepIds:
-                process.env.RUNTIME_EVIDENCE_STEP_IDS?.split(",")
-                  .map((stepId) => stepId.trim())
-                  .filter((stepId) => stepId.length > 0) ?? journeyStepIds,
-            },
-          ]
-        : defaultJourneyEntries;
-
-      await emitRuntimeEvidenceReceipts({
-        journeys: evidenceJourneys,
-        fixtureId: "recruitment-assignment-0028",
-        runnerSourceInputBytes,
-        fixtureInputBytes,
-        artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
-      });
-    }
+    await runCommand(
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+      [
+        resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
+        "test",
+        "e2e/real-symfony-recruitment.spec.ts",
+        "--project=real-symfony",
+      ],
+      { cwd: dashboardRoot, env: dashboardEnv },
+    );
   } catch (error) {
     primaryError = error;
     primaryFailed = true;

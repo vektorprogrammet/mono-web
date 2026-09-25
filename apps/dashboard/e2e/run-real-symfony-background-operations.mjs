@@ -1,15 +1,11 @@
 import { Predicate } from "effect";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  emitRuntimeEvidenceReceipts,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 
 const apiOrigin = "http://127.0.0.1:8000";
 
@@ -23,45 +19,9 @@ const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const runnerSourcePath = fileURLToPath(
-  new URL("./run-real-symfony-background-operations.mjs", import.meta.url),
-);
-
-const specSourcePath = fileURLToPath(
-  new URL("./real-symfony-background-operations.spec.ts", import.meta.url),
-);
-
 const clockBootstrapPath = fileURLToPath(
   new URL("./support/background-operations-clock-bootstrap.php", import.meta.url),
 );
-
-const fixtureSourcePaths = [
-  clockBootstrapPath,
-  fileURLToPath(
-    new URL(
-      "../../server/src/App/Support/DataFixtures/ORM/InterviewRecruiterFixture.php",
-      import.meta.url,
-    ),
-  ),
-  fileURLToPath(
-    new URL(
-      "../../server/src/App/Support/DataFixtures/ORM/AdmissionOperationsFixture.php",
-      import.meta.url,
-    ),
-  ),
-  fileURLToPath(
-    new URL(
-      "../../server/src/App/Support/DataFixtures/ORM/BackgroundAutomationFixture.php",
-      import.meta.url,
-    ),
-  ),
-  fileURLToPath(
-    new URL(
-      "../../server/src/App/Support/DataFixtures/ORM/BackgroundDeliveryFixture.php",
-      import.meta.url,
-    ),
-  ),
-];
 
 const commandTimeoutMs = 120_000;
 
@@ -81,30 +41,6 @@ const generatedPublicPaths = [
   "public/webfonts",
   "public/.vite",
   "public/manifest.json",
-];
-
-const journeys = [
-  {
-    journeyRefId: "intent://journey:parity:admission_operations:v1",
-    stepIds: [
-      "admission-operations-api-operation",
-      "admission-operations-command-write",
-      "admission-operations-legacy-route",
-      "admission-operations-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:background_automation:v1",
-    stepIds: ["background-automation-command-write", "background-automation-schedule-background"],
-  },
-  {
-    journeyRefId: "intent://journey:parity:background_delivery:v1",
-    stepIds: [
-      "background-delivery-command-write",
-      "background-delivery-external-integration",
-      "background-delivery-schedule-background",
-    ],
-  },
 ];
 
 const clockedPhpArgs = (...args) => ["-d", `auto_prepend_file=${clockBootstrapPath}`, ...args];
@@ -297,29 +233,6 @@ function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
   assertDisposableDatabase(databaseUrl.slice(prefix.length), temporaryRoot);
 }
 
-function assertReceiptConfiguration() {
-  const receiptEnvironment = [
-    "RUNTIME_EVIDENCE_RECEIPT_PATH",
-    "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ];
-
-  const configured = receiptEnvironment.filter((name) => {
-    const value = process.env[name];
-
-    return value !== undefined && value.length > 0;
-  });
-
-  if (configured.length > 0 && configured.length !== receiptEnvironment.length) {
-    throw new Error(
-      `Runtime evidence receipt configuration is partial; set all of ${receiptEnvironment.join(", ")}`,
-    );
-  }
-
-  return configured.length === receiptEnvironment.length;
-}
-
 async function queryScalar(databasePath, sql) {
   const result = await runCommand(
     "php",
@@ -357,7 +270,6 @@ async function queryColumn(databasePath, sql) {
 }
 
 async function main() {
-  const receiptRequested = assertReceiptConfiguration();
   await assertPortAvailable(apiPort);
   await assertPortAvailable(dashboardPort);
 
@@ -520,10 +432,6 @@ async function main() {
       { cwd: serverRoot, env: serverEnv },
     );
 
-    const fixtureInputBytes = Buffer.concat(
-      await Promise.all(fixtureSourcePaths.map((path) => readFile(path))),
-    );
-
     await writeFile(
       routerPath,
       `<?php
@@ -636,20 +544,16 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       throw new Error(`Expected one local interview reminder delivery, got ${reminderCount}`);
     }
 
-    const e2eArgs = [
-      resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
-      "test",
-      "e2e/real-symfony-background-operations.spec.ts",
-      "--project=real-symfony",
-    ];
-
-    if (receiptRequested) e2eArgs.push("--reporter=json");
-
-    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
-      cwd: dashboardRoot,
-      env: dashboardEnv,
-      captureOutput: receiptRequested,
-    });
+    await runCommand(
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+      [
+        resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
+        "test",
+        "e2e/real-symfony-background-operations.spec.ts",
+        "--project=real-symfony",
+      ],
+      { cwd: dashboardRoot, env: dashboardEnv },
+    );
 
     const applicationSubscriberCount = await queryScalar(
       databasePath,
@@ -660,48 +564,6 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       throw new Error(
         `Expected the Symfony application event seam to create one subscriber, got ${applicationSubscriberCount}`,
       );
-    }
-
-    if (receiptRequested) {
-      const runnerSourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0);
-
-      if (runnerSourceRefIds.length !== 2) {
-        throw new Error(
-          "Runtime evidence requires exactly two runner source references for the background runner and browser suite.",
-        );
-      }
-
-      const commandOutcomes = {
-        application_subscriber_count: applicationSubscriberCount,
-        delivery_notification_count: String(notificationInfoMeetingFlags.length),
-        delivery_notification_info_meeting: notificationInfoMeetingFlags,
-        delivery_reminder_count: reminderCount,
-      };
-
-      const playwrightArtifact = JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(
-          sanitizePlaywrightArtifact(e2eResult.stdout),
-        ),
-      );
-
-      await emitRuntimeEvidenceReceipts({
-        journeys,
-        fixtureId: "background-operations-0032",
-        runnerSourceInputBytes: [
-          { sourceRefId: runnerSourceRefIds[0], bytes: await readFile(runnerSourcePath) },
-          { sourceRefId: runnerSourceRefIds[1], bytes: await readFile(specSourcePath) },
-        ],
-        fixtureInputBytes,
-        artifactBytes: Buffer.from(
-          JSON.stringify({
-            tests: playwrightArtifact.tests,
-            command_outcomes: commandOutcomes,
-          }),
-        ),
-      });
     }
   } catch (error) {
     primaryError = error;

@@ -6,24 +6,8 @@ import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  emitRuntimeEvidenceReceipt,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
-
-const journeyRefId = "intent://journey:recruitment:interview-scheduling:v1";
-
-const journeyStepIds = [
-  "applicant-accepts-interview",
-  "applicant-loads-response",
-  "fresh-read-accepted-interview",
-  "interviewer-session-login",
-  "leader-session-login",
-  "load-assigned-interviews",
-  "schedule-interview",
-];
 
 const apiOrigin = "http://127.0.0.1:8000";
 
@@ -148,17 +132,12 @@ async function reportSymfonyException(logPath) {
 
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
-    const captureOutput = options.captureOutput === true;
-
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: captureOutput ? ["ignore", "pipe", "inherit"] : "inherit",
+      stdio: "inherit",
     });
 
-    const stdoutChunks = [];
-
-    if (captureOutput) child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
     let settled = false;
 
     const settle = (callback, value) => {
@@ -181,9 +160,9 @@ function runCommand(command, args, options) {
 
     timeout.unref();
     child.once("error", (error) => settle(rejectCommand, error));
-    child.once(captureOutput ? "close" : "exit", (code, signal) => {
+    child.once("exit", (code, signal) => {
       if (code === 0) {
-        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
+        settle(resolveCommand, undefined);
 
         return;
       }
@@ -439,10 +418,6 @@ async function main() {
       { cwd: serverRoot, env: serverEnv },
     );
 
-    const fixtureInputBytes = await readFile(
-      join(serverRoot, "tests/Fixtures/RecruitmentInterviewSchedulingFixture.php"),
-    );
-
     await assertPortAvailable(8000);
 
     symfonyProcess = startProcess(
@@ -472,55 +447,16 @@ async function main() {
     });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
-    const receiptRequested = [
-      "RUNTIME_EVIDENCE_RECEIPT_PATH",
-      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-    const e2eArgs = [
-      resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
-      "test",
-      "e2e/real-interview-scheduling.spec.ts",
-      "--project=real-symfony",
-    ];
-
-    if (receiptRequested) e2eArgs.push("--reporter=json");
-
-    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
-      cwd: dashboardRoot,
-      env: dashboardEnv,
-      captureOutput: receiptRequested,
-    });
-
-    if (receiptRequested) {
-      const runnerSourceInputBytes = [
-        {
-          sourceRefId:
-            process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[0]?.trim() ?? "",
-          bytes: await readFile(
-            fileURLToPath(new URL("./run-real-interview-scheduling.mjs", import.meta.url)),
-          ),
-        },
-        {
-          sourceRefId:
-            process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[1]?.trim() ?? "",
-          bytes: await readFile(
-            fileURLToPath(new URL("./real-interview-scheduling.spec.ts", import.meta.url)),
-          ),
-        },
-      ];
-
-      await emitRuntimeEvidenceReceipt({
-        journeyRefId,
-        stepIds: journeyStepIds,
-        fixtureId: "recruitment-interview-scheduling-0029",
-        runnerSourceInputBytes,
-        fixtureInputBytes,
-        artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
-      });
-    }
+    await runCommand(
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+      [
+        resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
+        "test",
+        "e2e/real-interview-scheduling.spec.ts",
+        "--project=real-symfony",
+      ],
+      { cwd: dashboardRoot, env: dashboardEnv },
+    );
   } catch (error) {
     primaryError = error;
     primaryFailed = true;

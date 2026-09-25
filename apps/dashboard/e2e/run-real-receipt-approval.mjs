@@ -14,10 +14,7 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { startReceiptDeliverySink } from "../../../tools/e2e/receipt-delivery-sink.ts";
-import {
-  emitNativeRuntimeEvidenceReceipts,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
+import { sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -100,19 +97,6 @@ const receiptEconomyRecipients = Object.freeze({
   "department-a": "economy-a@example.invalid",
   "department-b": "economy-b@example.invalid",
 });
-
-const journeyRefId = "intent://journey:parity:finance_operations:v1";
-
-const journeyStepIds = [
-  "finance-operations-api-operation",
-  "finance-operations-command-write",
-  "finance-operations-legacy-route",
-  "finance-operations-mono-route",
-];
-
-const runnerPath = fileURLToPath(import.meta.url);
-
-const specPath = join(dashboardRoot, "e2e/receipt-approval.spec.ts");
 
 const seedPath = join(dashboardRoot, "e2e/native-receipt-approval-seed.mjs");
 
@@ -1315,9 +1299,6 @@ function assertReceiptDeliveryEvidence(postgres, deliveries, seedEvidence) {
 }
 
 function assertJourneyEvidence(journeyEvidence, seedEvidence) {
-  assertEqual(journeyEvidence.journeyRefId, journeyRefId, "Finance journey reference");
-  assertEqual(journeyEvidence.acceptedStepIds, journeyStepIds, "Finance journey steps");
-
   if (journeyEvidence.environmentTokenAuthority !== false) {
     throw new Error("Receipt journey evidence did not exclude environment-token authority");
   }
@@ -1754,7 +1735,6 @@ export default {
   let proxy;
   let deliverySink;
   let evidence;
-  let playwrightArtifactBytes;
   let cleaned = false;
 
   const cleanup = async () => {
@@ -1978,7 +1958,7 @@ export default {
       },
     );
 
-    playwrightArtifactBytes = sanitizePlaywrightArtifact(Buffer.from(playwright.stdout, "utf8"));
+    sanitizePlaywrightArtifact(Buffer.from(playwright.stdout, "utf8"));
 
     const journeyEvidence = JSON.parse(await readFile(approvalEvidencePath, "utf8"));
     assertJourneyEvidence(journeyEvidence, seedEvidence);
@@ -2028,8 +2008,6 @@ export default {
         symfonyProcessesStarted: 0,
         fixtureApiProcessesStarted: 0,
       },
-      journeyRefId,
-      acceptedStepIds: journeyStepIds,
       seed: seedEvidence,
       postgres,
       privateFile,
@@ -2067,19 +2045,6 @@ export default {
   if (await pathExists(temporaryRoot)) {
     throw new Error("Real Receipt approval cleanup left the private temporary root behind");
   }
-
-  if (playwrightArtifactBytes === undefined) {
-    throw new Error("Receipt approval JSON reporter artifact was not captured");
-  }
-
-  await emitNativeRuntimeEvidenceReceipts({
-    repositoryRoot,
-    sourcePaths: [runnerPath, specPath, seedPath],
-    journeys: [{ journeyRefId, stepIds: journeyStepIds }],
-    fixtureId: "native-receipt-approval-0037",
-    fixtureInputBytes: await readFile(seedPath),
-    artifactBytes: playwrightArtifactBytes,
-  });
 
   process.stdout.write(
     `${JSON.stringify({

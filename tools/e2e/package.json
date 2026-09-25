@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.bun.json",
     "rehearsal:legacy-person": "bun run run-legacy-backup-person-rehearsal.ts",
     "cutover:legacy-service": "bun run run-legacy-service-cutover.ts",
     "rehearsal:legacy-current-assignment": "bun --no-env-file run-legacy-current-assignment-rehearsal.ts",

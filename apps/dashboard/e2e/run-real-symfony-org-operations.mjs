@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -7,10 +7,6 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { selectedPostgresMajor, postgresProgram } from "@monoweb/postgres";
-import {
-  emitRuntimeEvidenceReceipts,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 
 const legacyOrigin = "http://127.0.0.1:8000";
 
@@ -42,66 +38,15 @@ const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import
 
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
-const runnerSourcePath = fileURLToPath(import.meta.url);
-
-const specSourcePath = fileURLToPath(
-  new URL("./real-symfony-org-operations.spec.ts", import.meta.url),
-);
-
-const legacyFixtureSourcePath = fileURLToPath(
-  new URL("../../server/tests/Fixtures/OrgOperationsJourneyFixture.php", import.meta.url),
-);
-
-const nativeFixtureSourcePath = fileURLToPath(
+const nativeSeedPath = fileURLToPath(
   new URL("./native-schools-directory-seed.mjs", import.meta.url),
 );
-
-const nativeSeedPath = nativeFixtureSourcePath;
 
 const betterAuthSecret = randomBytes(32).toString("hex");
 
 const commandTimeoutMs = 120_000;
 
 const shutdownTimeoutMs = 5_000;
-
-const journeys = [
-  {
-    journeyRefId: "intent://journey:parity:finance_operations:v1",
-    stepIds: [
-      "finance-operations-api-operation",
-      "finance-operations-command-write",
-      "finance-operations-legacy-route",
-      "finance-operations-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:org_admin:v1",
-    stepIds: [
-      "org-admin-api-operation",
-      "org-admin-command-write",
-      "org-admin-legacy-route",
-      "org-admin-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:identity_admin:v1",
-    stepIds: [
-      "identity-admin-api-operation",
-      "identity-admin-command-write",
-      "identity-admin-legacy-route",
-      "identity-admin-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:school_scheduling:v1",
-    stepIds: [
-      "school-scheduling-api-operation",
-      "school-scheduling-command-write",
-      "school-scheduling-legacy-route",
-      "school-scheduling-mono-route",
-    ],
-  },
-];
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -127,42 +72,14 @@ function assertPortAvailable(port) {
   });
 }
 
-async function hybridFixtureManifestBytes() {
-  const sources = [
-    {
-      path: "apps/server/tests/Fixtures/OrgOperationsJourneyFixture.php",
-      bytes: await readFile(legacyFixtureSourcePath),
-    },
-    {
-      path: "apps/dashboard/e2e/native-schools-directory-seed.mjs",
-      bytes: await readFile(nativeFixtureSourcePath),
-    },
-  ];
-
-  return Buffer.from(
-    JSON.stringify(
-      sources.map((source) => ({
-        source_path: source.path,
-        bytes_base64: Buffer.from(source.bytes).toString("base64"),
-      })),
-    ),
-    "utf8",
-  );
-}
-
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
-    const captureOutput = options.captureOutput === true;
-
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: captureOutput ? ["ignore", "pipe", "inherit"] : "inherit",
+      stdio: "inherit",
     });
 
-    const stdoutChunks = [];
-
-    if (captureOutput) child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
     let settled = false;
 
     const settle = (callback, value) => {
@@ -185,9 +102,9 @@ function runCommand(command, args, options) {
 
     timeout.unref();
     child.once("error", (error) => settle(rejectCommand, error));
-    child.once(captureOutput ? "close" : "exit", (code, signal) => {
+    child.once("exit", (code, signal) => {
       if (code === 0) {
-        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
+        settle(resolveCommand, undefined);
 
         return;
       }
@@ -606,51 +523,16 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
-    const receiptRequested = [
-      "RUNTIME_EVIDENCE_RECEIPT_PATH",
-      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-    ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-    const e2eArgs = [
-      resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
-      "test",
-      "e2e/real-symfony-org-operations.spec.ts",
-      "--project=real-symfony",
-    ];
-
-    if (receiptRequested) e2eArgs.push("--reporter=json");
-
-    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
-      cwd: dashboardRoot,
-      env: dashboardEnv,
-      captureOutput: receiptRequested,
-    });
-
-    if (receiptRequested) {
-      const runnerSourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
-        .split(",")
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0);
-
-      if (runnerSourceRefIds.length !== 2) {
-        throw new Error(
-          "Runtime evidence requires exactly two runner source references for this runner and spec.",
-        );
-      }
-
-      await emitRuntimeEvidenceReceipts({
-        journeys,
-        fixtureId: "hybrid-org-operations-0032.2",
-        runnerSourceInputBytes: [
-          { sourceRefId: runnerSourceRefIds[0], bytes: await readFile(runnerSourcePath) },
-          { sourceRefId: runnerSourceRefIds[1], bytes: await readFile(specSourcePath) },
-        ],
-        fixtureInputBytes: await hybridFixtureManifestBytes(),
-        artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
-      });
-    }
+    await runCommand(
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+      [
+        resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
+        "test",
+        "e2e/real-symfony-org-operations.spec.ts",
+        "--project=real-symfony",
+      ],
+      { cwd: dashboardRoot, env: dashboardEnv },
+    );
   } catch (error) {
     primaryError = error;
     primaryFailed = true;

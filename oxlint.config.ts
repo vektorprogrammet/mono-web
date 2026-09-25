@@ -332,14 +332,6 @@ export default defineConfig({
       },
     },
     {
-      // Parity evidence helpers have no export map, and the dashboard does not depend on parity.
-      files: [
-        "apps/dashboard/e2e/merge-runtime-evidence.mjs",
-        "apps/dashboard/e2e/runtime-evidence-receipt.mjs",
-      ],
-      rules: { "no-restricted-imports": "off" },
-    },
-    {
       // Alchemy is outside the Bun workspace, with its own lockfile; this import is type-only.
       files: ["infra/alchemy/preview/apex-worker.ts"],
       rules: { "no-restricted-imports": "off" },

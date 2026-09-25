@@ -48,8 +48,7 @@
     "e2e:real-profile": "node e2e/run-real-native-profile-self-edit.mjs",
     "e2e:real-content-ops": "bun --no-env-file ../../scripts/require-legacy-profile.ts && bun e2e/run-real-content-ops.mjs",
     "e2e:real-identity": "bun --no-env-file e2e/run-real-native-identity-browser.mjs",
-    "e2e:real-oauth": "node ./node_modules/@playwright/test/cli.js test e2e/native-oauth-consent.spec.ts --project=chromium --workers=1 --retries=0",
-    "e2e:merge-runtime-evidence": "bun e2e/merge-runtime-evidence.mjs"
+    "e2e:real-oauth": "node ./node_modules/@playwright/test/cli.js test e2e/native-oauth-consent.spec.ts --project=chromium --workers=1 --retries=0"
   },
   "dependencies": {
     "@axe-core/playwright": "^4.10.1",

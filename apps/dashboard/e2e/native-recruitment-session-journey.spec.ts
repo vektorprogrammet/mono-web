@@ -29,24 +29,6 @@ const schemaOptionLabel = "Førstegangsintervju (8 spørsmål)";
 
 const schemaOptions = ["Velg intervjuskjema", schemaOptionLabel];
 
-const journeys = [
-  {
-    journeyRefId: "intent://journey:recruitment:applicant-assignment:v1",
-    stepIds: [
-      "mono-session-login",
-      "load-applicant-list",
-      "load-interviewer-options",
-      "load-interview-schema-options",
-      "assign-interview",
-      "fresh-read-applicant-list",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:recruitment:review-applicants:v1",
-    stepIds: ["mono-session-login", "list-current-applicants"],
-  },
-] as const;
-
 const bridgeOperation = (request: Request): string | undefined => {
   if (new URL(request.url()).pathname !== "/recruitment" || request.method() !== "POST") {
     return undefined;
@@ -259,7 +241,6 @@ test.describe("Native recruitment assignment journey (spec 0049.3)", () => {
     await writeFile(
       evidencePath,
       `${JSON.stringify({
-        journeys,
         renderedNativeLogin: true,
         sessionCookieName: sessionCookies[0]?.name,
         sessionPersonId: expectedLeaderPersonId,

@@ -10,7 +10,7 @@ import { postgresProgram } from "@monoweb/postgres";
 import {
   withProjectionFileLock,
   writeFilePathNoFollow,
-} from "../../../tools/parity/node-runtime.ts";
+} from "../../../tools/e2e/safe-file-io.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
