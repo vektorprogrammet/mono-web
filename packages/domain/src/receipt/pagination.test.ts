@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { ReceiptId } from "./schema.js";
 import { Effect, Encoding } from "effect";
 import { decodeReceiptCursor, encodeReceiptCursor, receiptPage } from "./pagination.js";
 
@@ -8,7 +9,11 @@ describe("receipt continuation", () => {
     () =>
       Effect.gen(function* () {
         const rows = Array.from({ length: 51 }, (_, index) => ({
-          receiptId: `receipt-${String(index).padStart(3, "0")}`,
+          receiptId: ReceiptId.make(
+            index === 49
+              ? `receipt-${"x".repeat(2048)}`
+              : `receipt-${String(index).padStart(3, "0")}`,
+          ),
           timestamp: "2038-06-13T12:00:00.123456Z",
         }));
 
@@ -20,10 +25,9 @@ describe("receipt continuation", () => {
       }),
   );
 
-  it.effect("rejects malformed, oversized, and calendar-normalized cursor input", () =>
+  it.effect("rejects malformed and calendar-normalized cursor input", () =>
     Effect.gen(function* () {
       const invalid = [
-        "A".repeat(1025),
         "not base64!",
         Encoding.encodeBase64(
           JSON.stringify(["receipt-v2", "2038-06-13T12:00:00.123456Z", "receipt-1"]),
@@ -36,7 +40,12 @@ describe("receipt continuation", () => {
 
       for (const cursor of invalid)
         expect((yield* Effect.flip(decodeReceiptCursor(cursor)))._tag).toBe("ReceiptDecodeError");
-      const valid = { timestamp: "2038-06-13T12:00:00.000001Z", receiptId: "receipt-æ" };
+
+      const valid = {
+        timestamp: "2038-06-13T12:00:00.000001Z",
+        receiptId: ReceiptId.make(`receipt-æ-${"x".repeat(2048)}`),
+      };
+
       expect(yield* decodeReceiptCursor(encodeReceiptCursor(valid))).toEqual(valid);
     }),
   );
