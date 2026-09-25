@@ -82,7 +82,6 @@ The service does not interpret HTTP headers.
 
 The example merges `DatabaseTest()` with `SubstitutesLive.pipe(Layer.provide(database))`.
 Production uses the same pattern with the shared database Layer in [backend composition](../../../../apps/backend/src/main.ts).
-The [Cloudflare composition](../../../../apps/backend/src/cloudflare-worker.ts) provides the same service.
 
 A command caller must keep authentication, current authorization, receipt preparation, execution, and receipt completion inside one transaction.
 A successful read or cached authority result cannot authorize a later command.

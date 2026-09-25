@@ -290,8 +290,8 @@ Sources: [command transaction](../apps/backend/src/http-api/receipt-transaction.
 It connects the HTTP process, database, authentication, business services, file storage, and configured delivery programs.
 
 The selected backend is portable Bun with PostgreSQL.
-The retained Cloudflare Worker composition is not the selected backend target.
-Its Hyperdrive transport conflicts with the PostgreSQL advisory-lock requirements of the native system.
+There is no Cloudflare Worker backend composition.
+Hyperdrive transport conflicts with the PostgreSQL advisory-lock requirements of the native system.
 Provider selection and deployed acceptance remain separate work.
 
 Local `bun dev` starts the backend and both frontend development servers through the existing workspace tasks.

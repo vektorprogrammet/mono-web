@@ -123,8 +123,8 @@ The service does not own a listener, worker process, or independent connection p
 
 The [native composition](../../../../apps/backend/src/main.ts) provides `EconomyLive` from the shared database Layer.
 It supplies the [filesystem Layer](../../../../apps/backend/src/receipt/filesystem.ts) and [delivery Layer](../../../../apps/backend/src/receipt/delivery.ts).
-The [Cloudflare composition](../../../../apps/backend/src/cloudflare-worker.ts) uses the corresponding [R2 adapter](../../../../apps/backend/src/receipt/r2.ts).
-A local native journey does not qualify Cloudflare storage or a real notification provider.
+The [R2 adapter](../../../../apps/backend/src/receipt/r2.ts) implements the same file-store contract for object storage but has no deployed composition.
+A local native journey does not qualify object storage or a real notification provider.
 
 The [receipt configuration](../../../../apps/backend/src/receipt/config.ts) owns file roots and intake limits.
 The [backend configuration](../../../../apps/backend/src/config.ts) owns worker modes and polling.
