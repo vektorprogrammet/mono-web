@@ -1,10 +1,10 @@
 import { Database, type DatabaseOperations } from "../service.js";
+import { receiptCursorPage, receiptCursorTimestamp } from "./cursor.js";
 import { flow, Effect, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import {
   RECEIPT_PAGE_SIZE,
   decodeReceiptCursor,
-  receiptPage,
   type ReceiptPage,
   type ReceiptCursorPosition,
   type ReceiptDecodeError,
@@ -76,7 +76,7 @@ export const listApproverReceipts = (
     const statusPredicate = status === undefined ? sql`TRUE` : sql`status = ${status}`;
 
     return yield* sql<ReceiptCandidateRow>`
-      SELECT to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTimestamp",
+      SELECT ${receiptCursorTimestamp(sql, sql`submitted_at`)},
         receipt_id AS "receiptId", visual_id AS "visualId",
         owner_person_id AS "ownerPersonId", department_id AS "departmentId",
         description, amount_ore::text AS "amountOre", currency,
@@ -148,7 +148,7 @@ const findOwnedReceiptProjection = SqlSchema.findAll({
 
       return yield* sql`
       SELECT
-        to_char(receipt.submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTimestamp",
+        ${receiptCursorTimestamp(sql, sql`receipt.submitted_at`)},
         receipt.receipt_id AS "receiptId",
         receipt.visual_id AS "visualId",
         receipt.owner_person_id AS "ownerPersonId",
@@ -218,17 +218,11 @@ export const listOwnedReceiptProjection = (
       ),
     );
 
-    const page = receiptPage(rows, (row) => ({
-      timestamp: row.cursorTimestamp,
-      receiptId: row.receiptId,
-    }));
+    const page = receiptCursorPage(rows);
 
     const items = yield* Effect.forEach(
       page.items,
-      ({
-        cursorTimestamp: _cursorTimestamp,
-        ...row
-      }): Effect.Effect<OwnedReceiptProjectionItem, ReceiptPersistenceError> =>
+      (row): Effect.Effect<OwnedReceiptProjectionItem, ReceiptPersistenceError> =>
         row.settlement === null
           ? Effect.succeed({ ...row, settlement: null })
           : decodeSettlementEvidence(row.settlement).pipe(

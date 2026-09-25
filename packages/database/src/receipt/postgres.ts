@@ -30,7 +30,6 @@ import {
   receiptApprovalSelectionDecision,
   RECEIPT_PAGE_SIZE,
   decodeReceiptCursor,
-  receiptPage,
   type ReceiptPage,
   type ReceiptApprovalSelectionEvidence,
   selectAuthorizedReceiptFileForApproval,
@@ -64,6 +63,7 @@ import type {
   ReceiptQuarantineReason,
 } from "@vektorprogrammet/domain/receipt";
 import { listApproverReceipts, type ReceiptCandidateRow } from "./projections.js";
+import { receiptCursorPage } from "./cursor.js";
 import {
   Receipt,
   ReceiptFileSchema,
@@ -748,15 +748,7 @@ export const listReceiptsForApproval = (
             });
           }
 
-          const page = receiptPage(visible, (row) => ({
-            timestamp: row.cursorTimestamp,
-            receiptId: row.receiptId,
-          }));
-
-          return {
-            ...page,
-            items: page.items.map(({ cursorTimestamp: _cursorTimestamp, ...row }) => row),
-          };
+          return receiptCursorPage(visible);
         }),
       )
       .pipe(

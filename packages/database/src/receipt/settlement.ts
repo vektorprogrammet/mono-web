@@ -5,12 +5,12 @@ import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
 import {
   RECEIPT_PAGE_SIZE,
   decodeReceiptCursor,
-  receiptPage,
   type ReceiptPage,
   mapExistingReceiptSettlementActor,
   selectReceiptSettlementGrant,
   type ReceiptSettlementTransactionResult,
 } from "@vektorprogrammet/domain/receipt";
+import { receiptCursorPage, receiptCursorTimestamp, type CursorPositioned } from "./cursor.js";
 import {
   DuplicateExternalSettlementReference,
   DuplicateReceiptCommandConflict,
@@ -618,12 +618,12 @@ export const listReceiptsForSettlement = (
           );
 
           let position = after === undefined ? undefined : yield* decodeReceiptCursor(after);
-          const visible: Array<ReceiptSettlementQueueItem & { cursorTimestamp: string }> = [];
+          const visible: Array<CursorPositioned<ReceiptSettlementQueueItem>> = [];
 
           while (visible.length <= RECEIPT_PAGE_SIZE) {
-            const rows = yield* sql<ReceiptSettlementQueueItem & { cursorTimestamp: string }>`
+            const rows = yield* sql<CursorPositioned<ReceiptSettlementQueueItem>>`
             SELECT
-              to_char(receipt.approved_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTimestamp",
+              ${receiptCursorTimestamp(sql, sql`receipt.approved_at`)},
               receipt.receipt_id AS "receiptId",
               receipt.visual_id AS "visualId",
               receipt.owner_person_id AS "ownerPersonId",
@@ -662,15 +662,7 @@ export const listReceiptsForSettlement = (
             position = { timestamp: last.cursorTimestamp, receiptId: last.receiptId };
           }
 
-          const page = receiptPage(visible, (row) => ({
-            timestamp: row.cursorTimestamp,
-            receiptId: row.receiptId,
-          }));
-
-          return {
-            ...page,
-            items: page.items.map(({ cursorTimestamp: _cursorTimestamp, ...row }) => row),
-          };
+          return receiptCursorPage(visible);
         }),
       )
       .pipe(
