@@ -6,23 +6,22 @@ import {
   Scope,
   type CredentialOutcome,
 } from "@vektorprogrammet/domain/authz";
+import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import type { TeamId } from "@vektorprogrammet/domain/organization";
 import {
-  TeamApplicationAccessDenied,
   TeamApplicationAction,
-  TeamApplicationCommandConflict,
   TeamApplicationCommandId,
-  TeamApplicationIntakeClosed,
-  TeamApplicationInvalidCursor,
-  TeamApplicationNotFound,
-  TeamApplicationPersistenceError,
   TeamApplications,
-  TeamApplicationTeamNotFound,
   ReviseTeamApplicationIntakeCommand,
   type TeamApplicationActor,
+  type TeamApplicationDeleteFailure,
   type TeamApplicationId,
   type TeamApplicationIntake,
   type TeamApplicationPrincipal,
+  type TeamApplicationPublicReadFailure,
+  type TeamApplicationReadFailure,
+  type TeamApplicationReviseFailure,
+  type TeamApplicationSubmitFailure,
 } from "@vektorprogrammet/domain/team-application";
 import {
   DeleteTeamApplicationEndpoint,
@@ -38,46 +37,49 @@ import {
   TeamApplicationIntakeMergePatch,
 } from "@vektorprogrammet/http-api";
 import {
+  type CredentialPresentation,
   makeNativeValidationError,
   nativeUserChallenges,
   type NativeValidationError,
+  Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Option, Predicate, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { currentInstant, resolveRequestCredentialInTransaction } from "../authority.js";
 import type { TeamApplicationApiConfig } from "../config.js";
+import {
+  authorizeAnonymous,
+  authorizePerson,
+  classifyCredential,
+  commandOutcomeResponse,
+  commandReceiptProblems,
+  problemMapper,
+  semanticProblem,
+  semanticProblems,
+  unreachable,
+  webHandler,
+} from "../http-api/problem.js";
 import { publicRateLimitKey } from "../http-api/public-rate-limit.js";
 import { readBoundedJson } from "../http-api/read-json.js";
 import {
   executeNativeHttpCommandPostgres,
-  NativeHttpReceiptPersistenceError,
   type NativeHttpResponseCapsule,
 } from "../http-api/receipt-transaction.js";
-import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   deriveHttpIdentity,
   deriveStrongETag,
   encodePathIdentity,
   evaluateMutationPrecondition,
-  HttpSemanticFailure,
   jsonBodyBytes,
-  nativeProblemResponse,
   normalizeTarget,
   NO_STORE,
   parseIdempotencyKey,
   parseRequiredIfMatch,
   PRIVATE_NO_STORE,
-  rateLimitProblemResponse,
   semanticMutationRequest,
   semanticRequestDigest,
-  validationProblemResponse,
 } from "../http-semantics.js";
-import {
-  authorizeAnonymousNativeOperation,
-  authorizePersonNativeOperation,
-  genericContext,
-  nativeCommandOutcomeResponse,
-} from "../native-operation.js";
+import { genericContext } from "../native-operation.js";
 
 /** Seven bounded fields; the free-text fields dominate at 10 000 characters each. */
 const MAX_SUBMISSION_BYTES = 131_072;
@@ -97,20 +99,44 @@ type StaffEndpoint =
   | typeof DeleteTeamApplicationEndpoint
   | typeof ReviseTeamApplicationIntakeEndpoint;
 
-const semantic = <A>(operation: () => A) =>
-  Effect.try({
-    try: operation,
-    catch: (cause) =>
-      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
+/** The one answer for every team-application domain failure. */
+const teamApplicationProblems = problemMapper<
+  | TeamApplicationPublicReadFailure
+  | TeamApplicationSubmitFailure
+  | TeamApplicationReadFailure
+  | TeamApplicationDeleteFailure
+  | TeamApplicationReviseFailure
+>()({
+  TeamApplicationTeamNotFound: () => Problem.make("resource.not-found"),
+  TeamApplicationNotFound: () => Problem.make("resource.not-found"),
+  TeamApplicationIntakeClosed: () => Problem.make("team-application.intake-closed"),
+  TeamApplicationAccessDenied: () => Problem.make("authority.denied"),
+  TeamApplicationCommandConflict: () => Problem.make("idempotency.digest-conflict"),
+  TeamApplicationInvalidCursor: () => Problem.make("request.malformed"),
+  TeamApplicationPersistenceError: (failure) =>
+    failure.conflict ? Problem.make("transaction.conflict") : Problem.make("internal.error"),
+});
+
+/** The credential the request itself presented, recorded once for every rejection. */
+const staffPresentation = (request: Request) =>
+  classifyCredential(
+    request.headers.get("authorization"),
+    request.headers.get("cookie"),
+    nativeUserChallenges(),
+  );
+
+/** A staff credential rejected inside the transaction is answered from the request's evidence. */
+const staffCredentialProblems = (presentation: CredentialPresentation) =>
+  problemMapper<UnauthenticatedActor | IdentityEngineError>()({
+    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+    IdentityEngineError: () => Problem.make("internal.error"),
   });
 
 const headerValues = (request: Request, name: string) =>
   request.headers.has(name) ? [request.headers.get(name)!] : [];
 
 const requireNoQuery = (request: Request) =>
-  new URL(request.url).search === ""
-    ? Effect.void
-    : Effect.fail(new HttpSemanticFailure("request.malformed", 400));
+  new URL(request.url).search === "" ? Effect.void : Effect.fail(Problem.make("request.malformed"));
 
 const json = (body: Schema.Json, cacheControl: string) =>
   new Response(JSON.stringify(body), {
@@ -170,32 +196,36 @@ const authorizeStaff = (
   staff: StaffPrincipal,
   actor: TeamApplicationActor,
   selection: "ExactlyOne" | "AllMatching",
+  presentation: CredentialPresentation,
 ) =>
-  authorizePersonNativeOperation({
-    spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-    credential: staff.credential,
-    personId: staff.principal.personId,
-    resolution: {
-      selection,
-      contexts: [
-        genericContext({
-          domainId: "team-applications",
-          resourceKind: "organization-team",
-          resourceId: actor.teamId,
-          authorityVersion: `team-applications:${actor._tag}:${staff.principal.authorizationInstant}`,
+  authorizePerson(
+    {
+      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+      credential: staff.credential,
+      personId: staff.principal.personId,
+      resolution: {
+        selection,
+        contexts: [
+          genericContext({
+            domainId: "team-applications",
+            resourceKind: "organization-team",
+            resourceId: actor.teamId,
+            authorityVersion: `team-applications:${actor._tag}:${staff.principal.authorizationInstant}`,
+          }),
+        ],
+      },
+      grantScopes: [
+        Scope.Resource({
+          resource: {
+            kind: ResourceKind.make("organization-team"),
+            id: ResourceId.make(actor.teamId),
+          },
         }),
       ],
+      now: staff.principal.authorizationInstant,
     },
-    grantScopes: [
-      Scope.Resource({
-        resource: {
-          kind: ResourceKind.make("organization-team"),
-          id: ResourceId.make(actor.teamId),
-        },
-      }),
-    ],
-    now: staff.principal.authorizationInstant,
-  });
+    presentation,
+  );
 
 const snapshotRead = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Database.use((sql) =>
@@ -206,16 +236,28 @@ const snapshotRead = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         return yield* effect;
       }),
     ),
-  );
+  ).pipe(Effect.catchTag("SqlError", () => Effect.fail(Problem.make("internal.error"))));
 
 const readJsonBody = (request: Request, mediaType: RegExp, maxBytes: number) =>
-  Effect.gen(function* () {
-    if (!mediaType.test(request.headers.get("content-type") ?? "")) {
-      return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
-    }
+  mediaType.test(request.headers.get("content-type") ?? "")
+    ? semanticProblems(readBoundedJson(request, maxBytes), [
+        "request.malformed",
+        "request.too-large",
+        "internal.error",
+      ])
+    : Effect.fail(Problem.make("media-type.unsupported"));
 
-    return yield* readBoundedJson(request, maxBytes);
-  });
+const idempotencyKeyOf = (request: Request) =>
+  semanticProblem(
+    () => parseIdempotencyKey(headerValues(request, "idempotency-key")),
+    ["idempotency-key.invalid"],
+  );
+
+const httpIdentity = (input: Parameters<typeof deriveHttpIdentity>[0]) =>
+  semanticProblem(
+    () => deriveHttpIdentity(input),
+    ["request.malformed", "idempotency-key.invalid"],
+  );
 
 const JsonObject = Schema.Record(Schema.String, Schema.Json);
 
@@ -247,7 +289,7 @@ const readIntake = (request: Request, teamId: TeamId) =>
     yield* requireNoQuery(request);
     const instant = yield* currentInstant(undefined);
 
-    yield* authorizeAnonymousNativeOperation(
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ReadTeamApplicationIntakeEndpoint)),
       {
         selection: "ExactlyOne",
@@ -263,7 +305,11 @@ const readIntake = (request: Request, teamId: TeamId) =>
       instant,
     );
 
-    const intake = yield* TeamApplications.use((service) => service.readPublicIntake(teamId));
+    // A public read runs no serializable transaction, so it cannot lose a conflict.
+    const intake = yield* TeamApplications.use((service) => service.readPublicIntake(teamId)).pipe(
+      teamApplicationProblems,
+      unreachable("transaction.conflict"),
+    );
 
     return json(intake, NO_STORE);
   });
@@ -273,7 +319,7 @@ const listIntakes = (request: Request) =>
     yield* requireNoQuery(request);
     const instant = yield* currentInstant(undefined);
 
-    yield* authorizeAnonymousNativeOperation(
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ListTeamApplicationIntakesEndpoint)),
       {
         selection: "AllMatching",
@@ -287,7 +333,10 @@ const listIntakes = (request: Request) =>
       instant,
     );
 
-    const intakes = yield* TeamApplications.use((service) => service.listPublicIntakes);
+    const intakes = yield* TeamApplications.use((service) => service.listPublicIntakes).pipe(
+      teamApplicationProblems,
+      unreachable("transaction.conflict"),
+    );
 
     return json(intakes, NO_STORE);
   });
@@ -300,7 +349,7 @@ const submit = (request: Request, teamId: TeamId, config: TeamApplicationApiConf
 
     // Counted before the body is read, so an over-limit caller costs no parsing or storage.
     if (!config.rateLimit.consume(publicRateLimitKey(request), arrivedAt)) {
-      return rateLimitProblemResponse(config.retryAfterSeconds);
+      return yield* Problem.rateLimited(config.retryAfterSeconds);
     }
 
     const body = yield* readJsonBody(
@@ -314,20 +363,19 @@ const submit = (request: Request, teamId: TeamId, config: TeamApplicationApiConf
     });
 
     if (Option.isNone(decoded)) {
-      return validationProblemResponse("validation.failed", submissionErrors(body));
+      return yield* Problem.validation("validation.failed", submissionErrors(body));
     }
 
-    const idempotencyKey = yield* semantic(() =>
-      parseIdempotencyKey(headerValues(request, "idempotency-key")),
-    );
+    const idempotencyKey = yield* idempotencyKeyOf(request);
 
     const operationId = "team-applications.submitTeamApplication";
 
+    // Domain failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const instant = yield* currentInstant(undefined);
 
-        yield* authorizeAnonymousNativeOperation(
+        yield* authorizeAnonymous(
           Option.getOrThrow(reflectAccessSpec(SubmitTeamApplicationEndpoint)),
           {
             selection: "ExactlyOne",
@@ -343,14 +391,12 @@ const submit = (request: Request, teamId: TeamId, config: TeamApplicationApiConf
           instant,
         );
 
-        const identity = yield* semantic(() =>
-          deriveHttpIdentity({
-            credentialSubject: "Anonymous",
-            qualifiedOperationId: operationId,
-            normalizedTarget: normalizeTarget("/api/teams/{teamId}/applications", { teamId }),
-            idempotencyKey,
-          }),
-        );
+        const identity = yield* httpIdentity({
+          credentialSubject: "Anonymous",
+          qualifiedOperationId: operationId,
+          normalizedTarget: normalizeTarget("/api/teams/{teamId}/applications", { teamId }),
+          idempotencyKey,
+        });
 
         return {
           identity: {
@@ -379,34 +425,41 @@ const submit = (request: Request, teamId: TeamId, config: TeamApplicationApiConf
         };
       }),
       { retry: "serialization-once" },
-    );
+    ).pipe(teamApplicationProblems, commandReceiptProblems);
 
-    return nativeCommandOutcomeResponse(outcome);
+    return yield* commandOutcomeResponse(outcome);
   });
 
 const cursorQuery = (request: Request) =>
-  semantic(() => {
+  Effect.suspend(() => {
     const parameters = new URL(request.url).searchParams;
     const keys = [...parameters.keys()];
 
-    if (keys.some((key) => key !== "cursor") || parameters.getAll("cursor").length > 1) {
-      throw new HttpSemanticFailure("request.malformed", 400);
-    }
-
-    return parameters.get("cursor") ?? undefined;
+    return keys.some((key) => key !== "cursor") || parameters.getAll("cursor").length > 1
+      ? Effect.fail(Problem.make("request.malformed"))
+      : Effect.succeed(parameters.get("cursor") ?? undefined);
   });
 
-const listApplications = (request: Request, teamId: TeamId) =>
-  snapshotRead(
+const listApplications = (request: Request, teamId: TeamId) => {
+  const presentation = staffPresentation(request);
+
+  return snapshotRead(
     Effect.gen(function* () {
       const cursor = yield* cursorQuery(request);
       const staff = yield* staffPrincipal(request);
 
+      // A read-only snapshot cannot lose a serialization conflict.
       const page = yield* TeamApplications.use((service) =>
         service.listApplications(staff.principal, teamId, cursor),
-      );
+      ).pipe(teamApplicationProblems, unreachable("transaction.conflict"));
 
-      yield* authorizeStaff(ListTeamApplicationsEndpoint, staff, page.actor, "AllMatching");
+      yield* authorizeStaff(
+        ListTeamApplicationsEndpoint,
+        staff,
+        page.actor,
+        "AllMatching",
+        presentation,
+      );
 
       const body = {
         teamId: page.teamId,
@@ -421,19 +474,29 @@ const listApplications = (request: Request, teamId: TeamId) =>
         PRIVATE_NO_STORE,
       );
     }),
-  );
+  ).pipe(staffCredentialProblems(presentation));
+};
 
-const readApplication = (request: Request, applicationId: TeamApplicationId) =>
-  snapshotRead(
+const readApplication = (request: Request, applicationId: TeamApplicationId) => {
+  const presentation = staffPresentation(request);
+
+  return snapshotRead(
     Effect.gen(function* () {
       yield* requireNoQuery(request);
       const staff = yield* staffPrincipal(request);
 
+      // A read-only snapshot cannot lose a serialization conflict.
       const view = yield* TeamApplications.use((service) =>
         service.readApplication(staff.principal, applicationId),
-      );
+      ).pipe(teamApplicationProblems, unreachable("transaction.conflict"));
 
-      yield* authorizeStaff(ReadTeamApplicationEndpoint, staff, view.actor, "ExactlyOne");
+      yield* authorizeStaff(
+        ReadTeamApplicationEndpoint,
+        staff,
+        view.actor,
+        "ExactlyOne",
+        presentation,
+      );
 
       return json(
         {
@@ -444,18 +507,19 @@ const readApplication = (request: Request, applicationId: TeamApplicationId) =>
         PRIVATE_NO_STORE,
       );
     }),
-  );
+  ).pipe(staffCredentialProblems(presentation));
+};
 
 const deleteApplication = (request: Request, applicationId: TeamApplicationId) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
 
-    const idempotencyKey = yield* semantic(() =>
-      parseIdempotencyKey(headerValues(request, "idempotency-key")),
-    );
+    const idempotencyKey = yield* idempotencyKeyOf(request);
+    const presentation = staffPresentation(request);
 
     const operationId = "team-applications.deleteTeamApplication";
 
+    // Domain and credential failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const staff = yield* staffPrincipal(request);
@@ -468,18 +532,22 @@ const deleteApplication = (request: Request, applicationId: TeamApplicationId) =
           ),
         );
 
-        yield* authorizeStaff(DeleteTeamApplicationEndpoint, staff, actor, "ExactlyOne");
-
-        const identity = yield* semantic(() =>
-          deriveHttpIdentity({
-            credentialSubject: `Person:${staff.principal.personId}`,
-            qualifiedOperationId: operationId,
-            normalizedTarget: normalizeTarget("/api/team-applications/{applicationId}", {
-              applicationId,
-            }),
-            idempotencyKey,
-          }),
+        yield* authorizeStaff(
+          DeleteTeamApplicationEndpoint,
+          staff,
+          actor,
+          "ExactlyOne",
+          presentation,
         );
+
+        const identity = yield* httpIdentity({
+          credentialSubject: `Person:${staff.principal.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: normalizeTarget("/api/team-applications/{applicationId}", {
+            applicationId,
+          }),
+          idempotencyKey,
+        });
 
         return {
           identity: {
@@ -503,9 +571,9 @@ const deleteApplication = (request: Request, applicationId: TeamApplicationId) =
         };
       }),
       { retry: "serialization-once" },
-    );
+    ).pipe(teamApplicationProblems, commandReceiptProblems, staffCredentialProblems(presentation));
 
-    return nativeCommandOutcomeResponse(outcome);
+    return yield* commandOutcomeResponse(outcome);
   });
 
 const reviseIntake = (request: Request, teamId: TeamId) =>
@@ -523,7 +591,7 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
     });
 
     if (Option.isNone(decoded)) {
-      return validationProblemResponse("validation.failed", [
+      return yield* Problem.validation("validation.failed", [
         makeNativeValidationError("", "invalid"),
       ]);
     }
@@ -531,25 +599,28 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
     const patch = decoded.value;
 
     if (patch.acceptApplication === undefined && patch.deadline === undefined) {
-      return validationProblemResponse("validation.no-change", [
+      return yield* Problem.validation("validation.no-change", [
         makeNativeValidationError("", "no-change"),
       ]);
     }
 
     if (patch.acceptApplication === null) {
-      return validationProblemResponse("validation.field-not-deletable", [
+      return yield* Problem.validation("validation.field-not-deletable", [
         makeNativeValidationError("/acceptApplication", "field-not-deletable"),
       ]);
     }
 
-    const ifMatch = yield* semantic(() => parseRequiredIfMatch(headerValues(request, "if-match")));
-
-    const idempotencyKey = yield* semantic(() =>
-      parseIdempotencyKey(headerValues(request, "idempotency-key")),
+    const ifMatch = yield* semanticProblem(
+      () => parseRequiredIfMatch(headerValues(request, "if-match")),
+      ["precondition.required", "precondition.invalid"],
     );
+
+    const idempotencyKey = yield* idempotencyKeyOf(request);
+    const presentation = staffPresentation(request);
 
     const operationId = "team-applications.reviseTeamApplicationIntake";
 
+    // Domain and credential failures are mapped after the executor, whose retry reads their causes.
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const staff = yield* staffPrincipal(request);
@@ -562,23 +633,31 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
           ),
         );
 
-        yield* authorizeStaff(ReviseTeamApplicationIntakeEndpoint, staff, actor, "ExactlyOne");
-
-        const identity = yield* semantic(() =>
-          deriveHttpIdentity({
-            credentialSubject: `Person:${staff.principal.personId}`,
-            qualifiedOperationId: operationId,
-            normalizedTarget: normalizeTarget("/api/teams/{teamId}/application-intake", {
-              teamId,
-            }),
-            idempotencyKey,
-          }),
+        yield* authorizeStaff(
+          ReviseTeamApplicationIntakeEndpoint,
+          staff,
+          actor,
+          "ExactlyOne",
+          presentation,
         );
+
+        const identity = yield* httpIdentity({
+          credentialSubject: `Person:${staff.principal.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: normalizeTarget("/api/teams/{teamId}/application-intake", {
+            teamId,
+          }),
+          idempotencyKey,
+        });
 
         const command = yield* Schema.decodeUnknownEffect(ReviseTeamApplicationIntakeCommand)(
           { ...patch, commandId: identity.commandId, teamId },
           { onExcessProperty: "error" },
-        ).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+        ).pipe(
+          Effect.mapError(() =>
+            Problem.validation("validation.failed", [makeNativeValidationError("", "invalid")]),
+          ),
+        );
 
         return {
           identity: {
@@ -587,20 +666,16 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
             operationId,
           },
           execute: TeamApplications.use((service) =>
-            service.reviseIntake(
-              command,
-              staff.principal,
-              (current): Effect.Effect<void, HttpSemanticFailure> => {
-                const precondition = evaluateMutationPrecondition(
-                  intakeETag(teamId, current.revision),
-                  ifMatch,
-                );
+            service.reviseIntake(command, staff.principal, (current) => {
+              const precondition = evaluateMutationPrecondition(
+                intakeETag(teamId, current.revision),
+                ifMatch,
+              );
 
-                return Predicate.isTagged(precondition, "Failed")
-                  ? Effect.fail(new HttpSemanticFailure(precondition.code, precondition.status))
-                  : Effect.void;
-              },
-            ),
+              return Predicate.isTagged(precondition, "Failed")
+                ? Effect.fail(Problem.make("precondition.failed"))
+                : Effect.void;
+            }),
           ).pipe(
             Effect.map(({ intake }) => {
               const resource = intakeResource(teamId, intake);
@@ -611,69 +686,16 @@ const reviseIntake = (request: Request, teamId: TeamId) =>
         };
       }),
       { retry: "serialization-once" },
+    ).pipe(
+      teamApplicationProblems,
+      commandReceiptProblems,
+      staffCredentialProblems(presentation),
+      // authorize answers an unknown team on revise with an authority denial.
+      unreachable("resource.not-found"),
     );
 
-    return nativeCommandOutcomeResponse(outcome);
+    return yield* commandOutcomeResponse(outcome);
   });
-
-const serializationConflict = (cause: unknown, depth = 0): boolean =>
-  depth < 8 &&
-  Predicate.isObjectOrArray(cause) &&
-  (("code" in cause && (cause.code === "40001" || cause.code === "40P01")) ||
-    (Predicate.hasProperty(cause, "reason") &&
-      (Predicate.isTagged(cause.reason, "SerializationError") ||
-        Predicate.isTagged(cause.reason, "DeadlockError"))) ||
-    (Predicate.hasProperty(cause, "cause") && serializationConflict(cause.cause, depth + 1)));
-
-/** Maps typed failures to the declared problems once, without leaking causes. */
-const errorResponse = (cause: unknown): Response => {
-  if (cause instanceof HttpSemanticFailure) {
-    return nativeProblemResponse(
-      cause.code,
-      cause.status,
-      cause.status === 401 ? { "www-authenticate": nativeUserChallenges() } : undefined,
-    );
-  }
-
-  if (cause instanceof UnauthenticatedActor) {
-    return nativeProblemResponse("credential.invalid", 401, {
-      "www-authenticate": nativeUserChallenges(),
-    });
-  }
-
-  if (cause instanceof TeamApplicationAccessDenied) {
-    return nativeProblemResponse("authority.denied", 403);
-  }
-
-  if (cause instanceof TeamApplicationNotFound || cause instanceof TeamApplicationTeamNotFound) {
-    return nativeProblemResponse("resource.not-found", 404);
-  }
-
-  if (cause instanceof TeamApplicationIntakeClosed) {
-    return nativeProblemResponse("team-application.intake-closed", 409);
-  }
-
-  if (cause instanceof TeamApplicationCommandConflict) {
-    return nativeProblemResponse("idempotency.digest-conflict", 409);
-  }
-
-  if (cause instanceof TeamApplicationInvalidCursor) {
-    return nativeProblemResponse("request.malformed", 400);
-  }
-
-  if (
-    (cause instanceof TeamApplicationPersistenceError && cause.conflict) ||
-    (cause instanceof NativeHttpReceiptPersistenceError && serializationConflict(cause))
-  ) {
-    return nativeProblemResponse("transaction.conflict", 409);
-  }
-
-  if (cause instanceof NativeHttpReceiptPersistenceError) {
-    return nativeProblemResponse("idempotency.unavailable", 503);
-  }
-
-  return nativeProblemResponse("internal.error", 500);
-};
 
 /** Native HttpApi handlers for public team intake and staff review. */
 export const TeamApplicationsApiHandlers = (config: TeamApplicationApiConfig) =>
@@ -681,49 +703,23 @@ export const TeamApplicationsApiHandlers = (config: TeamApplicationApiConfig) =>
     Effect.succeed(
       handlers
         .handleRaw("readTeamApplicationIntake", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readIntake(webRequest, params.teamId),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => readIntake(webRequest, params.teamId)),
         )
-        .handleRaw("listTeamApplicationIntakes", ({ request }) =>
-          toHttpApiResponse(request, listIntakes, errorResponse),
-        )
+        .handleRaw("listTeamApplicationIntakes", ({ request }) => webHandler(request, listIntakes))
         .handleRaw("submitTeamApplication", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => submit(webRequest, params.teamId, config),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => submit(webRequest, params.teamId, config)),
         )
         .handleRaw("listTeamApplications", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listApplications(webRequest, params.teamId),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => listApplications(webRequest, params.teamId)),
         )
         .handleRaw("readTeamApplication", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readApplication(webRequest, params.applicationId),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => readApplication(webRequest, params.applicationId)),
         )
         .handleRaw("deleteTeamApplication", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => deleteApplication(webRequest, params.applicationId),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => deleteApplication(webRequest, params.applicationId)),
         )
         .handleRaw("reviseTeamApplicationIntake", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => reviseIntake(webRequest, params.teamId),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => reviseIntake(webRequest, params.teamId)),
         ),
     ),
   );
