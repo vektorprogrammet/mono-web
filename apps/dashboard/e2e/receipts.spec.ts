@@ -1,6 +1,7 @@
 import { Data, Predicate, Schema } from "effect";
 import { randomUUID } from "node:crypto";
-import { readdir, writeFile } from "node:fs/promises";
+import { chmod, readdir, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   expect,
   test,
@@ -66,8 +67,6 @@ const REVISED_AMOUNT_ORE = 21_075;
 
 const MAX_FILE_BYTES = 10_485_760;
 
-const REPLACEMENT_IDEMPOTENCY_KEY = "receipt-owner-e2e-replacement";
-
 const RECEIPT_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
@@ -100,6 +99,28 @@ function requiredEnvironment(name: string): string {
   }
 
   return value;
+}
+
+/**
+ * Refuses writes to the committed receipt files while `action` runs, as a read-only or
+ * full volume would. A revision still commits, and its promoted file stays staged.
+ */
+async function withReadOnlyCommittedFiles<A>(
+  committedObjectKey: string,
+  action: () => Promise<A>,
+): Promise<A> {
+  const directory = dirname(
+    join(requiredEnvironment("RECEIPT_E2E_COMMITTED_ROOT"), committedObjectKey),
+  );
+
+  const { mode } = await stat(directory);
+  await chmod(directory, 0o500);
+
+  try {
+    return await action();
+  } finally {
+    await chmod(directory, mode & 0o7777);
+  }
 }
 
 function receiptPersona(kind: "OWNER" | "FOREIGN"): ReceiptPersona {
@@ -595,25 +616,40 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
+
+    const replacementIdempotencyKey = requiredEnvironment(
+      "RECEIPT_E2E_REPLACEMENT_IDEMPOTENCY_KEY",
+    );
+
     await reviseForm.locator('input[name="commandId"]').evaluate((element, idempotencyKey) => {
       if (!(element instanceof HTMLInputElement)) throw new Error("Expected an idempotency input");
       const input = element;
       input.value = idempotencyKey;
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
-    }, REPLACEMENT_IDEMPOTENCY_KEY);
-    await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
+    }, replacementIdempotencyKey);
 
-    await expect(revisionNotice).toHaveAttribute("data-revision", "2");
-    await expect(revisionNotice).toHaveAttribute(
-      "data-command-id",
-      REPLACEMENT_IDEMPOTENCY_KEY,
+    const beforeReplacement = await captureLifecycleEvidence(
+      request,
+      receiptId,
+      authorization.Cookie,
     );
-    const replacementIdempotencyKey = REPLACEMENT_IDEMPOTENCY_KEY;
+
+    // The replacement's promotion fails, so the revision commits with its new file staged.
+    const beforeFailure = await withReadOnlyCommittedFiles(
+      beforeReplacement.file.objectKey,
+      async () => {
+        await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
+        await expect(revisionNotice).toHaveAttribute("data-revision", "2");
+        await expect(revisionNotice).toHaveAttribute("data-command-id", replacementIdempotencyKey);
+
+        return captureLifecycleEvidence(request, receiptId, authorization.Cookie);
+      },
+    );
+
     const revisionTwoEtag = await revisionNotice.getAttribute("data-etag");
 
     if (revisionTwoEtag === null) throw new Error("Receipt revision two ETag is missing");
-    const beforeFailure = await captureLifecycleEvidence(request, receiptId, authorization.Cookie);
 
     const replacementRetryResponse = await request.patch(
       `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,

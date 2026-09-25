@@ -15,6 +15,8 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
+import { startReceiptDeliverySink } from "../../../tools/e2e/receipt-delivery-sink.ts";
+import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";
 import { dashboardMount } from "../dashboard-base.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -28,6 +30,9 @@ const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import
 const disposablePorts = await reserveLoopbackPorts(4);
 
 const [dashboardPort, backendPort, internalBackendPort, postgresPort] = disposablePorts;
+
+/** The Idempotency-Key of the replacement revision whose file promotion the journey fails. */
+const replacementIdempotencyKey = "receipt-owner-e2e-replacement";
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -443,6 +448,7 @@ async function seedOwnerAuthorities(environment) {
 async function readPostgresEvidence(environment) {
   const sql = `
     SELECT json_build_object(
+      'receiptId', (SELECT receipt_id FROM economy_receipts LIMIT 1),
       'receiptCount', (SELECT count(*) FROM economy_receipts),
       'commandCount', (SELECT count(*) FROM economy_receipt_command_receipts),
       'auditCount', (SELECT count(*) FROM economy_receipt_audit),
@@ -507,19 +513,32 @@ async function readPostgresEvidence(environment) {
   return JSON.parse(result.stdout.trim());
 }
 
-function assertDurableEvidence(postgres, privateFile, lifecycle) {
+/**
+ * The backend derives a command id from the caller, operation, target, and Idempotency-Key,
+ * so the replacement's effects are found by the id it derives for the owner's revision.
+ */
+const replacementCommandId = (postgres, ownerPersonId) =>
+  deriveHttpIdentity({
+    credentialSubject: `Person:${ownerPersonId}`,
+    qualifiedOperationId: "receipts.reviseReceipt",
+    normalizedTarget: `/api/receipts/${encodeURIComponent(postgres.receiptId)}`,
+    idempotencyKey: replacementIdempotencyKey,
+  }).commandId;
+
+function assertDurableEvidence(postgres, privateFile, lifecycle, ownerPersonId) {
   const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
   const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
+  const replacementCommand = replacementCommandId(postgres, ownerPersonId);
 
   const replacementPromote = outbox.find(
-    (row) => row.effectId === "receipt-owner-e2e-replacement:PromoteReceiptFile",
+    (row) => row.effectId === `${replacementCommand}:PromoteReceiptFile`,
   );
 
   const replacementDelete = outbox.find(
-    (row) => row.effectId === "receipt-owner-e2e-replacement:DeleteReceiptFile",
+    (row) => row.effectId === `${replacementCommand}:DeleteReceiptFile`,
   );
 
-  const replacementAudit = audits.find((row) => row.commandId === "receipt-owner-e2e-replacement");
+  const replacementAudit = audits.find((row) => row.commandId === replacementCommand);
   const beforeFailure = lifecycle?.beforeFailure;
   const afterRetry = lifecycle?.afterRetry;
 
@@ -648,14 +667,21 @@ async function main() {
     NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
   };
 
+  // The submission notifies the owner's department economy; without a delivery target that
+  // effect keeps failing and holds every later effect of the receipt.
+  const deliverySink = await startReceiptDeliverySink({
+    sender: "economy@example.invalid",
+    economyRecipients: { "department-1": "economy.department-1@example.invalid" },
+  });
+
   const apiEnvironment = {
     ...sharedEnvironment,
     ...localBackendEnvironment({ backendOrigin, dashboardOrigin, postgresUrl, betterAuthSecret }),
+    ...deliverySink.environment,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
     RECEIPT_E2E_TEST_MODE: "1",
-    RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID: "receipt-owner-e2e-replacement:PromoteReceiptFile",
   };
 
   const internalApiEnvironment = {
@@ -682,6 +708,7 @@ async function main() {
   const playwrightEnvironment = {
     ...dashboardEnvironment,
     REAL_RECEIPT_OWNER_E2E: "1",
+    RECEIPT_E2E_REPLACEMENT_IDEMPOTENCY_KEY: replacementIdempotencyKey,
     BACKEND_ORIGIN: backendOrigin,
     INTERNAL_BACKEND_ORIGIN: internalBackendOrigin,
     DASHBOARD_ORIGIN: dashboardOrigin,
@@ -717,6 +744,12 @@ async function main() {
       } catch (error) {
         cleanupErrors.push(error);
       }
+    }
+
+    try {
+      await deliverySink.close();
+    } catch (error) {
+      cleanupErrors.push(error);
     }
 
     if (postgresStarted) {
@@ -881,7 +914,7 @@ async function main() {
       committedFileCount: await countFiles(committedRoot),
     };
 
-    assertDurableEvidence(postgres, privateFile, lifecycle);
+    assertDurableEvidence(postgres, privateFile, lifecycle, ownerPersona.personId);
     evidence = {
       topology: {
         dashboard: "loopback-react-router",
