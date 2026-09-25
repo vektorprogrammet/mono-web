@@ -139,7 +139,30 @@ For property checks, generate reachable command sequences and assert business in
 Use the installed Arbitrary API with bounded runs, deterministic seeds, and typed options.
 Valid schema generation does not cover malformed wire input.
 
-Run only one heavy validation job at a time across this task and its workers.
+Full end-to-end suites dominate machine load. Only the orchestrating lead starts them, one at a time.
+They are the golden journeys (`test:golden-*`) and their CI wrappers, `verify:delivery-recovery`,
+and the browser evidence suites (`e2e:*:real`, `e2e:real-*`).
+A worker that needs one reports the exact command to the lead and does not start it.
+
+All other checks and tests can run at the same time under the admission rule below.
+Heavy jobs are real PostgreSQL tests, browsers and dev servers, `turbo check-types`, `turbo test`, and the pre-push hook.
+Each agent runs at most one heavy job at a time.
+Run a heavy job through `bun run measure-job --class <class> -- <command...>` to record its resource use.
+The ledger is `${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl`.
+It is machine runtime evidence. Do not commit it.
+
+Before a heavy job, run `bun run measure-job --report`. Read the max peak RSS and max mean cores of the class.
+If the class has no ledger row, measure it first while no other heavy job runs.
+Start the job only if both conditions are true:
+
+- `MemAvailable - peak RSS >= 20% of MemTotal`
+- `1-minute load + mean cores <= 80% of logical CPUs`
+
+Memory is the hard limit, and CPU is the soft limit because oversubscription only slows jobs.
+
+If a condition is false, wait and check again.
+Load and `MemAvailable` lag a job that started in the last minute. Include its peak RSS and mean cores before you compare.
+
 Bound worker counts and PostgreSQL connections.
 Use private database instances and ports. Dispose runtimes before removing their storage.
 Stop only resources owned by the task. Do not terminate an unrelated process to free a port.

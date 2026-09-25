@@ -93,7 +93,7 @@ bun run lint
 bun run format:check
 ```
 
-Run one heavy validation job at a time. Turbo concurrency does not bound each package runner.
+Start heavy jobs only under the admission rule in [AGENTS.md](AGENTS.md#verification-and-resources). Turbo concurrency does not bound each package runner.
 For focused tests, use the bounded commands in [AGENTS.md](AGENTS.md#commands).
 The domain aggregate includes fixture programs and D1 proofs. The dashboard aggregate includes a bundle gate.
 Do not pass Vitest flags through the domain aggregate script.
