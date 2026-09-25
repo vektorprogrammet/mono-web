@@ -275,7 +275,7 @@ export const ExternalNativeApiRouterLive = (
     }),
     SocialEventsApiHandlers({ transactionHook: options.socialEventsTransactionHook }),
     SchoolSurveysApiHandlers(),
-    TeamApplicationsApiHandlers,
+    TeamApplicationsApiHandlers(config.teamApplication),
   ).pipe(Layer.provide(middlewareLayer));
 
   const nativeRoutes = HttpApiBuilder.layer(ExternalNativeApi).pipe(

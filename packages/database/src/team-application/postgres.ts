@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { DateTime, Effect, flow, Match, Option, Predicate, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
-import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { Department, Team, TeamId } from "@vektorprogrammet/domain/organization";
 import {
   decodeTeamApplicationCursor,
+  evaluateTeamApplicationIntake,
   isTeamApplicationIntakeOpen,
   mapOrganizationAuthorityToTeamApplicationActor,
   PublicTeamApplicationIntake,
@@ -21,7 +21,6 @@ import {
   TeamApplicationIntakeClosed,
   TeamApplicationIntakeListItem,
   TeamApplicationNotFound,
-  TeamApplicationRecipientUnavailable,
   TeamApplicationSummary,
   TeamApplicationTeamNotFound,
   teamApplicationNotifications,
@@ -36,10 +35,11 @@ import {
   lockPersonAuthorization,
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
-import { Database } from "../service.js";
+import { Database, type DatabaseOperations } from "../service.js";
 import { cancelTeamApplicationOutbox, insertTeamApplicationOutbox } from "./outbox.js";
 import { persistenceFailure } from "./persistence.js";
 
+/** Every fact of the open predicate plus the names shown beside it. */
 const TeamIntakeRow = Schema.Struct({
   teamId: TeamId,
   teamName: Team.fields.name,
@@ -53,6 +53,26 @@ const TeamIntakeRow = Schema.Struct({
   departmentActive: Schema.Boolean,
 });
 
+/** Single and collection intake reads share one projection, so both evaluate the same facts. */
+const intakeProjection = (sql: DatabaseOperations) => sql`
+  SELECT
+    team.team_id AS "teamId",
+    team.name AS "teamName",
+    team.email AS "teamEmail",
+    team.active AS "teamActive",
+    team.accept_application AS "acceptApplication",
+    CASE WHEN team.deadline IS NULL THEN NULL
+      ELSE to_char(team.deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+    END AS deadline,
+    team.revision,
+    department.name AS "departmentName",
+    department.email AS "departmentEmail",
+    department.active AS "departmentActive"
+  FROM public.organization_teams AS team
+  INNER JOIN public.organization_departments AS department
+    ON department.department_id = team.department_id
+`;
+
 const findTeamIntake = flow(
   SqlSchema.findOneOption({
     Request: Schema.Struct({
@@ -63,22 +83,7 @@ const findTeamIntake = flow(
     execute: ({ teamId, lock }) =>
       Database.use(
         (sql) => sql`
-          SELECT
-            team.team_id AS "teamId",
-            team.name AS "teamName",
-            team.email AS "teamEmail",
-            team.active AS "teamActive",
-            team.accept_application AS "acceptApplication",
-            CASE WHEN team.deadline IS NULL THEN NULL
-              ELSE to_char(team.deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-            END AS deadline,
-            team.revision,
-            department.name AS "departmentName",
-            department.email AS "departmentEmail",
-            department.active AS "departmentActive"
-          FROM public.organization_teams AS team
-          INNER JOIN public.organization_departments AS department
-            ON department.department_id = team.department_id
+          ${intakeProjection(sql)}
           WHERE team.team_id = ${teamId}
           ${Match.value(lock).pipe(
             Match.when("Share", () => sql`FOR SHARE OF team, department`),
@@ -94,23 +99,11 @@ const findTeamIntake = flow(
 const findActiveTeamIntakes = flow(
   SqlSchema.findAll({
     Request: Schema.Void,
-    Result: Schema.Struct({
-      teamId: TeamId,
-      acceptApplication: Team.fields.acceptApplication,
-      deadline: Team.fields.deadline,
-    }),
+    Result: TeamIntakeRow,
     execute: () =>
       Database.use(
         (sql) => sql`
-          SELECT
-            team.team_id AS "teamId",
-            team.accept_application AS "acceptApplication",
-            CASE WHEN team.deadline IS NULL THEN NULL
-              ELSE to_char(team.deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-            END AS deadline
-          FROM public.organization_teams AS team
-          INNER JOIN public.organization_departments AS department
-            ON department.department_id = team.department_id
+          ${intakeProjection(sql)}
           WHERE team.active AND department.active
           ORDER BY team.team_id
           LIMIT ${TEAM_APPLICATION_INTAKE_LIST_LIMIT}
@@ -456,7 +449,7 @@ export const listPublicTeamApplicationIntakes = Effect.gen(function* () {
   return rows.map((row) =>
     TeamApplicationIntakeListItem.make({
       teamId: row.teamId,
-      open: isTeamApplicationIntakeOpen({ ...row, teamActive: true, departmentActive: true }, now),
+      open: isTeamApplicationIntakeOpen(row, now),
       deadline: row.deadline,
     }),
   );
@@ -486,15 +479,10 @@ export const submitTeamApplication = (command: SubmitTeamApplicationCommand) =>
     }
 
     const now = yield* DateTime.now;
+    const intake = evaluateTeamApplicationIntake(team.value, now);
 
-    if (!isTeamApplicationIntakeOpen(team.value, now)) {
+    if (!Predicate.isTagged(intake, "Open")) {
       return yield* new TeamApplicationIntakeClosed({ teamId: command.teamId });
-    }
-
-    const mailbox = team.value.teamEmail ?? team.value.departmentEmail;
-
-    if (!Schema.is(ContactEmail)(mailbox)) {
-      return yield* new TeamApplicationRecipientUnavailable({ teamId: command.teamId });
     }
 
     const submittedAt = DateTime.formatIso(now);
@@ -525,7 +513,12 @@ export const submitTeamApplication = (command: SubmitTeamApplicationCommand) =>
     });
 
     yield* Effect.forEach(
-      teamApplicationNotifications(command.commandId, application, team.value.teamName, mailbox),
+      teamApplicationNotifications(
+        command.commandId,
+        application,
+        team.value.teamName,
+        intake.mailbox,
+      ),
       (notification, ordinal) => insertTeamApplicationOutbox(notification, ordinal, submittedAt),
       { discard: true },
     );

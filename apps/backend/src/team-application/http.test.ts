@@ -13,10 +13,15 @@ import {
   TeamApplicationIntakeResource,
   TeamApplicationListResponse,
   TeamApplicationResource,
+  TeamApplicationsDeleteProblem,
+  TeamApplicationsReviseIntakeProblem,
+  TeamApplicationsStaffReadProblem,
+  TeamApplicationsSubmitProblem,
 } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { backendDatabase } from "../../test/database.js";
+import { decodeTeamApplicationApiConfig } from "../config.js";
 import { makeTeamApplicationsTestHttp } from "../test/native-http.js";
 
 const expiresAt = DateTime.makeUnsafe(new Date("2099-01-01T00:00:00.000Z"));
@@ -74,7 +79,8 @@ type TestRequest = (
   init?: RequestInit & { readonly person?: string },
 ) => Promise<Response>;
 
-const fixture = () => {
+/** Each fixture is one backend process: its own database and its own public rate limit. */
+const fixture = (environment: Readonly<Record<string, string>> = {}) => {
   const database = backendDatabase(
     Database.use((sql) =>
       Effect.gen(function* () {
@@ -105,6 +111,7 @@ const fixture = () => {
   );
 
   const http = makeTeamApplicationsTestHttp(
+    decodeTeamApplicationApiConfig(environment),
     Layer.mergeAll(
       database.layer,
       TeamApplicationsLive.pipe(Layer.provide(database.layer)),
@@ -192,7 +199,9 @@ describe("team application submission over HTTP", () => {
     const changed = await submit(request, "http-open", "submitA", { ...application, name: "Bea" });
 
     expect(changed.status).toBe(409);
-    await expect(changed.json()).resolves.toMatchObject({ code: "idempotency.digest-conflict" });
+    expect((await decoded(changed, TeamApplicationsSubmitProblem)).code).toBe(
+      "idempotency.digest-conflict",
+    );
 
     const second = await submit(request, "http-open", "submitB");
 
@@ -216,17 +225,46 @@ describe("team application submission over HTTP", () => {
     });
 
     expect(closed.status).toBe(409);
-    await expect(closed.json()).resolves.toMatchObject({ code: "team-application.intake-closed" });
+    expect((await decoded(closed, TeamApplicationsSubmitProblem)).code).toBe(
+      "team-application.intake-closed",
+    );
     expect(unknown.status).toBe(404);
+    expect((await decoded(unknown, TeamApplicationsSubmitProblem)).code).toBe("resource.not-found");
     expect(invalid.status).toBe(422);
-
-    await expect(invalid.json()).resolves.toMatchObject({
+    expect(await decoded(invalid, TeamApplicationsSubmitProblem)).toMatchObject({
       code: "validation.failed",
       validation: { errors: [{ pointer: "/fieldOfStudy", code: "invalid" }] },
     });
 
     await expect(count("team_applications")).resolves.toBe(0);
     await expect(count("native_http_idempotency_receipts")).resolves.toBe(0);
+  });
+
+  it("counts every public submission before reading its body", async () => {
+    const { request, count } = fixture({
+      TEAM_APPLICATION_RATE_LIMIT_MAX: "2",
+      TEAM_APPLICATION_RATE_LIMIT_WINDOW_MS: "90000",
+    });
+
+    expect((await submit(request, "http-open", "limited")).status).toBe(201);
+    // A replay uses the window like any other submission.
+    expect((await submit(request, "http-open", "limited")).status).toBe(201);
+
+    // Over the limit, even an unreadable body is refused before parsing.
+    const limited = await request("/api/teams/http-open/applications", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": key("overLimit") },
+      body: "{",
+    });
+
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("90");
+    expect((await decoded(limited, TeamApplicationsSubmitProblem)).code).toBe(
+      "rate-limit.exceeded",
+    );
+    expect((await submit(request, "http-open", "afterLimit")).status).toBe(429);
+    await expect(count("team_applications")).resolves.toBe(1);
+    await expect(count("native_http_idempotency_receipts")).resolves.toBe(1);
   });
 });
 
@@ -248,7 +286,11 @@ describe("team application staff routes over HTTP", () => {
     const member = await request("/api/teams/http-open/applications", { person: "http-member" });
 
     expect(anonymous.status).toBe(401);
+    expect((await decoded(anonymous, TeamApplicationsStaffReadProblem)).status).toBe(401);
     expect(outsider.status).toBe(403);
+    expect((await decoded(outsider, TeamApplicationsStaffReadProblem)).code).toBe(
+      "authority.denied",
+    );
     expect(member.status).toBe(200);
     expect(await decoded(member, TeamApplicationListResponse)).toMatchObject({
       teamId: "http-open",
@@ -274,11 +316,22 @@ describe("team application staff routes over HTTP", () => {
         headers: { "idempotency-key": key(idempotencyKey) },
       });
 
-    expect((await remove("http-member", "memberDelete")).status).toBe(403);
+    const memberDelete = await remove("http-member", "memberDelete");
+
+    expect(memberDelete.status).toBe(403);
+    expect((await decoded(memberDelete, TeamApplicationsDeleteProblem)).code).toBe(
+      "authority.denied",
+    );
     await expect(count("team_applications")).resolves.toBe(1);
     expect((await remove("http-leader", "leaderDelete")).status).toBe(204);
     expect((await remove("http-leader", "leaderDelete")).status).toBe(204);
-    expect((await remove("http-leader", "leaderDeleteAgain")).status).toBe(404);
+
+    const deletedAgain = await remove("http-leader", "leaderDeleteAgain");
+
+    expect(deletedAgain.status).toBe(404);
+    expect((await decoded(deletedAgain, TeamApplicationsDeleteProblem)).code).toBe(
+      "resource.not-found",
+    );
     await expect(count("team_applications")).resolves.toBe(0);
     await expect(count("team_application_audit")).resolves.toBe(1);
   });
@@ -306,6 +359,9 @@ describe("team application staff routes over HTTP", () => {
     const stale = await revise('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"', "stale");
 
     expect(stale.status).toBe(412);
+    expect((await decoded(stale, TeamApplicationsReviseIntakeProblem)).code).toBe(
+      "precondition.failed",
+    );
 
     const revised = await revise(list.intake.etag, "revise");
     const body = await revised.text();
@@ -332,6 +388,12 @@ describe("team application staff routes over HTTP", () => {
       teamId: "http-open",
       open: false,
     });
-    expect((await submit(request, "http-open", "afterClose")).status).toBe(409);
+
+    const afterClose = await submit(request, "http-open", "afterClose");
+
+    expect(afterClose.status).toBe(409);
+    expect((await decoded(afterClose, TeamApplicationsSubmitProblem)).code).toBe(
+      "team-application.intake-closed",
+    );
   });
 });

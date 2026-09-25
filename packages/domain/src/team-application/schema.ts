@@ -108,12 +108,14 @@ export const TeamApplicationIntakeSettings = Schema.Struct({
 
 export type TeamApplicationIntakeSettings = typeof TeamApplicationIntakeSettings.Type;
 
-/** Intake facts evaluated by the open predicate. */
+/** Intake facts evaluated by the open predicate, including both candidate mailboxes. */
 export const TeamApplicationIntakeFacts = Schema.Struct({
   teamActive: Schema.Boolean,
   departmentActive: Schema.Boolean,
   acceptApplication: Schema.NullOr(Schema.Boolean),
   deadline: Team.fields.deadline,
+  teamEmail: Team.fields.email,
+  departmentEmail: Department.fields.email,
 });
 
 export type TeamApplicationIntakeFacts = typeof TeamApplicationIntakeFacts.Type;

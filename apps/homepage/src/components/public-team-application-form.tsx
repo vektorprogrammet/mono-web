@@ -10,6 +10,7 @@ import type {
   PublicTeamApplicationErrorView,
   PublicTeamApplicationFailure,
   PublicTeamApplicationLoaderData,
+  ReceivedPublicTeamApplication,
   TeamApplicationFieldName,
   TeamApplicationFormRules,
   TeamApplicationTeam,
@@ -20,11 +21,6 @@ type PublicTeamApplicationFormProps = {
   readonly actionData: PublicTeamApplicationActionData | undefined;
   readonly submitting: boolean;
 };
-
-type TeamApplicationConfirmation = Extract<
-  PublicTeamApplicationActionData,
-  { readonly outcome: "received" }
->["confirmation"];
 
 const selectClassName =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
@@ -71,11 +67,14 @@ function ApplicationErrorAlert({ error }: { readonly error: PublicTeamApplicatio
   );
 }
 
-function Confirmation({ confirmation }: { readonly confirmation: TeamApplicationConfirmation }) {
+function Confirmation({ received }: { readonly received: ReceivedPublicTeamApplication }) {
+  const { receipt, teamName } = received;
+  const application = teamName === undefined ? "Søknaden din" : `Søknaden din til ${teamName}`;
+
   return (
     <Card
       className="overflow-hidden border-primary/20"
-      data-team-application-confirmation={confirmation.applicationId}
+      data-team-application-confirmation={receipt?.applicationId ?? ""}
     >
       <CardHeader className="border-b bg-primary text-primary-foreground">
         <div className="flex items-center gap-3">
@@ -90,20 +89,30 @@ function Confirmation({ confirmation }: { readonly confirmation: TeamApplication
         role="status"
         aria-labelledby="team-application-confirmation-title"
       >
-        <p className="break-words">
-          {confirmation.teamName === undefined
-            ? "Søknaden din ble mottatt "
-            : `Søknaden din til ${confirmation.teamName} ble mottatt `}
-          <time dateTime={confirmation.submittedAt.at}>{confirmation.submittedAt.label}</time>.
-        </p>
-        <div className="rounded-md bg-muted p-4">
-          <p className="text-foreground text-sm">Søknadsreferanse</p>
-          <p className="mt-1 break-all font-mono font-semibold">{confirmation.applicationId}</p>
-        </div>
-        <p className="text-muted-foreground text-sm">
-          Ta vare på referansen hvis du må kontakte oss om søknaden. Bekreftelsen viser ikke
-          opplysningene du sendte inn.
-        </p>
+        {receipt === null ? (
+          <>
+            <p className="break-words">{`${application} er allerede mottatt.`}</p>
+            <p className="text-muted-foreground text-sm">
+              Bekreftelsen med søknadsreferansen er ikke lenger lagret, så vi kan ikke vise den på
+              nytt. Du trenger ikke sende søknaden på nytt.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="break-words">
+              {`${application} ble mottatt `}
+              <time dateTime={receipt.submittedAt.at}>{receipt.submittedAt.label}</time>.
+            </p>
+            <div className="rounded-md bg-muted p-4">
+              <p className="text-foreground text-sm">Søknadsreferanse</p>
+              <p className="mt-1 break-all font-mono font-semibold">{receipt.applicationId}</p>
+            </div>
+            <p className="text-muted-foreground text-sm">
+              Ta vare på referansen hvis du må kontakte oss om søknaden. Bekreftelsen viser ikke
+              opplysningene du sendte inn.
+            </p>
+          </>
+        )}
         <Button asChild variant="outline">
           <Link to="/team">Tilbake til teamene</Link>
         </Button>
@@ -343,7 +352,7 @@ export function PublicTeamApplicationForm({
 }: PublicTeamApplicationFormProps) {
   // A stored application outranks any later read of the team.
   if (actionData?.outcome === "received") {
-    return <Confirmation confirmation={actionData.confirmation} />;
+    return <Confirmation received={actionData} />;
   }
 
   if (actionData?.outcome === "not-found" || loaderData.state === "not-found") {

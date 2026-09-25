@@ -103,6 +103,21 @@ describe("backend configuration boundary", () => {
     ).toThrow();
   });
 
+  it("keeps the team application rate-limit window within the retry-after bound", () => {
+    const retryAfterFor = (windowMilliseconds: string) =>
+      decodeBackendConfig({
+        ...environment,
+        TEAM_APPLICATION_RATE_LIMIT_WINDOW_MS: windowMilliseconds,
+      }).teamApplication.retryAfterSeconds;
+
+    expect(decodeBackendConfig(environment).teamApplication.retryAfterSeconds).toBe(60);
+    expect(retryAfterFor("3600000")).toBe(3600);
+    expect(() => retryAfterFor("3600001")).toThrow();
+    expect(() =>
+      decodeBackendConfig({ ...environment, TEAM_APPLICATION_RATE_LIMIT_MAX: "0" }),
+    ).toThrow();
+  });
+
   it("uses only the supplied record, including when required keys are missing", () => {
     vi.stubEnv("BACKEND_PG_URL", environment.BACKEND_PG_URL);
     vi.stubEnv("BACKEND_PORT", "9999");

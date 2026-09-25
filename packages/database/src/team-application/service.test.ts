@@ -251,7 +251,7 @@ describe("team application submission", () => {
       ["ta-inactive", "TeamApplicationTeamNotFound"],
       ["ta-dormant", "TeamApplicationTeamNotFound"],
       ["ta-unknown", "TeamApplicationTeamNotFound"],
-      ["ta-broken-mailbox", "TeamApplicationRecipientUnavailable"],
+      ["ta-broken-mailbox", "TeamApplicationIntakeClosed"],
     ] as const;
 
     for (const [team, tag] of rejected) {
@@ -267,6 +267,26 @@ describe("team application submission", () => {
     await expect(count(`FROM team_application_outbox WHERE team_id IN (${teams})`)).resolves.toBe(
       0,
     );
+  });
+
+  it("reports intake open only where submission can reach a mailbox", async () => {
+    const intakes = await runtime.runPromise(
+      TeamApplications.use((service) => service.listPublicIntakes),
+    );
+
+    const listed = (team: string) => intakes.find((intake) => intake.teamId === team)?.open;
+
+    const read = (team: string) =>
+      runtime
+        .runPromise(TeamApplications.use((service) => service.readPublicIntake(teamId(team))))
+        .then((intake) => intake.open);
+
+    // The team mailbox is not deliverable, so no read may advertise what submit refuses.
+    expect(listed("ta-broken-mailbox")).toBe(false);
+    await expect(read("ta-broken-mailbox")).resolves.toBe(false);
+    // A team without its own mailbox uses the department mailbox and stays open.
+    expect(listed("ta-department-mailbox")).toBe(true);
+    await expect(read("ta-department-mailbox")).resolves.toBe(true);
   });
 });
 

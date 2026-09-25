@@ -10,14 +10,11 @@ import {
   type PublicApplicationId,
 } from "@vektorprogrammet/domain/application";
 import { AdmissionPeriodId as AdmissionPeriodIdSchema } from "@vektorprogrammet/domain/admission-period";
-
-export interface AdmissionApiRateLimit {
-  readonly consume: (key: string, now: string) => boolean;
-}
+import { publicRateLimit, type PublicRateLimit } from "../http-api/public-rate-limit.js";
 
 export interface AdmissionApiConfig {
   readonly maxBodyBytes: number;
-  readonly rateLimit: AdmissionApiRateLimit;
+  readonly rateLimit: PublicRateLimit;
   /** Fixed instant from `ADMISSION_FIXED_NOW`; without it, handlers read the Clock service. */
   readonly now?: () => string;
   readonly nextAdmissionPeriodId: () => AdmissionPeriodId;
@@ -40,41 +37,6 @@ const parsePositiveInteger = (raw: string | undefined, fallback: number, field: 
 };
 
 const isInstant = isRfc3339Instant;
-
-export const makeAdmissionApiRateLimit = (
-  maxRequests = 5,
-  windowMilliseconds = 60_000,
-): AdmissionApiRateLimit => {
-  if (!Number.isSafeInteger(maxRequests) || maxRequests < 1) {
-    throw new Error("admission rate limit must be a positive safe integer");
-  }
-
-  if (!Number.isSafeInteger(windowMilliseconds) || windowMilliseconds < 1) {
-    throw new Error("admission rate limit window must be a positive safe integer");
-  }
-
-  const buckets = new Map<string, { readonly startedAt: number; readonly count: number }>();
-
-  return {
-    consume(key, now) {
-      const timestamp = Date.parse(now);
-
-      if (Number.isNaN(timestamp)) return false;
-      const current = buckets.get(key);
-
-      if (current === undefined || timestamp - current.startedAt >= windowMilliseconds) {
-        buckets.set(key, { startedAt: timestamp, count: 1 });
-
-        return true;
-      }
-
-      if (current.count >= maxRequests) return false;
-      buckets.set(key, { startedAt: current.startedAt, count: current.count + 1 });
-
-      return true;
-    },
-  };
-};
 
 export const decodeAdmissionApiConfig = (
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -105,7 +67,7 @@ export const decodeAdmissionApiConfig = (
 
   return {
     maxBodyBytes,
-    rateLimit: makeAdmissionApiRateLimit(rateLimitMax, rateLimitWindow),
+    rateLimit: publicRateLimit(rateLimitMax, rateLimitWindow),
     now: configuredNow === undefined ? undefined : () => configuredNow,
     nextAdmissionPeriodId: () => AdmissionPeriodIdSchema.make(`admission_period_${randomUUID()}`),
     nextApplicantId: () => ApplicantIdSchema.make(`applicant_${randomUUID()}`),

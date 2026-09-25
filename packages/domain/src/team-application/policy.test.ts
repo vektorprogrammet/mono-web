@@ -7,8 +7,10 @@ import type {
 } from "../organization/authority.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/schema.js";
 import {
+  evaluateTeamApplicationIntake,
   isTeamApplicationIntakeOpen,
   mapOrganizationAuthorityToTeamApplicationActor,
+  TeamApplicationIntakeState,
 } from "./policy.js";
 import { TeamApplicationActor } from "./schema.js";
 
@@ -19,6 +21,8 @@ const open = {
   departmentActive: true,
   acceptApplication: true,
   deadline: null,
+  teamEmail: "team@example.invalid",
+  departmentEmail: "department@example.invalid",
 } as const;
 
 describe("team application intake", () => {
@@ -40,6 +44,30 @@ describe("team application intake", () => {
     expect(isTeamApplicationIntakeOpen({ ...open, acceptApplication: false }, now)).toBe(false);
     expect(isTeamApplicationIntakeOpen({ ...open, teamActive: false }, now)).toBe(false);
     expect(isTeamApplicationIntakeOpen({ ...open, departmentActive: false }, now)).toBe(false);
+  });
+
+  it("uses the team mailbox, else the department mailbox, and closes without a deliverable one", () => {
+    const closed = TeamApplicationIntakeState.Closed();
+
+    expect(evaluateTeamApplicationIntake(open, now)).toEqual(
+      TeamApplicationIntakeState.Open({ mailbox: "team@example.invalid" }),
+    );
+    expect(evaluateTeamApplicationIntake({ ...open, teamEmail: null }, now)).toEqual(
+      TeamApplicationIntakeState.Open({ mailbox: "department@example.invalid" }),
+    );
+    // A present but undeliverable team mailbox closes intake instead of rerouting it.
+    expect(
+      evaluateTeamApplicationIntake({ ...open, teamEmail: "IT <it@example.invalid>" }, now),
+    ).toEqual(closed);
+    expect(
+      evaluateTeamApplicationIntake({ ...open, teamEmail: "it@example.invalid " }, now),
+    ).toEqual(closed);
+    expect(
+      evaluateTeamApplicationIntake(
+        { ...open, teamEmail: null, departmentEmail: "department" },
+        now,
+      ),
+    ).toEqual(closed);
   });
 });
 

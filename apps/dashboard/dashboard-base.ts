@@ -25,6 +25,13 @@ const DASHBOARD_LAYOUT_FILE = "routes/dashboard.tsx";
 
 const DASHBOARD_PATH = "dashboard";
 
+/**
+ * Browser path of a page below the dashboard layout, from the layout-relative path that
+ * React Router's typed `href` returns. The layout answers at `/dashboard` under both mounts:
+ * `/dashboard/` makes it the basename, and `/` keeps it as the layout's own path segment.
+ */
+export const dashboardPagePath = (routePath: string): string => `/${DASHBOARD_PATH}${routePath}`;
+
 export const mountDashboardRoutes = (
   routes: ReadonlyArray<RouteConfigEntry>,
   mount: DashboardMount,

@@ -34,6 +34,7 @@ import {
   type ReadFailure,
 } from "./model";
 import { instantFromOsloDateTimeLocal } from "./oslo-time";
+import { TEAM_APPLICATIONS_CHOOSER_PATH } from "./paths";
 
 type Page = typeof TeamApplicationListResponse.Type;
 
@@ -316,6 +317,15 @@ const intakeSection = (page: Page, model: Model, h: HtmlBuilder<Message>): Html 
             : "Inntaket er stengt. Teamsiden viser ingen lenke til søknadsskjemaet.",
         ],
       ),
+      // The server also closes intake when neither team nor department has a deliverable mailbox.
+      page.intake.acceptApplication && !page.intake.open
+        ? h.p(
+            [h.Class("team-applications__hint")],
+            [
+              "Teamet tar imot søknader, men inntaket er likevel stengt. Det skjer når fristen er passert, eller når verken teamet eller avdelingen har en gyldig e-postadresse for søknadene.",
+            ],
+          )
+        : h.empty,
       h.p(
         [],
         page.intake.deadline === null
@@ -576,7 +586,10 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
               "Nåværende medlemmer av teamet kan lese søknadene. Bare teamlederen kan slette søknader og endre søknadsinntaket.",
             ],
           ),
-          h.a([h.Href("../soknader"), h.Class("team-applications__link")], ["Velg et annet team"]),
+          h.a(
+            [h.Href(TEAM_APPLICATIONS_CHOOSER_PATH), h.Class("team-applications__link")],
+            ["Velg et annet team"],
+          ),
         ],
       ),
       noticeView(model, h),
