@@ -157,10 +157,23 @@ const classifiedAdmissionFailure = (cause: unknown): Response | undefined => {
     case "ReturningAssistantPersistenceError":
       return nativeProblemResponse("returning.unavailable", 503);
     case "DepartmentNotFound":
-      // The frozen unions have no department code; an unknown department is an invalid value.
+      // The frozen unions have no department or semester code; an unknown one is an invalid value.
       return problemWebResponse(
         Problem.validation("validation.failed", [
           makeNativeValidationError("/departmentId", "invalid"),
+        ]),
+      );
+    case "SemesterNotFound":
+      return problemWebResponse(
+        Problem.validation("validation.failed", [
+          makeNativeValidationError("/semesterId", "invalid"),
+        ]),
+      );
+    case "DepartmentRequired":
+      // Only a department-scoped actor may leave out the department of the period it creates.
+      return problemWebResponse(
+        Problem.validation("validation.failed", [
+          makeNativeValidationError("/departmentId", "missing"),
         ]),
       );
     case "FieldOfStudyNotFound":
