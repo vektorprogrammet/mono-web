@@ -81,7 +81,7 @@ export const claimNextReceiptOutbox = (
               )
               AND predecessor.status <> 'Delivered'
           )
-        ORDER BY command_receipt.committed_at, outbox.command_id, outbox.ordinal
+        ORDER BY outbox.attempts, command_receipt.committed_at, outbox.command_id, outbox.ordinal
         FOR UPDATE OF outbox SKIP LOCKED
         LIMIT 1
       )

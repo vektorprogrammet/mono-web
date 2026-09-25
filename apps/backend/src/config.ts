@@ -1,3 +1,6 @@
+import { ContactEmail } from "@vektorprogrammet/domain/contact";
+import { mailDeliveryConfig, type MailDeliveryConfig } from "./mail/http.js";
+import { receiptDeliveryConfig, type ReceiptDeliveryConfig } from "./receipt/delivery.js";
 import {
   recruitmentNotificationConfig,
   type RecruitmentNotificationConfig,
@@ -35,6 +38,12 @@ export interface PublicApplicationEffectConfig {
   readonly deliveryTimeoutMilliseconds: number;
 }
 
+export interface PasswordResetDeliveryConfig {
+  readonly sender: string;
+  readonly transport: MailDeliveryConfig;
+  readonly pollIntervalMilliseconds: number;
+}
+
 export interface BackendAuthConfig {
   readonly postgresUrl: string;
   readonly secret: string;
@@ -47,6 +56,9 @@ export interface BackendAuthConfig {
 export interface BackendConfig {
   readonly contact?: ContactConfig;
   readonly onboarding?: OnboardingDeliveryConfig;
+  readonly passwordResetDelivery?: PasswordResetDeliveryConfig;
+  readonly receiptDelivery?: ReceiptDeliveryConfig;
+  readonly receiptDeliveryPollMilliseconds?: number;
   readonly host: string;
   readonly port: number;
   readonly postgresUrl: string;
@@ -260,9 +272,41 @@ export const decodeBackendConfig = (
   const postgresUrl = Redacted.value(credentials.postgresUrl);
   const secret = Redacted.value(credentials.secret);
   const oauth = oauthBackendConfig(env, sessionBoundary.trustedOrigins, provider);
+  const receiptDelivery = receiptDeliveryConfig(env);
+  let passwordResetDelivery: PasswordResetDeliveryConfig | undefined;
+  let receiptDeliveryPollMilliseconds: number | undefined;
+  if (env.PASSWORD_RESET_DELIVERY_MODE === "http") {
+    const transport = mailDeliveryConfig(env);
+    if (!transport) throw new Error("Password reset delivery requires mail configuration");
+    passwordResetDelivery = {
+      transport,
+      sender: Schema.decodeUnknownSync(ContactEmail)(env.MAIL_SENDER),
+      pollIntervalMilliseconds: Effect.runSync(
+        Config.schema(PositiveInteger, "PASSWORD_RESET_DELIVERY_POLL_MS")
+          .pipe(Config.withDefault(1000))
+          .parse(provider),
+      ),
+    };
+  } else if (env.PASSWORD_RESET_DELIVERY_MODE !== "disabled") {
+    throw new Error("PASSWORD_RESET_DELIVERY_MODE must be disabled or http");
+  }
+  if (env.RECEIPT_DELIVERY_MODE === "http") {
+    if (!receiptDelivery || !env.RECEIPT_STAGING_ROOT || !env.RECEIPT_COMMITTED_ROOT)
+      throw new Error("Receipt worker requires delivery configuration and explicit storage roots");
+    receiptDeliveryPollMilliseconds = Effect.runSync(
+      Config.schema(PositiveInteger, "RECEIPT_DELIVERY_POLL_MS")
+        .pipe(Config.withDefault(1000))
+        .parse(provider),
+    );
+  } else if (env.RECEIPT_DELIVERY_MODE !== "disabled") {
+    throw new Error("RECEIPT_DELIVERY_MODE must be disabled or http");
+  }
 
   const config: BackendConfig = {
     contact: contactConfig(env),
+    passwordResetDelivery,
+    receiptDelivery,
+    receiptDeliveryPollMilliseconds,
     onboarding: onboardingDeliveryConfig(env),
     recruitmentNotifications: recruitmentNotificationConfig(env),
     ...Effect.runSync(listenerSettings.parse(provider)),

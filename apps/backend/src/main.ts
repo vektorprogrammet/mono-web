@@ -1,7 +1,11 @@
 import { HttpRecruitmentNotificationsLive } from "./recruitment/delivery.js";
 import { runRecruitmentInvitationWorker } from "./recruitment/worker.js";
 import { runOnboardingExpirySweeper } from "./onboarding/delivery.js";
-import { ReceiptDeliveryLive, receiptDeliveryConfig } from "./receipt/delivery.js";
+import { ReceiptDeliveryLive } from "./receipt/delivery.js";
+import { ReceiptFileStoreLive } from "./receipt/filesystem.js";
+import { runReceiptDeliveryWorker } from "./receipt/worker.js";
+import { runPasswordResetDeliveryWorker } from "./password-recovery/worker.js";
+import { HttpMailLive } from "./mail/http.js";
 import { randomUUID } from "node:crypto";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
@@ -116,7 +120,7 @@ const capabilityLayers = Layer.mergeAll(
   schoolSurveysLayer,
 );
 
-const receiptDeliveryLayer = ReceiptDeliveryLive(receiptDeliveryConfig(process.env)).pipe(
+const receiptDeliveryLayer = ReceiptDeliveryLive(config.receiptDelivery).pipe(
   Layer.provide(databaseLayer),
 );
 
@@ -265,6 +269,24 @@ if (process.exitCode !== 1) {
           ),
         );
 
+  const passwordResetWorkerFiber =
+    ingress === "internal" || config.passwordResetDelivery === undefined
+      ? undefined
+      : runtime.runFork(
+          runPasswordResetDeliveryWorker(config.auth, config.passwordResetDelivery).pipe(
+            Effect.provide(HttpMailLive(config.passwordResetDelivery.transport)),
+          ),
+        );
+
+  const receiptWorkerFiber =
+    ingress === "internal" || config.receiptDeliveryPollMilliseconds === undefined
+      ? undefined
+      : runtime.runFork(
+          runReceiptDeliveryWorker(config.receiptDeliveryPollMilliseconds).pipe(
+            Effect.provide(ReceiptFileStoreLive(config.receipt)),
+          ),
+        );
+
   if (ingress === "external" && recruitmentWorkerFiber === undefined) {
     process.stderr.write("recruitment notification worker is not configured\n");
   }
@@ -334,6 +356,22 @@ if (process.exitCode !== 1) {
         }
       }
 
+      if (passwordResetWorkerFiber !== undefined) {
+        try {
+          await runtime.runPromise(Fiber.interrupt(passwordResetWorkerFiber));
+        } catch {
+          exitCode = 1;
+        }
+      }
+
+      if (receiptWorkerFiber !== undefined) {
+        try {
+          await runtime.runPromise(Fiber.interrupt(receiptWorkerFiber));
+        } catch {
+          exitCode = 1;
+        }
+      }
+
       try {
         await runtime.dispose();
       } catch {
@@ -385,6 +423,24 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(recruitmentWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("recruitment notification worker failed\n");
+        void shutdown(true);
+      }
+    });
+  }
+
+  if (passwordResetWorkerFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(passwordResetWorkerFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+        process.stderr.write("password reset delivery worker failed\n");
+        void shutdown(true);
+      }
+    });
+  }
+
+  if (receiptWorkerFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(receiptWorkerFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+        process.stderr.write("receipt delivery worker failed\n");
         void shutdown(true);
       }
     });

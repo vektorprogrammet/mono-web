@@ -11,7 +11,7 @@ No production access, provider credentials, deployment, or generic queue framewo
 - `apps/backend/src/main.ts` supervises recruitment and other workers, but not reset or receipt delivery.
 - `password-recovery/drain-main.ts` performs one explicit reset attempt. It does not provide unattended recovery.
 - `packages/database/src/password-recovery.ts` owns claims, three-attempt limits, quarantine, verification checks, and security audit.
-- Reset delivery currently reconstructs each payload. The first attempt must freeze its envelope before network I/O.
+- Reset delivery currently reconstructs each payload. A durable first-payload fingerprint must prevent drift before network I/O.
 - `receipt/drain-main.ts` performs bounded operator recovery for one receipt.
 - `packages/database/src/receipt/outbox.ts` owns receipt claims, ownership fences, stale recovery, and delivery outcomes.
 - `receipt/delivery.ts` already freezes notification envelopes. File and audit effects retain their existing interpreters.
@@ -33,7 +33,11 @@ An explicit temporary reset-provider failure remains retryable for at most three
 An ambiguous reset outcome, stale reset claim, invalid verification, or permanent rejection remains quarantined.
 Reset restart does not bypass expiry, current account authority, claim ownership, or quarantine.
 Receipt stale claims return to the existing retry path. Late owners cannot complete replacement claims.
-Retries preserve the effect identity and first delivery envelope. Delivery success does not create another business fact.
+Receipt retries preserve the effect identity and first delivery envelope.
+Reset retries reconstruct each payload from live verification and account data, then compare its SHA256 fingerprint.
+Changed reset payloads quarantine without another provider request. Reset outboxes never store tokens, addresses, or rendered messages.
+Every reset attempt still checks expiry and current authority. Delivery success does not create another business fact.
+Previously attempted reset rows without a fingerprint quarantine on upgrade; their original payload cannot be established.
 No claim of exactly-once delivery follows from this implementation. Providers must deduplicate stable delivery identities.
 
 ## Runtime acceptance
