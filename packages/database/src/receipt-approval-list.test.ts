@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "./service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import { Economy } from "@vektorprogrammet/domain/receipt";
+import { Economy, decodeReceiptCursor } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
@@ -191,14 +191,91 @@ describe("rule-aware Receipt approval projection in PGlite", () => {
         const detachedFailure = yield* Effect.flip(list(detachedTag));
         const noRuleFailure = yield* Effect.flip(list(noRule));
 
+        yield* database`
+          INSERT INTO public.economy_receipts (
+            receipt_id, visual_id, owner_person_id, department_id, amount_ore,
+            currency, description, receipt_date, submitted_at, status, approved_at,
+            payment_account_ciphertext, file_ref, file_object_key, file_content_type,
+            file_byte_length, file_sha256, revision
+          ) SELECT
+            'approval-page-' || side || '-' || lpad(n::text, 3, '0'),
+            'APPROVAL-PAGE-' || side || '-' || n, 'approval-query-owner', department_id,
+            1000, 'NOK', 'Paged receipt', '2038-06-13',
+            CASE WHEN side = 'b' THEN '2038-06-14T12:00:00.123456Z'::timestamptz
+              ELSE '2038-06-13T12:00:00.123456Z'::timestamptz END,
+            'Pending', NULL, 'ciphertext:page',
+            'approval-page-file-' || side || '-' || n,
+            'approval-page-object-' || side || '-' || n,
+            'application/pdf', 100, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 0
+          FROM generate_series(0, 59) AS n
+          CROSS JOIN (VALUES ('a', ${departmentA}), ('b', ${departmentB})) AS departments(side, department_id)
+        `;
+        const firstPage = yield* list(ruleDepartment, "Pending");
+
+        if (firstPage.nextCursor === undefined)
+          throw new Error("First approval page lost continuation");
+        const firstCursor = yield* decodeReceiptCursor(firstPage.nextCursor);
+        yield* database`UPDATE public.economy_receipts SET status = 'Approved', approved_at = '2038-06-15T11:00:00Z'
+          WHERE receipt_id = 'approval-page-a-000'`;
+        yield* database`
+          INSERT INTO public.economy_receipts (
+            receipt_id, visual_id, owner_person_id, department_id, amount_ore,
+            currency, description, receipt_date, submitted_at, status, approved_at,
+            payment_account_ciphertext, file_ref, file_object_key, file_content_type,
+            file_byte_length, file_sha256, revision
+          ) SELECT 'approval-page-new', 'APPROVAL-PAGE-NEW', owner_person_id, department_id, amount_ore,
+            currency, description, receipt_date, '2038-06-15T11:00:00Z', 'Pending', NULL,
+            payment_account_ciphertext, 'approval-page-file-new', 'approval-page-object-new', file_content_type,
+            file_byte_length, file_sha256, revision
+          FROM public.economy_receipts WHERE receipt_id = 'approval-page-a-000'
+        `;
+
+        const nextPage = yield* economy.listReceiptsForApproval(
+          ruleDepartment,
+          authorizationInstant,
+          "Pending",
+          firstPage.nextCursor,
+        );
+
+        const pageDenied = yield* Effect.flip(
+          economy.listReceiptsForApproval(
+            noRule,
+            authorizationInstant,
+            "Pending",
+            firstPage.nextCursor,
+          ),
+        );
+
+        const ownerFirst = yield* economy.listOwnedReceipts("approval-query-owner", "Pending");
+
+        if (ownerFirst.nextCursor === undefined)
+          throw new Error("First owner page lost continuation");
+
+        const ownerNext = yield* economy.listOwnedReceipts(
+          "approval-query-owner",
+          "Pending",
+          ownerFirst.nextCursor,
+        );
+
+        const pagination = {
+          first: firstPage.items.map((row) => row.receiptId),
+          cursor: firstCursor,
+          next: nextPage.items.map((row) => row.receiptId),
+          nextCursor: nextPage.nextCursor,
+          denied: pageDenied._tag,
+          ownerFirst: ownerFirst.items.map((row) => row.receiptId),
+          ownerNext: ownerNext.items.map((row) => row.receiptId),
+        };
+
         return {
-          directGlobal: directGlobalRows.map((row) => row.receiptId),
-          directDepartment: directDepartmentRows.map((row) => row.receiptId),
-          ruleDepartment: ruleDepartmentRows.map((row) => row.receiptId),
-          ruleGlobal: ruleGlobalRows.map((row) => row.receiptId),
-          scopedGlobal: scopedGlobalRows.map((row) => row.receiptId),
-          multiple: multipleRows.map((row) => row.receiptId),
-          filtered: filteredRows.map((row) => row.receiptId),
+          pagination,
+          directGlobal: directGlobalRows.items.map((row) => row.receiptId),
+          directDepartment: directDepartmentRows.items.map((row) => row.receiptId),
+          ruleDepartment: ruleDepartmentRows.items.map((row) => row.receiptId),
+          ruleGlobal: ruleGlobalRows.items.map((row) => row.receiptId),
+          scopedGlobal: scopedGlobalRows.items.map((row) => row.receiptId),
+          multiple: multipleRows.items.map((row) => row.receiptId),
+          filtered: filteredRows.items.map((row) => row.receiptId),
           expiredFailure: expiredFailure._tag,
           detachedFailure: detachedFailure._tag,
           noRuleFailure: noRuleFailure._tag,
@@ -206,7 +283,8 @@ describe("rule-aware Receipt approval projection in PGlite", () => {
       }),
     );
 
-    expect(evidence).toEqual({
+    const { pagination, ...authorityEvidence } = evidence;
+    expect(authorityEvidence).toEqual({
       directGlobal: ["approval-query-receipt-b", "approval-query-receipt-a"],
       directDepartment: ["approval-query-receipt-a"],
       ruleDepartment: ["approval-query-receipt-a"],
@@ -218,5 +296,38 @@ describe("rule-aware Receipt approval projection in PGlite", () => {
       detachedFailure: "ReceiptScopeDenied",
       noRuleFailure: "ReceiptScopeDenied",
     });
+    expect(pagination.first).toEqual(
+      Array.from({ length: 50 }, (_, index) => `approval-page-a-${String(index).padStart(3, "0")}`),
+    );
+    expect(pagination.cursor).toEqual({
+      timestamp: "2038-06-13T12:00:00.123456Z",
+      receiptId: "approval-page-a-049",
+    });
+    expect(pagination.next).toEqual([
+      ...Array.from(
+        { length: 10 },
+        (_, index) => `approval-page-a-${String(index + 50).padStart(3, "0")}`,
+      ),
+      "approval-query-receipt-a",
+    ]);
+    expect(pagination.nextCursor).toBeUndefined();
+    expect(pagination.denied).toBe("ReceiptScopeDenied");
+    expect(pagination.ownerFirst).toEqual([
+      "approval-page-new",
+      ...Array.from(
+        { length: 49 },
+        (_, index) => `approval-page-b-${String(index).padStart(3, "0")}`,
+      ),
+    ]);
+    expect(pagination.ownerNext).toEqual([
+      ...Array.from(
+        { length: 11 },
+        (_, index) => `approval-page-b-${String(index + 49).padStart(3, "0")}`,
+      ),
+      ...Array.from(
+        { length: 39 },
+        (_, index) => `approval-page-a-${String(index + 1).padStart(3, "0")}`,
+      ),
+    ]);
   }, 15_000);
 });

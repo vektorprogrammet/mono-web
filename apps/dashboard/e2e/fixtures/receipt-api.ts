@@ -148,8 +148,6 @@ function resetState(): void {
   replayedResponses.clear();
 }
 
-
-
 function resourceResponse(body: ReceiptWire, status = 200): Response {
   const headers = new Headers({
     etag: body.etag,
@@ -157,7 +155,8 @@ function resourceResponse(body: ReceiptWire, status = 200): Response {
     vary: "Cookie, Authorization",
   });
 
-  if (status === 201) headers.set("location", `/api/receipts/${encodeURIComponent(body.receiptId)}`);
+  if (status === 201)
+    headers.set("location", `/api/receipts/${encodeURIComponent(body.receiptId)}`);
 
   return Response.json(body, { status, headers });
 }
@@ -187,7 +186,12 @@ function authKind(request: Request): "bearer" | "missing" {
   return request.headers.get("authorization")?.startsWith("Bearer ") ? "bearer" : "missing";
 }
 
-function record(request: Request, url: URL, receiptFixtureBody: ReceiptFixtureBody, status: number): void {
+function record(
+  request: Request,
+  url: URL,
+  receiptFixtureBody: ReceiptFixtureBody,
+  status: number,
+): void {
   evidence.push({
     method: request.method,
     path: url.pathname,
@@ -212,11 +216,11 @@ function unauthorized(request: Request, url: URL): Response | null {
 
 function malformedBody(operation: Operation, mode: MalformedMode) {
   if (operation === "personal-list" && mode === "receipt-date") {
-    return { items: [{ ...makeReceipt("malformed", "Malformed receipt", 2_000, "not-a-date") }], totalItems: 1 };
+    return { items: [{ ...makeReceipt("malformed", "Malformed receipt", 2_000, "not-a-date") }] };
   }
 
   if (operation === "admin-list" && mode === "admin-shape") {
-    return { items: [{ receiptId: "malformed-admin" }], totalItems: 1 };
+    return { items: [{ receiptId: "malformed-admin" }] };
   }
 
   return { receiptId: 99 };
@@ -238,7 +242,12 @@ function faultResponse(operation: Operation, request: Request, url: URL): Respon
         detail: "Synthetic dependency failure",
       };
 
-  record(request, url, { kind: "json", keys: isRecord(body) ? Object.keys(body).sort() : [] }, status);
+  record(
+    request,
+    url,
+    { kind: "json", keys: isRecord(body) ? Object.keys(body).sort() : [] },
+    status,
+  );
 
   return new Response(JSON.stringify(body), {
     status,
@@ -263,7 +272,10 @@ async function parseMultipart(request: Request): Promise<{
 
     return { form, receiptFixtureBody: { kind: "multipart", fields: fields.sort(), filePresent } };
   } catch {
-    return { form: null, receiptFixtureBody: { kind: "multipart", fields: [], filePresent: false } };
+    return {
+      form: null,
+      receiptFixtureBody: { kind: "multipart", fields: [], filePresent: false },
+    };
   }
 }
 
@@ -311,16 +323,19 @@ async function handleProfile(request: Request, url: URL): Promise<Response> {
   if (fault !== null) return fault;
   record(request, url, { kind: "empty" }, 200);
 
-  return Response.json({
-    personId: "7",
-    firstName: "Trace",
-    lastName: "User",
-    email: "trace@example.test",
-    phone: "",
-    role: "ROLE_TEAM_MEMBER",
-    nameRevision: 0,
-    contactRevision: 0,
-  }, {status: 200, headers: {}});
+  return Response.json(
+    {
+      personId: "7",
+      firstName: "Trace",
+      lastName: "User",
+      email: "trace@example.test",
+      phone: "",
+      role: "ROLE_TEAM_MEMBER",
+      nameRevision: 0,
+      contactRevision: 0,
+    },
+    { status: 200, headers: {} },
+  );
 }
 
 async function handlePersonalList(request: Request, url: URL): Promise<Response> {
@@ -331,10 +346,13 @@ async function handlePersonalList(request: Request, url: URL): Promise<Response>
 
   if (fault !== null) return fault;
   const status = url.searchParams.get("status");
-  const rows = status === null ? personalReceipts : personalReceipts.filter((item) => item.status === status);
+
+  const rows =
+    status === null ? personalReceipts : personalReceipts.filter((item) => item.status === status);
+
   record(request, url, { kind: "empty" }, 200);
 
-  return Response.json({ items: rows, totalItems: rows.length }, {status: 200, headers: {}});
+  return Response.json({ items: rows }, { status: 200, headers: {} });
 }
 
 async function handlePersonalCreate(request: Request, url: URL): Promise<Response> {
@@ -383,7 +401,11 @@ async function handlePersonalCreate(request: Request, url: URL): Promise<Respons
   return resourceResponse(receipt, 201);
 }
 
-async function handlePersonalUpdate(request: Request, url: URL, receiptId: string): Promise<Response> {
+async function handlePersonalUpdate(
+  request: Request,
+  url: URL,
+  receiptId: string,
+): Promise<Response> {
   const authFailure = unauthorized(request, url);
 
   if (authFailure !== null) return authFailure;
@@ -398,20 +420,23 @@ async function handlePersonalUpdate(request: Request, url: URL, receiptId: strin
   if (replayed !== undefined) return resourceResponse(replayed);
   const receipt = personalReceipts.find((item) => item.receiptId === receiptId);
 
-  if (receipt === undefined) return problem(404, "receipt.not-found", "The Receipt does not exist.");
+  if (receipt === undefined)
+    return problem(404, "receipt.not-found", "The Receipt does not exist.");
   const preconditionFailure = assertIfMatch(request, url, receipt);
 
   if (preconditionFailure !== null) return preconditionFailure;
   const parsed = await parseMultipart(request);
 
-  if (parsed.form === null) return problem(422, "validation.failed", "The Receipt input is invalid.");
+  if (parsed.form === null)
+    return problem(422, "validation.failed", "The Receipt input is invalid.");
   const description = parsed.form.get("description");
   const amountOre = parsed.form.get("amountOre");
   const receiptDate = parsed.form.get("receiptDate");
 
   if (Predicate.isString(description)) receipt.description = description;
 
-  if (Predicate.isString(amountOre) && Number.isSafeInteger(Number(amountOre))) receipt.amountOre = Number(amountOre);
+  if (Predicate.isString(amountOre) && Number.isSafeInteger(Number(amountOre)))
+    receipt.amountOre = Number(amountOre);
 
   if (Predicate.isString(receiptDate)) receipt.receiptDate = receiptDate;
   receipt.revision += 1;
@@ -423,7 +448,11 @@ async function handlePersonalUpdate(request: Request, url: URL, receiptId: strin
   return resourceResponse(receipt);
 }
 
-async function handlePersonalWithdraw(request: Request, url: URL, receiptId: string): Promise<Response> {
+async function handlePersonalWithdraw(
+  request: Request,
+  url: URL,
+  receiptId: string,
+): Promise<Response> {
   const authFailure = unauthorized(request, url);
 
   if (authFailure !== null) return authFailure;
@@ -438,12 +467,14 @@ async function handlePersonalWithdraw(request: Request, url: URL, receiptId: str
   if (replayed !== undefined) return resourceResponse(replayed);
   const receipt = personalReceipts.find((item) => item.receiptId === receiptId);
 
-  if (receipt === undefined) return problem(404, "receipt.not-found", "The Receipt does not exist.");
+  if (receipt === undefined)
+    return problem(404, "receipt.not-found", "The Receipt does not exist.");
   const preconditionFailure = assertIfMatch(request, url, receipt);
 
   if (preconditionFailure !== null) return preconditionFailure;
 
-  if (receipt.status !== "Pending") return problem(409, "receipt.invalid-transition", "The Receipt cannot be withdrawn.");
+  if (receipt.status !== "Pending")
+    return problem(409, "receipt.invalid-transition", "The Receipt cannot be withdrawn.");
   let body: unknown;
 
   try {
@@ -452,7 +483,8 @@ async function handlePersonalWithdraw(request: Request, url: URL, receiptId: str
     return problem(400, "request.malformed", "The request is malformed.");
   }
 
-  if (!isRecord(body) || Object.keys(body).length !== 0) return problem(422, "validation.failed", "The request body must be empty.");
+  if (!isRecord(body) || Object.keys(body).length !== 0)
+    return problem(422, "validation.failed", "The request body must be empty.");
   receipt.status = "Withdrawn";
   receipt.revision += 1;
   receipt.etag = etagFor(receipt.receiptId, receipt.revision);
@@ -471,10 +503,13 @@ async function handleAdminList(request: Request, url: URL): Promise<Response> {
 
   if (fault !== null) return fault;
   const status = url.searchParams.get("status");
-  const rows = status === null ? adminReceipts : adminReceipts.filter((item) => item.status === status);
+
+  const rows =
+    status === null ? adminReceipts : adminReceipts.filter((item) => item.status === status);
+
   record(request, url, { kind: "empty" }, 200);
 
-  return Response.json({ items: rows, totalItems: rows.length }, {status: 200, headers: {}});
+  return Response.json({ items: rows }, { status: 200, headers: {} });
 }
 
 async function handleAdminStatus(
@@ -497,12 +532,14 @@ async function handleAdminStatus(
   if (replayed !== undefined) return resourceResponse(replayed);
   const receipt = adminReceipts.find((item) => item.receiptId === receiptId);
 
-  if (receipt === undefined) return problem(404, "receipt.not-found", "The Receipt does not exist.");
+  if (receipt === undefined)
+    return problem(404, "receipt.not-found", "The Receipt does not exist.");
   const preconditionFailure = assertIfMatch(request, url, receipt);
 
   if (preconditionFailure !== null) return preconditionFailure;
 
-  if (receipt.status !== "Pending") return problem(409, "receipt.invalid-transition", "The Receipt cannot change status.");
+  if (receipt.status !== "Pending")
+    return problem(409, "receipt.invalid-transition", "The Receipt cannot change status.");
   receipt.status = status;
   receipt.approvedAt = status === "Approved" ? "2026-08-10T00:00:00.000Z" : null;
   receipt.revision += 1;
@@ -515,13 +552,17 @@ async function handleAdminStatus(
 }
 
 async function handleApi(request: Request, url: URL): Promise<Response> {
-  if (url.pathname === "/api/profile" && request.method === "GET") return handleProfile(request, url);
+  if (url.pathname === "/api/profile" && request.method === "GET")
+    return handleProfile(request, url);
 
-  if (url.pathname === "/api/receipts" && request.method === "GET") return handlePersonalList(request, url);
+  if (url.pathname === "/api/receipts" && request.method === "GET")
+    return handlePersonalList(request, url);
 
-  if (url.pathname === "/api/receipts" && request.method === "POST") return handlePersonalCreate(request, url);
+  if (url.pathname === "/api/receipts" && request.method === "POST")
+    return handlePersonalCreate(request, url);
 
-  if (url.pathname === "/api/receipt-approval-queue" && request.method === "GET") return handleAdminList(request, url);
+  if (url.pathname === "/api/receipt-approval-queue" && request.method === "GET")
+    return handleAdminList(request, url);
 
   const reviseMatch = url.pathname.match(/^\/api\/receipts\/([^/:]+)$/u);
 
@@ -536,7 +577,12 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
 
     if (actionMatch[2] === "withdraw") return handlePersonalWithdraw(request, url, receiptId);
 
-    return handleAdminStatus(request, url, receiptId, actionMatch[2] === "approve" ? "Approved" : "Rejected");
+    return handleAdminStatus(
+      request,
+      url,
+      receiptId,
+      actionMatch[2] === "approve" ? "Approved" : "Rejected",
+    );
   }
 
   return problem(404, "route.not-found", "The requested route does not exist.");
@@ -551,7 +597,8 @@ async function control(request: Request): Promise<Response> {
     return noContent(400);
   }
 
-  if (!isRecord(body) || !Predicate.isString(body.operation) || !isOperation(body.operation)) return noContent(400);
+  if (!isRecord(body) || !Predicate.isString(body.operation) || !isOperation(body.operation))
+    return noContent(400);
 
   if (body.action === "clear") {
     faults.delete(body.operation);
@@ -562,12 +609,19 @@ async function control(request: Request): Promise<Response> {
   const fault: Fault = {};
 
   if (body.status !== undefined) {
-    if (!Predicate.isNumber(body.status) || !Number.isInteger(body.status) || body.status < 400 || body.status > 599) return noContent(400);
+    if (
+      !Predicate.isNumber(body.status) ||
+      !Number.isInteger(body.status) ||
+      body.status < 400 ||
+      body.status > 599
+    )
+      return noContent(400);
     fault.status = body.status;
   }
 
   if (body.malformed !== undefined) {
-    if (!Predicate.isString(body.malformed) || !isMalformedMode(body.malformed)) return noContent(400);
+    if (!Predicate.isString(body.malformed) || !isMalformedMode(body.malformed))
+      return noContent(400);
     fault.malformed = body.malformed;
   }
 
@@ -595,7 +649,8 @@ const server = Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/__health") return Response.json({ ok: true }, {status: 200, headers: {}});
+    if (url.pathname === "/__health")
+      return Response.json({ ok: true }, { status: 200, headers: {} });
 
     if (url.pathname === "/__control/reset" && request.method === "POST") {
       resetState();
@@ -606,7 +661,10 @@ const server = Bun.serve({
     if (url.pathname === "/__control/fault" && request.method === "POST") return control(request);
 
     if (url.pathname === "/__control/evidence" && request.method === "GET") {
-      return Response.json({ evidence, transitions, personalReceipts, adminReceipts }, {status: 200, headers: {}});
+      return Response.json(
+        { evidence, transitions, personalReceipts, adminReceipts },
+        { status: 200, headers: {} },
+      );
     }
 
     return handleApi(request, url);

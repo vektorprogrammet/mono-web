@@ -7,6 +7,7 @@ import {
   ServicePrincipalId,
   ServicePrincipalGrantAuthorityError,
   ServicePrincipalReceiptGrantSchema,
+  evaluateServicePrincipalReceiptApprovalAccess,
 } from "@vektorprogrammet/domain/authz";
 import { Effect, Schema } from "effect";
 import { expect, it } from "vitest";
@@ -123,6 +124,92 @@ it(
 
       expect(invalidRule).toBeInstanceOf(ServicePrincipalGrantAuthorityError);
       expect(invalidRule.reason).toBe("PersistenceFailure");
+      await pool.query(`UPDATE public.authz_rules SET start_at = '2032-06-01T11:00:00Z' WHERE rule_id = 'pending-rule';
+        INSERT INTO public.economy_receipts (
+          receipt_id, visual_id, owner_person_id, department_id, amount_ore, currency, description,
+          receipt_date, submitted_at, status, approved_at, payment_account_ciphertext,
+          file_ref, file_object_key, file_content_type, file_byte_length, file_sha256, revision
+        ) SELECT 'service-page-' || side || '-' || lpad(n::text, 3, '0'),
+          'SERVICE-PAGE-' || side || '-' || n, 'receipt-owner', 'receipt-department', 1250, 'NOK', 'Paged service receipt',
+          '2032-06-01', CASE WHEN side = 'b' THEN '2032-06-01T10:00:00.123456Z'::timestamptz ELSE '2032-06-01T09:00:00.123456Z'::timestamptz END,
+          CASE WHEN side = 'b' THEN 'Approved' ELSE 'Pending' END,
+          CASE WHEN side = 'b' THEN '2032-06-01T11:00:00Z'::timestamptz ELSE NULL END,
+          'ciphertext:page', 'service-page-file-' || side || '-' || n, 'service-page-object-' || side || '-' || n,
+          'application/pdf', 100, repeat('a', 64), 0
+        FROM generate_series(0, 59) AS n CROSS JOIN (VALUES ('a'), ('b')) AS sides(side);
+        INSERT INTO public.service_principal_grants (
+          grant_id, service_principal_id, client_id, protected_resource, operation_id, capability_id,
+          resource_kind, resource_id, start_at, end_at, revoked_at, revision
+        ) SELECT 'grant-' || receipt_id, 'service-receipt-approval', 'service-client', 'urn:vektorprogrammet:native-api',
+          'receipts.listReceiptsForApproval', 'approveReceipt', 'receipt', receipt_id, '2032-06-01T11:00:00Z', NULL, NULL, 0
+        FROM public.economy_receipts WHERE receipt_id LIKE 'service-page-%';
+        INSERT INTO public.service_principal_grants (
+          grant_id, service_principal_id, client_id, protected_resource, operation_id, capability_id,
+          resource_kind, resource_id, start_at, end_at, revoked_at, revision
+        ) SELECT 'grant-page-duplicate', service_principal_id, client_id, protected_resource, operation_id, capability_id,
+          resource_kind, resource_id, start_at, end_at, revoked_at, revision FROM public.service_principal_grants
+          WHERE grant_id = 'grant-service-page-a-049';
+        INSERT INTO public.authz_rules (
+          rule_id, capability_id, effect_kind, subject_kind, subject_service_principal_id, scope,
+          resource_kind, resource_id, params, start_at, revision
+        ) SELECT 'pending-' || receipt_id, 'approveReceipt', 'requirement', 'ServicePrincipal', 'service-receipt-approval',
+          'Resource', 'receipt', receipt_id, '{"requirementId":"receipts.pending","parameters":{}}', '2032-06-01T11:00:00Z', 0
+        FROM public.economy_receipts WHERE receipt_id LIKE 'service-page-%';`);
+
+      const firstPage = await Effect.runPromise(
+        service.readReceiptApprovalCandidates(credential, authorizationInstant),
+      );
+
+      expect([...new Set(firstPage.candidates.map(({ receipt }) => receipt.receiptId))]).toEqual(
+        Array.from(
+          { length: 50 },
+          (_, index) => `service-page-a-${String(index).padStart(3, "0")}`,
+        ),
+      );
+      expect(
+        firstPage.candidates
+          .filter(({ receipt }) => receipt.receiptId === "service-page-a-049")
+          .map(({ grant }) => grant.grantId)
+          .sort(),
+      ).toEqual(["grant-page-duplicate", "grant-service-page-a-049"]);
+
+      if (firstPage.nextCursor === undefined) throw new Error("Service page lost continuation");
+      await pool.query(
+        `UPDATE public.economy_receipts SET status = 'Approved', approved_at = '2032-06-01T11:00:00Z' WHERE receipt_id = 'service-page-a-000'`,
+      );
+
+      const nextPage = await Effect.runPromise(
+        service.readReceiptApprovalCandidates(
+          credential,
+          authorizationInstant,
+          undefined,
+          firstPage.nextCursor,
+        ),
+      );
+
+      expect(nextPage.candidates.map(({ receipt }) => receipt.receiptId)).toEqual([
+        ...Array.from(
+          { length: 10 },
+          (_, index) => `service-page-a-${String(index + 50).padStart(3, "0")}`,
+        ),
+        "receipt-1",
+      ]);
+      expect(nextPage.nextCursor).toBeUndefined();
+
+      const noMatchingStatus = await Effect.runPromise(
+        service.readReceiptApprovalCandidates(credential, authorizationInstant, "Rejected"),
+      );
+
+      expect(
+        evaluateServicePrincipalReceiptApprovalAccess(
+          credential,
+          noMatchingStatus,
+          authorizationInstant,
+        )._tag,
+      ).toBe("Allow");
+      expect(
+        noMatchingStatus.candidates.every(({ receipt }) => receipt.status !== "Rejected"),
+      ).toBe(true);
     }),
   20_000,
 );

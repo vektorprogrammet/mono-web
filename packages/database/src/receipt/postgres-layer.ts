@@ -47,16 +47,16 @@ export const EconomyLive = Layer.effect(
         ),
       recordReceiptSettlement: (input, principal) =>
         recordReceiptSettlement(input, principal).pipe(Effect.provideService(Database, database)),
-      listOwnedReceipts: (ownerPersonId, status) =>
-        listOwnedReceiptProjection(ownerPersonId, status).pipe(
+      listOwnedReceipts: (ownerPersonId, status, after) =>
+        listOwnedReceiptProjection(ownerPersonId, status, after).pipe(
           Effect.provideService(Database, database),
         ),
-      listReceiptsForApproval: (personId, authorizationInstant, status) =>
-        listReceiptsForApprovalPostgres(personId, authorizationInstant, status).pipe(
+      listReceiptsForApproval: (personId, authorizationInstant, status, after) =>
+        listReceiptsForApprovalPostgres(personId, authorizationInstant, status, after).pipe(
           Effect.provideService(Database, database),
         ),
-      listReceiptsForSettlement: (personId, authorizationInstant) =>
-        listReceiptsForSettlement(personId, authorizationInstant).pipe(
+      listReceiptsForSettlement: (personId, authorizationInstant, after) =>
+        listReceiptsForSettlement(personId, authorizationInstant, after).pipe(
           Effect.provideService(Database, database),
         ),
       readReceiptFileForApproval: (receiptId, personId, authorizationInstant) =>

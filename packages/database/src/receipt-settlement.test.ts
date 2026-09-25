@@ -262,7 +262,53 @@ describe("Receipt settlement evidence in PGlite", () => {
           WHERE command_id = 'settlement-test-command-1'
         `;
 
+        yield* database`
+          INSERT INTO public.economy_receipts (
+            receipt_id, visual_id, owner_person_id, department_id, amount_ore, currency,
+            description, receipt_date, submitted_at, status, approved_at, payment_account_ciphertext,
+            file_ref, file_object_key, file_content_type, file_byte_length, file_sha256, revision
+          ) SELECT 'settlement-page-' || lpad(n::text, 3, '0'), 'SETTLEMENT-PAGE-' || n,
+            owner_person_id, department_id, amount_ore, currency, description, receipt_date,
+            '2038-06-13T10:00:00Z', 'Approved', '2038-06-13T11:00:00.123456Z', payment_account_ciphertext,
+            'settlement-page-file-' || n, 'settlement-page-object-' || n,
+            file_content_type, file_byte_length, file_sha256, 0
+          FROM public.economy_receipts CROSS JOIN generate_series(0, 51) AS n
+          WHERE receipt_id = 'settlement-test-receipt-1'
+        `;
+
+        const firstPage = yield* economy.listReceiptsForSettlement(
+          settlerPersonId,
+          authorizationInstant,
+        );
+
+        if (firstPage.nextCursor === undefined)
+          throw new Error("Settlement page lost continuation");
+        yield* economy.recordReceiptSettlement(
+          command("settlement-page-command", "settlement-page-000", 0, "page-reference"),
+          principal(settlerPersonId),
+        );
+
+        const nextPage = yield* economy.listReceiptsForSettlement(
+          settlerPersonId,
+          authorizationInstant,
+          firstPage.nextCursor,
+        );
+
+        const deniedPage = yield* economy.listReceiptsForSettlement(
+          deniedPersonId,
+          authorizationInstant,
+          firstPage.nextCursor,
+        );
+
+        const pagination = {
+          first: firstPage.items.map((row) => row.receiptId),
+          next: nextPage.items.map((row) => row.receiptId),
+          nextCursor: nextPage.nextCursor,
+          denied: deniedPage,
+        };
+
         return {
+          pagination,
           recorded,
           replay,
           immutableUpdate: immutableUpdate._tag,
@@ -274,9 +320,10 @@ describe("Receipt settlement evidence in PGlite", () => {
           concurrent: concurrent.map((result) =>
             Predicate.isTagged(result, "Success") ? "Accepted" : result.error._tag,
           ),
-          queue: queue.map(({ receiptId }) => receiptId),
-          ownerSettlement: owned.find(({ receiptId }) => receiptId === "settlement-test-receipt-1")
-            ?.settlement,
+          queue: queue.items.map(({ receiptId }) => receiptId),
+          ownerSettlement: owned.items.find(
+            ({ receiptId }) => receiptId === "settlement-test-receipt-1",
+          )?.settlement,
           finance,
           outbox,
           audit,
@@ -284,6 +331,17 @@ describe("Receipt settlement evidence in PGlite", () => {
       }),
     );
 
+    expect(evidence.pagination.first).toEqual(
+      Array.from({ length: 50 }, (_, index) => `settlement-page-${String(index).padStart(3, "0")}`),
+    );
+    expect(evidence.pagination.next).toEqual([
+      "settlement-page-050",
+      "settlement-page-051",
+      "settlement-test-receipt-2",
+      "settlement-test-receipt-3",
+    ]);
+    expect(evidence.pagination.nextCursor).toBeUndefined();
+    expect(evidence.pagination.denied).toEqual({ items: [] });
     expect(evidence.recorded).toMatchObject({
       replayed: false,
       outboxCount: 1,

@@ -1,6 +1,11 @@
 import { Result, Array, Predicate, Context, Data, Effect, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
-import { ReceiptId, ReceiptStatusSchema, ReceiptVisualId } from "../receipt/schema.js";
+import {
+  ReceiptId,
+  ReceiptStatusSchema,
+  ReceiptVisualId,
+  type ReceiptStatus,
+} from "../receipt/schema.js";
 import { compareRfc3339Instants } from "../time.js";
 import {
   CredentialMechanismSchema,
@@ -105,6 +110,7 @@ export type ServicePrincipalReceiptGrantAuthority = {
   readonly clientId: OAuthClientId;
   readonly protectedResource: typeof NATIVE_API_PROTECTED_RESOURCE;
   readonly candidates: ReadonlyArray<ServicePrincipalReceiptGrantCandidate>;
+  readonly nextCursor?: string;
   readonly rules: ReadonlyArray<AuthzRule>;
 };
 
@@ -159,6 +165,8 @@ export interface ServicePrincipalGrantAuthorityOperations {
   readonly readReceiptApprovalCandidates: (
     credential: AcceptedOAuthServiceCredential,
     authorizationInstant: AuthorizationInstant,
+    status?: ReceiptStatus,
+    after?: string,
   ) => Effect.Effect<ServicePrincipalReceiptGrantAuthority, ServicePrincipalGrantAuthorityError>;
   readonly createGrant: (
     input: CreateServicePrincipalGrantInput,

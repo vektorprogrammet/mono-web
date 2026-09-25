@@ -4,13 +4,19 @@ import assert from "node:assert/strict";
 import { Predicate, Effect } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
+  RECEIPT_PAGE_SIZE,
+  type ReceiptCursorPosition,
   ReceiptId,
   ReceiptCommandRequestSchema,
   importLegacyReceipts,
   type ReceiptImportProvenance,
 } from "@vektorprogrammet/domain/receipt";
 import { executeReceiptCommand, storeReceiptImportResult } from "./postgres.js";
-import { listApproverReceipts, listAssistantReceipts, receiptStatusTotals } from "./projections.js";
+import {
+  listApproverReceipts,
+  listOwnedReceiptProjection,
+  receiptStatusTotals,
+} from "./projections.js";
 import {
   ReceiptVisualId,
   type LegacyReceiptRow,
@@ -367,8 +373,29 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       ),
     );
 
-    const assistantProjection = yield* listAssistantReceipts(ownerPersonId);
-    const approverProjection = yield* listApproverReceipts();
+    const assistantReceiptIds: string[] = [];
+    let ownerCursor: string | undefined;
+
+    do {
+      const page = yield* listOwnedReceiptProjection(ownerPersonId, undefined, ownerCursor);
+
+      for (const row of page.items) assistantReceiptIds.push(row.receiptId);
+      ownerCursor = page.nextCursor;
+    } while (ownerCursor !== undefined);
+
+    const approverReceiptIds: string[] = [];
+    let position: ReceiptCursorPosition | undefined;
+
+    while (true) {
+      const rows = yield* listApproverReceipts(undefined, position);
+
+      for (const row of rows) approverReceiptIds.push(row.receiptId);
+
+      if (rows.length <= RECEIPT_PAGE_SIZE) break;
+      const last = rows[rows.length - 1]!;
+      position = { timestamp: last.cursorTimestamp, receiptId: last.receiptId };
+    }
+
     const totals = yield* receiptStatusTotals;
 
     const [receipts, commandReceipts, outbox, audit, importLedger, rolledBack] = yield* Effect.all([
@@ -412,8 +439,8 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       },
       durableRows: { receipts, commandReceipts, outbox, audit, importLedger },
       projections: {
-        assistantReceiptIds: assistantProjection.map(({ receiptId }) => receiptId),
-        approverReceiptIds: approverProjection.map(({ receiptId }) => receiptId),
+        assistantReceiptIds,
+        approverReceiptIds,
         statusTotals: totals,
       },
     };

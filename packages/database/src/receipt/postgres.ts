@@ -26,7 +26,13 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import {
   makeReceiptApprovalContext,
-  selectAuthorizedReceiptApprovals,
+  evaluateReceiptApprovalCandidates,
+  receiptApprovalSelectionDecision,
+  RECEIPT_PAGE_SIZE,
+  decodeReceiptCursor,
+  receiptPage,
+  type ReceiptPage,
+  type ReceiptApprovalSelectionEvidence,
   selectAuthorizedReceiptFileForApproval,
   type ReceiptApprovalCandidate,
 } from "@vektorprogrammet/domain/receipt";
@@ -57,7 +63,7 @@ import type {
   ReceiptListItem,
   ReceiptQuarantineReason,
 } from "@vektorprogrammet/domain/receipt";
-import { listApproverReceipts } from "./projections.js";
+import { listApproverReceipts, type ReceiptCandidateRow } from "./projections.js";
 import {
   Receipt,
   ReceiptFileSchema,
@@ -600,7 +606,8 @@ export const listReceiptsForApproval = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
   status?: ReceiptStatus,
-): Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptApprovalListFailure, Database> =>
+  after?: string,
+): Effect.Effect<ReceiptPage<ReceiptListItem>, ReceiptApprovalListFailure, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
 
@@ -643,45 +650,84 @@ export const listReceiptsForApproval = (
             ),
           );
 
-          const candidates = yield* listApproverReceipts(status);
+          let position = after === undefined ? undefined : yield* decodeReceiptCursor(after);
+          const visible: Array<ReceiptCandidateRow> = [];
 
-          const applicable = yield* Effect.forEach(candidates, (candidate) =>
-            readApplicableAuthorizationRules(
-              sql,
-              PrincipalSchema.cases.Person.make({ personId }),
-              "approveReceipt",
-              authorizationInstant,
-              makeReceiptApprovalContext(candidate, organization, directAuthority, []),
-              "None",
-            ).pipe(
-              Effect.mapError((cause) =>
-                Predicate.isTagged(cause, "AuthzPersistenceError")
-                  ? persistenceError(cause.operation, cause.message)
-                  : new ReceiptDecodeError({
-                      message: `${cause.entity}: ${cause.message}`,
-                    }),
+          let evidence: ReceiptApprovalSelectionEvidence = {
+            receiptIds: [],
+            candidateSeen: false,
+            denialReason: undefined,
+            inactiveGrantSeen: directAuthority.approvalGrants.length > 0,
+          };
+
+          while (
+            visible.length <= RECEIPT_PAGE_SIZE &&
+            directAuthority.organizationAuthority === "Active"
+          ) {
+            const candidates = yield* listApproverReceipts(status, position);
+
+            const applicable = yield* Effect.forEach(candidates, (candidate) =>
+              readApplicableAuthorizationRules(
+                sql,
+                PrincipalSchema.cases.Person.make({ personId }),
+                "approveReceipt",
+                authorizationInstant,
+                makeReceiptApprovalContext(candidate, organization, directAuthority, []),
+                "None",
+              ).pipe(
+                Effect.mapError((cause) =>
+                  Predicate.isTagged(cause, "AuthzPersistenceError")
+                    ? persistenceError(cause.operation, cause.message)
+                    : new ReceiptDecodeError({
+                        message: `${cause.entity}: ${cause.message}`,
+                      }),
+                ),
               ),
-            ),
-          );
+            );
 
-          const ruleById = new Map<string, AuthzRule>();
-          const assignmentById = new Map<string, AuthzTagAssignment>();
+            const ruleById = new Map<string, AuthzRule>();
+            const assignmentById = new Map<string, AuthzTagAssignment>();
 
-          for (const result of applicable) {
-            for (const rule of result.rules) ruleById.set(rule.ruleId, rule);
+            for (const result of applicable) {
+              for (const rule of result.rules) ruleById.set(rule.ruleId, rule);
 
-            for (const assignment of result.tagAssignments) {
-              assignmentById.set(assignment.assignmentId, assignment);
+              for (const assignment of result.tagAssignments) {
+                assignmentById.set(assignment.assignmentId, assignment);
+              }
             }
+
+            const batch = evaluateReceiptApprovalCandidates(
+              organization,
+              directAuthority,
+              candidates,
+              Array.from(ruleById.values()),
+              Array.from(assignmentById.values()),
+            );
+
+            const selectedReceiptIds = new Set(batch.receiptIds);
+
+            for (const candidate of candidates) {
+              if (selectedReceiptIds.has(candidate.receiptId)) visible.push(candidate);
+
+              if (visible.length > RECEIPT_PAGE_SIZE) break;
+            }
+
+            evidence = {
+              receiptIds: [],
+              candidateSeen: evidence.candidateSeen || batch.candidateSeen,
+              denialReason: evidence.denialReason ?? batch.denialReason,
+              inactiveGrantSeen: evidence.inactiveGrantSeen || batch.inactiveGrantSeen,
+            };
+
+            if (candidates.length <= RECEIPT_PAGE_SIZE) break;
+            const last = candidates[candidates.length - 1]!;
+            position = { timestamp: last.cursorTimestamp, receiptId: last.receiptId };
           }
 
-          const decision = selectAuthorizedReceiptApprovals(
-            organization,
-            directAuthority,
-            candidates,
-            Array.from(ruleById.values()),
-            Array.from(assignmentById.values()),
-          );
+          const decision = receiptApprovalSelectionDecision(directAuthority, {
+            ...evidence,
+            receiptIds: visible.map((row) => row.receiptId),
+          });
 
           if (Predicate.isTagged(decision, "Deny")) {
             const compositionFailure = receiptCompositionFailure(
@@ -702,9 +748,15 @@ export const listReceiptsForApproval = (
             });
           }
 
-          const selectedReceiptIds = new Set(decision.value.receiptIds);
+          const page = receiptPage(visible, (row) => ({
+            timestamp: row.cursorTimestamp,
+            receiptId: row.receiptId,
+          }));
 
-          return candidates.filter((candidate) => selectedReceiptIds.has(candidate.receiptId));
+          return {
+            ...page,
+            items: page.items.map(({ cursorTimestamp: _cursorTimestamp, ...row }) => row),
+          };
         }),
       )
       .pipe(

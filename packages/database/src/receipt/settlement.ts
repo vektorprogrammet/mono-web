@@ -3,6 +3,10 @@ import { flow, Predicate, Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { compareRfc3339Instants } from "@vektorprogrammet/domain/time";
 import {
+  RECEIPT_PAGE_SIZE,
+  decodeReceiptCursor,
+  receiptPage,
+  type ReceiptPage,
   mapExistingReceiptSettlementActor,
   selectReceiptSettlementGrant,
   type ReceiptSettlementTransactionResult,
@@ -571,11 +575,8 @@ export const recordReceiptSettlement = (
 export const listReceiptsForSettlement = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
-): Effect.Effect<
-  ReadonlyArray<ReceiptSettlementQueueItem>,
-  ReceiptSettlementListFailure,
-  Database
-> =>
+  after?: string,
+): Effect.Effect<ReceiptPage<ReceiptSettlementQueueItem>, ReceiptSettlementListFailure, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
 
@@ -616,8 +617,13 @@ export const listReceiptsForSettlement = (
             ),
           );
 
-          const rows = yield* sql<ReceiptSettlementQueueItem>`
+          let position = after === undefined ? undefined : yield* decodeReceiptCursor(after);
+          const visible: Array<ReceiptSettlementQueueItem & { cursorTimestamp: string }> = [];
+
+          while (visible.length <= RECEIPT_PAGE_SIZE) {
+            const rows = yield* sql<ReceiptSettlementQueueItem & { cursorTimestamp: string }>`
             SELECT
+              to_char(receipt.approved_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTimestamp",
               receipt.receipt_id AS "receiptId",
               receipt.visual_id AS "visualId",
               receipt.owner_person_id AS "ownerPersonId",
@@ -634,16 +640,37 @@ export const listReceiptsForSettlement = (
               ON settlement.receipt_id = receipt.receipt_id
             WHERE receipt.status = 'Approved'
               AND settlement.receipt_id IS NULL
+              AND (${position?.timestamp ?? null}::timestamptz IS NULL OR
+                (receipt.approved_at, receipt.receipt_id) > (${position?.timestamp ?? null}::timestamptz, ${position?.receiptId ?? null}))
             ORDER BY receipt.approved_at ASC, receipt.receipt_id ASC
+            LIMIT ${RECEIPT_PAGE_SIZE + 1}
           `.pipe(
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(persistenceError("list Receipt settlement queue", cause)),
-            ),
-          );
+              Effect.catchTag("SqlError", (cause) =>
+                Effect.fail(persistenceError("list Receipt settlement queue", cause)),
+              ),
+            );
 
-          return rows.filter(
-            (row) => selectReceiptSettlementGrant(authority, row.departmentId)?.active === true,
-          );
+            for (const row of rows) {
+              if (selectReceiptSettlementGrant(authority, row.departmentId)?.active === true)
+                visible.push(row);
+
+              if (visible.length > RECEIPT_PAGE_SIZE) break;
+            }
+
+            if (rows.length <= RECEIPT_PAGE_SIZE) break;
+            const last = rows[rows.length - 1]!;
+            position = { timestamp: last.cursorTimestamp, receiptId: last.receiptId };
+          }
+
+          const page = receiptPage(visible, (row) => ({
+            timestamp: row.cursorTimestamp,
+            receiptId: row.receiptId,
+          }));
+
+          return {
+            ...page,
+            items: page.items.map(({ cursorTimestamp: _cursorTimestamp, ...row }) => row),
+          };
         }),
       )
       .pipe(

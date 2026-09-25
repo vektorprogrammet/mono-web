@@ -15,6 +15,8 @@ import {
   ServicePrincipalGrantAuthorityError,
   ServicePrincipalReceiptCandidateSchema,
   ServicePrincipalReceiptGrantSchema,
+  evaluateServicePrincipalReceiptApprovalAccess,
+  type ServicePrincipalReceiptGrantCandidate,
   type AcceptedOAuthServiceCredential,
   type AuthzRule,
   type CreateServicePrincipalGrantInput,
@@ -25,7 +27,14 @@ import {
   type ServicePrincipalReceiptGrant,
   type ServicePrincipalReceiptGrantAuthority,
 } from "@vektorprogrammet/domain/authz";
-import { Match, Effect, Layer, Schema } from "effect";
+import {
+  RECEIPT_PAGE_SIZE,
+  decodeReceiptCursor,
+  encodeReceiptCursor,
+  type ReceiptCursorPosition,
+  type ReceiptStatus,
+} from "@vektorprogrammet/domain/receipt";
+import { Predicate, Match, Effect, Layer, Schema } from "effect";
 import type { Pool, PoolClient } from "pg";
 
 type CurrentServiceBindingRow = {
@@ -48,6 +57,7 @@ type PersistedServiceReceiptGrantRow = {
 };
 
 type ServiceReceiptGrantRow = PersistedServiceReceiptGrantRow & {
+  readonly cursor_timestamp: string;
   readonly visual_id: string;
   readonly owner_person_id: string;
   readonly department_id: string;
@@ -254,14 +264,36 @@ const currentServiceBinding = async (
   return result.rows[0].client_id;
 };
 
+type PositionedServiceCandidate = ServicePrincipalReceiptGrantCandidate & {
+  readonly cursorTimestamp: string;
+};
+
 const readExactGrantCandidates = async (
   client: PoolClient,
   credential: AcceptedOAuthServiceCredential,
   clientId: string,
   authorizationInstant: string,
-): Promise<ServicePrincipalReceiptGrantAuthority["candidates"]> => {
+  after: ReceiptCursorPosition | undefined,
+): Promise<ReadonlyArray<PositionedServiceCandidate>> => {
   const result = await client.query<ServiceReceiptGrantRow>(
-    `SELECT
+    `WITH receipt_page AS (
+       SELECT receipt.* FROM public.economy_receipts AS receipt
+       WHERE ($6::timestamptz IS NULL OR receipt.submitted_at < $6::timestamptz
+         OR (receipt.submitted_at = $6::timestamptz AND receipt.receipt_id > $7::text))
+         AND EXISTS (
+           SELECT 1 FROM public.service_principal_grants AS grant_row
+           WHERE grant_row.resource_id = receipt.receipt_id
+             AND grant_row.service_principal_id = $1 AND grant_row.client_id = $2
+             AND grant_row.protected_resource = $3 AND grant_row.operation_id = $4
+             AND grant_row.capability_id = 'approveReceipt' AND grant_row.resource_kind = 'receipt'
+             AND grant_row.start_at <= $5::timestamptz
+             AND (grant_row.end_at IS NULL OR $5::timestamptz < grant_row.end_at)
+             AND grant_row.revoked_at IS NULL
+         )
+       ORDER BY receipt.submitted_at DESC, receipt.receipt_id ASC
+       LIMIT $8
+     ) SELECT
+       to_char(receipt.submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_timestamp,
        grant_row.grant_id,
        grant_row.service_principal_id,
        grant_row.client_id,
@@ -285,7 +317,7 @@ const readExactGrantCandidates = async (
        receipt.approved_at,
        receipt.revision AS receipt_revision
      FROM public.service_principal_grants AS grant_row
-     JOIN public.economy_receipts AS receipt
+     JOIN receipt_page AS receipt
        ON receipt.receipt_id = grant_row.resource_id
      WHERE grant_row.service_principal_id = $1
        AND grant_row.client_id = $2
@@ -296,17 +328,21 @@ const readExactGrantCandidates = async (
        AND grant_row.start_at <= $5::timestamptz
        AND (grant_row.end_at IS NULL OR $5::timestamptz < grant_row.end_at)
        AND grant_row.revoked_at IS NULL
-     ORDER BY grant_row.resource_id ASC, grant_row.grant_id ASC`,
+     ORDER BY receipt.submitted_at DESC, receipt.receipt_id ASC, grant_row.grant_id ASC`,
     [
       credential.principal.servicePrincipalId,
       clientId,
       NATIVE_API_PROTECTED_RESOURCE,
       RECEIPT_APPROVAL_QUEUE_OPERATION,
       authorizationInstant,
+      after?.timestamp ?? null,
+      after?.receiptId ?? null,
+      RECEIPT_PAGE_SIZE + 1,
     ],
   );
 
   return result.rows.map((row) => ({
+    cursorTimestamp: row.cursor_timestamp,
     grant: decodePersistedGrant(row),
     receipt: Schema.decodeUnknownSync(ServicePrincipalReceiptCandidateSchema)(
       {
@@ -371,7 +407,9 @@ const readServicePrincipalRules = async (
 const readInCurrentSnapshot = async (
   pool: Pool,
   credential: AcceptedOAuthServiceCredential,
-  authorizationInstant: string,
+  authorizationInstant: AuthorizationInstant,
+  status: ReceiptStatus | undefined,
+  after: ReceiptCursorPosition | undefined,
 ): Promise<ServicePrincipalReceiptGrantAuthority> => {
   const client = await pool.connect();
 
@@ -380,29 +418,125 @@ const readInCurrentSnapshot = async (
     await acquireSharedAuthorizationLock(client);
     const clientId = await currentServiceBinding(client, credential, authorizationInstant);
 
-    const candidates = await readExactGrantCandidates(
-      client,
-      credential,
-      clientId,
-      authorizationInstant,
-    );
+    let position = after;
+    const visible: PositionedServiceCandidate[] = [];
+    const visibleIds = new Set<string>();
+    let fallback: ServicePrincipalReceiptGrantAuthority | undefined;
 
-    const rules = await readServicePrincipalRules(
-      client,
-      credential.principal.servicePrincipalId,
-      authorizationInstant,
-      candidates.map(({ receipt }) => receipt.receiptId),
-    );
-
-    const authority = {
+    const base = {
       servicePrincipalId: credential.principal.servicePrincipalId,
-      clientId: Schema.decodeUnknownSync(OAuthClientId)(clientId, {
-        onExcessProperty: "error",
-      }),
+      clientId: Schema.decodeUnknownSync(OAuthClientId)(clientId, { onExcessProperty: "error" }),
       protectedResource: NATIVE_API_PROTECTED_RESOURCE,
-      candidates,
-      rules,
-    } satisfies ServicePrincipalReceiptGrantAuthority;
+    };
+
+    let denied: ServicePrincipalReceiptGrantAuthority = { ...base, candidates: [], rules: [] };
+
+    while (visibleIds.size <= RECEIPT_PAGE_SIZE) {
+      const candidates = await readExactGrantCandidates(
+        client,
+        credential,
+        clientId,
+        authorizationInstant,
+        position,
+      );
+
+      if (candidates.length === 0) break;
+      const candidateIds = [...new Set(candidates.map(({ receipt }) => receipt.receiptId))];
+
+      const rules = await readServicePrincipalRules(
+        client,
+        credential.principal.servicePrincipalId,
+        authorizationInstant,
+        candidateIds,
+      );
+
+      const batch = { ...base, candidates, rules };
+
+      const evaluation = evaluateServicePrincipalReceiptApprovalAccess(
+        credential,
+        batch,
+        authorizationInstant,
+      );
+
+      if (Predicate.isTagged(evaluation, "Allow")) {
+        const allowed = new Set<string>(
+          evaluation.resolution.contexts.flatMap((context) =>
+            context.resource === null ? [] : [context.resource.id],
+          ),
+        );
+
+        if (fallback === undefined) {
+          const first = candidates.find((candidate) => allowed.has(candidate.receipt.receiptId))!;
+
+          const firstCandidates = candidates.filter(
+            (candidate) => candidate.receipt.receiptId === first.receipt.receiptId,
+          );
+
+          fallback = {
+            ...base,
+            candidates: firstCandidates,
+            rules: await readServicePrincipalRules(
+              client,
+              credential.principal.servicePrincipalId,
+              authorizationInstant,
+              [first.receipt.receiptId],
+            ),
+          };
+        }
+
+        for (const candidate of candidates) {
+          if (
+            !allowed.has(candidate.receipt.receiptId) ||
+            (status !== undefined && candidate.receipt.status !== status)
+          )
+            continue;
+
+          if (!visibleIds.has(candidate.receipt.receiptId) && visibleIds.size > RECEIPT_PAGE_SIZE)
+            break;
+          visibleIds.add(candidate.receipt.receiptId);
+          visible.push(candidate);
+        }
+      } else if (denied.candidates.length === 0) {
+        denied = batch;
+      }
+
+      if (candidateIds.length <= RECEIPT_PAGE_SIZE) break;
+      const last = candidates[candidates.length - 1]!;
+      position = { timestamp: last.cursorTimestamp, receiptId: last.receipt.receiptId };
+    }
+
+    let authority: ServicePrincipalReceiptGrantAuthority;
+
+    if (visible.length === 0) {
+      authority = fallback ?? denied;
+    } else {
+      const pageIds = [...visibleIds].slice(0, RECEIPT_PAGE_SIZE);
+      const retained = new Set(pageIds);
+      const candidates = visible.filter((candidate) => retained.has(candidate.receipt.receiptId));
+      const last = candidates[candidates.length - 1]!;
+      authority = {
+        ...base,
+        candidates: candidates.map(
+          ({ cursorTimestamp: _cursorTimestamp, ...candidate }) => candidate,
+        ),
+        rules: await readServicePrincipalRules(
+          client,
+          credential.principal.servicePrincipalId,
+          authorizationInstant,
+          pageIds,
+        ),
+      };
+
+      if (visibleIds.size > RECEIPT_PAGE_SIZE) {
+        authority = {
+          ...authority,
+          nextCursor: encodeReceiptCursor({
+            timestamp: last.cursorTimestamp,
+            receiptId: last.receipt.receiptId,
+          }),
+        };
+      }
+    }
 
     await client.query("COMMIT");
 
@@ -642,7 +776,7 @@ const mutateGrant = async <A>(
 export const makeServicePrincipalGrantAuthorityService = (
   pool: Pool,
 ): ServicePrincipalGrantAuthorityOperations => ({
-  readReceiptApprovalCandidates: (credential, authorizationInstant) =>
+  readReceiptApprovalCandidates: (credential, authorizationInstant, status, after) =>
     Schema.decodeUnknownEffect(AuthorizationInstant)(authorizationInstant, {
       onExcessProperty: "error",
     }).pipe(
@@ -654,15 +788,30 @@ export const makeServicePrincipalGrantAuthorityService = (
           }),
       ),
       Effect.flatMap((instant) =>
-        Effect.tryPromise({
-          try: () => readInCurrentSnapshot(pool, credential, instant),
-          catch: (cause) =>
-            cause instanceof ServicePrincipalGrantAuthorityError
-              ? cause
-              : new ServicePrincipalGrantAuthorityError({
-                  reason: "PersistenceFailure",
-                  message: "Service-principal grant authority read failed",
-                }),
+        Effect.gen(function* () {
+          const position =
+            after === undefined
+              ? undefined
+              : yield* decodeReceiptCursor(after).pipe(
+                  Effect.mapError(
+                    () =>
+                      new ServicePrincipalGrantAuthorityError({
+                        reason: "InvalidCredentialEvidence",
+                        message: "Receipt cursor is invalid",
+                      }),
+                  ),
+                );
+
+          return yield* Effect.tryPromise({
+            try: () => readInCurrentSnapshot(pool, credential, instant, status, position),
+            catch: (cause) =>
+              cause instanceof ServicePrincipalGrantAuthorityError
+                ? cause
+                : new ServicePrincipalGrantAuthorityError({
+                    reason: "PersistenceFailure",
+                    message: "Service-principal grant authority read failed",
+                  }),
+          });
         }),
       ),
     ),

@@ -1,8 +1,17 @@
+import { ReceiptPagination } from "@/components/receipts/ReceiptPagination";
 import { Predicate, Schema, Match } from "effect";
 import { ApprovalReceiptList } from "@/components/receipts/ApprovalReceiptList";
 import { Button } from "@/components/ui/button";
-import { isUnauthorizedError, mapApprovalReceiptError, mapApprovalReceiptView, type ReceiptApprovalFailure, type ReceiptApprovalIntent, type ReceiptStatus, ReceiptUiError } from "@/lib/receipt-view";
-import { ReceiptId } from "@vektorprogrammet/http-api"
+import {
+  isUnauthorizedError,
+  mapApprovalReceiptError,
+  mapApprovalReceiptView,
+  type ReceiptApprovalFailure,
+  type ReceiptApprovalIntent,
+  type ReceiptStatus,
+  ReceiptUiError,
+} from "@/lib/receipt-view";
+import { ReceiptId } from "@vektorprogrammet/http-api";
 import {
   IdempotencyKey,
   StrongETag,
@@ -67,7 +76,7 @@ function parseApprovalCommand(
       receiptId: receiptIdText,
       etag: etag === undefined ? undefined : etag,
       commandId: commandIdText,
-      error: ReceiptUiError.ReceiptDecodeError({message}),
+      error: ReceiptUiError.ReceiptDecodeError({ message }),
     },
   });
 
@@ -88,12 +97,16 @@ function parseApprovalCommand(
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
+  const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
   const requestedStatus = new URL(request.url).searchParams.get("status");
 
   if (requestedStatus !== null && !isReceiptStatus(requestedStatus)) {
-    const error: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({message: "Statusfilteret er ugyldig. Velg en status fra listen."});
+    const error: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({
+      message: "Statusfilteret er ugyldig. Velg en status fra listen.",
+    });
 
     return {
+      nextCursor: undefined,
       receipts: [],
       status: undefined,
       error,
@@ -104,12 +117,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const result = await client.receipts.listReceiptsForApproval({
-      query: status === undefined ? {} : { status },
+      query: { status, cursor },
     });
 
     return {
       receipts: result.body.items.map(mapApprovalReceiptView),
       status,
+      nextCursor: result.body.nextCursor,
       error: undefined,
     };
   } catch (error) {
@@ -118,6 +132,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
 
     return {
+      nextCursor: undefined,
       receipts: [],
       status,
       error: mapApprovalReceiptError(error),
@@ -132,7 +147,9 @@ export async function action({ request }: Route.ActionArgs) {
   const intentValue = readFormText(form, "_intent");
 
   if (intentValue !== "approve" && intentValue !== "reject" && intentValue !== "reopen") {
-    const actionError: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({message: "Ukjent behandling. Åpne bekreftelsen på nytt og prøv igjen."});
+    const actionError: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({
+      message: "Ukjent behandling. Åpne bekreftelsen på nytt og prøv igjen.",
+    });
 
     return { success: false as const, actionError };
   }
@@ -155,12 +172,11 @@ export async function action({ request }: Route.ActionArgs) {
       payload: {},
     };
 
-    const result =
-      await Match.value(command).pipe(
-Match.when({ intent: "approve" }, () => (client.receipts.approveReceipt(requestInput))),
-Match.when({ intent: "reopen" }, () => (client.receipts.reopenReceipt(requestInput))),
-Match.orElse(() => (client.receipts.rejectReceipt(requestInput)))
-);
+    const result = await Match.value(command).pipe(
+      Match.when({ intent: "approve" }, () => client.receipts.approveReceipt(requestInput)),
+      Match.when({ intent: "reopen" }, () => client.receipts.reopenReceipt(requestInput)),
+      Match.orElse(() => client.receipts.rejectReceipt(requestInput)),
+    );
 
     return {
       success: true as const,
@@ -247,6 +263,7 @@ export default function Utlegg() {
           </ul>
         </nav>
 
+        <ReceiptPagination nextCursor={loaderData.nextCursor} busy={navigation.state !== "idle"} />
         <ApprovalReceiptList
           receipts={loaderData.receipts}
           status={loaderData.status}

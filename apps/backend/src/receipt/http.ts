@@ -55,6 +55,7 @@ import {
   type ReceiptSettlementEvidence,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
+  decodeReceiptCursor,
 } from "@vektorprogrammet/domain/receipt";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -1193,43 +1194,16 @@ const cleanupStagedFile = (fileStore: ReceiptFileStore, staged: StagedReceiptFil
 
 const listOwnedV2 = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, R>) =>
   Effect.gen(function* () {
-    const selectedStatus = yield* Effect.try({
-      try: () => {
-        const entries = [...new URL(request.url).searchParams.entries()];
-
-        if (
-          entries.some(([name]) => name !== "status") ||
-          entries.filter(([name]) => name === "status").length > 1
-        ) {
-          throw new HttpSemanticFailure("request.malformed", 400);
-        }
-
-        const status = entries[0]?.[1];
-
-        if (status !== undefined && !isReceiptStatus(status)) {
-          throw new ReceiptDecodeError({ message: "invalid receipt status" });
-        }
-
-        return status;
-      },
-      catch: (cause) =>
-        cause instanceof HttpSemanticFailure ||
-        cause instanceof ReceiptDecodeError ||
-        cause instanceof UnauthenticatedActor ||
-        cause instanceof ReceiptNotFound ||
-        cause instanceof ReceiptPersistenceError
-          ? cause
-          : new Cause.UnknownError(cause),
-    });
+    const { status: selectedStatus, cursor } = yield* decodeReceiptListQuery(request);
 
     const principal = yield* authorizationPrincipalFor(request, options);
 
     const rows = yield* Economy.use(({ listOwnedReceipts }) =>
-      listOwnedReceipts(principal.personId, selectedStatus),
+      listOwnedReceipts(principal.personId, selectedStatus, cursor),
     );
 
     const items = yield* Effect.try({
-      try: () => rows.map(ownedReceiptResource),
+      try: () => rows.items.map(ownedReceiptResource),
       catch: (cause) =>
         cause instanceof HttpSemanticFailure ||
         cause instanceof ReceiptDecodeError ||
@@ -1240,7 +1214,11 @@ const listOwnedV2 = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, R
           : new Cause.UnknownError(cause),
     });
 
-    return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
+    return jsonResponse(
+      rows.nextCursor === undefined ? { items } : { items, nextCursor: rows.nextCursor },
+      200,
+      "private, no-store",
+    );
   });
 
 const submitV2 = <E, R>(
@@ -1905,39 +1883,40 @@ const settlementV2 = <E, R>(
     return response;
   });
 
-const decodeApprovalStatusFilter = (request: Request) =>
-  Effect.try({
-    try: () => {
-      const entries = [...new URL(request.url).searchParams.entries()];
-      const statusEntries = entries.filter(([name]) => name === "status");
+const decodeReceiptListQuery = (request: Request, allowStatus = true) =>
+  Effect.gen(function* () {
+    const query = yield* Effect.try({
+      try: () => {
+        const search = new URL(request.url).searchParams;
 
-      if (entries.some(([name]) => name !== "status") || statusEntries.length > 1) {
-        throw new HttpSemanticFailure("request.malformed", 400);
-      }
+        if (
+          [...search.keys()].some(
+            (key) => key !== "cursor" && !(allowStatus && key === "status"),
+          ) ||
+          search.getAll("status").length > 1 ||
+          search.getAll("cursor").length > 1
+        ) {
+          throw new HttpSemanticFailure("request.malformed", 400);
+        }
 
-      const status = statusEntries[0]?.[1];
+        const status = search.get("status") ?? undefined;
 
-      if (status === undefined) return undefined;
+        if (status !== undefined && !isReceiptStatus(status))
+          throw new HttpSemanticFailure("request.malformed", 400);
 
-      if (!isReceiptStatus(status)) {
-        throw new HttpSemanticFailure("request.malformed", 400);
-      }
+        return { status, cursor: search.get("cursor") ?? undefined };
+      },
+      catch: () => new HttpSemanticFailure("request.malformed", 400),
+    });
 
-      return status;
-    },
-    catch: (cause) =>
-      cause instanceof HttpSemanticFailure ||
-      cause instanceof ReceiptDecodeError ||
-      cause instanceof UnauthenticatedActor ||
-      cause instanceof ReceiptNotFound ||
-      cause instanceof ReceiptPersistenceError
-        ? cause
-        : new Cause.UnknownError(cause),
+    if (query.cursor !== undefined) yield* decodeReceiptCursor(query.cursor);
+
+    return query;
   });
 
 const approvalList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, R>) =>
   Effect.gen(function* () {
-    const status = yield* decodeApprovalStatusFilter(request);
+    const { status, cursor } = yield* decodeReceiptListQuery(request);
 
     const resolved =
       options.identity.resolveApprovalCredential === undefined
@@ -1959,7 +1938,7 @@ const approvalList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, 
 
       const authority = yield* ServicePrincipalGrantAuthority.use(
         ({ readReceiptApprovalCandidates }) =>
-          readReceiptApprovalCandidates(credential, resolved.authorizationInstant),
+          readReceiptApprovalCandidates(credential, resolved.authorizationInstant, status, cursor),
       ).pipe(
         Effect.catch(() =>
           Effect.fail(
@@ -2033,7 +2012,13 @@ const approvalList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, 
             : new Cause.UnknownError(cause),
       });
 
-      return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
+      return jsonResponse(
+        authority.nextCursor === undefined
+          ? { items }
+          : { items, nextCursor: authority.nextCursor },
+        200,
+        "private, no-store",
+      );
     }
 
     const principal =
@@ -2045,12 +2030,12 @@ const approvalList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, 
         : yield* authorizationPrincipalFor(request, options);
 
     const rows = yield* Economy.use(({ listReceiptsForApproval }) =>
-      listReceiptsForApproval(principal.personId, principal.authorizationInstant, status),
+      listReceiptsForApproval(principal.personId, principal.authorizationInstant, status, cursor),
     );
 
     const items = yield* Effect.try({
       try: () =>
-        rows.map((row) => {
+        rows.items.map((row) => {
           const amountOre = Number(row.amountOre);
 
           if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
@@ -2085,7 +2070,11 @@ const approvalList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, 
           : new Cause.UnknownError(cause),
     });
 
-    return jsonResponse({ items, totalItems: items.length }, 200, "private, no-store");
+    return jsonResponse(
+      rows.nextCursor === undefined ? { items } : { items, nextCursor: rows.nextCursor },
+      200,
+      "private, no-store",
+    );
   });
 
 const settlementEvidenceForFinance = <E, R>(
@@ -2124,30 +2113,16 @@ const settlementEvidenceForFinance = <E, R>(
 
 const settlementList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E, R>) =>
   Effect.gen(function* () {
-    yield* Effect.try({
-      try: () => {
-        if (new URL(request.url).search.length > 0) {
-          throw new HttpSemanticFailure("request.malformed", 400);
-        }
-      },
-      catch: (cause) =>
-        cause instanceof HttpSemanticFailure ||
-        cause instanceof ReceiptDecodeError ||
-        cause instanceof UnauthenticatedActor ||
-        cause instanceof ReceiptNotFound ||
-        cause instanceof ReceiptPersistenceError
-          ? cause
-          : new Cause.UnknownError(cause),
-    });
+    const { cursor } = yield* decodeReceiptListQuery(request, false);
     const principal = yield* authorizationPrincipalFor(request, options);
 
     const rows = yield* Economy.use(({ listReceiptsForSettlement }) =>
-      listReceiptsForSettlement(principal.personId, principal.authorizationInstant),
+      listReceiptsForSettlement(principal.personId, principal.authorizationInstant, cursor),
     );
 
     const items = yield* Effect.try({
       try: () =>
-        rows.map((row): typeof ReceiptSettlementQueueItem.Type => {
+        rows.items.map((row): typeof ReceiptSettlementQueueItem.Type => {
           const amountOre = Number(row.amountOre);
 
           if (
@@ -2187,7 +2162,9 @@ const settlementList = <E, R>(request: Request, options: ReceiptApiHttpOptions<E
           : new Cause.UnknownError(cause),
     });
 
-    return privateJsonResponse({ items, totalItems: items.length });
+    return privateJsonResponse(
+      rows.nextCursor === undefined ? { items } : { items, nextCursor: rows.nextCursor },
+    );
   });
 
 /**
