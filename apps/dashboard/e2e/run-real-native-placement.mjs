@@ -71,6 +71,20 @@ const environment = {
   GOLDEN_SCHOOL_SERVICE_REQUIRED: manifest.golden ? "1" : "0",
 };
 
+if (manifest.recruitment)
+  Object.assign(environment, {
+    HOME: join(manifest.artifacts, "homepage-state"),
+    XDG_CONFIG_HOME: join(manifest.artifacts, "homepage-state", "config"),
+    WRANGLER_LOG_PATH: join(manifest.artifacts, "homepage-state", "logs"),
+    WRANGLER_SEND_METRICS: "false",
+    WRANGLER_SEND_ERROR_REPORTS: "false",
+    WRANGLER_HIDE_BANNER: "true",
+    CLOUDFLARE_API_BASE_URL: "http://127.0.0.1:0",
+    CLOUDFLARE_CF_FETCH_ENABLED: "false",
+    CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
+    CI: "1",
+  });
+
 const secrets = Object.values(manifest.persons).map((person) => person.password);
 
 const sanitize = (value) =>
@@ -342,7 +356,7 @@ try {
         join(manifest.artifacts, "homepage-state"),
       ],
       root,
-      { ...environment, WRANGLER_SEND_METRICS: "false" },
+      environment,
     );
 
     homepage.stdout.on("data", (value) => {
