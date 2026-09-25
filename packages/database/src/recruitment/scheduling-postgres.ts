@@ -502,8 +502,11 @@ const lockInterviewNotificationWork = (sql: DatabaseOperations, interviewId: str
     yield* sql`SELECT effect_id FROM recruitment_invitation_response_outbox
       WHERE interview_id = ${interviewId} AND status IN ('Pending', 'Failed', 'Processing')
       ORDER BY effect_id FOR UPDATE`;
-  }).pipe(Effect.catchTag("SqlError", (cause) =>
-    Effect.fail(persistenceError("lock interview notification work", cause))));
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("lock interview notification work", cause)),
+    ),
+  );
 
 const CurrentSchedulingInvitationRowSchema = Schema.Struct({
   invitationId: RecruitmentInvitationId,
@@ -518,13 +521,18 @@ const SchedulingLifecycleRowSchema = Schema.Struct({
 
 const readSchedulingState = (sql: DatabaseOperations, interviewId: string) =>
   Effect.gen(function* () {
-    const invitations = yield* sql`SELECT invitation_id AS "invitationId", response_state AS "responseState"
+    const invitations =
+      yield* sql`SELECT invitation_id AS "invitationId", response_state AS "responseState"
       FROM recruitment_invitations WHERE interview_id = ${interviewId} AND superseded_at IS NULL
       FOR UPDATE`;
 
-    const current = invitations[0] === undefined
-      ? null
-      : yield* decode(CurrentSchedulingInvitationRowSchema, "current scheduling invitation")(invitations[0]);
+    const current =
+      invitations[0] === undefined
+        ? null
+        : yield* decode(
+            CurrentSchedulingInvitationRowSchema,
+            "current scheduling invitation",
+          )(invitations[0]);
 
     const rows = yield* sql`SELECT
       EXISTS (SELECT 1 FROM recruitment_interview_schedules WHERE interview_id = ${interviewId}) AS scheduled,
@@ -533,9 +541,16 @@ const readSchedulingState = (sql: DatabaseOperations, interviewId: string) =>
 
     const lifecycle = yield* decode(SchedulingLifecycleRowSchema, "scheduling lifecycle")(rows[0]);
 
-    return { ...lifecycle, invitationId: current?.invitationId ?? null, responseState: current?.responseState ?? null };
-  }).pipe(Effect.catchTag("SqlError", (cause) =>
-    Effect.fail(persistenceError("read scheduling lifecycle", cause))));
+    return {
+      ...lifecycle,
+      invitationId: current?.invitationId ?? null,
+      responseState: current?.responseState ?? null,
+    };
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read scheduling lifecycle", cause)),
+    ),
+  );
 
 const capabilityIsValid = (value: string): boolean => /^[A-Za-z0-9_-]{43}$/u.test(value);
 
@@ -555,7 +570,8 @@ const writeScheduleRows = (
     const scheduleRevision = interview.revision + 1;
 
     if (previousInvitationId !== null) {
-      const superseded = yield* sql`UPDATE recruitment_invitations SET superseded_at = ${context.now}
+      const superseded =
+        yield* sql`UPDATE recruitment_invitations SET superseded_at = ${context.now}
         WHERE invitation_id = ${previousInvitationId} AND superseded_at IS NULL
           AND response_state = 'RequestedNewTime' RETURNING invitation_id`;
 
@@ -704,7 +720,11 @@ const writeScheduleRows = (
         ),
       );
 
-    yield* sql`UPDATE public.recruitment_schedule_command_receipts SET envelope_sha256=${sha256Hex(canonicalJsonBytes(request))} WHERE command_id=${command.commandId} AND envelope_sha256 IS NULL`.pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("record invitation envelope provenance",cause))));
+    yield* sql`UPDATE public.recruitment_schedule_command_receipts SET envelope_sha256=${sha256Hex(canonicalJsonBytes(request))} WHERE command_id=${command.commandId} AND envelope_sha256 IS NULL`.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("record invitation envelope provenance", cause)),
+      ),
+    );
 
     yield* sql`
       INSERT INTO recruitment_invitation_outbox (
@@ -723,8 +743,11 @@ const writeScheduleRows = (
     );
 
     return observation;
-  }).pipe(Effect.catchTag("SqlError", (cause) =>
-    Effect.fail(persistenceError("write scheduled invitation generation", cause))));
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("write scheduled invitation generation", cause)),
+    ),
+  );
 
 const scheduleInTransaction = (
   command: RecruitmentScheduleCommand,

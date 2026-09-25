@@ -361,7 +361,8 @@ const validateEnvelope = (
       canonicalRows[0]?.receiptCommandJson,
     );
 
-    if (canonicalRows[0]?.superseded === true) return yield* reject("SupersededRecruitmentInvitation");
+    if (canonicalRows[0]?.superseded === true)
+      return yield* reject("SupersededRecruitmentInvitation");
 
     const decodedObservation = yield* decodeForClaim(RecruitmentScheduleObservationSchema)(
       canonicalRows[0]?.receiptObservationJson,

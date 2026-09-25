@@ -292,7 +292,8 @@ const validateEnvelope = (
       return yield* reject("AuthorityEnvelopeMismatch");
     }
 
-    if (canonicalRows[0]?.superseded === true) return yield* reject("SupersededRecruitmentInvitation");
+    if (canonicalRows[0]?.superseded === true)
+      return yield* reject("SupersededRecruitmentInvitation");
 
     const decodedCanonical = yield* decodeForClaim(CanonicalInvitationResponseRowSchema)(
       canonicalRows[0],

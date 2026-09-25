@@ -259,7 +259,9 @@ const recordInvitationResponse = (
     if (candidate === undefined) return yield* new RecruitmentInvitationNotFound({});
     // Serialize the response with schedule, cancellation, and staffing writers before row locks.
     yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${candidate.interviewId}, 0))`.pipe(
-      Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("lock invitation interview", cause))),
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("lock invitation interview", cause)),
+      ),
     );
     const row = yield* lockInvitationRow(sql, capabilitySha256);
 
@@ -370,7 +372,11 @@ const recordInvitationResponse = (
         Effect.mapError((cause) => new RecruitmentDecodeError({ message: String(cause) })),
       );
 
-      yield* sql`UPDATE public.recruitment_invitation_response_audit SET envelope_sha256=${sha256Hex(canonicalJsonBytes(request))} WHERE invitation_id=${row.invitationId} AND response_revision=${responseRevision} AND envelope_sha256 IS NULL`.pipe(Effect.catchTag("SqlError",(cause) => Effect.fail(persistenceError("record response envelope provenance",cause))));
+      yield* sql`UPDATE public.recruitment_invitation_response_audit SET envelope_sha256=${sha256Hex(canonicalJsonBytes(request))} WHERE invitation_id=${row.invitationId} AND response_revision=${responseRevision} AND envelope_sha256 IS NULL`.pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("record response envelope provenance", cause)),
+        ),
+      );
 
       yield* sql`
         INSERT INTO recruitment_invitation_response_outbox (

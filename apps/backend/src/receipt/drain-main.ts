@@ -2,9 +2,11 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
-import { deliverNextReceiptOutbox,
-listStaleReceiptOutboxClaimIds,
-recoverStaleReceiptOutbox, } from "@vektorprogrammet/database/receipt/postgres";
+import {
+  deliverNextReceiptOutbox,
+  listStaleReceiptOutboxClaimIds,
+  recoverStaleReceiptOutbox,
+} from "@vektorprogrammet/database/receipt/postgres";
 import { Predicate, Effect, Layer, Redacted, Schema } from "effect";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { decodeReceiptApiConfig } from "./config.js";
