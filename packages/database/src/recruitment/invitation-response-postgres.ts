@@ -1,5 +1,6 @@
 import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { Profile, type ProfileOperations } from "@vektorprogrammet/domain/profile";
 import { PersonId } from "@vektorprogrammet/domain/organization";
@@ -258,7 +259,7 @@ const recordInvitationResponse = (
 
     if (candidate === undefined) return yield* new RecruitmentInvitationNotFound({});
     // Serialize the response with schedule, cancellation, and staffing writers before row locks.
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${candidate.interviewId}, 0))`.pipe(
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(candidate.interviewId)).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("lock invitation interview", cause)),
       ),

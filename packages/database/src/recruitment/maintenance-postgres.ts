@@ -19,6 +19,7 @@ import {
   RecruitmentMaintenanceFailure,
   RecruitmentPersistenceError,
 } from "@vektorprogrammet/domain/recruitment";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   lockPersonAuthorization,
@@ -224,7 +225,7 @@ const authorizeWithSql = Effect.fn("Recruitment.authorizeMaintenance")(function*
     !departmentsFor(authority).includes(identity!.departmentId)
   )
     return yield* fail("Denied");
-  yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId},0))`;
+  yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId));
 });
 
 export const authorizeMaintenance = (command: RecruitmentMaintenanceCommand, personId: PersonId) =>
@@ -242,7 +243,10 @@ export const maintainRecruitment = (input: RecruitmentMaintenanceCommand, person
     return yield* sql.withTransaction(
       Effect.gen(function* () {
         yield* authorizeWithSql(sql, command, personId);
-        yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${"recruitment-maintenance:" + personId + ":" + command.commandId},0))`;
+        yield* lockAdvisory(
+          sql,
+          AdvisoryLockKey.recruitmentMaintenanceCommand(personId, command.commandId),
+        );
         const digest = sha256Hex(canonicalJsonBytes(command));
 
         const receipts = yield* sql<{

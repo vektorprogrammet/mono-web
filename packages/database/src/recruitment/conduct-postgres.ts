@@ -1,6 +1,7 @@
 import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { guardInterviewApplicantIdentity } from "./conduct-identity.js";
 import { Admissions, type AdmissionsOperations } from "@vektorprogrammet/domain/admissions";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   DepartmentId,
@@ -554,7 +555,7 @@ const authorizeAndLoad = (
       actorInput.personId,
     ).pipe(Effect.provideService(Database, sql));
     // Keep schedule and invitation observations on the same generation across these reads.
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${interviewId}, 0))`;
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(interviewId));
     const interview = yield* readInterview(sql, interviewId, lock);
 
     if (interview === undefined)
@@ -794,8 +795,8 @@ const finalizeInTransaction = (
     yield* guardInterviewApplicantIdentity(command.interviewId, context.actor.personId).pipe(
       Effect.provideService(Database, sql),
     );
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentCommand(command.commandId));
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId));
 
     const loaded = yield* authorizeAndLoad(
       sql,
@@ -882,8 +883,8 @@ const cancelInTransaction = (
     yield* guardInterviewApplicantIdentity(command.interviewId, context.actor.personId).pipe(
       Effect.provideService(Database, sql),
     );
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentCommand(command.commandId));
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId));
 
     const loaded = yield* authorizeAndLoad(
       sql,
@@ -969,8 +970,8 @@ const correctInTransaction = (
     yield* guardInterviewApplicantIdentity(command.interviewId, context.actor.personId).pipe(
       Effect.provideService(Database, sql),
     );
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`;
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`;
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentCommand(command.commandId));
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId));
 
     const loaded = yield* authorizeAndLoad(
       sql,
