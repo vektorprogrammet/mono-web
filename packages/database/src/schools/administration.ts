@@ -16,6 +16,7 @@ import {
   schoolManagementDepartments,
   canManageSchoolDepartments,
 } from "@vektorprogrammet/domain/schools";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   lockPersonAuthorization,
@@ -229,7 +230,7 @@ export const executeSchoolCommand = (input: SchoolCommand, personId: PersonId) =
     return yield* sql.withTransaction(
       Effect.gen(function* () {
         const authorized = yield* authorizeWithSql(sql, command, personId);
-        yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`schools-command:${personId}:${command.commandId}`},0))`;
+        yield* lockAdvisory(sql, AdvisoryLockKey.schoolsCommand(personId, command.commandId));
 
         const digest = sha256Hex(
           canonicalJsonBytes({ schema: "SchoolCommand/v1", personId, command }),
