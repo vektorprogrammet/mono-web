@@ -260,12 +260,22 @@ export const runTeamApplicationBrowser = async (
     throw new Error(`Timed out: ${label}`);
   };
 
-  const newContext = () =>
-    browser.newContext({
+  const pageErrors: Array<string> = [];
+
+  const newContext = async () => {
+    const context = await browser.newContext({
       viewport: { width: 1280, height: 900 },
       locale: "nb-NO",
       timezoneId: "Europe/Oslo",
     });
+
+    context.on("weberror", (error) => void pageErrors.push(`pageerror: ${error.error().message}`));
+    context.on("console", (message) => {
+      if (message.type() === "error") pageErrors.push(`console: ${message.text()}`.slice(0, 600));
+    });
+
+    return context;
+  };
 
   const api = (cookie: string | null, path: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
@@ -923,13 +933,22 @@ export const runTeamApplicationBrowser = async (
         return {
           url: page.url(),
           text: String(await page.evaluate("document.body.innerText").catch(() => "")).slice(0, 2_000),
+          element: String(
+            await page
+              .evaluate(
+                "(() => { const element = document.querySelector('vektor-team-applications'); return JSON.stringify({ defined: customElements.get('vektor-team-applications') !== undefined, html: element === null ? null : element.outerHTML.slice(0, 1500) }); })()",
+              )
+              .catch(() => ""),
+          ),
         };
       }),
     );
 
-    await writeFile(join(input.artifacts, "browser-failure.json"), JSON.stringify({ checks, observed }, null, 2), {
-      mode: 0o600,
-    }).catch(() => undefined);
+    await writeFile(
+      join(input.artifacts, "browser-failure.json"),
+      JSON.stringify({ checks, pageErrors, observed }, null, 2),
+      { mode: 0o600 },
+    ).catch(() => undefined);
 
     throw error;
   } finally {
