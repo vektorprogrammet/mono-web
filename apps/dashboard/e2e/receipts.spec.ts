@@ -1,4 +1,4 @@
-import { Data, Predicate } from "effect";
+import { Data, Predicate, Schema } from "effect";
 import { randomUUID } from "node:crypto";
 import { readdir, writeFile } from "node:fs/promises";
 import {
@@ -9,8 +9,13 @@ import {
   type Browser,
   type Page,
 } from "@playwright/test";
-
-import { z } from "zod";
+import {
+  NativeProblem,
+  ReceiptLifecycleEvidenceResponse,
+  ReceiptListResponse,
+  ReceiptResource,
+  UserProfileResponse,
+} from "@vektorprogrammet/http-api";
 import { dashboardBaseUrl, dashboardMount } from "../dashboard-base";
 
 type JourneyOutcome = Data.TaggedEnum<{
@@ -67,82 +72,18 @@ const RECEIPT_BYTES = Buffer.from(
   "base64",
 );
 
-const receiptProblemSchema = z
-  .object({
-    type: z.string(),
-    title: z.string(),
-    status: z.number().int(),
-    code: z.string(),
-    detail: z.string(),
-  })
-  .passthrough();
+// Responses decode with the API contract, so a contract change fails here instead of a copy.
+const exactDecoding = { onExcessProperty: "error" } as const;
 
-const receiptProjectionSchema = z
-  .object({
-    receiptId: z.string().min(1),
-    visualId: z.string().min(1),
-    ownerPersonId: z.string().min(1),
-    departmentId: z.string().min(1),
-    description: z.string().min(1),
-    amountOre: z.number().int().positive(),
-    currency: z.literal("NOK"),
-    receiptDate: z.string(),
-    status: z.enum(["Pending", "Approved", "Rejected", "Withdrawn"]),
-    revision: z.number().int().nonnegative(),
-    etag: z.string().regex(/^"vkr2\./u),
-  })
-  .strict();
+const decodeProblem = Schema.decodeUnknownSync(NativeProblem);
 
-const receiptResourceSchema = receiptProjectionSchema.extend({
-  submittedAt: z.string(),
-  approvedAt: z.string().nullable(),
-});
+const decodeReceiptResource = Schema.decodeUnknownSync(ReceiptResource);
 
-const receiptPageSchema = z
-  .object({
-    items: z.array(receiptProjectionSchema),
-    nextCursor: z.string().optional(),
-  })
-  .strict();
+const decodeReceiptPage = Schema.decodeUnknownSync(ReceiptListResponse);
 
-const lifecycleEvidenceSchema = z
-  .object({
-    receiptId: z.string().min(1),
-    file: z
-      .object({
-        fileRef: z.string().min(1),
-        objectKey: z.string().min(1),
-        contentType: z.string().min(1),
-        byteLength: z.number().int().positive(),
-        sha256: z.string().regex(/^[a-f0-9]{64}$/),
-      })
-      .strict(),
-    outbox: z.array(
-      z
-        .object({
-          effectId: z.string().min(1),
-          effectType: z.string().min(1),
-          commandId: z.string().min(1),
-          receiptId: z.string().min(1),
-          ordinal: z.number().int().nonnegative(),
-          status: z.string().min(1),
-          attempts: z.number().int().nonnegative(),
-          lastFailureTag: z.string().nullable(),
-        })
-        .strict(),
-    ),
-    audit: z.array(
-      z
-        .object({
-          commandId: z.string().min(1),
-          receiptId: z.string().min(1),
-          action: z.string().min(1),
-          receiptRevision: z.number().int().nonnegative(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
+const decodeLifecycleEvidence = Schema.decodeUnknownSync(ReceiptLifecycleEvidenceResponse);
+
+const decodeProfile = Schema.decodeUnknownSync(UserProfileResponse);
 
 interface ReceiptPersona {
   readonly personId: string;
@@ -235,12 +176,9 @@ async function authenticate(
   });
 
   expect(profileResponse.status()).toBe(200);
-  expect(
-    z
-      .object({ personId: z.string() })
-      .passthrough()
-      .parse(await profileResponse.json()),
-  ).toMatchObject({ personId: persona.personId });
+  expect(decodeProfile(await profileResponse.json(), exactDecoding)).toMatchObject({
+    personId: persona.personId,
+  });
 
   return cookie;
 }
@@ -318,7 +256,7 @@ async function captureLifecycleEvidence(
     throw new Error("Receipt lifecycle evidence roots are missing");
   }
 
-  const evidence = lifecycleEvidenceSchema.parse(await response.json());
+  const evidence = decodeLifecycleEvidence(await response.json(), exactDecoding);
 
   return {
     ...evidence,
@@ -336,7 +274,7 @@ async function expectProblemCode(
 ): Promise<string> {
   expect(response.status()).toBe(expectedStatus);
   expect(response.headers()["content-type"]).toContain("application/problem+json");
-  const problem = receiptProblemSchema.parse(await response.json());
+  const problem = decodeProblem(await response.json(), exactDecoding);
   expect(problem).toMatchObject({
     status: expectedStatus,
     code: expectedCode,
@@ -556,7 +494,7 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     expect(submitReplayResponse.status()).toBe(201);
-    const submitReplay = receiptResourceSchema.parse(await submitReplayResponse.json());
+    const submitReplay = decodeReceiptResource(await submitReplayResponse.json(), exactDecoding);
     expect(submitReplayResponse.headers()["etag"]).toBe(submitReplay.etag);
     expect(submitReplay).toMatchObject({
       receiptId,
@@ -569,7 +507,12 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     expect(ownedAtRevisionZeroResponse.status()).toBe(200);
-    const ownedAtRevisionZero = receiptPageSchema.parse(await ownedAtRevisionZeroResponse.json());
+
+    const ownedAtRevisionZero = decodeReceiptPage(
+      await ownedAtRevisionZeroResponse.json(),
+      exactDecoding,
+    );
+
     expect(ownedAtRevisionZero.items).toHaveLength(1);
     const revisionZero = ownedAtRevisionZero.items[0];
 
@@ -689,7 +632,12 @@ test.describe("Native Receipt owner journey", () => {
     );
 
     expect(replacementRetryResponse.status()).toBe(200);
-    const replacementRetry = receiptResourceSchema.parse(await replacementRetryResponse.json());
+
+    const replacementRetry = decodeReceiptResource(
+      await replacementRetryResponse.json(),
+      exactDecoding,
+    );
+
     expect(replacementRetryResponse.headers()["etag"]).toBe(replacementRetry.etag);
     expect(replacementRetry).toMatchObject({
       receiptId,
@@ -722,8 +670,9 @@ test.describe("Native Receipt owner journey", () => {
 
     expect(stableRevisionReplayResponse.status()).toBe(200);
 
-    const stableRevisionReplay = receiptResourceSchema.parse(
+    const stableRevisionReplay = decodeReceiptResource(
       await stableRevisionReplayResponse.json(),
+      exactDecoding,
     );
 
     expect(stableRevisionReplay).toMatchObject({
@@ -766,7 +715,10 @@ test.describe("Native Receipt owner journey", () => {
 
     expect(concurrentRevisionResponse.status()).toBe(200);
 
-    const concurrentRevision = receiptResourceSchema.parse(await concurrentRevisionResponse.json());
+    const concurrentRevision = decodeReceiptResource(
+      await concurrentRevisionResponse.json(),
+      exactDecoding,
+    );
 
     expect(concurrentRevisionResponse.headers()["etag"]).toBe(concurrentRevision.etag);
     expect(concurrentRevision).toMatchObject({
@@ -872,7 +824,12 @@ test.describe("Native Receipt owner journey", () => {
     );
 
     expect(withdrawalReplayResponse.status()).toBe(200);
-    const withdrawalReplay = receiptResourceSchema.parse(await withdrawalReplayResponse.json());
+
+    const withdrawalReplay = decodeReceiptResource(
+      await withdrawalReplayResponse.json(),
+      exactDecoding,
+    );
+
     expect(withdrawalReplayResponse.headers()["etag"]).toBe(withdrawalReplay.etag);
     expect(withdrawalReplay).toMatchObject({
       receiptId,
@@ -905,7 +862,7 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     expect(finalOwnedResponse.status()).toBe(200);
-    const finalOwned = receiptPageSchema.parse(await finalOwnedResponse.json());
+    const finalOwned = decodeReceiptPage(await finalOwnedResponse.json(), exactDecoding);
     expect(finalOwned.items).toHaveLength(1);
     expect(finalOwned.items[0]).toMatchObject({
       receiptId,
