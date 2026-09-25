@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   CreateOrganizationGlobalAdministratorGrantInputSchema,
@@ -81,25 +82,24 @@ const membershipFromRow = (
 
 export type OrganizationAuthorityRowLockMode = "None" | "ForShare";
 
-const PERSON_AUTHORIZATION_LOCK_NAMESPACE = "vektorprogrammet:person-authorization:v1";
-
-/** Acquire before any person lock when changing the usable administrator set. */
+/**
+ * Acquire before any person lock when changing the usable administrator set.
+ *
+ * @construct sql-lock
+ */
 export const lockOrganizationAdministratorSet = (sql: DatabaseOperations) =>
-  sql`SELECT pg_advisory_xact_lock(hashtextextended('vektorprogrammet:administrator-set:v1', 0))`.pipe(
-    Effect.asVoid,
-  );
+  lockAdvisory(sql, AdvisoryLockKey.administratorSet);
 
-/** Serializes one person's protected command with person-keyed authority writers. */
+/**
+ * Serializes one person's protected command with person-keyed authority writers.
+ *
+ * @construct sql-lock
+ */
 export const lockPersonAuthorization = (
   sql: DatabaseOperations,
   personId: PersonId,
 ): Effect.Effect<void, OrganizationPersistenceError> =>
-  sql`
-    SELECT pg_catalog.pg_advisory_xact_lock(
-      pg_catalog.hashtextextended(${`${PERSON_AUTHORIZATION_LOCK_NAMESPACE}:${personId}`}, 0)
-    )
-  `.pipe(
-    Effect.asVoid,
+  lockAdvisory(sql, AdvisoryLockKey.personAuthorization(personId)).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(
         new OrganizationPersistenceError({
