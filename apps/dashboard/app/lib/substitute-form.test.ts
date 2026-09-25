@@ -63,8 +63,8 @@ describe("substitute coordinator declarations", () => {
     expect(parseSubstituteForm(value)).not.toHaveProperty("payload");
   });
   it("distinguishes stale-version recovery from an unavailable service", () => {
-    expect(substituteFailure(makeNativeProblem("precondition.failed")).conflict).toBe(true);
-    expect(substituteFailure(makeNativeProblem("internal.error")).conflict).toBe(false);
+    expect(substituteFailure(Problem.fromWire({ code: "precondition.failed" }, {})).conflict).toBe(true);
+    expect(substituteFailure(Problem.fromWire({ code: "internal.error" }, {})).conflict).toBe(false);
   });
 });
 
@@ -72,14 +72,6 @@ it("labels canonical semesters with Norwegian dates rather than storage identifi
   expect(
     substituteSemesterLabel({ startAt: "2023-12-31T23:00:00Z", endAt: "2024-06-30T21:59:59Z" }),
   ).toBe("1. jan. 2024 – 30. juni 2024");
-});
-
-it("keeps explicit conflict recovery for the generated SDK's problem value", () => {
-  const problem = makeNativeProblem("precondition.failed");
-  const failed = Problem.fromWire(problem, {});
-
-  expect(substituteFailure(failed)).toEqual(substituteFailure(problem));
-  expect(substituteFailure(failed).conflict).toBe(true);
 });
 
 it("does not manufacture conflict or authority decisions from malformed error objects", () => {

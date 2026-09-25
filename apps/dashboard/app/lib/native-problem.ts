@@ -7,14 +7,19 @@ const decodeProblem = Schema.decodeUnknownOption(ProblemBody, { onExcessProperty
 
 export type NativeProblemSummary = typeof ProblemBody.Type;
 
-/** Decode a problem failed by the generated SDK or a canonical direct problem body. */
+/**
+ * Decode the `Problem` the generated SDK failed with. Pass the SDK cause unchanged:
+ * a copy, a re-decoded value, or any other problem-shaped object is not problem evidence.
+ */
 export const nativeProblemFrom = (cause: unknown): NativeProblemSummary | undefined =>
-  Option.getOrUndefined(decodeProblem(isProblem(cause) ? problemBody(cause) : cause));
+  isProblem(cause) ? Option.getOrUndefined(decodeProblem(problemBody(cause))) : undefined;
 
 /** Preserve transport failures and redirects while decoding native problem evidence. */
 export const nativeFailureFrom = (
   cause: unknown,
 ): Error | Response | NativeProblemSummary | undefined =>
-  !isProblem(cause) && (cause instanceof Error || cause instanceof Response)
-    ? cause
-    : nativeProblemFrom(cause);
+  isProblem(cause)
+    ? nativeProblemFrom(cause)
+    : cause instanceof Error || cause instanceof Response
+      ? cause
+      : undefined;
