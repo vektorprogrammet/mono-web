@@ -13,25 +13,37 @@ import {
 
 // The parent owns PostgreSQL, fixture, backend and credentials; this child owns dashboard and browser.
 const root = fileURLToPath(new URL("../../../", import.meta.url));
+
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const manifestPath = process.env.PLACEMENT_JOURNEY_MANIFEST;
+
 assert.ok(manifestPath, "PLACEMENT_JOURNEY_MANIFEST is required");
+
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+
 for (const origin of [manifest.backendOrigin, manifest.dashboardOrigin]) {
   const url = new URL(origin);
   assert.equal(url.hostname, "127.0.0.1");
   assert.equal(url.protocol, "http:");
 }
+
 const revision = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
+
 assert.equal(revision.status, 0);
+
 assert.equal(
   revision.stdout.trim(),
   manifest.revision,
   "browser must build manifest's exact revision",
 );
+
 const status = spawnSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
+
 assert.equal(status.status, 0);
+
 assert.equal(status.stdout.trim(), "", "browser requires a clean source tree");
+
 const environment = {
   ...Object.fromEntries(
     [
@@ -50,23 +62,33 @@ const environment = {
   API_URL: manifest.backendOrigin,
   VITE_API_URL: manifest.dashboardOrigin,
   DASHBOARD_ORIGIN: manifest.dashboardOrigin,
-  DASHBOARD_MOUNT: "/dashboard/",
+  DASHBOARD_MOUNT: manifest.recruitment ? "/" : "/dashboard/",
   HOST: "127.0.0.1",
   PORT: new URL(manifest.dashboardOrigin).port,
   NODE_ENV: "production",
   REAL_NATIVE_IDENTITY_E2E: "1",
+  LOCAL_HOMEPAGE_PORT: manifest.homepageOrigin ? new URL(manifest.homepageOrigin).port : undefined,
   GOLDEN_SCHOOL_SERVICE_REQUIRED: manifest.golden ? "1" : "0",
 };
+
 const secrets = Object.values(manifest.persons).map((person) => person.password);
+
 const sanitize = (value) =>
   secrets
     .reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), String(value))
+    .replace(/onboard_[a-f0-9]{64}/g, "[REDACTED]")
     .replace(/(authorization|cookie|set-cookie)([\s"':=]+)[^\r\n,}]+/gi, "$1$2[REDACTED]");
+
 const children = new Set();
+
 let commandSequence = 0;
+
 let output = "";
+
 let failure;
+
 let cleanupPromise;
+
 const start = (command, args, cwd) => {
   const child = spawn(command, args, {
     cwd,
@@ -74,17 +96,23 @@ const start = (command, args, cwd) => {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
+
   children.add(child);
+
   if (child.pid && process.env.GOLDEN_PROCESS_GROUPS_PATH)
     appendFileSync(process.env.GOLDEN_PROCESS_GROUPS_PATH, `${child.pid}\n`, { mode: 0o600 });
+
   return child;
 };
+
 const stop = async (child) => {
   if (!child?.pid) return;
+
   const exited =
     child.exitCode !== null || child.signalCode !== null
       ? Promise.resolve()
       : new Promise((resolve) => child.once("exit", resolve));
+
   const signal = (name) => {
     try {
       process.kill(-child.pid, name);
@@ -92,16 +120,20 @@ const stop = async (child) => {
       if (error.code !== "ESRCH") throw error;
     }
   };
+
   signal("SIGTERM");
   const timer = setTimeout(() => signal("SIGKILL"), 3000);
+
   try {
     await exited;
   } finally {
     clearTimeout(timer);
   }
+
   signal("SIGKILL");
   assert.ok(child.exitCode !== null || child.signalCode !== null, "owned child must have exited");
 };
+
 const run = (command, args, cwd) =>
   new Promise((resolve, reject) => {
     const logPath = join(manifest.artifacts, `dashboard-command-${++commandSequence}.log`);
@@ -126,21 +158,27 @@ const run = (command, args, cwd) =>
       );
     });
   });
+
 const cleanup = () =>
   (cleanupPromise ??= (async () => {
     const cleanupErrors = [];
+
     for (const result of await Promise.allSettled([...children].map(stop)))
       if (result.status === "rejected") cleanupErrors.push(sanitize(result.reason));
     const traces = [];
+
     for (const name of await readdir(manifest.artifacts)) {
       if (!/^private-trace-\d+\.zip$/.test(name)) continue;
       const path = join(manifest.artifacts, name);
+
       try {
         const extracted = spawnSync("unzip", ["-p", path, "*.trace", "*.network"], {
           encoding: "utf8",
           maxBuffer: 32 * 1024 * 1024,
         });
+
         assert.equal(extracted.status, 0, "failed to extract private diagnostic trace");
+
         for (const line of extracted.stdout.split("\n")) {
           if (!line.trim()) continue;
           const event = JSON.parse(line);
@@ -168,6 +206,7 @@ const cleanup = () =>
         }
       }
     }
+
     if (traces.length)
       await writeFile(
         join(manifest.artifacts, "browser-trace-sanitized.json"),
@@ -189,7 +228,7 @@ const cleanup = () =>
           exited: child.exitCode !== null || child.signalCode !== null,
         })),
         privateTracesRemoved: !(await readdir(manifest.artifacts)).some((name) =>
-          /^private-trace-/.test(name),
+          name.startsWith("private-trace-"),
         ),
         privateResultsRemoved: true,
         cleanupErrors,
@@ -197,8 +236,10 @@ const cleanup = () =>
       }),
       { mode: 0o600 },
     );
+
     if (cleanupErrors.length) throw new Error(cleanupErrors.join("; "));
   })());
+
 for (const signal of ["SIGTERM", "SIGINT"])
   process.once(signal, () => {
     failure ??= `Interrupted by ${signal}`;
@@ -207,6 +248,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
       () => process.exit(1),
     );
   });
+
 try {
   const reservation = createServer();
   await new Promise((resolve, reject) => {
@@ -216,10 +258,12 @@ try {
   await new Promise((resolve) => reservation.close(resolve));
   await run("bun", ["--no-env-file", "run", "build"], join(root, "packages/sdk"));
   await run("bun", ["--no-env-file", "run", "build"], dashboardRoot);
+
   const sourceTree = spawnSync("git", ["rev-parse", "HEAD^{tree}"], {
     cwd: root,
     encoding: "utf8",
   });
+
   assert.equal(sourceTree.status, 0);
   const files = await dashboardBuildInventory(root);
   await writeFile(
@@ -236,6 +280,7 @@ try {
     ),
     { mode: 0o600 },
   );
+
   const dashboard = start(
     "bun",
     [
@@ -247,6 +292,7 @@ try {
     ],
     dashboardRoot,
   );
+
   dashboard.stdout.on("data", (value) => {
     output += value;
   });
@@ -254,31 +300,85 @@ try {
     output += value;
   });
   const deadline = Date.now() + 30000;
+
   while (true) {
     if (dashboard.exitCode !== null) throw new Error(`Dashboard exited: ${sanitize(output)}`);
+
     try {
-      if ((await fetch(`${manifest.dashboardOrigin}/dashboard/login`)).ok) break;
+      if (
+        (
+          await fetch(
+            `${manifest.dashboardOrigin}${manifest.recruitment ? "/login" : "/dashboard/login"}`,
+          )
+        ).ok
+      )
+        break;
     } catch {}
+
     assert.ok(Date.now() < deadline, `Dashboard startup timed out: ${sanitize(output)}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+
+  if (manifest.recruitment) {
+    const homepage = start(
+      "bun",
+      [
+        "--no-env-file",
+        "run",
+        "dev",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        new URL(manifest.homepageOrigin).port,
+        "--strictPort",
+      ],
+      join(root, "apps/homepage"),
+    );
+
+    homepage.stdout.on("data", (value) => {
+      output += value;
+    });
+    homepage.stderr.on("data", (value) => {
+      output += value;
+    });
+    const readyBy = Date.now() + 30000;
+
+    while (true) {
+      assert.equal(homepage.exitCode, null, "homepage exited");
+
+      try {
+        if ((await fetch(manifest.homepageOrigin + "/assistenter")).ok) break;
+      } catch {}
+
+      assert.ok(Date.now() < readyBy, "homepage startup timed out");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
   const report = await run(
     environment.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
     [
       "node_modules/@playwright/test/cli.js",
       "test",
-      "e2e/native-placement.spec.ts",
+      manifest.recruitment
+        ? "e2e/native-recruitment-first-placement.spec.ts"
+        : "e2e/native-placement.spec.ts",
       "--project=chromium",
       "--workers=1",
       "--retries=0",
       "--reporter=json",
       "--grep",
-      manifest.golden ? "golden school-service continuous functional journey$" : "0096 placement,",
+      manifest.recruitment
+        ? "continuous recruitment to first placement$"
+        : manifest.golden
+          ? "golden school-service continuous functional journey$"
+          : "0096 placement,",
       "--output",
       join(manifest.artifacts, "playwright-private"),
     ],
     dashboardRoot,
   );
+
   const sanitized = sanitizePlaywrightArtifact(Buffer.from(report));
   assert.equal(
     JSON.parse(Buffer.from(sanitized).toString()).tests.length,
@@ -295,7 +395,9 @@ try {
 } finally {
   await cleanup();
 }
+
 if (failure) throw new Error(sanitize(failure));
+
 process.stdout.write(
   `${JSON.stringify({ passed: true, revision: manifest.revision, evidencePath: join(manifest.artifacts, "browser-evidence.json") })}\n`,
 );

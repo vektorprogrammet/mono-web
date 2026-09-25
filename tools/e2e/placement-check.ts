@@ -26,6 +26,15 @@ import {
 import { Predicate, Schema, Record as Rec } from "effect";
 import { createGoldenObserver, goldenSteps } from "./golden-school-service.mjs";
 import { goldenArtifactName, goldenRunnerPaths } from "./golden-school-service-evidence.mjs";
+import {
+  recruitmentSteps,
+  recruitmentRunnerPaths,
+  recruitmentFixture,
+  recruitmentPeople,
+  seedRecruitment,
+  createRecruitmentMailbox,
+  createRecruitmentObserver,
+} from "./golden-recruitment.mjs";
 
 const root = new URL("../../", import.meta.url).pathname;
 
@@ -71,9 +80,15 @@ const mode = process.argv[2];
 
 assert.ok(
   process.argv.length === 3 &&
-    ["--browser", "--api-only", "--golden-school-service"].includes(mode ?? ""),
-  "Usage: bun run tools/e2e/placement-check.ts --browser | --api-only | --golden-school-service",
+    ["--browser", "--api-only", "--golden-school-service", "--golden-recruitment"].includes(
+      mode ?? "",
+    ),
+  "Usage: bun run tools/e2e/placement-check.ts --browser | --api-only | --golden-school-service | --golden-recruitment",
 );
+
+const recruitment = mode === "--golden-recruitment";
+
+const recruitmentMailbox = createRecruitmentMailbox();
 
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
 
@@ -108,6 +123,7 @@ assert.ok(
 );
 
 const secrets = [
+  "synthetic-recruitment-provider",
   "journey-secret-0123456789abcdef",
   "synthetic-school-service-token",
   "synthetic-school-service-dispatch-token",
@@ -174,7 +190,7 @@ let notificationServer: HttpServer | undefined;
 
 let dispatchProviderFails = true;
 
-let checkpoint: ReturnType<typeof createGoldenObserver>["observe"] | undefined;
+let checkpoint: ((step: string) => Promise<object>) | undefined;
 
 let observations: Array<{ step: string }> = [];
 
@@ -314,7 +330,7 @@ const cleanup = () =>
     }
 
     const runnerSources = await Promise.all(
-      goldenRunnerPaths.map(async (path) => ({
+      (recruitment ? recruitmentRunnerPaths : goldenRunnerPaths).map(async (path) => ({
         path,
         sha256: createHash("sha256")
           .update(await readFile(join(root, path)))
@@ -324,8 +340,9 @@ const cleanup = () =>
 
     const receipt = {
       schema_version: "native-functional-journey/v1",
-      journey_ref_id:
-        mode === "--golden-school-service"
+      journey_ref_id: recruitment
+        ? "intent://golden-recruitment-first-placement"
+        : mode === "--golden-school-service"
           ? "intent://golden-school-service"
           : "intent://native-placement-broad",
       mono_revision_ref_id: "rev-" + revision,
@@ -393,6 +410,9 @@ try {
     const dashboardPort = await port();
     const notificationPort = await port();
     ownedPorts = [pgPort, backendPort, dashboardPort, notificationPort];
+    const homepagePort = recruitment ? await port() : undefined;
+
+    if (homepagePort) ownedPorts.push(homepagePort);
 
     const server = createHttpServer(async (request, response) => {
       if (request.method === "POST" && request.url?.startsWith("/observe/")) {
@@ -408,6 +428,12 @@ try {
           response.statusCode = 500;
           response.end(sanitize(String(error)));
         }
+
+        return;
+      }
+
+      if (recruitment) {
+        await recruitmentMailbox.handle(request, response);
 
         return;
       }
@@ -498,6 +524,8 @@ try {
       OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
       OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+      PASSWORD_RESET_DELIVERY_MODE: "disabled",
+      RECEIPT_DELIVERY_MODE: "disabled",
       JOURNEY_SEED_PG_URL: postgresUrl,
       SCHOOL_SERVICE_NOTIFICATION_MODE: "http",
       SCHOOL_SERVICE_NOTIFICATION_URL: `http://127.0.0.1:${notificationPort}/school-service`,
@@ -512,6 +540,20 @@ try {
       SCHOOL_SERVICE_DISPATCH_NOTIFICATION_STALE_MS: "1000",
       SCHOOL_SERVICE_DISPATCH_NOTIFICATION_TIMEOUT_MS: "2000",
     };
+
+    if (recruitment)
+      Object.assign(environment, {
+        RECRUITMENT_NOTIFICATION_MODE: "http",
+        RECRUITMENT_NOTIFICATION_URL: `http://127.0.0.1:${notificationPort}/recruitment`,
+        RECRUITMENT_NOTIFICATION_TOKEN: "synthetic-recruitment-provider",
+        RECRUITMENT_NOTIFICATION_POLL_MS: "25",
+        RECRUITMENT_NOTIFICATION_STALE_MS: "5000",
+        RECRUITMENT_NOTIFICATION_TIMEOUT_MS: "2000",
+        ONBOARDING_DELIVERY_URL: `http://127.0.0.1:${notificationPort}/onboarding`,
+        ONBOARDING_DELIVERY_TOKEN: "synthetic-recruitment-provider",
+        ONBOARDING_DELIVERY_TIMEOUT_MS: "2000",
+        ONBOARDING_DELIVERY_SENDER: "onboarding@example.invalid",
+      });
 
     secrets.push(environment.BETTER_AUTH_SECRET);
 
@@ -538,7 +580,17 @@ try {
     const volunteerId = "journey-rec-interviewer-a-0049";
     const wrongId = "journey-rec-interviewer-b-0049";
 
-    if (mode === "--golden-school-service") {
+    if (recruitment) {
+      run("bun", ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
+        ...environment,
+        IDENTITY_SEED_PG_URL: postgresUrl,
+        IDENTITY_SEED_PERSONS: JSON.stringify([
+          recruitmentPeople.leader,
+          recruitmentPeople.wrongDepartment,
+        ]),
+      });
+      await seedRecruitment(pool);
+    } else if (mode === "--golden-school-service") {
       run("bun", ["--no-env-file", "packages/database/runtime/identity-seed-main.ts"], {
         ...environment,
         IDENTITY_SEED_PG_URL: postgresUrl,
@@ -681,6 +733,47 @@ try {
       },
       candidate: { email: substitute.email, password: substitute.password },
     };
+
+    if (recruitment) {
+      const manifest = {
+        ...recruitmentFixture,
+        revision,
+        backendOrigin,
+        dashboardOrigin,
+        artifacts,
+        recruitment: true,
+        homepageOrigin: `http://127.0.0.1:${homepagePort}`,
+        observerOrigin: `http://127.0.0.1:${notificationPort}`,
+      };
+
+      const observer = createRecruitmentObserver(pool, recruitmentMailbox);
+      observations = observer.observations;
+      checkpoint = observer.observe;
+      await checkpoint("initial");
+      const manifestPath = join(artifacts, "manifest.json");
+      await writeFile(manifestPath, JSON.stringify(manifest), { mode: 0o600 });
+      await runAsync(
+        "bun",
+        ["--no-env-file", "apps/dashboard/e2e/run-real-native-placement.mjs"],
+        { ...safeEnvironment, PLACEMENT_JOURNEY_MANIFEST: manifestPath },
+        300_000,
+      );
+
+      const browserEvidence = JSON.parse(
+        await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
+      );
+
+      assert.equal(browserEvidence.passed, true);
+      assert.equal(browserEvidence.revision, revision);
+      assert.deepEqual(browserEvidence.steps, recruitmentSteps.slice(1));
+      assert.equal(
+        run("git", ["status", "--porcelain"]).trim(),
+        "",
+        "source changed during acceptance",
+      );
+      evidence = { passed: true, browser: browserEvidence, ...observer.finish() };
+      break journey;
+    }
 
     if (mode === "--golden-school-service") {
       const manifest = {
