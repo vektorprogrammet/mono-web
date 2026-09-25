@@ -4,6 +4,10 @@ Lifecycle: build
 
 ## Current
 
+The [reimbursement golden journey](docs/specs/reimbursement-golden-journey.md) is frozen for local implementation.
+It covers continuous browser acceptance, private-file custody, settlement authority, delivery recovery, and explicit resource bounds.
+The receipt guide and public-import example accompany this slice. Production and provider actions remain unauthorized.
+
 Documentation reconciled against source and retained local evidence on 2026-09-24.
 Production still uses legacy PHP. Local implementation and acceptance do not authorize replacement.
 
