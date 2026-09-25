@@ -24,6 +24,9 @@ It does not create applications, interviews, recommendations, invitations, appli
 
 A recommendation does not approve affiliation or create a placement.
 An account invitation does not create credentials before the applicant claims it.
+The delivered claim URL is a bearer capability. Its holder can link an existing account without changing that account email.
+The other-applicant checks use an actor without the main claim capability.
+That actor cannot read staff assessments or issue invitations. A consumed claim capability cannot be used again.
 An interview response is not an admission decision.
 This journey does not define a new accepted state, team recruitment policy, or no-show policy.
 
