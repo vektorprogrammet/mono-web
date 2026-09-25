@@ -44,14 +44,14 @@ export class ContactSsrSecurity extends HttpApiMiddleware.Service<ContactSsrSecu
 ) {}
 
 export const ContactProblem = problemUnion("ContactProblem", [
-  ["request.malformed", 400],
-  ["header.malformed", 400],
-  ["request.too-large", 413],
-  ["validation.failed", 422],
-  ["credential.invalid", 401],
-  ["rate-limit.exceeded", 429],
-  ["contact.unavailable", 503],
-  ["media-type.unsupported", 415],
+  "request.malformed",
+  "header.malformed",
+  "request.too-large",
+  "validation.failed",
+  "credential.invalid",
+  "rate-limit.exceeded",
+  "contact.unavailable",
+  "media-type.unsupported",
 ]);
 
 export const SubmitContactMessageEndpoint = HttpApiEndpoint.post(

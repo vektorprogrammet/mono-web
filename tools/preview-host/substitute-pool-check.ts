@@ -1,7 +1,12 @@
 import { SubstituteMutation } from "../../packages/domain/src/substitutes/schema.js";
 import { PublicApplicationIdSchema } from "../../packages/domain/src/application/schema.js";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
-import {IdempotencyIfMatchHeaders,  NativeProblem } from "../../packages/http-api/src/http-semantics.js";
+import {
+  IdempotencyIfMatchHeaders,
+  isProblem,
+  NativeProblem,
+  problemBody,
+} from "../../packages/http-api/src/http-semantics.js";
 /** 0094 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -363,8 +368,8 @@ try {
 
   for (const attempt of ["initial stale edit", "unchanged rejected retry"]) {
     await assert.rejects(sdk.substitutes.edit(staleCommand), (error) => {
-      assert.ok(Predicate.hasProperty(error, "body"), attempt);
-      const problem = Schema.decodeUnknownSync(NativeProblem)(error.body);
+      assert.ok(isProblem(error), attempt);
+      const problem = Schema.decodeUnknownSync(NativeProblem)(problemBody(error));
       assert.equal(problem.code, "precondition.failed", attempt);
       assert.equal(problem.status, 412, attempt);
 

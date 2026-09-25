@@ -1,4 +1,4 @@
-import { ContactMessage } from "@vektorprogrammet/http-api";
+import { ContactMessage, isProblem } from "@vektorprogrammet/http-api";
 import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 import { Match, Predicate, Effect, Schema } from "effect";
 import type { ContactMessagePayload, HomepageDepartment } from "./api-types";
@@ -140,15 +140,9 @@ export async function submitContactMessage(
           onSuccess: (): ContactActionData => ({ ok: true }),
           onFailure: (error): ContactActionData => ({
             ok: false,
-            message:
-              (error === null || Predicate.isObjectOrArray(error)) &&
-              error !== null &&
-              "body" in error &&
-              (error.body === null || Predicate.isObjectOrArray(error.body)) &&
-              error.body !== null &&
-              "code" in error.body
-                ? Match.value(error.body.code).pipe(Match.when("rate-limit.exceeded", () => "Du har sendt for mange meldinger. Prøv igjen senere." as const), Match.when("validation.failed", () => "Fyll ut alle feltene med gyldig informasjon." as const), Match.orElse(() => "Meldingen kunne ikke sendes. Prøv igjen senere." as const))
-                : "Meldingen kunne ikke sendes. Prøv igjen senere.",
+            message: isProblem(error)
+              ? Match.value(error.code).pipe(Match.when("rate-limit.exceeded", () => "Du har sendt for mange meldinger. Prøv igjen senere." as const), Match.when("validation.failed", () => "Fyll ut alle feltene med gyldig informasjon." as const), Match.orElse(() => "Meldingen kunne ikke sendes. Prøv igjen senere." as const))
+              : "Meldingen kunne ikke sendes. Prøv igjen senere.",
           }),
         }),
       ),

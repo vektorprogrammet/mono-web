@@ -26,7 +26,11 @@
 
 import assert from "node:assert/strict";
 import { Effect, Layer, Redacted, Schema, Predicate } from "effect";
-import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
+import {
+  isProblem,
+  NativeProblem,
+  problemBody,
+} from "../../packages/http-api/src/http-semantics.js";
 import { isDeepStrictEqual } from "node:util";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -1156,8 +1160,8 @@ export const runPreviewScenarioApplication = async (
         payload: {},
       }),
       (cause: unknown) => {
-        assert.ok(Predicate.hasProperty(cause, "body"));
-        const problem = Schema.decodeUnknownSync(NativeProblem)(cause.body);
+        assert.ok(isProblem(cause));
+        const problem = Schema.decodeUnknownSync(NativeProblem)(problemBody(cause));
         assert.equal(problem.status, 412);
         assert.equal(problem.code, "precondition.failed");
 

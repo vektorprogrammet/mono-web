@@ -8,6 +8,7 @@ import {
   makeNativeValidationError,
   type NativeProblemCode,
   type NativeValidationError,
+  normalizeValidationErrors,
   Sha256Hex,
   type StrongETag,
   type ValidationProblemCode,
@@ -722,17 +723,6 @@ export const responseFromCapsule = (capsule: HttpResponseCapsule): Response => {
     status: capsule.status,
     headers,
   });
-};
-
-/** Sorts and bounds safe validation diagnostics. */
-export const normalizeValidationErrors = (errors: ReadonlyArray<NativeValidationError>) => {
-  const sorted = [...errors].sort((left, right) => {
-    if (left.pointer !== right.pointer) return left.pointer < right.pointer ? -1 : 1;
-
-    return left.code < right.code ? -1 : left.code > right.code ? 1 : 0;
-  });
-
-  return { errors: sorted.slice(0, 32), truncated: sorted.length > 32 };
 };
 
 /** Rejects values that are not exact lowercase SHA-256 strings at persistence boundaries. */

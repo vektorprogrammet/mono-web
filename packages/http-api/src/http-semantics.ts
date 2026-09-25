@@ -3,7 +3,7 @@
  *
  * @since 0.2.0
  */
-import { Struct, Schema } from "effect";
+import { Data, ErrorReporter, Predicate, Struct, Schema, type Types } from "effect";
 import { HttpApiSchema } from "effect/unstable/httpapi";
 
 export { parseJsonWithUniqueMembers } from "@vektorprogrammet/domain/http-semantics";
@@ -1005,17 +1005,58 @@ export type ValidationProblemCode =
   | "validation.no-change"
   | "validation.field-not-deletable";
 
+type CodesAtStatus<Status extends number> = {
+  readonly [Code in NativeProblemCode]: (typeof NativeProblemRegistry)[Code]["status"] extends Status
+    ? Code
+    : never;
+}[NativeProblemCode];
+
+/** Codes answered with a `WWW-Authenticate` challenge, derived from the registry. */
+export type CredentialProblemCode = CodesAtStatus<401>;
+
+/** Codes whose problem carries nothing beyond its frozen registry entry. */
+export type PlainProblemCode = Exclude<
+  NativeProblemCode,
+  CredentialProblemCode | ValidationProblemCode | CodesAtStatus<429>
+>;
+
+const trailingProblemMembers = ["code", "instance", "validation"] as const;
+
+/**
+ * Orders body members as the frozen wire does: the registry entry's own member
+ * order, then `code`, `instance`, and `validation`. A Struct encoder emits its
+ * members in declaration order, so this order is the encoded order.
+ */
+const inWireOrder = <Fields extends Schema.Struct.Fields>(
+  code: NativeProblemCode,
+  fields: Fields,
+): Fields => {
+  const source: Readonly<Record<string, Schema.Constraint>> = fields;
+  const ordered: Record<string, Schema.Constraint> = {};
+
+  for (const member of [...Object.keys(NativeProblemRegistry[code]), ...trailingProblemMembers]) {
+    const field = source[member];
+
+    if (field !== undefined) ordered[member] = field;
+  }
+
+  // SAFETY: `ordered` holds exactly the members and schemas of `fields`; only their order differs.
+  return ordered as Fields;
+};
+
 const nativeProblemCoreSchema = <Code extends NativeProblemCode>(code: Code) => {
   const definition = NativeProblemRegistry[code];
 
-  return Schema.Struct({
-    type: Schema.Literal(definition.type),
-    title: Schema.Literal(definition.title),
-    status: Schema.Literal(definition.status),
-    code: Schema.Literal(code),
-    detail: Schema.Literal(definition.detail),
-    instance: Schema.optional(InstanceUrn),
-  }).pipe(HttpApiSchema.status(definition.status));
+  return Schema.Struct(
+    inWireOrder(code, {
+      type: Schema.Literal(definition.type),
+      title: Schema.Literal(definition.title),
+      status: Schema.Literal(definition.status),
+      code: Schema.Literal(code),
+      detail: Schema.Literal(definition.detail),
+      instance: Schema.optional(InstanceUrn),
+    }),
+  ).pipe(HttpApiSchema.status(definition.status));
 };
 
 const problemCodes = Struct.keys(NativeProblemRegistry);
@@ -1042,15 +1083,17 @@ const validationBody = Schema.Struct({
 export const validationProblemSchema = <Code extends ValidationProblemCode>(code: Code) => {
   const definition = NativeProblemRegistry[code];
 
-  return Schema.Struct({
-    type: Schema.Literal(definition.type),
-    title: Schema.Literal(definition.title),
-    status: Schema.Literal(definition.status),
-    code: Schema.Literal(code),
-    detail: Schema.Literal(definition.detail),
-    instance: Schema.optional(InstanceUrn),
-    validation: validationBody,
-  }).pipe(HttpApiSchema.status(definition.status));
+  return Schema.Struct(
+    inWireOrder(code, {
+      type: Schema.Literal(definition.type),
+      title: Schema.Literal(definition.title),
+      status: Schema.Literal(definition.status),
+      code: Schema.Literal(code),
+      detail: Schema.Literal(definition.detail),
+      instance: Schema.optional(InstanceUrn),
+      validation: validationBody,
+    }),
+  ).pipe(HttpApiSchema.status(definition.status));
 };
 
 /** The only public extension for semantic validation failures. */
@@ -1061,8 +1104,6 @@ export const ValidationProblem = Schema.Union([
 ]).annotate({ identifier: "ValidationProblem" });
 
 export type ValidationProblem = typeof ValidationProblem.Type;
-
-export type ProblemDescriptor = readonly [code: NativeProblemCode, status: number];
 
 /** Creates one fixed RFC 9457 core variant from the frozen registry. */
 export const nativeProblemSchema = <Code extends NativeProblemCode>(
@@ -1083,50 +1124,329 @@ const isValidationProblemCode = (code: NativeProblemCode): code is ValidationPro
   code === "validation.no-change" ||
   code === "validation.field-not-deletable";
 
-/** Creates a closed endpoint-specific Problem Details union. */
-export const problemUnion = (identifier: string, descriptors: ReadonlyArray<ProblemDescriptor>) => {
-  const unique = [
-    ...new Map(descriptors.map((descriptor) => [descriptor[0], descriptor])).values(),
-  ];
+type ProblemBodySchema<Code extends NativeProblemCode> = Code extends ValidationProblemCode
+  ? ReturnType<typeof validationProblemSchema<Code>>
+  : ReturnType<typeof nativeProblemCoreSchema<Code>>;
 
-  if (unique.length === 0) throw new Error(`${identifier} must contain at least one problem`);
+/** One wire-ordered variant; a validation code carries its mandatory extension. */
+function problemVariant<Code extends NativeProblemCode>(code: Code): ProblemBodySchema<Code>;
+function problemVariant(code: NativeProblemCode) {
+  return isValidationProblemCode(code)
+    ? validationProblemSchema(code)
+    : nativeProblemCoreSchema(code);
+}
 
-  const schemas = unique.map(([code, status]) => {
-    const definition = NativeProblemRegistry[code];
+/**
+ * Creates a closed endpoint-specific Problem Details union. The registry owns
+ * every status, and the union keeps each declared code as a literal.
+ */
+export const problemUnion = <
+  const Codes extends readonly [NativeProblemCode, ...ReadonlyArray<NativeProblemCode>],
+>(
+  identifier: string,
+  codes: Codes,
+) => {
+  // Array methods on `Codes` resolve through its constraint; the element view keeps the literals.
+  const declared: ReadonlyArray<Codes[number]> = codes;
 
-    if (definition.status !== status) {
-      throw new Error(
-        `${identifier} declares ${code} at ${status}; registry requires ${definition.status}`,
-      );
-    }
-
-    return isValidationProblemCode(code)
-      ? validationProblemSchema(code)
-      : nativeProblemCoreSchema(code);
-  });
-
-  const union = Schema.Union(schemas).annotate({
+  return Schema.Union([...new Set(declared)].map(problemVariant)).annotate({
     identifier,
     title: identifier,
     description: `Closed RFC 9457 error union for ${identifier}.`,
   });
+};
 
-  // The variants above are rebuilt only from this module's service-free codecs.
-  return union;
+export type NativeValidationDetails = typeof validationBody.Type;
+
+/** Sorts and bounds safe validation diagnostics in the frozen order. */
+export const normalizeValidationErrors = (
+  errors: ReadonlyArray<NativeValidationError>,
+): NativeValidationDetails => {
+  const sorted = [...errors].sort((left, right) => {
+    if (left.pointer !== right.pointer) return left.pointer < right.pointer ? -1 : 1;
+
+    return left.code < right.code ? -1 : left.code > right.code ? 1 : 0;
+  });
+
+  return { errors: sorted.slice(0, 32), truncated: sorted.length > 32 };
+};
+
+const CredentialPresentationTypeId = "~@vektorprogrammet/http-api/CredentialPresentation";
+
+/** Ingress found no credential on the request. */
+export interface CredentialAbsent {
+  readonly [CredentialPresentationTypeId]: "Absent";
+  readonly challenge: string;
+}
+
+/** Ingress found a credential on the request, whatever its validity. */
+export interface CredentialPresented {
+  readonly [CredentialPresentationTypeId]: "Presented";
+  readonly challenge: string;
+}
+
+export type CredentialPresentation = CredentialAbsent | CredentialPresented;
+
+/**
+ * Records, once at ingress, whether the request carried credential material.
+ * Only this evidence can produce a credential problem.
+ */
+export const credentialPresentation = (input: {
+  readonly presented: boolean;
+  readonly challenge: string;
+}): CredentialPresentation =>
+  input.presented
+    ? { [CredentialPresentationTypeId]: "Presented", challenge: input.challenge }
+    : { [CredentialPresentationTypeId]: "Absent", challenge: input.challenge };
+
+const ProblemTypeId = "~@vektorprogrammet/http-api/Problem";
+
+interface ProblemMembers<Code extends NativeProblemCode> {
+  readonly code: Code;
+  readonly instance?: string;
+  /** The `WWW-Authenticate` challenge of a credential problem. */
+  readonly challenge?: string;
+  /** The `Retry-After` delay of a rate-limit problem. */
+  readonly retryAfter?: string;
+  readonly validation?: NativeValidationDetails;
+}
+
+/** The body members a client needs to rebuild a problem it decoded. */
+export interface WireProblemBody<Code extends NativeProblemCode> {
+  readonly code: Code;
+  readonly instance?: string | undefined;
+  readonly validation?: NativeValidationDetails;
+}
+
+/** The response headers that carry problem members. */
+export interface WireProblemHeaders {
+  readonly "www-authenticate"?: string;
+  readonly "retry-after"?: string;
+}
+
+/**
+ * One RFC 9457 failure in an Effect error channel. The registry owns its type,
+ * title, status, and detail; the static constructors require exactly the
+ * members its code needs, so no call site passes a status or picks a
+ * credential code by string.
+ */
+export class Problem<const Code extends NativeProblemCode = NativeProblemCode> extends Data.Error<
+  ProblemMembers<Code>
+> {
+  readonly _tag = "Problem";
+
+  readonly [ProblemTypeId] = ProblemTypeId;
+
+  private constructor(members: ProblemMembers<Code>) {
+    super(members);
+  }
+
+  get status(): (typeof NativeProblemRegistry)[Code]["status"] {
+    return NativeProblemRegistry[this.code].status;
+  }
+
+  /** Expected client failures are answered, not reported as server faults. */
+  override get [ErrorReporter.ignore](): boolean {
+    return this.status < 500;
+  }
+
+  static make<const C extends PlainProblemCode>(
+    code: C,
+    options?: { readonly instance?: string },
+  ): Problem<C> {
+    return new Problem<C>(
+      options?.instance === undefined ? { code } : { code, instance: options.instance },
+    );
+  }
+
+  static validation<const C extends ValidationProblemCode>(
+    code: C,
+    errors: ReadonlyArray<NativeValidationError>,
+  ): Problem<C> {
+    return new Problem<C>({ code, validation: normalizeValidationErrors(errors) });
+  }
+
+  static rateLimited(retryAfterSeconds: number): Problem<CodesAtStatus<429>> {
+    if (!Number.isInteger(retryAfterSeconds) || retryAfterSeconds < 1 || retryAfterSeconds > 3600) {
+      throw new RangeError("Retry-After must be 1 through 3600 seconds");
+    }
+
+    return new Problem({ code: "rate-limit.exceeded", retryAfter: String(retryAfterSeconds) });
+  }
+
+  static credentialMissing(evidence: CredentialAbsent): Problem<"credential.missing"> {
+    return new Problem({ code: "credential.missing", challenge: evidence.challenge });
+  }
+
+  static credentialInvalid(evidence: CredentialPresented): Problem<"credential.invalid"> {
+    return new Problem({ code: "credential.invalid", challenge: evidence.challenge });
+  }
+
+  /** Answers a failed authentication from the ingress evidence alone. */
+  static unauthenticated(
+    presentation: CredentialPresentation,
+  ): Problem<"credential.missing"> | Problem<"credential.invalid"> {
+    return presentation[CredentialPresentationTypeId] === "Absent"
+      ? Problem.credentialMissing(presentation)
+      : Problem.credentialInvalid(presentation);
+  }
+
+  /** Rebuilds a problem decoded from the wire by a generated client. */
+  static fromWire<const C extends NativeProblemCode>(
+    body: WireProblemBody<C>,
+    headers: WireProblemHeaders,
+  ): Problem<C> {
+    const members: Types.Mutable<ProblemMembers<C>> = { code: body.code };
+    const status: number = NativeProblemRegistry[body.code].status;
+
+    if (body.instance !== undefined) members.instance = body.instance;
+
+    if (body.validation !== undefined) members.validation = body.validation;
+
+    if (status === 401 && headers["www-authenticate"] !== undefined)
+      members.challenge = headers["www-authenticate"];
+
+    if (status === 429 && headers["retry-after"] !== undefined)
+      members.retryAfter = headers["retry-after"];
+
+    return new Problem<C>(members);
+  }
+}
+
+export const isProblem = (u: unknown): u is Problem => Predicate.hasProperty(u, ProblemTypeId);
+
+/** The frozen RFC 9457 body of one problem. */
+export interface ProblemWireRecord extends FrozenProblemDefinition {
+  readonly code: NativeProblemCode;
+  readonly instance?: string;
+  readonly validation?: NativeValidationDetails;
+}
+
+/** The frozen RFC 9457 body: the registry entry, then code, instance, and validation. */
+export const problemBody = (problem: Problem): ProblemWireRecord => {
+  const body: Types.Mutable<ProblemWireRecord> = {
+    ...NativeProblemRegistry[problem.code],
+    code: problem.code,
+  };
+
+  if (problem.instance !== undefined) body.instance = problem.instance;
+
+  if (problem.validation !== undefined) body.validation = problem.validation;
+
+  return body;
+};
+
+/** The headers every rendering of a problem carries. CORS `Vary` belongs to the ingress. */
+export type ProblemHeaderValues = {
+  readonly "cache-control": "no-store";
+  readonly "www-authenticate"?: string;
+  readonly "retry-after"?: string;
+};
+
+export const problemHeaders = (problem: Problem): ProblemHeaderValues => {
+  const headers: Types.Mutable<ProblemHeaderValues> = { "cache-control": "no-store" };
+
+  const retryAfter =
+    problem.code === "idempotency.in-flight"
+      ? "1"
+      : problem.status === 503
+        ? "5"
+        : problem.retryAfter;
+
+  if (problem.challenge !== undefined) headers["www-authenticate"] = problem.challenge;
+
+  if (retryAfter !== undefined) headers["retry-after"] = retryAfter;
+
+  return headers;
+};
+
+/** Problem bodies and headers are built from service-free codecs. */
+type ProblemWireSchema = Schema.Codec<unknown, unknown>;
+
+interface ProblemHeaderFields {
+  readonly [header: PropertyKey]: ProblemWireSchema;
+}
+
+/** The declared response for every problem of one status, typed by its codes. */
+export interface ProblemResponse<
+  Code extends NativeProblemCode,
+> extends HttpApiSchema.encodeToWithHeaders<
+  Schema.declare<Problem<Code>>,
+  ProblemWireSchema,
+  ProblemHeaderFields
+> {}
+
+interface ProblemVariant extends ProblemWireSchema {
+  readonly fields: {
+    readonly status: { readonly literal: number };
+    readonly code: { readonly literal: NativeProblemCode };
+  };
+}
+
+interface ProblemUnionSchema extends ProblemWireSchema {
+  readonly members: ReadonlyArray<ProblemVariant>;
+  readonly Type: { readonly code: NativeProblemCode };
+}
+
+/** Folds every problem of one status and its response headers into one encoder. */
+const problemResponse = <Code extends NativeProblemCode>(
+  status: number,
+  body: ProblemWireSchema,
+  codes: ReadonlySet<NativeProblemCode>,
+  cors: boolean,
+): ProblemResponse<Code> => {
+  const headers: Array<readonly [string, ProblemWireSchema]> = [["cache-control", NoStore]];
+
+  if (cors) headers.push(["vary", OriginVary]);
+
+  if (status === 401) headers.push(["www-authenticate", Schema.String]);
+
+  if (codes.has("idempotency.in-flight"))
+    headers.push(["retry-after", Schema.optional(Schema.Literal("1"))]);
+
+  if (status === 429) headers.push(["retry-after", RetryAfterSeconds]);
+
+  if (status === 503) headers.push(["retry-after", Schema.Literal("5")]);
+
+  const wireBody: ProblemWireSchema = body.pipe(
+    HttpApiSchema.status(status),
+    HttpApiSchema.asJson({ contentType: "application/problem+json" }),
+  );
+
+  const wireHeaders: ProblemHeaderFields = Object.fromEntries(headers);
+
+  return Schema.declare((u): u is Problem<Code> => isProblem(u) && codes.has(u.code)).pipe(
+    HttpApiSchema.encodeToWithHeaders(
+      { body: wireBody, headers: wireHeaders },
+      {
+        decode: ({ body: decoded, headers: received }) => {
+          // SAFETY: the body schema above decoded one declared problem variant of this status.
+          const wire = decoded as WireProblemBody<Code>;
+          // SAFETY: the header schemas above decoded this status's problem headers.
+          const receivedHeaders = received as WireProblemHeaders;
+
+          return Problem.fromWire(wire, receivedHeaders);
+        },
+        encode: (problem) => ({
+          body: problemBody(problem),
+          headers: cors ? { ...problemHeaders(problem), vary: "Origin" } : problemHeaders(problem),
+        }),
+      },
+    ),
+  );
 };
 
 /**
  * Splits an endpoint-specific Problem union into status-bearing response
- * schemas. Effect resolves an HTTP status only from the outer schema, so a
- * plain union of annotated variants would collapse to the default 500.
+ * schemas. Effect resolves an HTTP status only from the outer schema, and
+ * permits one header-carrying response per status, so each status folds its
+ * problems and their headers into one encoder.
  */
-export const endpointProblemResponses = (
-  problem: ReturnType<typeof problemUnion>,
+export const endpointProblemResponses = <const Union extends ProblemUnionSchema>(
+  problem: Union,
   options?: { readonly cors?: boolean },
-) => {
-  type ProblemVariant = (typeof problem.members)[number];
-
-  const grouped = new Map<number, ProblemVariant[]>();
+): ReadonlyArray<ProblemResponse<Union["Type"]["code"]>> => {
+  const grouped = new Map<number, Array<ProblemVariant>>();
 
   for (const member of problem.members) {
     const status = member.fields.status.literal;
@@ -1136,38 +1456,34 @@ export const endpointProblemResponses = (
     else bucket.push(member);
   }
 
-  const inFlightRetryAfter = Schema.optional(Schema.Literal("1"));
-  const unavailableRetryAfter = Schema.Literal("5");
+  return [...grouped].map(([status, variants]) =>
+    problemResponse(
+      status,
+      Schema.Union(variants),
+      new Set(variants.map((variant) => variant.fields.code.literal)),
+      options?.cors !== false,
+    ),
+  );
+};
 
-  type ProblemHeader =
-    | typeof NoStore
-    | typeof OriginVary
-    | typeof Schema.String
-    | typeof inFlightRetryAfter
-    | typeof RetryAfterSeconds
-    | typeof unavailableRetryAfter;
+/** One response for a union whose problems share a status; the union keeps its identity. */
+export const problemStatusResponse = <const Union extends ProblemUnionSchema>(
+  problem: Union,
+  options?: { readonly cors?: boolean },
+): ProblemResponse<Union["Type"]["code"]> => {
+  const statuses = new Set(problem.members.map((member) => member.fields.status.literal));
+  const [status] = statuses;
 
-  return [...grouped].map(([status, variants]) => {
-    const headers: Array<readonly [string, ProblemHeader]> = [["cache-control", NoStore]];
+  if (status === undefined || statuses.size !== 1) {
+    throw new Error("problemStatusResponse requires problems of exactly one status");
+  }
 
-    if (options?.cors !== false) headers.push(["vary", OriginVary]);
-
-    if (status === 401) headers.push(["www-authenticate", Schema.String]);
-
-    if (variants.some((variant) => variant.fields.code.literal === "idempotency.in-flight"))
-      headers.push(["retry-after", inFlightRetryAfter]);
-
-    if (status === 429) headers.push(["retry-after", RetryAfterSeconds]);
-
-    if (status === 503) headers.push(["retry-after", unavailableRetryAfter]);
-
-    const body = Schema.Union(variants).pipe(
-      HttpApiSchema.status(status),
-      HttpApiSchema.asJson({ contentType: "application/problem+json" }),
-    );
-
-    return HttpApiSchema.WithHeaders(body, Object.fromEntries(headers));
-  });
+  return problemResponse(
+    status,
+    problem,
+    new Set(problem.members.map((member) => member.fields.code.literal)),
+    options?.cors !== false,
+  );
 };
 
 /** Builds one safe fixed public problem value. */

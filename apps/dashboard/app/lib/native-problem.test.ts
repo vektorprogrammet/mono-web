@@ -1,16 +1,19 @@
-import { makeNativeProblem, makeNativeValidationError } from "@vektorprogrammet/http-api";
+import {
+  makeNativeProblem,
+  makeNativeValidationError,
+  type NativeProblemCode,
+  Problem,
+} from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
-import { nativeProblemFrom } from "./native-problem";
+import { nativeFailureFrom, nativeProblemFrom } from "./native-problem";
 import {
   isAdmissionPeriodUnauthorizedError,
   mapAdmissionPeriodError,
 } from "./admission-period-view";
 import { isUnauthorizedError, mapOwnedReceiptError, mapApprovalReceiptError } from "./receipt-view";
 
-const envelope = <Body>(body: Body) => ({
-  body,
-  headers: { "cache-control": "no-store", vary: "Origin" },
-});
+/** The value the generated SDK fails with after decoding a declared problem response. */
+const sdkProblem = (code: NativeProblemCode) => Problem.fromWire({ code }, {});
 
 const validation = (pointer: string) => ({
   ...makeNativeProblem("validation.failed"),
@@ -18,28 +21,34 @@ const validation = (pointer: string) => ({
 });
 
 describe("canonical SDK problem projection", () => {
-  it("preserves authorization and conflict decisions through the SDK response envelope", () => {
-    const denied = envelope(makeNativeProblem("credential.invalid"));
+  it("preserves authorization and conflict decisions through the SDK problem value", () => {
+    const denied = sdkProblem("credential.invalid");
     expect(isAdmissionPeriodUnauthorizedError(denied)).toBe(true);
     expect(isUnauthorizedError(denied)).toBe(true);
-    const stale = envelope(makeNativeProblem("precondition.failed"));
+    const stale = sdkProblem("precondition.failed");
     expect(mapAdmissionPeriodError(stale)._tag).toBe("StaleAdmissionPeriodRevision");
     expect(mapOwnedReceiptError(stale)._tag).toBe("StaleReceiptRevision");
     expect(mapApprovalReceiptError(stale)._tag).toBe("StaleReceiptRevision");
   });
+  it("decodes an SDK problem as its wire body, not as a transport failure", () => {
+    expect(nativeFailureFrom(sdkProblem("idempotency.in-flight"))).toEqual(
+      makeNativeProblem("idempotency.in-flight"),
+    );
+    expect(nativeFailureFrom(new TypeError("Network unavailable"))).toBeInstanceOf(TypeError);
+  });
   it("preserves canonical validation pointers for existing field messages", () => {
-    expect(mapAdmissionPeriodError(envelope(validation("/endAt"))).field).toBe("endAt");
-    expect(mapOwnedReceiptError(envelope(validation("/amountOre"))).field).toBe("amountNok");
+    const endAt = validation("/endAt");
+    const amount = validation("/amountOre");
+    expect(mapAdmissionPeriodError(Problem.fromWire(endAt, {})).field).toBe("endAt");
+    expect(mapOwnedReceiptError(Problem.fromWire(amount, {})).field).toBe("amountNok");
     expect(nativeProblemFrom(validation("/file"))).toEqual(
-      nativeProblemFrom(envelope(validation("/file"))),
+      nativeProblemFrom(Problem.fromWire(validation("/file"), {})),
     );
   });
   it("does not turn arbitrary error-like objects or malformed validation into authority decisions", () => {
+    expect(nativeProblemFrom({ code: "credential.invalid", status: 401 })).toBeUndefined();
     expect(
-      nativeProblemFrom(envelope({ code: "credential.invalid", status: 401 })),
-    ).toBeUndefined();
-    expect(
-      nativeProblemFrom(envelope({ ...validation("/file"), validation: { errors: "invalid" } })),
+      nativeProblemFrom({ ...validation("/file"), validation: { errors: "invalid" } }),
     ).toBeUndefined();
   });
 });

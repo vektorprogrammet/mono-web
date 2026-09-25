@@ -1,6 +1,6 @@
 import { HttpClientError } from "effect/unstable/http";
 import type { PublicApplicationCatalog } from "./api-types";
-import { validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
+import { isProblem, problemBody, validationProblemSchema, type ValidationProblem, IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
 import { Data, Match, Option, Predicate, Schema } from "effect";
 
 const applicantFieldNames = [
@@ -272,7 +272,7 @@ const unexpectedApplicationError = () => PublicApplicationErrorView.Unexpected({
 });
 
 export function mapPublicApplicationError(cause: unknown): PublicApplicationErrorView {
-  const failure = Predicate.hasProperty(cause, "body") ? cause.body : cause;
+  const failure = isProblem(cause) ? problemBody(cause) : cause;
 
   if (Predicate.hasProperty(failure, "code") && isProblemCode(failure.code)) {
     let result: PublicApplicationErrorView = PublicApplicationErrorView[failure.code]({ message: problemMessages[failure.code] });

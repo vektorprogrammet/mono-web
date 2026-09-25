@@ -1,4 +1,4 @@
-import { ArticleSlug } from "@vektorprogrammet/http-api";
+import { ArticleSlug, isProblem } from "@vektorprogrammet/http-api";
 import type { PublishedNewsArticle, PublishedNewsListing } from "./api-types";
 import { createHomepageApiClient } from "./api.server";
 import {
@@ -8,8 +8,6 @@ import {
   type NewsDetailData,
   type NewsListingData,
 } from "./news";
-import { Predicate } from "effect";
-
 
 /**
  * Server-only news loaders (spec 0062 §Homepage public surface contract).
@@ -24,12 +22,6 @@ const upstreamFailure = (): Response =>
   new Response("Nyheter er midlertidig utilgjengelig.", { status: 503 });
 
 const notFound = (): Response => new Response("Nyheten finnes ikke.", { status: 404 });
-
-const hasProblemCode = (cause: unknown, code: string): boolean => {
- const problem = Predicate.hasProperty(cause, "body") ? cause.body : cause;
-
- return Predicate.hasProperty(problem, "code") && problem.code === code;
-};
 
 const readListing = async (): Promise<PublishedNewsListing> => {
   const client = createHomepageApiClient();
@@ -117,8 +109,7 @@ export const loadNewsArticle = async (
         .slice(0, NEWS_TEASER_COUNT),
     };
   } catch (error) {
-    // The generated SDK retains response headers around canonical problem bodies.
-    if (hasProblemCode(error, "content.article-not-found")) throw notFound();
+    if (isProblem(error) && error.code === "content.article-not-found") throw notFound();
     throw upstreamFailure();
   }
 };
