@@ -33,6 +33,7 @@ const textField = (
       onInput: (value) => UpdatedProfileField({ field: fieldKey(config.id), value }),
       isDisabled: config.isDisabled,
       isInvalid: Predicate.isTagged(config.field, "Invalid"),
+      hasDescription: config.hint !== undefined,
       type: config.type ?? "text",
       toView: ({ input, label, description }) =>
         h.div(

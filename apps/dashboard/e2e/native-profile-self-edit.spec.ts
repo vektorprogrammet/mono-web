@@ -201,8 +201,14 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       for (const input of inputs) {
         await expect(input).toBeVisible();
         await expect(input).toHaveAttribute("id", /.+/u);
-        await expect(input).toHaveAttribute("aria-describedby", /.+/u);
+
+        // A description reference must resolve to visible guidance, never to a missing element.
+        if ((await input.getAttribute("aria-describedby")) !== null) {
+          await expect(input).toHaveAccessibleDescription(/\S/u);
+        }
       }
+
+      await expect(page.getByLabel("Telefon")).toHaveAccessibleDescription(/\S/u);
 
       expect(await profileValues(page)).toEqual([
         before.firstName,
