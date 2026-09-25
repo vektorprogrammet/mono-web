@@ -19,6 +19,30 @@ export const backendPostgres = () => {
   let databaseSequence = 0;
   let primary: ManagedRuntime.ManagedRuntime<Database, never> | undefined;
   let contender: ManagedRuntime.ManagedRuntime<Database, never> | undefined;
+  let migratedTemplate: Promise<string> | undefined;
+
+  const connection = (database: string) => ({
+    host: root,
+    database,
+    username: "postgres",
+    maxConnections: 1,
+  });
+
+  /** Migrates once per cluster; fixtures clone it instead of replaying every migration. */
+  const template = (admin: ManagedRuntime.ManagedRuntime<Database, never>) =>
+    (migratedTemplate ??= (async () => {
+      const name = "backend_fixture_template";
+      await admin.runPromise(Database.use((sql) => sql`CREATE DATABASE ${sql(name)}`));
+      const migrator = ManagedRuntime.make(DatabaseLive(connection(name)).pipe(Layer.orDie));
+
+      try {
+        await migrator.runPromise(Database.use((sql) => sql.health));
+      } finally {
+        await migrator.dispose();
+      }
+
+      return name;
+    })());
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "vkr-http-pg-"));
@@ -84,16 +108,14 @@ export const backendPostgres = () => {
         throw new Error("PostgreSQL fixture is not initialized");
 
       const admin = primary;
+      const source = await template(admin);
       const name = `backend_fixture_${++databaseSequence}`;
-      await admin.runPromise(Database.use((sql) => sql`CREATE DATABASE ${sql(name)}`));
+      await admin.runPromise(
+        Database.use((sql) => sql`CREATE DATABASE ${sql(name)} TEMPLATE ${sql(source)}`),
+      );
 
       return {
-        layer: DatabaseLive({
-          host: root,
-          database: name,
-          username: "postgres",
-          maxConnections: 1,
-        }).pipe(Layer.orDie),
+        layer: DatabaseLive(connection(name)).pipe(Layer.orDie),
         drop: () => admin.runPromise(Database.use((sql) => sql`DROP DATABASE ${sql(name)}`)),
       };
     },
