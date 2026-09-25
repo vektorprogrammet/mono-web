@@ -7,14 +7,9 @@ export class TeamApplicationTeamNotFound extends Schema.TaggedError<TeamApplicat
   { teamId: TeamId },
 ) {}
 
+/** The intake is closed, including when the team has no deliverable mailbox. */
 export class TeamApplicationIntakeClosed extends Schema.TaggedError<TeamApplicationIntakeClosed>()(
   "TeamApplicationIntakeClosed",
-  { teamId: TeamId },
-) {}
-
-/** Neither the team mailbox nor the department mailbox is a deliverable address. */
-export class TeamApplicationRecipientUnavailable extends Schema.TaggedError<TeamApplicationRecipientUnavailable>()(
-  "TeamApplicationRecipientUnavailable",
   { teamId: TeamId },
 ) {}
 
@@ -64,7 +59,6 @@ export type TeamApplicationPublicReadFailure =
 export type TeamApplicationSubmitFailure =
   | TeamApplicationTeamNotFound
   | TeamApplicationIntakeClosed
-  | TeamApplicationRecipientUnavailable
   | TeamApplicationCommandConflict
   | TeamApplicationPersistenceError;
 

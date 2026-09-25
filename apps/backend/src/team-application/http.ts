@@ -16,7 +16,6 @@ import {
   TeamApplicationInvalidCursor,
   TeamApplicationNotFound,
   TeamApplicationPersistenceError,
-  TeamApplicationRecipientUnavailable,
   TeamApplications,
   TeamApplicationTeamNotFound,
   ReviseTeamApplicationIntakeCommand,
@@ -650,10 +649,6 @@ const errorResponse = (cause: unknown): Response => {
 
   if (cause instanceof TeamApplicationInvalidCursor) {
     return nativeProblemResponse("request.malformed", 400);
-  }
-
-  if (cause instanceof TeamApplicationRecipientUnavailable) {
-    return nativeProblemResponse("dependency.unavailable", 503);
   }
 
   if (

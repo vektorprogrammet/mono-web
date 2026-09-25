@@ -123,7 +123,6 @@ export const TeamApplicationsSubmitProblem = problemUnion("TeamApplicationsSubmi
   ["media-type.unsupported", 415],
   ["validation.failed", 422],
   ["internal.error", 500],
-  ["dependency.unavailable", 503],
   ["idempotency.unavailable", 503],
 ]);
 
