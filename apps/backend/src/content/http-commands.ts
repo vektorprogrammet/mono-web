@@ -30,81 +30,72 @@ import {
   UnpublishArticleEndpoint,
   UnpublishArticleRequest,
   UnpublishArticleResponse,
-  reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { Effect, Option, Predicate, Schema } from "effect";
+import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Predicate } from "effect";
+import {
+  commandOutcomeResponse,
+  commandReceiptProblems,
+  decodeRequest,
+  httpIdentity,
+  idempotencyKeyOf,
+  personPresentation,
+  readJsonBody,
+  requireCurrentETag,
+  requiredIfMatchOf,
+  requireNoQuery,
+  semanticProblem,
+  strictOutput,
+  unreachable,
+} from "../http-api/problem.js";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
 import {
-  HttpSemanticFailure,
-  deriveHttpIdentity,
   deriveStrongETag,
-  evaluateMutationPrecondition,
   interpretArticleMergePatchSource,
+  NO_STORE,
   normalizeTarget,
-  parseIdempotencyKey,
   responseCapsule,
   semanticMutationRequest,
   semanticRequestDigest,
-  validationProblemResponse,
   type CanonicalSemanticRequest,
 } from "../http-semantics.js";
-import {
-  authorizePersonNativeOperation,
-  nativeCommandOutcomeResponse,
-} from "../native-operation.js";
-import { articleContext, contentScope } from "./http-access.js";
+import { articleContext, authorizeContentOperation } from "./http-access.js";
 import {
   authorizedActorInTransaction,
   contentOperationId,
-  type AuthorizedContentActor,
   type ContentEndpoint,
   type TransactionalAuthorizedContentActor,
 } from "./http-context.js";
-import {
-  headerValues,
-  readContentRequestBody,
-  rejectQueryString,
-  requiredIfMatch,
-  strictDecode,
-} from "./http-decode.js";
-import { knownContentFailure } from "./http-problem.js";
+import { contentActorProblems, contentProblems } from "./http-problem.js";
 import { articleETagEffect } from "./http-representation.js";
 
 type ContentBackendRequirements = Database | Organization | Profile | Content | ContentManagement;
 
-const NO_STORE = "no-store";
+const JSON_BODY = /^application\/json(?:\s*;|$)/iu;
 
-const commandIdentity = (
-  request: Request,
-  actor: AuthorizedContentActor,
-  operationId: string,
-  routeTemplate: string,
-  identities: Readonly<Record<string, string>>,
-) => {
-  const idempotencyKey = parseIdempotencyKey(headerValues(request, "idempotency-key"));
+const MERGE_PATCH_BODY = /^application\/merge-patch\+json(?:\s*;|$)/iu;
 
-  return deriveHttpIdentity({
-    credentialSubject: `Person:${actor.personId}`,
-    qualifiedOperationId: operationId,
-    normalizedTarget: normalizeTarget(routeTemplate, identities),
-    idempotencyKey,
-  });
-};
-
-interface PreparedContentCommand {
+interface PreparedContentCommand<E> {
   readonly actor: TransactionalAuthorizedContentActor;
   readonly execute: (
     commandId: ContentCommandId,
-  ) => Effect.Effect<Response, unknown, ContentBackendRequirements>;
+  ) => Effect.Effect<Response, E, ContentBackendRequirements>;
 }
 
-const executeCommand = <E, R>(
+/**
+ * Runs one content command and its receipt in one transaction. Domain,
+ * receipt, and credential failures are answered after the executor.
+ *
+ * @construct http-problem
+ */
+const executeCommand = <EPrepare, EExecute, R>(
   request: Request,
+  presentation: CredentialPresentation,
   endpoint: ContentEndpoint,
   routeTemplate: string,
   identities: Readonly<Record<string, string>>,
   semanticRequest: CanonicalSemanticRequest,
-  prepare: () => Effect.Effect<PreparedContentCommand, E, R>,
+  prepare: () => Effect.Effect<PreparedContentCommand<EExecute>, EPrepare, R>,
 ) =>
   Effect.gen(function* () {
     const operationId = contentOperationId(endpoint);
@@ -112,44 +103,42 @@ const executeCommand = <E, R>(
     const outcome = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const prepared = yield* prepare();
+        const idempotencyKey = yield* idempotencyKeyOf(request);
 
-        const derived = yield* Effect.try({
-          try: () =>
-            commandIdentity(request, prepared.actor, operationId, routeTemplate, identities),
-          catch: knownContentFailure,
+        const identity = yield* httpIdentity({
+          credentialSubject: `Person:${prepared.actor.personId}`,
+          qualifiedOperationId: operationId,
+          normalizedTarget: normalizeTarget(routeTemplate, identities),
+          idempotencyKey,
         });
-
-        const commandId = yield* strictDecode(ContentCommandId)(derived.commandId);
 
         return {
           identity: {
-            identitySha256: derived.identitySha256,
+            identitySha256: identity.identitySha256,
             requestSha256: semanticRequestDigest(semanticRequest),
             operationId,
           },
-          execute: prepared.execute(commandId).pipe(
-            Effect.flatMap((response) =>
-              Effect.tryPromise({
-                try: () => responseCapsule(response),
-                catch: knownContentFailure,
-              }),
-            ),
-          ),
+          execute: prepared
+            .execute(ContentCommandId.make(identity.commandId))
+            .pipe(Effect.flatMap((response) => Effect.promise(() => responseCapsule(response)))),
         };
       }),
-    );
+    ).pipe(contentProblems, commandReceiptProblems, contentActorProblems(presentation));
 
-    return nativeCommandOutcomeResponse(outcome);
+    return yield* commandOutcomeResponse(outcome);
   });
 
-export const createArticle = (request: Request, maxBodyBytes: number) =>
-  Effect.gen(function* () {
-    yield* rejectQueryString(request);
-    const rawBody = yield* readContentRequestBody(request, "application/json", maxBodyBytes);
-    const body = yield* strictDecode(CreateArticleRequest)(rawBody);
+export const createArticle = (request: Request, maxBodyBytes: number) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const rawBody = yield* readJsonBody(request, JSON_BODY, maxBodyBytes);
+    const body = yield* decodeRequest(CreateArticleRequest)(rawBody);
 
     return yield* executeCommand(
       request,
+      presentation,
       CreateArticleEndpoint,
       "/api/content/articles",
       {},
@@ -157,10 +146,12 @@ export const createArticle = (request: Request, maxBodyBytes: number) =>
       () =>
         Effect.gen(function* () {
           const actor = yield* authorizedActorInTransaction(request);
-          yield* authorizePersonNativeOperation({
-            spec: Option.getOrThrow(reflectAccessSpec(CreateArticleEndpoint)),
+
+          yield* authorizeContentOperation({
+            endpoint: CreateArticleEndpoint,
             credential: actor.credential,
             personId: actor.personId,
+            authorizationInstant: actor.authorizationInstant,
             resolution: {
               selection: "ExactlyOne",
               contexts: [
@@ -173,13 +164,12 @@ export const createArticle = (request: Request, maxBodyBytes: number) =>
                 },
               ],
             },
-            grantScopes: [contentScope],
-            now: actor.authorizationInstant,
+            presentation,
           });
 
           return {
             actor,
-            execute: (commandId) =>
+            execute: (commandId: ContentCommandId) =>
               createDraftPostgres({
                 command: { ...body, commandId },
                 personId: actor.personId,
@@ -209,9 +199,7 @@ export const createArticle = (request: Request, maxBodyBytes: number) =>
                       ],
                     });
 
-                    const output = yield* Schema.decodeEffect(ContentArticleDetailSchema)(detail, {
-                      onExcessProperty: "error",
-                    }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+                    const output = yield* strictOutput(ContentArticleDetailSchema)(detail);
 
                     return new Response(JSON.stringify(output), {
                       status: 201,
@@ -228,33 +216,34 @@ export const createArticle = (request: Request, maxBodyBytes: number) =>
           };
         }),
     );
-  });
+  }).pipe(
+    // A new draft names no existing article, and its receipt answers any repeated command first.
+    unreachable("content.article-not-found", "content.lifecycle-conflict"),
+  );
+};
 
-export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: number) =>
-  Effect.gen(function* () {
-    yield* rejectQueryString(request);
+export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyBytes: number) => {
+  const presentation = personPresentation(request);
 
-    const patchSource = yield* readContentRequestBody(
-      request,
-      "application/merge-patch+json",
-      maxBodyBytes,
+  return Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const patchSource = yield* readJsonBody(request, MERGE_PATCH_BODY, maxBodyBytes);
+
+    const interpretation = yield* semanticProblem(
+      () => interpretArticleMergePatchSource(patchSource),
+      ["request.malformed"],
     );
 
-    const interpretation = yield* Effect.try({
-      try: () => interpretArticleMergePatchSource(patchSource),
-      catch: knownContentFailure,
-    });
-
     if (Predicate.isTagged(interpretation, "Rejected")) {
-      return validationProblemResponse(interpretation.code, interpretation.errors);
+      return yield* Problem.validation(interpretation.code, interpretation.errors);
     }
 
-    const patch = yield* strictDecode(ArticleMergePatch)(patchSource);
-
-    const ifMatch = yield* requiredIfMatch(request);
+    const patch = yield* decodeRequest(ArticleMergePatch)(patchSource);
+    const ifMatch = yield* requiredIfMatchOf(request);
 
     return yield* executeCommand(
       request,
+      presentation,
       ReviseArticleEndpoint,
       "/api/content/articles/{articleId}",
       { articleId: String(articleId) },
@@ -273,18 +262,18 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
             readContentAuthorityHttpSourcesPostgres(actor.personId),
           ]);
 
-          yield* authorizePersonNativeOperation({
-            spec: Option.getOrThrow(reflectAccessSpec(ReviseArticleEndpoint)),
+          yield* authorizeContentOperation({
+            endpoint: ReviseArticleEndpoint,
             credential: actor.credential,
             personId: actor.personId,
+            authorizationInstant: actor.authorizationInstant,
             resolution: {
               selection: "ExactlyOne",
               contexts: [
                 articleContext(current, source.createdByPersonId, actor.authorizationInstant),
               ],
             },
-            grantScopes: [contentScope],
-            now: actor.authorizationInstant,
+            presentation,
           });
 
           const currentETag = deriveStrongETag({
@@ -299,17 +288,11 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
 
           return {
             actor,
-            execute: (commandId) =>
+            execute: (commandId: ContentCommandId) =>
               Effect.gen(function* () {
                 // Exact replay is selected before execute; a fresh mutation still
                 // checks the selected representation inside the owning transaction.
-                const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
-
-                if (Predicate.isTagged(precondition, "Failed")) {
-                  return yield* Effect.fail(
-                    new HttpSemanticFailure(precondition.code, precondition.status),
-                  );
-                }
+                yield* requireCurrentETag(currentETag, ifMatch);
 
                 const revised = yield* reviseDraftPostgres({
                   command: {
@@ -331,10 +314,7 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
                   articleId: revised.articleId,
                 });
 
-                const output = yield* Schema.decodeEffect(ContentArticleDetailSchema)(detail, {
-                  onExcessProperty: "error",
-                }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
-
+                const output = yield* strictOutput(ContentArticleDetailSchema)(detail);
                 const etag = yield* articleETagEffect(articleId, actor.personId);
 
                 return new Response(JSON.stringify(output), {
@@ -345,27 +325,35 @@ export const reviseArticle = (request: Request, articleId: ArticleId, maxBodyByt
           };
         }),
     );
-  });
+  }).pipe(
+    // The revision is read in the command's own serializable snapshot, and
+    // its receipt answers any repeated command first.
+    unreachable("content.lifecycle-conflict"),
+  );
+};
 
 export const lifecycleArticle = (
   request: Request,
   articleId: ArticleId,
   operation: "Publish" | "Unpublish",
   maxBodyBytes: number,
-) =>
-  Effect.gen(function* () {
-    yield* rejectQueryString(request);
+) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
+    yield* requireNoQuery(request);
     const endpoint = operation === "Publish" ? PublishArticleEndpoint : UnpublishArticleEndpoint;
     const wireSchema = operation === "Publish" ? PublishArticleRequest : UnpublishArticleRequest;
-    const rawBody = yield* readContentRequestBody(request, "application/json", maxBodyBytes);
-    const body = yield* strictDecode(wireSchema)(rawBody);
+    const rawBody = yield* readJsonBody(request, JSON_BODY, maxBodyBytes);
+    const body = yield* decodeRequest(wireSchema)(rawBody);
 
-    const ifMatch = yield* requiredIfMatch(request);
+    const ifMatch = yield* requiredIfMatchOf(request);
 
     const suffix = operation === "Publish" ? "publish" : "unpublish";
 
     return yield* executeCommand(
       request,
+      presentation,
       endpoint,
       `/api/content/articles/{articleId}:${suffix}`,
       { articleId: String(articleId) },
@@ -384,18 +372,18 @@ export const lifecycleArticle = (
             readContentAuthorityHttpSourcesPostgres(actor.personId),
           ]);
 
-          yield* authorizePersonNativeOperation({
-            spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+          yield* authorizeContentOperation({
+            endpoint,
             credential: actor.credential,
             personId: actor.personId,
+            authorizationInstant: actor.authorizationInstant,
             resolution: {
               selection: "ExactlyOne",
               contexts: [
                 articleContext(current, source.createdByPersonId, actor.authorizationInstant),
               ],
             },
-            grantScopes: [contentScope],
-            now: actor.authorizationInstant,
+            presentation,
           });
 
           const currentETag = deriveStrongETag({
@@ -410,17 +398,11 @@ export const lifecycleArticle = (
 
           return {
             actor,
-            execute: (commandId) =>
+            execute: (commandId: ContentCommandId) =>
               Effect.gen(function* () {
                 // Exact replay is selected before execute; a fresh mutation still
                 // checks the selected representation inside the owning transaction.
-                const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
-
-                if (Predicate.isTagged(precondition, "Failed")) {
-                  return yield* Effect.fail(
-                    new HttpSemanticFailure(precondition.code, precondition.status),
-                  );
-                }
+                yield* requireCurrentETag(currentETag, ifMatch);
 
                 if (operation === "Publish") {
                   const published = yield* publishPostgres({
@@ -429,11 +411,11 @@ export const lifecycleArticle = (
                     authorizationInstant: actor.authorizationInstant,
                   });
 
-                  const output = yield* Schema.decodeEffect(PublishArticleResponse)({
+                  const output = yield* strictOutput(PublishArticleResponse)({
                     articleId: published.articleId,
                     versionNumber: published.versionNumber,
                     publishedAt: published.publishedAt,
-                  }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+                  });
 
                   const etag = yield* articleETagEffect(articleId, actor.personId);
 
@@ -453,9 +435,9 @@ export const lifecycleArticle = (
                   authorizationInstant: actor.authorizationInstant,
                 });
 
-                const output = yield* Schema.decodeEffect(UnpublishArticleResponse)({
+                const output = yield* strictOutput(UnpublishArticleResponse)({
                   articleId: unpublished.articleId,
-                }).pipe(Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)));
+                });
 
                 const etag = yield* articleETagEffect(articleId, actor.personId);
 
@@ -467,4 +449,8 @@ export const lifecycleArticle = (
           };
         }),
     );
-  });
+  }).pipe(
+    // Publication changes neither the slug nor the departments of an article.
+    unreachable("content.slug-conflict", "content.department-not-found"),
+  );
+};

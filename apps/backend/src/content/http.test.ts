@@ -1,32 +1,29 @@
+import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
   ContentArticleNotFound,
   ContentDepartmentNotFound,
   ContentIntegrityError,
+  ContentManagement,
   ContentPersistenceError,
-  ContentSlugConflict,
+  type ContentManagementFailure,
 } from "@vektorprogrammet/domain/content";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { IdentityActor } from "@vektorprogrammet/domain/identity";
+import { DepartmentId, Organization, PersonId } from "@vektorprogrammet/domain/organization";
 import { ContentApi, ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { Effect, Layer } from "effect";
+import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
-import { personPresentation } from "../http-api/problem.js";
 import { makeContentManagementTestHttp } from "../test/native-http.js";
 import { contentOperationId } from "./http-context.js";
-import { contentHttpErrorResponse } from "./http-problem.js";
 
+/** Checks a problem response and decodes its body with the contract's problem schema. */
 const expectProblem = async (response: Response, status: number, code: string): Promise<void> => {
-  expect(response.status).toBe(status);
   expect(response.headers.get("content-type")).toBe("application/problem+json");
   expect(response.headers.get("cache-control")).toBe("no-store");
-  const body = await response.json();
-  expect(body).toMatchObject({
-    type: `urn:vektorprogrammet:problem:v0.2:${code}`,
-    status,
-    code,
-  });
-  expect(body).not.toHaveProperty("error");
+  const problem = Schema.decodeUnknownSync(NativeProblem)(await response.json());
+  expect([response.status, problem.code]).toEqual([status, code]);
 };
 
 /** A request with a staff session cookie from the trusted dashboard origin. */
@@ -47,6 +44,35 @@ const staffRequest = (
     },
     body: init.body,
   });
+
+const staffPerson = PersonId.make("content-staff");
+
+/**
+ * One content administrator. The test services leave the Identity engine
+ * unavailable, so person security admits every request to the handler, which
+ * resolves the person itself.
+ */
+const administrator = Layer.mergeAll(
+  Layer.mock(IdentitySnapshot, {
+    resolveSession: () =>
+      Effect.succeed(
+        new IdentityActor({
+          personId: staffPerson,
+          sessionId: "content-staff-session",
+          expiresAt: DateTime.makeUnsafe(new Date("2099-01-01T00:00:00.000Z")),
+        }),
+      ),
+  }),
+  Layer.mock(Organization, {
+    resolvePersonAuthority: (personId, evaluatedAt) =>
+      Effect.succeed({ personId, evaluatedAt, globalAdministrator: "Active", memberships: [] }),
+    resolvePersonAuthorityForRead: (personId, evaluatedAt) =>
+      Effect.succeed({ personId, evaluatedAt, globalAdministrator: "Active", memberships: [] }),
+  }),
+);
+
+const signedIn = () =>
+  Effect.succeed({ personId: staffPerson, authorizationInstant: "2030-01-01T00:00:00.000Z" });
 
 describe("native content HTTP boundary", () => {
   it("identifies every content endpoint by the operation id the published contract assigns it", () => {
@@ -85,38 +111,59 @@ describe("native content HTTP boundary", () => {
     );
   });
 
-  it("maps owned domain failures to closed RFC 9457 problems", async () => {
-    const cases = [
-      [new ContentArticleNotFound({}), 404, "content.article-not-found"],
-      [new ContentSlugConflict({}), 422, "content.slug-conflict"],
+  it("answers owned domain failures with the problems their operations declare", async () => {
+    const cases: ReadonlyArray<readonly [string, ContentManagementFailure, number, string]> = [
+      ["/api/content/articles/1", new ContentArticleNotFound({}), 404, "content.article-not-found"],
       [
-        new ContentDepartmentNotFound({ departmentId: DepartmentId.make("department-1") }),
-        422,
-        "content.department-not-found",
-      ],
-      [
+        "/api/content/articles/1",
         new ContentIntegrityError({ operation: "read", message: "missing author" }),
         500,
         "content.integrity-error",
       ],
       [
+        "/api/content/articles/1",
         new ContentPersistenceError({ operation: "read", message: "database unavailable" }),
         503,
         "content.unavailable",
       ],
-    ] as const;
+      [
+        "/api/content/articles?department=department-1",
+        new ContentDepartmentNotFound({ departmentId: DepartmentId.make("department-1") }),
+        422,
+        "content.department-not-found",
+      ],
+    ];
 
-    const presentation = personPresentation(
-      new Request("http://backend.test/api/content/articles"),
-    );
+    for (const [path, failure, status, code] of cases) {
+      const content = Layer.mock(ContentManagement, {
+        readArticleDetail: () => Effect.fail(failure),
+        readWorkspace: () => Effect.fail(failure),
+      });
 
-    for (const [failure, status, code] of cases) {
-      await expectProblem(contentHttpErrorResponse(failure, presentation), status, code);
+      const response = await makeContentManagementTestHttp(
+        signedIn,
+        Layer.merge(administrator, content),
+      ).fetch(staffRequest(path));
+
+      await expectProblem(response, status, code);
+      expect(response.headers.get("retry-after")).toBe(status === 503 ? "5" : null);
     }
+  });
 
-    expect(contentHttpErrorResponse(cases[4][0], presentation).headers.get("retry-after")).toBe(
-      "5",
+  it("answers a slug conflict from inside the create transaction", async () => {
+    const response = await makeContentManagementTestHttp(signedIn, administrator).fetch(
+      staffRequest("/api/content/articles", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "content-create-slug-conflict",
+        },
+        // The title leaves no letter or digit to build a slug from.
+        body: JSON.stringify({ title: "!!!", bodyHtml: "<p>Tekst</p>", departmentIds: [] }),
+      }),
     );
+
+    await expectProblem(response, 422, "content.slug-conflict");
   });
 
   it("answers a person rejected after ingress from the credential the request presented", async () => {

@@ -21,7 +21,10 @@ import {
   runContentArticleDetail,
   runContentWorkspace,
   type ArticleId,
+  type PublishedNewsArticle,
+  type PublishedNewsListing,
 } from "@vektorprogrammet/domain/content";
+import type { DepartmentId } from "@vektorprogrammet/domain/organization";
 import {
   ListNewsEndpoint,
   ReadArticleEndpoint,
@@ -30,31 +33,37 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { Effect, Option } from "effect";
-import { deriveStrongETag } from "../http-semantics.js";
+import { currentInstant } from "../authority.js";
 import {
-  articleContext,
-  authorizeAnonymousContentOperation,
-  authorizeContentOperation,
-} from "./http-access.js";
+  authorizeAnonymous,
+  conditionalJson,
+  personPresentation,
+  requireNoQuery,
+  strictOutput,
+  unreachable,
+} from "../http-api/problem.js";
+import { deriveStrongETag, PRIVATE_NO_STORE, PUBLIC_CACHE_CONTROL } from "../http-semantics.js";
+import { articleContext, authorizeContentOperation } from "./http-access.js";
 import { authorizedActor, type ContentRequestActorResolver } from "./http-context.js";
-import { departmentFromQuery, rejectQueryString, versionFromQuery } from "./http-decode.js";
-import { conditionalJsonResponse, strictOutput } from "./http-representation.js";
-
-const PRIVATE_NO_STORE = "private, no-store";
-
-const PUBLIC_NEWS_CACHE = "public, max-age=60, s-maxage=300, must-revalidate";
+import { departmentQuery, versionFromQuery } from "./http-decode.js";
+import { contentActorProblems, contentProblems } from "./http-problem.js";
 
 export const readContentWorkspace = <E, R>(
   request: Request,
+  department: DepartmentId | undefined,
   resolveActor: ContentRequestActorResolver<E, R>,
-) =>
-  Effect.gen(function* () {
-    const query = yield* departmentFromQuery(request);
-    const actor = yield* authorizedActor(request, resolveActor);
+) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
+    const query = yield* departmentQuery(request, department);
+    const actor = yield* authorizedActor(request, resolveActor, presentation);
+
     yield* authorizeContentOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(ReadContentWorkspaceEndpoint)),
+      endpoint: ReadContentWorkspaceEndpoint,
       request,
-      actor,
+      personId: actor.personId,
+      authorizationInstant: actor.authorizationInstant,
       resolution: {
         selection: "AllMatching",
         contexts: [
@@ -67,7 +76,9 @@ export const readContentWorkspace = <E, R>(
           },
         ],
       },
+      presentation,
     });
+
     const workspace = yield* runContentWorkspace(actor.personId, actor.authorizationInstant, query);
     const body = yield* strictOutput(ContentWorkspaceSchema)(workspace);
 
@@ -75,16 +86,24 @@ export const readContentWorkspace = <E, R>(
       status: 200,
       headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },
     });
-  });
+  }).pipe(
+    contentProblems,
+    contentActorProblems(presentation),
+    // A workspace read names no article and runs no command.
+    unreachable("content.article-not-found", "content.slug-conflict", "content.lifecycle-conflict"),
+  );
+};
 
 export const readArticle = <E, R>(
   request: Request,
   articleId: ArticleId,
   resolveActor: ContentRequestActorResolver<E, R>,
-) =>
-  Effect.gen(function* () {
-    yield* rejectQueryString(request);
-    const actor = yield* authorizedActor(request, resolveActor);
+) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
+    yield* requireNoQuery(request);
+    const actor = yield* authorizedActor(request, resolveActor, presentation);
 
     const [detail, source, authority] = yield* Effect.all([
       runContentArticleDetail(actor.personId, actor.authorizationInstant, articleId),
@@ -93,14 +112,17 @@ export const readArticle = <E, R>(
     ]);
 
     yield* authorizeContentOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(ReadArticleEndpoint)),
+      endpoint: ReadArticleEndpoint,
       request,
-      actor,
+      personId: actor.personId,
+      authorizationInstant: actor.authorizationInstant,
       resolution: {
         selection: "ExactlyOne",
         contexts: [articleContext(detail, source.createdByPersonId, actor.authorizationInstant)],
       },
+      presentation,
     });
+
     const output = yield* strictOutput(ContentArticleDetailSchema)(detail);
 
     const etag = deriveStrongETag({
@@ -113,13 +135,30 @@ export const readArticle = <E, R>(
       ],
     });
 
-    return yield* conditionalJsonResponse(request, output, etag, PRIVATE_NO_STORE);
-  });
+    return yield* conditionalJson({
+      request,
+      body: output,
+      etag,
+      cacheControl: PRIVATE_NO_STORE,
+      contentType: "application/json",
+    });
+  }).pipe(
+    contentProblems,
+    contentActorProblems(presentation),
+    // A detail read changes no slug, department, or lifecycle state.
+    unreachable(
+      "content.slug-conflict",
+      "content.department-not-found",
+      "content.lifecycle-conflict",
+    ),
+  );
+};
 
-export const listNews = (request: Request) =>
+export const listNews = (request: Request, department: DepartmentId | undefined) =>
   Effect.gen(function* () {
-    const query = yield* departmentFromQuery(request);
-    yield* authorizeAnonymousContentOperation(
+    const query = yield* departmentQuery(request, department);
+
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ListNewsEndpoint)),
       {
         selection: "AllMatching",
@@ -133,6 +172,7 @@ export const listNews = (request: Request) =>
           },
         ],
       },
+      yield* currentInstant(undefined),
     );
 
     const listing = yield* readPublicNews(
@@ -140,7 +180,8 @@ export const listNews = (request: Request) =>
     );
 
     const [body, sources] = yield* Effect.all([
-      strictOutput(PublishedNewsListingSchema)(listing),
+      // SAFETY: a listing read answers the listing.
+      strictOutput(PublishedNewsListingSchema)(listing as PublishedNewsListing),
       readPublishedNewsCollectionHttpSourcesPostgres(query.departmentId),
     ]);
 
@@ -158,13 +199,24 @@ export const listNews = (request: Request) =>
       ]),
     });
 
-    return yield* conditionalJsonResponse(request, body, etag, PUBLIC_NEWS_CACHE);
-  });
+    return yield* conditionalJson({
+      request,
+      body,
+      etag,
+      cacheControl: PUBLIC_CACHE_CONTROL,
+      contentType: "application/json",
+    });
+  }).pipe(
+    contentProblems,
+    // A listing read names no article.
+    unreachable("content.article-not-found"),
+  );
 
 export const readNewsArticle = (request: Request, slug: string) =>
   Effect.gen(function* () {
     const versionNumber = yield* versionFromQuery(request);
-    yield* authorizeAnonymousContentOperation(
+
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ReadNewsArticleEndpoint)),
       {
         selection: "ExactlyOne",
@@ -181,11 +233,14 @@ export const readNewsArticle = (request: Request, slug: string) =>
           },
         ],
       },
+      yield* currentInstant(undefined),
     );
+
     const article = yield* readPublicNews(PublicNewsRead.Article({ slug, versionNumber }));
 
     const [body, source] = yield* Effect.all([
-      strictOutput(PublishedNewsArticleSchema)(article),
+      // SAFETY: an article read answers the article.
+      strictOutput(PublishedNewsArticleSchema)(article as PublishedNewsArticle),
       readPublishedNewsArticleHttpSourcePostgres(slug, versionNumber),
     ]);
 
@@ -204,5 +259,15 @@ export const readNewsArticle = (request: Request, slug: string) =>
       ],
     });
 
-    return yield* conditionalJsonResponse(request, body, etag, PUBLIC_NEWS_CACHE);
-  });
+    return yield* conditionalJson({
+      request,
+      body,
+      etag,
+      cacheControl: PUBLIC_CACHE_CONTROL,
+      contentType: "application/json",
+    });
+  }).pipe(
+    contentProblems,
+    // An article read filters no department.
+    unreachable("content.department-not-found"),
+  );
