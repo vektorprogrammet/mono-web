@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
-import { createConnection, createServer as createNetServer } from "node:net";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { selectedPostgresMajor, postgresProgram } from "@monoweb/postgres";
+import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import {
   emitNativeRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
@@ -23,15 +25,8 @@ const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url)
 
 const homepageRoot = fileURLToPath(new URL("../../homepage/", import.meta.url));
 
-const postgresPort = 45260;
-
-const dashboardPort = 45261;
-
-const backendPort = 45262;
-
-const upstreamPort = 45263;
-
-const homepagePort = 45264;
+const [postgresPort, dashboardPort, backendPort, upstreamPort, homepagePort] =
+  await reserveLoopbackPorts(5);
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -108,13 +103,6 @@ const withTimeout = (promise, milliseconds, label) =>
       throw new Error(`${label} timed out after ${milliseconds}ms`);
     }),
   ]);
-
-const assertPortAvailable = (port) =>
-  new Promise((resolve, reject) => {
-    const server = createNetServer();
-    server.once("error", () => reject(new Error(`required port ${port} is already in use`)));
-    server.listen(port, "127.0.0.1", () => server.close(resolve));
-  });
 
 const waitForPort = (port, label) =>
   withTimeout(
@@ -402,9 +390,6 @@ let recordingUpstream;
 const ledger = [];
 
 try {
-  await Promise.all(
-    [postgresPort, dashboardPort, backendPort, upstreamPort, homepagePort].map(assertPortAvailable),
-  );
   await writeFile(homepageDevVarsPath, `API_URL=${upstreamOrigin}\n`, { flag: "wx" });
   homepageDevVarsCreated = true;
 
@@ -448,21 +433,7 @@ try {
 
   const backendEnvironment = {
     ...process.env,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: String(backendPort),
-    BACKEND_PG_URL: postgresUrl,
-    BETTER_AUTH_SECRET: betterAuthSecret,
-    NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
-    OAUTH_CANONICAL_ORIGIN: backendOrigin,
-    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
-    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    PASSWORD_RESET_DELIVERY_MODE: "disabled",
-    RECEIPT_DELIVERY_MODE: "disabled",
-    ADMISSION_AUTH_TOKENS: "{}",
-    RECEIPT_AUTH_TOKENS: "{}",
-    ORGANIZATION_AUTH_TOKENS: "{}",
+    ...localBackendEnvironment({ backendOrigin, dashboardOrigin, postgresUrl, betterAuthSecret }),
   };
 
   backend = start("bun", ["run", "src/main.ts"], {
