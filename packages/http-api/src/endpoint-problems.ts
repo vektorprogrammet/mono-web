@@ -3,12 +3,14 @@ import { problemUnion } from "./http-semantics.js";
 
 /** Problems for `system.health`. */
 export const SystemHealthProblem = problemUnion("SystemHealthProblem", [
+  "request.malformed",
   "internal.error",
   "health.unavailable",
 ]);
 
 /** Problems for `system.readSession`. */
 export const SystemReadSessionProblem = problemUnion("SystemReadSessionProblem", [
+  "request.malformed",
   "internal.error",
   "identity.unavailable",
 ]);
