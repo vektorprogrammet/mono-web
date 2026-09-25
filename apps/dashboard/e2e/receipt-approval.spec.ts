@@ -254,7 +254,7 @@ function sessionHeaders(cookie: string) {
 }
 
 const actionPath = (receiptId: string, intent: ResolutionIntent): string =>
-  `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}::${intent}`;
+  `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:${intent}`;
 
 const approvalFilePath = (receiptId: string): string =>
   `${BACKEND_ORIGIN}/api/receipt-approval-queue/${encodeURIComponent(receiptId)}/file`;
@@ -1946,7 +1946,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       receiptCommandId(
         sessions.global.sessionPersonId,
         action === "approve" ? "receipts.approveReceipt" : "receipts.rejectReceipt",
-        `/api/receipts/${encodeURIComponent(receiptId)}::${action}`,
+        `/api/receipts/${encodeURIComponent(receiptId)}/${action}`,
         idempotencyKey,
       );
 

@@ -1571,7 +1571,7 @@ function assertRequestLedger(records, journeyEvidence) {
     "Receipt transaction concurrency barrier outcomes",
   );
 
-  const semanticPath = /\/api\/receipts\/[^/]+::(?:approve|reject)$/u;
+  const semanticPath = /\/api\/receipts\/[^/:]+:(?:approve|reject)$/u;
 
   const commands = receiptOperations.filter(
     ({ method, pathname }) => method === "POST" && semanticPath.test(pathname),
