@@ -1,25 +1,26 @@
 import { Scope } from "@vektorprogrammet/domain/authz";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
-import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
-  SchoolCommandFailure,
   SchoolDirectoryQuerySchema,
   SchoolDirectorySchema,
-  SchoolsDecodeError,
+  type ReadSchoolsDirectoryFailure,
+  type SchoolCommandFailure,
   type SchoolDirectoryQuery,
 } from "@vektorprogrammet/domain/schools";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
 import { ListSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
-import { Predicate, Effect, Option, Schema } from "effect";
-import { isSerializationConflict } from "../http-api/problem.js";
+import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Match, Option, Schema } from "effect";
 import {
-  NativeHttpReceiptInvalid,
-  NativeHttpReceiptPersistenceError,
-} from "../http-api/receipt-transaction.js";
-import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
-import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
+  authorizePerson,
+  personPresentation,
+  problemMapper,
+  unreachable,
+} from "../http-api/problem.js";
+import { genericContext } from "../native-operation.js";
 
 export interface SchoolsRequestActor {
   readonly personId: PersonId;
@@ -47,68 +48,52 @@ const privateJsonResponse = (body: Schema.Json): Response =>
     },
   });
 
-export const schoolsErrorResponse = (cause: unknown): Response => {
-  if (cause instanceof HttpSemanticFailure) {
-    return nativeProblemResponse(cause.code, cause.status);
-  }
+/**
+ * The one answer for every Schools failure. A representation that does not
+ * fit its schema leaves Schools unavailable, as a failed Schools read does.
+ *
+ * @construct http-problem
+ */
+export const schoolsProblems = problemMapper<
+  ReadSchoolsDirectoryFailure | SchoolCommandFailure | Schema.SchemaError
+>()({
+  AuthorityInactive: () => Problem.make("authority.denied"),
+  NotInScope: () => Problem.make("authority.denied"),
+  SchoolsDepartmentOutOfScope: () => Problem.make("authority.denied"),
+  SchoolsDepartmentNotFound: () => Problem.make("schools.invalid-department"),
+  SchoolsDecodeError: () => Problem.make("schools.unavailable"),
+  SchoolsPersistenceError: () => Problem.make("schools.unavailable"),
+  SchemaError: () => Problem.make("schools.unavailable"),
+  SchoolCommandFailure: ({ code }) =>
+    Match.value(code).pipe(
+      Match.when("Denied", () => Problem.make("authority.denied")),
+      Match.when("NotFound", () => Problem.make("resource.not-found")),
+      Match.when("Stale", () => Problem.make("precondition.failed")),
+      Match.when("Conflict", () => Problem.make("idempotency.digest-conflict")),
+      Match.when("AssociationInUse", () => Problem.make("schools.association-in-use")),
+      Match.when("InactiveSchool", () => Problem.make("schools.inactive")),
+      Match.when("CapacityExists", () => Problem.make("schools.capacity-exists")),
+      Match.whenOr("InvalidReference", "Invalid", () => Problem.make("schools.invalid-command")),
+      Match.exhaustive,
+    ),
+});
 
-  if (cause instanceof SchoolCommandFailure) {
-    switch (cause.code) {
-      case "Denied":
-        return nativeProblemResponse("authority.denied", 403);
-      case "NotFound":
-        return nativeProblemResponse("resource.not-found", 404);
-      case "Stale":
-        return nativeProblemResponse("precondition.failed", 412);
-      case "Conflict":
-        return nativeProblemResponse("idempotency.digest-conflict", 409);
-      case "AssociationInUse":
-        return nativeProblemResponse("schools.association-in-use", 409);
-      case "InactiveSchool":
-        return nativeProblemResponse("schools.inactive", 409);
-      case "CapacityExists":
-        return nativeProblemResponse("schools.capacity-exists", 409);
-      case "InvalidReference":
-      case "Invalid":
-        return nativeProblemResponse("schools.invalid-command", 422);
-    }
-  }
-
-  if (cause instanceof NativeHttpReceiptPersistenceError) {
-    return isSerializationConflict(cause)
-      ? nativeProblemResponse("transaction.conflict", 409)
-      : nativeProblemResponse("idempotency.unavailable", 503);
-  }
-
-  if (cause instanceof NativeHttpReceiptInvalid) {
-    return nativeProblemResponse("internal.error", 500);
-  }
-
-  const tag =
-    (cause === null || Predicate.isObjectOrArray(cause)) && cause !== null && "_tag" in cause
-      ? String(cause._tag)
-      : "SchoolsPersistenceError";
-
-  switch (tag) {
-    case "UnauthenticatedActor":
-      return nativeProblemResponse("credential.invalid", 401, {
-        "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
-      });
-    case "AuthorityInactive":
-    case "NotInScope":
-    case "SchoolsDepartmentOutOfScope":
-      return nativeProblemResponse("authority.denied", 403);
-    case "SchoolsDepartmentNotFound":
-      return nativeProblemResponse("schools.invalid-department", 422);
-    default:
-      return nativeProblemResponse("schools.unavailable", 503);
-  }
-};
+/**
+ * A person credential rejected after ingress is answered from the request's
+ * own evidence; an unavailable identity provider leaves Schools unavailable.
+ *
+ * @construct http-problem
+ */
+export const schoolsCredentialProblems = (presentation: CredentialPresentation) =>
+  problemMapper<UnauthenticatedActor | IdentityEngineError>()({
+    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+    IdentityEngineError: () => Problem.make("schools.unavailable"),
+  });
 
 /** The directory accepts one optional department and no other query member. */
 const decodeQuery = (
   request: Request,
-): Effect.Effect<SchoolDirectoryQuery, HttpSemanticFailure> => {
+): Effect.Effect<SchoolDirectoryQuery, Problem<"request.malformed">> => {
   const parameters = [...new URL(request.url).searchParams];
 
   const encoded =
@@ -118,35 +103,41 @@ const decodeQuery = (
         ? { departmentId: parameters[0]![1] }
         : undefined;
 
-  if (encoded === undefined) return Effect.fail(new HttpSemanticFailure("request.malformed", 400));
+  if (encoded === undefined) return Effect.fail(Problem.make("request.malformed"));
 
   return Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(encoded, {
     onExcessProperty: "error",
-  }).pipe(Effect.mapError(() => new HttpSemanticFailure("request.malformed", 400)));
+  }).pipe(Effect.mapError(() => Problem.make("request.malformed")));
 };
 
 /** Native Schools directory adapter. It owns transport only, never SQL or authority policy. */
-export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
-  Effect.gen(function* () {
+export const listSchools = (request: Request, options: SchoolsApiHttpOptions) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
     const query = yield* decodeQuery(request);
     const actor = yield* options.resolveActor(request);
-    yield* authorizePersonNativeOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(ListSchoolsEndpoint)),
-      request,
-      personId: actor.personId,
-      resolution: {
-        selection: "AllMatching",
-        contexts: [
-          genericContext({
-            domainId: "schools",
-            departmentId: query.departmentId ?? null,
-            authorityVersion: `schools:${actor.authorizationInstant}`,
-          }),
-        ],
+
+    yield* authorizePerson(
+      {
+        spec: Option.getOrThrow(reflectAccessSpec(ListSchoolsEndpoint)),
+        request,
+        personId: actor.personId,
+        resolution: {
+          selection: "AllMatching",
+          contexts: [
+            genericContext({
+              domainId: "schools",
+              departmentId: query.departmentId ?? null,
+              authorityVersion: `schools:${actor.authorizationInstant}`,
+            }),
+          ],
+        },
+        grantScopes: [Scope.Global()],
+        now: actor.authorizationInstant,
       },
-      grantScopes: [Scope.Global()],
-      now: actor.authorizationInstant,
-    });
+      presentation,
+    );
 
     const directory = yield* readSchoolsDirectory(
       actor.personId,
@@ -156,15 +147,13 @@ export const listSchools = (request: Request, options: SchoolsApiHttpOptions) =>
 
     const response = yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
       onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new SchoolsDecodeError({
-            operation: "decode Schools HTTP response",
-            message: String(cause),
-          }),
-      ),
-    );
+    });
 
     return privateJsonResponse(response);
-  });
+  }).pipe(
+    schoolsProblems,
+    schoolsCredentialProblems(presentation),
+    // A revealing AccessSpec answers every authority failure as a denial, never as 404.
+    unreachable("resource.not-found"),
+  );
+};

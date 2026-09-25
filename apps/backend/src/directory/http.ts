@@ -18,8 +18,9 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import type { OrganizationResolutionError } from "../authority.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
+import { webHandler } from "../http-api/problem.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
-import { listSchools, schoolsErrorResponse, type SchoolsApiHttpOptions } from "../schools/http.js";
+import { listSchools, type SchoolsApiHttpOptions } from "../schools/http.js";
 import {
   readSchoolManagementHttp,
   executeSchoolCommandHttp,
@@ -215,20 +216,16 @@ export const DirectoryApiHandlers = (
     Effect.succeed(
       handlers
         .handleRaw("readSchoolManagement", ({ request }) =>
-          toHttpApiResponse(request, readSchoolManagementHttp, schoolsErrorResponse),
+          webHandler(request, readSchoolManagementHttp),
         )
         .handleRaw("executeSchoolCommand", ({ request }) =>
-          toHttpApiResponse(request, executeSchoolCommandHttp, schoolsErrorResponse),
+          webHandler(request, executeSchoolCommandHttp),
         )
         .handleRaw("listPeople", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => listPeople(webRequest, input), errorResponse),
         )
         .handleRaw("listSchools", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listSchools(webRequest, schools),
-            schoolsErrorResponse,
-          ),
+          webHandler(request, (webRequest) => listSchools(webRequest, schools)),
         ),
     ),
   );
