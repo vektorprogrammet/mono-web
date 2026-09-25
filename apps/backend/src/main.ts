@@ -28,6 +28,8 @@ import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { SchoolSurveysLive } from "@vektorprogrammet/database/surveys";
+import { TeamApplicationsLive } from "@vektorprogrammet/database/team-application";
+import { runTeamApplicationDeliveryWorker } from "./team-application/worker.js";
 import { runPublicApplicationOutboxWorker } from "./application/worker.js";
 import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
@@ -104,6 +106,8 @@ const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(databaseLayer));
 
 const schoolSurveysLayer = SchoolSurveysLive.pipe(Layer.provide(databaseLayer));
 
+const teamApplicationsLayer = TeamApplicationsLive.pipe(Layer.provide(databaseLayer));
+
 const capabilityLayers = Layer.mergeAll(
   returningAssistantsLayer,
   admissionsLayer,
@@ -118,6 +122,7 @@ const capabilityLayers = Layer.mergeAll(
   contentLayer,
   socialEventsLayer,
   schoolSurveysLayer,
+  teamApplicationsLayer,
 );
 
 const receiptDeliveryLayer = ReceiptDeliveryLive(config.receiptDelivery).pipe(
@@ -283,6 +288,19 @@ if (process.exitCode !== 1) {
           ),
         );
 
+  const teamApplicationWorkerFiber =
+    ingress === "internal" || config.teamApplicationDelivery === undefined
+      ? undefined
+      : runtime.runFork(
+          runTeamApplicationDeliveryWorker(config.teamApplicationDelivery).pipe(
+            Effect.provide(HttpMailLive(config.teamApplicationDelivery.transport)),
+          ),
+        );
+
+  if (ingress === "external" && teamApplicationWorkerFiber === undefined) {
+    process.stderr.write("team application delivery worker is not configured\n");
+  }
+
   if (ingress === "external" && recruitmentWorkerFiber === undefined) {
     process.stderr.write("recruitment notification worker is not configured\n");
   }
@@ -374,6 +392,17 @@ if (process.exitCode !== 1) {
         }
       }
 
+      if (teamApplicationWorkerFiber !== undefined) {
+        try {
+          await runtime.runPromise(Fiber.interrupt(teamApplicationWorkerFiber));
+          const exit = await runtime.runPromise(Fiber.await(teamApplicationWorkerFiber));
+
+          if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) exitCode = 1;
+        } catch {
+          exitCode = 1;
+        }
+      }
+
       try {
         await runtime.dispose();
       } catch {
@@ -443,6 +472,15 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(receiptWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("receipt delivery worker failed\n");
+        shutdown(true);
+      }
+    });
+  }
+
+  if (teamApplicationWorkerFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(teamApplicationWorkerFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+        process.stderr.write("team application delivery worker failed\n");
         shutdown(true);
       }
     });

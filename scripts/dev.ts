@@ -162,6 +162,7 @@ Object.assign(env, {
   RECRUITMENT_NOTIFICATION_MODE: "disabled",
   SCHOOL_SERVICE_NOTIFICATION_MODE: "disabled",
   SCHOOL_SERVICE_DISPATCH_NOTIFICATION_MODE: "disabled",
+  TEAM_APPLICATION_DELIVERY_MODE: "disabled",
 });
 
 // Use the installed native Turbo binary directly. Its JavaScript wrapper uses

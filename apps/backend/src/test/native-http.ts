@@ -1,6 +1,7 @@
 import { Database, IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Placements } from "@vektorprogrammet/placements/contracts";
 import { Substitutes } from "@vektorprogrammet/domain/substitutes";
+import { TeamApplications } from "@vektorprogrammet/domain/team-application";
 import {
   Admissions,
   ReturningAssistants,
@@ -36,8 +37,10 @@ import {
   RecruitmentApi,
   RequestSchemaErrorMiddleware,
   SchoolSurveysApi,
+  TeamApplicationsApi,
 } from "@vektorprogrammet/http-api";
 import { SchoolSurveysApiHandlers } from "../surveys/http.js";
+import { TeamApplicationsApiHandlers } from "../team-application/http.js";
 import { Context, Effect, Layer, Option, type FileSystem, type Path } from "effect";
 import { Etag, HttpRouter, HttpServerResponse, type HttpPlatform } from "effect/unstable/http";
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
@@ -126,6 +129,10 @@ const schoolSurveysContract = HttpApi.make("external-native-api")
   .add(SchoolSurveysApi)
   .middleware(RequestSchemaErrorMiddleware);
 
+const teamApplicationsContract = HttpApi.make("external-native-api")
+  .add(TeamApplicationsApi)
+  .middleware(RequestSchemaErrorMiddleware);
+
 type BackendTestServices =
   | Database
   | IdentitySnapshot
@@ -144,6 +151,7 @@ type BackendTestServices =
   | ContentManagement
   | SocialEvents
   | SchoolSurveys
+  | TeamApplications
   | Mail
   | ReceiptAuxiliaryEffects
   | ReceiptFileService
@@ -193,6 +201,7 @@ const unimplementedServices = Layer.mergeAll(
   Layer.mock(ContentManagement, {}),
   Layer.mock(SocialEvents, {}),
   Layer.mock(SchoolSurveys, {}),
+  Layer.mock(TeamApplications, {}),
   Layer.mock(Mail, {}),
   Layer.mock(ReceiptAuxiliaryEffects, {}),
   Layer.mock(ReceiptFileService, {}),
@@ -398,6 +407,16 @@ export const makeSchoolSurveysTestHttp = <S extends TestServiceLayer>(services: 
   fetch: testFetch(
     HttpApiBuilder.layer(schoolSurveysContract).pipe(
       Layer.provide(SchoolSurveysApiHandlers()),
+      Layer.provide(NativeHttpApiMiddlewareLive),
+    ),
+    services,
+  ),
+});
+
+export const makeTeamApplicationsTestHttp = <S extends TestServiceLayer>(services: S) => ({
+  fetch: testFetch(
+    HttpApiBuilder.layer(teamApplicationsContract).pipe(
+      Layer.provide(TeamApplicationsApiHandlers),
       Layer.provide(NativeHttpApiMiddlewareLive),
     ),
     services,

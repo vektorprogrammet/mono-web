@@ -174,7 +174,6 @@ export const RESOURCE_KINDS = {
   receipt: true,
   "content-article": true,
   "school-survey": true,
-  "team-application": true,
 } as const;
 
 export const RESOURCE_KIND_VALUES = Record.keys(RESOURCE_KINDS);
