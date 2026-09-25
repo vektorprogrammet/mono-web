@@ -179,6 +179,9 @@ export const createRecruitmentObserver = (pool, mailbox) => {
       'affiliations',(SELECT coalesce(json_agg(row_to_json(a)),'[]') FROM organization_volunteer_affiliations a),
       'placements',(SELECT coalesce(json_agg(row_to_json(p)),'[]') FROM assistant_placements p),
       'delivery',(SELECT coalesce(json_agg(row_to_json(d) ORDER BY d.invitation_id),'[]') FROM (SELECT invitation_id,state,attempts,secret IS NULL AS secret_cleared,envelope IS NULL AS envelope_cleared FROM applicant_account_delivery) d),
+      'history',json_build_object('assignment',(SELECT coalesce(json_agg(actor_person_id),'[]') FROM recruitment_assignment_audit),'schedule',(SELECT coalesce(json_agg(actor_person_id),'[]') FROM recruitment_schedule_audit),'affiliation',(SELECT coalesce(json_agg(json_build_object('action',action,'actor',actor_person_id) ORDER BY revision),'[]') FROM organization_volunteer_affiliation_audit),'placement',(SELECT coalesce(json_agg(actor_person_id),'[]') FROM assistant_placement_audit)),
+      'httpReceipts',(SELECT coalesce(json_agg(row_to_json(r) ORDER BY r.operation_id,r.status),'[]') FROM (SELECT operation_id,status,count(*)::int AS count FROM native_http_idempotency_receipts GROUP BY operation_id,status) r),
+      'applicationOutbox',(SELECT coalesce(json_agg(status ORDER BY effect_id),'[]') FROM admission_application_outbox),
       'interviewDelivery',(SELECT coalesce(json_agg(status),'[]') FROM recruitment_invitation_outbox),
       'completionDelivery',(SELECT coalesce(json_agg(status),'[]') FROM recruitment_interview_completion_outbox)
     ) AS facts`);
@@ -188,6 +191,20 @@ export const createRecruitmentObserver = (pool, mailbox) => {
     const n = (table, expected) => assert.equal(facts.counts[table], expected, `${step}: ${table}`);
     n("admission_applications", at("applications") ? 2 : 0);
     n("admission_application_command_receipts", at("applications") ? 2 : 0);
+    n("admission_application_outbox", at("applications") ? 6 : 0);
+    assert.ok(facts.applicationOutbox.every((status) => status === "Pending"));
+    assert.deepEqual(
+      facts.history.assignment,
+      at("assigned") ? [recruitmentPeople.leader.personId] : [],
+    );
+    assert.deepEqual(
+      facts.history.schedule,
+      at("scheduled") ? [recruitmentPeople.leader.personId] : [],
+    );
+    assert.deepEqual(
+      facts.history.placement,
+      at("placed") ? [recruitmentPeople.leader.personId] : [],
+    );
 
     for (const table of [
       "recruitment_interviews",

@@ -77,6 +77,7 @@ const sanitize = (value) =>
   secrets
     .reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), String(value))
     .replace(/onboard_[a-f0-9]{64}/g, "[REDACTED]")
+    .replace(/(\/interview-response\/)[A-Za-z0-9_-]{43}/g, "$1[REDACTED]")
     .replace(/(authorization|cookie|set-cookie)([\s"':=]+)[^\r\n,}]+/gi, "$1$2[REDACTED]");
 
 const children = new Set();
