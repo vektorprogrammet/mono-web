@@ -104,7 +104,8 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - PR previews (operator decision, 2026-09-25): Cloudflare Worker Previews of the homepage and dashboard only, as `vektor-preview-homepage` and `vektor-preview-dashboard`, which `wrangler preview` creates on first use ([contract](docs/specs/worker-pr-previews.md)).
   They need the `CLOUDFLARE_API_TOKEN` repository secret (operator step); no hosted run has deployed one yet. They have no backend, so pages that read the API show the unavailable state.
   A native backend preview host is the planned follow-up: full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
-- Pending operator teardown: the retired `dev-main` Alchemy stage (vektor.phibkro.org Workers and the workstation's `vektor-preview-*` systemd units); its code is deleted from this repository.
+- The `dev-main` stage was torn down on 2026-09-26: its Workers, custom domain, route, tunnel, tunnel DNS records, and workstation units are gone. `vektor.phibkro.org` is free for a future staging deployment of `main`.
+  Retired Cloudflare Workers still deployed: p20 (homepage, dashboard, preview worker), p001 (homepage, dashboard), the superseded development backend (routes `vektor.phibkro.org/api/*` and `/health`), and `vektor-migration-docs`.
 - Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
 - `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy-data` adds MariaDB and the PHP 8.4 CLI for the legacy data rehearsals. CI runs in the same shell; its hosted cost is unmeasured.
