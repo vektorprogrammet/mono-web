@@ -1,5 +1,6 @@
 import { Effect, Encoding, Result, Schema } from "effect";
 import { ReceiptDecodeError } from "./errors.js";
+import { ReceiptId } from "./schema.js";
 import { isRfc3339Instant } from "../time.js";
 
 export const RECEIPT_PAGE_SIZE = 50;
@@ -14,7 +15,7 @@ const ReceiptCursorPosition = Schema.Struct({
       ),
     ),
   ),
-  receiptId: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(160))),
+  receiptId: ReceiptId,
 });
 
 export type ReceiptCursorPosition = typeof ReceiptCursorPosition.Type;
@@ -30,7 +31,6 @@ const CursorTuple = Schema.fromJsonString(
 export const ReceiptCursor = Schema.String.pipe(
   Schema.check(
     Schema.isMinLength(1),
-    Schema.isMaxLength(1024),
     Schema.makeFilter((value) => /^[A-Za-z0-9+/]+={0,2}$/u.test(value)),
   ),
 );
