@@ -1,6 +1,6 @@
 /**
  * Local E2E concurrency probe for receipt approval evidence.
- * Composed only when `ReceiptApiConfig.e2eTestMode` is enabled.
+ * Composed only when `ReceiptApiConfig.e2e` is present (local deployments only).
  */
 import { Cause, Clock, Deferred, Duration, Effect } from "effect";
 import { HttpSemanticFailure } from "../http-semantics.js";
@@ -89,4 +89,4 @@ export const makeReceiptE2ETransactionBarrier: Effect.Effect<ReceiptE2ETransacti
 export const receiptE2ETransactionBarrierFor = (
   config: ReceiptApiConfig,
 ): Effect.Effect<ReceiptE2ETransactionBarrier | undefined> =>
-  config.e2eTestMode === true ? makeReceiptE2ETransactionBarrier : Effect.succeed(undefined);
+  config.e2e === undefined ? Effect.succeed(undefined) : makeReceiptE2ETransactionBarrier;

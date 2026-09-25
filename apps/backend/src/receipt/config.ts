@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { Predicate } from "effect";
+import type { IdentityDeployment } from "../session-security.js";
+
+/**
+ * Test-only receipt authority: internal lifecycle evidence, the approval concurrency barrier,
+ * and one forced file-promotion failure. Decoded only for a local deployment composition.
+ */
+export interface ReceiptE2EComposition {
+  readonly failNextPromotionEffectId?: string;
+}
 
 export interface ReceiptApiConfig {
   readonly stagingRoot: string;
@@ -8,8 +17,7 @@ export interface ReceiptApiConfig {
   readonly now: () => string;
   readonly nextReceiptId: () => string;
   readonly nextVisualId: () => string;
-  readonly e2eTestMode?: boolean;
-  readonly e2eFailNextPromotionEffectId?: string;
+  readonly e2e?: ReceiptE2EComposition;
 }
 
 const nonEmpty = (value: string | undefined, field: string): string => {
@@ -33,32 +41,46 @@ const parseMaxFileBytes = (raw: string | undefined): number => {
   return bytes;
 };
 
+/** Storage and allocation settings; never test-only authority. */
 export const decodeReceiptApiConfig = (
   env: Readonly<Record<string, string | undefined>> = process.env,
-): ReceiptApiConfig => {
-  const e2eTestMode = env.RECEIPT_E2E_TEST_MODE === "1";
+): ReceiptApiConfig => ({
+  stagingRoot: nonEmpty(
+    env.RECEIPT_STAGING_ROOT ?? "/tmp/vektor-receipt-staging",
+    "RECEIPT_STAGING_ROOT",
+  ),
+  committedRoot: nonEmpty(
+    env.RECEIPT_COMMITTED_ROOT ?? "/tmp/vektor-receipt-committed",
+    "RECEIPT_COMMITTED_ROOT",
+  ),
+  maxFileBytes: parseMaxFileBytes(env.RECEIPT_MAX_FILE_BYTES),
+  now: () => new Date().toISOString(),
+  nextReceiptId: () => `receipt_${randomUUID()}`,
+  nextVisualId: () => `visual_${randomUUID()}`,
+});
 
-  const e2eFailNextPromotionEffectId =
-    e2eTestMode &&
-    env.RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID !== undefined &&
-    env.RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID.length > 0
-      ? env.RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID
-      : undefined;
+/**
+ * Decodes the receipt E2E composition. Any receipt E2E variable outside a local deployment,
+ * or without `RECEIPT_E2E_TEST_MODE=1`, fails startup.
+ */
+export const decodeReceiptE2EComposition = (
+  env: Readonly<Record<string, string | undefined>>,
+  deployment: IdentityDeployment,
+): ReceiptE2EComposition | undefined => {
+  const testMode = env.RECEIPT_E2E_TEST_MODE;
+  const failNextPromotionEffectId = env.RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID;
 
-  return {
-    stagingRoot: nonEmpty(
-      env.RECEIPT_STAGING_ROOT ?? "/tmp/vektor-receipt-staging",
-      "RECEIPT_STAGING_ROOT",
-    ),
-    committedRoot: nonEmpty(
-      env.RECEIPT_COMMITTED_ROOT ?? "/tmp/vektor-receipt-committed",
-      "RECEIPT_COMMITTED_ROOT",
-    ),
-    maxFileBytes: parseMaxFileBytes(env.RECEIPT_MAX_FILE_BYTES),
-    now: () => new Date().toISOString(),
-    nextReceiptId: () => `receipt_${randomUUID()}`,
-    nextVisualId: () => `visual_${randomUUID()}`,
-    e2eTestMode,
-    e2eFailNextPromotionEffectId,
-  };
+  if (testMode === undefined && failNextPromotionEffectId === undefined) return undefined;
+
+  if (deployment !== "local") {
+    throw new Error("RECEIPT_E2E_* requires NATIVE_IDENTITY_DEPLOYMENT=local");
+  }
+
+  if (testMode !== "1") {
+    throw new Error("RECEIPT_E2E_* requires RECEIPT_E2E_TEST_MODE=1");
+  }
+
+  return failNextPromotionEffectId === undefined || failNextPromotionEffectId.length === 0
+    ? {}
+    : { failNextPromotionEffectId };
 };

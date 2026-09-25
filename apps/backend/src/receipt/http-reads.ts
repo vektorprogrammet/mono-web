@@ -528,7 +528,7 @@ export const readReceiptLifecycleEvidence = <E, R>(
             state: row.status,
             approverPersonIds: [],
             approverServicePrincipalIds: [],
-            internalEvidenceEnabled: options.config.e2eTestMode === true,
+            internalEvidenceEnabled: options.config.e2e !== undefined,
           } satisfies ReceiptAccessFacts,
           authorityVersion: AuthorityVersion.make(`receipt:${row.revision}`),
         };

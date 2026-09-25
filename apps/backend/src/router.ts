@@ -203,9 +203,7 @@ export const ExternalNativeApiRouterLive = (
           ? ReceiptFileStoreLive({
               stagingRoot: config.receipt.stagingRoot,
               committedRoot: config.receipt.committedRoot,
-              failNextPromotionEffectId: config.receipt.e2eTestMode
-                ? config.receipt.e2eFailNextPromotionEffectId
-                : undefined,
+              failNextPromotionEffectId: config.receipt.e2e?.failNextPromotionEffectId,
             })
           : Layer.succeed(ReceiptFileStoreResource, options.receiptFileStore),
       ),

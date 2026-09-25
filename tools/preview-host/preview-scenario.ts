@@ -837,9 +837,8 @@ export const runPreviewScenarioApplication = async (
       RECEIPT_AUTH_TOKENS: "{}",
       ORGANIZATION_AUTH_TOKENS: "{}",
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
-      RECEIPT_E2E_TEST_MODE: "1",
+      PASSWORD_RESET_DELIVERY_MODE: "disabled",
+      RECEIPT_DELIVERY_MODE: "disabled",
       RECEIPT_STAGING_ROOT: join(options.receiptStorageRoot, "receipt-staging"),
       RECEIPT_COMMITTED_ROOT: join(options.receiptStorageRoot, "receipt-committed"),
     };

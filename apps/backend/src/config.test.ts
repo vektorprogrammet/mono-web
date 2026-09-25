@@ -167,6 +167,28 @@ describe("backend configuration boundary", () => {
     ).toBe(true);
   });
 
+  it("confines receipt E2E authority to an explicit local deployment", () => {
+    const preview = {
+      ...environment,
+      NATIVE_IDENTITY_DEPLOYMENT: "preview",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://vektor.phibkro.org"]),
+      OAUTH_DASHBOARD_ORIGIN: "https://vektor.phibkro.org",
+    };
+
+    const failPromotion = { RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID: "receipt:PromoteReceiptFile" };
+
+    expect(decodeBackendConfig(environment).receipt.e2e).toBeUndefined();
+    expect(decodeBackendConfig(preview).receipt.e2e).toBeUndefined();
+    expect(() => decodeBackendConfig({ ...preview, RECEIPT_E2E_TEST_MODE: "1" })).toThrow();
+    expect(() => decodeBackendConfig({ ...preview, ...failPromotion })).toThrow();
+    expect(() => decodeBackendConfig({ ...environment, ...failPromotion })).toThrow();
+    expect(() => decodeBackendConfig({ ...environment, RECEIPT_E2E_TEST_MODE: "0" })).toThrow();
+    expect(
+      decodeBackendConfig({ ...environment, RECEIPT_E2E_TEST_MODE: "1", ...failPromotion }).receipt
+        .e2e,
+    ).toEqual({ failNextPromotionEffectId: "receipt:PromoteReceiptFile" });
+  });
+
   it("does not reveal submitted secrets or credential-bearing URLs in errors", () => {
     const sentinel = "SYNTHETIC_PRIVATE_VALUE";
 
