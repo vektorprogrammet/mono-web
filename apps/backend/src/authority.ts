@@ -482,9 +482,10 @@ const activeDepartments = (authority: OrganizationPersonAuthority): ReadonlyArra
 
 /**
  * Actor of an admission route that names no department. An active global administrator acts
- * globally; anyone else acts in the single department of their active memberships. A person
- * without exactly one such department is authenticated but not authorized: a 401 would tell the
- * dashboard that the session expired and sign the person out.
+ * globally; anyone else acts in the single department of their active memberships, also after a
+ * global-administrator grant has ended. A person without exactly one such department is
+ * authenticated but not authorized: a 401 would tell the dashboard that the session expired and
+ * sign the person out.
  */
 export const unscopedAdmissionActorFrom = (
   authority: OrganizationPersonAuthority,
@@ -496,15 +497,12 @@ export const unscopedAdmissionActorFrom = (
     });
   }
 
-  if (authority.globalAdministrator === "Inactive") {
-    throw new InactiveActor({ personId: authority.personId });
-  }
-
   const departments = activeDepartments(authority);
 
   if (departments.length === 1) return admissionActorForDepartment(authority, departments[0]!);
 
-  throw departments.length === 0 && authority.memberships.length > 0
+  throw departments.length === 0 &&
+    (authority.memberships.length > 0 || authority.globalAdministrator === "Inactive")
     ? new InactiveActor({ personId: authority.personId })
     : new AdmissionRoleDenied({ personId: authority.personId });
 };

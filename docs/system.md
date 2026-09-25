@@ -445,6 +445,10 @@ Examples:
 Default deny. The backend checks authority at the command and query boundary. The
 frontend may hide unavailable actions, but hiding is not enforcement.
 
+Relationships and grants are independent. A grant, such as global administration,
+adds the authority it names while it is current. Its end removes only that authority:
+a current appointment keeps its scope, and ending an appointment changes no grant.
+
 A request presents one credential. A request that carries both a session cookie and
 a bearer token fails, whether they name one Person, two Persons, or a Person and a
 service. The backend never chooses between them. In the existing-account onboarding

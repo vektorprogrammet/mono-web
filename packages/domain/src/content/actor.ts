@@ -30,17 +30,15 @@ const compareDepartmentId = (left: DepartmentId, right: DepartmentId): number =>
 /**
  * Maps the complete Organization projection onto the content actor (spec 0062
  * §Actor model). Pure over its input; leadership never widens scope and an
- * administrator grant never combines with membership scoping.
+ * administrator grant never combines with membership scoping. An ended
+ * administrator grant removes no membership authority; it only names the denial
+ * when no active membership remains.
  */
 export const resolveContentActor = (
   authority: OrganizationPersonAuthority,
 ): Decision<ContentActor> => {
   if (authority.globalAdministrator === "Active") {
     return allow<ContentActor>(ContentActor.ContentAdministrator({ personId: authority.personId }));
-  }
-
-  if (authority.globalAdministrator === "Inactive") {
-    return deny<ContentActor>("AuthorityInactive");
   }
 
   let hasMembershipRecord = false;
@@ -53,7 +51,11 @@ export const resolveContentActor = (
   }
 
   if (activeMemberships.length === 0) {
-    return deny<ContentActor>(hasMembershipRecord ? "AuthorityInactive" : "NotInScope");
+    return deny<ContentActor>(
+      hasMembershipRecord || authority.globalAdministrator === "Inactive"
+        ? "AuthorityInactive"
+        : "NotInScope",
+    );
   }
 
   const leaderDepartmentIds = [

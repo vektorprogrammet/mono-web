@@ -160,7 +160,7 @@ describe("content actor derivation", () => {
     expect(canPublishContent(decision.value, [departmentB])).toBe(true);
   });
 
-  it("denies an inactive administrator grant instead of widening through memberships", () => {
+  it("keeps membership authority when an administrator grant has ended", () => {
     const decision = resolveContentActor(
       authority("Inactive", [
         {
@@ -173,7 +173,11 @@ describe("content actor derivation", () => {
       ]),
     );
 
-    expect(decision).toEqual(deny("AuthorityInactive"));
+    expect(decision).toEqual(
+      allow(ContentActor.ContentEditor({ personId: editorId, departmentIds: [departmentA] })),
+    );
+    // Without a membership, the ended grant still names the denial.
+    expect(resolveContentActor(authority("Inactive", []))).toEqual(deny("AuthorityInactive"));
   });
   it("distinguishes ended memberships from no authority records", () => {
     const ended = resolveContentActor(
