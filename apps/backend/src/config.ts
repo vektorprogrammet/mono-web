@@ -275,8 +275,10 @@ export const decodeBackendConfig = (
   const receiptDelivery = receiptDeliveryConfig(env);
   let passwordResetDelivery: PasswordResetDeliveryConfig | undefined;
   let receiptDeliveryPollMilliseconds: number | undefined;
+
   if (env.PASSWORD_RESET_DELIVERY_MODE === "http") {
     const transport = mailDeliveryConfig(env);
+
     if (!transport) throw new Error("Password reset delivery requires mail configuration");
     passwordResetDelivery = {
       transport,
@@ -292,6 +294,7 @@ export const decodeBackendConfig = (
   } else if (env.PASSWORD_RESET_DELIVERY_MODE !== "disabled") {
     throw new Error("PASSWORD_RESET_DELIVERY_MODE must be disabled or http");
   }
+
   if (env.RECEIPT_DELIVERY_MODE === "http") {
     if (!receiptDelivery || !env.RECEIPT_STAGING_ROOT || !env.RECEIPT_COMMITTED_ROOT)
       throw new Error("Receipt worker requires delivery configuration and explicit storage roots");

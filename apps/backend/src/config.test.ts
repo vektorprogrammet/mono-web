@@ -30,6 +30,7 @@ describe("backend configuration boundary", () => {
       expect(() => decodeBackendConfig({ ...environment, [key]: undefined })).toThrow();
       expect(() => decodeBackendConfig({ ...environment, [key]: "http" })).toThrow();
     }
+
     const reset = {
       ...environment,
       PASSWORD_RESET_DELIVERY_MODE: "http",
@@ -38,6 +39,7 @@ describe("backend configuration boundary", () => {
       MAIL_DELIVERY_TOKEN: "synthetic-token",
       MAIL_DELIVERY_TIMEOUT_MS: "1000",
     };
+
     for (const key of [
       "MAIL_SENDER",
       "MAIL_DELIVERY_URL",
@@ -46,7 +48,9 @@ describe("backend configuration boundary", () => {
     ]) {
       expect(() => decodeBackendConfig({ ...reset, [key]: "" })).toThrow();
     }
+
     expect(() => decodeBackendConfig({ ...reset, PASSWORD_RESET_DELIVERY_POLL_MS: "0" })).toThrow();
+
     const receipt = {
       ...environment,
       RECEIPT_DELIVERY_MODE: "http",
@@ -56,6 +60,7 @@ describe("backend configuration boundary", () => {
       RECEIPT_DELIVERY_SENDER: "sender@example.invalid",
       RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: '{"department":"economy@example.invalid"}',
     };
+
     expect(() => decodeBackendConfig(receipt)).toThrow();
     expect(() =>
       decodeBackendConfig({

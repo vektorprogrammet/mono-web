@@ -8,6 +8,7 @@ export const runPasswordResetDeliveryWorker = Effect.fn("runPasswordResetDeliver
   function* (auth: BackendAuthConfig, config: PasswordResetDeliveryConfig) {
     const pool = yield* DatabasePgPool;
     const mail = yield* Mail;
+
     return yield* Effect.forever(
       drainPasswordResetMail(pool, auth, mail, config.sender).pipe(
         Effect.andThen(Effect.sleep(Duration.millis(config.pollIntervalMilliseconds))),

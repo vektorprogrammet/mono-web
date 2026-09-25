@@ -364,19 +364,24 @@ export const drainPasswordResetMail = (
             "Hvis du ikke ba om dette, kan du se bort fra e-posten.",
           ].join("\n"),
         };
+
         const fingerprint = createHash("sha256").update(JSON.stringify(request)).digest("hex");
+
         const frozen = yield* Effect.promise(() =>
           pool.query(
             "UPDATE auth.password_reset_email_outbox SET payload_sha256=COALESCE(payload_sha256,$3) WHERE effect_id=$1 AND claim_id=$2 AND status='Processing' RETURNING payload_sha256",
             [row.effect_id, claim, fingerprint],
           ),
         );
+
         if (frozen.rowCount !== 1) return "LostClaim";
+
         if (frozen.rows[0].payload_sha256 !== fingerprint) {
           failure = "verification-invalid";
           quarantined = true;
         } else {
           const deliveryExit = yield* Effect.exit(restore(Effect.result(mail.deliver(request))));
+
           if (Exit.isFailure(deliveryExit)) {
             // Interruption is ambiguous. Persist quarantine before the owning fiber releases the pool.
             if (!Cause.hasInterrupts(deliveryExit.cause))
@@ -386,6 +391,7 @@ export const drainPasswordResetMail = (
             quarantined = true;
           } else {
             const result = deliveryExit.value;
+
             if (Predicate.isTagged(result, "Failure")) {
               failure = Match.value(result.failure.kind).pipe(
                 Match.when("permanent-rejection", () => "provider-rejected" as const),
@@ -399,6 +405,7 @@ export const drainPasswordResetMail = (
           }
         }
       }
+
       const outcome = yield* Effect.promise(() =>
         transaction(pool, async (client) => {
           const updated = await client.query(
@@ -424,7 +431,9 @@ export const drainPasswordResetMail = (
           return failure === null ? "Delivered" : quarantined ? "Quarantined" : "Failed";
         }),
       );
+
       if (interruptedCause) return yield* Effect.failCause(interruptedCause);
+
       return outcome;
     }),
   );
