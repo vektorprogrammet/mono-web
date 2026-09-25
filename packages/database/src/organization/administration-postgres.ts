@@ -1,3 +1,4 @@
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { Equal, flow, Effect, Schema } from "effect";
 import {
@@ -83,9 +84,6 @@ const decodeFieldOfStudy = flow(
   Schema.decodeUnknownEffect(FieldOfStudy, { onExcessProperty: "error" }),
   Effect.mapError((cause) => decodeError("decode created FieldOfStudy", cause)),
 );
-
-const lockCommand = (sql: DatabaseOperations, commandId: OrganizationCommandId) =>
-  sql`SELECT pg_advisory_xact_lock(hashtextextended(${commandId}, 0))`.pipe(Effect.asVoid);
 
 const readReceipt = (sql: DatabaseOperations, commandId: OrganizationCommandId) =>
   sql<OrganizationCommandReceiptRow>`
@@ -557,7 +555,7 @@ export const createOrganizationDepartment = (
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          yield* lockCommand(sql, command.commandId);
+          yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
 
           const receipt = yield* readReceipt(sql, command.commandId).pipe(
             Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
@@ -615,7 +613,7 @@ export const createOrganizationTeam = (
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          yield* lockCommand(sql, command.commandId);
+          yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
 
           const receipt = yield* readReceipt(sql, command.commandId).pipe(
             Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
@@ -674,7 +672,7 @@ export const createOrganizationFieldOfStudy = (
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          yield* lockCommand(sql, command.commandId);
+          yield* lockAdvisory(sql, AdvisoryLockKey.organizationCommand(command.commandId));
 
           const receipt = yield* readReceipt(sql, command.commandId).pipe(
             Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),

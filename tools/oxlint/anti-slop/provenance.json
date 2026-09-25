@@ -8,6 +8,7 @@
   },
   "deviations": [
     "UPSTREAM.md notices preserved verbatim as UPSTREAM.txt to avoid new Markdown documents.",
-    "Added rat-stack license and this provenance record; plugin TypeScript is unchanged."
+    "Added rat-stack license and this provenance record.",
+    "Added the repository-specific rule rules/no-raw-advisory-lock-sql.ts and its registration in index.ts; UPSTREAM.txt records it."
   ]
 }

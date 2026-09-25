@@ -16,6 +16,7 @@ import {
   type ReviewedReceiptSnapshot,
 } from "@vektorprogrammet/domain/receipt";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { lockReceiptImportSource, storeReceiptImportResult } from "./postgres.js";
 
@@ -466,7 +467,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
   return yield* sql
     .withTransaction(
       Effect.gen(function* () {
-        yield* sql`SELECT pg_advisory_xact_lock(hashtextextended('native-reviewed-receipt-import', 0))`;
+        yield* lockAdvisory(sql, AdvisoryLockKey.reviewedReceiptImport);
 
         const sourceKeys = snapshot.rows.map((row) => row.sourcePrimaryKey).sort();
 

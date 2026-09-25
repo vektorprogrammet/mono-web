@@ -16,6 +16,8 @@ import {
   schoolManagementDepartments,
   canManageSchoolDepartments,
 } from "@vektorprogrammet/domain/schools";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
+import { accountAccessEnabled } from "../identity-access.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   lockPersonAuthorization,
@@ -40,11 +42,8 @@ const authorityFor = Effect.fn("Schools.authority")(function* (
 ) {
   if (lock) yield* lockPersonAuthorization(sql, personId);
 
-  const account = yield* sql<{
-    enabled: boolean;
-  }>`SELECT NOT access_disabled AS enabled FROM auth."user" WHERE id=${personId} ${lock ? sql`FOR SHARE` : sql``}`;
-
-  if (!account[0]?.enabled) return yield* fail("Denied");
+  if (!(yield* accountAccessEnabled(sql, personId, lock ? "ForShare" : "None")))
+    return yield* fail("Denied");
   const now = DateTime.formatIso(yield* DateTime.now);
 
   const authority = yield* resolveOrganizationPersonAuthorityWithSql(
@@ -229,7 +228,7 @@ export const executeSchoolCommand = (input: SchoolCommand, personId: PersonId) =
     return yield* sql.withTransaction(
       Effect.gen(function* () {
         const authorized = yield* authorizeWithSql(sql, command, personId);
-        yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`schools-command:${personId}:${command.commandId}`},0))`;
+        yield* lockAdvisory(sql, AdvisoryLockKey.schoolsCommand(personId, command.commandId));
 
         const digest = sha256Hex(
           canonicalJsonBytes({ schema: "SchoolCommand/v1", personId, command }),

@@ -1,3 +1,4 @@
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { PersonId } from "@vektorprogrammet/domain/organization";
@@ -331,14 +332,6 @@ export const readOwnProfileHttpSourcePostgres = (
     return yield* readOwnProfileHttpSourceWith(sql, decodedPersonId);
   });
 
-const lockProfileCommand = (sql: DatabaseOperations, commandId: ProfileCommandId) =>
-  sql`SELECT pg_advisory_xact_lock(hashtextextended(${commandId}, 0))`.pipe(
-    Effect.asVoid,
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("lock own Profile command", cause)),
-    ),
-  );
-
 const readProfileCommandReceipt = (
   sql: DatabaseOperations,
   commandId: ProfileCommandId,
@@ -585,7 +578,11 @@ export const updateOwnProfile = (
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          yield* lockProfileCommand(sql, command.commandId);
+          yield* lockAdvisory(sql, AdvisoryLockKey.profileCommand(command.commandId)).pipe(
+            Effect.catchTag("SqlError", (cause) =>
+              Effect.fail(persistenceError("lock own Profile command", cause)),
+            ),
+          );
           const receipt = yield* readProfileCommandReceipt(sql, command.commandId);
 
           if (receipt !== undefined) {

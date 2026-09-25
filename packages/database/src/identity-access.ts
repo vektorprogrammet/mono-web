@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
 import {
   AccountAccess,
@@ -6,6 +7,23 @@ import {
   transitionAccountAccess,
 } from "@vektorprogrammet/domain/identity";
 import type { DatabaseOperations } from "./service.js";
+
+/**
+ * Whether the native account of `personId` exists and is not disabled. `ForShare` keeps the
+ * access state until the transaction ends, so a disable waits for the authorization it gates.
+ *
+ * @construct sql-lifecycle
+ */
+export const accountAccessEnabled = (
+  sql: DatabaseOperations,
+  personId: PersonId,
+  lock: "None" | "ForShare",
+): Effect.Effect<boolean, SqlError> =>
+  sql<{
+    readonly enabled: boolean;
+  }>`SELECT NOT access_disabled AS enabled FROM auth."user" WHERE id=${personId} ${lock === "ForShare" ? sql`FOR SHARE` : sql``}`.pipe(
+    Effect.map((rows) => rows[0]?.enabled === true),
+  );
 
 /** Caller holds the administrator-set lock and sorted actor/subject person locks. */
 export const changeNativeAccountAccess = Effect.fn("changeNativeAccountAccess")(function* (

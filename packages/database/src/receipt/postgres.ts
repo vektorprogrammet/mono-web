@@ -8,6 +8,7 @@ import {
 import { readApplicableAuthorizationRules } from "../authz/postgres.js";
 import { composeCapabilityEvidence } from "@vektorprogrammet/domain/authz";
 import type { AuthzRule, AuthzTagAssignment } from "@vektorprogrammet/domain/authz";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   lockPersonAuthorization,
@@ -310,8 +311,7 @@ export const lockReceiptImportSource = (
   sourceRepository: string,
   sourcePrimaryKey: string,
 ): Effect.Effect<void, ReceiptPersistenceError> =>
-  sql`SELECT pg_advisory_xact_lock(hashtextextended(${`receipt-import-source:${canonicalJson([sourceRepository, sourcePrimaryKey])}`}, 0))`.pipe(
-    Effect.asVoid,
+  lockAdvisory(sql, AdvisoryLockKey.receiptImportSource(sourceRepository, sourcePrimaryKey)).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("lock receipt source ownership", cause)),
     ),
@@ -335,15 +335,6 @@ export const storeReceiptImportResult = (
       reasons: Predicate.isTagged(result, "QuarantinedReceiptImport") ? result.reasons : [],
     };
 
-    const importLockKey = canonicalJson({
-      sourceRepository: provenance.sourceRepository,
-      sourceRevision: provenance.sourceRevision,
-      snapshotId: provenance.snapshotId,
-      sourcePrimaryKey: result.sourcePrimaryKey,
-      sourceOccurrence: result.sourceOccurrence,
-      transformationRevision: provenance.transformationRevision,
-    });
-
     const isExactReplay = (existing: ReceiptImportLedgerRow): boolean =>
       existing.source_watermark === provenance.sourceWatermark &&
       existing.source_digest === provenance.sourceDigest &&
@@ -358,8 +349,7 @@ export const storeReceiptImportResult = (
       .withTransaction(
         Effect.gen(function* () {
           yield* lockReceiptImportSource(sql, provenance.sourceRepository, result.sourcePrimaryKey);
-          yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${importLockKey}, 0))`.pipe(
-            Effect.asVoid,
+          yield* lockAdvisory(sql, AdvisoryLockKey.receiptImportOccurrence(result)).pipe(
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(persistenceError("lock receipt import", cause)),
             ),
@@ -413,17 +403,14 @@ export const storeReceiptImportResult = (
             );
 
             const destinationLockKeys = [
-              `receipt:${result.receipt.receiptId}`,
-              `visual:${result.receipt.visualId}`,
+              AdvisoryLockKey.importedReceipt(result.receipt.receiptId),
+              AdvisoryLockKey.importedReceiptVisual(result.receipt.visualId),
             ].sort();
 
             yield* Effect.forEach(
               destinationLockKeys,
               (destinationLockKey) =>
-                sql`
-                  SELECT pg_advisory_xact_lock(hashtextextended(${destinationLockKey}, 0))
-                `.pipe(
-                  Effect.asVoid,
+                lockAdvisory(sql, destinationLockKey).pipe(
                   Effect.catchTag("SqlError", (cause) =>
                     Effect.fail(persistenceError("lock receipt import identity", cause)),
                   ),
@@ -1243,12 +1230,7 @@ const executeAuthorizedReceiptCommandWithSql = (
     const commandJson = canonicalJson(commandEnvelope);
     const commandDigest = sha256Hex(canonicalJsonBytes(commandEnvelope));
 
-    yield* sql`
-      SELECT pg_catalog.pg_advisory_xact_lock(
-        pg_catalog.hashtextextended(${`receipt-command:${command.commandId}`}, 0)
-      )
-    `.pipe(
-      Effect.asVoid,
+    yield* lockAdvisory(sql, AdvisoryLockKey.receiptCommand(command.commandId)).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("lock command receipt", cause)),
       ),

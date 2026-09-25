@@ -48,6 +48,7 @@ import {
   resolveOrganizationPersonAuthorityForRead,
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   resolveReceiptAuthorityForRead,
@@ -289,12 +290,7 @@ const executeAuthorizedReceiptSettlementWithSql = (
 
     const commandJson = canonicalJson(commandEnvelope);
     const commandDigest = sha256Hex(canonicalJsonBytes(commandEnvelope));
-    yield* sql`
-      SELECT pg_catalog.pg_advisory_xact_lock(
-        pg_catalog.hashtextextended(${`receipt-command:${command.commandId}`}, 0)
-      )
-    `.pipe(
-      Effect.asVoid,
+    yield* lockAdvisory(sql, AdvisoryLockKey.receiptCommand(command.commandId)).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("lock Receipt settlement command", cause)),
       ),
@@ -369,17 +365,13 @@ const executeAuthorizedReceiptSettlementWithSql = (
       );
     }
 
-    const externalReferenceLock = JSON.stringify([
-      command.externalAuthority,
-      command.externalReference,
-    ]);
-
-    yield* sql`
-      SELECT pg_catalog.pg_advisory_xact_lock(
-        pg_catalog.hashtextextended(${`receipt-settlement-reference:${externalReferenceLock}`}, 0)
-      )
-    `.pipe(
-      Effect.asVoid,
+    yield* lockAdvisory(
+      sql,
+      AdvisoryLockKey.receiptSettlementReference(
+        command.externalAuthority,
+        command.externalReference,
+      ),
+    ).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("lock Receipt settlement external reference", cause)),
       ),

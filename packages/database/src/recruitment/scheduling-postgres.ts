@@ -4,6 +4,7 @@ import {
   PublicApplicationIdSchema,
   type ApplicantContactProjection,
 } from "@vektorprogrammet/domain/application";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { Organization, type OrganizationOperations } from "@vektorprogrammet/domain/organization";
 import { DepartmentId, PersonId, type Membership } from "@vektorprogrammet/domain/organization";
@@ -761,14 +762,12 @@ const scheduleInTransaction = (
   digest: string,
 ): Effect.Effect<RecruitmentScheduleResult, RecruitmentFailure> =>
   Effect.gen(function* () {
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`.pipe(
-      Effect.asVoid,
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentCommand(command.commandId)).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("lock schedule command", cause)),
       ),
     );
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.interviewId}, 0))`.pipe(
-      Effect.asVoid,
+    yield* lockAdvisory(sql, AdvisoryLockKey.recruitmentInterview(command.interviewId)).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("lock scheduled interview", cause)),
       ),

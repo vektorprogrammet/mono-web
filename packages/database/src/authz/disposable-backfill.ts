@@ -4,6 +4,7 @@
  * production import API.
  */
 import { flow, Match, Predicate, Data, Effect, Schema } from "effect";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
@@ -19,7 +20,6 @@ import {
 } from "./postgres.js";
 import {
   AuthzRuleSubjectSchema,
-  AUTHZ_LOCK_PROTOCOL,
   AuthzRuleId,
   AuthzRuleScopeSchema,
   AuthzTagAssignmentId,
@@ -364,13 +364,6 @@ const lockDepartmentReference = (sql: DatabaseOperations, departmentId: Departme
     ),
   );
 
-const acquireAuthzWriterLock = (sql: DatabaseOperations) =>
-  sql`
-    SELECT pg_catalog.pg_advisory_xact_lock(
-      pg_catalog.hashtextextended(${AUTHZ_LOCK_PROTOCOL.advisoryKey}, 0)
-    )
-  `.pipe(Effect.asVoid);
-
 const existingTag = (tag: AuthzTag) =>
   readAuthzTag(tag.tagId).pipe(
     Effect.map((value): AuthzTag | undefined => value),
@@ -438,7 +431,7 @@ export const persistDisposableAuthzBackfill = flow(
               yield* lockDepartmentReference(sql, departmentId);
             }
 
-            yield* acquireAuthzWriterLock(sql);
+            yield* lockAdvisory(sql, AdvisoryLockKey.authorizationRules);
 
             const tagsToCreate: AuthzTag[] = [];
             const assignmentsToCreate: AuthzTagAssignment[] = [];

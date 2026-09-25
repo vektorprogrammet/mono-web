@@ -3,3 +3,7 @@
 Vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) at commit `c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b` (2026-09-10), using that commit's `install-anti-slop` skill assets. MIT licensed; see `LICENSE`.
 
 These files are ours now. Change a rule when it stops matching how rat-stack works, and record the change here. To take upstream fixes, follow the upstream `install-anti-slop` skill's update procedure: stage the new revision beside this copy and merge, never overwrite.
+
+## Local changes
+
+- `rules/no-raw-advisory-lock-sql.ts` is ours and has no upstream counterpart. It rejects PostgreSQL advisory-lock calls in string and template text, so locks go through `lockAdvisory` in `packages/database/src/advisory-lock.ts`. `oxlint.config.ts` enables it for `apps/**` and `packages/**` and lists its exceptions.

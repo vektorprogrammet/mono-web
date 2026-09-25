@@ -32,6 +32,7 @@ import {
   type TeamApplicationCommandId,
   type TeamApplicationPrincipal,
 } from "@vektorprogrammet/domain/team-application";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import {
   lockPersonAuthorization,
   resolveOrganizationPersonAuthorityWithSql,
@@ -268,12 +269,8 @@ const committedObservation = <S extends Schema.ConstraintDecoder<unknown, never>
   observation: S,
 ) =>
   Effect.gen(function* () {
-    yield* Database.use(
-      (sql) => sql`
-        SELECT pg_catalog.pg_advisory_xact_lock(
-          pg_catalog.hashtextextended(${`team-application-command:${commandId}`}, 0)
-        )
-      `,
+    yield* Database.use((sql) =>
+      lockAdvisory(sql, AdvisoryLockKey.teamApplicationCommand(commandId)),
     ).pipe(Effect.mapError(persistenceFailure("lock team application command")));
 
     const stored = yield* findCommandReceipt(commandId);

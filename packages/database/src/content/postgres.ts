@@ -1,4 +1,5 @@
 import { flow, Predicate, Effect, Schema } from "effect";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import type {
   OrganizationAuthorityInstant,
@@ -489,10 +490,20 @@ const lockCommandReceipt = (
   sql: DatabaseOperations,
   commandId: string,
 ): Effect.Effect<void, ContentPersistenceError> =>
-  sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-command-${commandId}`}, 0))`.pipe(
-    Effect.asVoid,
+  lockAdvisory(sql, AdvisoryLockKey.contentCommand(commandId)).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("lock content command receipt", cause)),
+    ),
+  );
+
+/** Law 2: the article lock serializes concurrent publish, unpublish, and draft revision. */
+const lockArticleTransition = (
+  sql: DatabaseOperations,
+  articleId: number,
+): Effect.Effect<void, ContentPersistenceError> =>
+  lockAdvisory(sql, AdvisoryLockKey.contentArticle(articleId)).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("lock content article transition", cause)),
     ),
   );
 
@@ -865,13 +876,7 @@ export const publishPostgres = (input: {
     return yield* database
       .withTransaction(
         Effect.gen(function* () {
-          // Law 2: the article lock serializes concurrent publish/unpublish.
-          yield* database`SELECT pg_advisory_xact_lock(hashtextextended(${`content-article-${command.articleId}`}, 0))`.pipe(
-            Effect.asVoid,
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(persistenceError("lock content article transition", cause)),
-            ),
-          );
+          yield* lockArticleTransition(database, command.articleId);
           yield* lockCommandReceipt(database, command.commandId);
           // Law 9: identical replay returns the stored observation.
           const stored = yield* findCommandReceipt(database, command.commandId);
@@ -1005,12 +1010,7 @@ export const unpublishPostgres = (input: {
     return yield* database
       .withTransaction(
         Effect.gen(function* () {
-          yield* database`SELECT pg_advisory_xact_lock(hashtextextended(${`content-article-${command.articleId}`}, 0))`.pipe(
-            Effect.asVoid,
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(persistenceError("lock content article transition", cause)),
-            ),
-          );
+          yield* lockArticleTransition(database, command.articleId);
           yield* lockCommandReceipt(database, command.commandId);
           const stored = yield* findCommandReceipt(database, command.commandId);
 
@@ -1103,12 +1103,7 @@ export const reviseDraftPostgres = (input: {
     return yield* database
       .withTransaction(
         Effect.gen(function* () {
-          yield* database`SELECT pg_advisory_xact_lock(hashtextextended(${`content-article-${command.articleId}`}, 0))`.pipe(
-            Effect.asVoid,
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(persistenceError("lock content article transition", cause)),
-            ),
-          );
+          yield* lockArticleTransition(database, command.articleId);
           yield* lockCommandReceipt(database, command.commandId);
           const stored = yield* findCommandReceipt(database, command.commandId);
 
