@@ -609,6 +609,50 @@ try {
     "stale reset owner cannot acknowledge quarantine; stale receipt owner cannot overwrite replacement delivery; receipt envelope and business facts remain unchanged",
   );
 
+  // A real command creates pending notification work; only DDL injects the storage fault.
+  await boot({
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_URL: undefined,
+    RECEIPT_DELIVERY_TOKEN: undefined,
+    RECEIPT_DELIVERY_TIMEOUT_MS: undefined,
+    RECEIPT_DELIVERY_SENDER: undefined,
+    RECEIPT_DELIVERY_ECONOMY_RECIPIENTS: undefined,
+  });
+  const faultReceipt = await receiptRequest();
+  await stop(current!);
+  const faultEffect = (await receiptRows()).find(
+    (row) => row.receipt_id === faultReceipt && row.status === "Failed",
+  )!;
+  assert.equal(faultEffect.delivery_envelope, null);
+  await pool.query(
+    "CREATE FUNCTION delivery_recovery_envelope_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic envelope persistence fault'; END $$; CREATE TRIGGER delivery_recovery_envelope_fault BEFORE UPDATE OF delivery_envelope ON economy_receipt_outbox FOR EACH ROW EXECUTE FUNCTION delivery_recovery_envelope_fault()",
+  );
+  current = start({
+    ...env,
+    PASSWORD_RESET_DELIVERY_MODE: "disabled",
+    RECEIPT_DELIVERY_POLL_MS: "100",
+  });
+  const interpreterCode = await Promise.race([
+    current.exited,
+    pause(10_000).then(() => {
+      throw new Error("Receipt interpreter SQL failure timeout");
+    }),
+  ]);
+  assert.equal(interpreterCode, 1);
+  assert.ok(current.logs.join("").includes("receipt delivery worker failed"));
+  assert.equal(attempts.filter((attempt) => attempt.id === faultEffect.effect_id).length, 0);
+  assert.equal(
+    (await receiptRows()).find((row) => row.effect_id === faultEffect.effect_id)!.status,
+    "Processing",
+  );
+  await pool.query(
+    "DROP TRIGGER delivery_recovery_envelope_fault ON economy_receipt_outbox; DROP FUNCTION delivery_recovery_envelope_fault()",
+  );
+  checks.push(
+    "receipt envelope persistence failure stops root without a provider request or retryable failure acknowledgment",
+  );
+
   resetMode = "hold";
   await boot({ PASSWORD_RESET_DELIVERY_POLL_MS: "100", RECEIPT_DELIVERY_MODE: "disabled" });
   const shutdownFailure = await resetRequest();
@@ -678,7 +722,7 @@ try {
 
   assert.equal(sessions.rows[0].count, 0);
   checks.push("all native processes exited; no native PostgreSQL sessions remain");
-  assert.equal(checks.length, 9);
+  assert.equal(checks.length, 10);
   completed = true;
 } finally {
   held.splice(0).forEach((release) => release());
