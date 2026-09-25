@@ -1,4 +1,5 @@
 import { Data, Predicate, Schema } from "effect";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmod, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -84,6 +85,11 @@ const decodeReceiptPage = Schema.decodeUnknownSync(ReceiptListResponse);
 const decodeLifecycleEvidence = Schema.decodeUnknownSync(ReceiptLifecycleEvidenceResponse);
 
 const decodeProfile = Schema.decodeUnknownSync(UserProfileResponse);
+
+/** Settings of the operator drain, which the runner owns. */
+const decodeOperatorEnvironment = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
+);
 
 interface ReceiptPersona {
   readonly personId: string;
@@ -684,6 +690,26 @@ test.describe("Native Receipt owner journey", () => {
       receiptId,
       revision: 2,
     });
+
+    // The replay answers from the command's stored response and runs nothing, so the failed
+    // promotion stays pending. The operator's bounded drain resumes it without a business
+    // command, as the unattended worker would.
+    const operatorDrain = spawnSync(
+      "bun",
+      ["run", "apps/backend/src/receipt/drain-main.ts", receiptId],
+      {
+        cwd: requiredEnvironment("RECEIPT_E2E_REPOSITORY_ROOT"),
+        env: {
+          ...process.env,
+          ...decodeOperatorEnvironment(requiredEnvironment("RECEIPT_E2E_OPERATOR_ENVIRONMENT")),
+        },
+        encoding: "utf8",
+      },
+    );
+
+    expect(operatorDrain.status, operatorDrain.stderr).toBe(0);
+    expect(operatorDrain.stdout.trim()).toBe(JSON.stringify({ result: "Complete" }));
+
     const afterRetry = await captureLifecycleEvidence(request, receiptId, authorization.Cookie);
     const lifecycleEvidencePath = process.env.RECEIPT_E2E_LIFECYCLE_EVIDENCE_PATH;
 

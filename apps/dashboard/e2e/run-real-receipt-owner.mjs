@@ -709,6 +709,16 @@ async function main() {
     ...dashboardEnvironment,
     REAL_RECEIPT_OWNER_E2E: "1",
     RECEIPT_E2E_REPLACEMENT_IDEMPOTENCY_KEY: replacementIdempotencyKey,
+    RECEIPT_E2E_REPOSITORY_ROOT: repositoryRoot,
+    // The operator drain resumes pending receipt work; it reads the backend storage, database,
+    // and delivery settings and issues no business command.
+    RECEIPT_E2E_OPERATOR_ENVIRONMENT: JSON.stringify({
+      BACKEND_PG_URL: postgresUrl,
+      RECEIPT_STAGING_ROOT: stagingRoot,
+      RECEIPT_COMMITTED_ROOT: committedRoot,
+      RECEIPT_MAX_FILE_BYTES: apiEnvironment.RECEIPT_MAX_FILE_BYTES,
+      ...deliverySink.environment,
+    }),
     BACKEND_ORIGIN: backendOrigin,
     INTERNAL_BACKEND_ORIGIN: internalBackendOrigin,
     DASHBOARD_ORIGIN: dashboardOrigin,
