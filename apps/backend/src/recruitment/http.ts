@@ -51,7 +51,7 @@ export const RecruitmentApiHandlers = <E, R>(input: RecruitmentApiHttpOptions<E,
           toHttpApiResponse(
             request,
             (webRequest) => readInterviewReport(webRequest, input),
-            recruitmentHttpErrorResponse,
+            (cause) => recruitmentHttpErrorResponse(cause, "recruitment.unavailable"),
           ),
         )
         .handleRaw("readInvitationResponse", ({ request }) =>
