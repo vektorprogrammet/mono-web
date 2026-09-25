@@ -1,6 +1,7 @@
 /** Content HTTP failure classification and native problem responses. */
 import { ContentAuthorityInactive, ContentNotInScope } from "@vektorprogrammet/domain/content";
 import { Cause, Predicate } from "effect";
+import { isSerializationConflict } from "../http-api/problem.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 
 const PERSON_CHALLENGE = 'VektorSession realm="native-api", Bearer realm="native-api"';
@@ -57,6 +58,10 @@ export const contentHttpErrorResponse = (cause: unknown): Response => {
       return nativeProblemResponse("content.unavailable", 503);
     case "ContentDecodeError":
       return nativeProblemResponse("internal.error", 500);
+    case "NativeHttpReceiptPersistenceError":
+      return isSerializationConflict(cause)
+        ? nativeProblemResponse("transaction.conflict", 409)
+        : nativeProblemResponse("idempotency.unavailable", 503);
     default:
       return nativeProblemResponse("internal.error", 500);
   }
