@@ -252,14 +252,15 @@ test("continuous recruitment to first placement", async ({ browser }) => {
       {
         headers: {
           origin: m.dashboardOrigin,
-          "if-match": leaderBoard.headers().etag,
+          "if-match": (await leaderBoard.json()).etag,
           "idempotency-key": "other-applicant-denied",
         },
         data: { applicationId: mainApplication.application_id, action: "Issue" },
       },
     );
 
-    expect([403, 404]).toContain(denied.status());
+    expect(denied.status()).toBe(403);
+    expect((await denied.json()).code).toBe("authority.denied");
     await checkpoint("other-applicant-denied");
 
     await applicant.goto(mainClaim);
