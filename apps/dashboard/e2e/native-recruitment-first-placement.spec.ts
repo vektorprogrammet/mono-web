@@ -285,7 +285,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await signIn(wrong, m.persons.wrongDepartment, "/dashboard");
 
     const wrongResult = await wrong.request.post(m.dashboardOrigin + placements, {
-      form: { ...fields, action: "Establish" },
+      form: { ...fields, transition: "Establish" },
     });
 
     expect(wrongResult.status()).toBe(409);

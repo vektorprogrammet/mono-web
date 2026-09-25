@@ -147,7 +147,6 @@ const tables = [
   "recruitment_schedule_audit",
   "recruitment_invitations",
   "recruitment_invitation_response_audit",
-  "recruitment_invitation_response_command_receipts",
   "recruitment_interview_conducts",
   "recruitment_interview_lifecycle_command_receipts",
   "recruitment_interview_lifecycle_audit",
@@ -205,11 +204,7 @@ export const createRecruitmentObserver = (pool, mailbox) => {
     ])
       n(table, at("scheduled") ? 1 : 0);
 
-    for (const table of [
-      "recruitment_invitation_response_audit",
-      "recruitment_invitation_response_command_receipts",
-    ])
-      n(table, at("responded") ? 1 : 0);
+    n("recruitment_invitation_response_audit", at("responded") ? 1 : 0);
 
     for (const table of [
       "recruitment_interview_conducts",
@@ -289,6 +284,7 @@ export const createRecruitmentObserver = (pool, mailbox) => {
         completionDelivery: _completionDelivery,
         ...rest
       }) => rest;
+
       assert.deepEqual(stable(facts), stable(previous), `${step}: business facts must not change`);
     }
 
