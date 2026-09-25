@@ -97,13 +97,16 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     page: Page,
     person: { firstName: string; lastName: string; email: string },
   ) => {
-    await page.route(m.homepageOrigin + "/**", async (route) => {
+    const publicOrigin = m.homepageOrigin.replace("127.0.0.1", "p000.vektor.phibkro.org");
+    await page.route(publicOrigin + "/**", async (route) => {
       const response = await route.fetch({
-        headers: { ...route.request().headers(), host: "p000.vektor.phibkro.org" },
+        url: route.request().url().replace(publicOrigin, m.homepageOrigin),
+        headers: { ...route.request().headers(), host: new URL(publicOrigin).host },
       });
+
       await route.fulfill({ response });
     });
-    await page.goto(m.homepageOrigin + "/assistenter", { waitUntil: "domcontentloaded" });
+    await page.goto(publicOrigin + "/assistenter", { waitUntil: "domcontentloaded" });
     await page.waitForFunction("window.__MONO_WEB_HYDRATED__ === true");
     await page.getByLabel("Avdeling").selectOption(m.departmentId);
     await page.getByLabel("Studieretning").selectOption(m.fieldId);
