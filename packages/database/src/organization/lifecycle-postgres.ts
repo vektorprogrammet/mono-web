@@ -14,7 +14,7 @@ import {
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import type { AccountAccess } from "@vektorprogrammet/domain/identity";
-import { changeNativeAccountAccess } from "../identity-access.js";
+import { accountAccessEnabled, changeNativeAccountAccess } from "../identity-access.js";
 import {
   lockPersonAuthorization,
   resolveOrganizationPersonAuthorityWithSql,
@@ -41,11 +41,7 @@ const authorityFor = Effect.fn("organization.lifecycleAuthority")(function* (
   personId: PersonId,
   now: string,
 ) {
-  const account = yield* sql<{
-    enabled: boolean;
-  }>`SELECT NOT access_disabled AS enabled FROM auth."user" WHERE id=${personId} FOR SHARE`;
-
-  if (!account[0]?.enabled) return yield* fail("Denied");
+  if (!(yield* accountAccessEnabled(sql, personId, "ForShare"))) return yield* fail("Denied");
 
   const authority = yield* resolveOrganizationPersonAuthorityWithSql(
     sql,

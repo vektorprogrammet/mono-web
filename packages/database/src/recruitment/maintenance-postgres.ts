@@ -20,6 +20,7 @@ import {
   RecruitmentPersistenceError,
 } from "@vektorprogrammet/domain/recruitment";
 import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
+import { accountAccessEnabled } from "../identity-access.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import {
   lockPersonAuthorization,
@@ -67,11 +68,8 @@ const authorityFor = Effect.fn("Recruitment.maintenanceAuthority")(function* (
   now: string,
   lock: boolean,
 ) {
-  const rows = yield* sql<{
-    enabled: boolean;
-  }>`SELECT NOT access_disabled AS enabled FROM auth."user" WHERE id=${personId} ${lock ? sql`FOR SHARE` : sql``}`;
-
-  if (!rows[0]?.enabled) return yield* fail("Denied");
+  if (!(yield* accountAccessEnabled(sql, personId, lock ? "ForShare" : "None")))
+    return yield* fail("Denied");
 
   return yield* resolveOrganizationPersonAuthorityWithSql(
     sql,
