@@ -115,6 +115,12 @@ const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =
     Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
 
+/** Board rows reach the schema unchecked; a row outside it is a server defect, not a request error. */
+const boardOutput = flow(
+  Schema.decodeUnknownEffect(OnboardingResource, { onExcessProperty: "error" }),
+  Effect.orDie,
+);
+
 const query = (request: Request) =>
   semantic(() => {
     const q = new URL(request.url).searchParams;
@@ -208,7 +214,7 @@ export const OnboardingApiHandlers = (input: {
           yield* authorize(request, ReadOnboardingEndpoint, scope.departmentId, true, input.now);
           const board = yield* readOnboardingBoard(scope.departmentId);
 
-          return json(yield* decode(OnboardingResource)(resource(board)));
+          return json(yield* boardOutput(resource(board)));
         }),
       ),
     );
@@ -283,7 +289,7 @@ export const OnboardingApiHandlers = (input: {
                 digest,
               });
 
-              const changed = yield* decode(OnboardingResource)(
+              const changed = yield* boardOutput(
                 resource(yield* readOnboardingBoard(scope.departmentId)),
               );
 
