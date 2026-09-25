@@ -64,7 +64,7 @@ const projection = (
   ...overrides,
 });
 
-const makeDatabase = () => backendDatabase();
+const database = backendDatabase();
 
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
   resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
@@ -132,7 +132,7 @@ const makeServices = (
   });
 
   return Layer.mergeAll(
-    makeDatabase().layer,
+    database.layer,
     Layer.mock(Organization, organization),
     Layer.succeed(Schools, schools),
     Layer.succeed(Identity, identity),
