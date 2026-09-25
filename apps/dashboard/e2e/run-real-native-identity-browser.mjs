@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { postgresProgram } from "@monoweb/postgres";
+import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 
 /** The owner-only session metadata fields that the API contract defines. */
@@ -20,11 +21,7 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-const postgresPort = 55465;
-
-const backendPort = 8865;
-
-const dashboardPort = 5265;
+const [postgresPort, backendPort, dashboardPort] = await reserveLoopbackPorts(3);
 
 const postgresDatabase = "identity_evidence_proof_0065";
 
