@@ -621,9 +621,11 @@ try {
   });
   const faultReceipt = await receiptRequest();
   await stop(current!);
+
   const faultEffect = (await receiptRows()).find(
     (row) => row.receipt_id === faultReceipt && row.status === "Failed",
   )!;
+
   assert.equal(faultEffect.delivery_envelope, null);
   await pool.query(
     "CREATE FUNCTION delivery_recovery_envelope_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic envelope persistence fault'; END $$; CREATE TRIGGER delivery_recovery_envelope_fault BEFORE UPDATE OF delivery_envelope ON economy_receipt_outbox FOR EACH ROW EXECUTE FUNCTION delivery_recovery_envelope_fault()",
@@ -633,12 +635,14 @@ try {
     PASSWORD_RESET_DELIVERY_MODE: "disabled",
     RECEIPT_DELIVERY_POLL_MS: "100",
   });
+
   const interpreterCode = await Promise.race([
     current.exited,
     pause(10_000).then(() => {
       throw new Error("Receipt interpreter SQL failure timeout");
     }),
   ]);
+
   assert.equal(interpreterCode, 1);
   assert.ok(current.logs.join("").includes("receipt delivery worker failed"));
   assert.equal(attempts.filter((attempt) => attempt.id === faultEffect.effect_id).length, 0);

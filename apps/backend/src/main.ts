@@ -393,7 +393,7 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(onboardingExpiryFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("onboarding expiry worker failed\n");
-        void shutdown(true);
+        shutdown(true);
       }
     });
   }
@@ -429,7 +429,7 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(recruitmentWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("recruitment notification worker failed\n");
-        void shutdown(true);
+        shutdown(true);
       }
     });
   }
@@ -438,7 +438,7 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(passwordResetWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("password reset delivery worker failed\n");
-        void shutdown(true);
+        shutdown(true);
       }
     });
   }
@@ -447,7 +447,7 @@ if (process.exitCode !== 1) {
     void runtime.runPromise(Fiber.await(receiptWorkerFiber)).then((exit) => {
       if (Exit.isFailure(exit) && shutdownPromise === undefined) {
         process.stderr.write("receipt delivery worker failed\n");
-        void shutdown(true);
+        shutdown(true);
       }
     });
   }
