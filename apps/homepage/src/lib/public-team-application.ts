@@ -57,7 +57,7 @@ type TeamApplicationProblemCode =
   | "media-type.unsupported"
   | "validation.failed"
   | "internal.error"
-  | "dependency.unavailable"
+  | "rate-limit.exceeded"
   | "idempotency.unavailable";
 
 export type PublicTeamApplicationErrorCode =
@@ -380,7 +380,10 @@ const submitProblemOutcomes: Readonly<Record<TeamApplicationProblemCode, SubmitP
   "media-type.unsupported": retry("Søknaden kunne ikke sendes i riktig format. Prøv igjen."),
   "validation.failed": retry("Kontroller feltene som er markert, og send søknaden på nytt."),
   "internal.error": retry(unavailableMessage),
-  "dependency.unavailable": retry(unavailableMessage),
+  // The limiter binds nothing to the key, so the same submission may be sent again later.
+  "rate-limit.exceeded": retry(
+    "Det er sendt mange søknader på kort tid. Vent litt, og send søknaden på nytt.",
+  ),
   "idempotency.unavailable": retry(unavailableMessage),
 };
 

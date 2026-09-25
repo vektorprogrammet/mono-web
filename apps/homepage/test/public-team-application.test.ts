@@ -273,4 +273,17 @@ describe("team application submission failures through the SDK", () => {
       expect(rejectedKey(await submitAgainst(respond))).toBe(submittedCommandId);
     }
   });
+
+  it("answers a rate-limited submission with 429 and keeps the draft and the key", async () => {
+    const result = await submitAgainst(() =>
+      problemResponse("rate-limit.exceeded", 429, { "retry-after": "60" }),
+    );
+
+    if (result.outcome !== "rejected")
+      throw new Error(`Expected a rejection, got ${result.outcome}`);
+
+    expect(result.failure.error.status).toBe(429);
+    expect(result.failure.commandId).toBe(submittedCommandId);
+    expect(result.failure.values).toMatchObject({ name: "Ada Applicant" });
+  });
 });
