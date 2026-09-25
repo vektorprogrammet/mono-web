@@ -73,7 +73,11 @@ export interface PlacementsOperations {
   readonly readBoard: (
     scope: PlacementScope,
   ) => Effect.Effect<PlacementBoard, PlacementOperationFailure>;
-  /** Reads one person's coverage after caller authorization. */
+  /**
+   * Reads one person's coverage after caller authorization.
+   * Current placements include only active rows for that person, department, and semester.
+   * Placements, confirmed roster slots, and dated commitments remain separate facts.
+   */
   readonly readOwnCoverage: (
     scope: PlacementScope,
     personId: PersonId,

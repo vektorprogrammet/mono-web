@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Recruitment to first placement
+
+- Add a continuous native browser journey from public application through interview, onboarding, affiliation, and first school placement.
+- Verify actor continuity, independent persisted facts, authority denials, invitation recovery, and consumed-link rejection. Preserve bearer-capability claim authority.
+- Show volunteers their own active school placements without coordinator controls. Filter Person, department, semester, and active status on the server.
+- Keep raw placements separate from confirmed rosters and dated service. Check the fresh volunteer session and another applicant's isolation.
+- Expose `test:golden-recruitment` and retain source-bound local evidence. Production data and real providers remain separate gates.
+
 ### Unattended delivery recovery
 
 - Supervise password-reset and receipt delivery in the external Bun backend, with explicit modes and joined shutdown.

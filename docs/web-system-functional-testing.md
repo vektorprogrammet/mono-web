@@ -293,6 +293,35 @@ Wrong-recipient and stale commands remain rejected. The observer waits for async
 It does not retry commands or ignore failed invariants. Golden output remains within the existing sanitized artifact contract.
 These synthetic local observations do not establish real-provider delivery or current production-data parity.
 
+### Recruitment to first placement
+
+The separate [recruitment observer](../tools/e2e/golden-recruitment.mjs) owns the ordered checkpoints for this continuous native journey.
+The [browser scenario](../apps/dashboard/e2e/native-recruitment-first-placement.spec.ts) drives the public application, interview, onboarding, affiliation, and first placement.
+Fixtures create prerequisites, not the outcomes under test. Independent PostgreSQL reads bind the same application and Person through the final placement.
+
+Use the local gate prerequisites and a clean committed checkout:
+
+```bash
+bun run test:golden-recruitment
+```
+
+The runner builds the homepage and dashboard from that source. It serves the homepage through an owned local HTTPS Worker.
+Certificate trust applies only to the disposable local browser requests. The runner isolates provider configuration and uses loopback notification delivery.
+No production access or provider credentials are required. Run only one heavy acceptance job at a time.
+
+The journey distinguishes recommendation, invitation, account claim, affiliation, and placement. Failed invitation delivery recovers without another business decision.
+An actor without the case capability cannot read staff assessments or issue invitations. Wrong-department affiliation approval fails without changed business facts.
+Invitation links remain bearer capabilities; giving someone a valid link gives claim authority. Consumed-token replay remains denied.
+
+A fresh volunteer login and reload must display the own placement without management controls. Another applicant must not receive it.
+The own projection includes only active placements for the authenticated Person and selected department and semester.
+It does not manufacture a confirmed roster, dated service, or attendance.
+
+The command retains sanitized receipts, observations, diagnostics, and separate visual evidence outside the checkout.
+It checks source identity after execution and removes owned processes, PostgreSQL, credentials, private traces, and local Worker state.
+The source-owned runner defines the artifact inventory. This command does not add a hosted CI job or broaden the school-service upload contract.
+See [STATE.md](../STATE.md) for the exercised revision and evidence limits.
+
 ### Golden CI implementation
 
 The [CI workflow](../.github/workflows/ci.yml) runs the existing journey through the [CI wrapper](../tools/e2e/golden-school-service-ci.mjs).

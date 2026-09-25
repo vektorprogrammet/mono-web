@@ -165,6 +165,9 @@ as a separate command and authority.
 A returning volunteer may use an existing account and history. They still need an
 explicit affiliation for the relevant chapter and an explicit placement.
 
+The onboarding claim link is a bearer capability. Its holder can link an existing account without changing that account's email.
+Claiming the account grants neither affiliation nor a placement. A consumed claim capability cannot be used again.
+
 Applicant progress shows the same facts in sequence. Interview or returning
 registration completion can lead to a pending affiliation, active affiliation,
 and active school placement. Placement is the final visible state. Affiliation
@@ -227,6 +230,10 @@ is explicit, and confirmation requires an exact review of those exceptions.
 Confirmation freezes the roster snapshot and queues one notification per assigned
 assistant. It does not prove that service occurred on a specific date. Proposal
 generation never changes a placement. Placement history survives edits and removal.
+
+Volunteers can read their active school placements for the selected department and semester.
+The server filters this view by the authenticated Person; it does not expose the coordinator board.
+A placement is separate from a confirmed roster and a dated commitment.
 
 ### Dated school service
 
