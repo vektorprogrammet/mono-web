@@ -543,10 +543,10 @@ describe("Organization HTTP boundary", () => {
     expect(await responseBody(anonymous)).toEqual({
       status: 401,
       body: expectedProblem(
-        "credential.invalid",
-        "Invalid credential",
+        "credential.missing",
+        "Credential required",
         401,
-        "The supplied credential is invalid.",
+        "A credential is required for this operation.",
       ),
     });
   });

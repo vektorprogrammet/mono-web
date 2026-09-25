@@ -2146,8 +2146,8 @@ const runRehearsal = async (
       missingSessionHttp.body !== null &&
         (missingSessionHttp.body === null || Predicate.isObjectOrArray(missingSessionHttp.body)) &&
         "code" in missingSessionHttp.body &&
-        missingSessionHttp.body.code === "credential.invalid",
-      "unauthenticated GET /api/session must return the RFC 9457 credential rejection",
+        missingSessionHttp.body.code === "credential.missing",
+      "unauthenticated GET /api/session must return the RFC 9457 missing-credential problem",
     );
 
     const processEnvironment: NodeJS.ProcessEnv = {

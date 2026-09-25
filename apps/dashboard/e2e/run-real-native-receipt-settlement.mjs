@@ -1267,7 +1267,7 @@ async function main() {
     const denials = [];
 
     for (const [label, cookie, queueStatus, denialStatus, denialCode] of [
-      ["anonymous", undefined, 401, 401, "credential.invalid"],
+      ["anonymous", undefined, 401, 401, "credential.missing"],
       [
         "invalid credential",
         "better-auth.session_token=invalid-settlement-session",
