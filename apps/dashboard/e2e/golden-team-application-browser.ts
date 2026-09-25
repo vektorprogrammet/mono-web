@@ -315,10 +315,14 @@ export const runTeamApplicationBrowser = async (
     ] as const) {
       await page.setViewportSize({ width, height: 900 });
       await page.screenshot({ path: join(input.artifacts, `${surface}-${layout}.png`), fullPage: true });
-      assert.ok(
-        Boolean(await page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")),
-        `${surface} overflows at ${width}px`,
+
+      const overflowing = String(
+        await page.evaluate(
+          "(() => document.documentElement.scrollWidth <= innerWidth + 1 ? '' : [...document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > innerWidth + 1).slice(0, 4).map((element) => element.tagName.toLowerCase() + ' ' + String(element.className).slice(0, 80)).join(' | '))()",
+        ),
       );
+
+      assert.equal(overflowing, "", `${surface} overflows at ${width}px`);
 
       const audit = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
 
