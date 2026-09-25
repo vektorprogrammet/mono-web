@@ -46,7 +46,7 @@ export default function Layout() {
 function DevContentBanner({ requestInfo }: { requestInfo: HomepageRequest }) {
   return (
     <aside
-      className="mx-auto mt-4 w-[calc(100%-2rem)] max-w-6xl rounded-lg border-2 border-amber-500 bg-amber-100 px-4 py-3 text-center font-semibold text-amber-950 shadow-sm"
+      className="mx-auto mt-4 w-[calc(100%-2rem)] max-w-6xl rounded-lg border-2 border-amber-500 bg-amber-100 px-4 py-3 text-center font-semibold text-amber-950 shadow-sm wrap-anywhere"
       data-testid="dev-content-banner"
     >
       DEV CONTENT · {requestInfo.stage} · {requestInfo.host} · {DEV_CONTENT_SOURCE} · {BUILD_COMMIT}{" "}
@@ -175,9 +175,11 @@ const MobileMenu = ({ routes }: { routes: Array<{ name: string; path: To }> }) =
             variant="outline"
             className="fixed top-12 right-0 flex rounded-l-full bg-[rgba(0,0,0,0.8)] p-1 pr-2"
             size="icon"
+            aria-label="Åpne meny"
           >
             <Avatar className="h-full w-full rounded-full">
-              <AvatarImage src="/images/team/IT-Tor.png" />
+              {/* Decorative: the button carries the accessible name. */}
+              <AvatarImage src="/images/team/IT-Tor.png" alt="" />
               <AvatarFallback>{"Tor"}</AvatarFallback>
             </Avatar>
           </Button>
@@ -235,9 +237,9 @@ function AppFooter() {
 function FooterSponsors() {
   return (
     <ul className="text-white">
-      <b>
-        <li>{"Sponsorer og samarbeidspartnere (DEV CONTENT)"}</li>
-      </b>
+      <li>
+        <b>{"Sponsorer og samarbeidspartnere (DEV CONTENT)"}</b>
+      </li>
       {DEV_CONTENT.sponsors.map((sponsor) => (
         <li key={sponsor.id}>
           <a className="text-sm hover:underline" href={sponsor.href}>

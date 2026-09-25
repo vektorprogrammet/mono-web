@@ -97,7 +97,7 @@ function Confirmation({ confirmation }: { readonly confirmation: TeamApplication
           <time dateTime={confirmation.submittedAt.at}>{confirmation.submittedAt.label}</time>.
         </p>
         <div className="rounded-md bg-muted p-4">
-          <p className="text-muted-foreground text-sm">Søknadsreferanse</p>
+          <p className="text-foreground text-sm">Søknadsreferanse</p>
           <p className="mt-1 break-all font-mono font-semibold">{confirmation.applicationId}</p>
         </div>
         <p className="text-muted-foreground text-sm">

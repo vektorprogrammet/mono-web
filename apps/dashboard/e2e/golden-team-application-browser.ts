@@ -9,12 +9,16 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import AxeBuilder from "@axe-core/playwright";
-import { chromium, expect, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, expect as baseExpect, type BrowserContext, type Page } from "@playwright/test";
 import { OrganizationLifecycleCommand } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
+
+// Production bundles load their workflow before rendering server facts; five seconds is too tight.
+const expect = baseExpect.configure({ timeout: 15_000 });
 
 /** Ordered checkpoints and the frozen journey items each binds. */
 export const teamApplicationCheckpoints = [
@@ -189,7 +193,8 @@ const Replays = Schema.Array(Schema.Struct({ status: Schema.Int, text: Schema.St
 const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 // A confirmation may say the application was received; it must not claim that mail left.
-const deliveryClaim = /sendt|levert|bekreftelse på e-post|e-post er på vei/iu;
+// Whole words only: "du sendte inn" describes the applicant's submission, not a delivery.
+const deliveryClaim = /\b(?:sendt|levert)\b|bekreftelse på e-post|e-post er på vei/iu;
 
 const osloMinute = new Intl.DateTimeFormat("sv-SE", {
   timeZone: "Europe/Oslo",
@@ -256,12 +261,22 @@ export const runTeamApplicationBrowser = async (
     throw new Error(`Timed out: ${label}`);
   };
 
-  const newContext = () =>
-    browser.newContext({
+  const pageErrors: Array<string> = [];
+
+  const newContext = async () => {
+    const context = await browser.newContext({
       viewport: { width: 1280, height: 900 },
       locale: "nb-NO",
       timezoneId: "Europe/Oslo",
     });
+
+    context.on("weberror", (error) => void pageErrors.push(`pageerror: ${error.error().message}`));
+    context.on("console", (message) => {
+      if (message.type() === "error") pageErrors.push(`console: ${message.text()}`.slice(0, 600));
+    });
+
+    return context;
+  };
 
   const api = (cookie: string | null, path: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
@@ -301,15 +316,21 @@ export const runTeamApplicationBrowser = async (
     ] as const) {
       await page.setViewportSize({ width, height: 900 });
       await page.screenshot({ path: join(input.artifacts, `${surface}-${layout}.png`), fullPage: true });
-      assert.ok(
-        Boolean(await page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")),
-        `${surface} overflows at ${width}px`,
+
+      const overflowing = String(
+        await page.evaluate(
+          "(() => document.documentElement.scrollWidth <= innerWidth + 1 ? '' : [...document.querySelectorAll('body *')].filter((element) => element.getBoundingClientRect().right > innerWidth + 1).slice(0, 4).map((element) => element.tagName.toLowerCase() + ' ' + String(element.className).slice(0, 80)).join(' | '))()",
+        ),
       );
+
+      assert.equal(overflowing, "", `${surface} overflows at ${width}px`);
 
       const audit = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
 
-      const serious = audit.violations.flatMap(({ id, impact }) =>
-        impact === "serious" || impact === "critical" ? [id] : [],
+      const serious = audit.violations.flatMap(({ id, impact, nodes }) =>
+        impact === "serious" || impact === "critical"
+          ? [`${id}: ${nodes.map(({ target, html }) => `${target.join(" ")} ${html.slice(0, 160)}`).join(" | ")}`]
+          : [],
       );
 
       assert.deepEqual(serious, [], `${surface} accessibility at ${width}px`);
@@ -908,6 +929,35 @@ export const runTeamApplicationBrowser = async (
     await checkpoint("unattended-recovery");
 
     return checks;
+  } catch (error) {
+    // Keep what every open page showed, so a failed run explains itself.
+    const pages = browser.contexts().flatMap((context) => context.pages());
+
+    const observed = await Promise.all(
+      pages.map(async (page, index) => {
+        await page.screenshot({ path: join(input.artifacts, `failure-${index}.png`), fullPage: true }).catch(() => undefined);
+
+        return {
+          url: page.url(),
+          text: String(await page.evaluate("document.body.innerText").catch(() => "")).slice(0, 2_000),
+          element: String(
+            await page
+              .evaluate(
+                "(() => { const element = document.querySelector('vektor-team-applications'); return JSON.stringify({ defined: customElements.get('vektor-team-applications') !== undefined, html: element === null ? null : element.outerHTML.slice(0, 1500) }); })()",
+              )
+              .catch(() => ""),
+          ),
+        };
+      }),
+    );
+
+    await writeFile(
+      join(input.artifacts, "browser-failure.json"),
+      JSON.stringify({ checks, pageErrors, observed }, null, 2),
+      { mode: 0o600 },
+    ).catch(() => undefined);
+
+    throw error;
   } finally {
     signal.removeEventListener("abort", abort);
     await browser.close();

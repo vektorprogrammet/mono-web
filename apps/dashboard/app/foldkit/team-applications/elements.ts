@@ -36,6 +36,8 @@ export const registerTeamApplicationsElement = (): void => {
 
       connectedCallback(): void {
         if (this.#dispose !== undefined) return;
+        // Foldkit's runtime dies before its first render when the container has no id.
+        this.#container.id = "foldkit-team-applications";
         this.replaceChildren(this.#container);
         const teamId = decodeTeamId(this.getAttribute(TEAM_APPLICATIONS_TEAM_ATTRIBUTE));
 
