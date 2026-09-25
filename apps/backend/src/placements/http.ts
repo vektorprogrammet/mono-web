@@ -1,17 +1,13 @@
-import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
-import {
-  executeNativeHttpCommandPostgres,
-  NativeHttpReceiptPersistenceError,
-} from "../http-api/receipt-transaction.js";
+import type { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import { DomainId, Scope } from "@vektorprogrammet/domain/authz";
+import type { IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
   AffiliationScope,
   CoverageCommand,
   OwnAffiliationCommand,
   OwnCoverageCommand,
   PlacementCommand,
-  PlacementFailure,
-  PlacementPersistenceError,
   Placements,
   PlacementScope,
   PlacementScopes,
@@ -20,6 +16,7 @@ import {
   type OwnAffiliationCommand as OwnAffiliationCommandType,
   type OwnCoverageCommand as OwnCoverageCommandType,
   type PlacementCommand as PlacementCommandType,
+  type PlacementOperationFailure,
 } from "@vektorprogrammet/placements/contracts";
 import {
   CommandCoverageBoardEndpoint,
@@ -38,40 +35,80 @@ import {
   ReadPlacementBoardEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { DomainId } from "@vektorprogrammet/domain/authz";
-import { flow, Predicate, Effect, Option, Schema } from "effect";
+import { type CredentialPresentation, Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Option, Schema } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
-import { readBoundedJson } from "../http-api/read-json.js";
-import { toHttpApiResponse } from "../http-api/transport.js";
 import {
-  HttpSemanticFailure,
-  deriveHttpIdentity,
+  type OrganizationResolutionError,
+  resolveRequestPersonAuthorityInTransaction,
+} from "../authority.js";
+import {
+  authorizePerson,
+  commandOutcomeResponse,
+  commandReceiptProblems,
+  decodeRequest,
+  httpIdentity,
+  idempotencyKeyOf,
+  isSerializationConflict,
+  personPresentation,
+  problemMapper,
+  readJsonBody,
+  requireCurrentETag,
+  requiredIfMatchOf,
+  requireNoQuery,
+  strictOutput,
+  webHandler,
+} from "../http-api/problem.js";
+import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
+import {
   deriveStrongETag,
-  evaluateMutationPrecondition,
-  nativeProblemResponse,
   normalizeTarget,
-  parseIdempotencyKey,
-  parseRequiredIfMatch,
   responseCapsule,
   semanticMutationRequest,
   semanticRequestDigest,
 } from "../http-semantics.js";
-import {
-  authorizePersonNativeOperation,
-  genericContext,
-  nativeCommandOutcomeResponse,
-} from "../native-operation.js";
+import { genericContext } from "../native-operation.js";
 
-const semantic = <A>(operation: () => A) =>
-  Effect.try({
-    try: operation,
-    catch: (cause) =>
-      cause instanceof HttpSemanticFailure ? cause : new HttpSemanticFailure("internal.error", 500),
+/**
+ * The one answer for every placement domain failure. Each failure carries the
+ * registry code it is answered with.
+ *
+ * @construct http-problem
+ */
+const placementProblems = problemMapper<PlacementOperationFailure>()({
+  PlacementFailure: (failure) => Problem.make(failure.code),
+  PlacementPersistenceError: (failure) => Problem.make(failure.code),
+});
+
+/**
+ * A person credential or organization projection that fails inside the
+ * transaction. A projection read that lost a serialization race is a conflict.
+ *
+ * @construct http-problem
+ */
+const authorityProblems = (presentation: CredentialPresentation) =>
+  problemMapper<UnauthenticatedActor | IdentityEngineError | OrganizationResolutionError>()({
+    UnauthenticatedActor: () => Problem.unauthenticated(presentation),
+    IdentityEngineError: () => Problem.make("internal.error"),
+    OrganizationDecodeError: () => Problem.make("internal.error"),
+    OrganizationPersistenceError: (failure) =>
+      isSerializationConflict(failure)
+        ? Problem.make("transaction.conflict")
+        : Problem.make("internal.error"),
   });
 
-const header = (request: Request, key: string) =>
-  request.headers.has(key) ? [request.headers.get(key)!] : [];
+/**
+ * The snapshot transaction of a read: a lost serialization race is a conflict.
+ *
+ * @construct http-problem
+ */
+const snapshotProblems = problemMapper<SqlError>()({
+  SqlError: (failure) =>
+    isSerializationConflict(failure)
+      ? Problem.make("transaction.conflict")
+      : Problem.make("internal.error"),
+});
 
 const resource = <A extends object>(body: A) => ({
   ...body,
@@ -97,33 +134,17 @@ const json = (body: Schema.Json, etag?: string) => {
   });
 };
 
-const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
-  flow(
-    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
-  );
-
-/** A snapshot that does not fit its response schema is a server fault, not a client error. */
-const output = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
-  flow(
-    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
-    Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
-  );
-
+/** Each scope member appears exactly once; any other query member is malformed. */
 const query = (request: Request, mode: "affiliation" | "scope") =>
-  semantic(() => {
+  Effect.suspend(() => {
     const parameters = new URL(request.url).searchParams;
     const keys = mode === "affiliation" ? ["departmentId"] : ["departmentId", "semesterId"];
 
-    if (
-      [...parameters.keys()].some(
-        (key) => !keys.includes(key) || parameters.getAll(key).length !== 1,
-      )
-    ) {
-      throw new HttpSemanticFailure("request.malformed", 400);
-    }
-
-    return Object.fromEntries(parameters);
+    return [...parameters.keys()].some(
+      (key) => !keys.includes(key) || parameters.getAll(key).length !== 1,
+    )
+      ? Effect.fail(Problem.make("request.malformed"))
+      : Effect.succeed(Object.fromEntries(parameters));
   });
 
 type Endpoint =
@@ -148,73 +169,35 @@ const authorize = (
     const auth = yield* resolveRequestPersonAuthorityInTransaction(request, { now });
 
     if (manage && (departmentId === null || !canManagePlacements(auth.authority, departmentId))) {
-      return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
+      return yield* Problem.make("authority.denied");
     }
 
-    yield* authorizePersonNativeOperation({
-      spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
-      credential: auth.credential,
-      personId: auth.authority.personId,
-      resolution: {
-        selection: "ExactlyOne",
-        contexts: [
-          genericContext({
-            domainId: "organization",
-            departmentId: departmentId ?? undefined,
-            authorityVersion: auth.authorizationInstant,
-          }),
-        ],
+    yield* authorizePerson(
+      {
+        spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
+        credential: auth.credential,
+        personId: auth.authority.personId,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [
+            genericContext({
+              domainId: "organization",
+              departmentId: departmentId ?? undefined,
+              authorityVersion: auth.authorizationInstant,
+            }),
+          ],
+        },
+        grantScopes:
+          departmentId === null
+            ? [Scope.Domain({ domainId: DomainId.make("organization") })]
+            : [Scope.Department({ departmentId })],
+        now: auth.authorizationInstant,
       },
-      grantScopes:
-        departmentId === null
-          ? [Scope.Domain({ domainId: DomainId.make("organization") })]
-          : [Scope.Department({ departmentId })],
-      now: auth.authorizationInstant,
-    });
+      personPresentation(request),
+    );
 
     return auth;
   });
-
-const sqlField = (cause: unknown, field: "code" | "constraint", depth = 0): string | null => {
-  if (depth >= 8 || !(cause === null || Predicate.isObjectOrArray(cause)) || cause === null)
-    return null;
-  const candidate = Predicate.hasProperty(cause, field) ? cause[field] : undefined;
-
-  if (Predicate.isString(candidate)) return candidate;
-
-  return "cause" in cause ? sqlField(cause.cause, field, depth + 1) : null;
-};
-
-const errorResponse = (cause: unknown): Response => {
-  if (
-    cause instanceof HttpSemanticFailure ||
-    cause instanceof PlacementFailure ||
-    cause instanceof PlacementPersistenceError
-  ) {
-    return nativeProblemResponse(cause.code, cause.status);
-  }
-
-  if (
-    (cause === null || Predicate.isObjectOrArray(cause)) &&
-    cause !== null &&
-    "_tag" in cause &&
-    Predicate.isTagged(cause, "UnauthenticatedActor")
-  ) {
-    return nativeProblemResponse("credential.invalid", 401);
-  }
-
-  const sqlCode = sqlField(cause, "code");
-
-  if (sqlCode === "40001" || sqlCode === "40P01") {
-    return nativeProblemResponse("transaction.conflict", 409);
-  }
-
-  if (cause instanceof NativeHttpReceiptPersistenceError) {
-    return nativeProblemResponse("idempotency.unavailable", 503);
-  }
-
-  return nativeProblemResponse("internal.error", 500);
-};
 
 type MutationSelection =
   | {
@@ -264,8 +247,8 @@ const selectionForMutation = (
       case "affiliation":
         return {
           mode,
-          scope: yield* decode(AffiliationScope)(yield* query(request, "affiliation")),
-          command: yield* decode(OwnAffiliationCommand)(body),
+          scope: yield* decodeRequest(AffiliationScope)(yield* query(request, "affiliation")),
+          command: yield* decodeRequest(OwnAffiliationCommand)(body),
           endpoint: CommandOwnAffiliationEndpoint,
           operationId: "placements.commandOwnAffiliation",
           target: "/api/placements/affiliation/{departmentId}",
@@ -274,8 +257,8 @@ const selectionForMutation = (
       case "board":
         return {
           mode,
-          scope: yield* decode(PlacementScope)(yield* query(request, "scope")),
-          command: yield* decode(PlacementCommand)(body),
+          scope: yield* decodeRequest(PlacementScope)(yield* query(request, "scope")),
+          command: yield* decodeRequest(PlacementCommand)(body),
           endpoint: CommandPlacementBoardEndpoint,
           operationId: "placements.commandBoard",
           target: "/api/placements/{departmentId}/{semesterId}",
@@ -284,8 +267,8 @@ const selectionForMutation = (
       case "ownCoverage":
         return {
           mode,
-          scope: yield* decode(PlacementScope)(yield* query(request, "scope")),
-          command: yield* decode(OwnCoverageCommand)(body),
+          scope: yield* decodeRequest(PlacementScope)(yield* query(request, "scope")),
+          command: yield* decodeRequest(OwnCoverageCommand)(body),
           endpoint: CommandOwnCoverageEndpoint,
           operationId: "placements.commandOwnCoverage",
           target: "/api/placements/coverage/own/{departmentId}/{semesterId}",
@@ -294,8 +277,8 @@ const selectionForMutation = (
       case "coverage":
         return {
           mode,
-          scope: yield* decode(PlacementScope)(yield* query(request, "scope")),
-          command: yield* decode(CoverageCommand)(body),
+          scope: yield* decodeRequest(PlacementScope)(yield* query(request, "scope")),
+          command: yield* decodeRequest(CoverageCommand)(body),
           endpoint: CommandCoverageBoardEndpoint,
           operationId: "placements.commandCoverageBoard",
           target: "/api/placements/coverage/{departmentId}/{semesterId}",
@@ -305,6 +288,11 @@ const selectionForMutation = (
   });
 
 export const PlacementsApiHandlers = (input: { now?: () => string }) => {
+  /**
+   * Answers one read from a repeatable-read snapshot; every check runs inside it.
+   *
+   * @construct sql-lifecycle
+   */
   const read = (request: Request, mode: "scopes" | "own" | "board" | "ownCoverage" | "coverage") =>
     Database.use((sql) =>
       sql.withTransaction(
@@ -315,11 +303,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
           );
 
           if (mode === "scopes") {
-            yield* semantic(() => {
-              if (new URL(request.url).search) {
-                throw new HttpSemanticFailure("request.malformed", 400);
-              }
-            });
+            yield* requireNoQuery(request);
 
             const auth = yield* authorize(
               request,
@@ -330,12 +314,14 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* output(PlacementScopes)(yield* placements.listScopes(auth.authority)),
+              yield* strictOutput(PlacementScopes)(yield* placements.listScopes(auth.authority)),
             );
           }
 
           if (mode === "own") {
-            const scope = yield* decode(AffiliationScope)(yield* query(request, "affiliation"));
+            const scope = yield* decodeRequest(AffiliationScope)(
+              yield* query(request, "affiliation"),
+            );
 
             const auth = yield* authorize(
               request,
@@ -346,7 +332,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* output(OwnAffiliationResource)(
+              yield* strictOutput(OwnAffiliationResource)(
                 resource(
                   yield* placements.readOwnAffiliation(auth.authority.personId, scope.departmentId),
                 ),
@@ -354,7 +340,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
           }
 
-          const scope = yield* decode(PlacementScope)(yield* query(request, "scope"));
+          const scope = yield* decodeRequest(PlacementScope)(yield* query(request, "scope"));
 
           if (mode === "board") {
             yield* authorize(
@@ -366,7 +352,9 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* output(PlacementBoardResource)(resource(yield* placements.readBoard(scope))),
+              yield* strictOutput(PlacementBoardResource)(
+                resource(yield* placements.readBoard(scope)),
+              ),
             );
           }
 
@@ -380,7 +368,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* output(OwnCoverageResource)(
+              yield* strictOutput(OwnCoverageResource)(
                 resource(yield* placements.readOwnCoverage(scope, auth.authority.personId)),
               ),
             );
@@ -389,25 +377,22 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
           yield* authorize(request, ReadCoverageBoardEndpoint, scope.departmentId, true, input.now);
 
           return json(
-            yield* output(CoverageBoardResource)(
+            yield* strictOutput(CoverageBoardResource)(
               resource(yield* placements.readCoverageBoard(scope)),
             ),
           );
         }),
       ),
-    );
+    ).pipe(placementProblems, authorityProblems(personPresentation(request)), snapshotProblems);
 
   const mutate = (request: Request, mode: MutationSelection["mode"]) =>
     Effect.gen(function* () {
-      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") {
-        return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
-      }
-
-      const body = yield* readBoundedJson(request, 8192);
+      const body = yield* readJsonBody(request, /^\s*application\/json\s*(?:;|$)/u, 8192);
       const selected = yield* selectionForMutation(request, body, mode);
-      const ifMatch = yield* semantic(() => parseRequiredIfMatch(header(request, "if-match")));
-      const key = yield* semantic(() => parseIdempotencyKey(header(request, "idempotency-key")));
+      const ifMatch = yield* requiredIfMatchOf(request);
+      const key = yield* idempotencyKeyOf(request);
 
+      // Domain and credential failures are mapped after the executor, whose retry reads their causes.
       const outcome = yield* executeNativeHttpCommandPostgres(
         Effect.gen(function* () {
           const auth = yield* authorize(
@@ -418,14 +403,12 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             input.now,
           );
 
-          const identity = yield* semantic(() =>
-            deriveHttpIdentity({
-              credentialSubject: `Person:${auth.authority.personId}`,
-              qualifiedOperationId: selected.operationId,
-              normalizedTarget: normalizeTarget(selected.target, selected.scope),
-              idempotencyKey: key,
-            }),
-          );
+          const identity = yield* httpIdentity({
+            credentialSubject: `Person:${auth.authority.personId}`,
+            qualifiedOperationId: selected.operationId,
+            normalizedTarget: normalizeTarget(selected.target, selected.scope),
+            idempotencyKey: key,
+          });
 
           return {
             identity: {
@@ -444,77 +427,53 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
                     now: auth.authorizationInstant,
                     commandId: identity.identitySha256,
                   },
-                  (current) =>
-                    semantic(() => {
-                      const precondition = evaluateMutationPrecondition(
-                        resource(current).etag,
-                        ifMatch,
-                      );
-
-                      if (Predicate.isTagged(precondition, "Failed")) {
-                        throw new HttpSemanticFailure(precondition.code, precondition.status);
-                      }
-                    }),
+                  (current) => requireCurrentETag(resource(current).etag, ifMatch),
                 ),
               );
 
-              return yield* Effect.tryPromise({
-                try: () => responseCapsule(json(changed, changed.etag)),
-                catch: (cause) =>
-                  cause instanceof HttpSemanticFailure
-                    ? cause
-                    : new HttpSemanticFailure("internal.error", 500),
-              });
+              return yield* Effect.promise(() => responseCapsule(json(changed, changed.etag)));
             }),
           };
         }),
         { retry: "serialization-once" },
+      ).pipe(
+        placementProblems,
+        commandReceiptProblems,
+        authorityProblems(personPresentation(request)),
       );
 
-      return nativeCommandOutcomeResponse(outcome);
+      return yield* commandOutcomeResponse(outcome);
     });
 
   return HttpApiBuilder.group(ExternalNativeApi, "placements", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listScopes", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => read(webRequest, "scopes"), errorResponse),
+          webHandler(request, (webRequest) => read(webRequest, "scopes")),
         )
         .handleRaw("readOwnAffiliation", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => read(webRequest, "own"), errorResponse),
+          webHandler(request, (webRequest) => read(webRequest, "own")),
         )
         .handleRaw("readBoard", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => read(webRequest, "board"), errorResponse),
+          webHandler(request, (webRequest) => read(webRequest, "board")),
         )
         .handleRaw("readOwnCoverage", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => read(webRequest, "ownCoverage"),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => read(webRequest, "ownCoverage")),
         )
         .handleRaw("readCoverageBoard", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => read(webRequest, "coverage"), errorResponse),
+          webHandler(request, (webRequest) => read(webRequest, "coverage")),
         )
         .handleRaw("commandOwnAffiliation", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => mutate(webRequest, "affiliation"),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => mutate(webRequest, "affiliation")),
         )
         .handleRaw("commandBoard", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => mutate(webRequest, "board"), errorResponse),
+          webHandler(request, (webRequest) => mutate(webRequest, "board")),
         )
         .handleRaw("commandOwnCoverage", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => mutate(webRequest, "ownCoverage"),
-            errorResponse,
-          ),
+          webHandler(request, (webRequest) => mutate(webRequest, "ownCoverage")),
         )
         .handleRaw("commandCoverageBoard", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => mutate(webRequest, "coverage"), errorResponse),
+          webHandler(request, (webRequest) => mutate(webRequest, "coverage")),
         ),
     ),
   );
