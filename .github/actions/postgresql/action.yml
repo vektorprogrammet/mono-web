@@ -1,16 +1,36 @@
 name: PostgreSQL
 description: >-
-  Reads the PostgreSQL major that the root manifest declares (engines.postgresql),
-  for service container images. Jobs that run PostgreSQL themselves use devenv.
+  Reads the PostgreSQL majors that the root manifest supports (engines.postgresql,
+  such as "17 || 18") for service container images and job matrices.
+  VEKTOR_POSTGRES_MAJOR selects a supported major; unset selects the highest.
+  Jobs that run PostgreSQL themselves use devenv, which reads the same variable.
 outputs:
   major:
-    description: The declared PostgreSQL major.
+    description: The selected PostgreSQL major, or the default (the highest supported one).
     value: ${{ steps.declared.outputs.major }}
+  majors:
+    description: JSON list of the supported PostgreSQL majors as strings, ascending.
+    value: ${{ steps.declared.outputs.majors }}
 runs:
   using: composite
   steps:
     - id: declared
       shell: bash
       run: |
-        major="$(jq -er '.engines.postgresql | select(test("^[1-9][0-9]*$"))' package.json)"
+        majors="$(jq -ec '
+          .engines.postgresql
+          | if type == "string" and test("^[1-9][0-9]*( \\|\\| [1-9][0-9]*)*$") then .
+            else error("package.json engines.postgresql must be distinct PostgreSQL majors joined by \" || \", not \(tojson)")
+            end
+          | split(" || ")
+          | if (unique | length) == length then map(tonumber) | sort | map(tostring)
+            else error("package.json engines.postgresql repeats a major")
+            end
+        ' package.json)"
+        major="${VEKTOR_POSTGRES_MAJOR:-$(jq -er 'last' <<<"$majors")}"
+        if ! jq -e --arg major "$major" 'any(.[]; . == $major)' <<<"$majors" >/dev/null; then
+          echo "::error::VEKTOR_POSTGRES_MAJOR=$major is not a supported PostgreSQL major. package.json engines.postgresql supports $(jq -r 'join(" || ")' <<<"$majors")."
+          exit 1
+        fi
         echo "major=$major" >> "$GITHUB_OUTPUT"
+        echo "majors=$majors" >> "$GITHUB_OUTPUT"
