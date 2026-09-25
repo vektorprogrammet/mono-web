@@ -205,18 +205,10 @@ const executeSessionMutation = (input: {
         : [input.request.headers.get("idempotency-key")!],
     );
 
-    const credentialHeaders = new Headers(input.request.headers);
-    credentialHeaders.delete("authorization");
-
-    const cookieRequest = new Request(input.request.url, {
-      method: input.request.method,
-      headers: credentialHeaders,
-    });
-
     const result = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
         const authenticated = yield* resolveRequestCredentialInTransaction(
-          cookieRequest,
+          input.request,
           "OAuthUserBearer",
           { now: input.options.now },
         );

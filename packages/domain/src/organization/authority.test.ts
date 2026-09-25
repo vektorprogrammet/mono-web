@@ -130,21 +130,46 @@ it("applies global-administrator and department role precedence", () => {
   );
 });
 
-it("denies inactive chosen authority with its reason at the mapper boundary", () => {
-  const inactiveAdministrator = authority("Inactive", [
+it("keeps role authority when a global-administrator grant has ended", () => {
+  const formerAdministrator = authority("Inactive", [
     membership("membership-current-leader", "team-current", departmentA, true, true),
+    membership("membership-current-member", "team-member", departmentB, true, false),
   ]);
 
-  expect(
-    mapOrganizationAuthorityToAdmissionPeriodActor(inactiveAdministrator, departmentA),
-  ).toEqual(deny("AuthorityInactive"));
-  expect(mapOrganizationAuthorityToOrganizationActor(inactiveAdministrator)).toEqual(
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(formerAdministrator, departmentA)).toEqual(
+    allow(
+      AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+        personId,
+        departmentId: departmentA,
+        active: true,
+      }),
+    ),
+  );
+  expect(mapOrganizationAuthorityToRecruitmentActor(formerAdministrator, departmentB)).toEqual(
+    allow(
+      AdmissionPeriodActorSchema.cases.Member.make({
+        personId,
+        departmentId: departmentB,
+        active: true,
+      }),
+    ),
+  );
+  expect(mapOrganizationAuthorityToOrganizationActor(formerAdministrator)).toEqual(
     OrganizationMemberSchema.make({ personId }),
   );
-  expect(mapOrganizationAuthorityToProfileRole(inactiveAdministrator)).toEqual(
+  expect(mapOrganizationAuthorityToProfileRole(formerAdministrator)).toEqual(
     allow("ROLE_TEAM_LEADER"),
   );
+  // Where no role reaches, the ended grant still names the denial.
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(formerAdministrator, departmentC)).toEqual(
+    deny("AuthorityInactive"),
+  );
+  expect(
+    mapOrganizationAuthorityToAdmissionPeriodActor(authority("Inactive", []), departmentA),
+  ).toEqual(deny("AuthorityInactive"));
+});
 
+it("denies inactive memberships with their reason at the mapper boundary", () => {
   const inactiveLeader = authority("Absent", [
     membership("membership-inactive-leader", "team-inactive", departmentB, false, true),
   ]);

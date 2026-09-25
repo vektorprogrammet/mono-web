@@ -91,10 +91,23 @@ describe("substitute ownership and declaration", () => {
     expect(substitutePermission(authority, DepartmentId.make("a"))).toBe("Manage");
     expect(substitutePermission(authority, DepartmentId.make("wrong"))).toBe("ReadOnly");
     expect(substitutePermission(authority, DepartmentId.make("absent"))).toBe("Denied");
+    // An ended administrator grant leaves the memberships' authority as it is.
     expect(
       substitutePermission(
         { ...authority, globalAdministrator: "Inactive" },
         DepartmentId.make("a"),
+      ),
+    ).toBe("Manage");
+    expect(
+      substitutePermission(
+        { ...authority, globalAdministrator: "Inactive" },
+        DepartmentId.make("wrong"),
+      ),
+    ).toBe("ReadOnly");
+    expect(
+      substitutePermission(
+        { ...authority, globalAdministrator: "Inactive" },
+        DepartmentId.make("absent"),
       ),
     ).toBe("Denied");
     expect(

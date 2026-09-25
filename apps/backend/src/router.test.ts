@@ -1,5 +1,9 @@
 import { backendDatabase } from "../test/database.js";
-import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
+import {
+  IdentitySnapshot,
+  OAuthCredentialAuthority,
+  type OAuthExpectedMechanism,
+} from "@vektorprogrammet/database";
 import {
   Identity,
   IdentityEngineError,
@@ -29,7 +33,12 @@ import {
 import { Schools } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
-import { CredentialOutcomeSchema } from "@vektorprogrammet/domain/authz";
+import {
+  CredentialEvidenceRef,
+  CredentialMechanismSchema,
+  CredentialOutcomeSchema,
+  PrincipalSchema,
+} from "@vektorprogrammet/domain/authz";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { NativeProblem, SchoolSurveyReadProblem } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
@@ -632,6 +641,143 @@ describe("unified backend router", () => {
           challenge: response.headers.get("www-authenticate"),
         }).toEqual({ status: 401, code, challenge: 'ContactSSR realm="native-contact"' });
       }
+    });
+  });
+
+  describe("accepts exactly one credential per request", () => {
+    const personChallenge = 'VektorSession realm="native-api", Bearer realm="native-api"';
+
+    // The session cookie names member-1; each bearer names the Person beside it.
+    const sessionCookie = `${token}=member-1-session`;
+
+    const bearers = [
+      ["Bearer member-1-bearer", "member-1"],
+      ["Bearer member-2-bearer", "member-2"],
+    ] as const;
+
+    const bearerOutcome = (request: Request, expected: OAuthExpectedMechanism) => {
+      const personId = bearers.find(
+        ([bearer]) => bearer === request.headers.get("authorization"),
+      )?.[1];
+
+      return personId === undefined || expected === "OAuthServiceBearer"
+        ? CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" })
+        : CredentialOutcomeSchema.cases.Accepted.make({
+            mechanism: CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
+            principal: PrincipalSchema.cases.Person.make({ personId: PersonId.make(personId) }),
+            evidenceRef: CredentialEvidenceRef.make(`oauth:Person:${personId}`),
+          });
+    };
+
+    // The projection names whichever Person the resolved credential names.
+    const actingOrganization: Partial<OrganizationOperations> = {
+      ...organization,
+      resolvePersonAuthority: (personId, authorizationInstant) =>
+        Effect.map(
+          organization.resolvePersonAuthority(personId, authorizationInstant),
+          (authority) => ({ ...authority, personId }),
+        ),
+    };
+
+    const oneCredentialBackend = backendHttpHandler(
+      config,
+      Layer.mergeAll(
+        makeBackendServices(
+          {
+            ...successfulIdentity,
+            resolveSession: async (cookieHeader: string | undefined) => {
+              if (cookieHeader?.split(/;\s*/u).includes(sessionCookie) !== true) {
+                throw new IdentitySessionNotFound();
+              }
+
+              return new IdentityActor({
+                personId: PersonId.make("member-1"),
+                sessionId: "session-1",
+                expiresAt: currentSession.expiresAt,
+              });
+            },
+          },
+          actingOrganization,
+        ),
+        Layer.succeed(
+          OAuthCredentialAuthority,
+          OAuthCredentialAuthority.of({
+            resolve: async (request, expected) => bearerOutcome(request, expected),
+            resolveInTransaction: (request, expected) =>
+              Effect.succeed(bearerOutcome(request, expected)),
+          }),
+        ),
+        Layer.mock(Economy, {
+          listReceiptsForApproval: () => Effect.succeed({ items: [] }),
+        }),
+      ),
+      unavailableAuthHandler,
+    );
+
+    // A problem names its code; a profile names the Person who acted.
+    const answer = async (path: string, headers: Record<string, string>) => {
+      const response = await oneCredentialBackend.fetch(
+        new Request(`http://backend.test${path}`, { headers }),
+      );
+
+      return {
+        status: response.status,
+        challenge: response.headers.get("www-authenticate"),
+        ...Schema.decodeUnknownSync(
+          Schema.Struct({
+            code: Schema.optional(Schema.String),
+            personId: Schema.optional(Schema.String),
+          }),
+        )(await response.json()),
+      };
+    };
+
+    // Each test case gets a fresh database, so both cases seed the bearer's Person.
+    const seedBearerPerson = () =>
+      database.run(
+        Database.use((sql) =>
+          Effect.gen(function* () {
+            yield* sql`INSERT INTO person_profiles VALUES ('member-2','Member','Two',0)`;
+            yield* sql`INSERT INTO person_contact_profiles VALUES ('member-2','member-2@example.invalid','90000001',0)`;
+          }),
+        ),
+      );
+
+    it.each([
+      ["Session", "/api/session", 'VektorSession realm="native-api"'],
+      ["Person", "/api/profile", personChallenge],
+      ["PersonOrService", "/api/receipt-approval-queue", personChallenge],
+    ] as const)(
+      "rejects a session cookie with a bearer at a %s-secured operation",
+      async (_security, path, challenge) => {
+        await seedBearerPerson();
+
+        // The first bearer names another Person than the session; the second names the same one.
+        for (const bearer of ["Bearer member-2-bearer", "Bearer member-1-bearer"]) {
+          expect({
+            bearer,
+            ...(await answer(path, {
+              cookie: `theme=dark; ${sessionCookie}`,
+              authorization: bearer,
+            })),
+          }).toEqual({ bearer, status: 401, code: "credential.invalid", challenge });
+        }
+      },
+    );
+
+    it("lets either person credential alone name the acting Person", async () => {
+      await seedBearerPerson();
+
+      expect(await answer("/api/profile", { cookie: sessionCookie })).toEqual({
+        status: 200,
+        challenge: null,
+        personId: "member-1",
+      });
+      expect(await answer("/api/profile", { authorization: "Bearer member-2-bearer" })).toEqual({
+        status: 200,
+        challenge: null,
+        personId: "member-2",
+      });
     });
   });
 

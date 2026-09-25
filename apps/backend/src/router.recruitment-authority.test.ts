@@ -42,6 +42,9 @@ const inactiveToken = "inactive-session-token";
 
 const unassignedToken = "unassigned-session-token";
 
+// Leads department-1 after the person's global-administrator grant has ended.
+const formerAdministratorToken = "former-administrator-session-token";
+
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
   BETTER_AUTH_SECRET: "router-test-secret-with-at-least-32-characters!",
@@ -80,6 +83,10 @@ const membershipsByToken = new Map<string, ReadonlyArray<AuthorityMembershipRow>
     [{ departmentId: DepartmentId.make("department-1"), active: false, teamLeader: false }],
   ],
   [unassignedToken, []],
+  [
+    formerAdministratorToken,
+    [{ departmentId: DepartmentId.make("department-1"), active: true, teamLeader: true }],
+  ],
 ]);
 
 const personIdsByToken = new Map<string, string>([
@@ -87,6 +94,7 @@ const personIdsByToken = new Map<string, string>([
   [memberToken, "member-1"],
   [inactiveToken, "inactive-1"],
   [unassignedToken, "unassigned-1"],
+  [formerAdministratorToken, "former-administrator-1"],
 ]);
 
 const personIdForToken = (tokenValue: string): string =>
@@ -104,7 +112,8 @@ const organization = {
     return Effect.succeed({
       personId,
       evaluatedAt: "2031-09-15T12:00:00.000Z",
-      globalAdministrator: "Absent",
+      globalAdministrator:
+        personId === personIdForToken(formerAdministratorToken) ? "Inactive" : "Absent",
       memberships: (row?.[1] ?? []).map((membership, index) => ({
         membershipId: MembershipId.make(`membership-${index}`),
         teamId: TeamId.make(`team-${index}`),
@@ -370,6 +379,30 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
           }),
         ),
       },
+    ]);
+  });
+
+  it("keeps a department leadership after the leader's administrator grant has ended", async () => {
+    const [admissionPeriods, board] = [
+      await request("/api/admission-periods", formerAdministratorToken),
+      await request(
+        "/api/recruitment/application-assignments?status=new",
+        formerAdministratorToken,
+      ),
+    ];
+
+    const leader = expect.objectContaining(
+      AdmissionPeriodActorSchema.cases.DepartmentLeader.make({
+        personId: PersonId.make("former-administrator-1"),
+        departmentId: DepartmentId.make("department-1"),
+        active: true,
+      }),
+    );
+
+    expect([admissionPeriods.status, board.status]).toEqual([200, 200]);
+    expect(recruitmentCalls).toEqual([
+      { operation: "listAdmissionPeriodsForManagement", actor: leader },
+      { operation: "readAssignmentBoard", actor: leader },
     ]);
   });
 

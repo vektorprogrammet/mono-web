@@ -125,7 +125,11 @@ export const ProfileRoleSchema = Schema.Literals([
 
 export type ProfileRole = typeof ProfileRoleSchema.Type;
 
-/** Maps one explicit department scope without selecting a primary membership. */
+/**
+ * Maps one explicit department scope without selecting a primary membership. Roles and
+ * grants are independent: an ended global-administrator grant removes no role authority,
+ * and only names the denial where no role reaches the department.
+ */
 export const mapOrganizationAuthorityToAdmissionPeriodActor = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
@@ -137,10 +141,6 @@ export const mapOrganizationAuthorityToAdmissionPeriodActor = (
         active: true,
       }),
     );
-  }
-
-  if (authority.globalAdministrator === "Inactive") {
-    return deny<AdmissionPeriodActor>("AuthorityInactive");
   }
 
   let hasMembership = false;
@@ -173,7 +173,11 @@ export const mapOrganizationAuthorityToAdmissionPeriodActor = (
     );
   }
 
-  return deny<AdmissionPeriodActor>(hasMembership ? "AuthorityInactive" : "NotInScope");
+  return deny<AdmissionPeriodActor>(
+    hasMembership || authority.globalAdministrator === "Inactive"
+      ? "AuthorityInactive"
+      : "NotInScope",
+  );
 };
 
 /** Recruitment shares Admission's department-scoped actor contract. */

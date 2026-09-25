@@ -66,6 +66,13 @@ describe("volunteer affiliation authority and lifecycle", () => {
 
     expect(canManagePlacements(authority, DepartmentId.make("a"))).toBe(true);
     expect(canManagePlacements(authority, DepartmentId.make("b"))).toBe(false);
+    // An ended administrator grant neither adds nor removes department leadership.
+    expect(
+      canManagePlacements(
+        { ...authority, globalAdministrator: "Inactive" },
+        DepartmentId.make("a"),
+      ),
+    ).toBe(true);
     expect(
       canManagePlacements(
         { ...authority, globalAdministrator: "Inactive" },

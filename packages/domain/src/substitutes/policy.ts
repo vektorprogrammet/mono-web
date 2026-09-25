@@ -30,7 +30,7 @@ export const substituteCommandFailure = (
   return null;
 };
 
-/** Uses the canonical mapper, including inactive administrator and multi-membership semantics. */
+/** Uses the canonical mapper, so multi-membership and ended-grant semantics match admission. */
 export const substitutePermission = (
   authority: OrganizationPersonAuthority,
   departmentId: DepartmentId,
