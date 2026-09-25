@@ -86,7 +86,6 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   The homepage problem mappers (`mapPublicApplicationError`, `publicTeamApplicationPageFailure`, `failedPublicTeamApplication`) still accept a plain problem-shaped object besides the SDK's `Problem`; the dashboard reads problems only through `nativeProblemFrom`.
 - Three operations do not declare the `internal.error` that `ProblemBoundaryLive` can answer: `organization.readAppointmentManagement`,
   `organization.executeLifecycle`, and `admissions.readReturningAssistantOptions`.
-- `apps/backend/src/contact/http.ts` re-checks the server token and answers every rejection as `credential.invalid`.
 - Instants: domain fields still use `Rfc3339InstantSchema`, not `Instant` (`packages/domain/src/time.ts`).
   The authority instant (M2), per-slice cutovers (M3), and deletion of the string helpers such as `compareRfc3339Instants` (M4) remain.
 - Receipt keyset cursors carry microsecond text (`packages/database/src/receipt/cursor.ts`). They stay exact because storage is millisecond; M3 moves them to `Instant`.
