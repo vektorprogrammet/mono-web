@@ -4,9 +4,9 @@ Lifecycle: build
 
 ## Current
 
-The reimbursement journey now has [source-bound local acceptance](#reimbursement-golden-journey).
-It covers private-file custody, separate settlement authority, delivery recovery, and explicit resource bounds.
-The [receipt guide](packages/domain/src/receipt/README.md) includes a public-import example. Production and provider actions remain unauthorized.
+The standalone team-application journey now has [source-bound local acceptance](#team-application-journey).
+It replaces the legacy flow at parity with team-scoped reads, leader-only deletion and intake changes, outbox delivery, and a submission rate limit.
+The reimbursement journey keeps its [local acceptance](#reimbursement-golden-journey). Production and provider actions remain unauthorized.
 
 Documentation reconciled against source and retained local evidence on 2026-09-24.
 Production still uses legacy PHP. Local implementation and acceptance do not authorize replacement.
@@ -15,7 +15,7 @@ The operator selected a portable Bun backend with PostgreSQL, not a Cloudflare W
 Development remains local. Paid infrastructure provisioning is deferred until migration cutover preparation.
 DigitalOcean, Netlify, and other managed-database hosts remain candidates, not selected deployments.
 Free plans can be evaluated, but no cloud provisioning or source-data upload is authorized.
-The [previous Cloudflare development contract](docs/specs/cloudflare-development-provider-boundary.md) is superseded, not accepted.
+The previous Cloudflare development contract is superseded, not accepted. The backend Worker composition and its Alchemy development stage were removed on 2026-09-25.
 Its Hyperdrive transport conflicts with the PostgreSQL advisory locks that the native backend uses.
 The existing local Bun runtime remains the development path. Provider adapters and deployed acceptance remain unverified.
 Production cutover still requires provider proof, migration rehearsal, and rollback acceptance.
@@ -379,6 +379,35 @@ Checks were invoked explicitly; the commit hook reported that Lefthook was unava
 The [receipt guide](packages/domain/src/receipt/README.md) owns consumer and maintainer guidance. The completed specification is retired.
 Current-data reconciliation, unresolved operational policies, real-provider acceptance, cutover, and rollback remain separate gates.
 
+### Team-application journey
+
+Integrated revision `c9303fab43d1c532c44e7d249450b0b490111f1e` passed serial local acceptance on 2026-09-25.
+The runtime used Bun 1.3.13, Node 24.20.0, PostgreSQL 17.11, Chromium, synthetic people, and a loopback provider.
+Bun 1.3.13 differs from the `packageManager` pin of 1.3.10.
+
+| Mode                                                      | Observed result                                            | Retained receipt                                          |
+| --------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------- |
+| `bun run test:golden-team-application`                    | All 17 checkpoints passed; cleanup verified.               | `/tmp/vektor-golden-team-application-eyx7z1/receipt.json` |
+| `GOLDEN_TEAM_APPLICATION_FAULT=after-submitted`           | Expected exit 1 after submission; cleanup verified.        | `/tmp/vektor-golden-team-application-44WEPg/receipt.json` |
+| `GOLDEN_TEAM_APPLICATION_FAULT=interrupt-after-submitted` | Expected exit 143 with SIGTERM retained; cleanup verified. | `/tmp/vektor-golden-team-application-AmLSsI/receipt.json` |
+
+Independent PostgreSQL observations bind the public page, form, replay, rejected submissions, staff reads and denials, session revocation, deletion, intake changes, expired deadline, stale revision, provider failure, and unattended recovery.
+An independent review of all 24 contract items found them satisfied and reported seven defects; all seven are fixed and covered by the run above.
+
+Open privacy decisions: the legacy form has no consent notice, and applications have no retention purge. Native keeps both gaps at parity.
+Import of legacy team applications is a separate reconciliation task. Organization `Team.email` still accepts text that is not a mailbox; open intake requires a deliverable mailbox, but the write boundary should validate it.
+
+### Maintenance found during this work
+
+The native `main` also gained Lefthook hooks, a split of fast checks and long tests in CI, a measured resource ledger (`bun run measure-job`), derived generated artifacts, and typed outbox claim loss.
+An ingress regression from `042e808d` had answered `credential.invalid` for absent credentials on every secured route; `b74cda24` restored `credential.missing`, and seven suites that had pinned the regression were corrected.
+Migrations 70 and 71 add receipt outbox quarantine and converge upgraded databases with fresh schema checks. The next free migration id is 72.
+
+In progress on separate branches: typed endpoint problems, `DateTime` instants with millisecond storage, PostgreSQL 18, and staged-change checks in pre-commit.
+Code that trusts a convention is fixed when a change touches it (see [AGENTS.md](AGENTS.md#construction-over-trust)).
+Known instances: hand-written operation ids outside content, dashboard navigation paths, a fixed admissions `retry-after`, fixed ports in older browser runners, and hosted runs of the preview, Alchemy, and SDK publish workflows.
+Operator step after the PostgreSQL 18 change reaches staging: run `docker compose down --remove-orphans` to remove the orphaned `receipt-postgres` container.
+
 ### Remaining migration work
 
 | Workstream                      | Remaining deliverable                                                                                                                                                               | Completion gate                                                                                                                                                                 | Authority                                                                          |
@@ -412,14 +441,14 @@ The historical backup cannot supply current assignments. Historical membership m
 
 The source review distinguishes missing native outcomes from undefined policy. None of the unresolved obligations is waived.
 
-| Obligation                  | Source finding and next boundary                                                                                                                                                                                                                                                                                                     |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Mailing administration      | Scoped recipient reads have local acceptance. Arbitrary list administration and Workspace synchronization need a separate operational requirement and contract.                                                                                                                                                                      |
-| Standalone team recruitment | Legacy receives an independent team application, sends a receipt and team notification, and permits scoped review. Native team-interest reads do not replace it. Confirm active cases and the responsible owner. Intake, review, retention, and any handover need an explicit contract. Do not invent hiring states or appointments. |
-| Reminders                   | Legacy defines applicant reminders, staff digests, and separate admission subscribers. Source does not establish production cadence. Native invitation retry and requested rebooking are not reminders. Reminder cadence, SMS, subscriber consent, and human follow-up ownership remain undecided.                                   |
-| Interview no-show           | Neither source establishes a distinct nonattendance outcome. `NO_CONTACT` means not yet contacted, not absent. Decide whether observed nonattendance needs its own evidence and rebooking contract or an explicit handover. Do not infer nonattendance from elapsed time.                                                            |
-| Service corrections         | Ordinary placement edits exist. Frozen commitments and terminal evidence have no reversal or supersession command. Legacy history edit/delete is not a safe substitute. Define correction cases, authority, evidence, and downstream effects before adding reversal.                                                                 |
-| Coordinator reads           | Identity cards have local acceptance. Historical lookup, exports, and aggregate reports need a named operational consumer and an explicit contract, not generic chart parity.                                                                                                                                                        |
+| Obligation                  | Source finding and next boundary                                                                                                                                                                                                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mailing administration      | Scoped recipient reads have local acceptance. Arbitrary list administration and Workspace synchronization need a separate operational requirement and contract.                                                                                                                                    |
+| Standalone team recruitment | Native intake, notification, scoped review, and deletion have local acceptance. Active legacy cases, their owner, and import or handover of existing applications remain open, as do the consent notice and retention decisions. Do not invent hiring states or appointments.                      |
+| Reminders                   | Legacy defines applicant reminders, staff digests, and separate admission subscribers. Source does not establish production cadence. Native invitation retry and requested rebooking are not reminders. Reminder cadence, SMS, subscriber consent, and human follow-up ownership remain undecided. |
+| Interview no-show           | Neither source establishes a distinct nonattendance outcome. `NO_CONTACT` means not yet contacted, not absent. Decide whether observed nonattendance needs its own evidence and rebooking contract or an explicit handover. Do not infer nonattendance from elapsed time.                          |
+| Service corrections         | Ordinary placement edits exist. Frozen commitments and terminal evidence have no reversal or supersession command. Legacy history edit/delete is not a safe substitute. Define correction cases, authority, evidence, and downstream effects before adding reversal.                               |
+| Coordinator reads           | Identity cards have local acceptance. Historical lookup, exports, and aggregate reports need a named operational consumer and an explicit contract, not generic chart parity.                                                                                                                      |
 
 Current-source reconciliation must establish active cases, external schedules, and responsible humans. Source routes and historical backup counts cannot establish current workload.
 

@@ -1,5 +1,5 @@
 /**
- * Golden team-application journey for `docs/specs/team-application-journey.md`.
+ * Golden team-application journey for the behavior in `docs/system.md#team-applications`.
  *
  * Boots a private PostgreSQL cluster, a loopback mail provider, the native Bun
  * backend, the built dashboard, and the built homepage Worker preview on private

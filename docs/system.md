@@ -352,6 +352,21 @@ State, revisions, command receipts, and attributable history commit together.
 An exact replay cannot duplicate history. A changed command identity payload or stale revision cannot leave a partial change.
 These commands do not administer external mail, Google Workspace, or service principals.
 
+### Team applications
+
+A visitor applies to one team through the public site. A team is open when the team and its department are active, the team accepts applications, its deadline is absent or later than now, and a deliverable mailbox exists.
+The mailbox is the team email, or the department email when the team has none. The public team page links to the form only for open teams.
+The form requires name, email, phone, year of study, field of study, biography, and motivation, each with an explicit length bound.
+
+A submission stores one application with its submission instant. An exact replay of one request returns the original result.
+A distinct submission from the same person is a second application. Anonymous submission is rate limited.
+The applicant receipt and the team notification commit with the application in one transaction and are delivered after commit through the outbox.
+A provider failure keeps the application; unattended recovery delivers the retained notifications. The confirmation states receipt, not delivery.
+
+A current, nonsuspended member of the team reads its applications. The current leader of the team opens or closes intake, sets or clears the deadline against the observed revision, and deletes applications.
+Global administration grants no implicit access. Deletion removes the application and its private fields from every stored notification.
+Deletion and intake changes record attributable history without applicant contact details or free text. Applications are not purged automatically, and this slice records no review outcome, hiring state, or appointment.
+
 ### Mailing recipients
 
 A current department leader reads recipients within that department. A current global administrator reads recipients across departments.
