@@ -21,7 +21,12 @@ import {
   genericContext,
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
-import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
+import { isSerializationConflict } from "../http-api/problem.js";
+import {
+  executeNativeHttpCommandPostgres,
+  NativeHttpReceiptInvalid,
+  NativeHttpReceiptPersistenceError,
+} from "../http-api/receipt-transaction.js";
 import { readBoundedJson } from "../http-api/read-json.js";
 import {
   deriveHttpIdentity,
@@ -69,6 +74,15 @@ const authorizeTransport = Effect.fn("Recruitment.authorizeMaintenanceTransport"
 
 export const recruitmentMaintenanceErrorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure) return nativeProblemResponse(cause.code, cause.status);
+
+  // The receipt store is the transport's own, answered as every command answers it.
+  if (cause instanceof NativeHttpReceiptPersistenceError)
+    return isSerializationConflict(cause)
+      ? nativeProblemResponse("transaction.conflict", 409)
+      : nativeProblemResponse("idempotency.unavailable", 503);
+
+  if (cause instanceof NativeHttpReceiptInvalid)
+    return nativeProblemResponse("internal.error", 500);
 
   if (cause instanceof RecruitmentMaintenanceFailure) {
     switch (cause.code) {
