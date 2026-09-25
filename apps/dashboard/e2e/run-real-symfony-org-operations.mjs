@@ -6,7 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { postgresMajor, postgresProgram } from "@monoweb/postgres";
+import { selectedPostgresMajor, postgresProgram } from "@monoweb/postgres";
 import {
   emitRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
@@ -529,7 +529,7 @@ async function main() {
       ["-D", postgresDataDir, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
       { cwd: repositoryRoot, env: process.env },
     );
-    await waitForPort(postgresPort, postgresProcess, `PostgreSQL ${postgresMajor}`);
+    await waitForPort(postgresPort, postgresProcess, `PostgreSQL ${selectedPostgresMajor}`);
     await runCommand(
       postgresProgram("createdb"),
       ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", postgresDatabase],

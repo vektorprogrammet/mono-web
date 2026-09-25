@@ -11,10 +11,37 @@ let
   manifest = lib.importJSON ./package.json;
 
   # The manifest declares each version once: packageManager "bun@<version>",
-  # engines.node ">=<major>" (the lowest supported major) and engines.postgresql "<major>".
+  # engines.node ">=<major>" (the lowest supported major) and engines.postgresql
+  # "<major> || <major>" (the supported PostgreSQL majors).
   bunVersion = lib.removePrefix "bun@" manifest.packageManager;
   nodeMajor = lib.head (builtins.match ">=([0-9]+)" manifest.engines.node);
-  postgresMajor = manifest.engines.postgresql;
+
+  # The highest supported PostgreSQL major is the default. VEKTOR_POSTGRES_MAJOR
+  # selects another one; devenv re-evaluates when the variable changes.
+  # tools/postgres/index.ts decodes and selects the same way.
+  postgresMajors =
+    let
+      declared = manifest.engines.postgresql;
+      majors = map lib.toInt (lib.splitString " || " declared);
+    in
+    if
+      builtins.match "[1-9][0-9]*( \\|\\| [1-9][0-9]*)*" declared == null
+      || lib.length (lib.unique majors) != lib.length majors
+    then
+      throw ''package.json engines.postgresql must be distinct PostgreSQL majors joined by " || ", not "${declared}".''
+    else
+      lib.sort lib.lessThan majors;
+  postgresMajor =
+    let
+      requested = builtins.getEnv "VEKTOR_POSTGRES_MAJOR";
+      supported = map toString postgresMajors;
+    in
+    if requested == "" then
+      lib.last supported
+    else if lib.elem requested supported then
+      requested
+    else
+      throw "VEKTOR_POSTGRES_MAJOR=${requested} is not a supported PostgreSQL major. package.json engines.postgresql supports ${lib.concatStringsSep " || " supported}.";
 
   # Playwright runs only the browser build of its own version, so the browsers
   # follow the @playwright/test version that bun.lock resolves.
@@ -78,6 +105,8 @@ in
 
   env = {
     PLAYWRIGHT_BROWSERS_PATH = "${browsers}";
+    # tools/postgres reads the major that PATH provides from here.
+    VEKTOR_POSTGRES_MAJOR = postgresMajor;
   }
   // lib.optionalAttrs (chromeDirectory != null) {
     # Launchers that pass `executablePath` read this variable.
