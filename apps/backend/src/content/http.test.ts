@@ -14,7 +14,6 @@ import { describe, expect, it } from "vitest";
 import { personPresentation } from "../http-api/problem.js";
 import { makeContentManagementTestHttp } from "../test/native-http.js";
 import { contentOperationId } from "./http-context.js";
-import { readContentRequestBody } from "./http-decode.js";
 import { contentHttpErrorResponse } from "./http-problem.js";
 
 const expectProblem = async (response: Response, status: number, code: string): Promise<void> => {
@@ -29,6 +28,25 @@ const expectProblem = async (response: Response, status: number, code: string): 
   });
   expect(body).not.toHaveProperty("error");
 };
+
+/** A request with a staff session cookie from the trusted dashboard origin. */
+const staffRequest = (
+  path: string,
+  init: {
+    readonly method?: string;
+    readonly headers?: Record<string, string>;
+    readonly body?: string;
+  } = {},
+) =>
+  new Request(`http://backend.test${path}`, {
+    method: init.method,
+    headers: {
+      cookie: "better-auth.session_token=content-staff",
+      origin: "http://127.0.0.1:5174",
+      ...init.headers,
+    },
+    body: init.body,
+  });
 
 describe("native content HTTP boundary", () => {
   it("identifies every content endpoint by the operation id the published contract assigns it", () => {
@@ -124,45 +142,40 @@ describe("native content HTTP boundary", () => {
     }
   });
 
-  it("enforces media type and bounded request bodies before JSON decoding", async () => {
-    const wrongMedia = new Request("http://backend.test/api/content/articles", {
-      method: "POST",
-      headers: { "content-type": "text/plain" },
-      body: "{}",
-    });
+  it("reads one bounded JSON body of its media type before decoding it", async () => {
+    const http = makeContentManagementTestHttp(
+      () => Effect.die("unexpected person resolution"),
+      Layer.empty,
+    );
 
-    const oversized = new Request("http://backend.test/api/content/articles", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: '{"title":"too large"}',
-    });
+    const create = (headers: Record<string, string>, body: string) =>
+      http.fetch(
+        staffRequest("/api/content/articles", {
+          method: "POST",
+          headers: { "idempotency-key": "content-body-test-0000000", ...headers },
+          body,
+        }),
+      );
 
-    await expect(
-      Effect.runPromise(readContentRequestBody(wrongMedia, "application/json", 1024)),
-    ).rejects.toMatchObject({
-      code: "media-type.unsupported",
-      status: 415,
-    });
-    await expect(
-      Effect.runPromise(readContentRequestBody(oversized, "application/json", 4)),
-    ).rejects.toMatchObject({
-      code: "request.too-large",
-      status: 413,
-    });
-  });
-
-  it("rejects duplicate JSON members before schema decoding", async () => {
-    const duplicate = new Request("http://backend.test/api/content/articles", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: '{"title":"first","title":"second"}',
-    });
-
-    await expect(
-      Effect.runPromise(readContentRequestBody(duplicate, "application/json", 1024)),
-    ).rejects.toMatchObject({
-      code: "request.malformed",
-      status: 400,
-    });
+    await expectProblem(
+      await create({ "content-type": "text/plain" }, "{}"),
+      415,
+      "media-type.unsupported",
+    );
+    await expectProblem(
+      await create({ "content-type": "application/json", "content-length": "1048577" }, "{}"),
+      413,
+      "request.too-large",
+    );
+    await expectProblem(
+      await create({ "content-type": "application/json", "content-length": "+2" }, "{}"),
+      400,
+      "request.malformed",
+    );
+    await expectProblem(
+      await create({ "content-type": "application/json" }, '{"title":"first","title":"second"}'),
+      400,
+      "request.malformed",
+    );
   });
 });

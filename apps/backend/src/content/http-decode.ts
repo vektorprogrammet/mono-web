@@ -1,11 +1,8 @@
 /** Content request decoding: strict schemas, query strings, preconditions, and JSON bodies. */
 import { ContentWorkspaceQuerySchema } from "@vektorprogrammet/domain/content";
 import { Effect, Schema, flow } from "effect";
-import {
-  HttpSemanticFailure,
-  parseJsonWithoutDuplicateMembers,
-  parseRequiredIfMatch,
-} from "../http-semantics.js";
+import { readBoundedJson } from "../http-api/read-json.js";
+import { HttpSemanticFailure, parseRequiredIfMatch } from "../http-semantics.js";
 import { knownContentFailure } from "./http-problem.js";
 
 export const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
@@ -14,39 +11,20 @@ export const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>
     Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
 
+/** The one media type, with optional parameters, each content body accepts. */
+const bodyMediaTypes = {
+  "application/json": /^application\/json(?:\s*;|$)/iu,
+  "application/merge-patch+json": /^application\/merge-patch\+json(?:\s*;|$)/iu,
+};
+
 export const readContentRequestBody = (
   request: Request,
   expectedMediaType: "application/json" | "application/merge-patch+json",
   maxBodyBytes: number,
 ) =>
-  Effect.tryPromise({
-    try: async () => {
-      const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-
-      if (mediaType !== expectedMediaType) {
-        throw new HttpSemanticFailure("media-type.unsupported", 415);
-      }
-
-      const declaredLength = request.headers.get("content-length");
-
-      if (declaredLength !== null) {
-        const length = Number(declaredLength);
-
-        if (!Number.isSafeInteger(length) || length < 0) {
-          throw new HttpSemanticFailure("request.malformed", 400);
-        }
-
-        if (length > maxBodyBytes) throw new HttpSemanticFailure("request.too-large", 413);
-      }
-
-      const bytes = new Uint8Array(await request.arrayBuffer());
-
-      if (bytes.byteLength > maxBodyBytes) throw new HttpSemanticFailure("request.too-large", 413);
-
-      return parseJsonWithoutDuplicateMembers(bytes);
-    },
-    catch: knownContentFailure,
-  });
+  bodyMediaTypes[expectedMediaType].test(request.headers.get("content-type") ?? "")
+    ? readBoundedJson(request, maxBodyBytes)
+    : Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
 
 export const headerValues = (request: Request, name: string): ReadonlyArray<string> => {
   const value = request.headers.get(name);
