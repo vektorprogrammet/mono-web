@@ -1,7 +1,7 @@
 # Developer module documentation
 
 Status: implementation roadmap. The [Placements guide](../packages/placements/README.md) implements the first pilot.
-[STATE.md](../STATE.md#developer-documentation-and-parallel-workstreams) records acceptance, workstream ownership, and remaining work.
+[STATE.md](../STATE.md#evidence-boundary) records acceptance and remaining work.
 
 ## Goal
 

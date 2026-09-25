@@ -1,6 +1,6 @@
 # Web-system functional testing
 
-Status: implementation roadmap. [STATE.md](../STATE.md#functional-journey-automation) records acceptance and remaining work.
+Status: implementation roadmap. [STATE.md](../STATE.md#evidence-boundary) records acceptance and remaining work.
 
 ## Goal and scope
 
@@ -364,7 +364,7 @@ The wrapper keeps the first command outcome, including termination signals.
 On handled interruption or runner failure, cleanup drains declared process groups before removal of private runtime files.
 The generated upload set contains only checked evidence and the bounded CI summary.
 
-[STATE.md](../STATE.md#functional-journey-automation) records integrated acceptance and remaining evidence limits.
+[STATE.md](../STATE.md#evidence-boundary) records integrated acceptance and remaining evidence limits.
 The [CI contract](specs/golden-school-service-ci.md) retains the failure criteria and separately authorized hosted gates.
 Hosted success, cancellation, artifact uploads, and required-check configuration remain unobserved.
 
