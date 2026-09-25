@@ -305,7 +305,7 @@ const loadSchoolSurvey = (sql: DatabaseOperations, surveyId: SurveyId) =>
     ),
   );
 
-/** Normalizes trimming and every semantically unordered input before idempotency digesting. */
+/** Normalizes trimming and every semantically unordered input before a response is stored. */
 const normalizeAnswers = (
   surveyId: string,
   questions: ReadonlyArray<StoredQuestion>,

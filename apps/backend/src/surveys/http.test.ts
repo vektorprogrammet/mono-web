@@ -579,7 +579,7 @@ describe("School surveys native HTTP adapter", () => {
     });
   });
 
-  it("replays an accepted response after closure but rejects a duplicate-selection body", async () => {
+  it("replays an accepted response after closure in any answer order but rejects a duplicate-selection body", async () => {
     let open = true;
     let prepareCalls = 0;
     let persistCalls = 0;
@@ -611,28 +611,43 @@ describe("School surveys native HTTP adapter", () => {
       }),
     );
 
-    const request = (values: ReadonlyArray<string>) =>
+    const textAnswer = {
+      kind: "Text",
+      questionId: SurveyQuestionId.make("survey_http_results_q_1"),
+      value: "Everything",
+    };
+
+    const checkAnswer = (values: ReadonlyArray<string>) => ({
+      kind: "Check",
+      questionId: schoolSurveyQuestionId,
+      values,
+    });
+
+    const request = (answers: ReadonlyArray<Schema.Json>) =>
       new Request(`http://backend.test/api/surveys/public/${schoolSurveyId}/responses`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "idempotency-key": "REPLAYAFTERCLOSURE0001",
         },
-        body: JSON.stringify({
-          schoolId: 1,
-          answers: [{ kind: "Check", questionId: schoolSurveyQuestionId, values }],
-        }),
+        body: JSON.stringify({ schoolId: 1, answers }),
       });
 
-    const accepted = await api.fetch(request(["Second", "First"]));
+    const accepted = await api.fetch(request([checkAnswer(["Second", "First"]), textAnswer]));
     const acceptedBody = await accepted.json();
     open = false;
-    const replayed = await api.fetch(request(["Second", "First"]));
+    const replayed = await api.fetch(request([checkAnswer(["Second", "First"]), textAnswer]));
+    const reordered = await api.fetch(request([textAnswer, checkAnswer(["First", "Second"])]));
 
     expect(replayed.status).toBe(201);
     expect(await replayed.json()).toEqual(acceptedBody);
+    expect(reordered.status).toBe(201);
+    expect(await reordered.json()).toEqual(acceptedBody);
     expect({ prepareCalls, persistCalls }).toEqual({ prepareCalls: 1, persistCalls: 1 });
-    const duplicateSelection = await api.fetch(request(["First", "First", "Second"]));
+
+    const duplicateSelection = await api.fetch(
+      request([checkAnswer(["First", "First", "Second"]), textAnswer]),
+    );
 
     const duplicateSelectionBody = Schema.decodeUnknownSync(Schema.Struct({ code: Schema.String }))(
       await duplicateSelection.json(),
