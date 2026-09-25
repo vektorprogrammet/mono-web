@@ -35,6 +35,7 @@ export const teamApplicationCheckpoints = [
   { step: "intake-revised", items: [18, 20] },
   { step: "intake-stale", items: [19] },
   { step: "intake-closed", items: [1, 2, 5, 18] },
+  { step: "intake-expired", items: [1, 2, 5, 18, 19, 20] },
   { step: "deleted", items: [16, 20] },
   { step: "fallback-failed-delivery", items: [9, 10, 11, 12] },
   { step: "unattended-recovery", items: [11, 12] },
@@ -98,6 +99,8 @@ export interface Submission {
   readonly applicationId: string;
   /** Idempotency key rendered into the form and sent verbatim to the backend. */
   readonly key: string;
+  /** The instant the confirmation gave the visitor, read verbatim from its `<time datetime>`. */
+  readonly submittedAt: string;
   readonly input: ApplicantInput;
 }
 
@@ -105,8 +108,12 @@ export interface Submission {
 export interface JourneyRecord {
   readonly submissions: ReadonlyArray<Submission>;
   readonly deletions: ReadonlyArray<{ readonly applicationId: string; readonly key: string }>;
-  /** Backend-normalized UTC deadlines set through the dashboard and the concurrent client. */
-  readonly deadlines: { readonly first: string | null; readonly second: string | null };
+  /** Backend-normalized UTC deadlines: set in the dashboard, set by the concurrent client, already passed. */
+  readonly deadlines: {
+    readonly first: string | null;
+    readonly second: string | null;
+    readonly expired: string | null;
+  };
   readonly suspendedMembershipId: string | null;
 }
 
@@ -192,6 +199,9 @@ const Replays = Schema.Array(Schema.Struct({ status: Schema.Int, text: Schema.St
 
 const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
+/** The contract's instant as the backend formats it: UTC with milliseconds. */
+const rfc3339Milliseconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+
 // A confirmation may say the application was received; it must not claim that mail left.
 // Whole words only: "du sendte inn" describes the applicant's submission, not a delivery.
 const deliveryClaim = /\b(?:sendt|levert)\b|bekreftelse på e-post|e-post er på vei/iu;
@@ -226,6 +236,7 @@ export const runTeamApplicationBrowser = async (
   const deletions: Array<{ readonly applicationId: string; readonly key: string }> = [];
   let firstDeadline: string | null = null;
   let secondDeadline: string | null = null;
+  let expiredDeadline: string | null = null;
   let suspendedMembershipId: string | null = null;
 
   const browser = await chromium.launch({
@@ -246,7 +257,7 @@ export const runTeamApplicationBrowser = async (
     hooks.checkpoint(step, {
       submissions: [...submissions],
       deletions: [...deletions],
-      deadlines: { first: firstDeadline, second: secondDeadline },
+      deadlines: { first: firstDeadline, second: secondDeadline, expired: expiredDeadline },
       suspendedMembershipId,
     });
 
@@ -490,9 +501,20 @@ export const runTeamApplicationBrowser = async (
     assert.match(applicationId, uuidV4);
     assert.ok(!deliveryClaim.test(await confirmation.innerText()), "confirmation claims delivery");
 
+    const submittedAt = (await confirmation.locator("time").getAttribute("datetime")) ?? "";
+
+    assert.match(submittedAt, rfc3339Milliseconds, "confirmation states its submission instant");
+
     if (inspectSurfaces) await inspect(page, "application-confirmation");
 
-    const submission: Submission = { label, teamId: team.teamId, applicationId, key, input: applicant };
+    const submission: Submission = {
+      label,
+      teamId: team.teamId,
+      applicationId,
+      key,
+      submittedAt,
+      input: applicant,
+    };
 
     submissions.push(submission);
     checks.push({ kind: "submitted", detail: `${label} ${applicationId}` });
@@ -550,6 +572,8 @@ export const runTeamApplicationBrowser = async (
     await hooks.faultPoint("after-submitted");
 
     // Exact replay: the captured form request, twice concurrently, from the same browser.
+    // Both race for the idempotency identity lock. The loser may answer 409 in-flight, which
+    // promises the stored result later; neither may store or queue anything (checkpoint below).
     const replays = Schema.decodeSync(Replays)(
       await visitor.evaluate(
         async ({ url, contentType, payload }) => {
@@ -570,10 +594,26 @@ export const runTeamApplicationBrowser = async (
       ),
     );
 
-    for (const replay of replays) {
-      assert.ok(replay.status < 400, `form replay returned ${replay.status}`);
-      assert.ok(replay.text.includes(first.submission.applicationId), "form replay returns the original result");
-    }
+    const replayOutcomes = replays.map((replay) => {
+      const original =
+        replay.status === 200 &&
+        replay.text.includes(first.submission.applicationId) &&
+        replay.text.includes(first.submission.submittedAt);
+
+      const inFlight =
+        replay.status === 409 &&
+        replay.text.includes("idempotency.in-flight") &&
+        !replay.text.includes(first.submission.applicationId);
+
+      assert.ok(
+        original !== inFlight,
+        `form replay returned ${replay.status}, neither the original result nor in-flight: ${replay.text.slice(0, 400)}`,
+      );
+
+      return original ? "original" : "in-flight";
+    });
+
+    assert.ok(replayOutcomes.includes("original"), "one concurrent replay returns the original result");
 
     const direct = await body(
       await submitThroughApi(fixture.alfa.teamId, first.submission.key, fixture.first),
@@ -581,8 +621,15 @@ export const runTeamApplicationBrowser = async (
       Confirmation,
     );
 
-    assert.equal(direct.applicationId, first.submission.applicationId);
-    checks.push({ kind: "replay", detail: "two form replays and one API replay returned the original result" });
+    assert.deepEqual(direct, {
+      applicationId: first.submission.applicationId,
+      teamId: fixture.alfa.teamId,
+      submittedAt: first.submission.submittedAt,
+    });
+    checks.push({
+      kind: "replay",
+      detail: `concurrent form replays: ${replayOutcomes.join(", ")}; API replay returned the original result`,
+    });
     await checkpoint("submission-replay");
 
     await hooks.setProviderMode("fail");
@@ -868,6 +915,60 @@ export const runTeamApplicationBrowser = async (
       "team-application.intake-closed",
     ]);
     await checkpoint("intake-closed");
+
+    // Item 1, deadline branch. Reopen first, so the deadline is the only difference between
+    // the open and the closed observation below.
+    const closedIntake = (await listApplications(leaderAlfa, fixture.alfa)).intake;
+
+    const reopened = await body(
+      await reviseIntake(leaderAlfa, fixture.alfa, closedIntake.etag, { acceptApplication: true }),
+      200,
+      Intake,
+    );
+
+    assert.deepEqual(
+      [reopened.acceptApplication, reopened.deadline, reopened.revision, reopened.open],
+      [true, secondDeadline, 6, true],
+    );
+    await expectApplyLinks(visitor, [fixture.alfa, fixture.beta], [fixture.gamma]);
+
+    const passedDeadline = new Date(Date.now() - 3_600_000);
+
+    passedDeadline.setUTCSeconds(0, 0);
+
+    const expired = await body(
+      await reviseIntake(leaderAlfa, fixture.alfa, reopened.etag, {
+        deadline: passedDeadline.toISOString(),
+      }),
+      200,
+      Intake,
+    );
+
+    assert.deepEqual(
+      [expired.acceptApplication, expired.deadline, expired.revision, expired.open],
+      [true, passedDeadline.toISOString(), 7, false],
+      "an accepting team with a passed deadline is closed",
+    );
+    expiredDeadline = expired.deadline;
+    await expectApplyLinks(visitor, [fixture.beta], [fixture.alfa, fixture.gamma]);
+    await visitor.goto(`${origins.homepage}/team/${encodeURIComponent(fixture.alfa.teamId)}/soknad`);
+    await expect(visitor.getByRole("heading", { name: "Teamet tar ikke imot søknader nå" })).toBeVisible();
+    await expect(visitor.locator('[data-team-application-intake="closed"]')).toBeVisible();
+    await expect(visitor.getByRole("button", { name: "Send søknad" })).toHaveCount(0);
+    await problem(await submitThroughApi(fixture.alfa.teamId, randomUUID(), fixture.first), 409, [
+      "team-application.intake-closed",
+    ]);
+    await openTeamPage(leaderAlfa, fixture.alfa);
+    await expect(leaderAlfa.page.locator('[data-intake-open="false"]')).toBeVisible();
+    await expect(
+      intakeControls(leaderAlfa).getByRole("checkbox", { name: "Ta imot søknader" }),
+    ).toBeChecked();
+    await expect(leaderAlfa.page.locator(`time[datetime="${expired.deadline}"]`)).toBeVisible();
+    checks.push({
+      kind: "expired-intake",
+      detail: `accepting with deadline ${expired.deadline} is closed on every surface`,
+    });
+    await checkpoint("intake-expired");
 
     await leaderAlfa.page
       .locator(`[data-application-id="${second.submission.applicationId}"]`)

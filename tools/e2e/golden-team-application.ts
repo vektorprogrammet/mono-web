@@ -144,6 +144,10 @@ const journey: GoldenJourney = {
         TEAM_APPLICATION_DELIVERY_MODE: "http",
         TEAM_APPLICATION_DELIVERY_POLL_MS: "250",
         TEAM_APPLICATION_DELIVERY_STALE_MS: "5000",
+        // The public submit limiter shares one bucket per process. The journey sends 17
+        // submissions in about a minute; the admissions journey uses the same bound.
+        TEAM_APPLICATION_RATE_LIMIT_MAX: "64",
+        TEAM_APPLICATION_RATE_LIMIT_WINDOW_MS: "600000",
         MAIL_DELIVERY_URL: provider.url,
         MAIL_DELIVERY_TOKEN: token,
         MAIL_DELIVERY_TIMEOUT_MS: "1000",
