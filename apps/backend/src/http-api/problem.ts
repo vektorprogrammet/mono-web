@@ -11,6 +11,7 @@ import {
   credentialPresentation,
   type CredentialPresentation,
   isProblem,
+  makeNativeValidationError,
   type NativeProblemCode,
   nativeUserChallenges,
   type PlainProblemCode,
@@ -19,7 +20,7 @@ import {
   problemHeaders,
   type StrongETag,
 } from "@vektorprogrammet/http-api/http-semantics";
-import { Cause, Effect, ErrorReporter, Match, Predicate, type Schema } from "effect";
+import { Cause, Effect, ErrorReporter, Match, Predicate, Schema } from "effect";
 import {
   HttpRouter,
   HttpServerError,
@@ -318,14 +319,51 @@ export const personPresentation = (request: Request, challenge: string = nativeU
     challenge,
   );
 
-const serializationConflict = (cause: unknown, depth = 0): boolean =>
+/**
+ * Whether a failure, or one of its causes, is a lost serialization or
+ * deadlock race: a transaction.conflict the client may retry.
+ *
+ * @construct http-problem
+ */
+export const isSerializationConflict = (cause: unknown, depth = 0): boolean =>
   depth < 8 &&
   Predicate.isObjectOrArray(cause) &&
   (("code" in cause && (cause.code === "40001" || cause.code === "40P01")) ||
     (Predicate.hasProperty(cause, "reason") &&
       (Predicate.isTagged(cause.reason, "SerializationError") ||
         Predicate.isTagged(cause.reason, "DeadlockError"))) ||
-    (Predicate.hasProperty(cause, "cause") && serializationConflict(cause.cause, depth + 1)));
+    (Predicate.hasProperty(cause, "cause") && isSerializationConflict(cause.cause, depth + 1)));
+
+/**
+ * The request as a whole fails validation; no single member is singled out.
+ *
+ * @construct http-problem
+ */
+export const requestInvalid = () =>
+  Problem.validation("validation.failed", [makeNativeValidationError("", "invalid")]);
+
+/**
+ * Decodes one JSON request value strictly; any mismatch fails the whole request's validation.
+ *
+ * @construct http-problem
+ */
+export const decodeRequest =
+  <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
+  (value: Schema.Json) =>
+    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
+      Effect.mapError(requestInvalid),
+    );
+
+/**
+ * Decodes one response value strictly. A domain value that does not fit its
+ * representation is a defect, answered by the boundary as internal.error.
+ *
+ * @construct http-problem
+ */
+export const strictOutput =
+  <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
+  (value: S["Type"]) =>
+    Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(Effect.orDie);
 
 /**
  * HTTP command receipts: the transport's own persistence failures.
@@ -337,7 +375,7 @@ export const commandReceiptProblems = problemMapper<
 >()({
   NativeHttpReceiptInvalid: () => Problem.make("internal.error"),
   NativeHttpReceiptPersistenceError: (failure) =>
-    serializationConflict(failure)
+    isSerializationConflict(failure)
       ? Problem.make("transaction.conflict")
       : Problem.make("idempotency.unavailable"),
 });

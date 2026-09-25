@@ -8,22 +8,25 @@ import {
 } from "@vektorprogrammet/domain/contact";
 import { ContactQuotaLive } from "@vektorprogrammet/database/contact";
 import { ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { makeNativeValidationError, Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Layer, Match, Schema } from "effect";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
+import { Effect, Layer, Match } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import type { ContactConfig } from "./config.js";
 import { deliverJson } from "../delivery/http.js";
-import { problemMapper, readJsonBody, webHandler } from "../http-api/problem.js";
-
-/** A message the contact form cannot accept, whether malformed or addressed to no recipient. */
-const invalidMessage = () =>
-  Problem.validation("validation.failed", [makeNativeValidationError("", "invalid")]);
+import {
+  decodeRequest,
+  problemMapper,
+  readJsonBody,
+  requestInvalid,
+  webHandler,
+} from "../http-api/problem.js";
 
 /** The one answer for every contact failure. */
 const contactProblems = problemMapper<ContactFailure>()({
   ContactFailure: ({ reason }) =>
     Match.value(reason).pipe(
-      Match.when("InvalidRecipient", invalidMessage),
+      // A recipient that cannot receive the message makes the message itself invalid.
+      Match.when("InvalidRecipient", requestInvalid),
       Match.when("RateLimited", () => Problem.rateLimited(3_600)),
       Match.when("Unavailable", () => Problem.make("contact.unavailable")),
       Match.exhaustive,
@@ -65,9 +68,7 @@ export const ContactApiHandlers = (config: ContactConfig | undefined) => {
 
       const input = yield* readJsonBody(request, /^application\/json(?:\s*;|$)/iu, 65_536);
 
-      const message = yield* Schema.decodeUnknownEffect(ContactMessage)(input, {
-        onExcessProperty: "error",
-      }).pipe(Effect.mapError(invalidMessage));
+      const message = yield* decodeRequest(ContactMessage)(input);
 
       yield* submitContact(message, ip).pipe(Effect.provide(services), contactProblems);
 
