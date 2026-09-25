@@ -121,7 +121,10 @@ const classifiedAdmissionFailure = (cause: unknown): Response | undefined => {
     case "PublicApplicationDecodeError":
     case "AdmissionPeriodDecodeError":
     case "ReturningAssistantDecodeError":
-      return nativeProblemResponse("validation.failed", 422);
+      // The domain decodes the whole command, so the rejection names the whole body.
+      return problemWebResponse(
+        Problem.validation("validation.failed", [makeNativeValidationError("", "invalid")]),
+      );
     case "ReturningAssistantUnauthenticated":
       return nativeProblemResponse("credential.invalid", 401, {
         "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',

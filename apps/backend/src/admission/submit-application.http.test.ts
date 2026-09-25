@@ -5,6 +5,7 @@ import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
 import { AdmissionsSubmitApplicationProblem } from "@vektorprogrammet/http-api";
+import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Layer, ManagedRuntime, Schedule, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { backendDatabase } from "../../test/database.js";
@@ -239,6 +240,35 @@ describe("public application submission over HTTP", () => {
     expect((await problem(unparsable)).code).toBe("request.malformed");
     expect(query.status).toBe(400);
     expect((await problem(query)).code).toBe("request.malformed");
+    await expect(count("admission_applications")).resolves.toBe(0);
+  });
+
+  it("names every rejected member of an application in its validation member", async () => {
+    const { submit, count } = fixture();
+    const { lastName: _omitted, ...withoutLastName } = application;
+
+    const response = await submit("invalidMembers", {
+      body: JSON.stringify({
+        ...withoutLastName,
+        firstName: "",
+        email: "not-an-email",
+        nickname: "Ada",
+      }),
+    });
+
+    expect(response.status).toBe(422);
+    expect(await problem(response)).toMatchObject({
+      code: "validation.failed",
+      validation: {
+        errors: [
+          makeNativeValidationError("/email", "invalid"),
+          makeNativeValidationError("/firstName", "invalid"),
+          makeNativeValidationError("/lastName", "missing"),
+          makeNativeValidationError("/nickname", "unknown"),
+        ],
+        truncated: false,
+      },
+    });
     await expect(count("admission_applications")).resolves.toBe(0);
   });
 });

@@ -15,6 +15,7 @@ import {
   AdmissionsCreateAdmissionPeriodProblem,
   AdmissionsReviseAdmissionPeriodProblem,
 } from "@vektorprogrammet/http-api";
+import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
 import { DateTime, Effect, Layer, ManagedRuntime, Schedule, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { backendDatabase } from "../../test/database.js";
@@ -325,5 +326,82 @@ describe("admission period management over HTTP and PostgreSQL", () => {
         "SELECT count(*)::integer AS count FROM admission_periods WHERE semester_id = 'semester-spring'",
       ),
     ).resolves.toBe(1);
+  });
+
+  it("names the rejected members of a malformed create and patch", async () => {
+    const { manage, count } = await fixture();
+
+    const listed = await decodeStrict(
+      AdmissionPeriodManagementListResponse,
+      await manage("/api/admission-periods"),
+    );
+
+    const current = listed.items.find((item) => item.id === "period-autumn");
+
+    if (current === undefined) throw new Error("The seeded period is not listed");
+
+    const created = await manage("/api/admission-periods", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "malformedCreate".padEnd(22, "0"),
+      },
+      body: JSON.stringify({
+        semesterId: "semester-spring",
+        startAt: "2032-01-10T08:00:00.000Z",
+        endAt: "2032-02-01T20:00:00.000Z",
+        departmentId,
+        color: "blue",
+      }),
+    });
+
+    const patch = (key: string, body: string) =>
+      manage("/api/admission-periods/period-autumn", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/merge-patch+json",
+          "if-match": current.etag,
+          "idempotency-key": key.padEnd(22, "0"),
+        },
+        body,
+      });
+
+    const empty = await patch("emptyPatch", "{}");
+    const deleted = await patch("deletingPatch", JSON.stringify({ endAt: null }));
+    const invalid = await patch("invalidPatch", JSON.stringify({ endAt: "soon" }));
+
+    expect([created.status, empty.status, deleted.status, invalid.status]).toEqual([
+      422, 422, 422, 422,
+    ]);
+    await expect(
+      decodeStrict(AdmissionsCreateAdmissionPeriodProblem, created),
+    ).resolves.toMatchObject({
+      code: "validation.failed",
+      validation: { errors: [makeNativeValidationError("/color", "unknown")], truncated: false },
+    });
+    await expect(
+      decodeStrict(AdmissionsReviseAdmissionPeriodProblem, empty),
+    ).resolves.toMatchObject({
+      code: "validation.no-change",
+      validation: { errors: [makeNativeValidationError("", "no-change")], truncated: false },
+    });
+    await expect(
+      decodeStrict(AdmissionsReviseAdmissionPeriodProblem, deleted),
+    ).resolves.toMatchObject({
+      code: "validation.field-not-deletable",
+      validation: {
+        errors: [makeNativeValidationError("/endAt", "field-not-deletable")],
+        truncated: false,
+      },
+    });
+    await expect(
+      decodeStrict(AdmissionsReviseAdmissionPeriodProblem, invalid),
+    ).resolves.toMatchObject({
+      code: "validation.failed",
+      validation: { errors: [makeNativeValidationError("/endAt", "invalid")], truncated: false },
+    });
+    await expect(
+      count("SELECT count(*)::integer AS count FROM admission_period_command_receipts"),
+    ).resolves.toBe(0);
   });
 });
