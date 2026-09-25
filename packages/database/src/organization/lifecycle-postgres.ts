@@ -11,6 +11,7 @@ import {
   PersonId,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database, type DatabaseOperations } from "../service.js";
 import type { AccountAccess } from "@vektorprogrammet/domain/identity";
 import { changeNativeAccountAccess } from "../identity-access.js";
@@ -166,7 +167,7 @@ export const executeOrganizationLifecycle = Effect.fn("executeOrganizationLifecy
   return yield* sql
     .withTransaction(
       Effect.gen(function* () {
-        yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${"organization-lifecycle:" + command.commandId},0))`;
+        yield* lockAdvisory(sql, AdvisoryLockKey.organizationLifecycleCommand(command.commandId));
 
         if (Predicate.isTagged(command, "ChangeAccountAccess"))
           yield* lockOrganizationAdministratorSet(sql);
