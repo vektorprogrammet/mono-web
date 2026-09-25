@@ -49,7 +49,7 @@ export const SubstituteBoard = Schema.TaggedUnion({
   Manage: { ...BoardFields, candidates: Schema.Array(InactiveSubstituteResource) },
 }).annotate({ identifier: "SubstituteBoard" });
 
-export const SubstituteProblem = problemUnion("SubstituteProblem", [
+const substituteProblems = [
   "request.malformed",
   "request.too-large",
   "precondition.invalid",
@@ -69,6 +69,14 @@ export const SubstituteProblem = problemUnion("SubstituteProblem", [
   "transaction.conflict",
   "internal.error",
   "media-type.unsupported",
+] as const;
+
+export const SubstituteProblem = problemUnion("SubstituteProblem", substituteProblems);
+
+/** A command also answers an unavailable receipt store. */
+export const SubstituteCommandProblem = problemUnion("SubstituteCommandProblem", [
+  ...substituteProblems,
+  "idempotency.unavailable",
 ]);
 
 const access = (write: boolean) =>
@@ -136,7 +144,7 @@ export const ActivateSubstituteEndpoint = HttpApiEndpoint.post(
     headers: IdempotencyIfMatchHeaders,
     payload: SubstituteMutation,
     success: entityMutationResponse(SubstituteResource),
-    error: endpointProblemResponses(SubstituteProblem),
+    error: endpointProblemResponses(SubstituteCommandProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -156,7 +164,7 @@ export const EditSubstituteEndpoint = HttpApiEndpoint.post(
     headers: IdempotencyIfMatchHeaders,
     payload: SubstituteMutation,
     success: entityMutationResponse(SubstituteResource),
-    error: endpointProblemResponses(SubstituteProblem),
+    error: endpointProblemResponses(SubstituteCommandProblem),
   },
 )
   .middleware(PersonSecurity)
@@ -176,7 +184,7 @@ export const DeactivateSubstituteEndpoint = HttpApiEndpoint.post(
     headers: IdempotencyIfMatchHeaders,
     payload: Schema.Struct({}),
     success: entityMutationResponse(SubstituteResource),
-    error: endpointProblemResponses(SubstituteProblem),
+    error: endpointProblemResponses(SubstituteCommandProblem),
   },
 )
   .middleware(PersonSecurity)

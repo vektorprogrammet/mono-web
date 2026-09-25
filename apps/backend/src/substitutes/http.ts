@@ -1,6 +1,9 @@
 import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
-import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
+import {
+  executeNativeHttpCommandPostgres,
+  NativeHttpReceiptPersistenceError,
+} from "../http-api/receipt-transaction.js";
 import {
   SubstituteFailure,
   SubstituteMutation,
@@ -171,6 +174,9 @@ const errorResponse = (cause: unknown) => {
       ("cause" in cause && serialization(cause.cause, depth + 1)));
 
   if (serialization(cause)) return nativeProblemResponse("transaction.conflict", 409);
+
+  if (cause instanceof NativeHttpReceiptPersistenceError)
+    return nativeProblemResponse("idempotency.unavailable", 503);
 
   return nativeProblemResponse("internal.error", 500);
 };
