@@ -142,6 +142,12 @@ const actorFor = (request: Request, input: ProfileApiHttpOptions) => input.resol
 const transactionProfileAuthorityFor = (request: Request) =>
   resolveRequestPersonAuthorityInTransaction(request, {});
 
+/** A stored profile that does not fit its representation is a server defect, never the caller's. */
+const readProfileSource = (personId: OwnProfile["personId"]) =>
+  readOwnProfileHttpSourcePostgres(personId).pipe(
+    Effect.catchTag("ProfileDecodeError", (cause) => Effect.die(cause)),
+  );
+
 const decodePatch = (request: Request) =>
   Effect.gen(function* () {
     const contentType = request.headers.get("content-type") ?? "";
@@ -264,7 +270,7 @@ const readOwnProfile = (request: Request, input: ProfileApiHttpOptions) =>
       grantScopes: [personResource],
       now,
     });
-    const source = yield* readOwnProfileHttpSourcePostgres(actor.personId);
+    const source = yield* readProfileSource(actor.personId);
 
     return yield* strictProfileResponse(
       request,
@@ -339,7 +345,7 @@ const updateOwnProfile = (request: Request) =>
           grantScopes: [personResource],
           now: resolved.authorizationInstant,
         });
-        const currentSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
+        const currentSource = yield* readProfileSource(actor.personId);
         const current = currentSource.profile;
 
         const currentETag = deriveProfileStrongETag({
@@ -396,7 +402,7 @@ const updateOwnProfile = (request: Request) =>
                   phone: patch.phone ?? current.phone,
                 }),
               });
-              const updatedSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
+              const updatedSource = yield* readProfileSource(actor.personId);
               const updated = updatedSource.profile;
 
               const body = {
