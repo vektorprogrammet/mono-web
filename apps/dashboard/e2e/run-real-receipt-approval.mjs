@@ -2050,12 +2050,8 @@ export default {
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
 
     const playwright = await runCommand(
-      "nix",
+      "node",
       [
-        "shell",
-        "nixpkgs#nodejs_24",
-        "--command",
-        "node",
         "./node_modules/@playwright/test/cli.js",
         "test",
         "e2e/receipt-approval.spec.ts",

@@ -46,18 +46,6 @@ const shutdownTimeoutMs = 5_000;
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
-function requireOpenSsl() {
-  const result = spawnSync("openssl", ["version"], {
-    stdio: "ignore",
-  });
-
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      "Missing prerequisite: openssl must be installed and available on PATH for disposable JWT key generation.",
-    );
-  }
-}
-
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
@@ -225,7 +213,6 @@ function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
 }
 
 async function main() {
-  requireOpenSsl();
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-proof-0028-"));
   const databasePath = join(temporaryRoot, "recruitment.sqlite");
   const privateKeyPath = join(temporaryRoot, "jwt-private.pem");

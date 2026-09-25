@@ -133,16 +133,6 @@ function assertPortAvailable(port) {
   });
 }
 
-function requireOpenSsl() {
-  const result = spawnSync("openssl", ["version"], { stdio: "ignore" });
-
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      "Missing prerequisite: openssl must be installed and available on PATH for disposable JWT key generation.",
-    );
-  }
-}
-
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
     const captureOutput = options.captureOutput === true;
@@ -367,7 +357,6 @@ async function queryColumn(databasePath, sql) {
 }
 
 async function main() {
-  requireOpenSsl();
   const receiptRequested = assertReceiptConfiguration();
   await assertPortAvailable(apiPort);
   await assertPortAvailable(dashboardPort);

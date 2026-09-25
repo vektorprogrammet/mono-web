@@ -127,14 +127,6 @@ function assertPortAvailable(port) {
   });
 }
 
-function requireOpenSsl() {
-  const result = spawnSync("openssl", ["version"], { stdio: "ignore" });
-
-  if (result.error || result.status !== 0) {
-    throw new Error("Missing prerequisite: openssl must be installed and available on PATH.");
-  }
-}
-
 async function hybridFixtureManifestBytes() {
   const sources = [
     {
@@ -340,7 +332,6 @@ function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
 }
 
 async function main() {
-  requireOpenSsl();
   await Promise.all([legacyPort, nativePort, dashboardPort, postgresPort].map(assertPortAvailable));
 
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-hybrid-org-operations-0032-"));
