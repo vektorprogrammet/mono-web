@@ -51,6 +51,7 @@ import {
   resolveRequestPersonAuthorityInTransaction,
   type OrganizationResolutionError,
 } from "../authority.js";
+import { isSerializationConflict } from "../http-api/problem.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
@@ -150,8 +151,13 @@ const errorResponse = (cause: unknown): Response => {
       Match.when(Predicate.isTagged("NativeHttpReceiptExpiredError"), () => {
         return nativeProblemResponse("idempotency.response-expired", 409);
       }),
-      Match.when(Predicate.isTagged("NativeHttpReceiptPersistenceError"), () => {
-        return nativeProblemResponse("idempotency.unavailable", 503);
+      Match.when(Predicate.isTagged("NativeHttpReceiptPersistenceError"), (failure) => {
+        return isSerializationConflict(failure)
+          ? nativeProblemResponse("transaction.conflict", 409)
+          : nativeProblemResponse("idempotency.unavailable", 503);
+      }),
+      Match.when(Predicate.isTagged("NativeHttpReceiptInvalid"), () => {
+        return nativeProblemResponse("internal.error", 500);
       }),
       Match.when(Predicate.isTagged("UnauthenticatedActor"), () => {
         return nativeProblemResponse("credential.invalid", 401, {
