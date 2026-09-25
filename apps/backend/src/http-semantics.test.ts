@@ -362,30 +362,37 @@ describe("native HTTP semantics", () => {
     ).toThrow("fixed-port http://127.0.0.1 origin");
   });
 
-  it("enforces frozen origins and credentialed CORS response fields", () => {
+  it("requires HTTPS production origins and credentialed CORS response fields", () => {
     const policy = decodeNativeSessionBoundaryPolicy({
-      NATIVE_IDENTITY_DEPLOYMENT: "preview",
-      NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://p20.vektor.phibkro.org"]',
+      NATIVE_IDENTITY_DEPLOYMENT: "production",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://dashboard.example.invalid"]',
     });
 
     expect(policy.secureCookies).toBe(true);
     expect(() =>
       decodeNativeSessionBoundaryPolicy({
-        NATIVE_IDENTITY_DEPLOYMENT: "preview",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://p999.vektor.phibkro.org"]',
+        NATIVE_IDENTITY_DEPLOYMENT: "production",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: '["http://dashboard.example.invalid"]',
       }),
-    ).toThrow("frozen dev-main or p20 origin");
+    ).toThrow("must use HTTPS");
+    // The retired dev-main host composition must not start against its former origin.
+    expect(() =>
+      decodeNativeSessionBoundaryPolicy({
+        NATIVE_IDENTITY_DEPLOYMENT: "preview",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://vektor.phibkro.org"]',
+      }),
+    ).toThrow();
 
     for (const [name, value] of [
-      ["BETTER_AUTH_URL", "https://vektor.phibkro.org"],
+      ["BETTER_AUTH_URL", "https://dashboard.example.invalid"],
       ["BETTER_AUTH_URL", ""],
-      ["BETTER_AUTH_TRUSTED_ORIGINS", "https://vektor.phibkro.org"],
+      ["BETTER_AUTH_TRUSTED_ORIGINS", "https://dashboard.example.invalid"],
       ["BETTER_AUTH_TRUSTED_ORIGINS", ""],
     ] as const) {
       expect(() =>
         decodeNativeSessionBoundaryPolicy({
-          NATIVE_IDENTITY_DEPLOYMENT: "preview",
-          NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://vektor.phibkro.org"]',
+          NATIVE_IDENTITY_DEPLOYMENT: "production",
+          NATIVE_IDENTITY_TRUSTED_ORIGINS: '["https://dashboard.example.invalid"]',
           [name]: value,
         }),
       ).toThrow("unsupported");
@@ -411,7 +418,7 @@ describe("native HTTP semantics", () => {
     );
 
     expect(actual.headers.get("access-control-allow-origin")).toBe(
-      "https://p20.vektor.phibkro.org",
+      "https://dashboard.example.invalid",
     );
     expect(actual.headers.get("access-control-expose-headers")).toBe(
       "ETag, Location, Retry-After, WWW-Authenticate",

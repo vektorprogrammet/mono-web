@@ -19,11 +19,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { postgresProgram } from "@monoweb/postgres";
-
-import {
-  type PreviewRuntimeObservation,
-  stopPreviewScenarioBackend,
-} from "../preview-host/preview-scenario.js";
 import { Predicate, Schema, Record as Rec } from "effect";
 import { createGoldenObserver, goldenSteps } from "./golden-school-service.mjs";
 import { goldenArtifactName, goldenRunnerPaths } from "./golden-school-service-evidence.mjs";
@@ -56,10 +51,7 @@ const runAsync = async (command: string, args: string[], env = process.env, time
   });
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
-      void stopPreviewScenarioBackend(child).then(
-        () => reject(Error(command + " timed out")),
-        reject,
-      );
+      void stopChild(child).then(() => reject(Error(command + " timed out")), reject);
     }, timeout);
 
     child.once("error", (error) => {
@@ -150,6 +142,19 @@ const start = (command: string, args: string[], env = process.env) => {
   return child;
 };
 
+/** Sends SIGTERM, escalates to SIGKILL after five seconds, and resolves on the observed exit. */
+const stopChild = async (child: ChildProcess): Promise<void> => {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    child.kill("SIGTERM");
+  });
+};
+
 const port = async (requested = 0): Promise<number> => {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -211,7 +216,7 @@ const cleanup = () =>
       if (child === postgresProcess) continue;
 
       try {
-        await stopPreviewScenarioBackend(child);
+        await stopChild(child);
       } catch (error) {
         errors.push(sanitize(String(error)));
       }
@@ -226,7 +231,7 @@ const cleanup = () =>
     try {
       if (postgresProcess) {
         postgresProcess.kill("SIGINT");
-        await stopPreviewScenarioBackend(postgresProcess);
+        await stopChild(postgresProcess);
       }
     } catch (error) {
       errors.push(sanitize(String(error)));
@@ -2944,7 +2949,7 @@ try {
       (await pool.query("SELECT version() AS version")).rows[0].version,
     );
 
-    const runtime: PreviewRuntimeObservation =
+    const runtime: { readonly postgres: string; readonly bun?: string } =
       bunVersion === undefined
         ? { postgres: postgresVersion }
         : { bun: bunVersion, postgres: postgresVersion };

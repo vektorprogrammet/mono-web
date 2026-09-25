@@ -1,0 +1,14 @@
+{
+  "name": "@monoweb/source-safety",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test tests"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "7.0.2"
+  }
+}

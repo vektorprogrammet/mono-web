@@ -146,7 +146,7 @@ const program = Effect.gen(function* () {
   assert.ok(trustedOrigins.length > 0, "NATIVE_IDENTITY_TRUSTED_ORIGINS is required");
   const deployment = process.env.NATIVE_IDENTITY_DEPLOYMENT;
   assert.ok(
-    deployment === "local" || deployment === "preview" || deployment === "production",
+    deployment === "local" || deployment === "production",
     "NATIVE_IDENTITY_DEPLOYMENT is required",
   );
 

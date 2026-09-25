@@ -2166,7 +2166,6 @@ const runRehearsal = async (
 
     delete processEnvironment.API_MODE;
     delete processEnvironment.VITE_API_MODE;
-    delete processEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
     await runCommand("bun", ["run", "build"], {
       cwd: sdkRoot,
       env: processEnvironment,

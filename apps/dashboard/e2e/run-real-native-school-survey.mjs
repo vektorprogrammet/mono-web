@@ -12,10 +12,9 @@ import { postgresProgram } from "@monoweb/postgres";
 import AxeBuilder from "@axe-core/playwright";
 import { chromium } from "@playwright/test";
 import pg from "pg";
-import apexWorker from "../../../infra/alchemy/preview/apex-worker.ts";
-import { APEX_IDENTITY } from "../../../infra/alchemy/preview/identity.ts";
 import { schoolSurveyIdFromPathSegment, schoolSurveyPath } from "../app/lib/school-survey-path.ts";
 import { handleDashboardWorkerRequest } from "../workers/dashboard-worker.ts";
+import { singleOriginTarget } from "../workers/single-origin.ts";
 
 const { Client } = pg;
 
@@ -43,7 +42,7 @@ const proxyPort = 45372;
 
 const dashboardPort = 5174;
 
-const apexPort = 45373;
+const edgePort = 45373;
 
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/school_survey_e2e_0111`;
 
@@ -53,7 +52,14 @@ const apiOrigin = `http://127.0.0.1:${proxyPort}`;
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
-const apexOrigin = `http://127.0.0.1:${apexPort}`;
+const edgeOrigin = `http://127.0.0.1:${edgePort}`;
+
+/** The Worker Preview identity that the local edge presents to the dashboard worker. */
+const workerPreview = {
+  stage: "worker-preview",
+  hostSuffix: ".workers.dev",
+  host: "school-survey.local.workers.dev",
+};
 
 const betterAuthSecret = randomBytes(32).toString("base64url");
 
@@ -363,7 +369,7 @@ const relayWorkerResponse = async (upstream, response) => {
   response.end(bytes);
 };
 
-const forwardApexDashboardRequest = (request) => {
+const forwardDashboardRequest = (request) => {
   const source = new URL(request.url);
   const headers = new Headers(request.headers);
   headers.delete("host");
@@ -379,59 +385,95 @@ const forwardApexDashboardRequest = (request) => {
   });
 };
 
-const startApexDispatcher = async (ledger) => {
-  const dashboard = {
-    fetch: async (request) => {
-      const url = new URL(request.url);
-      let assetMiss = false;
-      let applicationPath = null;
+const startEdgeDispatcher = async (ledger) => {
+  const dashboard = async (request) => {
+    const url = new URL(request.url);
+    let assetMiss = false;
+    let applicationPath = null;
 
-      const forwarded = await handleDashboardWorkerRequest(
-        request,
-        {
-          PREVIEW_HOST: APEX_IDENTITY.hostname,
-          PREVIEW_STAGE: APEX_IDENTITY.stage,
-          ASSETS: {
-            fetch: async (assetRequest) => {
-              const pathname = new URL(assetRequest.url).pathname;
+    const forwarded = await handleDashboardWorkerRequest(
+      request,
+      {
+        PREVIEW_STAGE: workerPreview.stage,
+        PREVIEW_HOST_SUFFIX: workerPreview.hostSuffix,
+        ASSETS: {
+          fetch: async (assetRequest) => {
+            const pathname = new URL(assetRequest.url).pathname;
 
-              if (
-                pathname.startsWith("/assets/") ||
-                pathname.startsWith("/images/") ||
-                ["/logo-dark.png", "/logo-light.png", "/vektor-logo-circle.svg"].includes(pathname)
-              ) {
-                return forwardApexDashboardRequest(assetRequest);
-              }
+            if (
+              pathname.startsWith("/assets/") ||
+              pathname.startsWith("/images/") ||
+              ["/logo-dark.png", "/logo-light.png", "/vektor-logo-circle.svg"].includes(pathname)
+            ) {
+              return forwardDashboardRequest(assetRequest);
+            }
 
-              assetMiss = true;
+            assetMiss = true;
 
-              return new Response(null, { status: 404 });
-            },
+            return new Response(null, { status: 404 });
           },
         },
-        async (applicationRequest) => {
-          applicationPath = new URL(applicationRequest.url).pathname;
+      },
+      async (applicationRequest) => {
+        applicationPath = new URL(applicationRequest.url).pathname;
 
-          return forwardApexDashboardRequest(applicationRequest);
-        },
-      );
+        return forwardDashboardRequest(applicationRequest);
+      },
+    );
 
-      ledger.push({
-        method: request.method,
-        path: url.pathname,
-        query: url.search,
-        requestOrigin: url.origin,
-        origin: request.headers.get("origin"),
-        contentType: request.headers.get("content-type"),
-        status: forwarded.status,
-        assetFallback: assetMiss && applicationPath !== null,
-        applicationPath,
-        previewStage: forwarded.headers.get("x-mono-web-stage"),
-        previewHost: forwarded.headers.get("x-mono-web-host"),
-      });
+    ledger.push({
+      method: request.method,
+      path: url.pathname,
+      query: url.search,
+      requestOrigin: url.origin,
+      origin: request.headers.get("origin"),
+      contentType: request.headers.get("content-type"),
+      status: forwarded.status,
+      assetFallback: assetMiss && applicationPath !== null,
+      applicationPath,
+      previewStage: forwarded.headers.get("x-mono-web-stage"),
+      previewHost: forwarded.headers.get("x-mono-web-host"),
+    });
 
-      return forwarded;
-    },
+    return forwarded;
+  };
+
+  const applications = {
+    dashboard,
+    homepage: async () =>
+      new Response("unexpected homepage dispatch", {
+        status: 503,
+        headers: { "cache-control": "no-store" },
+      }),
+  };
+
+  const dispatch = async (request) => {
+    const target = singleOriginTarget(request);
+
+    switch (target.kind) {
+      case "dashboard":
+      case "homepage":
+        return applications[target.kind](request);
+      case "asset": {
+        const [preferred, fallback] = target.order;
+        const response = await applications[preferred](request);
+
+        return response.status === 404 ? applications[fallback](request) : response;
+      }
+
+      case "redirect":
+        return new Response(null, {
+          status: target.status,
+          headers: { location: target.location, "cache-control": "no-store" },
+        });
+      case "backend":
+        // The browser never requests /api (the journey asserts it); the dashboard
+        // server reaches the backend through the recording proxy at API_URL.
+        return new Response("unexpected backend dispatch", {
+          status: 503,
+          headers: { "cache-control": "no-store" },
+        });
+    }
   };
 
   const server = createServer(async (request, response) => {
@@ -448,32 +490,16 @@ const startApexDispatcher = async (ledger) => {
         }
       }
 
-      headers.set("host", APEX_IDENTITY.hostname);
+      headers.set("host", workerPreview.host);
       const body = await readRequestBody(request);
-      const source = new URL(request.url ?? "/", `https://${APEX_IDENTITY.hostname}`);
 
-      const upstream = await apexWorker.fetch(
-        new Request(source, {
+      const upstream = await dispatch(
+        new Request(new URL(request.url ?? "/", `https://${workerPreview.host}`), {
           method: request.method,
           headers,
           body,
           redirect: "manual",
         }),
-        {
-          Dashboard: dashboard,
-          Homepage: {
-            fetch: async () =>
-              new Response("unexpected homepage dispatch", {
-                status: 503,
-                headers: { "cache-control": "no-store" },
-              }),
-          },
-          PasswordResetEmail: {
-            send: async () => ({ messageId: "unused-school-survey-apex-runner" }),
-          },
-          PREVIEW_STAGE: APEX_IDENTITY.stage,
-          PREVIEW_HOST: APEX_IDENTITY.hostname,
-        },
       );
 
       await relayWorkerResponse(upstream, response);
@@ -485,7 +511,7 @@ const startApexDispatcher = async (ledger) => {
 
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(apexPort, "127.0.0.1", resolve);
+    server.listen(edgePort, "127.0.0.1", resolve);
   });
 
   return server;
@@ -688,7 +714,7 @@ const checksum = async (path) =>
     .update(await readFile(path))
     .digest("hex");
 
-const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
+const exerciseJourney = async (browser, ledger, edgeLedger, proxyControl) => {
   const initialForm = await api("GET", `/api/surveys/public/${ids.survey}`);
   assert.equal(initialForm.status, 200);
   assert.equal(initialForm.headers["cache-control"], "no-store");
@@ -731,7 +757,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   const browserApiPaths = [];
 
   const desktopContext = await browser.newContext({
-    baseURL: apexOrigin,
+    baseURL: edgeOrigin,
     viewport: { width: 1280, height: 900 },
   });
 
@@ -854,7 +880,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   assert.equal((await desktopPage.locator("body").innerText()).includes("survey_response_"), false);
 
   const mobileContext = await browser.newContext({
-    baseURL: apexOrigin,
+    baseURL: edgeOrigin,
     viewport: { width: 390, height: 844 },
   });
 
@@ -871,42 +897,42 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   assert.deepEqual(browserApiOrigins, []);
   assert.deepEqual(browserApiPaths, []);
   assert.equal(
-    apexLedger.some(
+    edgeLedger.some(
       (entry) =>
         entry.method === "GET" &&
         entry.path === `/undersokelse/${ids.survey}` &&
         entry.status === 307 &&
-        entry.previewStage === APEX_IDENTITY.stage &&
-        entry.previewHost === APEX_IDENTITY.hostname,
+        entry.previewStage === workerPreview.stage &&
+        entry.previewHost === workerPreview.host,
     ),
     true,
   );
   assert.equal(
-    apexLedger.some(
+    edgeLedger.some(
       (entry) =>
         entry.method === "GET" &&
         entry.path === surveyDocumentPath &&
         entry.assetFallback === true &&
         entry.applicationPath === surveyDocumentPath &&
         entry.status === 200 &&
-        entry.previewStage === APEX_IDENTITY.stage &&
-        entry.previewHost === APEX_IDENTITY.hostname,
+        entry.previewStage === workerPreview.stage &&
+        entry.previewHost === workerPreview.host,
     ),
     true,
   );
   assert.equal(
-    apexLedger.some((entry) => entry.method === "POST" && entry.path === surveyDocumentPath),
+    edgeLedger.some((entry) => entry.method === "POST" && entry.path === surveyDocumentPath),
     true,
   );
   assert.equal(
-    apexLedger.some(
+    edgeLedger.some(
       (entry) =>
         entry.method === "GET" && entry.path.startsWith("/assets/") && entry.status === 200,
     ),
     true,
   );
   assert.equal(
-    apexLedger.some(
+    edgeLedger.some(
       (entry) => entry.method === "GET" && entry.path === "/__manifest" && entry.status === 200,
     ),
     true,
@@ -1386,7 +1412,7 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
     ineligibleSchools: ["inactive", "foreign department", "no placement", "unknown", "stale"],
     eligibilityReplayPrecedence: true,
     unknownAndNonSchoolNotFound: true,
-    apexDispatcher: { document: true, dataAction: true },
+    edgeDispatcher: { document: true, dataAction: true },
     responsive: { desktop: true, mobile390: true },
     keyboardSubmission: true,
     errorFocus: true,
@@ -1414,7 +1440,7 @@ const postgresData = join(temporaryRoot, "postgres");
 
 const ledger = [];
 
-const apexLedger = [];
+const edgeLedger = [];
 
 const proxyControl = { failNextSurveyRead: false };
 
@@ -1426,7 +1452,7 @@ let dashboard;
 
 let proxy;
 
-let apex;
+let edge;
 
 let browser;
 
@@ -1440,7 +1466,7 @@ let cleanupError;
 
 try {
   await Promise.all(
-    [postgresPort, backendPort, proxyPort, dashboardPort, apexPort].map(assertPortAvailable),
+    [postgresPort, backendPort, proxyPort, dashboardPort, edgePort].map(assertPortAvailable),
   );
   run(
     postgresProgram("initdb"),
@@ -1494,8 +1520,7 @@ try {
     API_URL: apiOrigin,
     VITE_API_URL: apiOrigin,
     DASHBOARD_MOUNT: "/",
-    DASHBOARD_ORIGIN: apexOrigin,
-    PREVIEW_HOST: APEX_IDENTITY.hostname,
+    DASHBOARD_ORIGIN: edgeOrigin,
     HOST: "127.0.0.1",
     PORT: String(dashboardPort),
     NODE_ENV: "production",
@@ -1517,10 +1542,10 @@ try {
     { cwd: dashboardRoot, env: dashboardEnvironment, label: "0111 dashboard" },
   );
   await waitForHttp(`${dashboardOrigin}${surveyDocumentPath}`, "0111 dashboard startup");
-  apex = await startApexDispatcher(apexLedger);
+  edge = await startEdgeDispatcher(edgeLedger);
   await waitForHttp(
-    `${apexOrigin}/undersokelse/${ids.survey}`,
-    "0111 apex dashboard route startup",
+    `${edgeOrigin}/undersokelse/${ids.survey}`,
+    "0111 edge dashboard route startup",
     { headers: { Accept: "text/html" } },
   );
   browser = await chromium.launch({
@@ -1529,13 +1554,13 @@ try {
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
       "/etc/profiles/per-user/nori/bin/chromium-browser",
   });
-  journey = await exerciseJourney(browser, ledger, apexLedger, proxyControl);
+  journey = await exerciseJourney(browser, ledger, edgeLedger, proxyControl);
 } catch (cause) {
   primaryError = cause;
 
   if (backend !== undefined) process.stderr.write(`Backend tail:\n${backend.output.join("")}\n`);
   process.stderr.write(`Native transport tail:\n${JSON.stringify(ledger.slice(-10), null, 2)}\n`);
-  process.stderr.write(`Apex transport tail:\n${JSON.stringify(apexLedger.slice(-10), null, 2)}\n`);
+  process.stderr.write(`Edge transport tail:\n${JSON.stringify(edgeLedger.slice(-10), null, 2)}\n`);
 
   if (dashboard !== undefined)
     process.stderr.write(`Dashboard tail:\n${dashboard.output.join("")}\n`);
@@ -1553,7 +1578,7 @@ try {
   await cleanup(async () => {
     if (browser !== undefined) await browser.close();
   });
-  await cleanup(() => closeServer(apex));
+  await cleanup(() => closeServer(edge));
   await cleanup(() => stop(dashboard));
   await cleanup(() => closeServer(proxy));
   await cleanup(() => stop(backend));
@@ -1561,7 +1586,7 @@ try {
   await cleanup(() => rm(temporaryRoot, { recursive: true, force: true }));
   await cleanup(() =>
     Promise.all(
-      [postgresPort, backendPort, proxyPort, dashboardPort, apexPort].map(assertPortAvailable),
+      [postgresPort, backendPort, proxyPort, dashboardPort, edgePort].map(assertPortAvailable),
     ),
   );
 
@@ -1591,7 +1616,7 @@ const manifest = {
     backend: "native Effect HTTP API",
     sdk: "generated @vektorprogrammet/sdk",
     dashboard: "dashboard worker asset dispatcher and production React Router server bridge",
-    apex: "local execution of the apex edge dispatcher",
+    edge: "local single-origin dispatcher over apps/dashboard/workers/single-origin.ts",
     browser: "real headless Chromium",
   },
   evidence: {
@@ -1614,7 +1639,7 @@ const manifest = {
   cleanup: {
     postgresRemoved: true,
     temporaryRootRemoved: true,
-    portsReleased: [postgresPort, backendPort, proxyPort, dashboardPort, apexPort],
+    portsReleased: [postgresPort, backendPort, proxyPort, dashboardPort, edgePort],
     productionResourcesUsed: false,
   },
 };

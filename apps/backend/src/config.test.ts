@@ -206,27 +206,27 @@ describe("backend configuration boundary", () => {
     expect(
       decodeBackendConfig({
         ...environment,
-        NATIVE_IDENTITY_DEPLOYMENT: "preview",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://vektor.phibkro.org"]),
-        OAUTH_DASHBOARD_ORIGIN: "https://vektor.phibkro.org",
+        NATIVE_IDENTITY_DEPLOYMENT: "production",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://dashboard.example.invalid"]),
+        OAUTH_DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
       }).auth.secureCookies,
     ).toBe(true);
   });
 
   it("confines receipt E2E authority to an explicit local deployment", () => {
-    const preview = {
+    const production = {
       ...environment,
-      NATIVE_IDENTITY_DEPLOYMENT: "preview",
-      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://vektor.phibkro.org"]),
-      OAUTH_DASHBOARD_ORIGIN: "https://vektor.phibkro.org",
+      NATIVE_IDENTITY_DEPLOYMENT: "production",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://dashboard.example.invalid"]),
+      OAUTH_DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
     };
 
     const failPromotion = { RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID: "receipt:PromoteReceiptFile" };
 
     expect(decodeBackendConfig(environment).receipt.e2e).toBeUndefined();
-    expect(decodeBackendConfig(preview).receipt.e2e).toBeUndefined();
-    expect(() => decodeBackendConfig({ ...preview, RECEIPT_E2E_TEST_MODE: "1" })).toThrow();
-    expect(() => decodeBackendConfig({ ...preview, ...failPromotion })).toThrow();
+    expect(decodeBackendConfig(production).receipt.e2e).toBeUndefined();
+    expect(() => decodeBackendConfig({ ...production, RECEIPT_E2E_TEST_MODE: "1" })).toThrow();
+    expect(() => decodeBackendConfig({ ...production, ...failPromotion })).toThrow();
     expect(() => decodeBackendConfig({ ...environment, ...failPromotion })).toThrow();
     expect(() => decodeBackendConfig({ ...environment, RECEIPT_E2E_TEST_MODE: "0" })).toThrow();
     expect(

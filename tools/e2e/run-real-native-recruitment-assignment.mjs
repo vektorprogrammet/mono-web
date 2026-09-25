@@ -11,10 +11,6 @@ import {
   databaseMigrationDefinitions,
   databaseSchemaRevision,
 } from "@vektorprogrammet/database/migrations";
-import {
-  emitRuntimeEvidenceReceipts,
-  sanitizePlaywrightArtifact,
-} from "../../apps/dashboard/e2e/runtime-evidence-receipt.mjs";
 import { Predicate } from "effect";
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -169,29 +165,7 @@ const commandTimeoutMs = 300_000;
 
 const shutdownTimeoutMs = 5_000;
 
-const runnerPath = fileURLToPath(import.meta.url);
-
-const specPath = join(dashboardRoot, "e2e/native-recruitment-session-journey.spec.ts");
-
 const seedPath = join(dashboardRoot, "e2e/native-recruitment-journey-seed.mjs");
-
-const journeyEntries = [
-  {
-    journeyRefId: "intent://journey:recruitment:applicant-assignment:v1",
-    stepIds: [
-      "mono-session-login",
-      "load-applicant-list",
-      "load-interviewer-options",
-      "load-interview-schema-options",
-      "assign-interview",
-      "fresh-read-applicant-list",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:recruitment:review-applicants:v1",
-    stepIds: ["mono-session-login", "list-current-applicants"],
-  },
-];
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -659,58 +633,6 @@ const assertPersistenceEvidence = (evidence) => {
   }
 };
 
-const receiptRequested = () =>
-  [
-    "RUNTIME_EVIDENCE_RECEIPT_PATH",
-    "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-const emitReceipts = async (playwrightOutput) => {
-  if (!receiptRequested()) return;
-
-  const sourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-
-  const sourcePaths = [runnerPath, specPath];
-
-  if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
-    throw new Error("native recruitment evidence expects one or two runner source references");
-  }
-
-  const runnerSourceInputBytes = await Promise.all(
-    sourceRefIds.map(async (sourceRefId, index) => ({
-      sourceRefId,
-      bytes: await readFile(sourcePaths[index]),
-    })),
-  );
-
-  const fixtureInputBytes = await readFile(seedPath);
-  const artifactBytes = sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8"));
-
-  const forbiddenArtifactValues = [
-    betterAuthSecret,
-    "journey-secret-0123456789abcdef",
-    "jwt_token=",
-    "better-auth.session_token=",
-  ];
-
-  if (forbiddenArtifactValues.some((value) => artifactBytes.includes(Buffer.from(value)))) {
-    throw new Error("sanitized Playwright artifact exposed raw authentication material");
-  }
-
-  await emitRuntimeEvidenceReceipts({
-    journeys: journeyEntries,
-    fixtureId: "native-recruitment-applicant-assignment-0049-1",
-    runnerSourceInputBytes,
-    fixtureInputBytes,
-    artifactBytes,
-  });
-};
-
 const main = async () => {
   await Promise.all([
     assertPortAvailable(postgresPort),
@@ -727,7 +649,6 @@ const main = async () => {
   for (const name of [
     "API_MODE",
     "VITE_API_MODE",
-    "ALCHEMY_CLOUDFLARE_VITE_INJECTED",
     "ADMISSION_AUTH_TOKENS",
     "ORGANIZATION_AUTH_TOKENS",
     "RECEIPT_AUTH_TOKENS",
@@ -920,9 +841,7 @@ const main = async () => {
       "--retries=0",
     ];
 
-    if (receiptRequested()) playwrightArgs.push("--reporter=json");
-
-    const playwright = await run(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", playwrightArgs, {
+    await run(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", playwrightArgs, {
       cwd: dashboardRoot,
       env: journeyEnvironment,
       capture: true,
@@ -939,7 +858,6 @@ const main = async () => {
     ];
 
     assertEqual(browser.bridgeResponses, expectedBridge, "browser bridge sequence");
-    assertEqual(browser.journeys, journeyEntries, "browser receipt-support journey entries");
 
     if (
       browser.renderedNativeLogin !== true ||
@@ -1089,7 +1007,6 @@ const main = async () => {
 
     const persisted = await readPersistenceEvidence(baseEnvironment);
     assertPersistenceEvidence(persisted);
-    await emitReceipts(playwright.stdout);
 
     evidence = {
       topology: {
@@ -1126,10 +1043,6 @@ const main = async () => {
         ),
       },
       postgres: { migrations, persisted },
-      receiptSupport: {
-        journeys: journeyEntries,
-        finalReceiptsEmitted: receiptRequested(),
-      },
     };
   } catch (error) {
     const postgresLog = await readFile(join(postgresRoot, "postgres.log"), "utf8").catch(

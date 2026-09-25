@@ -4,9 +4,9 @@ import { dashboardMount, type DashboardBaseEnvironment } from "./dashboard-base.
 /**
  * `allowedActionOrigins` feeds React Router's server-side CSRF check.
  * Despite the option name, React Router 8 compares URL hosts (`host:port`),
- * not serialized origins. The apex worker forwards the browser's Origin to
- * the dashboard service, so both the apex host and explicit dashboard host
- * must be listed without a scheme.
+ * not serialized origins. A proxy that forwards the browser's Origin to the
+ * dashboard service under another Host names the browser-facing origin in
+ * `DASHBOARD_ORIGIN`, which is listed without a scheme.
  */
 const configuredActionHost = (value: string | undefined): string | undefined => {
   if (value === undefined) return undefined;
@@ -30,17 +30,7 @@ const configuredActionHost = (value: string | undefined): string | undefined => 
 };
 
 export const makeReactRouterConfig = (environment: DashboardBaseEnvironment): Config => {
-  const previewHost =
-    environment.PREVIEW_HOST === undefined
-      ? undefined
-      : configuredActionHost(`https://${environment.PREVIEW_HOST}`);
-
   const dashboardHost = configuredActionHost(environment.DASHBOARD_ORIGIN);
-
-  const allowedActionOrigins = [
-    ...(previewHost === undefined ? [] : [previewHost]),
-    ...(dashboardHost === undefined ? [] : [dashboardHost]),
-  ];
 
   const config: Config = {
     appDirectory: "app",
@@ -48,7 +38,7 @@ export const makeReactRouterConfig = (environment: DashboardBaseEnvironment): Co
     ssr: true,
   };
 
-  if (allowedActionOrigins.length > 0) config.allowedActionOrigins = allowedActionOrigins;
+  if (dashboardHost !== undefined) config.allowedActionOrigins = [dashboardHost];
 
   return config;
 };

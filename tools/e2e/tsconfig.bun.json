@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "bun"]
+  },
+  "files": ["safe-file-io.ts"],
+  "include": []
+}

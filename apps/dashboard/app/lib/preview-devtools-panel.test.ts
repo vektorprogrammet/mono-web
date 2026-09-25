@@ -1,14 +1,10 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-// These imports intentionally reload the preview module after vi.stubEnv sets
-// its build-time seam; a static runtime import would freeze the constant
-// before each test can establish its environment.
+import { mountPreviewDevtoolsPanel, panelAllowed } from "./preview-devtools-panel";
 
 describe("preview devtools panel", () => {
   beforeEach(() => {
-    vi.resetModules();
     vi.stubEnv("VITE_PREVIEW_DEVTOOLS", "true");
     window.history.replaceState({}, "", "/dashboard");
     window.localStorage.clear();
@@ -24,20 +20,16 @@ describe("preview devtools panel", () => {
     document.body.replaceChildren();
   });
 
-  it("admits local development and only validated preview hosts", async () => {
-    const { panelAllowed } = await import("./preview-devtools-panel");
-
+  it("admits only local development hosts", () => {
     expect(panelAllowed("localhost")).toBe(true);
     expect(panelAllowed("127.0.0.1")).toBe(true);
-    expect(panelAllowed("vektor.phibkro.org")).toBe(true);
-    expect(panelAllowed("p20.vektor.phibkro.org")).toBe(true);
+    expect(panelAllowed("pr-42-dashboard.account.workers.dev")).toBe(false);
     expect(panelAllowed("production.example.org")).toBe(false);
-    expect(panelAllowed("p20.vektor.phibkro.org.evil.example")).toBe(false);
+    expect(panelAllowed("localhost.evil.example")).toBe(false);
   });
 
-  it("does not mount without the dashboard shell", async () => {
+  it("does not mount without the dashboard shell", () => {
     document.querySelector("[data-dashboard-shell]")?.remove();
-    const { mountPreviewDevtoolsPanel } = await import("./preview-devtools-panel");
 
     mountPreviewDevtoolsPanel();
 

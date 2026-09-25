@@ -49,12 +49,6 @@ const effectConfig = {
       severityOverrides: { "no-ambient-authority": "error" },
     },
     group({
-      files: ["tools/parity/src/**/*.ts"],
-      role: "application",
-      platform: "node",
-      strictness: "recommended",
-    }),
-    group({
       files: ["packages/placements/src/!(*.test|*.spec).ts"],
       role: "effect-library",
       platform: "portable",
@@ -73,7 +67,7 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: ["infra/**/*.ts", "scripts/**/*.ts", "tools/preview-host/**/*.ts"],
+      files: ["infra/**/*.ts", "scripts/**/*.ts", "tools/acceptance/**/*.ts"],
       role: "composition-root",
       platform: "node",
       strictness: "recommended",
@@ -138,7 +132,7 @@ const crossPackageSourceImportPatternsExceptSdk = [
 const productImportPatterns = [
   ...crossPackageSourceImportPatterns,
   {
-    regex: "(^|/)tools/(verification|preview-host|e2e)(/|$)",
+    regex: "(^|/)tools/(verification|acceptance|e2e)(/|$)",
     message: "Product code must not depend on verification executables.",
   },
 ];
@@ -215,7 +209,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["tools/{verification,preview-host,e2e}/**"],
+      files: ["tools/{verification,acceptance,e2e}/**"],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -282,21 +276,14 @@ export default defineConfig({
       },
     },
     {
-      files: [
-        "tools/parity/tests/claim-evidence.test.ts",
-        "tools/parity/tests/cli-contract.test.ts",
-        "tools/parity/tests/convention-alias.test.ts",
-        "tools/parity/tests/journey-evidence.test.ts",
-        "tools/parity/tests/legacy-journey-evidence.test.ts",
-        "tools/parity/tests/unsafe-diagnostics.test.ts",
-      ],
+      files: ["tools/source-safety/tests/source-safety.test.ts"],
       rules: {
-        // Bun owns these exact suites; they deliberately exercise Node-compatible filesystem seams.
+        // Bun runs this suite; it drives the Node-compatible Git and filesystem seams.
         "effect/no-cross-runtime": "off",
       },
     },
     {
-      files: ["tools/preview-host/password-recovery-check.ts", "scripts/changelog.ts"],
+      files: ["tools/acceptance/password-recovery-check.ts", "scripts/changelog.ts"],
       rules: {
         // These Bun entrypoints intentionally use Bun-native lifecycle APIs beside Node compatibility APIs.
         "effect/no-cross-runtime": "off",
@@ -305,7 +292,7 @@ export default defineConfig({
     // Source-import exemptions. Each entry names why an export-map import is not yet possible.
     {
       // No package manifest: Bun's isolated linker gives these scripts no workspace dependencies.
-      files: ["tools/preview-host/**"],
+      files: ["tools/acceptance/**"],
       rules: {
         "no-restricted-imports": ["error", { patterns: placementPublicImportPatterns }],
       },
@@ -329,19 +316,6 @@ export default defineConfig({
           },
         ],
       },
-    },
-    {
-      // Parity evidence helpers have no export map, and the dashboard does not depend on parity.
-      files: [
-        "apps/dashboard/e2e/merge-runtime-evidence.mjs",
-        "apps/dashboard/e2e/runtime-evidence-receipt.mjs",
-      ],
-      rules: { "no-restricted-imports": "off" },
-    },
-    {
-      // Alchemy is outside the Bun workspace, with its own lockfile; this import is type-only.
-      files: ["infra/alchemy/preview/apex-worker.ts"],
-      rules: { "no-restricted-imports": "off" },
     },
     {
       // Advisory locks go through lockAdvisory, whose registered keys own the lock identity.
@@ -372,7 +346,6 @@ export default defineConfig({
     },
   ],
   ignorePatterns: [
-    "apps/server/**",
     "tools/oxlint/anti-slop/**",
     "apps/docs/components/mdxcn/**",
     "**/build/**",

@@ -290,7 +290,7 @@ flowchart TB
   TC06 --> TC07["TR-C07 PostgreSQL system of record"]
   TC04 --> TC08["TR-C08 Outbox delivery workers"]
   TC08 --> TC09["TR-C09 External provider adapters"]
-  TC10["TR-C10 Retained Symfony production source"] -. "excluded from target graph" .-> TC04
+  TC10["TR-C10 Legacy Symfony source (separate repository)"] -. "excluded from target graph" .-> TC04
 ```
 
 | ID       | Technical requirement                                                                                             |

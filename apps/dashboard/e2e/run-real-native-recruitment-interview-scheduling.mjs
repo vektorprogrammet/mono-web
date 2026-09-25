@@ -12,10 +12,6 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  emitRuntimeEvidenceReceipt,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -101,23 +97,10 @@ const schedule = {
   message: "Vi ser frem til intervjuet.",
 };
 
-const journeyRefId = "intent://journey:recruitment:interview-scheduling:v1";
-
-const journeyStepIds = [
-  "interviewer-session-login",
-  "leader-session-login",
-  "load-assigned-interviews",
-  "schedule-interview",
-];
-
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
 
 const postgresTopology = dockerAvailable ? "docker" : "local";
-
-const runnerPath = fileURLToPath(import.meta.url);
-
-const specPath = join(dashboardRoot, "e2e/native-recruitment-interview-scheduling.spec.ts");
 
 const recordingDriverPath = join(
   repositoryRoot,
@@ -972,52 +955,6 @@ async function warmDashboardClient(environment) {
   );
 }
 
-const receiptRequested = () =>
-  [
-    "RUNTIME_EVIDENCE_RECEIPT_PATH",
-    "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-async function emitReceipt(playwrightOutput) {
-  if (!receiptRequested()) return;
-
-  const sourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-
-  const sourcePaths = [runnerPath, specPath, recordingDriverPath];
-
-  if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
-    throw new Error(
-      "Native scheduling runtime evidence expects one to three runner source references",
-    );
-  }
-
-  const runnerSourceInputBytes = await Promise.all(
-    sourceRefIds.map(async (sourceRefId, index) => ({
-      sourceRefId,
-      bytes: await readFile(sourcePaths[index]),
-    })),
-  );
-
-  const fixtureInputBytes = Buffer.concat([
-    Buffer.from(seedSql, "utf8"),
-    await readFile(recordingDriverPath),
-  ]);
-
-  await emitRuntimeEvidenceReceipt({
-    journeyRefId,
-    stepIds: journeyStepIds,
-    fixtureId: "native-recruitment-interview-scheduling-0050",
-    runnerSourceInputBytes,
-    fixtureInputBytes,
-    artifactBytes: sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8")),
-  });
-}
-
 async function main() {
   await Promise.all([
     assertPortAvailable(dashboardPort),
@@ -1060,7 +997,6 @@ async function main() {
 
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
-  delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
 
   const apiEnvironment = {
     ...baseEnvironment,
@@ -1258,18 +1194,11 @@ async function main() {
       "--retries=0",
     ];
 
-    if (receiptRequested()) playwrightArgs.push("--reporter=json");
-
-    const playwright = await runCommand(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      playwrightArgs,
-      {
-        cwd: dashboardRoot,
-        env: journeyEnvironment,
-        label: "Native recruitment scheduling Playwright journey",
-        captureOutput: receiptRequested(),
-      },
-    );
+    await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", playwrightArgs, {
+      cwd: dashboardRoot,
+      env: journeyEnvironment,
+      label: "Native recruitment scheduling Playwright journey",
+    });
 
     const browser = await readJsonFile(browserEvidencePath, "Native scheduling browser evidence");
 
@@ -1418,8 +1347,6 @@ async function main() {
 
     const afterInterpretation = await readScheduleEvidence(baseEnvironment);
     assertRecordingEvidence(recording, beforeInterpretation, afterInterpretation);
-
-    if (receiptRequested()) await emitReceipt(playwright.stdout);
 
     evidence = {
       topology: {

@@ -5,7 +5,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
 
-
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const homepageRoot = resolve(root, "apps/homepage");
@@ -24,7 +23,7 @@ const writeLine = (message: string): void => {
   process.stdout.write(`${message}\n`);
 };
 
-const fail = (message: string): never => {
+const fail: (message: string) => never = (message) => {
   process.stderr.write(`${message}\n`);
   process.exit(1);
 };
@@ -91,7 +90,16 @@ if (head === undefined || !/^[0-9a-f]{40}$/.test(head)) {
   fail("PREVIEW_HEAD_SHA must be the exact 40-character pull-request revision.");
 }
 
-const PreviewResult = Schema.Struct({ deployment: Schema.optionalKey(Schema.Struct({ urls: Schema.optionalKey(Schema.Array(Schema.String)) })), deployment_urls: Schema.optionalKey(Schema.Array(Schema.String)), preview: Schema.optionalKey(Schema.Struct({ urls: Schema.optionalKey(Schema.Array(Schema.String)) })), preview_urls: Schema.optionalKey(Schema.Array(Schema.String)) });
+const PreviewResult = Schema.Struct({
+  deployment: Schema.optionalKey(
+    Schema.Struct({ urls: Schema.optionalKey(Schema.Array(Schema.String)) }),
+  ),
+  deployment_urls: Schema.optionalKey(Schema.Array(Schema.String)),
+  preview: Schema.optionalKey(
+    Schema.Struct({ urls: Schema.optionalKey(Schema.Array(Schema.String)) }),
+  ),
+  preview_urls: Schema.optionalKey(Schema.Array(Schema.String)),
+});
 
 type PreviewUrls = {
   readonly deployment: string;
@@ -101,7 +109,9 @@ type PreviewUrls = {
 const parsePreviewResult = (output: string): PreviewUrls => {
   const jsonStart = output.lastIndexOf("\n{");
 
-  const parsed = Schema.decodeUnknownSync(Schema.fromJsonString(PreviewResult))(jsonStart === -1 ? output : output.slice(jsonStart + 1));
+  const parsed = Schema.decodeUnknownSync(Schema.fromJsonString(PreviewResult))(
+    jsonStart === -1 ? output : output.slice(jsonStart + 1),
+  );
 
   const preview = parsed.preview?.urls?.[0] ?? parsed.preview_urls?.[0];
   const deployment = parsed.deployment?.urls?.[0] ?? parsed.deployment_urls?.[0];
@@ -115,11 +125,9 @@ const parsePreviewResult = (output: string): PreviewUrls => {
 
 const buildEnvironment = {
   ...process.env,
-  API_URL: "https://origin-api.vektor.phibkro.org",
   DASHBOARD_MOUNT: "/",
   PREVIEW_HOST_SUFFIX: ".workers.dev",
   PREVIEW_STAGE: "worker-preview",
-  VITE_API_URL: "https://vektor.phibkro.org",
 };
 
 if (!isCi) {
@@ -140,6 +148,8 @@ for (const requiredPath of [
   }
 }
 
+// `wrangler preview` creates a missing Worker as an empty parent with the config's `workers_dev`
+// and `preview_urls` settings and no production version (Wrangler 4.125.0+, workers-sdk#15174).
 const previewArgs = [
   "preview",
   "--name",

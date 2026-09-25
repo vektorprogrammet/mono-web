@@ -181,15 +181,6 @@ type SubmittedReceipt = {
   submissionIdempotencyKey: string;
 };
 
-const JOURNEY_REF_ID = "intent://journey:parity:finance_operations:v1";
-
-const ACCEPTED_STEP_IDS = [
-  "finance-operations-api-operation",
-  "finance-operations-command-write",
-  "finance-operations-legacy-route",
-  "finance-operations-mono-route",
-] as const;
-
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
 
@@ -1971,8 +1962,6 @@ test.describe("Native scoped Receipt approval journey", () => {
     );
 
     const journeyEvidence = {
-      journeyRefId: JOURNEY_REF_ID,
-      acceptedStepIds: ACCEPTED_STEP_IDS,
       environmentTokenAuthority: false,
       sessions: sessionEvidence,
       fileIdentityChecksumBefore,

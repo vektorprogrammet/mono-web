@@ -1053,7 +1053,7 @@ describe("unified backend router", () => {
     expect(rejectedCorrelations).toHaveLength(0);
   });
 
-  it("composes local, preview, and production cookie policy without invented origins", () => {
+  it("composes local and production cookie policy without invented origins", () => {
     expect(config.sessionBoundary).toEqual({
       deployment: "local",
       trustedOrigins: ["http://127.0.0.1:5174"],
@@ -1062,14 +1062,14 @@ describe("unified backend router", () => {
     expect(
       decodeBackendConfig({
         ...environment,
-        NATIVE_IDENTITY_DEPLOYMENT: "preview",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://vektor.phibkro.org"]),
-        OAUTH_CANONICAL_ORIGIN: "https://vektor.phibkro.org",
-        OAUTH_DASHBOARD_ORIGIN: "https://vektor.phibkro.org",
+        NATIVE_IDENTITY_DEPLOYMENT: "production",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://dashboard.example.invalid"]),
+        OAUTH_CANONICAL_ORIGIN: "https://dashboard.example.invalid",
+        OAUTH_DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
       }).sessionBoundary,
     ).toEqual({
-      deployment: "preview",
-      trustedOrigins: ["https://vektor.phibkro.org"],
+      deployment: "production",
+      trustedOrigins: ["https://dashboard.example.invalid"],
       secureCookies: true,
     });
     expect(() =>
@@ -1079,13 +1079,6 @@ describe("unified backend router", () => {
         NATIVE_IDENTITY_TRUSTED_ORIGINS: undefined,
       }),
     ).toThrow();
-    expect(() =>
-      decodeBackendConfig({
-        ...environment,
-        NATIVE_IDENTITY_DEPLOYMENT: "preview",
-        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://p999.vektor.phibkro.org"]),
-      }),
-    ).toThrow("frozen dev-main or p20 origin");
   });
 
   it.each([

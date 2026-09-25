@@ -3,7 +3,7 @@ import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { Data, Schema } from "effect";
 import { allowHeader } from "./http-semantics.js";
 
-const Deployment = Schema.Literals(["local", "preview", "production"]);
+const Deployment = Schema.Literals(["local", "production"]);
 
 export type IdentityDeployment = typeof Deployment.Type;
 
@@ -46,8 +46,8 @@ export interface NativeSessionBoundaryPolicy {
 }
 
 /**
- * Decodes the one native session-origin configuration authority. Local,
- * preview, and production compositions must all provide it explicitly.
+ * Decodes the one native session-origin configuration authority. Local and
+ * production compositions must both provide it explicitly.
  */
 export const decodeNativeSessionBoundaryPolicy = (
   env: Readonly<Record<string, string | undefined>>,
@@ -86,19 +86,8 @@ export const decodeNativeSessionBoundaryPolicy = (
     return { deployment, trustedOrigins, secureCookies: false };
   }
 
-  if (
-    deployment === "preview" &&
-    (trustedOrigins.length !== 1 ||
-      (trustedOrigins[0] !== "https://vektor.phibkro.org" &&
-        trustedOrigins[0] !== "https://p20.vektor.phibkro.org"))
-  ) {
-    throw new Error(
-      "preview native identity composition requires its frozen dev-main or p20 origin",
-    );
-  }
-
   if (trustedOrigins.some((origin) => new URL(origin).protocol !== "https:")) {
-    throw new Error(`${deployment} native identity origins must use HTTPS`);
+    throw new Error("production native identity origins must use HTTPS");
   }
 
   return { deployment, trustedOrigins, secureCookies: true };

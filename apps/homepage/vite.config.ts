@@ -48,10 +48,9 @@ export default defineConfig(({ command, isPreview }) => {
   const localDevelopment = command === "serve" && !isPreview;
   const commit = localDevelopment ? "working-tree" : headCommit();
 
-  const cloudflarePlugins =
-    localDevelopment || process.env.ALCHEMY_CLOUDFLARE_VITE_INJECTED === "1"
-      ? []
-      : cloudflare({ viteEnvironment: { name: "ssr" } });
+  const cloudflarePlugins = localDevelopment
+    ? []
+    : cloudflare({ viteEnvironment: { name: "ssr" } });
 
   const inputs = buildHomepageDigestInputs(projectRoot);
   const dashboardOrigin = localDevelopment ? process.env.OAUTH_DASHBOARD_ORIGIN : undefined;

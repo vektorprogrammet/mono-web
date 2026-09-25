@@ -19,15 +19,6 @@ const API_ORIGIN = process.env.API_URL ?? "http://127.0.0.1:8797";
 
 const REAL_NATIVE_ORGANIZATION_E2E = process.env.REAL_NATIVE_ORGANIZATION_E2E === "1";
 
-const JOURNEY_REF_ID = "intent://journey:parity:org_admin:v1";
-
-const ACCEPTED_STEP_IDS = [
-  "org-admin-api-operation",
-  "org-admin-command-write",
-  "org-admin-legacy-route",
-  "org-admin-mono-route",
-] as const;
-
 const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
 
@@ -421,8 +412,6 @@ test.describe("Native Organization administration", () => {
       await writeFile(
         evidencePath,
         `${JSON.stringify({
-          journeyRefId: JOURNEY_REF_ID,
-          acceptedStepIds: ACCEPTED_STEP_IDS,
           sessions: {
             administrator: {
               nativeLogin: true,

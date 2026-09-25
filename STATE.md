@@ -7,6 +7,7 @@ This file records current state only. Remove an item when it is resolved. Git ke
 ## Current
 
 Production uses the legacy PHP application. Production replacement is not authorized or rehearsed.
+The legacy source is in the [vektorprogrammet](https://github.com/vektorprogrammet/vektorprogrammet) repository; the former `apps/server` continues there as branch `modernize/mono-web-server` (`908368a8`), with the same tree (`023b85bd`) as mono-web `b6438cb2`. The removal commit is `ea124143`; its parent `1277be8b` still contains `apps/server`.
 Local implementation and acceptance do not authorize production, provider, or source-data actions.
 
 Operator decisions:
@@ -14,7 +15,7 @@ Operator decisions:
 - The backend is a portable Bun process with PostgreSQL, not a Cloudflare Worker.
 - DigitalOcean is the selected host (2026-09-25). Provisioning and deployment stay deferred until cutover preparation.
 - No cloud provisioning or source-data upload is authorized.
-- The private 2024-08-22 legacy backup is the working source for import and parity rehearsals.
+- The private 2024-08-22 legacy backup is the working source for import rehearsals.
   Its schema shape is expected to match current production. Its contents are historical, not current.
 - The native target is PostgreSQL 17 or 18 (default 18); hosted Supabase runs 17 (operator decision, 2026-09-25).
   The root manifest declares the set once as `engines.postgresql`; `VEKTOR_POSTGRES_MAJOR` selects a major per environment.
@@ -100,12 +101,13 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
   instead of `accountAccessEnabled` in `packages/database/src/identity-access.ts`.
 - `Team.email` (`packages/domain/src/organization/schema.ts`) accepts text that is not a mailbox. Open team intake requires a deliverable mailbox; the write boundary does not check it.
 - Hand-written operation ids outside content, hand-written dashboard navigation paths, a fixed admissions `retry-after`, and fixed ports in older browser runners.
-- PR previews (operator decision, 2026-09-25): keep Cloudflare frontend previews for now; they need the `CLOUDFLARE_API_TOKEN` repository secret (operator step).
-  Later, move to full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
-  The [PR preview contract](docs/specs/worker-pr-previews.md) requires workspace validation before deployment. `.github/workflows/preview-pr.yml` only builds.
-- Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane. Hosted Alchemy deployment is unobserved.
+- PR previews (operator decision, 2026-09-25): Cloudflare Worker Previews of the homepage and dashboard only, as `vektor-preview-homepage` and `vektor-preview-dashboard`, which `wrangler preview` creates on first use ([contract](docs/specs/worker-pr-previews.md)).
+  They need the `CLOUDFLARE_API_TOKEN` repository secret (operator step); no hosted run has deployed one yet. They have no backend, so pages that read the API show the unavailable state.
+  A native backend preview host is the planned follow-up: full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
+- Pending operator teardown: the retired `dev-main` Alchemy stage (vektor.phibkro.org Workers and the workstation's `vektor-preview-*` systemd units); its code is deleted from this repository.
+- Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
-- `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy` adds PHP, Composer, and MariaDB. CI runs in the same shell; its hosted cost is unmeasured.
+- `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy-data` adds MariaDB and the PHP 8.4 CLI for the legacy data rehearsals. CI runs in the same shell; its hosted cost is unmeasured.
 
 ## Next
 
@@ -152,7 +154,7 @@ The operator decided these on 2026-09-25. Each becomes one design specification 
 | Coordinator reports (P6)                 | A read-only archive export at cutover. Build each report when a named consumer exists.                                                                                                                                                                                                                                                                  | S-M each        |
 | Public page text and sponsors (P13)      | An editor UI in the dashboard.                                                                                                                                                                                                                                                                                                                          | M               |
 | Legacy features (P14)                    | Keep the team-interest form, in-app feedback, and party/stand screens. Retire Slack notices, the shared file browser, and the changelog. Replace server-side IP geolocation (ipinfo.io) with an optional browser-side location choice; no third-party IP lookup.                                                                                        | varies          |
-| Parity registers (P15)                   | Retire the external parity registers. The implementation-agnostic specification and its conformance checks become the parity authority.                                                                                                                                                                                                                 | S               |
+| Parity registers (P15)                   | Retire the external parity registers. The implementation-agnostic specification and its conformance checks become the parity authority. Done 2026-09-25: `tools/parity` is deleted; its source-safety rules run as `tools/source-safety`.                                                                                                               | S               |
 | Team intake owner (D3)                   | TeamApplications owns intake (open/closed, deadline) with its own revision; it moves off Organization's team row.                                                                                                                                                                                                                                       | M               |
 | Year of study owner (AD7)                | Admissions owns the application's year of study; Substitutes reads it.                                                                                                                                                                                                                                                                                  | S               |
 | Positions (D10)                          | Positions become managed reference data; appointment free-text titles are mapped once at import.                                                                                                                                                                                                                                                        | M               |

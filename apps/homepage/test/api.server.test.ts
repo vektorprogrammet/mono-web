@@ -19,12 +19,12 @@ describe("homepage server API origin", () => {
     };
 
     vi.stubGlobal("fetch", fetch);
-    vi.stubEnv("API_URL", "https://origin-api.vektor.phibkro.org");
+    vi.stubEnv("API_URL", "https://api.example.invalid");
     await createHomepageApiClient().system.health();
     vi.stubEnv("API_URL", "https://changed.example.invalid");
     await createHomepageApiClient().system.health();
     expect(urls).toEqual([
-      "https://origin-api.vektor.phibkro.org/health",
+      "https://api.example.invalid/health",
       "https://changed.example.invalid/health",
     ]);
   });

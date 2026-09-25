@@ -107,7 +107,6 @@ Tool availability alone does not establish compatibility with this repository.
 If docgen does not fit, retain executable TypeScript examples and existing compiler/runtime checks.
 Evaluate another maintained reference generator only for a concrete unmet requirement.
 Publish a module guide by adding it to the documentation site. Do not start another documentation website or a custom compiler-based documentation generator.
-Do not import temporary parity tooling into durable product documentation tools.
 
 The [Diataxis framework](https://diataxis.fr/) separates tutorials, task guides, reference material, and explanations.
 Use that distinction to keep reader tasks clear, without requiring a separate document for each category.

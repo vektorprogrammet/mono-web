@@ -1,6 +1,7 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "vektor-vektor-apex-homepage-dev-main-36wofid2qirnhveq",
+  "name": "vektor-preview-homepage",
+  "workers_dev": false,
   "preview_urls": true,
   "main": "../../apps/homepage/build/server/index.js",
   "compatibility_date": "2026-09-22",
@@ -16,7 +17,6 @@
   },
   "previews": {
     "vars": {
-      "API_URL": "https://origin-api.vektor.phibkro.org",
       "PREVIEW_HOST_SUFFIX": ".workers.dev",
       "PREVIEW_STAGE": "worker-preview"
     }

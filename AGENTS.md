@@ -8,8 +8,9 @@ Read [STATE.md](STATE.md) for current work.
 Read [docs/system.md](docs/system.md) for intended product behavior.
 Read [docs/architecture.md](docs/architecture.md) for technical boundaries.
 
-The migration targets the native application. Symfony source establishes legacy
-behavior to assess. It is not the target architecture.
+The migration targets the native application. Legacy behavior comes from the live
+legacy system and its source in the separate vektorprogrammet repository; see
+[docs/architecture.md](docs/architecture.md#legacy-source). It is not the target architecture.
 
 For a non-trivial journey, create one active contract under `docs/specs/`.
 Remove it after the accepted intent is represented by the system document, code,
@@ -47,7 +48,7 @@ Keep infrastructure dependencies separate from the application catalog.
 ## Commands
 
 `devenv shell` is the entry point. Run commands inside it, or one at a time with `devenv shell -- <command>`.
-Commands that start PHP, Composer, or MariaDB need `devenv --profile legacy shell`.
+Legacy data rehearsals that start MariaDB or the PHP CLI need `devenv --profile legacy-data shell`.
 [README.md#toolchain](README.md#toolchain) lists what devenv provides and the local commands.
 Package manifests own exact scripts. Use `bun run`, not `bun test`, for package scripts.
 
@@ -65,18 +66,17 @@ Focused Vitest does not prove those additional gates or the dashboard bundle gat
 
 ## Packages
 
-| Path                | Responsibility                                           |
-| ------------------- | -------------------------------------------------------- |
-| `apps/backend`      | Native Effect HTTP process and workers                   |
-| `apps/homepage`     | Public React application                                 |
-| `apps/dashboard`    | Authenticated React Router and Foldkit application       |
-| `apps/server`       | Retained Symfony modernization source                    |
-| `packages/domain`   | Business values, transitions, failures, and authority    |
-| `packages/database` | PostgreSQL schema, persistence, locks, audit, and outbox |
-| `packages/http-api` | HTTP contracts, middleware declarations, and OpenAPI     |
-| `packages/sdk`      | Generated native API client                              |
-| `tools/e2e`         | Disposable local journey drivers                         |
-| `tools/parity`      | Temporary migration analysis and safe runtime helpers    |
+| Path                  | Responsibility                                           |
+| --------------------- | -------------------------------------------------------- |
+| `apps/backend`        | Native Effect HTTP process and workers                   |
+| `apps/homepage`       | Public React application                                 |
+| `apps/dashboard`      | Authenticated React Router and Foldkit application       |
+| `packages/domain`     | Business values, transitions, failures, and authority    |
+| `packages/database`   | PostgreSQL schema, persistence, locks, audit, and outbox |
+| `packages/http-api`   | HTTP contracts, middleware declarations, and OpenAPI     |
+| `packages/sdk`        | Generated native API client                              |
+| `tools/e2e`           | Disposable local journey drivers                         |
+| `tools/source-safety` | Staged-tree scan for credentials and personal data       |
 
 Keep the dependency graph in [docs/architecture.md](docs/architecture.md).
 Product packages must not import migration tools or application source.
@@ -140,7 +140,7 @@ Record instances you cannot fix in `STATE.md` with their location. Remove the re
 | ----------------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A string names a closed set, and a second value repeats a fact about it | Derive the type and every related fact from one registry | `NativeProblemRegistry` in `packages/http-api/src/http-semantics.ts` owns code, status, and body; `Problem.make(code)` takes no status. Counter-example: `PlacementFailure` carries a `status` beside its registry `code`. |
 | A value is validated at the edge but travels as a plain string          | Decode once to the domain type at the boundary           | Instants belong in `DateTime.Utc`. Counter-example: `compareRfc3339Instants` parses both strings at each call.                                                                                                             |
-| A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source              | `devenv.nix` reads tool versions from `package.json`, `bun.lock`, and `composer.json`. It and `.oxfmtrc.json` hold the only hook and formatter definitions.                                                                |
+| A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source              | `devenv.nix` reads tool versions from `package.json` and `bun.lock`. It and `.oxfmtrc.json` hold the only hook and formatter definitions.                                                                                  |
 | A test pins the observed output                                         | Decode the response with the contract schema             | `apps/dashboard/e2e/receipt-approval.spec.ts` decodes with the exported receipt schemas. Counter-example: suites that re-pinned `credential.invalid` after 042e808d.                                                       |
 | An operation reports success when its precondition was lost             | Return a typed failure that the caller must handle       | `OutboxClaimLost` in `packages/database/src/outbox-lifecycle.ts`.                                                                                                                                                          |
 | A runtime flag grants test authority                                    | Let only the test composition construct it               | `decodeReceiptE2EComposition` rejects receipt E2E flags outside the `local` deployment.                                                                                                                                    |
@@ -212,23 +212,3 @@ A failed aggregate command is not a passing suite because its earlier tests pass
 A local browser journey is not provider proof. A deployed provider journey is not production cutover authority.
 `STATE.md` holds current state only: current acceptance, open gaps, and the next gates. Remove an item when it is resolved; Git keeps the history.
 Keep enduring behavior in the system and architecture documents.
-
-## Symfony source
-
-Use `apps/server/CLAUDE.md` for Symfony-specific commands and constraints.
-Server commands run through Composer inside `devenv --profile legacy shell`:
-
-```bash
-devenv --profile legacy shell
-cd apps/server
-composer install
-composer test
-composer lint
-composer analyse
-```
-
-After a database constraint or validation change, verify that fixtures load:
-
-```bash
-APP_ENV=test php bin/console doctrine:fixtures:load --no-interaction
-```

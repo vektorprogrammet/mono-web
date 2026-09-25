@@ -61,8 +61,7 @@ Reuse these sources before adding another runner or abstraction:
 - [Native assignment runner](../tools/e2e/run-real-native-recruitment-assignment.mjs): isolated runtime, canonical migrations, native authentication, and persistence evidence.
 - [Interview-conduct browser scenario](../apps/dashboard/e2e/native-recruitment-interview-conduct.spec.ts): multiple actors, reload, and stale updates.
 - [Placement browser runner](../apps/dashboard/e2e/run-real-native-placement.mjs): scenario manifest and parent-owned database lifecycle.
-- [Parity coverage](../tools/parity/src/coverage.ts): existing journey identities, steps, and evidence requirements.
-- [Runtime evidence receipts](../apps/dashboard/e2e/runtime-evidence-receipt.mjs): source, fixture, and artifact binding.
+- [Playwright report sanitizer](../apps/dashboard/e2e/runtime-evidence-receipt.mjs): sanitized Playwright results and outcomes for runner evidence.
 - [Interview properties](../apps/dashboard/app/foldkit/interview/update.property.test.ts): schema-generated inputs and client transition checks.
 - [Scheduling transitions](../apps/dashboard/app/foldkit/scheduling/update.test.ts): stale observations, uncertain commands, and recovery.
 - [CI workflow](../.github/workflows/tests.yml) and [Playwright configuration](../apps/dashboard/playwright.config.ts): existing execution and report ownership.
@@ -100,7 +99,7 @@ The receiver checks the committed logical effect. It does not establish real-pro
 
 The command prints its parent PID, artifact directory, and final `receipt.json` path.
 The receipt records the commit, source tree, runner and fixture digests, artifact hashes, result, and executed steps.
-It uses the existing parity field conventions without requiring a legacy revision or external authority files.
+It requires no legacy revision or external authority files.
 Only listed sanitized artifacts form the retained evidence: browser and HTTP observations, database checkpoints, loopback delivery, logs, and trace summaries.
 Raw traces, browser result directories, credential manifests, PostgreSQL files, and owned processes do not remain after cleanup.
 The receipt fails when browser evidence is absent, a required step fails, or cleanup fails.
@@ -122,11 +121,10 @@ Do not use the operator's demonstration ports or database for this command.
 
 ## Journey inventory
 
-Keep one repository-owned native journey manifest in the existing journey tooling.
-Reuse established journey identities and evidence formats.
+Keep one repository-owned native journey manifest.
 Each entry links its business rule, executable scenarios, supported environments, and required evidence.
 Generate the coverage report from that manifest and current run results.
-Legacy parity accounting can consume those results.
+The implementation-agnostic specification and its conformance checks are the parity authority.
 Native CI must not require a sibling legacy repository or external migration authority files.
 
 The following families define the initial scope, not a claim of complete coverage:

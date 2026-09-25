@@ -49,21 +49,6 @@ const externalDashboardOrigin =
       })()
     : (configuredDashboardOrigin ?? genericDashboardOrigin);
 
-const realSymfonyCoreOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
-
-const realSymfonyCoreMode = process.env.REAL_SYMFONY_CORE_E2E === "1";
-
-const realSymfonyRecruitmentMode = process.env.REAL_SYMFONY_RECRUITMENT_E2E === "1";
-
-const realSymfonySchedulingMode = process.env.REAL_SYMFONY_INTERVIEW_SCHEDULING_E2E === "1";
-
-const realSymfonyContentOpsMode = process.env.REAL_SYMFONY_CONTENT_OPS_E2E === "1";
-
-const realSymfonyOrgOperationsMode = process.env.REAL_SYMFONY_ORG_OPERATIONS_E2E === "1";
-
-const realSymfonyBackgroundOperationsMode =
-  process.env.REAL_SYMFONY_BACKGROUND_OPERATIONS_E2E === "1";
-
 const receiptOwnerDashboardTopology = resolveReceiptOwnerDashboardTopology(process.env);
 
 const realReceiptOwnerMode = receiptOwnerDashboardTopology !== undefined;
@@ -80,16 +65,7 @@ const realNativeConductMode = process.env.REAL_NATIVE_CONDUCT_E2E === "1";
 
 const realNativeProfileMode = process.env.REAL_NATIVE_PROFILE_E2E === "1";
 
-const realSymfonyMode =
-  realSymfonyCoreMode ||
-  realSymfonyRecruitmentMode ||
-  realSymfonySchedulingMode ||
-  realSymfonyContentOpsMode ||
-  realSymfonyOrgOperationsMode ||
-  realSymfonyBackgroundOperationsMode;
-
 const externalTopologyMode =
-  realSymfonyMode ||
   realReceiptOwnerMode ||
   realNativeIdentityMode ||
   realNativeOAuthMode ||
@@ -145,11 +121,7 @@ export default defineConfig({
       realNativeConductMode ||
       realNativeProfileMode
         ? externalDashboardOrigin
-        : realSymfonyCoreMode
-          ? realSymfonyCoreOrigin
-          : realSymfonyMode
-            ? externalDashboardOrigin
-            : genericDashboardOrigin),
+        : genericDashboardOrigin),
     trace: "off",
   },
   projects: realAdmissionPeriodMode
@@ -189,37 +161,24 @@ export default defineConfig({
               },
             },
           ]
-        : realSymfonyMode
-          ? [
-              {
-                name: "real-symfony",
-                use: {
-                  ...devices["Desktop Chrome"],
-                  viewport: w0Viewport,
-                  launchOptions: chromiumExecutablePath
-                    ? { executablePath: chromiumExecutablePath }
-                    : undefined,
-                },
+        : [
+            {
+              name: "chromium",
+              use: {
+                ...devices["Desktop Chrome"],
+                viewport: w0Viewport,
+                launchOptions: contentChromiumLaunchOptions,
               },
-            ]
-          : [
-              {
-                name: "chromium",
-                use: {
-                  ...devices["Desktop Chrome"],
-                  viewport: w0Viewport,
-                  launchOptions: contentChromiumLaunchOptions,
-                },
-              },
-              {
-                name: "firefox",
-                use: { ...devices["Desktop Firefox"], viewport: w0Viewport },
-              },
-              {
-                name: "webkit",
-                use: { ...devices["Desktop Safari"], viewport: w0Viewport },
-              },
-            ],
+            },
+            {
+              name: "firefox",
+              use: { ...devices["Desktop Firefox"], viewport: w0Viewport },
+            },
+            {
+              name: "webkit",
+              use: { ...devices["Desktop Safari"], viewport: w0Viewport },
+            },
+          ],
   webServer:
     receiptOwnerDashboardTopology !== undefined
       ? receiptOwnerDashboardTopology.webServer

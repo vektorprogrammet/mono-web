@@ -13,10 +13,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
-import {
-  emitNativeRuntimeEvidenceReceipts,
-  sanitizePlaywrightArtifact,
-} from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -25,10 +21,6 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
-
-const runnerPath = fileURLToPath(import.meta.url);
-
-const specPath = join(dashboardRoot, "e2e/real-interview-response.spec.ts");
 
 const recordingDriverPath = fileURLToPath(
   new URL("../../../tools/e2e/record-native-recruitment-invitation-response.ts", import.meta.url),
@@ -169,58 +161,6 @@ const capabilityDigestsByCase = Object.fromEntries(
     createHash("sha256").update(rawCapabilitiesByCase[key], "utf8").digest("hex"),
   ]),
 );
-
-const journeyEntries = [
-  {
-    journeyRefId: "intent://journey:recruitment:invitation-response:v1",
-    stepIds: [
-      "applicant-loads-invitation",
-      "applicant-confirms-invitation",
-      "applicant-rejects-invitation",
-      "applicant-requests-new-time",
-      "fresh-applicant-response-read",
-      "fresh-leader-response-read",
-      "fresh-interviewer-response-read",
-      "invalid-response-preserves-state",
-      "response-capability-remains-private",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:applicant_notify_self:v1",
-    stepIds: [
-      "applicant-notify-self-api-operation",
-      "applicant-notify-self-command-write",
-      "applicant-notify-self-legacy-route",
-      "applicant-notify-self-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:interview_candidate:v1",
-    stepIds: [
-      "interview-candidate-api-operation",
-      "interview-candidate-command-write",
-      "interview-candidate-legacy-route",
-      "interview-candidate-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:interview_recruiter:v1",
-    stepIds: [
-      "interview-recruiter-api-operation",
-      "interview-recruiter-command-write",
-      "interview-recruiter-legacy-route",
-      "interview-recruiter-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:recruitment:interview-scheduling:v1",
-    stepIds: [
-      "applicant-loads-response",
-      "applicant-accepts-interview",
-      "fresh-read-accepted-interview",
-    ],
-  },
-];
 
 const seedSql = `
 BEGIN;
@@ -2038,42 +1978,6 @@ function assertRecordingEvidence(recording, committedEvidence, deliveredEvidence
   );
 }
 
-const receiptRequested = () =>
-  [
-    "RUNTIME_EVIDENCE_RECEIPT_PATH",
-    "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-    "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-  ].some((name) => Predicate.isString(process.env[name]) && process.env[name].length > 0);
-
-async function prepareReceiptInputs(playwrightOutput) {
-  if (!receiptRequested()) return undefined;
-
-  const fixtureInputBytes = Buffer.concat([
-    Buffer.from(seedSql, "utf8"),
-    Buffer.from("\n-- native response recording driver --\n", "utf8"),
-    Buffer.from(recordingDriverSource, "utf8"),
-  ]);
-
-  const artifactBytes = sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8"));
-  assertNoRawCapability(fixtureInputBytes, "Runtime evidence fixture input");
-  assertNoRawCapability(artifactBytes, "Sanitized Playwright artifact");
-
-  return { fixtureInputBytes, artifactBytes };
-}
-
-async function emitReceipts(inputs) {
-  if (inputs === undefined) return;
-  await emitNativeRuntimeEvidenceReceipts({
-    repositoryRoot,
-    sourcePaths: [runnerPath, specPath],
-    journeys: journeyEntries,
-    fixtureId: "native-recruitment-invitation-response-0051",
-    fixtureInputBytes: inputs.fixtureInputBytes,
-    artifactBytes: inputs.artifactBytes,
-  });
-}
-
 async function main() {
   assertNoRawCapability(seedSql, "PostgreSQL seed SQL");
   assertNoRawCapability(recordingDriverSource, "Recording driver source");
@@ -2117,7 +2021,6 @@ async function main() {
 
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
-  delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
 
   const apiEnvironment = {
     ...baseEnvironment,
@@ -2145,7 +2048,6 @@ async function main() {
   let dashboardProcess;
   let proxy;
   let evidence;
-  let receiptInputs;
   let cleaned = false;
 
   const cleanup = async () => {
@@ -2336,8 +2238,6 @@ async function main() {
       "--retries=0",
     ];
 
-    if (receiptRequested()) playwrightArgs.push("--reporter=json");
-
     const playwright = await runCommand(
       process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
       playwrightArgs,
@@ -2386,7 +2286,6 @@ async function main() {
     assertDeliveredEvidence(deliveredEvidence, committedEvidence);
     assertRecordingEvidence(recording, committedEvidence, deliveredEvidence);
     await assertCanonicalDatabasePrivacy(baseEnvironment);
-    receiptInputs = await prepareReceiptInputs(playwright.stdout);
 
     evidence = {
       topology: {
@@ -2439,15 +2338,6 @@ async function main() {
         ...recording,
         interpretationKind: "recording-gateway-only",
         providerDeliveryProved: false,
-      },
-      receipts: {
-        journeyRefIds: journeyEntries.map(({ journeyRefId }) => journeyRefId),
-        exactStepIds: journeyEntries.map(({ journeyRefId, stepIds }) => ({
-          journeyRefId,
-          stepIds,
-        })),
-        sanitizedReporter: true,
-        sanitizedFixtureInputs: true,
       },
     };
     assertNoRawCapability(evidence, "Final native invitation-response evidence");
@@ -2537,8 +2427,6 @@ async function main() {
   if (primaryError !== undefined) throw primaryError;
 
   if (cleanupError !== undefined) throw cleanupError;
-
-  await emitReceipts(receiptInputs);
 
   const finalEvidence = {
     ...evidence,

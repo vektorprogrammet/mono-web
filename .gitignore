@@ -48,9 +48,8 @@ lerna-debug.log*
 .turbo
 .wrangler/
 .alchemy/
-infra/alchemy/.alchemy/
 
-# PHP
+# Vendor directories
 vendor
 !/tools/oxlint/anti-slop/vendor/
 !/tools/oxlint/anti-slop/vendor/**

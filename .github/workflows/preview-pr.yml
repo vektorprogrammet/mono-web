@@ -22,11 +22,9 @@ jobs:
     permissions:
       contents: read
     env:
-      API_URL: https://origin-api.vektor.phibkro.org
       DASHBOARD_MOUNT: /
       PREVIEW_HOST_SUFFIX: .workers.dev
       PREVIEW_STAGE: worker-preview
-      VITE_API_URL: https://vektor.phibkro.org
     steps:
       - name: Checkout exact pull-request revision without credentials
         uses: actions/checkout@v4
@@ -86,6 +84,8 @@ jobs:
           name: worker-preview-build-${{ github.event.pull_request.head.sha }}
           path: .
 
+      # On first use, `wrangler preview` creates vektor-preview-homepage and vektor-preview-dashboard
+      # without a production version. The token needs Account > Workers Scripts > Edit.
       - name: Create or update isolated Worker Previews
         id: preview
         env:
@@ -107,7 +107,7 @@ jobs:
             local headers="$3"
             for _ in {1..12}; do
               if curl --fail --location --silent --show-error --dump-header "$headers" --output "$body" "$url"; then
-                grep -Eiq '^x-mono-web-stage: worker-preview\r?$' "$headers"
+                grep -Eiq $'^x-mono-web-stage: worker-preview\r?$' "$headers"
                 return 0
               fi
               sleep 5
@@ -116,12 +116,13 @@ jobs:
           }
           probe "$HOMEPAGE_URL/health" "$RUNNER_TEMP/homepage-health.json" "$RUNNER_TEMP/homepage-health.headers"
           jq -e '.stage == "worker-preview"' "$RUNNER_TEMP/homepage-health.json" >/dev/null
-          probe "$HOMEPAGE_URL/" "$RUNNER_TEMP/homepage.html" "$RUNNER_TEMP/homepage.headers"
-          homepage_asset="$(grep -oE '/assets/[^"[:space:]?]+' "$RUNNER_TEMP/homepage.html" | head -n 1)"
+          # Previews are frontend-only: `/` reads news from the API and answers 503, so probe a static page.
+          probe "$HOMEPAGE_URL/om-oss" "$RUNNER_TEMP/homepage.html" "$RUNNER_TEMP/homepage.headers"
+          homepage_asset="$(grep -oE '/assets/[^"[:space:]?]+' "$RUNNER_TEMP/homepage.html" | sed -n 1p)"
           test -n "$homepage_asset"
           curl --fail --silent --show-error "$HOMEPAGE_URL$homepage_asset" >/dev/null
           probe "$DASHBOARD_URL/login" "$RUNNER_TEMP/dashboard.html" "$RUNNER_TEMP/dashboard.headers"
-          dashboard_asset="$(grep -oE '/assets/[^"[:space:]?]+' "$RUNNER_TEMP/dashboard.html" | head -n 1)"
+          dashboard_asset="$(grep -oE '/assets/[^"[:space:]?]+' "$RUNNER_TEMP/dashboard.html" | sed -n 1p)"
           test -n "$dashboard_asset"
           curl --fail --silent --show-error "$DASHBOARD_URL$dashboard_asset" >/dev/null
 
@@ -146,6 +147,8 @@ jobs:
           |---|---|---|
           | Public homepage | [Open Preview]($HOMEPAGE_URL) | [Open immutable deployment]($HOMEPAGE_DEPLOYMENT_URL) |
           | Staff dashboard | [Open Preview]($DASHBOARD_URL) | [Open immutable deployment]($DASHBOARD_DEPLOYMENT_URL) |
+
+          Previews are frontend-only: pages that read the API show their unavailable state.
 
           Source: [\`$COMMIT\`]($SOURCE_URL)
           EOF

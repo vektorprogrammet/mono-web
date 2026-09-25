@@ -9,7 +9,6 @@ import {
   mkdtemp,
   open,
   readFile,
-  readdir,
   rm,
   stat,
   writeFile,
@@ -55,13 +54,11 @@ const expectedAccountDispositionFingerprint =
 
 const expectedLegacyInventory = {
   tables: 65,
-  entityTables: 48,
   relationTables: 16,
   migrationTables: 1,
   columns: 349,
   foreignKeys: 94,
   appliedMigrations: 71,
-  declaredMigrations: 72,
   people: 2_923,
   activePeople: 2_910,
 } as const;
@@ -283,42 +280,135 @@ const mysql = async (socket: string, sql: string): Promise<string> =>
 const jsonLines = <A>(decode: (line: string) => A, output: string): ReadonlyArray<A> =>
   output === "" ? [] : output.split("\n").map((line) => decode(line));
 
-const phpFiles = async (root: string): Promise<ReadonlyArray<string>> => {
-  const files: string[] = [];
+/**
+ * Doctrine entity tables and declared migrations of the legacy Symfony schema, as declared by
+ * `apps/server` at mono-web commit 2163076f (the source continues in the vektorprogrammet repository).
+ */
+const legacyEntityTables: ReadonlySet<string> = new Set([
+  "AdmissionPeriod",
+  "TeamInterest",
+  "access_rule",
+  "admission_notification",
+  "admission_subscriber",
+  "application",
+  "article",
+  "assistant_history",
+  "certificate_request",
+  "change_log_item",
+  "department",
+  "event",
+  "executive_board",
+  "executive_board_membership",
+  "feedback",
+  "field_of_study",
+  "infomeeting",
+  "interview",
+  "interview_answer",
+  "interview_question",
+  "interview_question_alternative",
+  "interview_schema",
+  "interview_score",
+  "password_reset",
+  "position",
+  "receipt",
+  "role",
+  "school",
+  "school_capacity",
+  "semester",
+  "signature",
+  "sponsor",
+  "static_content",
+  "survey",
+  "survey_answer",
+  "survey_link_click",
+  "survey_notification",
+  "survey_notification_collection",
+  "survey_question",
+  "survey_question_alternative",
+  "survey_taken",
+  "team",
+  "team_application",
+  "team_membership",
+  "unhandled_access_rule",
+  "user",
+  "user_group_collection",
+  "usergroup",
+]);
 
-  const visit = async (directory: string): Promise<void> => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-
-      if (entry.isDirectory()) await visit(path);
-      else if (entry.isFile() && entry.name.endsWith(".php")) files.push(path);
-    }
-  };
-
-  await visit(root);
-
-  return files;
-};
-
-const doctrineEntityTables = async (): Promise<ReadonlySet<string>> => {
-  const root = join(repositoryRoot, "apps/server/src");
-  const tables = new Set<string>();
-
-  for (const path of await phpFiles(root)) {
-    const source = await readFile(path, "utf8");
-
-    if (!source.includes("#[ORM\\Entity")) continue;
-    const explicit = source.match(/#\[ORM\\Table\(name:\s*['"]([^'"]+)['"]/)?.[1];
-    const className = source.match(/\bclass\s+(\w+)/)?.[1];
-    assert.ok(
-      explicit !== undefined || className !== undefined,
-      "Doctrine entity has no table identity",
-    );
-    tables.add(explicit ?? className!);
-  }
-
-  return tables;
-};
+const legacyDeclaredMigrationIds: ReadonlyArray<string> = [
+  "20170913114609",
+  "20170915171918",
+  "20170926211148",
+  "20170927171228",
+  "20171010182016",
+  "20171031162242",
+  "20171031225348",
+  "20171228151200",
+  "20171228155034",
+  "20180120131625",
+  "20180120221748",
+  "20180123152418",
+  "20180123183005",
+  "20180125142315",
+  "20180125205543",
+  "20180131091953",
+  "201802052016",
+  "20180227175634",
+  "20180308200504",
+  "20180312191722",
+  "20180317154305",
+  "20180420194033",
+  "20180423171349",
+  "20180424193317",
+  "20180425134449",
+  "20180426161248",
+  "20180427111656",
+  "20180501123948",
+  "20180812150217",
+  "20180813121043",
+  "20180813134540",
+  "20180813171219",
+  "20180820202939",
+  "20180822200336",
+  "20180831172454",
+  "20180905100253",
+  "20180906230948",
+  "20180924175709",
+  "20181008175719",
+  "20181014190516",
+  "20181018182912",
+  "20181023133033",
+  "20181101152920",
+  "20181110164154",
+  "20181119182727",
+  "20190115191853",
+  "20190117172903",
+  "20190316205132",
+  "20190911151952",
+  "20190912141717",
+  "20190923124759",
+  "20190923130913",
+  "20191002144101",
+  "20191002160048",
+  "20191004080311",
+  "20191015091033",
+  "20191023214720",
+  "20191024063522",
+  "20191113173505",
+  "20200107204309",
+  "20200406083959",
+  "20210216183709",
+  "20260810002046",
+  "CreateExecutiveBoard",
+  "DeletedTeamName",
+  "DepartmentLogoPath",
+  "DepartmentSlack",
+  "InterviewRoom",
+  "InterviewVerification",
+  "Receipt",
+  "TeamInterest",
+  "TimeTable",
+];
 
 const startNativeDatabase = async (dataRoot: string, port: number): Promise<void> => {
   await run([
@@ -722,14 +812,13 @@ const runRehearsal = async (temporaryRoot: string) => {
       )
     ).split("\n");
 
-    const entityTables = await doctrineEntityTables();
+    const entityTables = legacyEntityTables;
     const migrationTables = tableNames.filter((name) => name === "migration_versions");
 
     const relationTables = tableNames.filter(
       (name) => !entityTables.has(name) && name !== "migration_versions",
     );
 
-    assert.equal(entityTables.size, expectedLegacyInventory.entityTables);
     assert.equal(relationTables.length, expectedLegacyInventory.relationTables);
     assert.equal(migrationTables.length, expectedLegacyInventory.migrationTables);
     assert.deepEqual(
@@ -744,12 +833,7 @@ const runRehearsal = async (temporaryRoot: string) => {
       .split("\n")
       .map((version) => version.replace(/^.*Version/, ""));
 
-    const declaredMigrationIds = (await readdir(join(repositoryRoot, "apps/server/migrations")))
-      .filter((name) => /^Version.+\.php$/.test(name))
-      .map((name) => name.slice("Version".length, -".php".length))
-      .sort();
-
-    assert.equal(declaredMigrationIds.length, expectedLegacyInventory.declaredMigrations);
+    const declaredMigrationIds = legacyDeclaredMigrationIds;
     assert.deepEqual(
       appliedMigrationIds.filter((migration) => !declaredMigrationIds.includes(migration)),
       [],
