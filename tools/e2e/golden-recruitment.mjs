@@ -245,6 +245,17 @@ export const createRecruitmentObserver = (pool, mailbox) => {
     n("assistant_placements", at("placed") ? 1 : 0);
     n("assistant_placement_audit", at("placed") ? 1 : 0);
 
+    if (at("assigned")) {
+      const application = facts.applications.find(
+        (a) => a.email === recruitmentPeople.applicant.email,
+      );
+      assert.equal(facts.interviews[0].application_id, application.application_id);
+      assert.equal(facts.interviews[0].interviewer_person_id, recruitmentPeople.leader.personId);
+
+      if (at("recommended"))
+        assert.equal(facts.conducts[0].interview_id, facts.interviews[0].interview_id);
+    }
+
     if (at("responded")) assert.deepEqual(facts.responses, ["Accepted"]);
 
     if (at("recommended"))

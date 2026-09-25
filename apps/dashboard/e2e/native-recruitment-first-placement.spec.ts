@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test, type Page, type Locator } from "@playwright/test";
+import { expect, test, type Page, type Locator, type BrowserContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { Predicate } from "effect";
 
@@ -44,7 +44,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
   const network: Array<{ method: string; path: string; status: number }> = [];
   const steps: string[] = [];
 
-  for (const context of contexts) {
+  const capture = (context: BrowserContext) => {
     context.on("page", (page) => page.on("pageerror", (error) => pageErrors.push(error.name)));
 
     for (const page of context.pages())
@@ -58,7 +58,9 @@ test("continuous recruitment to first placement", async ({ browser }) => {
         status: response.status(),
       });
     });
-  }
+  };
+
+  contexts.forEach(capture);
 
   const checkpoint = async (step: string) => {
     const response = await staff.request.post(m.observerOrigin + "/observe/" + step);
@@ -284,11 +286,22 @@ test("continuous recruitment to first placement", async ({ browser }) => {
 
     await signIn(wrong, m.persons.wrongDepartment, "/dashboard");
 
-    const wrongResult = await wrong.request.post(m.dashboardOrigin + placements, {
-      form: { ...fields, transition: "Establish" },
-    });
+    const wrongResult = await wrong.request.post(
+      m.backendOrigin +
+        "/api/placements?" +
+        new URLSearchParams({ departmentId: m.departmentId, semesterId: m.semesterId }),
+      {
+        headers: {
+          origin: m.dashboardOrigin,
+          "if-match": fields.etag,
+          "idempotency-key": fields.commandId,
+        },
+        data: { action: "Affiliation", personId: fields.personId, transition: "Establish" },
+      },
+    );
 
-    expect(wrongResult.status()).toBe(409);
+    expect(wrongResult.status()).toBe(403);
+    expect((await wrongResult.json()).code).toBe("authority.denied");
     await checkpoint("wrong-scope-denied");
     await card(staff, "Ada Rekrutt").getByRole("button", { name: "Godkjenn tilknytning" }).click();
     await saved(card(staff, "Ada Rekrutt").locator("form"));
@@ -310,6 +323,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
     await contexts[1].close();
     const fresh = await browser.newContext({ viewport: { width: 390, height: 844 } });
     contexts.push(fresh);
+    capture(fresh);
     const volunteer = await fresh.newPage();
     await signIn(volunteer, m.persons.applicant, placements);
     await expect(volunteer.locator("[data-placement-id]")).toHaveCount(1);
