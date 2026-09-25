@@ -47,10 +47,13 @@ test("continuous recruitment to first placement", async ({ browser }) => {
   const capture = (context: BrowserContext) => {
     context.setDefaultTimeout(10_000);
     context.setDefaultNavigationTimeout(20_000);
-    context.on("page", (page) => page.on("pageerror", (error) => pageErrors.push(error.name)));
 
-    for (const page of context.pages())
+    const capturePage = (page: Page) =>
       page.on("pageerror", (error) => pageErrors.push(error.name));
+
+    context.pages().forEach(capturePage);
+    context.on("page", capturePage);
+
     context.on("response", (response) => {
       const url = new URL(response.url());
       // Never retain link capabilities, query strings, bodies, or headers.
