@@ -46,7 +46,7 @@ export default function Layout() {
 function DevContentBanner({ requestInfo }: { requestInfo: HomepageRequest }) {
   return (
     <aside
-      className="mx-auto mt-4 w-[calc(100%-2rem)] max-w-6xl rounded-lg border-2 border-amber-500 bg-amber-100 px-4 py-3 text-center font-semibold text-amber-950 shadow-sm"
+      className="mx-auto mt-4 w-[calc(100%-2rem)] max-w-6xl rounded-lg border-2 border-amber-500 bg-amber-100 px-4 py-3 text-center font-semibold text-amber-950 shadow-sm wrap-anywhere"
       data-testid="dev-content-banner"
     >
       DEV CONTENT · {requestInfo.stage} · {requestInfo.host} · {DEV_CONTENT_SOURCE} · {BUILD_COMMIT}{" "}
