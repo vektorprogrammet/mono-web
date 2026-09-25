@@ -103,9 +103,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - PR previews (operator decision, 2026-09-25): keep Cloudflare frontend previews for now; they need the `CLOUDFLARE_API_TOKEN` repository secret (operator step).
   Later, move to full-stack per-PR previews on DigitalOcean App Platform (`digitalocean/app_action` with `deploy_pr_preview`) so previews rehearse the production platform.
   The [PR preview contract](docs/specs/worker-pr-previews.md) requires workspace validation before deployment. `.github/workflows/preview-pr.yml` only builds.
-- Hosted CI at `49f38ccc` fails. `Tests` run `36118163912` fails the PHPUnit suite, `TypeScript (build, test)`, native identity (PostgreSQL lifecycle),
-  native identity browser evidence, and public applicant browser jobs.
-  Hosted Alchemy deployment is unobserved.
+- Hosted `Tests` run `36191536836` passed every job at `6c812703`, including the PostgreSQL 17 lane. Hosted Alchemy deployment is unobserved.
 - The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
 - `devenv shell` is the toolchain entry: Bun, Node, PostgreSQL, openssl, Chromium, and prek Git hooks; `--profile legacy` adds PHP, Composer, and MariaDB. CI runs in the same shell; its hosted cost is unmeasured.
 
