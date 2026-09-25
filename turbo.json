@@ -1,6 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalEnv": ["VEKTOR_POSTGRES_MAJOR"],
   "tasks": {
     "build": {
       "dependsOn": ["^build", "generate"],

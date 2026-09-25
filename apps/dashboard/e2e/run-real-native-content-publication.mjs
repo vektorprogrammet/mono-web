@@ -7,7 +7,7 @@ import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { postgresMajor, postgresProgram } from "@monoweb/postgres";
+import { selectedPostgresMajor, postgresProgram } from "@monoweb/postgres";
 import {
   emitNativeRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
@@ -420,9 +420,9 @@ try {
   postgres = start(
     postgresProgram("postgres"),
     ["-D", postgresData, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
-    { cwd: repositoryRoot, env: process.env, label: `PostgreSQL ${postgresMajor}` },
+    { cwd: repositoryRoot, env: process.env, label: `PostgreSQL ${selectedPostgresMajor}` },
   );
-  await waitForPort(postgresPort, `PostgreSQL ${postgresMajor} startup`);
+  await waitForPort(postgresPort, `PostgreSQL ${selectedPostgresMajor} startup`);
   run(
     postgresProgram("createdb"),
     ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", "content_e2e_0062"],

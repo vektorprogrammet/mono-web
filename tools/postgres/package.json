@@ -7,13 +7,15 @@
     ".": "./index.ts"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {
     "@types/node": "^22",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "catalog:effect-v4"
   }
 }

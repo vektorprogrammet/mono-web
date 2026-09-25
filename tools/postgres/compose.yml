@@ -1,9 +1,9 @@
 # Disposable PostgreSQL for journey runners with the Docker topology.
-# Runners pass VEKTOR_POSTGRES_MAJOR from the root manifest (engines.postgresql)
+# Runners pass the selected VEKTOR_POSTGRES_MAJOR (one of package.json engines.postgresql)
 # on every compose command. The image keeps its data in an anonymous volume.
 services:
   receipt-postgres:
-    image: postgres:${VEKTOR_POSTGRES_MAJOR:?set it from package.json engines.postgresql}-alpine
+    image: postgres:${VEKTOR_POSTGRES_MAJOR:?set it to a major of package.json engines.postgresql}-alpine
     environment:
       POSTGRES_DB: receipt_proof
       POSTGRES_USER: receipt
