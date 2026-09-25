@@ -7,7 +7,7 @@ import {
   Problem,
 } from "@vektorprogrammet/http-api/http-semantics";
 import { Cause, Match, Predicate, type Schema } from "effect";
-import { problemWebResponse } from "../http-api/problem.js";
+import { isSerializationConflict, problemWebResponse } from "../http-api/problem.js";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 
 /** Keeps admission-classified failures and wraps every other thrown value as unknown. */
@@ -90,9 +90,16 @@ const classifiedAdmissionFailure = (cause: unknown): Response | undefined => {
       Match.when(Predicate.isTagged("NativeHttpReceiptExpiredError"), () => {
         return nativeProblemResponse("idempotency.response-expired", 409);
       }),
-      Match.when(Predicate.isTagged("NativeHttpReceiptPersistenceError"), () => {
-        return nativeProblemResponse("idempotency.unavailable", 503);
-      }),
+      // A race still lost after the executor's one retry is a conflict, not an outage.
+      Match.when(Predicate.isTagged("NativeHttpReceiptPersistenceError"), (failure) =>
+        isSerializationConflict(failure)
+          ? nativeProblemResponse("transaction.conflict", 409)
+          : nativeProblemResponse("idempotency.unavailable", 503),
+      ),
+      // An invalid receipt identity or response capsule is a server defect.
+      Match.when(Predicate.isTagged("NativeHttpReceiptInvalid"), () =>
+        nativeProblemResponse("internal.error", 500),
+      ),
       Match.orElse(() => undefined),
     );
 
