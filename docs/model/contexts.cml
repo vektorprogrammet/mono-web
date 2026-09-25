@@ -27,6 +27,10 @@
  * - The payment destination is Economy-private data keyed by the payment-authority grant.
  * - Contact submission is anonymous and rate limited; the homepage deployment secret names no principal.
  * - School contacts are data, not principals or role holders.
+ * - Only board positions reach a department; an ordinary team leader acts within the team.
+ * - A delegation is explicit, named and time-bounded: team T holds capability C for department D.
+ *   Global administrators manage delegations. There are no roles by team kind.
+ * - The global-administrator grant keeps its organisational actions for now.
  *
  * Conventions used in this file:
  * - Identity value objects (XId) are declared once, in the owning context. Downstream contexts hold
@@ -40,7 +44,9 @@
  *   capability and whose reach covers X (a department board reaches its department, the national board
  *   every department). "coordinator(X)" is a board seat covering X whose position carries a placement
  *   or coverage capability. "global.administrator" is an active principal-side grant. A named
- *   requirement is written "requirement <id>"; it restricts a permit and never grants one.
+ *   requirement is written "requirement <id>"; it restricts a permit and never grants one. Where a
+ *   requirement names "board.seat covering D" for a capability C, an active delegation of C for D to
+ *   a team on which the person holds a current appointment also satisfies it.
  * - Invariants are doc strings that start with "invariant:" on the aggregate.
  * - Lifecycle enums hold persisted states only. Time-derived states (Future/Current/Ended appointment,
  *   Open/Closed intake, Overdue commitment) are policies over state and an instant, not stored states.
@@ -413,7 +419,7 @@ BoundedContext AccessControl implements IdentityAndAccess {
   responsibilities = "Principal algebra", "Role algebra", "Capability registry", "Grants", "Capability interpreter", "Relationship fact port"
   implementationTechnology = "Pure interpreter in the domain package; each fact-owning context implements the fact port in its adapter"
 
-  "invariant: a request that presents more than one credential is denied, whatever their kinds; a requirement token is not a credential. invariant: a service principal inherits no human role. invariant: roles and principal-side grants are independent: a seat confers no grant, and ending a grant removes no role authority. invariant: system administration is permitted only through an active global-administrator grant. invariant: at least one usable global administrator exists after every committed command."
+  "invariant: a request that presents more than one credential is denied, whatever their kinds; a requirement token is not a credential. invariant: a service principal inherits no human role. invariant: roles and principal-side grants are independent: a seat confers no grant, and ending a grant removes no role authority. invariant: system administration is permitted only through an active global-administrator grant. invariant: a delegation never carries system administration. invariant: at least one usable global administrator exists after every committed command."
   Aggregate PrincipalAlgebra {
     responsibilities = "Who acts, under which credential, over which scope, and with what outcome"
 
@@ -518,7 +524,7 @@ BoundedContext AccessControl implements IdentityAndAccess {
 
   "invariant: a grant interval is half-open and startAt < endAt when endAt is present. invariant: grants of one capability to one subject over one area do not overlap. invariant: ending and revoking have one meaning for every grant kind. invariant: a grant carries no private data."
   Aggregate Grants {
-    responsibilities = "Explicit, time-bound authority: global administration (system administration, with a one-time bootstrap grant at cutover), payment authority, receipt approval, receipt settlement, service-principal grants and delegated rules. No role implies a grant."
+    responsibilities = "Explicit, time-bound authority: global administration (system administration, with a one-time bootstrap grant at cutover), payment authority, receipt approval, receipt settlement, service-principal grants and delegated rules. No role implies a grant. The global-administrator grant keeps its organisational actions for now."
 
     Entity Grant {
       aggregateRoot
@@ -545,8 +551,35 @@ BoundedContext AccessControl implements IdentityAndAccess {
     }
   }
 
+  "A delegation is explicit, named and time-bounded: team T holds capability C for department D. While it is active, it gives C in D to the current members of T. invariant: the interval is half-open. invariant: a delegation carries no system administration. invariant: ending a delegation removes only the authority that it gave. There are no roles by team kind."
+  Aggregate Delegations {
+    Entity Delegation {
+      aggregateRoot
+      - DelegationId delegationId
+      String name
+      TeamId delegatedTeam
+      - CapabilityType capability
+      DepartmentId delegatedDepartment
+      Instant startAt
+      Instant endAt
+      int revision
+      - DelegationLifecycle lifecycle
+      "capability: access.delegations.manage; requirement: global.administrator; scope: global; decisionTime: Transaction. Global administrators manage delegations."
+      def void issueDelegation(String name, TeamId delegatedTeam, @CapabilityType capability, DepartmentId delegatedDepartment, Instant startAt) : write [ -> ActiveDelegation ];
+      "capability: access.delegations.manage; requirement: global.administrator; scope: global; decisionTime: Transaction"
+      def void endDelegation(Instant endAt, int expectedRevision) : write [ ActiveDelegation -> EndedDelegation* ];
+    }
+    ValueObject DelegationId {
+      String value key
+    }
+    enum DelegationLifecycle {
+      aggregateLifecycle
+      ActiveDelegation, EndedDelegation
+    }
+  }
+
   Service RelationshipFactPort {
-    "Implemented by each fact-owning context inside the caller's transaction: Organization (team member, team leader, board seat with its position), Recruitment (interviewer, co-interviewer), Economy (receipt owner), Placements (affiliation, placement, roster member, offer candidate), Substitutes (pool member) and Admissions (applicant, through the applicant link). Each owner normalizes its status to an interval and a status. School contacts are data and hold no role."
+    "Implemented by each fact-owning context inside the caller's transaction: Organization (team member, team leader, board seat with its position), Recruitment (interviewer, co-interviewer), Economy (receipt owner), Placements (affiliation, placement, roster member, offer candidate), Substitutes (pool member) and Admissions (applicant, through the applicant link). Delegations reach the current members of the named team through Organization's appointments. Each owner normalizes its status to an interval and a status. School contacts are data and hold no role."
     boolean relationshipIsActive(PersonId person, @ResourceScope resource, Instant instant) : read-only;
     boolean relationshipCovers(PersonId person, @Scope grantScope, Instant instant) : read-only;
   }
@@ -797,7 +830,7 @@ BoundedContext AcademicCalendar implements AcademicCalendarDomain {
 
 BoundedContext Organization implements OrganizationStructure {
   type = FEATURE
-  domainVisionStatement = "Local departments, teams, department boards (Styret), the national board (Hovedstyret), positions and effective-dated appointments. Units are scopes, never holders: an ordinary team sits at its own scope, a department board at its department, the national board at national scope. Appointments are relationship facts that AccessControl reads. A board position carries capabilities with its board's reach; a label is never authority. A Hovedstyret seat does not make a person a global administrator."
+  domainVisionStatement = "Local departments, teams, department boards (Styret), the national board (Hovedstyret), positions and effective-dated appointments. Units are scopes, never holders: an ordinary team sits at its own scope, a department board at its department, the national board at national scope. Appointments are relationship facts that AccessControl reads. A board position carries capabilities with its board's reach; a label is never authority. A Hovedstyret seat does not make a person a global administrator. An ordinary team leader acts within the team. A functional team is an ordinary team; its department work comes only from delegations."
   responsibilities = "Departments", "Teams", "Department boards", "National board", "Positions", "Appointments", "Fields of study", "Team interest"
 
   Aggregate Department {
@@ -822,7 +855,7 @@ BoundedContext Organization implements OrganizationStructure {
     }
   }
 
-  "invariant: a department has at most one department board (Styret). A department board sits at its department's scope; an ordinary team sits at its own scope."
+  "invariant: a department has at most one department board (Styret). A department board sits at its department's scope; an ordinary team sits at its own scope. The kind is not a role: there are no roles by team kind."
   Aggregate Team {
     Entity Team {
       aggregateRoot
