@@ -3,6 +3,7 @@ import {
   postgresComposeFile,
   postgresProgram,
 } from "@monoweb/postgres";
+import { ReadReceiptEvidenceEndpoint } from "@vektorprogrammet/http-api";
 import { Predicate } from "effect";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -788,8 +789,9 @@ async function main() {
           env: internalApiEnvironment,
         });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
+    // Internal ingress mounts only the internal API; its evidence route answers once it is up.
     await waitForHttp(
-      `${internalBackendOrigin}/api/e2e/receipts/readiness/evidence`,
+      `${internalBackendOrigin}${ReadReceiptEvidenceEndpoint.path.replace(":receiptId", "readiness")}`,
       internalApiProcess,
       "Internal native backend",
     );

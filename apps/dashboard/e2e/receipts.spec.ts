@@ -11,6 +11,7 @@ import {
 } from "@playwright/test";
 import {
   NativeProblem,
+  ReadReceiptEvidenceEndpoint,
   ReceiptLifecycleEvidenceResponse,
   ReceiptListResponse,
   ReceiptResource,
@@ -243,10 +244,14 @@ async function captureLifecycleEvidence(
     readonly committed: ReadonlyArray<string>;
   };
 }> {
-  const response = await request.get(
-    `${INTERNAL_BACKEND_ORIGIN}/api/e2e/receipts/${encodeURIComponent(receiptId)}/evidence`,
-    { headers: sessionHeaders(sessionCookie) },
+  const evidencePath = ReadReceiptEvidenceEndpoint.path.replace(
+    ":receiptId",
+    encodeURIComponent(receiptId),
   );
+
+  const response = await request.get(`${INTERNAL_BACKEND_ORIGIN}${evidencePath}`, {
+    headers: sessionHeaders(sessionCookie),
+  });
 
   expect(response.status()).toBe(200);
   const stagingRoot = process.env.RECEIPT_E2E_STAGING_ROOT;
