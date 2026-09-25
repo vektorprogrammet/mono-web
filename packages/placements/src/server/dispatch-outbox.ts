@@ -5,7 +5,7 @@ import {
   type SchoolServiceDispatchNotificationRequest as SchoolServiceDispatchNotificationRequestType,
 } from "@vektorprogrammet/placements/contracts";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { flow, Data, Predicate, Effect, Schema } from "effect";
+import { flow, Data, DateTime, Predicate, Effect, Schema } from "effect";
 import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import {
   markOutboxDelivered,
@@ -60,7 +60,9 @@ export type SchoolServiceDispatchNotificationDeliveryResult =
       readonly claim: ClaimedSchoolServiceDispatchNotification;
       readonly failureTag: string;
     }
-  | { readonly _tag: "Quarantined"; readonly effectId: string; readonly failureTag: string };
+  | { readonly _tag: "Quarantined"; readonly effectId: string; readonly failureTag: string }
+  /** The claim was recovered or replaced first, so its outcome was not recorded. */
+  | { readonly _tag: "ClaimLost"; readonly effectId: string };
 
 export const SchoolServiceDispatchNotificationDeliveryResult =
   Data.taggedEnum<SchoolServiceDispatchNotificationDeliveryResult>();
@@ -310,10 +312,16 @@ export const deliverNextSchoolServiceDispatchNotification = (
               Effect.fail(outboxError("fail school service dispatch notification", cause)),
             ),
           ),
+        // Record when the provider acknowledged, not when the claim was taken.
         onSuccess: () =>
-          Database.use((sql) =>
-            markOutboxDelivered(sql, dispatchOutbox, claim, { deliveredAt: claimedAt }),
-          ).pipe(
+          DateTime.now.pipe(
+            Effect.flatMap((acknowledgedAt) =>
+              Database.use((sql) =>
+                markOutboxDelivered(sql, dispatchOutbox, claim, {
+                  deliveredAt: DateTime.formatIso(acknowledgedAt),
+                }),
+              ),
+            ),
             Effect.as(SchoolServiceDispatchNotificationDeliveryResult.Delivered({ claim })),
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(outboxError("deliver school service dispatch notification", cause)),
@@ -321,4 +329,8 @@ export const deliverNextSchoolServiceDispatchNotification = (
           ),
       }),
     );
-  });
+  }).pipe(
+    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+      Effect.succeed(SchoolServiceDispatchNotificationDeliveryResult.ClaimLost({ effectId })),
+    ),
+  );

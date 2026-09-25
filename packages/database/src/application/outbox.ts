@@ -2,6 +2,7 @@ import { Database } from "../service.js";
 import {
   markOutboxDelivered,
   markOutboxFailed,
+  type OutboxClaimLost,
   outboxClaimAssignments,
   quarantineOutboxClaim,
   recoverStaleOutboxClaims,
@@ -61,7 +62,9 @@ export type PublicApplicationOutboxDeliveryResult =
       readonly _tag: "Failed";
       readonly claim: ClaimedPublicApplicationOutbox;
       readonly failureTag: string;
-    };
+    }
+  /** The claim was recovered or replaced first, so its outcome was not recorded. */
+  | { readonly _tag: "ClaimLost"; readonly effectId: string };
 
 export const PublicApplicationOutboxDeliveryResult =
   Data.taggedEnum<PublicApplicationOutboxDeliveryResult>();
@@ -82,16 +85,14 @@ export const claimNextPublicApplicationOutbox = (
   claimedAt: string,
 ): Effect.Effect<
   ClaimedPublicApplicationOutbox | undefined,
-  PublicApplicationPersistenceError,
+  PublicApplicationPersistenceError | OutboxClaimLost,
   Database
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
 
     const quarantine = (effectId: string, failureTag: string) =>
-      quarantineOutboxClaim(sql, applicationOutbox, { effectId, claimId }, failureTag).pipe(
-        Effect.asVoid,
-      );
+      quarantineOutboxClaim(sql, applicationOutbox, { effectId, claimId }, failureTag);
 
     return yield* sql
       .withTransaction(
@@ -281,23 +282,17 @@ export const claimNextPublicApplicationOutbox = (
 
 export const completePublicApplicationOutbox = (
   claim: ClaimedPublicApplicationOutbox,
-): Effect.Effect<void, PublicApplicationPersistenceError, Database> =>
+): Effect.Effect<void, PublicApplicationPersistenceError | OutboxClaimLost, Database> =>
   Database.use((sql) => markOutboxDelivered(sql, applicationOutbox, claim)).pipe(
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("complete application outbox"))),
-    Effect.flatMap((delivered) =>
-      delivered ? Effect.void : Effect.fail(persistenceError("complete application outbox")),
-    ),
   );
 
 export const failPublicApplicationOutbox = (
   claim: ClaimedPublicApplicationOutbox,
   failureTag: string,
-): Effect.Effect<void, PublicApplicationPersistenceError, Database> =>
+): Effect.Effect<void, PublicApplicationPersistenceError | OutboxClaimLost, Database> =>
   Database.use((sql) => markOutboxFailed(sql, applicationOutbox, claim, failureTag)).pipe(
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("fail application outbox"))),
-    Effect.flatMap((failed) =>
-      failed ? Effect.void : Effect.fail(persistenceError("fail application outbox")),
-    ),
   );
 
 export const releasePublicApplicationOutbox = (
@@ -306,7 +301,6 @@ export const releasePublicApplicationOutbox = (
   Database.use((sql) =>
     releaseOutboxClaim(sql, applicationOutbox, claim, "InterruptedPublicApplicationOutboxClaim"),
   ).pipe(
-    Effect.asVoid,
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("release application outbox"))),
   );
 
@@ -339,7 +333,7 @@ export const deliverNextPublicApplicationOutbox = (
       claim,
     ): Effect.Effect<
       PublicApplicationOutboxDeliveryResult,
-      PublicApplicationPersistenceError,
+      PublicApplicationPersistenceError | OutboxClaimLost,
       Database
     > => {
       if (claim === undefined) return Effect.succeed(PublicApplicationOutboxDeliveryResult.Idle());
@@ -360,4 +354,8 @@ export const deliverNextPublicApplicationOutbox = (
       );
     },
     (claim) => (claim === undefined ? Effect.void : releasePublicApplicationOutbox(claim)),
+  ).pipe(
+    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+      Effect.succeed(PublicApplicationOutboxDeliveryResult.ClaimLost({ effectId })),
+    ),
   );

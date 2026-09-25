@@ -551,6 +551,16 @@ export const databaseMigrationDefinitions = [
     name: "team-applications",
     url: new URL("../migrations/0069-team-applications.sql", import.meta.url),
   },
+  {
+    id: "70_receipt-outbox-quarantine",
+    name: "receipt-outbox-quarantine",
+    url: new URL("../migrations/0070-receipt-outbox-quarantine.sql", import.meta.url),
+  },
+  {
+    id: "71_upgrade-constraint-convergence",
+    name: "upgrade-constraint-convergence",
+    url: new URL("../migrations/0071-upgrade-constraint-convergence.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

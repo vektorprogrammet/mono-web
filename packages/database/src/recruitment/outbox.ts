@@ -3,6 +3,7 @@ import { Database, type DatabaseOperations } from "../service.js";
 import {
   markOutboxDelivered,
   markOutboxFailed,
+  type OutboxClaimLost,
   outboxClaimAssignments,
   quarantineOutboxClaim,
   recoverStaleOutboxClaims,
@@ -140,7 +141,9 @@ export type RecruitmentInvitationDeliveryResult =
       readonly _tag: "Failed";
       readonly claim: ClaimedRecruitmentInvitation;
       readonly failureTag: string;
-    };
+    }
+  /** The claim was recovered or replaced first, so its outcome was not recorded. */
+  | { readonly _tag: "ClaimLost"; readonly effectId: string };
 
 export const RecruitmentInvitationDeliveryResult =
   Data.taggedEnum<RecruitmentInvitationDeliveryResult>();
@@ -168,15 +171,10 @@ const quarantineAndSkip = (
   sql: DatabaseOperations,
   row: Pick<ClaimedInvitationRow, "effectId" | "claimId">,
   failureTag: string,
-): Effect.Effect<undefined, RecruitmentPersistenceError> =>
+): Effect.Effect<undefined, RecruitmentPersistenceError | OutboxClaimLost> =>
   quarantineOutboxClaim(sql, invitationOutbox, row, failureTag).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("quarantine invitation outbox claim", cause)),
-    ),
-    Effect.flatMap((quarantined) =>
-      quarantined
-        ? Effect.void
-        : Effect.fail(persistenceError("quarantine missing invitation outbox claim")),
     ),
     Effect.as(undefined),
   );
@@ -256,14 +254,14 @@ const canonicalEnvelopeMatches = (
   );
 };
 
-const validateEnvelope = (
+const validateEnvelope = <E>(
   sql: DatabaseOperations,
   admissions: AdmissionsOperations,
   profile: ProfileOperations,
   rawRow: ClaimedInvitationRow,
   claimId: string,
-  reject: (tag: string) => Effect.Effect<undefined, RecruitmentPersistenceError>,
-): Effect.Effect<ClaimedRecruitmentInvitation | undefined, RecruitmentPersistenceError> =>
+  reject: (tag: string) => Effect.Effect<undefined, E>,
+): Effect.Effect<ClaimedRecruitmentInvitation | undefined, RecruitmentPersistenceError | E> =>
   Effect.gen(function* () {
     const decodedRow = yield* decodeForClaim(ClaimedInvitationRowSchema)(rawRow);
 
@@ -487,7 +485,10 @@ const claimInTransaction = (
   profile: ProfileOperations,
   claimId: string,
   claimedAt: string,
-): Effect.Effect<ClaimedRecruitmentInvitation | undefined, RecruitmentPersistenceError> =>
+): Effect.Effect<
+  ClaimedRecruitmentInvitation | undefined,
+  RecruitmentPersistenceError | OutboxClaimLost
+> =>
   Effect.gen(function* () {
     const candidates = yield* sql<{ readonly effectId: string }>`
         SELECT outbox.effect_id AS "effectId"
@@ -581,7 +582,7 @@ export const claimNextRecruitmentInvitation = (
   claimedAt: string,
 ): Effect.Effect<
   ClaimedRecruitmentInvitation | undefined,
-  RecruitmentPersistenceError,
+  RecruitmentPersistenceError | OutboxClaimLost,
   Admissions | Database | Profile
 > =>
   Effect.gen(function* () {
@@ -601,30 +602,27 @@ export const claimNextRecruitmentInvitation = (
 export const completeRecruitmentInvitation = (
   claim: ClaimedRecruitmentInvitation,
   evidence: RecruitmentNotificationEvidence,
-): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
-  Database.use((sql) =>
-    markOutboxDelivered(sql, invitationOutbox, claim, { deliveredAt: evidence.deliveredAt }),
-  ).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("complete invitation outbox claim", cause)),
-    ),
-    Effect.flatMap((delivered) =>
-      delivered
-        ? Effect.void
-        : Effect.fail(persistenceError("complete missing invitation outbox claim")),
-    ),
-  );
+): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
+  Effect.gen(function* () {
+    if (evidence.effectId !== claim.effectId)
+      return yield* persistenceError("invitation delivery evidence effect mismatch");
+
+    yield* Database.use((sql) =>
+      markOutboxDelivered(sql, invitationOutbox, claim, { deliveredAt: evidence.deliveredAt }),
+    ).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("complete invitation outbox claim", cause)),
+      ),
+    );
+  });
 
 export const failRecruitmentInvitation = (
   claim: ClaimedRecruitmentInvitation,
   failureTag: string,
-): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
+): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
   Database.use((sql) => markOutboxFailed(sql, invitationOutbox, claim, failureTag)).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("fail invitation outbox claim", cause)),
-    ),
-    Effect.flatMap((failed) =>
-      failed ? Effect.void : Effect.fail(persistenceError("fail missing invitation outbox claim")),
     ),
   );
 
@@ -634,7 +632,6 @@ export const releaseRecruitmentInvitation = (
   Database.use((sql) =>
     releaseOutboxClaim(sql, invitationOutbox, claim, "InterruptedRecruitmentInvitationClaim"),
   ).pipe(
-    Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("release invitation outbox claim", cause)),
     ),
@@ -668,7 +665,7 @@ export const deliverNextRecruitmentInvitation = (
       claim,
     ): Effect.Effect<
       RecruitmentInvitationDeliveryResult,
-      RecruitmentPersistenceError,
+      RecruitmentPersistenceError | OutboxClaimLost,
       Admissions | Database | NotificationGateway | Profile
     > => {
       if (claim === undefined) return Effect.succeed(RecruitmentInvitationDeliveryResult.Idle());
@@ -693,6 +690,10 @@ export const deliverNextRecruitmentInvitation = (
       });
     },
     (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInvitation(claim)),
+  ).pipe(
+    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+      Effect.succeed(RecruitmentInvitationDeliveryResult.ClaimLost({ effectId })),
+    ),
   );
 
 export const invitationPayloadForEvidence = (request: RecruitmentInvitationOutboxRequest): string =>

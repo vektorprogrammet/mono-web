@@ -4,6 +4,7 @@ import { Database, type DatabaseOperations } from "../service.js";
 import {
   markOutboxDelivered,
   markOutboxFailed,
+  type OutboxClaimLost,
   outboxClaimAssignments,
   quarantineOutboxClaim,
   recoverStaleOutboxClaims,
@@ -121,7 +122,9 @@ export type RecruitmentInvitationResponseDeliveryResult =
       readonly _tag: "Failed";
       readonly claim: ClaimedRecruitmentInvitationResponse;
       readonly failureTag: string;
-    };
+    }
+  /** The claim was recovered or replaced first, so its outcome was not recorded. */
+  | { readonly _tag: "ClaimLost"; readonly effectId: string };
 
 export const RecruitmentInvitationResponseDeliveryResult =
   Data.taggedEnum<RecruitmentInvitationResponseDeliveryResult>();
@@ -150,15 +153,10 @@ const quarantineAndSkip = (
   sql: DatabaseOperations,
   row: Pick<ClaimedInvitationResponseRow, "effectId" | "claimId">,
   failureTag: string,
-): Effect.Effect<undefined, RecruitmentPersistenceError> =>
+): Effect.Effect<undefined, RecruitmentPersistenceError | OutboxClaimLost> =>
   quarantineOutboxClaim(sql, responseOutbox, row, failureTag).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("quarantine invitation response claim", cause)),
-    ),
-    Effect.flatMap((quarantined) =>
-      quarantined
-        ? Effect.void
-        : Effect.fail(persistenceError("quarantine missing invitation response claim")),
     ),
     Effect.as(undefined),
   );
@@ -198,14 +196,17 @@ const canonicalEnvelopeMatches = (
   );
 };
 
-const validateEnvelope = (
+const validateEnvelope = <E>(
   sql: DatabaseOperations,
   admissions: AdmissionsOperations,
   profile: ProfileOperations,
   rawRow: ClaimedInvitationResponseRow,
   claimId: string,
-  reject: (tag: string) => Effect.Effect<undefined, RecruitmentPersistenceError>,
-): Effect.Effect<ClaimedRecruitmentInvitationResponse | undefined, RecruitmentPersistenceError> =>
+  reject: (tag: string) => Effect.Effect<undefined, E>,
+): Effect.Effect<
+  ClaimedRecruitmentInvitationResponse | undefined,
+  RecruitmentPersistenceError | E
+> =>
   Effect.gen(function* () {
     const decodedRow = yield* decodeForClaim(ClaimedInvitationResponseRowSchema)(rawRow);
 
@@ -378,7 +379,10 @@ const claimInTransaction = (
   profile: ProfileOperations,
   claimId: string,
   claimedAt: string,
-): Effect.Effect<ClaimedRecruitmentInvitationResponse | undefined, RecruitmentPersistenceError> =>
+): Effect.Effect<
+  ClaimedRecruitmentInvitationResponse | undefined,
+  RecruitmentPersistenceError | OutboxClaimLost
+> =>
   Effect.gen(function* () {
     const candidates = yield* sql<{ readonly effectId: string }>`
         SELECT outbox.effect_id AS "effectId"
@@ -476,7 +480,7 @@ export const claimNextRecruitmentInvitationResponse = (
   claimedAt: string,
 ): Effect.Effect<
   ClaimedRecruitmentInvitationResponse | undefined,
-  RecruitmentPersistenceError,
+  RecruitmentPersistenceError | OutboxClaimLost,
   Admissions | Database | Profile
 > =>
   Effect.gen(function* () {
@@ -496,32 +500,27 @@ export const claimNextRecruitmentInvitationResponse = (
 export const completeRecruitmentInvitationResponse = (
   claim: ClaimedRecruitmentInvitationResponse,
   evidence: RecruitmentNotificationEvidence,
-): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
-  Database.use((sql) =>
-    markOutboxDelivered(sql, responseOutbox, claim, { deliveredAt: evidence.deliveredAt }),
-  ).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("complete invitation response claim", cause)),
-    ),
-    Effect.flatMap((delivered) =>
-      delivered
-        ? Effect.void
-        : Effect.fail(persistenceError("complete missing invitation response claim")),
-    ),
-  );
+): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
+  Effect.gen(function* () {
+    if (evidence.effectId !== claim.effectId)
+      return yield* persistenceError("invitation response delivery evidence effect mismatch");
+
+    yield* Database.use((sql) =>
+      markOutboxDelivered(sql, responseOutbox, claim, { deliveredAt: evidence.deliveredAt }),
+    ).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("complete invitation response claim", cause)),
+      ),
+    );
+  });
 
 export const failRecruitmentInvitationResponse = (
   claim: ClaimedRecruitmentInvitationResponse,
   failureTag: string,
-): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
+): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
   Database.use((sql) => markOutboxFailed(sql, responseOutbox, claim, failureTag)).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("fail invitation response claim", cause)),
-    ),
-    Effect.flatMap((failed) =>
-      failed
-        ? Effect.void
-        : Effect.fail(persistenceError("fail missing invitation response claim")),
     ),
   );
 
@@ -531,7 +530,6 @@ export const releaseRecruitmentInvitationResponse = (
   Database.use((sql) =>
     releaseOutboxClaim(sql, responseOutbox, claim, "InterruptedRecruitmentInvitationResponseClaim"),
   ).pipe(
-    Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("release invitation response claim", cause)),
     ),
@@ -565,7 +563,7 @@ export const deliverNextRecruitmentInvitationResponse = (
       claim,
     ): Effect.Effect<
       RecruitmentInvitationResponseDeliveryResult,
-      RecruitmentPersistenceError,
+      RecruitmentPersistenceError | OutboxClaimLost,
       Admissions | Database | NotificationGateway | Profile
     > => {
       if (claim === undefined)
@@ -596,6 +594,10 @@ export const deliverNextRecruitmentInvitationResponse = (
       });
     },
     (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInvitationResponse(claim)),
+  ).pipe(
+    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+      Effect.succeed(RecruitmentInvitationResponseDeliveryResult.ClaimLost({ effectId })),
+    ),
   );
 
 export const invitationResponsePayloadForEvidence = (
