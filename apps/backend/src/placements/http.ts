@@ -1,6 +1,9 @@
 import { Scope } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/database";
-import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
+import {
+  executeNativeHttpCommandPostgres,
+  NativeHttpReceiptPersistenceError,
+} from "../http-api/receipt-transaction.js";
 import {
   AffiliationScope,
   CoverageCommand,
@@ -204,6 +207,10 @@ const errorResponse = (cause: unknown): Response => {
 
   if (sqlCode === "40001" || sqlCode === "40P01") {
     return nativeProblemResponse("transaction.conflict", 409);
+  }
+
+  if (cause instanceof NativeHttpReceiptPersistenceError) {
+    return nativeProblemResponse("idempotency.unavailable", 503);
   }
 
   return nativeProblemResponse("internal.error", 500);
