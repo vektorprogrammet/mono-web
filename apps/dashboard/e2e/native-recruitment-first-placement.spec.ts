@@ -312,7 +312,7 @@ test("continuous recruitment to first placement", async ({ browser }) => {
         headers: {
           origin: m.dashboardOrigin,
           "if-match": fields.etag,
-          "idempotency-key": fields.commandId,
+          "idempotency-key": "wrong-scope-approval",
         },
         data: { action: "Affiliation", personId: fields.personId, transition: "Establish" },
       },
