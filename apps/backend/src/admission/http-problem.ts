@@ -1,6 +1,7 @@
 /** Admission HTTP failure classification and JSON response helpers. */
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
+  isProblem,
   makeNativeValidationError,
   type NativeProblemCode,
   Problem,
@@ -70,6 +71,9 @@ const unavailableProblem = (problems: AdmissionEndpointProblems) => {
 /** Classifies one admission failure; an unclassified failure answers `undefined`. */
 const classifiedAdmissionFailure = (cause: unknown): Response | undefined => {
   while (Cause.isUnknownError(cause)) cause = cause.cause;
+
+  // A typed problem carries its own code; the registry renders its status and headers.
+  if (isProblem(cause)) return problemWebResponse(cause);
 
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(cause.code, cause.status);

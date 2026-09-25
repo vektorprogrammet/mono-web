@@ -1,37 +1,36 @@
 /** Admission request decoding: query strings, JSON bodies, and admission period merge patches. */
 import { AdmissionPeriodMergePatch } from "@vektorprogrammet/http-api";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Schema } from "effect";
+import { semanticProblems } from "../http-api/problem.js";
 import { readBoundedJson } from "../http-api/read-json.js";
 import { HttpSemanticFailure } from "../http-semantics.js";
 import type { AdmissionApiHttpOptions } from "./http-context.js";
 
+/** No admission operation takes query parameters, so any query string is malformed. */
 export const rejectQueryString = (request: Request) =>
-  new URL(request.url).search === ""
-    ? Effect.void
-    : Effect.fail(new HttpSemanticFailure("validation.failed", 422));
+  new URL(request.url).search === "" ? Effect.void : Effect.fail(Problem.make("request.malformed"));
 
-const boundedJsonWithTag = (request: Request, maxBytes: number) =>
-  readBoundedJson(request, maxBytes).pipe(
-    Effect.mapError((cause) =>
-      cause instanceof HttpSemanticFailure && cause.code === "request.too-large"
-        ? new HttpSemanticFailure("request.too-large", 413)
-        : new HttpSemanticFailure("validation.failed", 422),
-    ),
-  );
+/**
+ * Reads one JSON body in the operation's media type. Another media type is 415, and a
+ * body that is not bounded, well-formed JSON keeps the reader's 400 or 413 problem.
+ */
+const readJsonBody = (request: Request, mediaType: RegExp, maxBodyBytes: number) =>
+  mediaType.test(request.headers.get("content-type") ?? "")
+    ? semanticProblems(readBoundedJson(request, maxBodyBytes), [
+        "request.malformed",
+        "request.too-large",
+        "internal.error",
+      ])
+    : Effect.fail(Problem.make("media-type.unsupported"));
 
 export const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
   schema: S,
   maxBodyBytes: number,
-): Effect.Effect<S["Type"], HttpSemanticFailure> =>
+) =>
   Effect.gen(function* () {
-    const contentType = request.headers.get("content-type") ?? "";
-
-    if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(new HttpSemanticFailure("validation.failed", 422));
-    }
-
-    const body = yield* boundedJsonWithTag(request, maxBodyBytes);
+    const body = yield* readJsonBody(request, /^application\/json(?:\s*;|$)/iu, maxBodyBytes);
 
     return yield* Schema.decodeUnknownEffect(schema)(body, {
       onExcessProperty: "error",
@@ -40,18 +39,10 @@ export const decodeJson = <S extends Schema.ConstraintDecoder<unknown, never>>(
 
 export const decodeAdmissionPeriodPatch = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    const contentType = request.headers.get("content-type") ?? "";
-
-    if (!/^application\/merge-patch\+json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
-    }
-
-    const body = yield* readBoundedJson(request, input.config.maxBodyBytes).pipe(
-      Effect.mapError((cause) =>
-        cause instanceof HttpSemanticFailure && cause.code === "request.too-large"
-          ? new HttpSemanticFailure("request.too-large", 413)
-          : new HttpSemanticFailure("request.malformed", 400),
-      ),
+    const body = yield* readJsonBody(
+      request,
+      /^application\/merge-patch\+json(?:\s*;|$)/iu,
+      input.config.maxBodyBytes,
     );
 
     const patch = yield* Schema.decodeUnknownEffect(AdmissionPeriodMergePatch)(body, {

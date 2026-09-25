@@ -53,11 +53,6 @@ import { knownAdmissionFailure } from "./http-problem.js";
 export const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* rejectQueryString(request);
-    const contentType = request.headers.get("content-type") ?? "";
-
-    if (!/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-      return yield* Effect.fail(new HttpSemanticFailure("media-type.unsupported", 415));
-    }
 
     const payload = yield* decodeJson(
       request,

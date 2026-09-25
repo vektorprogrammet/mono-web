@@ -67,14 +67,20 @@ const fixture = () => {
 
   const submit = (
     idempotencyKey: string,
-    body: string = JSON.stringify(application),
-    contentType = "application/json",
+    request: {
+      readonly body?: string;
+      readonly contentType?: string;
+      readonly path?: string;
+    } = {},
   ) =>
     http.fetch(
-      new Request("http://backend.test/api/applications", {
+      new Request(`http://backend.test${request.path ?? "/api/applications"}`, {
         method: "POST",
-        headers: { "content-type": contentType, "idempotency-key": idempotencyKey.padEnd(22, "0") },
-        body,
+        headers: {
+          "content-type": request.contentType ?? "application/json",
+          "idempotency-key": idempotencyKey.padEnd(22, "0"),
+        },
+        body: request.body ?? JSON.stringify(application),
       }),
     );
 
@@ -121,10 +127,9 @@ describe("public application submission over HTTP", () => {
   it("rejects an unknown department as a validation failure at /departmentId", async () => {
     const { submit, count } = fixture();
 
-    const response = await submit(
-      "unknownDepartment",
-      JSON.stringify({ ...application, departmentId: "department-unknown" }),
-    );
+    const response = await submit("unknownDepartment", {
+      body: JSON.stringify({ ...application, departmentId: "department-unknown" }),
+    });
 
     expect(response.status).toBe(422);
     expect(await problem(response)).toMatchObject({
@@ -185,10 +190,9 @@ describe("public application submission over HTTP", () => {
 
       await lockHeld.promise;
 
-      const loser = await submit(
-        "raceLoser",
-        JSON.stringify({ ...application, email: "ADA@example.invalid" }),
-      );
+      const loser = await submit("raceLoser", {
+        body: JSON.stringify({ ...application, email: "ADA@example.invalid" }),
+      });
 
       await expect(winner).resolves.toBe(1);
       expect(loser.status).toBe(409);
@@ -221,5 +225,20 @@ describe("public application submission over HTTP", () => {
     expect((await problem(response)).code).toBe("dependency.unavailable");
     await expect(count("admission_applicants")).resolves.toBe(0);
     await expect(count("native_http_idempotency_receipts")).resolves.toBe(0);
+  });
+
+  it("rejects a foreign media type, unparsable JSON, and a query string as request failures", async () => {
+    const { submit, count } = fixture();
+    const textPlain = await submit("textPlain", { contentType: "text/plain" });
+    const unparsable = await submit("unparsable", { body: "{" });
+    const query = await submit("query", { path: "/api/applications?source=homepage" });
+
+    expect(textPlain.status).toBe(415);
+    expect((await problem(textPlain)).code).toBe("media-type.unsupported");
+    expect(unparsable.status).toBe(400);
+    expect((await problem(unparsable)).code).toBe("request.malformed");
+    expect(query.status).toBe(400);
+    expect((await problem(query)).code).toBe("request.malformed");
+    await expect(count("admission_applications")).resolves.toBe(0);
   });
 });
