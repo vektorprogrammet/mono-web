@@ -59,6 +59,12 @@ import {
   receiptSettlementEvidenceResource,
 } from "./http-representation.js";
 
+/** A stored receipt value a read cannot decode is the receipt store failing, not the request. */
+const storedReceiptUnavailable = <E>(cause: E): E | HttpSemanticFailure =>
+  Predicate.isTagged(cause, "ReceiptDecodeError")
+    ? new HttpSemanticFailure("receipts.unavailable", 503)
+    : cause;
+
 interface ReceiptAccessRow {
   readonly ownerPersonId: string;
   readonly departmentId: string;
@@ -74,7 +80,7 @@ export const listOwnedReceipts = <E, R>(request: Request, options: ReceiptApiHtt
 
     const rows = yield* Economy.use(({ listOwnedReceipts }) =>
       listOwnedReceipts(principal.personId, selectedStatus, cursor),
-    );
+    ).pipe(Effect.mapError(storedReceiptUnavailable));
 
     const items = yield* Effect.try({
       try: () => rows.items.map(ownedReceiptResource),
@@ -201,7 +207,7 @@ export const listReceiptsForApproval = <E, R>(
 
     const rows = yield* Economy.use(({ listReceiptsForApproval }) =>
       listReceiptsForApproval(principal.personId, principal.authorizationInstant, status, cursor),
-    );
+    ).pipe(Effect.mapError(storedReceiptUnavailable));
 
     const items = yield* Effect.try({
       try: () =>
@@ -255,7 +261,7 @@ export const readSettlementForFinance = <E, R>(
         principal.personId,
         principal.authorizationInstant,
       ),
-    );
+    ).pipe(Effect.mapError(storedReceiptUnavailable));
 
     return privateJsonResponse(receiptSettlementEvidenceResource(settlement));
   });
@@ -270,7 +276,7 @@ export const listReceiptsForSettlement = <E, R>(
 
     const rows = yield* Economy.use(({ listReceiptsForSettlement }) =>
       listReceiptsForSettlement(principal.personId, principal.authorizationInstant, cursor),
-    );
+    ).pipe(Effect.mapError(storedReceiptUnavailable));
 
     const items = yield* Effect.try({
       try: () =>

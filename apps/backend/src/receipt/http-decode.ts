@@ -83,7 +83,11 @@ export const decodeReceiptListQuery = (request: Request, allowStatus = true) =>
       catch: () => new HttpSemanticFailure("request.malformed", 400),
     });
 
-    if (query.cursor !== undefined) yield* decodeReceiptCursor(query.cursor);
+    if (query.cursor !== undefined) {
+      yield* decodeReceiptCursor(query.cursor).pipe(
+        Effect.mapError(() => new HttpSemanticFailure("request.malformed", 400)),
+      );
+    }
 
     return query;
   });
