@@ -1,7 +1,7 @@
 import { SqlError } from "effect/unstable/sql/SqlError";
 import * as D1Client from "@effect/sql-d1/D1Client";
 import { Data, Record, flow, Result, Predicate, Effect, Schema } from "effect";
-import { canonicalJsonBytes, canonicalJson, sha256Hex } from "./evidence.js";
+import { canonicalJsonBytes, canonicalJson, sha256Hex } from "../src/tutor/evidence.js";
 import {
   ConductInterviewV1Schema,
   DescriptorSchema,
@@ -11,7 +11,7 @@ import {
   type Descriptor,
   type EventEnvelopeV1,
   type StreamKey,
-} from "./schema.js";
+} from "../src/tutor/schema.js";
 import {
   DuplicateCommandConflict,
   InvalidTransition,
@@ -21,7 +21,7 @@ import {
   type CommandObservation,
   type FoldedState,
   type TutorFailure,
-} from "./tracer.js";
+} from "../src/tutor/tracer.js";
 
 export type D1Binding = Parameters<typeof D1Client.layer>[0]["db"];
 
