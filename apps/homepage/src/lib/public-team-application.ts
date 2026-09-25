@@ -73,7 +73,6 @@ export type PublicTeamApplicationErrorView = Data.TaggedEnum<{
     /** Status of the homepage response that reports this failure. */
     readonly status: number;
     readonly fieldErrors: TeamApplicationFieldErrors;
-    readonly resetCommandId: boolean;
   };
 }>;
 
@@ -97,15 +96,22 @@ export type PublicTeamApplicationFailure = {
   readonly values: TeamApplicationFieldValues;
 };
 
+/** The stored application as its confirmation names it. */
+export type TeamApplicationReceipt = {
+  readonly applicationId: string;
+  readonly submittedAt: TeamApplicationInstant;
+};
+
+export type ReceivedPublicTeamApplication = {
+  readonly outcome: "received";
+  /** Null when this exact submission was stored earlier and its stored response has expired. */
+  readonly receipt: TeamApplicationReceipt | null;
+  /** Set when a read after the submission finds the team. */
+  readonly teamName?: string;
+};
+
 export type PublicTeamApplicationActionData =
-  | {
-      readonly outcome: "received";
-      readonly confirmation: {
-        readonly applicationId: string;
-        readonly submittedAt: TeamApplicationInstant;
-        readonly teamName: string | undefined;
-      };
-    }
+  | ReceivedPublicTeamApplication
   | { readonly outcome: "closed"; readonly message: string }
   | { readonly outcome: "not-found" }
   | { readonly outcome: "rejected"; readonly failure: PublicTeamApplicationFailure };
@@ -284,7 +290,6 @@ export function parsePublicTeamApplicationForm(
           : "Skjemaet kunne ikke leses. Send søknaden på nytt.",
         status: hasFieldErrors ? 422 : 400,
         fieldErrors,
-        resetCommandId: Option.isNone(commandId),
       }),
       values: fieldRecord((field) =>
         values[field].slice(0, teamApplicationFormRules.maxLength[field]),
@@ -327,37 +332,61 @@ export function publicTeamApplicationPageFailure(cause: unknown): PublicTeamAppl
       };
 }
 
-const problemMessages: Readonly<Record<TeamApplicationProblemCode, string>> = {
-  "request.malformed": "Søknaden kunne ikke leses. Kontroller feltene og send søknaden på nytt.",
-  "header.malformed": "Søknaden kunne ikke sendes i riktig format. Prøv igjen.",
-  "idempotency-key.invalid": "Innsendingen kunne ikke identifiseres. Send søknaden på nytt.",
-  "resource.not-found": "Fant ikke teamet. Søknaden ble ikke lagret.",
-  "idempotency.in-flight": "Søknaden behandles allerede. Vent litt før du prøver igjen.",
-  "idempotency.digest-conflict":
-    "Innsendingen ble endret underveis. Kontroller feltene og send søknaden på nytt.",
-  "idempotency.response-expired": "Bekreftelsen for innsendingen er utløpt. Send søknaden på nytt.",
-  "team-application.intake-closed":
-    "Teamet tok ikke lenger imot søknader da du sendte. Søknaden ble ikke lagret.",
-  "transaction.conflict": "Søknaden kunne ikke lagres akkurat nå. Prøv igjen.",
-  "request.too-large":
+/** What a submit problem means for the visitor's application. */
+type SubmitProblemOutcome = Data.TaggedEnum<{
+  /** The intake closed before the submission, so nothing was stored. */
+  Closed: { readonly message: string };
+  /** The team is unknown or inactive, so nothing was stored. */
+  TeamNotFound: {};
+  /** This exact submission was stored earlier; only its stored response has expired. */
+  AlreadyReceived: {};
+  /** Nothing was stored. A retry repeats the key unless the key is bound to another request. */
+  Retry: { readonly message: string; readonly newKey: boolean };
+}>;
+
+const SubmitProblemOutcome = Data.taggedEnum<SubmitProblemOutcome>();
+
+/** A failure that stored nothing and leaves the key free for the same submission. */
+function retry(message: string): SubmitProblemOutcome {
+  return SubmitProblemOutcome.Retry({ message, newKey: false });
+}
+
+const unavailableMessage = "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.";
+
+/** One outcome for each code of the contract's TeamApplicationsSubmitProblem union. */
+const submitProblemOutcomes: Readonly<Record<TeamApplicationProblemCode, SubmitProblemOutcome>> = {
+  "request.malformed": retry(
+    "Søknaden kunne ikke leses. Kontroller feltene og send søknaden på nytt.",
+  ),
+  "header.malformed": retry("Søknaden kunne ikke sendes i riktig format. Prøv igjen."),
+  "idempotency-key.invalid": SubmitProblemOutcome.Retry({
+    message: "Innsendingen kunne ikke identifiseres. Send søknaden på nytt.",
+    newKey: true,
+  }),
+  "resource.not-found": SubmitProblemOutcome.TeamNotFound(),
+  "idempotency.in-flight": retry("Søknaden behandles allerede. Vent litt før du prøver igjen."),
+  "idempotency.digest-conflict": SubmitProblemOutcome.Retry({
+    message: "Innsendingen ble endret underveis. Kontroller feltene og send søknaden på nytt.",
+    newKey: true,
+  }),
+  "idempotency.response-expired": SubmitProblemOutcome.AlreadyReceived(),
+  "team-application.intake-closed": SubmitProblemOutcome.Closed({
+    message: "Teamet tok ikke lenger imot søknader da du sendte. Søknaden ble ikke lagret.",
+  }),
+  "transaction.conflict": retry("Søknaden kunne ikke lagres akkurat nå. Prøv igjen."),
+  "request.too-large": retry(
     "Søknaden inneholder mer tekst enn tjenesten kan ta imot. Kort ned teksten og prøv igjen.",
-  "media-type.unsupported": "Søknaden kunne ikke sendes i riktig format. Prøv igjen.",
-  "validation.failed": "Kontroller feltene som er markert, og send søknaden på nytt.",
-  "internal.error": "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
-  "dependency.unavailable": "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
-  "idempotency.unavailable": "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
+  ),
+  "media-type.unsupported": retry("Søknaden kunne ikke sendes i riktig format. Prøv igjen."),
+  "validation.failed": retry("Kontroller feltene som er markert, og send søknaden på nytt."),
+  "internal.error": retry(unavailableMessage),
+  "dependency.unavailable": retry(unavailableMessage),
+  "idempotency.unavailable": retry(unavailableMessage),
 };
 
 function isTeamApplicationProblemCode(code: string): code is TeamApplicationProblemCode {
-  return Object.hasOwn(problemMessages, code);
+  return Object.hasOwn(submitProblemOutcomes, code);
 }
-
-/** These conflicts bind the key to another request or an expired result, so a retry needs a new key. */
-const commandIdResetCodes: Readonly<Partial<Record<TeamApplicationProblemCode, true>>> = {
-  "idempotency-key.invalid": true,
-  "idempotency.digest-conflict": true,
-  "idempotency.response-expired": true,
-};
 
 /** Top-level JSON pointers of the contract fields, such as `/fieldOfStudy`. */
 const fieldByPointer: Readonly<Partial<Record<string, TeamApplicationFieldName>>> =
@@ -379,29 +408,15 @@ function validationFieldErrors(problem: TeamApplicationProblem): TeamApplication
   return fieldErrors;
 }
 
-const unexpectedFailure = PublicTeamApplicationErrorView.Unexpected({
-  message: "Søknaden kunne ikke sendes. Prøv igjen senere.",
-  status: 500,
-  fieldErrors: {},
-  resetCommandId: false,
-});
+/** A failure outside the contract's problems: the service was not reached, or answered otherwise. */
+function transportFailure(cause: unknown): PublicTeamApplicationErrorView {
+  const unexpected = PublicTeamApplicationErrorView.Unexpected({
+    message: "Søknaden kunne ikke sendes. Prøv igjen senere.",
+    status: 500,
+    fieldErrors: {},
+  });
 
-export function mapPublicTeamApplicationError(cause: unknown): PublicTeamApplicationErrorView {
-  // The SDK keeps response headers around each canonical problem body.
-  const problem = Option.getOrUndefined(
-    decodeSubmitProblem(Predicate.hasProperty(cause, "body") ? cause.body : cause),
-  );
-
-  if (problem !== undefined && isTeamApplicationProblemCode(problem.code)) {
-    return PublicTeamApplicationErrorView[problem.code]({
-      message: problemMessages[problem.code],
-      status: problem.status,
-      fieldErrors: validationFieldErrors(problem),
-      resetCommandId: commandIdResetCodes[problem.code] === true,
-    });
-  }
-
-  if (!HttpClientError.isHttpClientError(cause)) return unexpectedFailure;
+  if (!HttpClientError.isHttpClientError(cause)) return unexpected;
 
   return Match.value(cause.reason).pipe(
     Match.tag("TransportError", () =>
@@ -409,7 +424,6 @@ export function mapPublicTeamApplicationError(cause: unknown): PublicTeamApplica
         message: "Søknadstjenesten svarer ikke akkurat nå. Prøv igjen om litt.",
         status: 503,
         fieldErrors: {},
-        resetCommandId: false,
       }),
     ),
     Match.tag("InvalidUrlError", () =>
@@ -417,53 +431,72 @@ export function mapPublicTeamApplicationError(cause: unknown): PublicTeamApplica
         message: "Søknadstjenesten er ikke tilgjengelig på denne siden.",
         status: 500,
         fieldErrors: {},
-        resetCommandId: false,
       }),
     ),
-    Match.orElse(() => unexpectedFailure),
+    Match.orElse(() => unexpected),
   );
 }
 
-/** A closed or unknown team ends the form. Other failures keep the draft and, except after an idempotency conflict, the same key. */
-export function rejectPublicTeamApplication(
+/**
+ * The outcome of a submission that returned no confirmation. A closed or unknown team ends the
+ * form, and an expired replay of a stored submission confirms it without its reference. Every
+ * other failure keeps the draft and, unless the key is bound to another request, the key.
+ */
+export function failedPublicTeamApplication(
   submission: PublicTeamApplicationSubmission,
   cause: unknown,
 ): PublicTeamApplicationActionData {
-  const error = mapPublicTeamApplicationError(cause);
+  // The SDK keeps response headers around each canonical problem body.
+  const problem = Option.getOrUndefined(
+    decodeSubmitProblem(Predicate.hasProperty(cause, "body") ? cause.body : cause),
+  );
 
-  return Match.value(error).pipe(
-    Match.tag(
-      "team-application.intake-closed",
-      ({ message }): PublicTeamApplicationActionData => ({ outcome: "closed", message }),
-    ),
-    Match.tag(
-      "resource.not-found",
-      (): PublicTeamApplicationActionData => ({ outcome: "not-found" }),
-    ),
-    Match.orElse(
-      (): PublicTeamApplicationActionData => ({
-        outcome: "rejected",
-        failure: {
-          commandId: error.resetCommandId ? newTeamApplicationCommandId() : submission.commandId,
-          error,
-          values: submission.payload,
-        },
-      }),
-    ),
+  const rejected = (
+    error: PublicTeamApplicationErrorView,
+    newKey: boolean,
+  ): PublicTeamApplicationActionData => ({
+    outcome: "rejected",
+    failure: {
+      commandId: newKey ? newTeamApplicationCommandId() : submission.commandId,
+      error,
+      values: submission.payload,
+    },
+  });
+
+  if (problem === undefined || !isTeamApplicationProblemCode(problem.code)) {
+    return rejected(transportFailure(cause), false);
+  }
+
+  const code = problem.code;
+
+  return Match.value(submitProblemOutcomes[code]).pipe(
+    Match.withReturnType<PublicTeamApplicationActionData>(),
+    Match.tagsExhaustive({
+      Closed: ({ message }) => ({ outcome: "closed", message }),
+      TeamNotFound: () => ({ outcome: "not-found" }),
+      AlreadyReceived: () => ({ outcome: "received", receipt: null }),
+      Retry: ({ message, newKey }) =>
+        rejected(
+          PublicTeamApplicationErrorView[code]({
+            message,
+            status: problem.status,
+            fieldErrors: validationFieldErrors(problem),
+          }),
+          newKey,
+        ),
+    }),
   );
 }
 
-/** The confirmation names the team when a later read finds it; it never repeats applicant data. */
+/** The confirmation of a stored application. It never repeats applicant data. */
 export function receivedPublicTeamApplication(
   submitted: SubmittedTeamApplication,
-  teamName: string | undefined,
-): PublicTeamApplicationActionData {
+): ReceivedPublicTeamApplication {
   return {
     outcome: "received",
-    confirmation: {
+    receipt: {
       applicationId: submitted.applicationId,
       submittedAt: osloInstant(submitted.submittedAt),
-      teamName,
     },
   };
 }

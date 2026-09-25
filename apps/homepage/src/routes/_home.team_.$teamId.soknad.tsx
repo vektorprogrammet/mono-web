@@ -1,15 +1,14 @@
 import { Option } from "effect";
 import { data, useActionData, useLoaderData, useNavigation } from "react-router";
 import { PublicTeamApplicationForm } from "~/components/public-team-application-form";
-import type { SubmittedTeamApplication } from "~/lib/api-types";
 import { createHomepageApiClient } from "~/lib/api.server";
 import {
   decodeTeamApplicationTeamId,
+  failedPublicTeamApplication,
   parsePublicTeamApplicationForm,
   publicTeamApplicationPage,
   publicTeamApplicationPageFailure,
   receivedPublicTeamApplication,
-  rejectPublicTeamApplication,
   type PublicTeamApplicationActionData,
   type PublicTeamApplicationLoaderData,
 } from "~/lib/public-team-application";
@@ -84,19 +83,19 @@ export async function action({ request, params }: Route.ActionArgs) {
   if (!parsed.ok) return outcomeResponse({ outcome: "rejected", failure: parsed.failure });
 
   const applications = createHomepageApiClient()["team-applications"];
-  let submitted: SubmittedTeamApplication;
 
-  try {
-    const result = await applications.submitTeamApplication({
+  const outcome = await applications
+    .submitTeamApplication({
       params: { teamId: teamId.value },
       headers: { "idempotency-key": parsed.value.commandId },
       payload: parsed.value.payload,
-    });
+    })
+    .then(
+      (result) => receivedPublicTeamApplication(result.body),
+      (cause) => failedPublicTeamApplication(parsed.value, cause),
+    );
 
-    submitted = result.body;
-  } catch (cause) {
-    return outcomeResponse(rejectPublicTeamApplication(parsed.value, cause));
-  }
+  if (outcome.outcome !== "received") return outcomeResponse(outcome);
 
   // The application is stored. A failed name read only leaves the name out of the confirmation.
   const teamName = await applications
@@ -106,7 +105,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       () => undefined,
     );
 
-  return outcomeResponse(receivedPublicTeamApplication(submitted, teamName));
+  return outcomeResponse({ ...outcome, teamName });
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module

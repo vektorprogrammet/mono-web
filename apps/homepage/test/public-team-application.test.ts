@@ -9,11 +9,11 @@ import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHomepageApiClient } from "../src/lib/api.server";
 import {
-  mapPublicTeamApplicationError,
+  failedPublicTeamApplication,
   parsePublicTeamApplicationForm,
-  rejectPublicTeamApplication,
   type PublicTeamApplicationActionData,
   type PublicTeamApplicationFailure,
+  type PublicTeamApplicationSubmission,
 } from "../src/lib/public-team-application";
 
 const submittedCommandId = "team-application-command-0925";
@@ -47,6 +47,14 @@ function rejectedFailure(form: FormData): PublicTeamApplicationFailure {
   if (parsed.ok) throw new Error("An invalid team application form was accepted");
 
   return parsed.failure;
+}
+
+function completeSubmission(): PublicTeamApplicationSubmission {
+  const parsed = parsePublicTeamApplicationForm(completeForm());
+
+  if (!parsed.ok) throw new Error("The complete team application form was rejected");
+
+  return parsed.value;
 }
 
 describe("public team application form", () => {
@@ -122,7 +130,7 @@ describe("public team application form", () => {
   });
 });
 
-it("maps every submit problem of the contract to its own failure", () => {
+it("gives every submit problem of the contract its own outcome", () => {
   for (const member of TeamApplicationsSubmitProblem.members) {
     const code = member.fields.code.literal;
 
@@ -131,7 +139,10 @@ it("maps every submit problem of the contract to its own failure", () => {
         ? { ...makeNativeProblem(code), validation: { errors: [], truncated: false } }
         : makeNativeProblem(code);
 
-    expect(mapPublicTeamApplicationError(problem)._tag).toBe(code);
+    const result = failedPublicTeamApplication(completeSubmission(), problem);
+
+    // A code without an outcome falls through to the unexpected failure.
+    if (result.outcome === "rejected") expect(result.failure.error._tag).toBe(code);
   }
 });
 
@@ -159,11 +170,7 @@ describe("team application submission failures through the SDK", () => {
   }
 
   async function submitAgainst(next: () => Response): Promise<PublicTeamApplicationActionData> {
-    const parsed = parsePublicTeamApplicationForm(completeForm());
-
-    if (!parsed.ok) throw new Error("The complete team application form was rejected");
-
-    const submission = parsed.value;
+    const submission = completeSubmission();
 
     respond = next;
 
@@ -177,7 +184,7 @@ describe("team application submission failures through the SDK", () => {
         () => {
           throw new Error("Unexpected team application success");
         },
-        (cause) => rejectPublicTeamApplication(submission, cause),
+        (cause) => failedPublicTeamApplication(submission, cause),
       );
   }
 
@@ -234,10 +241,9 @@ describe("team application submission failures through the SDK", () => {
     expect(result.failure.values).toMatchObject({ name: "Ada Applicant" });
   });
 
-  it("issues a new key after each idempotency conflict", async () => {
+  it("issues a new key after each conflict that binds the key to another request", async () => {
     const conflicts = [
       () => problemResponse("idempotency.digest-conflict", 409),
-      () => problemResponse("idempotency.response-expired", 409),
       () => problemResponse("idempotency-key.invalid", 400),
     ];
 
@@ -247,6 +253,12 @@ describe("team application submission failures through the SDK", () => {
       expect(key).not.toBe(submittedCommandId);
       expect(Schema.is(IdempotencyKey)(key)).toBe(true);
     }
+  });
+
+  it("confirms a replay whose stored response expired, without a reference or a new form", async () => {
+    await expect(
+      submitAgainst(() => problemResponse("idempotency.response-expired", 409)),
+    ).resolves.toEqual({ outcome: "received", receipt: null });
   });
 
   it("retries the same key while the request is in flight or the service is unreachable", async () => {
