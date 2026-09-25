@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { AdvisoryLockKey, lockAdvisory } from "../advisory-lock.js";
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
@@ -97,9 +98,7 @@ export const claimOnboarding = <E, R>(input: {
         }>`SELECT applicant_id AS "applicantId" FROM public.applicant_account_invitations WHERE token_digest=${input.digest}`;
 
         if (!found[0]) return yield* fail("onboarding.claim-invalid", 400);
-        yield* sql`SELECT pg_catalog.pg_advisory_xact_lock(
-          pg_catalog.hashtextextended(${"vektorprogrammet:person-authorization:v1:" + input.identity.personId}, 0)
-        )`;
+        yield* lockAdvisory(sql, AdvisoryLockKey.personAuthorization(input.identity.personId));
         yield* lockOnboardingApplicant(found[0].applicantId);
 
         const rows = yield* sql<{
