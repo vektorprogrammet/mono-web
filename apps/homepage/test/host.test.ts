@@ -1,15 +1,12 @@
 import { RouterContextProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  DEV_MAIN_STAGE,
   LOCAL_ONLY_STAGE,
   WORKER_PREVIEW_STAGE,
   WORKERS_DEV_HOST_SUFFIX,
-  homepageDomain,
   homepageRequestContext,
   loadHomepageRequest,
   resolveHomepageRequest,
-  stageFromHost,
 } from "../src/lib/host";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -40,11 +37,6 @@ describe("homepage stage and host contract", () => {
     });
   });
 
-  it("maps the persistent development host exactly", () => {
-    expect(stageFromHost("vektor.phibkro.org")).toBe(DEV_MAIN_STAGE);
-    expect(homepageDomain(DEV_MAIN_STAGE)).toBe("vektor.phibkro.org");
-  });
-
   it("accepts workers.dev only through explicit Worker Preview configuration", () => {
     expect(
       resolveHomepageRequest("pr-42-homepage.account.workers.dev", {
@@ -65,30 +57,11 @@ describe("homepage stage and host contract", () => {
     ).toThrow();
   });
 
-  it("maps bounded two-digit preview stages and preserves three-digit grammar", () => {
-    expect(resolveHomepageRequest("P20.vektor.phibkro.org:8787")).toEqual({
-      stage: "p20",
-      host: "p20.vektor.phibkro.org",
-    });
-    expect(homepageDomain("p10")).toBe("p10.vektor.phibkro.org");
-    expect(homepageDomain("p99")).toBe("p99.vektor.phibkro.org");
-    expect(homepageDomain("p001")).toBe("p001.vektor.phibkro.org");
-  });
-
-  it("maps cloud canary hosts and strips only a numeric loopback port", () => {
-    expect(resolveHomepageRequest("P001.vektor.phibkro.org:8787")).toEqual({
-      stage: "p001",
-      host: "p001.vektor.phibkro.org",
-    });
-    expect(homepageDomain("p999")).toBe("p999.vektor.phibkro.org");
-  });
-
-  it("keeps p000 local-only and rejects it before provider mapping", () => {
-    expect(resolveHomepageRequest("p000.vektor.phibkro.org")).toEqual({
+  it("maps the local-only host after case and numeric port normalization", () => {
+    expect(resolveHomepageRequest("P000.vektor.phibkro.org:8787")).toEqual({
       stage: LOCAL_ONLY_STAGE,
       host: "p000.vektor.phibkro.org",
     });
-    expect(() => homepageDomain(LOCAL_ONLY_STAGE)).toThrow("p000 is reserved for local-only proof");
   });
 
   it("allows loopback only in the local development runtime", () => {
@@ -113,27 +86,14 @@ describe("homepage stage and host contract", () => {
     })).toThrow();
   });
 
-  it("rejects invalid provider stages and hosts", () => {
-    for (const stage of [
-      "p00",
-      "p0000",
-      "p1000",
-      "local",
-      "staging",
-      "prod",
-      "vektorprogrammet.no",
-    ]) {
-      expect(() => homepageDomain(stage)).toThrow();
-    }
-
+  it("rejects retired and unknown hosts without Worker Preview configuration", () => {
     for (const host of [
-      "localhost",
       "vektorprogrammet.no",
+      "vektor.phibkro.org",
+      "p20.vektor.phibkro.org",
       "p0000.vektor.phibkro.org",
-      "p1000.vektor.phibkro.org",
-      "dev-main.vektor.phibkro.org",
     ]) {
-      expect(() => stageFromHost(host)).toThrow();
+      expect(() => resolveHomepageRequest(host)).toThrow();
     }
   });
 });

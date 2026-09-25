@@ -3,7 +3,9 @@ import { schoolSurveyIdFromPathSegment, schoolSurveyPath } from "../app/lib/scho
 import { dashboardApplicationRequest, dashboardAssetResponse } from "../workers/asset-dispatch";
 import { handleDashboardWorkerRequest } from "../workers/dashboard-worker";
 
-const request = (pathname: string) => new Request(`https://vektor.phibkro.org${pathname}`);
+const previewHost = "pr-42-dashboard.account.workers.dev";
+
+const request = (pathname: string) => new Request(`https://${previewHost}${pathname}`);
 
 describe("dashboardAssetResponse", () => {
   it("falls through when a dotted application route is not an asset", async () => {
@@ -40,7 +42,7 @@ describe("dashboardAssetResponse", () => {
 
 describe("dashboardApplicationRequest", () => {
   it("preserves a trailing .data survey ID on document requests", () => {
-    const original = new Request("https://vektor.phibkro.org/undersokelse/survey.0111.data", {
+    const original = new Request(`https://${previewHost}/undersokelse/survey.0111.data`, {
       headers: { Accept: "text/html" },
     });
 
@@ -49,7 +51,7 @@ describe("dashboardApplicationRequest", () => {
   });
 
   it("decodes an escaped opaque ID before framing its canonical path", () => {
-    const original = new Request("https://vektor.phibkro.org/undersokelse/foo%2F%C3%A6.data", {
+    const original = new Request(`https://${previewHost}/undersokelse/foo%2F%C3%A6.data`, {
       headers: { Accept: "text/html" },
     });
 
@@ -58,7 +60,7 @@ describe("dashboardApplicationRequest", () => {
   });
 
   it("leaves React Router data-action paths unchanged", () => {
-    const original = new Request("https://vektor.phibkro.org/undersokelse/survey.0111.data.data", {
+    const original = new Request(`https://${previewHost}/undersokelse/survey.0111.data.data`, {
       headers: { Accept: "text/x-script" },
     });
 
@@ -71,16 +73,16 @@ describe("handleDashboardWorkerRequest", () => {
     const assets = { fetch: vi.fn(async () => new Response("unexpected")) };
     const applicationHandler = vi.fn(async () => new Response("unexpected"));
 
-    const request = new Request("https://vektor.phibkro.org/undersokelse/survey.0111.data", {
-      headers: { Accept: "text/html", Host: "vektor.phibkro.org" },
+    const request = new Request(`https://${previewHost}/undersokelse/survey.0111.data`, {
+      headers: { Accept: "text/html", Host: previewHost },
     });
 
     const response = await handleDashboardWorkerRequest(
       request,
       {
         ASSETS: assets,
-        PREVIEW_HOST: "vektor.phibkro.org",
-        PREVIEW_STAGE: "dev-main",
+        PREVIEW_HOST_SUFFIX: ".workers.dev",
+        PREVIEW_STAGE: "worker-preview",
       },
       applicationHandler,
     );
@@ -102,8 +104,8 @@ describe("handleDashboardWorkerRequest", () => {
     };
 
     const accepted = await handleDashboardWorkerRequest(
-      new Request("https://pr-42-dashboard.account.workers.dev/login", {
-        headers: { Host: "pr-42-dashboard.account.workers.dev" },
+      new Request(`https://${previewHost}/login`, {
+        headers: { Host: previewHost },
       }),
       previewEnv,
       applicationHandler,

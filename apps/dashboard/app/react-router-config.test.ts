@@ -78,24 +78,21 @@ describe("dashboard router topology", () => {
     ]);
   });
 
-  it("preserves dashboard route paths for an explicit apex root mount", () => {
-    const apexEnvironment = {
-      DASHBOARD_MOUNT: "/",
-      PREVIEW_HOST: "vektor.phibkro.org",
-    };
+  it("preserves dashboard route paths for an explicit root mount", () => {
+    const rootEnvironment = { DASHBOARD_MOUNT: "/" };
 
-    const config = makeReactRouterConfig(apexEnvironment);
+    const config = makeReactRouterConfig(rootEnvironment);
 
     expect(config.basename).toBe("/");
-    expect(matchedIds("/dashboard/utlegg/receipt-approval-file/file", apexEnvironment)).toEqual([
+    expect(matchedIds("/dashboard/utlegg/receipt-approval-file/file", rootEnvironment)).toEqual([
       "dashboard",
       "approval-receipt-file",
     ]);
-    expect(matchedIds("/login", apexEnvironment)).toEqual(["login"]);
-    expect(matchedIds("/recruitment", apexEnvironment)).toEqual(["recruitment-bridge"]);
-    expect(matchedIds("/dashboard", apexEnvironment)).toEqual(["dashboard"]);
-    expect(matchedIds("/dashboard/profile", apexEnvironment)).toEqual(["dashboard", "profile"]);
-    expect(matchedIds("/dashboard/mine-utlegg", apexEnvironment)).toEqual([
+    expect(matchedIds("/login", rootEnvironment)).toEqual(["login"]);
+    expect(matchedIds("/recruitment", rootEnvironment)).toEqual(["recruitment-bridge"]);
+    expect(matchedIds("/dashboard", rootEnvironment)).toEqual(["dashboard"]);
+    expect(matchedIds("/dashboard/profile", rootEnvironment)).toEqual(["dashboard", "profile"]);
+    expect(matchedIds("/dashboard/mine-utlegg", rootEnvironment)).toEqual([
       "dashboard",
       "owned-receipts",
     ]);
@@ -103,12 +100,6 @@ describe("dashboard router topology", () => {
 
   it("leaves an unknown dashboard descendant unmatched at the root-mounted dashboard", () => {
     expect(matchedIds("/dashboard/recruitment", { DASHBOARD_MOUNT: "/" })).toEqual([]);
-  });
-
-  it("does not infer the root mount from a preview hostname", () => {
-    expect(makeReactRouterConfig({ PREVIEW_HOST: "vektor.phibkro.org" }).basename).toBe(
-      "/dashboard/",
-    );
   });
 
   it("keeps root-mounted runner modes aligned with the Vite asset base", () => {
@@ -136,7 +127,7 @@ describe("dashboard router topology", () => {
         DASHBOARD_ORIGIN: "https://dashboard.example.invalid",
         PREVIEW_HOST: "preview.example.invalid",
       }).allowedActionOrigins,
-    ).toEqual(["preview.example.invalid", "dashboard.example.invalid"]);
+    ).toEqual(["dashboard.example.invalid"]);
     expect(
       makeReactRouterConfig({
         DASHBOARD_ORIGIN: "http://untrusted.example.invalid",

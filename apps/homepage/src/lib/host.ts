@@ -2,23 +2,14 @@ import { createContext, type RouterContextProvider } from "react-router";
 
 export const LOCAL_ONLY_STAGE = "p000" as const;
 
-export const DEV_MAIN_STAGE = "dev-main" as const;
+/** Synthetic local-proof host. Runners map it to 127.0.0.1; no deployment serves it. */
+const LOCAL_ONLY_HOST = "p000.vektor.phibkro.org";
 
 export const WORKER_PREVIEW_STAGE = "worker-preview" as const;
 
 export const WORKERS_DEV_HOST_SUFFIX = ".workers.dev" as const;
 
-export const HOMEPAGE_ZONE = "vektor.phibkro.org" as const;
-
-export type CloudHomepageStage =
-  | `p${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}${number}`
-  | `p${0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}${number}${number}`;
-
-export type HomepageStage =
-  | typeof LOCAL_ONLY_STAGE
-  | typeof DEV_MAIN_STAGE
-  | typeof WORKER_PREVIEW_STAGE
-  | CloudHomepageStage;
+export type HomepageStage = typeof LOCAL_ONLY_STAGE | typeof WORKER_PREVIEW_STAGE;
 
 export type HomepageRequest = {
   readonly stage: HomepageStage;
@@ -50,41 +41,6 @@ function normalizeHost(rawHost: string): string {
   return rawHost.toLowerCase().replace(/:[0-9]+$/, "");
 }
 
-export function homepageDomain(stage: string): string {
-  if (stage === LOCAL_ONLY_STAGE) {
-    throw new Error("p000 is reserved for local-only proof");
-  }
-
-  if (stage === DEV_MAIN_STAGE) return HOMEPAGE_ZONE;
-
-  if (isCloudHomepageStage(stage)) {
-    return `${stage}.${HOMEPAGE_ZONE}`;
-  }
-
-  throw new Error(`Unsupported homepage stage: ${stage}`);
-}
-
-function isCloudHomepageStage(stage: string): stage is CloudHomepageStage {
-  return /^p(?:[1-9][0-9]|[0-9]{3})$/.test(stage) && stage !== LOCAL_ONLY_STAGE;
-}
-
-export function stageFromHost(rawHost: string): HomepageStage {
-  const host = normalizeHost(rawHost);
-
-  if (host === HOMEPAGE_ZONE) return DEV_MAIN_STAGE;
-
-  const suffix = `.${HOMEPAGE_ZONE}`;
-
-  if (host.endsWith(suffix)) {
-    const stage = host.slice(0, -suffix.length);
-
-    if (stage === LOCAL_ONLY_STAGE || isCloudHomepageStage(stage)) return stage;
-  }
-
-
-  throw new Error(`Unsupported homepage host: ${rawHost}`);
-}
-
 export function resolveHomepageRequest(
   rawHost: string,
   preview: HomepagePreviewHost = {},
@@ -105,13 +61,12 @@ export function resolveHomepageRequest(
   }
 
   if (
-    import.meta.env?.HOMEPAGE_LOCAL_DEV === "true" &&
-    (host === "localhost" || host === "127.0.0.1" || host === "[::1]")
+    host === LOCAL_ONLY_HOST ||
+    (import.meta.env?.HOMEPAGE_LOCAL_DEV === "true" &&
+      (host === "localhost" || host === "127.0.0.1" || host === "[::1]"))
   ) {
     return { stage: LOCAL_ONLY_STAGE, host };
   }
 
-  const stage = stageFromHost(host);
-
-  return { stage, host };
+  throw new Error(`Unsupported homepage host: ${rawHost}`);
 }

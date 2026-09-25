@@ -1,5 +1,4 @@
 import { Predicate } from "effect";
-import { PREVIEW_DEVTOOLS_BUILD, previewDevtoolsEnabled } from "./preview-devtools";
 import {
   PREVIEW_ROLES,
   clearRoleOverride,
@@ -14,8 +13,7 @@ import {
  * - entry.client.tsx can reach this module only through a dynamic import in a
  *   build-time true branch. Production emits neither this module nor its role
  *   override dependency.
- * - The runtime host gate admits local development and only the exact
- *   dev-main/p20 host pairs accepted by validateDashboardPreviewStage.
+ * - The runtime host gate admits only local development hosts.
  *
  * SECURITY: the panel only reads/writes the client-side role override
  * (localStorage), re-embeds the Foldkit program, or reloads the page. It
@@ -27,27 +25,13 @@ const PANEL_ELEMENT_ID = "vektor-preview-devtools-panel";
 const DASHBOARD_ELEMENT = "vektor-foldkit-dashboard";
 
 export const panelAllowed = (hostname = window.location.hostname): boolean => {
-  if (!PREVIEW_DEVTOOLS_BUILD) return false;
+  if (import.meta.env.VITE_PREVIEW_DEVTOOLS !== "true") return false;
 
   const normalizedHost = hostname.toLowerCase();
 
-  if (
-    normalizedHost === "localhost" ||
-    normalizedHost === "127.0.0.1" ||
-    normalizedHost === "::1"
-  ) {
-    return true;
-  }
-
-  if (normalizedHost === "vektor.phibkro.org") {
-    return previewDevtoolsEnabled("preview-stage", "dev-main", normalizedHost);
-  }
-
-  if (normalizedHost === "p20.vektor.phibkro.org") {
-    return previewDevtoolsEnabled("preview-stage", "p20", normalizedHost);
-  }
-
-  return false;
+  return (
+    normalizedHost === "localhost" || normalizedHost === "127.0.0.1" || normalizedHost === "::1"
+  );
 };
 
 export type DevToolsEmbedConfig = false | { show: "Always"; mode: "Inspect" };
