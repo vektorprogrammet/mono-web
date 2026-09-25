@@ -1,0 +1,303 @@
+/** Admission read handlers: admission periods, public applications, and returning assistants. */
+import { Database } from "@vektorprogrammet/database";
+import { AdmissionPeriodPersistenceError } from "@vektorprogrammet/domain/admission-period";
+import { Admissions } from "@vektorprogrammet/domain/admissions";
+import {
+  ApplicantProgressResponseSchema,
+  PublicApplicationPersistenceError,
+  ReturningAssistantOptionsSchema,
+  ReturningAssistants,
+} from "@vektorprogrammet/domain/application";
+import {
+  AdmissionPeriodManagementItem,
+  ListAdmissionPeriodsEndpoint,
+  ListOpenAdmissionPeriodsEndpoint,
+  ReadApplicantProgressEndpoint,
+  ReadApplicationCatalogEndpoint,
+  ReadApplicationConfirmationEndpoint,
+  ReadReturningAssistantOptionsEndpoint,
+  reflectAccessSpec,
+} from "@vektorprogrammet/http-api";
+import { Effect, Option, Predicate, Schema } from "effect";
+import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
+import { HttpSemanticFailure, PRIVATE_NO_STORE, deriveStrongETag } from "../http-semantics.js";
+import {
+  authorizeAnonymousNativeOperation,
+  authorizePersonNativeOperation,
+  genericContext,
+} from "../native-operation.js";
+import {
+  admissionGrantScopes,
+  returningAuthorization,
+  returningPersonResource,
+} from "./http-access.js";
+import { actorFor, requireActive, type AdmissionApiHttpOptions } from "./http-context.js";
+import { rejectQueryString } from "./http-decode.js";
+import { jsonResponse } from "./http-problem.js";
+import { conditionalJsonResponse, dynamicAdmissionCache } from "./http-representation.js";
+
+export const readReturningAssistantOptions = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* rejectQueryString(request);
+
+    const authorization = yield* returningAuthorization(
+      request,
+      input,
+      ReadReturningAssistantOptionsEndpoint,
+    );
+
+    const options = yield* ReturningAssistants.use(({ readOptions }) =>
+      readOptions({
+        personId: authorization.authority.personId,
+        now: authorization.authorizationInstant,
+      }),
+    );
+
+    const body = yield* Schema.decodeUnknownEffect(ReturningAssistantOptionsSchema)(options, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)));
+
+    return jsonResponse(body);
+  });
+
+export const listAdmissionPeriods = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* rejectQueryString(request);
+    const actor = yield* actorFor(request, input).pipe(Effect.flatMap(requireActive));
+    const now = yield* currentInstant(input.config.now);
+    yield* authorizePersonNativeOperation({
+      spec: Option.getOrThrow(reflectAccessSpec(ListAdmissionPeriodsEndpoint)),
+      request,
+      personId: actor.personId,
+      resolution: {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            departmentId: Predicate.isTagged(actor, "DepartmentLeader") ? actor.departmentId : null,
+            authorityVersion: `admissions:${actor._tag}`,
+          }),
+        ],
+      },
+      grantScopes: admissionGrantScopes(actor),
+      now,
+    });
+
+    const rows = yield* Admissions.use(({ listAdmissionPeriodsForManagement }) =>
+      listAdmissionPeriodsForManagement({ actor, now }),
+    );
+
+    const items = rows.map((row) => ({
+      id: row.id,
+      departmentId: row.departmentId,
+      semesterId: row.semesterId,
+      startAt: row.startAt,
+      endAt: row.endAt,
+      revision: row.revision,
+      etag: deriveStrongETag({
+        representationKind: "AdmissionPeriodManagementItem",
+        resourceIdentity: row.id,
+        version: row.revision,
+      }),
+    }));
+
+    const body = yield* Schema.decodeUnknownEffect(
+      Schema.Struct({ items: Schema.Array(AdmissionPeriodManagementItem), totalItems: Schema.Int }),
+    )({ items, totalItems: items.length }, { onExcessProperty: "error" }).pipe(
+      Effect.mapError(
+        () =>
+          new AdmissionPeriodPersistenceError({
+            operation: "HTTP",
+            message: "Invalid admission response",
+          }),
+      ),
+    );
+
+    return yield* conditionalJsonResponse({
+      request,
+      body,
+      representationKind: "AdmissionPeriodManagementListResponse",
+      version: rows.map((row) => [row.id, row.revision] as const),
+      cacheControl: PRIVATE_NO_STORE,
+    });
+  });
+
+export const listOpenAdmissionPeriods = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* rejectQueryString(request);
+    const now = yield* currentInstant(input.config.now);
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ListOpenAdmissionPeriodsEndpoint)),
+      {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            authorityVersion: `admissions-open:${now}`,
+          }),
+        ],
+      },
+      now,
+    );
+
+    const rows = yield* Admissions.use(({ listOpenAdmissionPeriods }) =>
+      listOpenAdmissionPeriods(now),
+    );
+
+    const body = {
+      items: rows.map((row) => ({
+        id: row.id,
+        departmentId: row.departmentId,
+        semesterId: row.semesterId,
+        startAt: row.startAt,
+        endAt: row.endAt,
+      })),
+      totalItems: rows.length,
+    };
+
+    return yield* conditionalJsonResponse({
+      request,
+      body,
+      representationKind: "OpenAdmissionPeriodListResponse",
+      version: rows.map((row) => [row.id, row.revision] as const),
+      cacheControl: dynamicAdmissionCache(
+        now,
+        rows.flatMap((row) => [row.startAt, row.endAt]),
+      ),
+    });
+  });
+
+export const listApplicationOptions = (request: Request, input: AdmissionApiHttpOptions) =>
+  Effect.gen(function* () {
+    yield* rejectQueryString(request);
+    const now = yield* currentInstant(input.config.now);
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ReadApplicationCatalogEndpoint)),
+      {
+        selection: "AllMatching",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            authorityVersion: `admissions-catalog:${now}`,
+          }),
+        ],
+      },
+      now,
+    );
+
+    const source = yield* Admissions.use(({ listPublicApplicationCatalog }) =>
+      listPublicApplicationCatalog({ now }),
+    );
+
+    return yield* conditionalJsonResponse({
+      request,
+      body: source.catalog,
+      representationKind: "PublicApplicationCatalog",
+      version: {
+        intervalIdentity: source.validatorSource.intervalIdentity,
+        itemRevisions: source.validatorSource.itemRevisions,
+      },
+      cacheControl: dynamicAdmissionCache(
+        now,
+        source.catalog.departments.map((department) => department.closesAt),
+      ),
+    });
+  });
+
+export const readApplicationConfirmation = (
+  request: Request,
+  applicationId: string,
+  input: AdmissionApiHttpOptions,
+) =>
+  Effect.gen(function* () {
+    yield* rejectQueryString(request);
+    const now = yield* currentInstant(input.config.now);
+    yield* authorizeAnonymousNativeOperation(
+      Option.getOrThrow(reflectAccessSpec(ReadApplicationConfirmationEndpoint)),
+      {
+        selection: "ExactlyOne",
+        contexts: [
+          genericContext({
+            domainId: "admissions",
+            resourceKind: "application",
+            resourceId: applicationId,
+            authorityVersion: `admissions-application:${applicationId}`,
+          }),
+        ],
+      },
+      now,
+    );
+
+    const confirmation = yield* Admissions.use(({ findPublicApplicationConfirmation }) =>
+      findPublicApplicationConfirmation(applicationId),
+    );
+
+    return jsonResponse(confirmation);
+  });
+
+export const readApplicantProgress = (request: Request, input: AdmissionApiHttpOptions) =>
+  Database.use((sql) =>
+    sql.withTransaction(
+      Effect.gen(function* () {
+        if (new URL(request.url).search !== "") {
+          return yield* Effect.fail(new HttpSemanticFailure("request.malformed", 400));
+        }
+
+        yield* Database.use(
+          (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
+        );
+
+        const authorization = yield* resolveRequestPersonAuthorityInTransaction(request, {
+          now: input.config.now,
+        });
+
+        yield* authorizePersonNativeOperation({
+          spec: Option.getOrThrow(reflectAccessSpec(ReadApplicantProgressEndpoint)),
+          credential: authorization.credential,
+          personId: authorization.authority.personId,
+          resolution: {
+            selection: "ExactlyOne",
+            contexts: [
+              genericContext({
+                domainId: "admissions",
+                resourceKind: "person-profile",
+                resourceId: authorization.authority.personId,
+                facts: { ownerPersonId: authorization.authority.personId },
+                authorityVersion: "admissions:applicant-progress",
+              }),
+            ],
+          },
+          grantScopes: [returningPersonResource(authorization.authority.personId)],
+          now: authorization.authorizationInstant,
+        });
+
+        const body = yield* Admissions.use(({ readApplicantProgress }) =>
+          readApplicantProgress(
+            authorization.authority.personId,
+            authorization.authorizationInstant,
+          ),
+        );
+
+        const decoded = yield* Schema.decodeUnknownEffect(ApplicantProgressResponseSchema)(body, {
+          onExcessProperty: "error",
+        }).pipe(
+          Effect.mapError(
+            () =>
+              new PublicApplicationPersistenceError({
+                operation: "HTTP",
+                message: "Invalid application response",
+              }),
+          ),
+        );
+
+        return new Response(JSON.stringify(decoded), {
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "private, no-store",
+            "referrer-policy": "no-referrer",
+            vary: "Origin",
+          },
+        });
+      }),
+    ),
+  );

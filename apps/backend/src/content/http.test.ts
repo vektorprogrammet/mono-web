@@ -9,11 +9,9 @@ import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { HttpSemanticFailure } from "../http-semantics.js";
-import {
-  CONTENT_NATIVE_OPERATION_IDS,
-  contentHttpErrorResponse,
-  readContentRequestBody,
-} from "./http.js";
+import { CONTENT_NATIVE_OPERATION_IDS } from "./http-context.js";
+import { readContentRequestBody } from "./http-decode.js";
+import { contentHttpErrorResponse } from "./http-problem.js";
 
 const expectProblem = async (response: Response, status: number, code: string): Promise<void> => {
   expect(response.status).toBe(status);

@@ -50,7 +50,7 @@ import {
   genericContext,
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
-import { conditionalJsonResponse } from "../recruitment/http.js";
+import { conditionalJsonResponse } from "../recruitment/http-representation.js";
 
 const semantic = <A>(operation: () => A) =>
   Effect.try({

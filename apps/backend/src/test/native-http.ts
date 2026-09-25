@@ -45,14 +45,16 @@ import { Context, Effect, Layer, Option, type FileSystem, type Path } from "effe
 import { Etag, HttpRouter, HttpServerResponse, type HttpPlatform } from "effect/unstable/http";
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { DirectoryApiHandlers, type DirectoryApiHttpOptions } from "../directory/http.js";
-import { ContentApiHandlers, type ContentRequestActor } from "../content/http.js";
+import { ContentApiHandlers } from "../content/http.js";
+import type { ContentRequestActor } from "../content/http-context.js";
 import { NativeHttpApiMiddlewareLive } from "../http-api/transport.js";
 import { OrganizationApiHandlers, type OrganizationApiHttpOptions } from "../organization/http.js";
 import { ProfileApiHandlers, type ProfileApiHttpOptions } from "../profile/http.js";
 import { InternalReceiptApiHandlers, ReceiptApiHandlers } from "../receipt/http.js";
 import type { ReceiptApiHttpOptions } from "../receipt/http-context.js";
 import { ReceiptFileStoreResource, type ReceiptFileStore } from "../receipt/filesystem.js";
-import { RecruitmentApiHandlers, type RecruitmentApiHttpOptions } from "../recruitment/http.js";
+import { RecruitmentApiHandlers } from "../recruitment/http.js";
+import type { RecruitmentApiHttpOptions } from "../recruitment/http-context.js";
 import {
   backendHttpHandler,
   ExternalNativeApiRouterLive,
