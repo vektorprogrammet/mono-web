@@ -100,6 +100,13 @@ const decode = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =
     Effect.mapError(() => new HttpSemanticFailure("validation.failed", 422)),
   );
 
+/** A snapshot that does not fit its response schema is a server fault, not a client error. */
+const output = <S extends Schema.ConstraintDecoder<unknown, never>>(schema: S) =>
+  flow(
+    Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" }),
+    Effect.mapError(() => new HttpSemanticFailure("internal.error", 500)),
+  );
+
 const query = (request: Request, mode: "affiliation" | "scope") =>
   semantic(() => {
     const parameters = new URL(request.url).searchParams;
@@ -316,7 +323,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* decode(PlacementScopes)(yield* placements.listScopes(auth.authority)),
+              yield* output(PlacementScopes)(yield* placements.listScopes(auth.authority)),
             );
           }
 
@@ -332,7 +339,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* decode(OwnAffiliationResource)(
+              yield* output(OwnAffiliationResource)(
                 resource(
                   yield* placements.readOwnAffiliation(auth.authority.personId, scope.departmentId),
                 ),
@@ -352,7 +359,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* decode(PlacementBoardResource)(resource(yield* placements.readBoard(scope))),
+              yield* output(PlacementBoardResource)(resource(yield* placements.readBoard(scope))),
             );
           }
 
@@ -366,7 +373,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
             );
 
             return json(
-              yield* decode(OwnCoverageResource)(
+              yield* output(OwnCoverageResource)(
                 resource(yield* placements.readOwnCoverage(scope, auth.authority.personId)),
               ),
             );
@@ -375,7 +382,7 @@ export const PlacementsApiHandlers = (input: { now?: () => string }) => {
           yield* authorize(request, ReadCoverageBoardEndpoint, scope.departmentId, true, input.now);
 
           return json(
-            yield* decode(CoverageBoardResource)(
+            yield* output(CoverageBoardResource)(
               resource(yield* placements.readCoverageBoard(scope)),
             ),
           );
