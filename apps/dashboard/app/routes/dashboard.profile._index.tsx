@@ -1,10 +1,10 @@
-import { Predicate } from "effect";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { ChevronRight } from "lucide-react";
 import { NavLink, href, useLoaderData } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, loadSessionIdentity, requireAuth } from "../lib/auth.server";
+import { nativeProblemFrom } from "../lib/native-problem";
 import { projectProfile } from "../lib/profile-view";
 import type { Route } from "./+types/dashboard.profile._index";
 
@@ -23,8 +23,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       identity: null,
     };
   } catch (error) {
-    const code =
-      Predicate.isObjectOrArray(error) && error !== null && "code" in error ? error.code : undefined;
+    const code = nativeProblemFrom(error)?.code;
 
     if (code === "credential.missing" || code === "credential.invalid") {
       throw await expiredSessionRedirect(request);
