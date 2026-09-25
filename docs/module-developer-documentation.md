@@ -61,7 +61,7 @@ Pure calculations remain direct functions. Documentation does not introduce a Se
 | Supported imports       | Package export maps                                      | Derive the public entry-point inventory                         |
 | Signatures and schemas  | TypeScript declarations                                  | Generate reference material                                     |
 | API-specific guarantees | Documentation beside public declarations                 | Render that documentation without maintaining a second copy     |
-| HTTP operations         | Existing HTTP API definitions                            | Reuse generated OpenAPI and its freshness check                 |
+| HTTP operations         | Existing HTTP API definitions                            | Reuse the OpenAPI document generated from those definitions     |
 | Working examples        | Executable TypeScript files                              | Include those exact files, rather than copied code blocks       |
 | Business meaning        | [Intended system](system.md)                             | Link the relevant rule instead of restating it                  |
 | Architectural ownership | [Architecture](architecture.md#ownership)                | Link the owner and dependency rules                             |
@@ -97,7 +97,7 @@ Their commands state required tools, configuration, cleanup, and evidence limits
 The repository already has a documentation entry point, system guides, package export maps, and generated HTTP artifacts.
 The [system-guide renderer](../tools/system-guide/build.ts) produces standalone HTML from trusted MDX.
 It is currently a single-document renderer, not a module reference or example-validation system.
-The [HTTP generator](../packages/http-api/scripts/generate-openapi.ts) supplies an existing generation and freshness-check pattern.
+The [HTTP generator](../packages/http-api/scripts/generate-openapi.ts) derives OpenAPI from the contract before each type check, so no committed copy can drift.
 
 The pilot evaluated [Effect docgen](https://github.com/Effect-TS/docgen) before selecting a maintained alternative.
 The [guide tool-choice record](../packages/placements/README.md#tool-choice) owns the qualification result and compatibility limits.

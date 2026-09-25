@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "capability:verify": "bun capability-verify-cli.ts",
+    "capability:verify": "bun run --cwd ../../packages/http-api generate && bun capability-verify-cli.ts",
     "claim:evidence:build": "bun claim-evidence-build-cli.ts",
     "journey:evidence": "bun journey-evidence-cli.ts",
     "journey:evidence:legacy": "bun legacy-journey-evidence-cli.ts",

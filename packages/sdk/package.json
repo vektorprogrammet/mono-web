@@ -9,20 +9,24 @@
   "type": "module",
   "exports": {
     ".": {
+      "@vektorprogrammet/source": "./src/promise.ts",
       "types": "./dist/promise.d.ts",
       "default": "./dist/promise.js"
     },
     "./effect": {
+      "@vektorprogrammet/source": "./src/effect-client.ts",
       "types": "./dist/effect-client.d.ts",
       "default": "./dist/effect-client.js"
     },
     "./operations": "./native-api-operations.json"
   },
   "scripts": {
+    "generate": "bun run scripts/generate-operations.ts",
     "build": "tsc -p tsconfig.json",
-    "check-types": "tsc -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "check-types": "tsc -p tsconfig.json --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "oxlint",
     "test": "vitest run",
+    "prepack": "bun run generate",
     "release": "changeset publish"
   },
   "dependencies": {

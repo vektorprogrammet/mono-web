@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
-import contract from "../../../infra/preview/routes/route-contract.json";
+import { generateRouteContract } from "../../../infra/preview/routes/route-contract.ts";
+
+const contract = generateRouteContract();
 
 const baseURL = process.env.PREVIEW_BASE_URL ?? "https://p20.vektor.phibkro.org";
 

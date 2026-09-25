@@ -248,12 +248,12 @@ and explicit lifecycle handling. A path string is not authority.
 ## HTTP and generated client
 
 `packages/http-api/src/api.ts` composes the public and internal native APIs. The
-OpenAPI document, operation catalogue, generated SDK operations, and backend
-metadata are generated from that contract.
+OpenAPI document and the published SDK operation index are generated from that
+contract by the package `generate` tasks, which Turbo runs before type checks and builds.
 
 A generated artifact must name its source and generator. Generation must be
-repeatable. Do not hand-edit a generated client or maintain a separate route list in
-documentation.
+repeatable. Git ignores generated artifacts; regenerate them instead of committing them.
+Do not hand-edit a generated client or maintain a separate route list in documentation.
 
 ## Frontend state
 

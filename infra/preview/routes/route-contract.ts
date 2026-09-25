@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import frozenContract from "./route-contract.json" with { type: "json" };
 import { Record as Rec, Array as Arr, Predicate, Schema } from "effect";
 
 export const PREVIEW_APP = "vektor" as const;
@@ -22,8 +21,6 @@ export const PREVIEW_BASE_URL = `https://${PREVIEW_HOST}` as const;
 export const FORBIDDEN_HOST = ["vektorprogrammet", "no"].join(".");
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-
-const SHA = /^sha256:[0-9a-f]{64}$/u;
 
 type App = "homepage" | "dashboard";
 
@@ -257,6 +254,7 @@ function digestBody(body: Omit<RouteContract, "contractDigest">): string {
   return hash(canonical(body));
 }
 
+/** Derives the preview route contract from the current route sources; no copy is committed. */
 export function generateRouteContract(): RouteContract {
   const homeFiles = routeFiles(join(ROOT, "apps/homepage/src/routes"));
   const dashFiles = routeFiles(join(ROOT, "apps/dashboard/app/routes"));
@@ -305,61 +303,4 @@ export function assertPreviewBaseUrl(value: string): URL {
   url.search = "";
 
   return url;
-}
-
-export function assertRouteContractIntegrity(contract: RouteContract): void {
-  if (
-    contract.target.app !== PREVIEW_APP ||
-    contract.target.stage !== PREVIEW_STAGE ||
-    contract.target.target !== PREVIEW_TARGET ||
-    contract.target.resourcePrefix !== PREVIEW_RESOURCE_PREFIX ||
-    contract.target.container !== PREVIEW_CONTAINER ||
-    contract.target.host === FORBIDDEN_HOST ||
-    !SHA.test(contract.sourceManifestDigest)
-  )
-    throw new Error("Invalid route contract identity");
-  const seen = new Set<string>();
-
-  for (const route of contract.routes) {
-    const key = `${route.app}:${route.path}`;
-
-    if (seen.has(key)) throw new Error(`Duplicate route: ${key}`);
-    seen.add(key);
-  }
-
-  const body = {
-    schemaVersion: contract.schemaVersion,
-    generatorVersion: contract.generatorVersion,
-    target: contract.target,
-    sourceManifestDigest: contract.sourceManifestDigest,
-    sourceManifests: contract.sourceManifests,
-    routes: contract.routes,
-    visualEvidence: contract.visualEvidence,
-    namedStates: contract.namedStates,
-  };
-
-  if (digestBody(body) !== contract.contractDigest)
-    throw new Error("Route contract digest mismatch");
-}
-
-export function assertFrozenRouteContract(): RouteContract {
-  const frozen = FROZEN_ROUTE_CONTRACT;
-  assertRouteContractIntegrity(frozen);
-  const generated = generateRouteContract();
-
-  if (
-    generated.sourceManifestDigest !== frozen.sourceManifestDigest ||
-    canonical(generated.routes) !== canonical(frozen.routes)
-  )
-    throw new Error("Route source drift detected");
-
-  return frozen;
-}
-
-export const FROZEN_ROUTE_CONTRACT = Schema.decodeUnknownSync(RouteContractSchema, {
-  onExcessProperty: "error",
-})(frozenContract);
-
-export function serializeRouteContract(contract: RouteContract): string {
-  return `${JSON.stringify(contract, null, 2)}\n`;
 }

@@ -58,7 +58,6 @@ export class ExternalNativeApi extends HttpApi.make("external-native-api")
         "x-vektorprogrammet-provenance": {
           contract: "@vektorprogrammet/http-api/ExternalNativeApi",
           generator: "effect/unstable/httpapi/OpenApi.fromApi",
-          releaseManifest: "packages/http-api/release-manifest.json",
           schemas: "Effect.Schema",
           statuses: "HttpApiSchema.status",
           security: "HttpApiMiddleware.security",

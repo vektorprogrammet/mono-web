@@ -32,7 +32,7 @@
     "e2e:show-report": "node ./node_modules/@playwright/test/cli.js show-report",
     "e2e:install": "node ./node_modules/@playwright/test/cli.js install",
     "e2e:real-approval": "bun e2e/run-real-receipt-approval.mjs",
-    "e2e:real-settlement": "bun e2e/run-real-native-receipt-settlement.mjs",
+    "e2e:real-settlement": "bun --conditions=@vektorprogrammet/source e2e/run-real-native-receipt-settlement.mjs",
     "e2e:real-owner": "bun e2e/run-real-receipt-owner.mjs",
     "e2e:real-admission-periods": "bun e2e/run-real-admission-period-management.mjs",
     "e2e:real-recruitment": "bun ../../tools/e2e/run-real-native-recruitment-assignment.mjs",

@@ -79,6 +79,7 @@ export default defineConfig(({ command, isPreview }) => {
     preview: {
       allowedHosts: ["p000.vektor.phibkro.org"],
     },
+    // Workspace packages such as the SDK resolve to source; the plugins append Vite's default conditions.
     resolve: {
       alias: {
         "~": "/src",
@@ -88,6 +89,8 @@ export default defineConfig(({ command, isPreview }) => {
         "@/ui": "/src/components/ui",
         "@/api": "/src/api",
       },
+      conditions: ["@vektorprogrammet/source"],
     },
+    ssr: { resolve: { conditions: ["@vektorprogrammet/source"] } },
   };
 });

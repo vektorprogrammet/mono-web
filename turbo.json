@@ -14,15 +14,14 @@
       "dependsOn": ["^lint"]
     },
     "check-types": {
-      "dependsOn": ["^build", "^check-types"]
+      "dependsOn": ["^check-types", "generate"]
     },
     "api:spec": {
       "cache": false
     },
     "generate": {
-      "dependsOn": ["^api:spec"],
-      "inputs": ["legacy-symfony-openapi.snapshot.json"],
-      "outputs": ["generated/**"]
+      "dependsOn": ["^generate"],
+      "outputs": ["openapi.json", "native-api-operations.json"]
     },
     "dev": {
       "cache": false,

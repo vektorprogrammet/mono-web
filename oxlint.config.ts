@@ -126,7 +126,7 @@ const crossPackageSourceImportPatterns = [
   },
 ];
 
-// Same boundary without the SDK, whose export map exposes only its built `dist/` output.
+// Same boundary without the SDK, whose export map resolves to built `dist/` unless the source condition is set.
 const crossPackageSourceImportPatternsExceptSdk = [
   {
     regex:
@@ -311,7 +311,7 @@ export default defineConfig({
       },
     },
     {
-      // The SDK exports only built `dist/`; these drivers run against its source without a build.
+      // Bun resolves the SDK to built `dist/` without `--conditions=@vektorprogrammet/source`; these drivers import its source.
       files: [
         "tools/e2e/placement-check.ts",
         "tools/verification/organization-import-rehearsal-main.ts",
