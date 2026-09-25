@@ -297,7 +297,7 @@ const onSignal = (signal) => {
   abort.abort(new Error(failure));
   void browser?.close().catch(() => {});
 
-  for (const owned of children) signalGroup(owned, "SIGTERM");
+  for (const owned of children) if (owned.label !== "postgres") signalGroup(owned, "SIGTERM");
 };
 
 process.on("SIGINT", () => onSignal("SIGINT"));

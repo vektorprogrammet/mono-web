@@ -301,7 +301,7 @@ export const runReimbursementBrowser = async ({
       .fill(fixture.externalReference);
     await settlementForm
       .getByLabel("Oppgjørstidspunkt (UTC)", { exact: true })
-      .fill("2026-09-21T10:00:00");
+      .fill("2026-09-21T10:00");
     const settlementKey = await settlementForm.locator('[name="commandId"]').inputValue();
     await finance.page.screenshot({ path: join(artifacts, "settlement-confirmation.png") });
     await settlementForm
