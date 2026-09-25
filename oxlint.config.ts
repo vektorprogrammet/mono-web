@@ -49,12 +49,6 @@ const effectConfig = {
       severityOverrides: { "no-ambient-authority": "error" },
     },
     group({
-      files: ["tools/parity/src/**/*.ts"],
-      role: "application",
-      platform: "node",
-      strictness: "recommended",
-    }),
-    group({
       files: ["packages/placements/src/!(*.test|*.spec).ts"],
       role: "effect-library",
       platform: "portable",
@@ -282,17 +276,9 @@ export default defineConfig({
       },
     },
     {
-      files: [
-        "tools/parity/tests/claim-evidence.test.ts",
-        "tools/parity/tests/cli-contract.test.ts",
-        "tools/parity/tests/convention-alias.test.ts",
-        "tools/parity/tests/journey-evidence.test.ts",
-        "tools/parity/tests/legacy-journey-evidence.test.ts",
-        "tools/parity/tests/unsafe-diagnostics.test.ts",
-        "tools/source-safety/tests/source-safety.test.ts",
-      ],
+      files: ["tools/source-safety/tests/source-safety.test.ts"],
       rules: {
-        // Bun owns these exact suites; they deliberately exercise Node-compatible filesystem seams.
+        // Bun runs this suite; it drives the Node-compatible Git and filesystem seams.
         "effect/no-cross-runtime": "off",
       },
     },

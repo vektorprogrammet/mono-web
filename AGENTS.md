@@ -76,7 +76,6 @@ Focused Vitest does not prove those additional gates or the dashboard bundle gat
 | `packages/http-api`   | HTTP contracts, middleware declarations, and OpenAPI     |
 | `packages/sdk`        | Generated native API client                              |
 | `tools/e2e`           | Disposable local journey drivers                         |
-| `tools/parity`        | Temporary migration analysis and safe runtime helpers    |
 | `tools/source-safety` | Staged-tree scan for credentials and personal data       |
 
 Keep the dependency graph in [docs/architecture.md](docs/architecture.md).
