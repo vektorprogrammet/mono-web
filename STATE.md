@@ -96,7 +96,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Hosted CI at `49f38ccc` fails. `Tests` run `36118163912` fails the PHPUnit suite, `TypeScript (build, test)`, native identity (PostgreSQL lifecycle),
   native identity browser evidence, and public applicant browser jobs. `Release SDK` fails its publish step.
   PR preview cleanup fails without `CLOUDFLARE_API_TOKEN`. Hosted Alchemy deployment is unobserved.
-- The golden CI [failure limits](docs/specs/golden-school-service-ci.md#preserved-failure-limits) keep an earlier local HTTP 503 with an unproven cause.
+- The golden CI gate once failed at `ae5928fe` after a dashboard GET returned HTTP 503; a later diagnostic run passed and the cause is unproven. Evidence: `/tmp/golden-ci-success-ae5928fe`.
 - In progress: staged-change checks in pre-commit.
 
 ## Next

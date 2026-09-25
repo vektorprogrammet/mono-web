@@ -365,8 +365,8 @@ On handled interruption or runner failure, cleanup drains declared process group
 The generated upload set contains only checked evidence and the bounded CI summary.
 
 [STATE.md](../STATE.md#evidence-boundary) records integrated acceptance and remaining evidence limits.
-The [CI contract](specs/golden-school-service-ci.md) retains the failure criteria and separately authorized hosted gates.
-Hosted success, cancellation, artifact uploads, and required-check configuration remain unobserved.
+The golden school-service journey (slice A) and its CI gate (slice B) are accepted; the gate runs in the hosted `Tests` workflow.
+The wrapper `tools/e2e/golden-school-service-ci.mjs` and its evidence checks own the failure criteria.
 
 ## Development sequence
 
@@ -386,8 +386,7 @@ C and D do not block the PostgreSQL golden workflow or its CI gate.
 An unsuccessful PGlite qualification leaves PostgreSQL as the working baseline.
 No qualification result authorizes production deployment or changes migration readiness by itself.
 
-The first bounded contract is [Golden school-service journey](specs/golden-school-service-journey.md).
-Its specification owns that slice's detailed acceptance criteria.
+Slices A and B are accepted; their specifications are retired and live in Git history.
 Later slices receive separate specifications before implementation.
 
 ## Planning evidence and limits
