@@ -532,7 +532,15 @@ describe("Organization HTTP boundary", () => {
       },
     });
 
-    expect(await responseBody(queried)).toEqual({ status: 422, body: requestValidationProblem });
+    expect(await responseBody(queried)).toEqual({
+      status: 400,
+      body: expectedProblem(
+        "request.malformed",
+        "Malformed request",
+        400,
+        "The request is malformed.",
+      ),
+    });
     expect(publicListCalls).toBe(before);
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5174");

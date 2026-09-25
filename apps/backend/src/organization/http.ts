@@ -193,6 +193,12 @@ const assertNoQuery = (request: Request) =>
     ? Effect.void
     : Effect.fail(new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }));
 
+/** A public directory read accepts no query. */
+const rejectPublicQuery = (request: Request) =>
+  new URL(request.url).search.length === 0
+    ? Effect.void
+    : Effect.fail(new HttpSemanticFailure("request.malformed", 400));
+
 const transactionOrganizationAuthorityFor = (request: Request) =>
   resolveRequestPersonAuthorityInTransaction(request, {});
 
@@ -370,7 +376,7 @@ const listDepartments = (request: Request) =>
       },
       DateTime.formatIso(yield* DateTime.now),
     );
-    yield* assertNoQuery(request);
+    yield* rejectPublicQuery(request);
     const rows = yield* Organization.use(({ listDepartments }) => listDepartments);
 
     const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(DepartmentJsonSchema))(rows, {
@@ -404,7 +410,7 @@ const listTeams = (request: Request) =>
       },
       DateTime.formatIso(yield* DateTime.now),
     );
-    yield* assertNoQuery(request);
+    yield* rejectPublicQuery(request);
     const rows = yield* Organization.use(({ listTeams }) => listTeams());
 
     const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(TeamJsonSchema))(rows, {
@@ -438,7 +444,7 @@ const listFieldOfStudies = (request: Request) =>
       },
       DateTime.formatIso(yield* DateTime.now),
     );
-    yield* assertNoQuery(request);
+    yield* rejectPublicQuery(request);
     const rows = yield* Organization.use(({ listFieldOfStudies }) => listFieldOfStudies);
 
     const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(FieldOfStudyJsonSchema))(rows, {
@@ -789,9 +795,7 @@ const optionalDepartmentParam = (request: Request) => {
   if (value === null) return Effect.succeed<DepartmentId | undefined>(undefined);
 
   return Schema.decodeUnknownEffect(DepartmentId)(value).pipe(
-    Effect.mapError(
-      () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-    ),
+    Effect.mapError(() => new HttpSemanticFailure("request.malformed", 400)),
   );
 };
 
@@ -801,9 +805,7 @@ const optionalSemesterParam = (request: Request) => {
   if (value === null) return Effect.succeed<SemesterId | undefined>(undefined);
 
   return Schema.decodeUnknownEffect(SemesterId)(value).pipe(
-    Effect.mapError(
-      () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-    ),
+    Effect.mapError(() => new HttpSemanticFailure("request.malformed", 400)),
   );
 };
 
@@ -943,11 +945,7 @@ const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =
 
     const decodedType = yield* Schema.decodeUnknownEffect(MailingListTypeSchema)(rawType, {
       onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        () => new OrganizationDecodeError({ operation: "HTTP", message: "Invalid request" }),
-      ),
-    );
+    }).pipe(Effect.mapError(() => new HttpSemanticFailure("request.malformed", 400)));
 
     const authority = yield* input.resolveAuthority(request);
     const requested = yield* optionalDepartmentParam(request);
