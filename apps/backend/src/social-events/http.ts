@@ -39,6 +39,7 @@ import {
   resolveRequestCredentialInTransaction,
   type TransactionPersonAuthority,
 } from "../authority.js";
+import { isSerializationConflict } from "../http-api/problem.js";
 import { readBoundedJson } from "../http-api/read-json.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -446,7 +447,9 @@ const errorResponse = (cause: unknown): Response => {
     case "SocialEventPersistenceError":
       return nativeProblemResponse("dependency.unavailable", 503);
     case "NativeHttpReceiptPersistenceError":
-      return nativeProblemResponse("idempotency.unavailable", 503);
+      return isSerializationConflict(cause)
+        ? nativeProblemResponse("transaction.conflict", 409)
+        : nativeProblemResponse("idempotency.unavailable", 503);
     default:
       return nativeProblemResponse("internal.error", 500);
   }
