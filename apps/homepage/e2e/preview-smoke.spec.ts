@@ -1,9 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { generateRouteContract } from "../../../infra/preview/routes/route-contract.ts";
+import { previewRoutes } from "./preview-routes.ts";
 
-const contract = generateRouteContract();
-
-const baseURL = process.env.PREVIEW_BASE_URL ?? "https://p20.vektor.phibkro.org";
+const baseURL = process.env.PREVIEW_BASE_URL;
 
 const forbiddenHost = "vektorprogrammet.no";
 
@@ -11,8 +9,10 @@ function screenshotId(routeId: string): string {
   return routeId.replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
-test.describe("p20 preview route contract", () => {
-  for (const route of contract.routes) {
+test.describe("preview route smoke", () => {
+  test.skip(!baseURL, "set PREVIEW_BASE_URL to the origin of a deployed preview");
+
+  for (const route of previewRoutes()) {
     test(`${route.app} ${route.path}`, async ({ page }, testInfo) => {
       const forbiddenRequests: string[] = [];
       const consoleErrors: string[] = [];

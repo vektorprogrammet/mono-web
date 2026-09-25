@@ -14,6 +14,6 @@ export default defineConfig({
   },
   ssr: { resolve: { conditions: ["@vektorprogrammet/source"] } },
   test: {
-    include: ["app/**/*.test.ts", "test/**/*.test.ts"],
+    include: ["app/**/*.test.ts", "test/**/*.test.ts", "workers/**/*.test.ts"],
   },
 });
