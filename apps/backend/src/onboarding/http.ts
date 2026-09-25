@@ -36,7 +36,7 @@ import {
   resolveRequestPersonAuthorityInTransaction,
 } from "../authority.js";
 import { readBoundedJson } from "../http-api/read-json.js";
-import { personPresentation } from "../http-api/problem.js";
+import { isSerializationConflict, personPresentation } from "../http-api/problem.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
@@ -182,6 +182,12 @@ const errorResponse = (cause: unknown): Response => {
     Predicate.isTagged(cause, "UnauthenticatedActor")
   )
     return nativeProblemResponse("credential.invalid", 401);
+
+  // The command executor reports every failed statement as a receipt persistence failure.
+  if (Predicate.isTagged(cause, "NativeHttpReceiptPersistenceError"))
+    return isSerializationConflict(cause)
+      ? nativeProblemResponse("transaction.conflict", 409)
+      : nativeProblemResponse("idempotency.unavailable", 503);
 
   const sqlCode = (cause: unknown, n = 0): string | null =>
     n < 8 && (cause === null || Predicate.isObjectOrArray(cause)) && cause !== null
