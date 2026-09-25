@@ -76,7 +76,7 @@ describe("Schools application migration in PGlite", () => {
     });
   }, 15_000);
 
-  it("enforces both association foreign keys, restricts departments, and cascades schools", async () => {
+  it("enforces both association foreign keys and restricts deleting associated departments and schools", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -126,15 +126,26 @@ describe("Schools application migration in PGlite", () => {
           `,
         );
 
-        yield* database`
-          DELETE FROM public.schools_directory_schools AS school
-          WHERE school.school_id = ${schoolId}::bigint
-        `;
+        const restrictSchoolFailure = yield* Effect.flip(
+          database`
+            DELETE FROM public.schools_directory_schools AS school
+            WHERE school.school_id = ${schoolId}::bigint
+          `,
+        );
 
         const associations = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
           FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${schoolId}::bigint
+        `;
+
+        yield* database`
+          DELETE FROM public.schools_directory_departments AS association
+          WHERE association.school_id = ${schoolId}::bigint
+        `;
+        yield* database`
+          DELETE FROM public.schools_directory_schools AS school
+          WHERE school.school_id = ${schoolId}::bigint
         `;
 
         yield* database`
@@ -146,6 +157,7 @@ describe("Schools application migration in PGlite", () => {
           missingSchoolTag: missingSchoolFailure._tag,
           missingDepartmentTag: missingDepartmentFailure._tag,
           restrictTag: restrictFailure._tag,
+          restrictSchoolTag: restrictSchoolFailure._tag,
           associationCount: associations[0]?.count,
         };
       }),
@@ -155,7 +167,8 @@ describe("Schools application migration in PGlite", () => {
       missingSchoolTag: "SqlError",
       missingDepartmentTag: "SqlError",
       restrictTag: "SqlError",
-      associationCount: "0",
+      restrictSchoolTag: "SqlError",
+      associationCount: "1",
     });
   });
 
@@ -214,6 +227,10 @@ describe("Schools application migration in PGlite", () => {
           {},
         );
 
+        yield* database`
+          DELETE FROM public.schools_directory_departments AS association
+          WHERE association.school_id = ${inserted[0]!.schoolId}::bigint
+        `;
         yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${inserted[0]!.schoolId}::bigint
