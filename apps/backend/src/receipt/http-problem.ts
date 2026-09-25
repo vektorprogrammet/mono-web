@@ -8,15 +8,6 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
 
-type ErrorBody = {
-  readonly error: { readonly tag: string; readonly message?: string };
-};
-
-const COMPOSED_DENIAL_MESSAGES = {
-  AmbiguousParameterFill: "Authorization parameter fill is ambiguous",
-  FailedComposedRequirement: "Composed authorization requirement failed",
-} as const;
-
 /** Keeps receipt-classified failures and wraps every other thrown value as unknown. */
 export const knownReceiptFailure = (cause: unknown) =>
   cause instanceof HttpSemanticFailure ||
@@ -55,49 +46,15 @@ export const privateJsonResponse = (body: Schema.Json, status = 200): Response =
   return response;
 };
 
-/** Tag-body error mapping kept by the internal receipt evidence endpoint. */
-export const internalReceiptErrorResponse = (cause: unknown): Response => {
-  while (Cause.isUnknownError(cause)) cause = cause.cause;
-
-  const tag = failureTag(cause, "ReceiptPersistenceError");
-
-  const status =
-    tag === "UnauthenticatedActor"
-      ? 401
-      : tag === "InactiveActor" ||
-          tag === "ReceiptOwnerDenied" ||
-          tag === "ReceiptScopeDenied" ||
-          tag === "ReceiptAuthorityDenied" ||
-          tag === "AmbiguousPaymentSelection" ||
-          tag === "AmbiguousParameterFill" ||
-          tag === "FailedComposedRequirement"
-        ? 403
-        : tag === "ReceiptNotFound"
-          ? 404
-          : tag === "ReceiptDecodeError" ||
-              tag === "ReceiptFileNotStaged" ||
-              tag === "SettlementAfterRecordedAt"
-            ? 422
-            : tag === "ReceiptAlreadyExists" ||
-                tag === "ReceiptAlreadySettled" ||
-                tag === "DuplicateExternalSettlementReference" ||
-                tag === "DuplicateReceiptCommandConflict" ||
-                tag === "StaleReceiptRevision" ||
-                tag === "InvalidReceiptTransition"
-              ? 409
-              : 503;
-
-  const message =
-    tag === "AmbiguousParameterFill" || tag === "FailedComposedRequirement"
-      ? COMPOSED_DENIAL_MESSAGES[tag]
-      : undefined;
-
-  const body: ErrorBody = {
-    error: message === undefined ? { tag } : { tag, message },
-  };
-
-  return jsonResponse(body, status);
-};
+/**
+ * Problem mapping for the internal receipt evidence endpoint. It answers its
+ * credential and authority rejections itself, so only an absent receipt and
+ * an unavailable store or encoder remain.
+ */
+export const internalReceiptErrorResponse = (cause: unknown): Response =>
+  failureTag(cause, "ReceiptPersistenceError") === "ReceiptNotFound"
+    ? nativeProblemResponse("receipt.not-found", 404)
+    : nativeProblemResponse("receipts.unavailable", 503);
 
 /** Native problem mapping for public receipt endpoints. */
 export const publicReceiptErrorResponse = (cause: unknown): Response => {

@@ -3,7 +3,6 @@ import { Database, IdentitySnapshot } from "@vektorprogrammet/database";
 import { readOwnedReceiptFile } from "@vektorprogrammet/database/receipt/postgres";
 import {
   AcceptedOAuthServiceCredential,
-  AccessEvaluation,
   AuthorityRef,
   AuthorityVersion,
   AuthorizationInstant,
@@ -19,7 +18,6 @@ import {
   ResourceId,
   Scope,
   ServicePrincipalGrantAuthority,
-  accessHttpStatus,
   decodeGrant,
   evaluateAccess,
   evaluateServicePrincipalReceiptApprovalAccess,
@@ -37,8 +35,10 @@ import {
   reflectAccessSpec,
   type ReceiptSettlementQueueItem,
 } from "@vektorprogrammet/http-api";
+import { nativeCookieChallenge, Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Option, Predicate, Schema } from "effect";
 import { currentInstant, resolveRequestCredentialInTransaction } from "../authority.js";
+import { personPresentation, problemWebResponse } from "../http-api/problem.js";
 import { HttpSemanticFailure } from "../http-semantics.js";
 import {
   RECEIPT_E2E_CONCURRENCY_RESPONSE_HEADER,
@@ -134,7 +134,7 @@ export const listReceiptsForApproval = <E, R>(
       );
 
       if (!Predicate.isTagged(evaluation, "Allow")) {
-        return jsonResponse({ error: { tag: "ReceiptScopeDenied" } }, 403);
+        return yield* Effect.fail(new HttpSemanticFailure("authority.denied", 403));
       }
 
       const items = yield* Effect.try({
@@ -485,18 +485,12 @@ export const readReceiptLifecycleEvidence = <E, R>(
           }),
         );
 
+        // Only the Cookie credential reaches this operation, so a rejection challenges for it alone.
         if (Predicate.isTagged(credential, "Failure")) {
-          if (!Predicate.isTagged(credential.error, "IdentitySessionNotFound")) {
-            return jsonResponse({ error: { tag: "IdentityEngineError" } }, 503);
-          }
-
-          const evaluation: AccessEvaluation = AccessEvaluation.CredentialRejected({
-            reason: "Invalid",
-          });
-
-          return jsonResponse(
-            { error: { tag: "UnauthenticatedActor" } },
-            accessHttpStatus(evaluation, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment),
+          return problemWebResponse(
+            Predicate.isTagged(credential.error, "IdentitySessionNotFound")
+              ? Problem.unauthenticated(personPresentation(request, nativeCookieChallenge))
+              : Problem.make("receipts.unavailable"),
           );
         }
 
@@ -561,11 +555,9 @@ export const readReceiptLifecycleEvidence = <E, R>(
           authorizationInstant,
         });
 
+        // The evidence spec reveals every denial of its accepted credential.
         if (!Predicate.isTagged(evaluation, "Allow")) {
-          return jsonResponse(
-            { error: { tag: "ReceiptAuthorityDenied" } },
-            accessHttpStatus(evaluation, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment),
-          );
+          return problemWebResponse(Problem.make("authority.denied"));
         }
 
         const evidence = yield* Economy.use(({ readReceiptLifecycleEvidence }) =>
