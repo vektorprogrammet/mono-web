@@ -462,6 +462,7 @@ export const correctInterviewAssessment = <E, R>(
       identities: { interviewId },
       semanticRequest: semanticMutationRequest(body, ifMatch),
       commandIdSchema: RecruitmentInterviewCorrectionCommandId,
+      retry: "serialization-once",
       prepare: () =>
         Effect.gen(function* () {
           const authorization = yield* interviewAuthorizationInTransaction(
