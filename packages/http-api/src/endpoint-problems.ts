@@ -328,6 +328,7 @@ export const AdmissionsReadReturningAssistantOptionsProblem = problemUnion(
     "returning.history-missing",
     "returning.study-invalid",
     "returning.period-unavailable",
+    "internal.error",
     "returning.unavailable",
   ],
 );
