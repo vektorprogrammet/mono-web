@@ -73,6 +73,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import { readBoundedJson } from "../http-api/read-json.js";
+import { readBoundedReceiptForm } from "@vektorprogrammet/http-api";
 import {
   HttpSemanticFailure,
   deriveHttpIdentity,
@@ -424,7 +425,7 @@ const decodeMultipartFields = (request: Request, maxFileBytes: number) =>
     try: async () => {
       const contentType = request.headers.get("content-type") ?? "";
 
-      if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
+      if (contentType.split(";", 1)[0]?.trim().toLowerCase() !== "multipart/form-data") {
         throw new ReceiptDecodeError({ message: "multipart form required" });
       }
 
@@ -447,7 +448,7 @@ const decodeMultipartFields = (request: Request, maxFileBytes: number) =>
       let form: FormData;
 
       try {
-        form = await request.formData();
+        form = await readBoundedReceiptForm(request, maxFileBytes);
       } catch {
         throw new ReceiptDecodeError({ message: "invalid multipart body" });
       }

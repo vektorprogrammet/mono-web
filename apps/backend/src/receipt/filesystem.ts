@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir, open, rename, unlink, realpath } from "node:fs/promises";
+import { copyFile, mkdir, open, rename, unlink, realpath, link } from "node:fs/promises";
 import { dirname, join, relative, isAbsolute, sep } from "node:path";
 import { Context, Match, Predicate, Effect, Layer } from "effect";
 import {
   ReceiptDecodeError,
+  receiptEvidenceDigest,
   ReceiptFileEffectConflict,
   ReceiptFileIdentityConflict,
   ReceiptFileInjectedFailure,
@@ -60,13 +61,15 @@ const pathFor = (root: string, key: string): string => {
   return join(root, ...segments);
 };
 
-const digestPath = async (filePath: string): Promise<FileDigest> => {
+const digestPath = async (filePath: string, maxBytes: number): Promise<FileDigest> => {
   const hash = createHash("sha256");
   let byteLength = 0;
 
   for await (const chunk of createReadStream(filePath)) {
     const bytes = Predicate.isString(chunk) ? Buffer.from(chunk) : chunk;
     byteLength += bytes.byteLength;
+
+    if (byteLength > maxBytes) break;
     hash.update(bytes);
   }
 
@@ -75,7 +78,7 @@ const digestPath = async (filePath: string): Promise<FileDigest> => {
 
 const inspectFile = async (filePath: string, file: ReceiptFile): Promise<ExistingFile> => {
   try {
-    const digest = await digestPath(filePath);
+    const digest = await digestPath(filePath, file.byteLength);
 
     return digest.byteLength === file.byteLength && digest.sha256 === file.sha256
       ? "matching"
@@ -158,8 +161,43 @@ export const ReceiptFileStoreLive = (config: ReceiptFileStoreConfig) =>
   );
 
 export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFileStore => {
-  const applied = new Map<string, string>();
   let failNextPromotionEffectId = config.failNextPromotionEffectId;
+
+  const reserveEffect = async (effectId: string, digest: string): Promise<void> => {
+    const directory = join(config.committedRoot, ".effects");
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const key = createHash("sha256").update(effectId).digest("hex");
+    const target = join(directory, key);
+    const temporary = join(directory, `.incoming-${randomUUID()}`);
+    const handle = await open(temporary, "wx", 0o600);
+
+    try {
+      await handle.writeFile(digest);
+      await handle.sync();
+      await handle.close();
+
+      try {
+        await link(temporary, target);
+      } catch (cause) {
+        if (!(Predicate.isObject(cause) && "code" in cause && cause.code === "EEXIST")) throw cause;
+      }
+
+      const marker = await open(target, "r");
+
+      try {
+        const bytes = Buffer.alloc(65);
+        const { bytesRead } = await marker.read(bytes, 0, bytes.length, 0);
+
+        if (bytesRead !== 64 || bytes.subarray(0, bytesRead).toString("ascii") !== digest)
+          throw new ReceiptFileEffectConflict({ effectId });
+      } finally {
+        await marker.close();
+      }
+    } finally {
+      await handle.close();
+      await removeIfPresent(temporary);
+    }
+  };
 
   const stageBytes = async (
     file: File,
@@ -167,9 +205,9 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
     contentType: ReceiptFile["contentType"],
     maxFileBytes: number,
   ): Promise<StagedReceiptFile> => {
-    await mkdir(config.stagingRoot, { recursive: true });
+    await mkdir(config.stagingRoot, { recursive: true, mode: 0o700 });
     const temporaryPath = join(config.stagingRoot, `.incoming-${randomUUID()}.part`);
-    const handle = await open(temporaryPath, "wx");
+    const handle = await open(temporaryPath, "wx", 0o600);
     const hash = createHash("sha256");
     let byteLength = 0;
 
@@ -188,10 +226,14 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
           }
 
           hash.update(chunk.value);
-          await handle.write(chunk.value);
+          await handle.writeFile(chunk.value);
         }
       } finally {
-        reader.releaseLock();
+        try {
+          await reader.cancel();
+        } finally {
+          reader.releaseLock();
+        }
       }
 
       await handle.sync();
@@ -203,7 +245,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
       });
 
       const targetPath = pathFor(config.stagingRoot, identity.fileRef);
-      await mkdir(dirname(targetPath), { recursive: true });
+      await mkdir(dirname(targetPath), { recursive: true, mode: 0o700 });
       const existing = await inspectFile(targetPath, identity);
 
       if (existing === "matching") {
@@ -263,11 +305,8 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
     apply: (request: ReceiptFileRequest) =>
       Effect.tryPromise({
         try: async () => {
-          const requestDigest = createHash("sha256").update(JSON.stringify(request)).digest("hex");
-          const previous = applied.get(request.effectId);
-
-          if (previous !== undefined && previous !== requestDigest)
-            throw new ReceiptFileEffectConflict({ effectId: request.effectId });
+          const requestDigest = receiptEvidenceDigest(request);
+          await reserveEffect(request.effectId, requestDigest);
 
           if (
             Predicate.isTagged(request, "PromoteReceiptFile") &&
@@ -296,7 +335,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
               const staged = await inspectFile(stagingPath, request.file);
 
               if (staged !== "matching") throw fileFailure(request.effectId, request.file.fileRef);
-              await mkdir(dirname(committedPath), { recursive: true });
+              await mkdir(dirname(committedPath), { recursive: true, mode: 0o700 });
 
               try {
                 await rename(stagingPath, committedPath);
@@ -328,8 +367,6 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
 
             if (committed === "matching") await removeIfPresent(committedPath);
           }
-
-          applied.set(request.effectId, requestDigest);
         },
         catch: (cause) => {
           if (
@@ -366,10 +403,19 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
 
         if (!stat.isFile() || stat.size !== file.byteLength || stat.size > maxFileBytes)
           throw new Error("receipt file mismatch");
-        const bytes = await handle.readFile();
+        const bytes = Buffer.alloc(file.byteLength);
+        let offset = 0;
+
+        while (offset < bytes.length) {
+          const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+
+          if (bytesRead === 0) break;
+          offset += bytesRead;
+        }
 
         if (
-          bytes.length !== file.byteLength ||
+          offset !== file.byteLength ||
+          (await handle.stat()).size !== file.byteLength ||
           createHash("sha256").update(bytes).digest("hex") !== file.sha256
         )
           throw new Error("receipt file mismatch");

@@ -15,7 +15,7 @@ import {
   ReceiptUiError,
   type ReceiptUiErrorField,
 } from "@/lib/receipt-view";
-import { ReceiptId } from "@vektorprogrammet/http-api";
+import { ReceiptId, readBoundedReceiptForm } from "@vektorprogrammet/http-api";
 import {
   IdempotencyKey,
   StrongETag,
@@ -232,7 +232,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
-  const form = await request.formData();
+
+  const form = await readBoundedReceiptForm(request, MAX_FILE_BYTES).catch(() => {
+    throw new Response("Receipt upload exceeds the limit or is malformed", { status: 413 });
+  });
+
   const commandIdText = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
   const commandId = decodeIdempotencyKey(commandIdText);
   const intent = readFormText(form, "_intent");
