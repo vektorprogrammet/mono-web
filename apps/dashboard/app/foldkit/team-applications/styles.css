@@ -1,0 +1,331 @@
+vektor-team-applications {
+  display: block;
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.team-applications {
+  --team-applications-space-1: 0.25rem;
+  --team-applications-space-2: 0.5rem;
+  --team-applications-space-3: 0.75rem;
+  --team-applications-space-4: 1rem;
+  --team-applications-space-6: 1.5rem;
+  --team-applications-border: 0.0625rem solid var(--border);
+  --team-applications-focus: 0.1875rem solid var(--ring);
+  --team-applications-control-block-size: 2.75rem;
+
+  box-sizing: border-box;
+  color: var(--foreground);
+  display: grid;
+  gap: var(--team-applications-space-6);
+  grid-template-columns: minmax(0, 1fr);
+  inline-size: 100%;
+  line-height: 1.5;
+  margin-inline: auto;
+  max-inline-size: 60rem;
+  overflow-wrap: anywhere;
+  padding: var(--team-applications-space-4);
+}
+
+.team-applications *,
+.team-applications *::before,
+.team-applications *::after {
+  box-sizing: inherit;
+}
+
+.team-applications h1,
+.team-applications h2,
+.team-applications p,
+.team-applications dl,
+.team-applications dd,
+.team-applications ul,
+.team-applications fieldset {
+  margin: 0;
+}
+
+.team-applications h1 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.team-applications h2 {
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.team-applications__header {
+  border-block-end: var(--team-applications-border);
+  display: grid;
+  gap: var(--team-applications-space-2);
+  padding-block-end: var(--team-applications-space-4);
+}
+
+.team-applications__header > p:not(.team-applications__eyebrow) {
+  color: var(--muted-foreground);
+  max-inline-size: 60ch;
+}
+
+.team-applications__eyebrow {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.team-applications__link,
+.team-applications__value a,
+.team-applications__fields a {
+  color: currentColor;
+  justify-self: start;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: var(--team-applications-space-1);
+}
+
+.team-applications__panel {
+  border: var(--team-applications-border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: var(--team-applications-space-4);
+  min-inline-size: 0;
+  padding: var(--team-applications-space-4);
+}
+
+.team-applications__panel--failure,
+.team-applications__notice--failure {
+  border-color: var(--destructive);
+}
+
+.team-applications__panel-heading {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--team-applications-space-2) var(--team-applications-space-4);
+  justify-content: space-between;
+}
+
+.team-applications__notice-region:empty {
+  display: none;
+}
+
+.team-applications__notice {
+  border: var(--team-applications-border);
+  border-radius: var(--radius-md);
+  padding: var(--team-applications-space-3) var(--team-applications-space-4);
+}
+
+.team-applications__status {
+  font-weight: 650;
+}
+
+.team-applications__list {
+  display: grid;
+  gap: var(--team-applications-space-2);
+  list-style: none;
+  padding: 0;
+}
+
+.team-applications__row {
+  align-items: center;
+  border: var(--team-applications-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--team-applications-space-2) var(--team-applications-space-4);
+  justify-content: space-between;
+  padding: var(--team-applications-space-3);
+}
+
+.team-applications__row-text {
+  display: grid;
+  flex: 1 1 12rem;
+  gap: var(--team-applications-space-1);
+  min-inline-size: 0;
+}
+
+.team-applications__name {
+  font-weight: 650;
+}
+
+.team-applications__meta,
+.team-applications__hint,
+.team-applications__empty {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.team-applications__hint--error {
+  color: var(--destructive);
+  font-weight: 650;
+}
+
+.team-applications__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--team-applications-space-2);
+}
+
+.team-applications__button {
+  background: var(--background);
+  border: var(--team-applications-border);
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  max-inline-size: 100%;
+  min-block-size: var(--team-applications-control-block-size);
+  padding: var(--team-applications-space-2) var(--team-applications-space-4);
+}
+
+.team-applications__button--primary {
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
+}
+
+.team-applications__button--danger {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: var(--background);
+}
+
+.team-applications__button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.team-applications__button:focus-visible,
+.team-applications__checkbox-box:focus-visible,
+.team-applications__input:focus-visible,
+.team-applications__link:focus-visible,
+.team-applications__fields a:focus-visible {
+  outline: var(--team-applications-focus);
+  outline-offset: 0.125rem;
+}
+
+.team-applications__form,
+.team-applications__fieldset {
+  display: grid;
+  gap: var(--team-applications-space-4);
+  min-inline-size: 0;
+}
+
+.team-applications__fieldset {
+  border: var(--team-applications-border);
+  border-radius: var(--radius-md);
+  padding: var(--team-applications-space-4);
+}
+
+.team-applications__fieldset legend {
+  font-weight: 700;
+  padding-inline: var(--team-applications-space-1);
+}
+
+.team-applications__checkbox {
+  align-items: center;
+  display: flex;
+  gap: var(--team-applications-space-3);
+}
+
+.team-applications__checkbox-box {
+  align-items: center;
+  background: var(--background);
+  border: 0.125rem solid var(--foreground);
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
+  cursor: pointer;
+  display: inline-flex;
+  flex: none;
+  font-weight: 700;
+  justify-content: center;
+  block-size: 1.75rem;
+  inline-size: 1.75rem;
+  padding: 0;
+}
+
+.team-applications__checkbox-box[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.team-applications__checkbox-label {
+  cursor: pointer;
+}
+
+.team-applications__field {
+  display: grid;
+  gap: var(--team-applications-space-1);
+  min-inline-size: 0;
+}
+
+.team-applications__field label {
+  font-weight: 650;
+}
+
+.team-applications__input {
+  background: var(--background);
+  border: var(--team-applications-border);
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
+  font: inherit;
+  inline-size: 100%;
+  max-inline-size: 22rem;
+  min-block-size: var(--team-applications-control-block-size);
+  min-inline-size: 0;
+  padding: var(--team-applications-space-2) var(--team-applications-space-3);
+}
+
+.team-applications__input[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+
+.team-applications__fields {
+  display: grid;
+  gap: var(--team-applications-space-3);
+}
+
+.team-applications__field-row {
+  border-inline-start: var(--team-applications-space-1) solid var(--border);
+  display: grid;
+  gap: var(--team-applications-space-1);
+  padding-inline-start: var(--team-applications-space-3);
+}
+
+.team-applications__field-row dt {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.team-applications__text {
+  white-space: pre-wrap;
+}
+
+.team-applications__dialog {
+  background: transparent;
+  border: 0;
+  color: var(--foreground);
+  inline-size: min(calc(100% - 2rem), 32rem);
+  max-block-size: calc(100dvh - 2rem);
+  overflow: visible;
+  padding: 0;
+}
+
+.team-applications__dialog-backdrop {
+  background: rgb(0 0 0 / 0.5);
+  inset: 0;
+  position: fixed;
+}
+
+.team-applications__dialog-panel {
+  background: var(--background);
+  border: var(--team-applications-border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: var(--team-applications-space-4);
+  max-block-size: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  padding: var(--team-applications-space-6);
+  position: relative;
+}

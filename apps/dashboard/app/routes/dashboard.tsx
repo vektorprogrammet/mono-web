@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ChevronsUpDown,
   CircleEllipsis,
+  Inbox,
   Info,
   LayoutDashboard,
   LogOut,
@@ -240,6 +241,18 @@ const mainLinks = [
       {
         title: "Oppgjør",
         url: href("/utlegg/oppgjor"),
+      },
+    ],
+  },
+  {
+    title: "Team-søknader",
+    url: href("/teamsoknader"),
+    icon: <Inbox size={16} />,
+    isActive: false,
+    links: [
+      {
+        title: "Team-søknader",
+        url: href("/teamsoknader"),
       },
     ],
   },

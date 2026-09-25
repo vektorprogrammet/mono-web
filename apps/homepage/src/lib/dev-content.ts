@@ -13,25 +13,6 @@ export type StatisticContent = {
   readonly teamMemberCount: number;
 };
 
-export type TeamContent = {
-  readonly id: string;
-  readonly city: "Trondheim" | "Bergen" | "Ås" | "Hovedstyret";
-  readonly title: string;
-  readonly text: string;
-  readonly email: string;
-  readonly numberOfMembers: number;
-  readonly url: string;
-  readonly image: string;
-  readonly imageAlt: string;
-};
-
-export type DevTeamMember = {
-  readonly id: string;
-  readonly name: string;
-  readonly image: string;
-  readonly role: string;
-};
-
 export type DepartmentContact = {
   readonly name: string;
   readonly title?: string;
@@ -56,28 +37,16 @@ export type DepartmentContent = {
 export type DevContent = {
   readonly sponsors: readonly SponsorContent[];
   readonly statistics: StatisticContent;
-  readonly teams: readonly TeamContent[];
   readonly departments: readonly DepartmentContent[];
 };
 
 export type DevRouteCensus = {
   readonly paths: readonly string[];
-  readonly teams: readonly {
-    readonly id: string;
-    readonly path: string;
-    readonly memberCount: number;
-  }[];
   readonly departments: readonly {
     readonly id: string;
     readonly path: string;
     readonly memberCount: number;
     readonly contacts: readonly DepartmentContact[];
-  }[];
-  readonly people: readonly {
-    readonly id: string;
-    readonly teamId: string;
-    readonly name: string;
-    readonly role: string;
   }[];
 };
 
@@ -122,195 +91,6 @@ export const DEV_CONTENT = {
     assistantCount: 42,
     teamMemberCount: 16,
   },
-  teams: [
-    {
-      id: "trondheim-styre",
-      city: "Trondheim",
-      title: "Styret",
-      text: "Det syntetiske Trondheim-styret samler den lokale DEV CONTENT-planen.",
-      email: "trondheim-styre@example.invalid",
-      numberOfMembers: 4,
-      url: "/team/trondheim/styret",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Trondheim-styret",
-    },
-    {
-      id: "trondheim-evaluering",
-      city: "Trondheim",
-      title: "Evaluering",
-      text: "Det syntetiske evalueringsteamet lager trygge, lokale eksempelrapporter.",
-      email: "trondheim-evaluering@example.invalid",
-      numberOfMembers: 3,
-      url: "/team/trondheim/evaluering",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for evaluering",
-    },
-    {
-      id: "trondheim-rekruttering",
-      city: "Trondheim",
-      title: "Rekruttering",
-      text: "Det syntetiske rekrutteringsteamet holder DEV CONTENT-siden oversiktlig.",
-      email: "trondheim-rekruttering@example.invalid",
-      numberOfMembers: 3,
-      url: "/team/trondheim/rekruttering",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for rekruttering",
-    },
-    {
-      id: "trondheim-skole",
-      city: "Trondheim",
-      title: "Skolekoordinering",
-      text: "Det syntetiske skolekoordineringsteamet viser en stabil kontaktflate.",
-      email: "trondheim-skole@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/trondheim/skolekoordinering",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for skolekoordinering",
-    },
-    {
-      id: "trondheim-sponsor",
-      city: "Trondheim",
-      title: "Sponsor",
-      text: "Det syntetiske sponsorteamet viser en inert lenkeprojeksjon.",
-      email: "trondheim-sponsor@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/trondheim/sponsor",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for sponsorteamet",
-    },
-    {
-      id: "trondheim-okonomi",
-      city: "Trondheim",
-      title: "Økonomi",
-      text: "Det syntetiske økonomiteamet viser et lokalt eksempel uten transport.",
-      email: "trondheim-okonomi@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/trondheim/okonomi",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for økonomiteamet",
-    },
-    {
-      id: "trondheim-it",
-      city: "Trondheim",
-      title: "IT",
-      text: "Det syntetiske IT-teamet holder denne DEV CONTENT-overflaten enkel.",
-      email: "trondheim-it@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/trondheim/it",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for IT-teamet",
-    },
-    {
-      id: "trondheim-profilering",
-      city: "Trondheim",
-      title: "Profilering",
-      text: "Det syntetiske profileringsteamet viser lokal presentasjonstekst.",
-      email: "trondheim-profilering@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/trondheim/profilering",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for profilering",
-    },
-    {
-      id: "aas-styre",
-      city: "Ås",
-      title: "Styret",
-      text: "Det syntetiske Ås-styret viser en stabil lokal teamprojeksjon.",
-      email: "aas-styre@example.invalid",
-      numberOfMembers: 3,
-      url: "/team/aas/styret",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Ås-styret",
-    },
-    {
-      id: "aas-sponsor",
-      city: "Ås",
-      title: "Sponsor",
-      text: "Det syntetiske Ås-sponsorteamet viser en inert lenkeprojeksjon.",
-      email: "aas-sponsor@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/aas/sponsor-okonomi",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Ås-sponsorteamet",
-    },
-    {
-      id: "aas-skole",
-      city: "Ås",
-      title: "Skolekoordinering",
-      text: "Det syntetiske Ås-skoleteamet viser en stabil kontaktflate.",
-      email: "aas-skole@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/aas/skolekoordinering",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Ås-skolekoordinering",
-    },
-    {
-      id: "aas-evaluering",
-      city: "Ås",
-      title: "Evaluering",
-      text: "Det syntetiske Ås-evalueringsteamet viser lokal innholdstekst.",
-      email: "aas-evaluering@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/aas/evaluering-rekruttering-profilering",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Ås-evaluering",
-    },
-    {
-      id: "aas-sosialt",
-      city: "Ås",
-      title: "Sosialt",
-      text: "Det syntetiske Ås-sosialteamet viser en stabil lokal projeksjon.",
-      email: "aas-sosialt@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/aas/sosialt",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Ås-sosialteamet",
-    },
-    {
-      id: "bergen-styre",
-      city: "Bergen",
-      title: "Styret",
-      text: "Det syntetiske Bergen-styret viser en stabil lokal teamprojeksjon.",
-      email: "bergen-styre@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/bergen/styret",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Bergen-styret",
-    },
-    {
-      id: "bergen-skole",
-      city: "Bergen",
-      title: "Skolekoordinering",
-      text: "Det syntetiske Bergen-skoleteamet viser en stabil kontaktflate.",
-      email: "bergen-skole@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/bergen/skolekoordinering",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Bergen-skolekoordinering",
-    },
-    {
-      id: "bergen-rekruttering",
-      city: "Bergen",
-      title: "Rekruttering",
-      text: "Det syntetiske Bergen-rekrutteringsteamet viser lokal innholdstekst.",
-      email: "bergen-rekruttering@example.invalid",
-      numberOfMembers: 2,
-      url: "/team/bergen/rekruttering",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for Bergen-rekruttering",
-    },
-    {
-      id: "hovedstyret",
-      city: "Hovedstyret",
-      title: "Hovedstyret",
-      text: "Det syntetiske hovedstyret viser en overordnet DEV CONTENT-projeksjon.",
-      email: "hovedstyret@example.invalid",
-      numberOfMembers: 4,
-      url: "/team/hovedstyret",
-      image: localCardImage,
-      imageAlt: "Nøytral illustrasjon for hovedstyret",
-    },
-  ],
   departments: [
     {
       id: "trondheim",
@@ -384,15 +164,6 @@ export const DEV_CONTENT = {
   ],
 } as const satisfies DevContent;
 
-function createDevTeamMembers(team: TeamContent): readonly DevTeamMember[] {
-  return Array.from({ length: team.numberOfMembers }, (_, index) => ({
-    id: `${team.id}-member-${index + 1}`,
-    name: `DEV Member ${index + 1}`,
-    image: team.image,
-    role: index === 0 ? "Leder" : "Medlem",
-  }));
-}
-
 function compareStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -410,16 +181,9 @@ export const DEV_ROUTE_CENSUS: DevRouteCensus = {
     "/skoler",
     "/team",
     "/team/:department",
+    "/team/:teamId/soknad",
     ...DEV_CONTENT.departments.map((department) => `/kontakt/${department.id}`),
-    ...DEV_CONTENT.teams.map((team) => team.url),
   ].sort(),
-  teams: DEV_CONTENT.teams
-    .map((team) => ({
-      id: team.id,
-      path: team.url,
-      memberCount: team.numberOfMembers,
-    }))
-    .sort((left, right) => compareStrings(left.id, right.id)),
   departments: DEV_CONTENT.departments
     .map((department) => ({
       id: department.id,
@@ -428,27 +192,7 @@ export const DEV_ROUTE_CENSUS: DevRouteCensus = {
       contacts: department.contacts,
     }))
     .sort((left, right) => compareStrings(left.id, right.id)),
-  people: DEV_CONTENT.teams
-    .flatMap((team) =>
-      createDevTeamMembers(team).map((member) => ({
-        id: member.id,
-        teamId: team.id,
-        name: member.name,
-        role: member.role,
-      })),
-    )
-    .sort((left, right) => compareStrings(left.id, right.id)),
 };
-
-export type DevTeamId = (typeof DEV_CONTENT.teams)[number]["id"];
-
-export function getDevTeamMembers(teamId: DevTeamId): readonly DevTeamMember[] {
-  const team = DEV_CONTENT.teams.find((item) => item.id === teamId);
-
-  if (!team) throw new Error(`Unknown DEV CONTENT team: ${teamId}`);
-
-  return createDevTeamMembers(team);
-}
 
 export type DevProfileContent = {
   readonly name: string;
@@ -457,13 +201,9 @@ export type DevProfileContent = {
 };
 
 export function getDevProfile(): DevProfileContent {
-  const team = DEV_CONTENT.teams[0];
-
-  if (!team) throw new Error("DEV CONTENT must define a profile projection");
-
   return {
     name: "DEV Member",
-    image: team.image,
+    image: localCardImage,
     imageAlt: "Nøytral DEV CONTENT-profilillustrasjon",
   };
 }
@@ -471,12 +211,6 @@ export function getDevProfile(): DevProfileContent {
 for (const sponsor of DEV_CONTENT.sponsors) {
   if (!sponsor.image.startsWith("/")) {
     throw new Error(`DEV CONTENT sponsor image must be local: ${sponsor.id}`);
-  }
-}
-
-for (const team of DEV_CONTENT.teams) {
-  if (!team.url.startsWith("/") || !team.image.startsWith("/")) {
-    throw new Error(`DEV CONTENT team projection must be local: ${team.id}`);
   }
 }
 

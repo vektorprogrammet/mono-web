@@ -56,8 +56,7 @@ test("local DEV CONTENT homepage journey", async ({ page, diagnostics }) => {
   await assertProvenance(team, "/team");
   await assertHealthyPage(page, diagnostics);
   await expect(page.getByTestId("dev-content-banner")).toContainText(LOCAL_HOST);
-  await expect(page.getByText("Våre team")).toBeVisible();
-  await expect(page.getByText("Styret").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Våre team" })).toBeVisible();
   await page.screenshot({ path: join(SCREENSHOT_DIR, "team.png") });
   expect(documentRequests).toBe(documentRequestsBeforeTeamNavigation);
   page.off("request", onRequest);

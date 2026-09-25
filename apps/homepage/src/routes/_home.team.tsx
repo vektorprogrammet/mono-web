@@ -7,18 +7,13 @@ import {
 import { Outlet } from "react-router";
 import { getTeamFaqs } from "~/api/faq";
 import { Divider } from "~/components/divider";
-import type { TeamLoaderData } from "~/components/team-tabs";
-import { DEV_CONTENT } from "~/lib/dev-content";
+import { loadTeamDirectory as loader } from "~/lib/team-directory.server";
+import type { Route } from "./+types/_home.team";
 
-export function loader(): TeamLoaderData {
-  return {
-    teams: DEV_CONTENT.teams,
-    departments: DEV_CONTENT.departments,
-  };
-}
+export { loader };
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
-export default function Team({ loaderData }: { loaderData: TeamLoaderData }) {
+export default function Team({ loaderData }: Route.ComponentProps) {
   const teamFaqs = getTeamFaqs();
 
   return (
@@ -30,10 +25,11 @@ export default function Team({ loaderData }: { loaderData: TeamLoaderData }) {
           </h2>
           <div className="mx-3 mt-4 mb-20 max-w-md text-xl dark:text-gray-300">
             <span className="mb-4">
-              Syntetiske teamprojeksjoner for lokal Worker-verifisering.
+              Her finner du teamene i hver avdeling. Team som tar imot søknader nå, har en
+              søknadslenke på kortet sitt.
             </span>
             <div className="mt-6">
-              <strong>Velg en region nedenfor.</strong>
+              <strong>Velg en avdeling nedenfor.</strong>
             </div>
           </div>
         </div>
