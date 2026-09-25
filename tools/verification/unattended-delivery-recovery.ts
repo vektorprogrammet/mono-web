@@ -238,7 +238,7 @@ let cookie = "";
 const boot = async (changes: NodeJS.ProcessEnv = {}) => {
   current = start({ ...env, ...changes });
   await eventually("native listener", async () => {
-    assert.equal(current!.child.exitCode, null, "native process stays alive");
+    assert.equal(current!.child.exitCode, null, current!.logs.join("").replaceAll(secret, "[redacted]").replaceAll(providerToken, "[redacted]").replaceAll(password, "[redacted]").replaceAll(email, "[redacted]"));
 
     try {
       return (await fetch(`${origin}/health`)).ok;
