@@ -546,6 +546,11 @@ export const databaseMigrationDefinitions = [
     name: "password-reset-payload-fingerprint",
     url: new URL("../migrations/0068-password-reset-payload-fingerprint.sql", import.meta.url),
   },
+  {
+    id: "69_team-applications",
+    name: "team-applications",
+    url: new URL("../migrations/0069-team-applications.sql", import.meta.url),
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>

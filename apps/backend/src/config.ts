@@ -48,6 +48,14 @@ export interface PasswordResetDeliveryConfig {
   readonly pollIntervalMilliseconds: number;
 }
 
+/** Enabled only by TEAM_APPLICATION_DELIVERY_MODE=http with the shared mail transport. */
+export interface TeamApplicationDeliveryConfig {
+  readonly sender: string;
+  readonly transport: MailDeliveryConfig;
+  readonly pollIntervalMilliseconds: number;
+  readonly staleClaimMilliseconds: number;
+}
+
 export interface BackendAuthConfig {
   readonly postgresUrl: string;
   readonly secret: string;
@@ -77,6 +85,7 @@ export interface BackendConfig {
   readonly publicApplicationEffects?: PublicApplicationEffectConfig;
   readonly schoolServiceNotifications?: SchoolServiceNotificationConfig;
   readonly schoolServiceDispatchNotifications?: SchoolServiceDispatchNotificationConfig;
+  readonly teamApplicationDelivery?: TeamApplicationDeliveryConfig;
 }
 
 const exactOrigin = (value: string, field: string): string => {
@@ -214,6 +223,49 @@ const publicApplicationSettings = Config.all({
   ).pipe(Config.withDefault(10_000)),
 });
 
+const teamApplicationDeliveryMode = Config.Literals(
+  ["disabled", "http"],
+  "TEAM_APPLICATION_DELIVERY_MODE",
+).pipe(Config.withDefault("disabled"));
+
+const teamApplicationDeliverySettings = Config.all({
+  sender: Config.schema(Schema.Redacted(ContactEmail), "MAIL_SENDER"),
+  pollIntervalMilliseconds: Config.schema(
+    PositiveInteger,
+    "TEAM_APPLICATION_DELIVERY_POLL_MS",
+  ).pipe(Config.withDefault(1000)),
+  staleClaimMilliseconds: Config.schema(PositiveInteger, "TEAM_APPLICATION_DELIVERY_STALE_MS").pipe(
+    Config.withDefault(60_000),
+  ),
+});
+
+const teamApplicationDeliveryConfig = (
+  env: Readonly<Record<string, string | undefined>>,
+  provider: ConfigProvider.ConfigProvider,
+): TeamApplicationDeliveryConfig | undefined => {
+  if (Effect.runSync(teamApplicationDeliveryMode.parse(provider)) === "disabled") return undefined;
+
+  const transport = mailDeliveryConfig(env);
+
+  if (transport === undefined) {
+    throw new Error("Team application delivery requires mail configuration");
+  }
+
+  const settings = Effect.runSync(teamApplicationDeliverySettings.parse(provider));
+
+  // A claim must outlive one bounded provider attempt before stale recovery may retry it.
+  if (settings.staleClaimMilliseconds <= transport.deliveryTimeoutMilliseconds) {
+    throw new Error("TEAM_APPLICATION_DELIVERY_STALE_MS must exceed MAIL_DELIVERY_TIMEOUT_MS");
+  }
+
+  return {
+    sender: Redacted.value(settings.sender),
+    transport,
+    pollIntervalMilliseconds: settings.pollIntervalMilliseconds,
+    staleClaimMilliseconds: settings.staleClaimMilliseconds,
+  };
+};
+
 const providerEndpoint = (endpoint: URL): URL => {
   const loopback =
     endpoint.hostname === "127.0.0.1" ||
@@ -283,6 +335,7 @@ export const decodeBackendConfig = (
   const secret = Redacted.value(credentials.secret);
   const oauth = oauthBackendConfig(env, sessionBoundary.trustedOrigins, provider);
   const receiptDelivery = receiptDeliveryConfig(env);
+  const teamApplicationDelivery = teamApplicationDeliveryConfig(env, provider);
   let passwordResetDelivery: PasswordResetDeliveryConfig | undefined;
   let receiptDeliveryPollMilliseconds: number | undefined;
 
@@ -347,6 +400,8 @@ export const decodeBackendConfig = (
 
   if (schoolServiceDispatchNotifications !== undefined)
     Object.assign(config, { schoolServiceDispatchNotifications });
+
+  if (teamApplicationDelivery !== undefined) Object.assign(config, { teamApplicationDelivery });
 
   return config;
 };

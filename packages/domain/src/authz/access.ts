@@ -90,6 +90,8 @@ export const CAPABILITY_TYPES = {
   "social-events.read": { ruleTarget: false, objectCapability: false },
   "social-events.create": { ruleTarget: false, objectCapability: false },
   "receipts.read-internal-evidence": { ruleTarget: false, objectCapability: false },
+  "team-applications.read": { ruleTarget: false, objectCapability: false },
+  "team-applications.manage": { ruleTarget: false, objectCapability: false },
 } as const;
 
 export const CAPABILITY_TYPE_IDS = Record.keys(CAPABILITY_TYPES);
@@ -139,6 +141,7 @@ export const DOMAIN_IDS = {
   schools: true,
   "social-events": true,
   surveys: true,
+  "team-applications": true,
   system: true,
 } as const;
 
@@ -287,6 +290,12 @@ export const SCOPE_RESOLVER_IDS = [
   "surveys.admin-close",
   "surveys.admin-results",
   "surveys.admin-results-export",
+  "team-applications.public-intake",
+  "team-applications.public-intakes",
+  "team-applications.application-create",
+  "team-applications.team-applications",
+  "team-applications.application-by-id",
+  "team-applications.intake-by-team",
 ] as const;
 
 export const ScopeResolverId = Schema.Literals(SCOPE_RESOLVER_IDS).pipe(
@@ -770,6 +779,8 @@ const collectionResolvers = new Set<string>([
   "receipts.settlement-queue",
   "content.articles",
   "content.public-news",
+  "team-applications.public-intakes",
+  "team-applications.team-applications",
 ]);
 
 const resolverRequirements: Partial<

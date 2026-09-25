@@ -72,6 +72,37 @@ describe("backend configuration boundary", () => {
     ).toThrow();
   });
 
+  it("enables team application delivery only with a complete, bounded mail transport", () => {
+    expect(decodeBackendConfig(environment).teamApplicationDelivery).toBeUndefined();
+    expect(() =>
+      decodeBackendConfig({ ...environment, TEAM_APPLICATION_DELIVERY_MODE: "http" }),
+    ).toThrow();
+    expect(() =>
+      decodeBackendConfig({ ...environment, TEAM_APPLICATION_DELIVERY_MODE: "smtp" }),
+    ).toThrow();
+
+    const delivery = {
+      ...environment,
+      TEAM_APPLICATION_DELIVERY_MODE: "http",
+      MAIL_SENDER: "sender@example.invalid",
+      MAIL_DELIVERY_URL: "http://127.0.0.1:9999/mail",
+      MAIL_DELIVERY_TOKEN: "synthetic-token",
+      MAIL_DELIVERY_TIMEOUT_MS: "1000",
+    };
+
+    expect(decodeBackendConfig(delivery).teamApplicationDelivery).toMatchObject({
+      sender: "sender@example.invalid",
+      pollIntervalMilliseconds: 1000,
+      staleClaimMilliseconds: 60_000,
+    });
+    expect(() =>
+      decodeBackendConfig({ ...delivery, TEAM_APPLICATION_DELIVERY_STALE_MS: "1000" }),
+    ).toThrow();
+    expect(() =>
+      decodeBackendConfig({ ...delivery, MAIL_DELIVERY_URL: "http://mail.example.invalid/mail" }),
+    ).toThrow();
+  });
+
   it("uses only the supplied record, including when required keys are missing", () => {
     vi.stubEnv("BACKEND_PG_URL", environment.BACKEND_PG_URL);
     vi.stubEnv("BACKEND_PORT", "9999");

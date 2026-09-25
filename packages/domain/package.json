@@ -34,6 +34,7 @@
     "./time": "./src/time.ts",
     "./contact": "./src/contact/index.ts",
     "./substitutes": "./src/substitutes/index.ts",
+    "./team-application": "./src/team-application/index.ts",
     "./onboarding": "./src/onboarding/index.ts",
     "./organization/authority-fixtures": "./src/organization/authority-fixtures.test-support.ts"
   },

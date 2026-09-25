@@ -1,8 +1,8 @@
 {
   "counts": {
-    "externalOperations": 100,
+    "externalOperations": 107,
     "internalOperations": 1,
-    "operations": 101
+    "operations": 108
   },
   "operations": [
     {
@@ -4108,6 +4108,261 @@
         "503"
       ],
       "summary": "Revoke other sessions",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "team-applications.application-by-id",
+        "capabilities": {
+          "one": "team-applications.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "team-applications",
+      "method": "DELETE",
+      "operationId": "team-applications.deleteTeamApplication",
+      "path": "/api/team-applications/{applicationId}",
+      "statuses": [
+        "204",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "500",
+        "503"
+      ],
+      "summary": "Delete team application",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "team-applications.public-intakes",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "team-applications",
+      "method": "GET",
+      "operationId": "team-applications.listTeamApplicationIntakes",
+      "path": "/api/team-application-intakes",
+      "statuses": [
+        "200",
+        "400",
+        "500"
+      ],
+      "summary": "List team application intakes",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "team-applications.team-applications",
+        "capabilities": {
+          "one": "team-applications.read"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "team-applications",
+      "method": "GET",
+      "operationId": "team-applications.listTeamApplications",
+      "path": "/api/teams/{teamId}/applications",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "500"
+      ],
+      "summary": "List team applications",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "team-applications.application-by-id",
+        "capabilities": {
+          "one": "team-applications.read"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "team-applications",
+      "method": "GET",
+      "operationId": "team-applications.readTeamApplication",
+      "path": "/api/team-applications/{applicationId}",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "500"
+      ],
+      "summary": "Read team application",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "team-applications.public-intake",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "SnapshotRead",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "team-applications",
+      "method": "GET",
+      "operationId": "team-applications.readTeamApplicationIntake",
+      "path": "/api/teams/{teamId}/application-intake",
+      "statuses": [
+        "200",
+        "400",
+        "404",
+        "500"
+      ],
+      "summary": "Read team application intake",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "BetterAuthCookie",
+          "OAuthUserBearer"
+        ],
+        "canonicalScopeResolver": "team-applications.intake-by-team",
+        "capabilities": {
+          "one": "team-applications.manage"
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Person"
+        ],
+        "requirements": []
+      },
+      "group": "team-applications",
+      "method": "PATCH",
+      "operationId": "team-applications.reviseTeamApplicationIntake",
+      "path": "/api/teams/{teamId}/application-intake",
+      "statuses": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "409",
+        "412",
+        "413",
+        "415",
+        "422",
+        "428",
+        "500",
+        "503"
+      ],
+      "summary": "Revise team application intake",
+      "visibility": "external"
+    },
+    {
+      "access": {
+        "acceptedCredentials": [
+          "None"
+        ],
+        "canonicalScopeResolver": "team-applications.application-create",
+        "capabilities": {
+          "none": true
+        },
+        "concealment": {
+          "mode": "Reveal",
+          "stages": []
+        },
+        "decisionTime": "Transaction",
+        "exposure": "External",
+        "principalKinds": [
+          "Anonymous"
+        ],
+        "requirements": []
+      },
+      "group": "team-applications",
+      "method": "POST",
+      "operationId": "team-applications.submitTeamApplication",
+      "path": "/api/teams/{teamId}/applications",
+      "statuses": [
+        "201",
+        "400",
+        "404",
+        "409",
+        "413",
+        "415",
+        "422",
+        "500",
+        "503"
+      ],
+      "summary": "Submit team application",
       "visibility": "external"
     },
     {

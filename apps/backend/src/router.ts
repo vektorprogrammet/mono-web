@@ -64,6 +64,7 @@ import {
 import { RecruitmentApiHandlers } from "./recruitment/http.js";
 import { SocialEventsApiHandlers, type SocialEventTransactionHook } from "./social-events/http.js";
 import { SchoolSurveysApiHandlers } from "./surveys/http.js";
+import { TeamApplicationsApiHandlers } from "./team-application/http.js";
 import {
   allowsNativePreflightHeaders,
   decideTrustedOrigin,
@@ -274,6 +275,7 @@ export const ExternalNativeApiRouterLive = (
     }),
     SocialEventsApiHandlers({ transactionHook: options.socialEventsTransactionHook }),
     SchoolSurveysApiHandlers(),
+    TeamApplicationsApiHandlers,
   ).pipe(Layer.provide(middlewareLayer));
 
   const nativeRoutes = HttpApiBuilder.layer(ExternalNativeApi).pipe(
