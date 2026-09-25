@@ -1,3 +1,4 @@
+import { ReceiptPagination } from "@/components/receipts/ReceiptPagination";
 import { Predicate } from "effect";
 import { OwnedReceiptList } from "@/components/receipts/OwnedReceiptList";
 import {
@@ -205,12 +206,14 @@ function receiptMultipartPayload(
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
+  const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
 
   try {
-    const result = await client.receipts.listReceipts({ query: {} });
+    const result = await client.receipts.listReceipts({ query: { cursor } });
 
     return {
       receipts: result.body.items.map(mapOwnedReceiptView),
+      nextCursor: result.body.nextCursor,
       error: undefined,
     };
   } catch (error) {
@@ -219,6 +222,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
 
     return {
+      nextCursor: undefined,
       receipts: [],
       error: mapOwnedReceiptError(error),
     };
@@ -508,6 +512,7 @@ export default function MineUtlegg() {
           draft={submissionDraft}
         />
 
+        <ReceiptPagination nextCursor={loaderData.nextCursor} busy={navigation.state !== "idle"} />
         <OwnedReceiptList
           receipts={loaderData.receipts}
           error={loaderData.error}

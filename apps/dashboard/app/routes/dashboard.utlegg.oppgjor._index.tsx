@@ -1,7 +1,16 @@
+import { ReceiptPagination } from "@/components/receipts/ReceiptPagination";
 import { Predicate } from "effect";
 import { SettlementReceiptList } from "@/components/receipts/SettlementReceiptList";
 import { Button } from "@/components/ui/button";
-import { isUnauthorizedError, mapReceiptSettlementEvidenceView, mapApprovalReceiptError, mapSettlementReceiptView, type ReceiptSettlementFailure, type ReceiptSettlementNotice, ReceiptUiError } from "@/lib/receipt-view";
+import {
+  isUnauthorizedError,
+  mapReceiptSettlementEvidenceView,
+  mapApprovalReceiptError,
+  mapSettlementReceiptView,
+  type ReceiptSettlementFailure,
+  type ReceiptSettlementNotice,
+  ReceiptUiError,
+} from "@/lib/receipt-view";
 import {
   IdempotencyKey,
   ReceiptId,
@@ -44,7 +53,10 @@ function utcInstantFromInput(value: string): string | undefined {
 
   if (Number.isNaN(date.getTime())) return undefined;
 
-  if (localMatch !== null && date.toISOString().slice(0, 19) !== `${localMatch[1]}:${localMatch[2] ?? "00"}`) {
+  if (
+    localMatch !== null &&
+    date.toISOString().slice(0, 19) !== `${localMatch[1]}:${localMatch[2] ?? "00"}`
+  ) {
     return undefined;
   }
 
@@ -82,24 +94,39 @@ function parseSettlementCommand(form: FormData): SettlementCommandParseResult {
   });
 
   if (externalAuthority.length === 0) {
-    return failure(ReceiptUiError.ReceiptDecodeError({message: "Ekstern autoritet er påkrevd.",
-field: "externalAuthority"}));
+    return failure(
+      ReceiptUiError.ReceiptDecodeError({
+        message: "Ekstern autoritet er påkrevd.",
+        field: "externalAuthority",
+      }),
+    );
   }
 
   if (externalReference.length === 0) {
-    return failure(ReceiptUiError.ReceiptDecodeError({message: "Ekstern referanse er påkrevd.",
-field: "externalReference"}));
+    return failure(
+      ReceiptUiError.ReceiptDecodeError({
+        message: "Ekstern referanse er påkrevd.",
+        field: "externalReference",
+      }),
+    );
   }
 
   if (settledAt === undefined) {
-    return failure(ReceiptUiError.ReceiptDecodeError({message: "Oppgi et gyldig oppgjørstidspunkt i UTC.",
-field: "settledAt"}));
+    return failure(
+      ReceiptUiError.ReceiptDecodeError({
+        message: "Oppgi et gyldig oppgjørstidspunkt i UTC.",
+        field: "settledAt",
+      }),
+    );
   }
 
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
-    return failure(ReceiptUiError.ReceiptDecodeError({message: "Utleggsversjonen er ugyldig. Åpne oppgjøret på nytt og prøv igjen."}));
+    return failure(
+      ReceiptUiError.ReceiptDecodeError({
+        message: "Utleggsversjonen er ugyldig. Åpne oppgjøret på nytt og prøv igjen.",
+      }),
+    );
   }
-
 
   try {
     return {
@@ -116,19 +143,25 @@ field: "settledAt"}));
       },
     };
   } catch {
-    return failure(ReceiptUiError.ReceiptDecodeError({message: "Oppgjørsgrunnlaget er ugyldig. Åpne oppgjøret på nytt og prøv igjen."}));
+    return failure(
+      ReceiptUiError.ReceiptDecodeError({
+        message: "Oppgjørsgrunnlaget er ugyldig. Åpne oppgjøret på nytt og prøv igjen.",
+      }),
+    );
   }
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
+  const cursor = new URL(request.url).searchParams.get("cursor") ?? undefined;
 
   try {
-    const result = await client.receipts.listReceiptsForSettlement({});
+    const result = await client.receipts.listReceiptsForSettlement({ query: { cursor } });
 
     return {
       receipts: result.body.items.map(mapSettlementReceiptView),
+      nextCursor: result.body.nextCursor,
       error: undefined,
     };
   } catch (error) {
@@ -137,6 +170,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
 
     return {
+      nextCursor: undefined,
       receipts: [],
       error: mapApprovalReceiptError(error),
     };
@@ -149,7 +183,9 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
 
   if (readFormText(form, "_intent") !== "settle") {
-    const actionError: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({message: "Ukjent oppgjørshandling. Åpne bekreftelsen på nytt og prøv igjen."});
+    const actionError: ReceiptUiError = ReceiptUiError.ReceiptDecodeError({
+      message: "Ukjent oppgjørshandling. Åpne bekreftelsen på nytt og prøv igjen.",
+    });
 
     return { success: false as const, actionError };
   }
@@ -203,7 +239,9 @@ export default function ReceiptSettlementQueue() {
   const navigation = useNavigation();
 
   const actionError =
-    actionData?.success === false && "actionError" in actionData ? actionData.actionError : undefined;
+    actionData?.success === false && "actionError" in actionData
+      ? actionData.actionError
+      : undefined;
 
   const actionFailure =
     actionData?.success === false && "actionFailure" in actionData
@@ -230,6 +268,7 @@ export default function ReceiptSettlementQueue() {
           </Button>
         </header>
 
+        <ReceiptPagination nextCursor={loaderData.nextCursor} busy={navigation.state !== "idle"} />
         <SettlementReceiptList
           receipts={loaderData.receipts}
           error={loaderData.error}

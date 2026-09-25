@@ -5327,21 +5327,30 @@
       },
       "ReceiptApprovalQueueResponse": {
         "additionalProperties": false,
-        "description": "Receipts in the current approver queue and their count.",
+        "description": "One bounded page of receipts in the current approver queue.",
         "properties": {
           "items": {
             "items": {
               "$ref": "#/components/schemas/ReceiptApprovalQueueItem"
             },
+            "maxItems": 50,
             "type": "array"
           },
-          "totalItems": {
-            "type": "integer"
+          "nextCursor": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "items",
-          "totalItems"
+          "items"
         ],
         "type": "object"
       },
@@ -5509,7 +5518,7 @@
       },
       "ReceiptListResponse": {
         "additionalProperties": false,
-        "description": "Receipts and matching total count.",
+        "description": "One bounded receipt page and optional continuation.",
         "examples": [
           {
             "items": [
@@ -5528,8 +5537,7 @@
                 "status": "Pending",
                 "visualId": "LIST-1"
               }
-            ],
-            "totalItems": 1
+            ]
           }
         ],
         "properties": {
@@ -5537,15 +5545,24 @@
             "items": {
               "$ref": "#/components/schemas/ReceiptListItem"
             },
+            "maxItems": 50,
             "type": "array"
           },
-          "totalItems": {
-            "type": "integer"
+          "nextCursor": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "items",
-          "totalItems"
+          "items"
         ],
         "type": "object"
       },
@@ -5840,21 +5857,30 @@
       },
       "ReceiptSettlementQueueResponse": {
         "additionalProperties": false,
-        "description": "Approved, unsettled receipts in the current settlement scope and their count.",
+        "description": "One bounded page of approved, unsettled receipts in the current settlement scope.",
         "properties": {
           "items": {
             "items": {
               "$ref": "#/components/schemas/ReceiptSettlementQueueItem"
             },
+            "maxItems": 50,
             "type": "array"
           },
-          "totalItems": {
-            "type": "integer"
+          "nextCursor": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "items",
-          "totalItems"
+          "items"
         ],
         "type": "object"
       },
@@ -75138,6 +75164,23 @@
         "parameters": [
           {
             "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
             "name": "status",
             "required": false,
             "schema": {
@@ -75167,7 +75210,7 @@
                 }
               }
             },
-            "description": "Receipts in the current approver queue and their count.",
+            "description": "One bounded page of receipts in the current approver queue.",
             "headers": {
               "cache-control": {
                 "required": true,
@@ -76651,7 +76694,25 @@
       "get": {
         "description": "Lists approved, unsettled receipts visible to the current settlement grant.",
         "operationId": "receipts.listReceiptsForSettlement",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -76661,7 +76722,7 @@
                 }
               }
             },
-            "description": "Approved, unsettled receipts in the current settlement scope and their count.",
+            "description": "One bounded page of approved, unsettled receipts in the current settlement scope.",
             "headers": {
               "cache-control": {
                 "required": true,
@@ -78008,6 +78069,23 @@
         "parameters": [
           {
             "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
             "name": "status",
             "required": false,
             "schema": {
@@ -78053,7 +78131,7 @@
                 }
               }
             },
-            "description": "Receipts and matching total count.",
+            "description": "One bounded receipt page and optional continuation.",
             "headers": {
               "cache-control": {
                 "required": true,

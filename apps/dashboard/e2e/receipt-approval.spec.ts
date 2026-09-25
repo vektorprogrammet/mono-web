@@ -124,7 +124,7 @@ const receiptResourceSchema = receiptProjectionSchema.extend({
 const receiptPageSchema = z
   .object({
     items: z.array(receiptProjectionSchema),
-    totalItems: z.number().int().nonnegative(),
+    nextCursor: z.string().optional(),
   })
   .strict();
 
@@ -284,11 +284,7 @@ const concurrencyProbeHeader = "x-receipt-e2e-concurrency-probe";
 
 const concurrencySynchronizedHeader = "x-receipt-e2e-concurrency-synchronized";
 
-const actionHeaders = (
-  cookie: string,
-  idempotencyKey: string,
-  ifMatch: string,
-) => ({
+const actionHeaders = (cookie: string, idempotencyKey: string, ifMatch: string) => ({
   ...sessionHeaders(cookie),
   "content-type": "application/json",
   "Idempotency-Key": idempotencyKey,
@@ -483,7 +479,8 @@ async function observeDurablePostgresFailure(
   cookie: string,
 ): Promise<{ readonly status: number; readonly tag: string }> {
   await readPostgresJson(
-    "ALTER TABLE economy_receipts RENAME TO economy_receipts_failure_probe; SELECT 'true'::json::text;", z.boolean(),
+    "ALTER TABLE economy_receipts RENAME TO economy_receipts_failure_probe; SELECT 'true'::json::text;",
+    z.boolean(),
   );
   let failure: { readonly status: number; readonly tag: string } | undefined;
 
@@ -499,7 +496,8 @@ async function observeDurablePostgresFailure(
     };
   } finally {
     await readPostgresJson(
-      "ALTER TABLE economy_receipts_failure_probe RENAME TO economy_receipts; SELECT 'true'::json::text;", z.boolean(),
+      "ALTER TABLE economy_receipts_failure_probe RENAME TO economy_receipts; SELECT 'true'::json::text;",
+      z.boolean(),
     );
   }
 
@@ -904,9 +902,12 @@ test.describe("Native scoped Receipt approval journey", () => {
       approvalFilePath(rejectReceipt.projection.receiptId),
     );
 
-    const ownerFileResponse = await request.get(ownerFilePath(approvedReceipt.projection.receiptId), {
-      headers: sessionHeaders(sessions.ownerA.cookie),
-    });
+    const ownerFileResponse = await request.get(
+      ownerFilePath(approvedReceipt.projection.receiptId),
+      {
+        headers: sessionHeaders(sessions.ownerA.cookie),
+      },
+    );
 
     expect(ownerFileResponse.status()).toBe(200);
 
@@ -1431,7 +1432,9 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(browserScopeForm.locator('input[name="etag"]')).toHaveValue(
       rejectReceipt.projection.etag,
     );
-    await browserScopeForm.getByRole("button", { name: "Bekreft godkjenning", exact: true }).click();
+    await browserScopeForm
+      .getByRole("button", { name: "Bekreft godkjenning", exact: true })
+      .click();
 
     const browserScopeAlert = page.locator(
       `[role="alert"][data-receipt-id=${JSON.stringify(rejectReceipt.projection.receiptId)}]`,
@@ -2079,7 +2082,10 @@ test.describe("Native scoped Receipt approval journey", () => {
           staleRevision: staleTerminalResponse.status(),
           terminalApproved: terminalApprovedResponse.status(),
           terminalReject: terminalRejectResponse.status(),
-          concurrent: [concurrentApproveResponse.status(), concurrentRejectResponse.status()].sort(),
+          concurrent: [
+            concurrentApproveResponse.status(),
+            concurrentRejectResponse.status(),
+          ].sort(),
         },
         approvalFile: {
           missingSession: unauthenticatedApprovalFileResponse.status(),
@@ -2170,11 +2176,14 @@ test.describe("Native scoped Receipt approval journey", () => {
             pathname.startsWith("/api/receipts") ||
             pathname.startsWith("/api/receipt-approval-queue"),
         ),
-        sameOriginReceiptFileRequests: browserRequestLedger
-          .flatMap(({ method, origin, pathname, query }) =>
-              method === "GET" &&
-              origin === DASHBOARD_ORIGIN &&
-              /^\/dashboard\/utlegg\/[^/]+\/file$/u.test(pathname) ? [{ method, origin, pathname, query }] : []),
+        sameOriginReceiptFileRequests: browserRequestLedger.flatMap(
+          ({ method, origin, pathname, query }) =>
+            method === "GET" &&
+            origin === DASHBOARD_ORIGIN &&
+            /^\/dashboard\/utlegg\/[^/]+\/file$/u.test(pathname)
+              ? [{ method, origin, pathname, query }]
+              : [],
+        ),
         receiptFileLink: {
           desktopNoOverflow,
           mobileNoOverflow,

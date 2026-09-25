@@ -2,6 +2,12 @@ import { Database, type DatabaseOperations } from "../service.js";
 import { flow, Effect, Schema } from "effect";
 import { SqlSchema } from "effect/unstable/sql";
 import {
+  RECEIPT_PAGE_SIZE,
+  decodeReceiptCursor,
+  receiptPage,
+  type ReceiptPage,
+  type ReceiptCursorPosition,
+  type ReceiptDecodeError,
   Receipt,
   ReceiptNotFound,
   ReceiptPersistenceError,
@@ -57,40 +63,21 @@ const selectSettlementEvidence = (
     ),
   );
 
-export const listAssistantReceipts = (
-  ownerPersonId: string,
-): Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptPersistenceError, Database> =>
-  Effect.gen(function* () {
-    const sql = yield* Database;
-
-    return yield* sql<ReceiptListItem>`
-    SELECT receipt_id AS "receiptId", visual_id AS "visualId",
-      owner_person_id AS "ownerPersonId", department_id AS "departmentId",
-      description, amount_ore::text AS "amountOre", currency,
-      status, receipt_date::text AS "receiptDate",
-      CASE WHEN approved_at IS NULL THEN NULL
-        ELSE to_char(approved_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-      END AS "approvedAt",
-      revision
-    FROM economy_receipts
-    WHERE owner_person_id = ${ownerPersonId}
-    ORDER BY submitted_at DESC, receipt_id ASC
-  `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(projectionError("list assistant receipts", cause)),
-      ),
-    );
-  });
+export interface ReceiptCandidateRow extends ReceiptListItem {
+  readonly cursorTimestamp: string;
+}
 
 export const listApproverReceipts = (
   status?: ReceiptStatus,
-): Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptPersistenceError, Database> =>
+  after?: ReceiptCursorPosition,
+): Effect.Effect<ReadonlyArray<ReceiptCandidateRow>, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const statusPredicate = status === undefined ? sql`TRUE` : sql`status = ${status}`;
 
-    return yield* sql<ReceiptListItem>`
-      SELECT receipt_id AS "receiptId", visual_id AS "visualId",
+    return yield* sql<ReceiptCandidateRow>`
+      SELECT to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTimestamp",
+        receipt_id AS "receiptId", visual_id AS "visualId",
         owner_person_id AS "ownerPersonId", department_id AS "departmentId",
         description, amount_ore::text AS "amountOre", currency,
         status, receipt_date::text AS "receiptDate",
@@ -100,7 +87,11 @@ export const listApproverReceipts = (
         revision
       FROM economy_receipts
       WHERE ${statusPredicate}
+        AND (${after?.timestamp ?? null}::timestamptz IS NULL
+          OR submitted_at < ${after?.timestamp ?? null}::timestamptz
+          OR (submitted_at = ${after?.timestamp ?? null}::timestamptz AND receipt_id > ${after?.receiptId ?? null}))
       ORDER BY submitted_at DESC, receipt_id ASC
+      LIMIT ${RECEIPT_PAGE_SIZE + 1}
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(projectionError("list approver receipts", cause)),
@@ -131,6 +122,8 @@ const findOwnedReceiptProjection = SqlSchema.findAll({
   Request: Schema.Struct({
     ownerPersonId: Schema.String,
     status: Schema.optional(ReceiptStatusSchema),
+    afterTimestamp: Schema.NullOr(Schema.String),
+    afterReceiptId: Schema.NullOr(Schema.String),
   }),
   Result: Schema.Struct({
     receiptId: Receipt.fields.receiptId,
@@ -146,14 +139,16 @@ const findOwnedReceiptProjection = SqlSchema.findAll({
     approvedAt: Receipt.fields.approvedAt,
     revision: Receipt.fields.revision,
     settlement: Schema.Unknown,
+    cursorTimestamp: Schema.String,
   }),
-  execute: ({ ownerPersonId, status }) =>
+  execute: ({ ownerPersonId, status, afterTimestamp, afterReceiptId }) =>
     Effect.gen(function* () {
       const sql = yield* Database;
       const statusPredicate = status === undefined ? sql`TRUE` : sql`receipt.status = ${status}`;
 
       return yield* sql`
       SELECT
+        to_char(receipt.submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTimestamp",
         receipt.receipt_id AS "receiptId",
         receipt.visual_id AS "visualId",
         receipt.owner_person_id AS "ownerPersonId",
@@ -187,7 +182,11 @@ const findOwnedReceiptProjection = SqlSchema.findAll({
         ON settlement.receipt_id = receipt.receipt_id
       WHERE receipt.owner_person_id = ${ownerPersonId}
         AND ${statusPredicate}
+        AND (${afterTimestamp}::timestamptz IS NULL
+          OR receipt.submitted_at < ${afterTimestamp}::timestamptz
+          OR (receipt.submitted_at = ${afterTimestamp}::timestamptz AND receipt.receipt_id > ${afterReceiptId}))
       ORDER BY receipt.submitted_at DESC, receipt.receipt_id ASC
+      LIMIT ${RECEIPT_PAGE_SIZE + 1}
     `.pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(projectionError("list owned receipt projection", cause)),
@@ -199,23 +198,45 @@ const findOwnedReceiptProjection = SqlSchema.findAll({
 export const listOwnedReceiptProjection = (
   ownerPersonId: string,
   status?: ReceiptListItem["status"],
-): Effect.Effect<ReadonlyArray<OwnedReceiptProjectionItem>, ReceiptPersistenceError, Database> =>
+  after?: string,
+): Effect.Effect<
+  ReceiptPage<OwnedReceiptProjectionItem>,
+  ReceiptPersistenceError | ReceiptDecodeError,
+  Database
+> =>
   Effect.gen(function* () {
-    const rows = yield* findOwnedReceiptProjection({ ownerPersonId, status }).pipe(
+    const position = after === undefined ? undefined : yield* decodeReceiptCursor(after);
+
+    const rows = yield* findOwnedReceiptProjection({
+      ownerPersonId,
+      status,
+      afterTimestamp: position?.timestamp ?? null,
+      afterReceiptId: position?.receiptId ?? null,
+    }).pipe(
       Effect.catchTag("SchemaError", (cause) =>
         Effect.fail(projectionError("list owned receipt projection", cause)),
       ),
     );
 
-    return yield* Effect.forEach(
-      rows,
-      (row): Effect.Effect<OwnedReceiptProjectionItem, ReceiptPersistenceError> =>
+    const page = receiptPage(rows, (row) => ({
+      timestamp: row.cursorTimestamp,
+      receiptId: row.receiptId,
+    }));
+
+    const items = yield* Effect.forEach(
+      page.items,
+      ({
+        cursorTimestamp: _cursorTimestamp,
+        ...row
+      }): Effect.Effect<OwnedReceiptProjectionItem, ReceiptPersistenceError> =>
         row.settlement === null
           ? Effect.succeed({ ...row, settlement: null })
           : decodeSettlementEvidence(row.settlement).pipe(
               Effect.map((settlement) => ({ ...row, settlement })),
             ),
     );
+
+    return { ...page, items };
   });
 
 export interface ReceiptLifecycleFileProjection {
