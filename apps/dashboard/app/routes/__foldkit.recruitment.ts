@@ -1,7 +1,7 @@
 import { Predicate } from "effect";
 import { Match } from "effect";
 import { data } from "react-router";
-import { toRecruitmentBridgeFailure, RecruitmentBridgeFailure } from "../foldkit/recruitment/bridge";
+import { recruitmentFailureFromSdk, RecruitmentBridgeFailure } from "../foldkit/recruitment/bridge";
 import { readRecruitmentBridgeOperation } from "../foldkit/recruitment/request.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
@@ -20,7 +20,6 @@ const statusFor = (failure: RecruitmentBridgeFailure): number =>
     Match.when("Validation", () => 422),
     Match.when("Conflict", () => 409),
     Match.when("RateLimited", () => 429),
-    Match.when("Configuration", () => 503),
     Match.when("Network", () => 502),
     Match.exhaustive,
   );
@@ -129,7 +128,7 @@ export async function action({ request }: Route.ActionArgs) {
       }
     }
   } catch (error) {
-    const failure = toRecruitmentBridgeFailure(error);
+    const failure = recruitmentFailureFromSdk(error);
 
     return data(failure, { status: statusFor(failure), headers: responseHeaders });
   }

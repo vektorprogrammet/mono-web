@@ -233,12 +233,13 @@ const safeFailure = (
   message: string,
 ): InvitationBridgeFailure => InvitationBridgeFailureSchema.cases[tag].make({message});
 
-export const bridgeFailureFrom = flow(
- S.decodeUnknownOption(S.Union([InvitationBridgeFailureSchema, S.Struct({body:S.Json}), S.Json])),
- Option.getOrUndefined,
- (error): InvitationBridgeFailure => {
-  if (S.is(InvitationBridgeFailureSchema)(error)) {
-    return Match.value(error).pipe(
+/**
+ * Projects a bridge rejection or a generated-SDK failure onto the invitation bridge.
+ * Pass the cause unchanged: an SDK problem is decoded only from the SDK's own value.
+ */
+export const bridgeFailureFrom = (cause: unknown): InvitationBridgeFailure => {
+  if (S.is(InvitationBridgeFailureSchema)(cause)) {
+    return Match.value(cause).pipe(
 Match.tag("InvitationNotFound", () => {return safeFailure("InvitationNotFound", "Invitation unavailable");}),
 Match.tag("InvitationAlreadyResponded", () => {return safeFailure("InvitationAlreadyResponded", "Invitation already responded");}),
 Match.tag("InvitationDecodeError", () => {return safeFailure("InvitationDecodeError", "Invitation response input invalid");}),
@@ -247,7 +248,7 @@ Match.exhaustive
 );
   }
 
-  const problem = nativeProblemFrom(error);
+  const problem = nativeProblemFrom(cause);
 
   if (problem === undefined) {
     return safeFailure("InvitationUnavailable", "Invitation response unavailable");
@@ -271,7 +272,7 @@ Match.exhaustive
   }
 
   return safeFailure("InvitationUnavailable", "Invitation response unavailable");
-});
+};
 
 export const statusForInvitationFailure = (failure: InvitationBridgeFailure): number => {
   return Match.value(failure).pipe(

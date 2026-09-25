@@ -1,10 +1,10 @@
-import { makeNativeProblem, StrongETag } from "@vektorprogrammet/http-api";
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InvitationBridgeFailureSchema, INVITATION_INTERACTION_HEADER } from "../foldkit/interview/bridge";
 
 vi.hoisted(() => vi.stubEnv("API_URL", "http://api.test"));
 
-import { conditionalReadHeaders } from "../../test/native-http";
+import { conditionalReadHeaders, nativeProblemResponse } from "../../test/native-http";
 
 const transport = vi.fn<typeof fetch>();
 
@@ -331,39 +331,48 @@ describe("server-held recruitment invitation bridge", () => {
     expect(await nativeRequest.json()).toEqual({});
   });
 
-  it("projects only safe current problem codes and stable statuses", () => {
+  it("projects only safe SDK problems and stable statuses", async () => {
+    const interactionId = "a".repeat(32);
+
+    const cookie = createInvitationCapabilityCookie(interactionId, "A".repeat(43), "/interview").split(
+      ";",
+      1,
+    )[0];
+
+    const request = new Request("http://dashboard.test/interview", {
+      headers: { [INVITATION_INTERACTION_HEADER]: interactionId, cookie },
+    });
+
     const cases = [
       ["resource.not-found", "InvitationNotFound", 404],
       ["invitation.already-responded", "InvitationAlreadyResponded", 409],
-      ["validation.failed", "InvitationDecodeError", 422],
+      ["request.malformed", "InvitationDecodeError", 422],
+      ["precondition.failed", "InvitationUnavailable", 503],
       ["dependency.unavailable", "InvitationUnavailable", 503],
     ] as const;
 
     for (const [code, bridgeTag, status] of cases) {
-      const failure = bridgeFailureFrom(
-        makeNativeProblem(code, status, "urn:uuid:00000000-0000-4000-8000-000000000001"),
+      transport.mockResolvedValueOnce(nativeProblemResponse(code));
+
+      const failure = await runOperation(request, { operation: "confirmInvitation", etag }).then(
+        () => {
+          throw new Error(`The native ${code} problem did not reject`);
+        },
+        bridgeFailureFrom,
       );
 
       expect(failure._tag).toBe(bridgeTag);
-      expect(failure.message).not.toContain("unsafe");
       expect(statusForInvitationFailure(failure)).toBe(status);
     }
 
-    const infrastructureConflict = bridgeFailureFrom(
-      makeNativeProblem(
-        "transaction.conflict",
-        409,
-        "urn:uuid:00000000-0000-4000-8000-000000000002",
-      ),
-    );
-
-    expect(infrastructureConflict._tag).toBe("InvitationUnavailable");
-    expect(statusForInvitationFailure(infrastructureConflict)).toBe(503);
+    expect(transport).toHaveBeenCalledTimes(cases.length);
 
     expect(
       bridgeFailureFrom(InvitationBridgeFailureSchema.cases.InvitationUnavailable.make({
         message: "raw capability or persistence detail",
       })),
-    ).toHaveProperty("_tag", "InvitationUnavailable");
+    ).toEqual(InvitationBridgeFailureSchema.cases.InvitationUnavailable.make({
+      message: "Invitation response unavailable",
+    }));
   });
 });

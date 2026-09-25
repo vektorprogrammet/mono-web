@@ -6,7 +6,7 @@ InterviewReportQuery,
 interviewScoreTotal, } from "@vektorprogrammet/http-api"
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth, expiredSessionRedirect } from "../lib/auth.server";
-import { toRecruitmentBridgeFailure } from "../foldkit/recruitment/bridge";
+import { recruitmentFailureFromSdk } from "../foldkit/recruitment/bridge";
 import { Button } from "../components/ui/button";
 import type { Route } from "./+types/dashboard.intervjuer.rapport";
 
@@ -38,7 +38,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     return data({ report, failed: false as const, query }, { headers: responseHeaders });
   } catch (error) {
-    const failure = toRecruitmentBridgeFailure(error);
+    const failure = recruitmentFailureFromSdk(error);
 
     if (Predicate.isTagged(failure, "Unauthorized")) throw await expiredSessionRedirect(request);
 

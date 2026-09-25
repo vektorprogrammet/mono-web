@@ -41,14 +41,11 @@ describe("canonical SDK problem projection", () => {
     const amount = validation("/amountOre");
     expect(mapAdmissionPeriodError(Problem.fromWire(endAt, {})).field).toBe("endAt");
     expect(mapOwnedReceiptError(Problem.fromWire(amount, {})).field).toBe("amountNok");
-    expect(nativeProblemFrom(validation("/file"))).toEqual(
-      nativeProblemFrom(Problem.fromWire(validation("/file"), {})),
-    );
+    expect(nativeProblemFrom(Problem.fromWire(validation("/file"), {}))).toEqual(validation("/file"));
   });
-  it("does not turn arbitrary error-like objects or malformed validation into authority decisions", () => {
+  it("reads problems only from the SDK's own value, never from a plain problem-shaped object", () => {
+    expect(nativeProblemFrom(validation("/file"))).toBeUndefined();
     expect(nativeProblemFrom({ code: "credential.invalid", status: 401 })).toBeUndefined();
-    expect(
-      nativeProblemFrom({ ...validation("/file"), validation: { errors: "invalid" } }),
-    ).toBeUndefined();
+    expect(nativeFailureFrom(makeNativeProblem("credential.invalid"))).toBeUndefined();
   });
 });

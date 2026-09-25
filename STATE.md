@@ -81,6 +81,7 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Typed endpoint problems: only team applications fail with declared `Problem` values.
   The other backend groups still render raw problem Responses through `toHttpApiResponse`.
 - `apps/homepage/src/lib/public-application.ts` lists its problem codes by hand and omits `header.malformed`.
+  The homepage problem mappers (`mapPublicApplicationError`, `publicTeamApplicationPageFailure`, `failedPublicTeamApplication`) still accept a plain problem-shaped object besides the SDK's `Problem`; the dashboard reads problems only through `nativeProblemFrom`.
 - Four operations do not declare the `internal.error` that `ProblemBoundaryLive` can answer: `organization.readAppointmentManagement`,
   `organization.executeLifecycle`, `contact.submitContactMessage`, and `admissions.readReturningAssistantOptions`.
 - `apps/backend/src/contact/http.ts` re-checks the server token and answers every rejection as `credential.invalid`.

@@ -1,8 +1,8 @@
 import { Predicate } from "effect";
 import {
   AdmissionPeriodManagementItem,
+  Problem,
   StrongETag,
-  makeNativeProblem,
 } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -120,10 +120,10 @@ expect(parsed.failure.error).toMatchObject({ field: "endAt" });
   });
 
   it("maps decoded RFC 9457 problems to bounded UI failures", () => {
-    expect(mapAdmissionPeriodError(makeNativeProblem("authority.denied"))).toHaveProperty("_tag", "AdmissionRoleDenied");
-expect(mapAdmissionPeriodError(makeNativeProblem("authority.denied"))).toMatchObject({ field: undefined });
-    expect(mapAdmissionPeriodError(makeNativeProblem("precondition.failed"))).toHaveProperty("_tag", "StaleAdmissionPeriodRevision");
-expect(mapAdmissionPeriodError(makeNativeProblem("precondition.failed"))).toMatchObject({ field: undefined });
+    expect(mapAdmissionPeriodError(Problem.fromWire({ code: "authority.denied" }, {}))).toHaveProperty("_tag", "AdmissionRoleDenied");
+expect(mapAdmissionPeriodError(Problem.fromWire({ code: "authority.denied" }, {}))).toMatchObject({ field: undefined });
+    expect(mapAdmissionPeriodError(Problem.fromWire({ code: "precondition.failed" }, {}))).toHaveProperty("_tag", "StaleAdmissionPeriodRevision");
+expect(mapAdmissionPeriodError(Problem.fromWire({ code: "precondition.failed" }, {}))).toMatchObject({ field: undefined });
   });
 
   it("carries the canonical item ETag into the deterministic view", () => {

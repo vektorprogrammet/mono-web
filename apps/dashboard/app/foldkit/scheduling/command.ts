@@ -14,7 +14,6 @@ import {
   CorrectInterviewAssessmentInputSchema,
   ScheduleInterviewInputSchema,
   schedulingBoardFailureMessage,
-  toRecruitmentBridgeFailure,
 } from "../recruitment/bridge";
 import {
   FailedCancel,
@@ -75,7 +74,7 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
           Effect.succeed(
             FailedLoadSchedulingBoard({
               requestId,
-              message: schedulingBoardFailureMessage(toRecruitmentBridgeFailure(error)),
+              message: schedulingBoardFailureMessage(error),
             }),
           ),
         ),
@@ -94,20 +93,18 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
           Effect.map((board) => SucceededSchedule({ requestId, board })),
           Effect.catch((error) => Effect.succeed(FailedSchedule({
             requestId,
-            failure: toRecruitmentBridgeFailure(error),
+            failure: error,
             outcome: "Committed",
           }))),
         )),
-        Effect.catch((error) =>
-          Effect.sync(() => {
-            const failure = toRecruitmentBridgeFailure(error);
-
-            return FailedSchedule({
+        Effect.catch((failure) =>
+          Effect.succeed(
+            FailedSchedule({
               requestId,
               failure,
-              outcome: Predicate.isTagged(failure, "Network") || Predicate.isTagged(failure, "RateLimited") || Predicate.isTagged(failure, "Configuration") ? "Unknown" : "Rejected",
-            });
-          }),
+              outcome: Predicate.isTagged(failure, "Network") || Predicate.isTagged(failure, "RateLimited") ? "Unknown" : "Rejected",
+            }),
+          ),
         ),
       ),
   });
@@ -130,7 +127,7 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
               requestId,
               generation,
               interviewId,
-              failure: toRecruitmentBridgeFailure(error),
+              failure: error,
             }),
           ),
         ),
@@ -154,7 +151,7 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
               requestId,
               generation,
               interviewId,
-              failure: toRecruitmentBridgeFailure(error),
+              failure: error,
             }),
           ),
         ),
@@ -178,7 +175,7 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
               requestId,
               generation,
               interviewId,
-              failure: toRecruitmentBridgeFailure(error),
+              failure: error,
             }),
           ),
         ),
@@ -202,7 +199,7 @@ export const commandsFor = (client: RecruitmentClient): SchedulingCommands => {
               requestId,
               generation,
               interviewId,
-              failure: toRecruitmentBridgeFailure(error),
+              failure: error,
             }),
           ),
         ),
