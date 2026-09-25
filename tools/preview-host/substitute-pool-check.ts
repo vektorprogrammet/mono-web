@@ -10,13 +10,15 @@ import {
 /** 0094 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import {type PreviewRuntimeObservation,  stopPreviewScenarioBackend } from "./preview-scenario.js";
+import { reserveLoopbackPorts } from "../e2e/golden-harness.ts";
+import { localBackendEnvironment } from "../e2e/local-backend-environment.ts";
+import { postgresProgram } from "../postgres/index.ts";
 import { Predicate, Schema } from "effect";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -49,20 +51,6 @@ const start = (command: string, args: string[], env = process.env) => {
   return child;
 };
 
-const port = async (requested = 0): Promise<number> => {
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(requested, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  assert.ok(address && !Predicate.isString(address));
-  const value = address.port;
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-
-  return value;
-};
-
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let pool: InstanceType<typeof Pool> | undefined;
@@ -70,12 +58,10 @@ let pool: InstanceType<typeof Pool> | undefined;
 let evidence: Schema.JsonObject | undefined;
 
 try {
-  const pgPort = await port();
-  const backendPort = await port();
-  const dashboardPort = await port(5174);
+  const [pgPort, backendPort, dashboardPort] = await reserveLoopbackPorts(3);
   const pgDir = join(artifacts, "postgres");
-  run("initdb", ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
-  start("postgres", ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
+  run(postgresProgram("initdb"), ["-D", pgDir, "-A", "trust", "-U", "postgres", "--no-locale", "--encoding=UTF8"]);
+  start(postgresProgram("postgres"), ["-D", pgDir, "-p", String(pgPort), "-h", "127.0.0.1", "-k", artifacts]);
   const postgresUrl = `postgres://postgres@127.0.0.1:${pgPort}/postgres`;
   pool = new Pool({ connectionString: postgresUrl });
 
@@ -94,18 +80,12 @@ try {
 
   const environment = {
     ...process.env,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: String(backendPort),
-    BACKEND_PG_URL: postgresUrl,
-    BETTER_AUTH_SECRET: randomBytes(32).toString("hex"),
-    NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
-    OAUTH_CANONICAL_ORIGIN: backendOrigin,
-    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
-    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  PASSWORD_RESET_DELIVERY_MODE: "disabled",
-  RECEIPT_DELIVERY_MODE: "disabled",
+    ...localBackendEnvironment({
+      backendOrigin,
+      dashboardOrigin,
+      postgresUrl,
+      betterAuthSecret: randomBytes(32).toString("hex"),
+    }),
     JOURNEY_SEED_PG_URL: postgresUrl,
   };
 
