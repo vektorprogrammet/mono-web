@@ -93,13 +93,15 @@ describe("spec 0076 target validation", () => {
 });
 
 describe("spec 0076 mutation gates", () => {
-  it("rejects contact delivery configuration before application", () => {
+  it("rejects unattended delivery modes and mail credentials before application", () => {
     expect(() =>
-      assertProviderDeliveryDisabled({ CONTACT_DELIVERY_URL: "http://127.0.0.1:9999" }),
-    ).toThrow("CONTACT_DELIVERY_URL must be absent");
-    expect(() => assertProviderDeliveryDisabled({ CONTACT_DELIVERY_TOKEN: "synthetic" })).toThrow(
-      "CONTACT_DELIVERY_TOKEN must be absent",
-    );
+      assertProviderDeliveryDisabled({ PASSWORD_RESET_DELIVERY_MODE: "http" }),
+    ).toThrow();
+    expect(() => assertProviderDeliveryDisabled({ RECEIPT_DELIVERY_MODE: "http" })).toThrow();
+    expect(() => assertProviderDeliveryDisabled({ MAIL_DELIVERY_TOKEN: "synthetic" })).toThrow();
+    expect(() =>
+      assertProviderDeliveryDisabled({ RECEIPT_DELIVERY_URL: "http://127.0.0.1:9999" }),
+    ).toThrow();
   });
 
   it("runs zero application commands when backup fails", async () => {
