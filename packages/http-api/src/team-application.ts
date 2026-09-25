@@ -122,6 +122,7 @@ export const TeamApplicationsSubmitProblem = problemUnion("TeamApplicationsSubmi
   ["request.too-large", 413],
   ["media-type.unsupported", 415],
   ["validation.failed", 422],
+  ["rate-limit.exceeded", 429],
   ["internal.error", 500],
   ["idempotency.unavailable", 503],
 ]);
@@ -245,7 +246,7 @@ export const SubmitTeamApplicationEndpoint = HttpApiEndpoint.post(
   .annotateMerge(
     operationAnnotations(
       "Submit team application",
-      "Stores one application to an open team and queues its receipt and team notification. An idempotency-key replay returns the original result.",
+      "Stores one application to an open team and queues its receipt and team notification. An idempotency-key replay returns the original result. Every submission, including a replay, counts against one public rate limit.",
     ),
   );
 

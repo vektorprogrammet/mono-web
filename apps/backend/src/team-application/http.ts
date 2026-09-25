@@ -45,6 +45,8 @@ import {
 import { Effect, Option, Predicate, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { currentInstant, resolveRequestCredentialInTransaction } from "../authority.js";
+import type { TeamApplicationApiConfig } from "../config.js";
+import { publicRateLimitKey } from "../http-api/public-rate-limit.js";
 import { readBoundedJson } from "../http-api/read-json.js";
 import {
   executeNativeHttpCommandPostgres,
@@ -65,6 +67,7 @@ import {
   parseIdempotencyKey,
   parseRequiredIfMatch,
   PRIVATE_NO_STORE,
+  rateLimitProblemResponse,
   semanticMutationRequest,
   semanticRequestDigest,
   validationProblemResponse,
@@ -289,9 +292,16 @@ const listIntakes = (request: Request) =>
     return json(intakes, NO_STORE);
   });
 
-const submit = (request: Request, teamId: TeamId) =>
+const submit = (request: Request, teamId: TeamId, config: TeamApplicationApiConfig) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
+
+    const arrivedAt = yield* currentInstant(undefined);
+
+    // Counted before the body is read, so an over-limit caller costs no parsing or storage.
+    if (!config.rateLimit.consume(publicRateLimitKey(request), arrivedAt)) {
+      return rateLimitProblemResponse(config.retryAfterSeconds);
+    }
 
     const body = yield* readJsonBody(
       request,
@@ -666,10 +676,8 @@ const errorResponse = (cause: unknown): Response => {
 };
 
 /** Native HttpApi handlers for public team intake and staff review. */
-export const TeamApplicationsApiHandlers = HttpApiBuilder.group(
-  ExternalNativeApi,
-  "team-applications",
-  (handlers) =>
+export const TeamApplicationsApiHandlers = (config: TeamApplicationApiConfig) =>
+  HttpApiBuilder.group(ExternalNativeApi, "team-applications", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readTeamApplicationIntake", ({ request, params }) =>
@@ -685,7 +693,7 @@ export const TeamApplicationsApiHandlers = HttpApiBuilder.group(
         .handleRaw("submitTeamApplication", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (webRequest) => submit(webRequest, params.teamId),
+            (webRequest) => submit(webRequest, params.teamId, config),
             errorResponse,
           ),
         )
@@ -718,4 +726,4 @@ export const TeamApplicationsApiHandlers = HttpApiBuilder.group(
           ),
         ),
     ),
-);
+  );

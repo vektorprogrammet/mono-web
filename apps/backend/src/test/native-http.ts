@@ -64,7 +64,7 @@ import {
   type BackendHttpOptions,
 } from "../router.js";
 import { type SchoolsApiHttpOptions } from "../schools/http.js";
-import type { BackendConfig } from "../config.js";
+import type { BackendConfig, TeamApplicationApiConfig } from "../config.js";
 
 const platform = Layer.mergeAll(
   BunFileSystem.layer,
@@ -415,10 +415,13 @@ export const makeSchoolSurveysTestHttp = <S extends TestServiceLayer>(services: 
   ),
 });
 
-export const makeTeamApplicationsTestHttp = <S extends TestServiceLayer>(services: S) => ({
+export const makeTeamApplicationsTestHttp = <S extends TestServiceLayer>(
+  config: TeamApplicationApiConfig,
+  services: S,
+) => ({
   fetch: testFetch(
     HttpApiBuilder.layer(teamApplicationsContract).pipe(
-      Layer.provide(TeamApplicationsApiHandlers),
+      Layer.provide(TeamApplicationsApiHandlers(config)),
       Layer.provide(NativeHttpApiMiddlewareLive),
     ),
     services,

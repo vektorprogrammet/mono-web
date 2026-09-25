@@ -1,5 +1,6 @@
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { mailDeliveryConfig, type MailDeliveryConfig } from "./mail/http.js";
+import { publicRateLimit, type PublicRateLimit } from "./http-api/public-rate-limit.js";
 import { receiptDeliveryConfig, type ReceiptDeliveryConfig } from "./receipt/delivery.js";
 import {
   recruitmentNotificationConfig,
@@ -56,6 +57,13 @@ export interface TeamApplicationDeliveryConfig {
   readonly staleClaimMilliseconds: number;
 }
 
+/** Bounds the anonymous submission route; one process-wide public bucket. */
+export interface TeamApplicationApiConfig {
+  readonly rateLimit: PublicRateLimit;
+  /** Seconds after which a limited caller's window has certainly reset. */
+  readonly retryAfterSeconds: number;
+}
+
 export interface BackendAuthConfig {
   readonly postgresUrl: string;
   readonly secret: string;
@@ -81,6 +89,7 @@ export interface BackendConfig {
   readonly receipt: ReceiptApiConfig;
   readonly recruitment: RecruitmentApiConfig;
   readonly organization: OrganizationApiConfig;
+  readonly teamApplication: TeamApplicationApiConfig;
   readonly recruitmentNotifications?: RecruitmentNotificationConfig;
   readonly publicApplicationEffects?: PublicApplicationEffectConfig;
   readonly schoolServiceNotifications?: SchoolServiceNotificationConfig;
@@ -239,6 +248,33 @@ const teamApplicationDeliverySettings = Config.all({
   ),
 });
 
+/** The window stays within one hour so its retry-after fits the problem's 1..3600 seconds. */
+const teamApplicationApiSettings = Config.all({
+  maxRequests: Config.schema(PositiveInteger, "TEAM_APPLICATION_RATE_LIMIT_MAX").pipe(
+    Config.withDefault(5),
+  ),
+  windowMilliseconds: Config.schema(
+    PositiveInteger.check(Schema.isLessThanOrEqualTo(3_600_000)),
+    "TEAM_APPLICATION_RATE_LIMIT_WINDOW_MS",
+  ).pipe(Config.withDefault(60_000)),
+});
+
+const teamApplicationApiConfig = (
+  provider: ConfigProvider.ConfigProvider,
+): TeamApplicationApiConfig => {
+  const settings = Effect.runSync(teamApplicationApiSettings.parse(provider));
+
+  return {
+    rateLimit: publicRateLimit(settings.maxRequests, settings.windowMilliseconds),
+    retryAfterSeconds: Math.ceil(settings.windowMilliseconds / 1000),
+  };
+};
+
+export const decodeTeamApplicationApiConfig = (
+  env: Readonly<Record<string, string | undefined>>,
+): TeamApplicationApiConfig =>
+  teamApplicationApiConfig(ConfigProvider.fromEnvRecord(env, { preserveEmptyStrings: true }));
+
 const teamApplicationDeliveryConfig = (
   env: Readonly<Record<string, string | undefined>>,
   provider: ConfigProvider.ConfigProvider,
@@ -391,6 +427,7 @@ export const decodeBackendConfig = (
     receipt,
     recruitment: recruitmentApiConfig(admission),
     organization: decodeOrganizationApiConfig(env),
+    teamApplication: teamApplicationApiConfig(provider),
   };
 
   if (effects !== undefined) Object.assign(config, { publicApplicationEffects: effects });

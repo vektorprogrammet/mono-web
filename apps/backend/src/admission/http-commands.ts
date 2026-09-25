@@ -38,6 +38,7 @@ import {
   semanticMutationRequest,
   semanticRequestDigest,
 } from "../http-semantics.js";
+import { publicRateLimitKey } from "../http-api/public-rate-limit.js";
 import {
   authorizeAnonymousNativeOperation,
   authorizePersonNativeOperation,
@@ -435,12 +436,6 @@ export const reviseAdmissionPeriod = (
 
     return nativeCommandOutcomeResponse(result);
   });
-
-/**
- * The Fetch Request does not expose a verified peer address. Treat all public
- * callers as one trust boundary instead of trusting spoofable forwarding headers.
- */
-const publicRateLimitKey = (_request: Request): string => "public";
 
 export const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
