@@ -1,4 +1,6 @@
 import { RecruitmentInvitationDeliveryResult } from "./recruitment/outbox.js";
+import { RecruitmentInvitationResponseDeliveryResult } from "./recruitment/response-outbox.js";
+import { RecruitmentInterviewCompletionDeliveryResult } from "./recruitment/completion-outbox.js";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
@@ -6,6 +8,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   ApplicantIdSchema,
   makeRecordingPublicApplicationEffectInterpreter,
+  PublicApplicationEffectDeliveryError,
   PublicApplicationIdSchema,
   publicApplicationActivationDigest,
 } from "@vektorprogrammet/domain/application";
@@ -18,6 +21,7 @@ import {
 import {
   PublicApplicationOutboxDeliveryResult,
   deliverNextPublicApplicationOutbox,
+  recoverAllStalePublicApplicationOutbox,
 } from "./application/outbox.js";
 import { executePublicApplicationCommand } from "./application/postgres.js";
 import {
@@ -30,6 +34,8 @@ import {
 } from "./organization/postgres.js";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { Database } from "./service.js";
+import type { Admissions } from "@vektorprogrammet/domain/admissions";
+import type { Profile } from "@vektorprogrammet/domain/profile";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import {
   departmentIdForCommand,
@@ -49,6 +55,9 @@ import {
   RecruitmentConductCommandId,
   RecruitmentCancellationCommandId,
   RecruitmentNotificationDeliveryError,
+  RecruitmentNotificationEffectId,
+  RecruitmentNotificationEvidenceSchema,
+  RecruitmentPersistenceError,
 } from "@vektorprogrammet/domain/recruitment";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
@@ -56,21 +65,33 @@ import {
   deliverNextRecruitmentInterviewCompletion,
   deliverNextRecruitmentInvitation,
   deliverNextRecruitmentInvitationResponse,
+  recoverStaleRecruitmentInterviewCompletions,
+  recoverStaleRecruitmentInvitationResponses,
+  recoverStaleRecruitmentInvitations,
 } from "@vektorprogrammet/database/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import {
   makeRecordingNotificationGateway,
   NotificationGateway,
+  type NotificationGatewayOperations,
 } from "@vektorprogrammet/domain/notification";
 import {
+  ReceiptAuxiliaryEffects,
   ReceiptCommandRequestSchema,
   Economy,
+  ReceiptFileService,
   ReceiptId,
+  ReceiptOutboxDeliveryResult,
   ReceiptVisualId,
   importLegacyReceipt,
 } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { executeReceiptCommand, storeReceiptImportResult } from "./receipt/postgres.js";
+import {
+  deliverNextReceiptOutbox,
+  listStaleReceiptOutboxClaimIds,
+  recoverStaleReceiptOutbox,
+} from "./receipt/outbox.js";
 import { Match, Predicate, Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
@@ -80,19 +101,22 @@ const databaseLayer = DatabaseTest();
 
 const runtime = makeControlledTestRuntime(EconomyLive.pipe(Layer.provideMerge(databaseLayer)));
 
+const recruitmentLayer = (pglite: PGlite) =>
+  RecruitmentLive.pipe(
+    Layer.provideMerge(
+      ProfileLive.pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(
+            Layer.provideMerge(DatabaseTest({ liveClient: pglite })),
+          ),
+        ),
+      ),
+    ),
+  );
+
 const recruitmentPglite = new PGlite({ extensions: { btree_gist } });
 
-const recruitmentDatabaseLayer = DatabaseTest({ liveClient: recruitmentPglite });
-
-const recruitmentBaseLayer = Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(
-  Layer.provideMerge(recruitmentDatabaseLayer),
-);
-
-const recruitmentProfileLayer = ProfileLive.pipe(Layer.provideMerge(recruitmentBaseLayer));
-
-const recruitmentRuntime = makeControlledTestRuntime(
-  RecruitmentLive.pipe(Layer.provideMerge(recruitmentProfileLayer)),
-);
+const recruitmentRuntime = makeControlledTestRuntime(recruitmentLayer(recruitmentPglite));
 
 const seedSchedulingFixture = (fixtureId: string) =>
   Effect.gen(function* () {
@@ -362,6 +386,22 @@ const runWithIsolatedDatabase = async <A, E>(
 
   try {
     return await isolatedRuntime.runPromise(program(pglite));
+  } finally {
+    await isolatedRuntime.dispose();
+    await pglite.close();
+  }
+};
+
+/** A claim selects the next deliverable effect of every row, so fence cases own their database. */
+const runWithIsolatedRecruitment = async <A, E>(
+  program: Effect.Effect<A, E, Admissions | Database | Organization | Profile | Recruitment>,
+): Promise<A> => {
+  const pglite = new PGlite({ extensions: { btree_gist } });
+  await pglite.waitReady;
+  const isolatedRuntime = makeControlledTestRuntime(recruitmentLayer(pglite));
+
+  try {
+    return await isolatedRuntime.runPromise(program);
   } finally {
     await isolatedRuntime.dispose();
     await pglite.close();
@@ -5049,4 +5089,903 @@ describe("DatabaseTest", () => {
       counts: [{ cancellations: "1", receipts: "1", audits: "1", revision: "2" }],
     });
   });
+});
+
+describe("claim-fenced outbox delivery", () => {
+  // Later than every claim below: stale recovery by another worker takes the active claim.
+  const staleCutoff = "2100-01-01T00:00:00.000Z";
+
+  const gatewayWith = (operations: Partial<NotificationGatewayOperations>) =>
+    Layer.succeed(
+      NotificationGateway,
+      NotificationGateway.of({
+        deliverInterviewCompletionReceipt: () => Effect.die("unexpected completion delivery"),
+        deliverInterviewInvitation: () => Effect.die("unexpected invitation delivery"),
+        deliverInterviewInvitationResponse: () => Effect.die("unexpected response delivery"),
+        ...operations,
+      }),
+    );
+
+  const evidenceFor = (effectId: string) =>
+    RecruitmentNotificationEvidenceSchema.make({
+      effectId: RecruitmentNotificationEffectId.make(effectId),
+      deliveredAt: "2031-09-15T12:30:00.000Z",
+      providerReference: `http:${effectId}`,
+    });
+
+  const submitApplication = (fixtureId: string, activationToken: string) =>
+    executePublicApplicationCommand(
+      {
+        commandId: `${fixtureId}-application-submit`,
+        departmentId: "outbox-department",
+        firstName: "Fence",
+        lastName: "Applicant",
+        phone: "+47 55555555",
+        email: `${fixtureId}@example.invalid`,
+        gender: 1,
+        fieldOfStudyId: "outbox-field",
+        yearOfStudy: 2,
+      },
+      {
+        now: "2031-09-15T12:30:00.000Z",
+        applicantId: ApplicantIdSchema.make(`${fixtureId}-applicant`),
+        applicationId: PublicApplicationIdSchema.make(`${fixtureId}-application`),
+        activationToken,
+      },
+    );
+
+  const seedReceiptOwner = Effect.gen(function* () {
+    const database = yield* Database;
+    yield* database`
+      INSERT INTO person_profiles (person_id, first_name, last_name)
+      VALUES ('fence-owner', 'Fence', 'Owner')
+    `;
+    yield* database`
+      INSERT INTO organization_departments (department_id, name, short_name, email, city)
+      VALUES ('fence-department', 'Fence Department', 'FEN', 'fence@example.invalid', 'Bergen')
+    `;
+    yield* database`
+      INSERT INTO organization_teams (team_id, department_id, name)
+      VALUES ('fence-team', 'fence-department', 'Fence Team')
+    `;
+    yield* database`
+      INSERT INTO organization_memberships (membership_id, person_id, team_id, start_at)
+      VALUES ('fence-membership', 'fence-owner', 'fence-team', '2026-08-01T00:00:00.000Z')
+    `;
+    yield* database`
+      INSERT INTO economy_payment_authorities (
+        payment_authority_id, person_id, department_id, payment_account_ciphertext, start_at
+      ) VALUES (
+        'fence-payment', 'fence-owner', 'fence-department', 'ciphertext:v1:fence-account',
+        '2026-08-01T00:00:00.000Z'
+      )
+    `;
+  });
+
+  const submitReceipt = (index: number) =>
+    executeReceiptCommand(
+      {
+        _tag: "SubmitReceipt" as const,
+        commandId: `fence-submit-${index}`,
+        departmentId: DepartmentId.make("fence-department"),
+        description: `Fence receipt ${index}`,
+        amountOre: 10_000 + index,
+        receiptDate: "2026-08-23",
+        file: {
+          fileRef: `fence-file-${index}`,
+          objectKey: `temporary/fence-file-${index}`,
+          contentType: "application/pdf" as const,
+          byteLength: 256,
+          sha256: String(index).repeat(64),
+        },
+      },
+      {
+        personId: PersonId.make("fence-owner"),
+        authorizationInstant: `2026-08-23T12:0${index}:00.000Z`,
+      },
+      {
+        receiptId: ReceiptId.make(`fence-receipt-${index}`),
+        visualId: ReceiptVisualId.make(`FENCE-000${index}`),
+      },
+    );
+
+  it("reports lost applicant effect claims as ClaimLost without recording an outcome", async () => {
+    const recording = makeRecordingPublicApplicationEffectInterpreter();
+
+    const evidence = await runWithIsolatedDatabase(() =>
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* outboxReferenceFixture;
+        yield* submitApplication("lost-claim", "lostclaimabcdefghijklmnopqrstuvwxyzABCDEFGH");
+
+        const loseClaim = recoverAllStalePublicApplicationOutbox(staleCutoff).pipe(
+          Effect.provideService(Database, database),
+          Effect.orDie,
+        );
+
+        const firstEffect = database<{
+          readonly effectId: string;
+          readonly status: string;
+          readonly attempts: number;
+          readonly claimId: string | null;
+          readonly lastFailureTag: string | null;
+          readonly scrubbed: boolean;
+        }>`
+          SELECT effect_id AS "effectId", status, attempts, claim_id AS "claimId",
+            last_failure_tag AS "lastFailureTag", payload_json = '{}'::jsonb AS scrubbed
+          FROM admission_application_outbox
+          WHERE command_id = 'lost-claim-application-submit' AND ordinal = 0
+        `;
+
+        const deliveredAfterLoss = yield* deliverNextPublicApplicationOutbox(
+          "lost-claim-1",
+          "2031-09-15T12:30:01.000Z",
+          {
+            deliver: (request, ordinal, attempts) =>
+              recording.deliver(request, ordinal, attempts).pipe(Effect.tap(() => loseClaim)),
+          },
+        );
+
+        const afterDeliveredLoss = yield* firstEffect;
+
+        const failedAfterLoss = yield* deliverNextPublicApplicationOutbox(
+          "lost-claim-2",
+          "2031-09-15T12:30:02.000Z",
+          {
+            deliver: (request) =>
+              loseClaim.pipe(
+                Effect.andThen(
+                  Effect.fail(
+                    new PublicApplicationEffectDeliveryError({ effectId: request.effectId }),
+                  ),
+                ),
+              ),
+          },
+        );
+
+        const afterFailedLoss = yield* firstEffect;
+
+        const delivered = yield* deliverNextPublicApplicationOutbox(
+          "lost-claim-3",
+          "2031-09-15T12:30:03.000Z",
+          recording,
+        );
+
+        const afterDelivery = yield* firstEffect;
+
+        return {
+          deliveredAfterLoss,
+          afterDeliveredLoss,
+          failedAfterLoss,
+          afterFailedLoss,
+          delivered,
+          afterDelivery,
+        };
+      }),
+    );
+
+    const effectId = evidence.afterDelivery[0]!.effectId;
+    const claimLost = PublicApplicationOutboxDeliveryResult.ClaimLost({ effectId });
+
+    const recovered = {
+      effectId,
+      status: "Pending",
+      claimId: null,
+      lastFailureTag: "StalePublicApplicationOutboxClaim",
+      scrubbed: false,
+    };
+
+    expect(evidence.deliveredAfterLoss).toEqual(claimLost);
+    expect(evidence.afterDeliveredLoss).toEqual([{ ...recovered, attempts: 1 }]);
+    expect(evidence.failedAfterLoss).toEqual(claimLost);
+    expect(evidence.afterFailedLoss).toEqual([{ ...recovered, attempts: 2 }]);
+    expect(evidence.delivered._tag).toBe("Delivered");
+    expect(evidence.delivered).toMatchObject({
+      claim: { effectId, attempts: 3 },
+    });
+    expect(evidence.afterDelivery).toEqual([
+      {
+        effectId,
+        status: "Delivered",
+        attempts: 3,
+        claimId: null,
+        lastFailureTag: null,
+        scrubbed: true,
+      },
+    ]);
+  }, 30_000);
+
+  it("rolls back an applicant quarantine whose claim was taken in the claim transaction", async () => {
+    const evidence = await runWithIsolatedDatabase(() =>
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* outboxReferenceFixture;
+        yield* submitApplication("taken-claim", "takenclaimabcdefghijklmnopqrstuvwxyzABCDEFG");
+        yield* database`
+          UPDATE admission_application_outbox
+          SET payload_json = '{"_tag":"SendApplicantActivationOrConfirmation"}'::jsonb
+          WHERE command_id = 'taken-claim-application-submit' AND ordinal = 0
+        `;
+        // Another claimant overwrites the claim before validation quarantines the row.
+        yield* database.unsafe(`
+          CREATE FUNCTION public.claim_fence_take_claim() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF NEW.status = 'Processing' THEN NEW.claim_id := NEW.claim_id || ':taken'; END IF;
+            RETURN NEW;
+          END;
+          $$
+        `);
+        yield* database.unsafe(`
+          CREATE TRIGGER claim_fence_take_claim
+            BEFORE UPDATE ON public.admission_application_outbox
+            FOR EACH ROW EXECUTE FUNCTION public.claim_fence_take_claim()
+        `);
+
+        const result = yield* deliverNextPublicApplicationOutbox(
+          "taken-claim",
+          "2031-09-15T12:31:00.000Z",
+          makeRecordingPublicApplicationEffectInterpreter(),
+        );
+
+        const rows = yield* database<{
+          readonly effectId: string;
+          readonly status: string;
+          readonly attempts: number;
+          readonly claimId: string | null;
+          readonly lastFailureTag: string | null;
+          readonly payloadRetained: boolean;
+        }>`
+          SELECT effect_id AS "effectId", status, attempts, claim_id AS "claimId",
+            last_failure_tag AS "lastFailureTag",
+            payload_json = '{"_tag":"SendApplicantActivationOrConfirmation"}'::jsonb AS "payloadRetained"
+          FROM admission_application_outbox
+          WHERE command_id = 'taken-claim-application-submit' AND ordinal = 0
+        `;
+
+        return { result, rows };
+      }),
+    );
+
+    const effectId = evidence.rows[0]!.effectId;
+
+    expect(evidence.result).toEqual(PublicApplicationOutboxDeliveryResult.ClaimLost({ effectId }));
+    expect(evidence.rows).toEqual([
+      {
+        effectId,
+        status: "Pending",
+        attempts: 0,
+        claimId: null,
+        lastFailureTag: null,
+        payloadRetained: true,
+      },
+    ]);
+  }, 30_000);
+
+  it("reports a lost receipt effect claim as ClaimLost without recording an outcome", async () => {
+    const evidence = await runWithIsolatedDatabase(() =>
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* seedReceiptOwner;
+        yield* submitReceipt(1);
+
+        const loseClaim = Effect.gen(function* () {
+          for (const claimId of yield* listStaleReceiptOutboxClaimIds(staleCutoff))
+            yield* recoverStaleReceiptOutbox(claimId, staleCutoff);
+        }).pipe(Effect.provideService(Database, database), Effect.orDie);
+
+        const firstEffect = database<{
+          readonly effectId: string;
+          readonly status: string;
+          readonly attempts: number;
+          readonly claimId: string | null;
+          readonly lastFailureTag: string | null;
+        }>`
+          SELECT effect_id AS "effectId", status, attempts, claim_id AS "claimId",
+            last_failure_tag AS "lastFailureTag"
+          FROM economy_receipt_outbox
+          WHERE command_id = 'fence-submit-1' AND ordinal = 0
+        `;
+
+        const lost = yield* deliverNextReceiptOutbox(
+          "fence-receipt-claim-1",
+          "2026-08-23T12:10:00.000Z",
+        ).pipe(
+          Effect.provideService(ReceiptFileService, {
+            stage: () => Effect.void,
+            apply: () => loseClaim,
+          }),
+          Effect.provideService(ReceiptAuxiliaryEffects, { apply: () => loseClaim }),
+        );
+
+        const afterLoss = yield* firstEffect;
+
+        const delivered = yield* deliverNextReceiptOutbox(
+          "fence-receipt-claim-2",
+          "2026-08-23T12:11:00.000Z",
+        ).pipe(
+          Effect.provideService(ReceiptFileService, {
+            stage: () => Effect.void,
+            apply: () => Effect.void,
+          }),
+          Effect.provideService(ReceiptAuxiliaryEffects, { apply: () => Effect.void }),
+        );
+
+        const afterDelivery = yield* firstEffect;
+
+        return { lost, afterLoss, delivered, afterDelivery };
+      }),
+    );
+
+    const effectId = "fence-submit-1:PromoteReceiptFile";
+
+    expect(evidence.lost).toEqual(ReceiptOutboxDeliveryResult.ClaimLost({ effectId }));
+    expect(evidence.afterLoss).toEqual([
+      {
+        effectId,
+        status: "Failed",
+        attempts: 1,
+        claimId: null,
+        lastFailureTag: "StaleReceiptOutboxClaim",
+      },
+    ]);
+    expect(evidence.delivered._tag).toBe("Delivered");
+    expect(evidence.delivered).toMatchObject({
+      claim: { effectId, attempts: 2 },
+    });
+    expect(evidence.afterDelivery).toEqual([
+      { effectId, status: "Delivered", attempts: 2, claimId: null, lastFailureTag: null },
+    ]);
+  }, 30_000);
+
+  it("quarantines undecodable and misattributed receipt envelopes and delivers other receipts", async () => {
+    const evidence = await runWithIsolatedDatabase(() =>
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* seedReceiptOwner;
+        yield* submitReceipt(1);
+        yield* submitReceipt(2);
+        yield* submitReceipt(3);
+        yield* database`
+          UPDATE economy_receipt_outbox
+          SET payload_json = '{"_tag":"PromoteReceiptFile"}'::jsonb
+          WHERE command_id = 'fence-submit-1' AND ordinal = 0
+        `;
+        yield* database`
+          UPDATE economy_receipt_outbox
+          SET payload_json = jsonb_set(payload_json, '{effectId}', '"fence-submit-3:PromoteReceiptFile"')
+          WHERE command_id = 'fence-submit-2' AND ordinal = 0
+        `;
+
+        const results: Array<string> = [];
+
+        for (let index = 0; index < 8; index++) {
+          const result = yield* deliverNextReceiptOutbox(
+            `fence-quarantine-claim-${index}`,
+            "2026-08-23T12:20:00.000Z",
+          ).pipe(
+            Effect.provideService(ReceiptFileService, {
+              stage: () => Effect.void,
+              apply: () => Effect.void,
+            }),
+            Effect.provideService(ReceiptAuxiliaryEffects, { apply: () => Effect.void }),
+          );
+
+          results.push(result._tag);
+        }
+
+        const rows = yield* database<{
+          readonly commandId: string;
+          readonly ordinal: number;
+          readonly status: string;
+          readonly attempts: number;
+          readonly claimId: string | null;
+          readonly lastFailureTag: string | null;
+        }>`
+          SELECT command_id AS "commandId", ordinal, status, attempts, claim_id AS "claimId",
+            last_failure_tag AS "lastFailureTag"
+          FROM economy_receipt_outbox
+          ORDER BY command_id, ordinal
+        `;
+
+        return { results, rows };
+      }),
+    );
+
+    const row = (
+      commandId: string,
+      ordinal: number,
+      status: string,
+      attempts: number,
+      lastFailureTag: string | null = null,
+    ) => ({ commandId, ordinal, status, attempts, claimId: null, lastFailureTag });
+
+    // A quarantine yields Idle; later effects of the same receipt stay behind it.
+    expect(evidence.results).toEqual([
+      "Idle",
+      "Idle",
+      "Delivered",
+      "Delivered",
+      "Delivered",
+      "Idle",
+      "Idle",
+      "Idle",
+    ]);
+    expect(evidence.rows).toEqual([
+      row("fence-submit-1", 0, "Quarantined", 1, "ReceiptOutboxDecodeError"),
+      row("fence-submit-1", 1, "Pending", 0),
+      row("fence-submit-1", 2, "Pending", 0),
+      row("fence-submit-2", 0, "Quarantined", 1, "ReceiptOutboxEnvelopeMismatch"),
+      row("fence-submit-2", 1, "Pending", 0),
+      row("fence-submit-2", 2, "Pending", 0),
+      row("fence-submit-3", 0, "Delivered", 1),
+      row("fence-submit-3", 1, "Delivered", 1),
+      row("fence-submit-3", 2, "Delivered", 1),
+    ]);
+  }, 30_000);
+
+  it("reports a lost invitation claim as ClaimLost and rejects evidence for another effect", async () => {
+    const evidence = await runWithIsolatedRecruitment(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const fixture = yield* seedSchedulingFixture("invitation-fence");
+        yield* recruitment.scheduleInterview(fixture.command, {
+          actor: fixture.actor,
+          now: fixture.now,
+          invitationId: fixture.invitationId,
+          responseCapability: fixture.responseCapability,
+        });
+
+        const loseClaim = recoverStaleRecruitmentInvitations(staleCutoff).pipe(
+          Effect.provideService(Database, database),
+          Effect.orDie,
+        );
+
+        const outbox = database<{
+          readonly effectId: string;
+          readonly status: string;
+          readonly attempts: number;
+          readonly lastFailureTag: string | null;
+          readonly delivered: boolean;
+          readonly scrubbed: boolean;
+        }>`
+          SELECT effect_id AS "effectId", status, attempts, last_failure_tag AS "lastFailureTag",
+            delivered_at IS NOT NULL AS delivered, payload_json = '{}'::jsonb AS scrubbed
+          FROM recruitment_invitation_outbox
+          WHERE interview_id = ${fixture.interviewId}
+        `;
+
+        const lost = yield* deliverNextRecruitmentInvitation(
+          "invitation-fence-claim-1",
+          "2031-09-15T12:04:00.000Z",
+        ).pipe(
+          Effect.provide(
+            gatewayWith({
+              deliverInterviewInvitation: (request) =>
+                loseClaim.pipe(Effect.as(evidenceFor(request.effectId))),
+            }),
+          ),
+        );
+
+        const afterLoss = yield* outbox;
+
+        const mismatched = yield* Effect.flip(
+          deliverNextRecruitmentInvitation(
+            "invitation-fence-claim-2",
+            "2031-09-15T12:05:00.000Z",
+          ).pipe(
+            Effect.provide(
+              gatewayWith({
+                deliverInterviewInvitation: () =>
+                  Effect.succeed(evidenceFor("recruitment-invitation:another-effect")),
+              }),
+            ),
+          ),
+        );
+
+        const afterMismatch = yield* outbox;
+
+        const delivered = yield* deliverNextRecruitmentInvitation(
+          "invitation-fence-claim-3",
+          "2031-09-15T12:06:00.000Z",
+        ).pipe(
+          Effect.provide(
+            gatewayWith({
+              deliverInterviewInvitation: (request) =>
+                Effect.succeed(evidenceFor(request.effectId)),
+            }),
+          ),
+        );
+
+        const afterDelivery = yield* outbox;
+
+        return { lost, afterLoss, mismatched, afterMismatch, delivered, afterDelivery };
+      }),
+    );
+
+    const effectId = evidence.afterDelivery[0]!.effectId;
+
+    expect(evidence.lost).toEqual(RecruitmentInvitationDeliveryResult.ClaimLost({ effectId }));
+    expect(evidence.afterLoss).toEqual([
+      {
+        effectId,
+        status: "Failed",
+        attempts: 1,
+        lastFailureTag: "StaleClaimRecovered",
+        delivered: false,
+        scrubbed: false,
+      },
+    ]);
+    expect(evidence.mismatched).toBeInstanceOf(RecruitmentPersistenceError);
+    expect(evidence.mismatched).toMatchObject({
+      operation: "invitation delivery evidence effect mismatch",
+    });
+    expect(evidence.afterMismatch).toEqual([
+      {
+        effectId,
+        status: "Pending",
+        attempts: 2,
+        lastFailureTag: "InterruptedRecruitmentInvitationClaim",
+        delivered: false,
+        scrubbed: false,
+      },
+    ]);
+    expect(evidence.delivered._tag).toBe("Delivered");
+    expect(evidence.delivered).toMatchObject({
+      claim: { effectId, attempts: 3 },
+    });
+    expect(evidence.afterDelivery).toEqual([
+      {
+        effectId,
+        status: "Delivered",
+        attempts: 3,
+        lastFailureTag: null,
+        delivered: true,
+        scrubbed: true,
+      },
+    ]);
+  }, 30_000);
+
+  it("reports a lost response claim as ClaimLost and rejects evidence for another effect", async () => {
+    const evidence = await runWithIsolatedRecruitment(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const fixture = yield* seedSchedulingFixture("response-fence");
+        yield* recruitment.scheduleInterview(fixture.command, {
+          actor: fixture.actor,
+          now: fixture.now,
+          invitationId: fixture.invitationId,
+          responseCapability: fixture.responseCapability,
+        });
+        yield* recruitment.rejectInvitation(
+          RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability),
+          { message: "Cannot attend." },
+          { now: "2031-09-15T12:03:00.000Z" },
+        );
+
+        const loseClaim = recoverStaleRecruitmentInvitationResponses(staleCutoff).pipe(
+          Effect.provideService(Database, database),
+          Effect.orDie,
+        );
+
+        const outbox = database<{
+          readonly effectId: string;
+          readonly status: string;
+          readonly attempts: number;
+          readonly lastFailureTag: string | null;
+          readonly delivered: boolean;
+          readonly scrubbed: boolean;
+        }>`
+          SELECT effect_id AS "effectId", status, attempts, last_failure_tag AS "lastFailureTag",
+            delivered_at IS NOT NULL AS delivered, payload_json = '{}'::jsonb AS scrubbed
+          FROM recruitment_invitation_response_outbox
+          WHERE invitation_id = ${fixture.invitationId}
+        `;
+
+        const lost = yield* deliverNextRecruitmentInvitationResponse(
+          "response-fence-claim-1",
+          "2031-09-15T12:04:00.000Z",
+        ).pipe(
+          Effect.provide(
+            gatewayWith({
+              deliverInterviewInvitationResponse: (request) =>
+                loseClaim.pipe(Effect.as(evidenceFor(request.effectId))),
+            }),
+          ),
+        );
+
+        const afterLoss = yield* outbox;
+
+        const mismatched = yield* Effect.flip(
+          deliverNextRecruitmentInvitationResponse(
+            "response-fence-claim-2",
+            "2031-09-15T12:05:00.000Z",
+          ).pipe(
+            Effect.provide(
+              gatewayWith({
+                deliverInterviewInvitationResponse: () =>
+                  Effect.succeed(evidenceFor("recruitment-invitation-response:another-effect")),
+              }),
+            ),
+          ),
+        );
+
+        const afterMismatch = yield* outbox;
+
+        const delivered = yield* deliverNextRecruitmentInvitationResponse(
+          "response-fence-claim-3",
+          "2031-09-15T12:06:00.000Z",
+        ).pipe(
+          Effect.provide(
+            gatewayWith({
+              deliverInterviewInvitationResponse: (request) =>
+                Effect.succeed(evidenceFor(request.effectId)),
+            }),
+          ),
+        );
+
+        const afterDelivery = yield* outbox;
+
+        return { lost, afterLoss, mismatched, afterMismatch, delivered, afterDelivery };
+      }),
+    );
+
+    const effectId = evidence.afterDelivery[0]!.effectId;
+
+    expect(evidence.lost).toEqual(
+      RecruitmentInvitationResponseDeliveryResult.ClaimLost({ effectId }),
+    );
+    expect(evidence.afterLoss).toEqual([
+      {
+        effectId,
+        status: "Failed",
+        attempts: 1,
+        lastFailureTag: "StaleClaimRecovered",
+        delivered: false,
+        scrubbed: false,
+      },
+    ]);
+    expect(evidence.mismatched).toBeInstanceOf(RecruitmentPersistenceError);
+    expect(evidence.mismatched).toMatchObject({
+      operation: "invitation response delivery evidence effect mismatch",
+    });
+    expect(evidence.afterMismatch).toEqual([
+      {
+        effectId,
+        status: "Pending",
+        attempts: 2,
+        lastFailureTag: "InterruptedRecruitmentInvitationResponseClaim",
+        delivered: false,
+        scrubbed: false,
+      },
+    ]);
+    expect(evidence.delivered._tag).toBe("Delivered");
+    expect(evidence.delivered).toMatchObject({
+      claim: { effectId, attempts: 3 },
+    });
+    expect(evidence.afterDelivery).toEqual([
+      {
+        effectId,
+        status: "Delivered",
+        attempts: 3,
+        lastFailureTag: null,
+        delivered: true,
+        scrubbed: true,
+      },
+    ]);
+  }, 30_000);
+
+  it("reports a lost interview completion claim as ClaimLost without recording an outcome", async () => {
+    const evidence = await runWithIsolatedRecruitment(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const fixture = yield* seedSchedulingFixture("completion-fence");
+        yield* recruitment.scheduleInterview(fixture.command, {
+          actor: fixture.actor,
+          now: fixture.now,
+          invitationId: fixture.invitationId,
+          responseCapability: fixture.responseCapability,
+        });
+        yield* database.withTransaction(
+          Effect.gen(function* () {
+            yield* database`
+              UPDATE recruitment_invitations
+              SET response_state = 'Accepted',
+                  responded_at = '2031-09-15T12:01:00.000Z',
+                  response_revision = 1
+              WHERE invitation_id = ${fixture.invitationId}
+            `;
+            yield* database`
+              INSERT INTO recruitment_invitation_response_audit (
+                invitation_id, interview_id, schedule_revision, response_revision,
+                response_state, response_message, responded_at
+              ) VALUES (
+                ${fixture.invitationId}, ${fixture.interviewId}, 1, 1,
+                'Accepted', NULL, '2031-09-15T12:01:00.000Z'
+              )
+            `;
+          }),
+        );
+        yield* recruitment.finalizeInterview(
+          {
+            commandId: RecruitmentConductCommandId.make("completion-fence-finalize"),
+            interviewId: fixture.interviewId,
+            expectedRevision: 1,
+            answers: Array.from({ length: 8 }, (_, ordinal) => ({
+              questionId: `completion-fence-q${ordinal}`,
+              answer: `Answer ${ordinal}`,
+            })),
+            score: { explanatoryPower: 5, roleModel: 5, suitability: 5 },
+            recommendation: "Ja" as const,
+          },
+          {
+            actor: {
+              _tag: "Member" as const,
+              personId: fixture.interviewerPersonId,
+              departmentId: fixture.departmentId,
+              active: true,
+            },
+            now: "2031-09-15T12:02:00.000Z",
+          },
+        );
+
+        const loseClaim = recoverStaleRecruitmentInterviewCompletions(staleCutoff).pipe(
+          Effect.provideService(Database, database),
+          Effect.orDie,
+        );
+
+        const outbox = database<{
+          readonly effectId: string;
+          readonly status: string;
+          readonly attempts: number;
+          readonly lastFailureTag: string | null;
+          readonly delivered: boolean;
+          readonly providerReference: string | null;
+        }>`
+          SELECT effect_id AS "effectId", status, attempts, last_failure_tag AS "lastFailureTag",
+            delivered_at IS NOT NULL AS delivered, provider_reference AS "providerReference"
+          FROM public.recruitment_interview_completion_outbox
+          WHERE interview_id = ${fixture.interviewId}
+        `;
+
+        const lost = yield* deliverNextRecruitmentInterviewCompletion(
+          "completion-fence-claim-1",
+          "2031-09-15T12:03:00.000Z",
+        ).pipe(
+          Effect.provide(
+            gatewayWith({
+              deliverInterviewCompletionReceipt: (request) =>
+                loseClaim.pipe(Effect.as(evidenceFor(request.effectId))),
+            }),
+          ),
+        );
+
+        const afterLoss = yield* outbox;
+
+        const delivered = yield* deliverNextRecruitmentInterviewCompletion(
+          "completion-fence-claim-2",
+          "2031-09-15T12:04:00.000Z",
+        ).pipe(
+          Effect.provide(
+            gatewayWith({
+              deliverInterviewCompletionReceipt: (request) =>
+                Effect.succeed(evidenceFor(request.effectId)),
+            }),
+          ),
+        );
+
+        const afterDelivery = yield* outbox;
+
+        return { lost, afterLoss, delivered, afterDelivery };
+      }),
+    );
+
+    const effectId = evidence.afterDelivery[0]!.effectId;
+
+    expect(evidence.lost).toEqual(
+      RecruitmentInterviewCompletionDeliveryResult.ClaimLost({ effectId }),
+    );
+    expect(evidence.afterLoss).toEqual([
+      {
+        effectId,
+        status: "Failed",
+        attempts: 1,
+        lastFailureTag: "StaleClaimRecovered",
+        delivered: false,
+        providerReference: null,
+      },
+    ]);
+    expect(evidence.delivered._tag).toBe("Delivered");
+    expect(evidence.delivered).toMatchObject({
+      claim: { effectId, attempts: 2 },
+    });
+    expect(evidence.afterDelivery).toEqual([
+      {
+        effectId,
+        status: "Delivered",
+        attempts: 2,
+        lastFailureTag: null,
+        delivered: true,
+        providerReference: `http:${effectId}`,
+      },
+    ]);
+  }, 30_000);
+});
+
+describe("upgrade convergence", () => {
+  it("gives upgraded databases the fresh import-occurrence and receipt byte-length checks", async () => {
+    const migration = databaseMigrationDefinitions.find(
+      ({ id }) => id === "71_upgrade-constraint-convergence",
+    )!;
+
+    const migrationSource = await readFile(migration.url, "utf8");
+
+    const evidence = await runWithIsolatedDatabase((pglite) =>
+      Effect.gen(function* () {
+        const database = yield* Database;
+
+        const checks = database<{ readonly name: string; readonly definition: string }>`
+          SELECT conname AS name, pg_get_constraintdef(oid) AS definition
+          FROM pg_constraint
+          WHERE conname IN (
+            'economy_receipt_import_ledger_source_occurrence_check',
+            'organization_import_ledger_source_occurrence_check',
+            'organization_membership_quarantine_source_occurrence_check',
+            'economy_receipts_file_byte_length_check'
+          )
+          ORDER BY conname
+        `;
+
+        const fresh = yield* checks;
+        // The upgraded shape: 0009 added occurrences without their checks, and an early
+        // replay of 0001 as migration 4 left the byte length unbounded.
+        yield* Effect.promise(() =>
+          pglite.exec(`
+            ALTER TABLE economy_receipt_import_ledger
+              DROP CONSTRAINT economy_receipt_import_ledger_source_occurrence_check;
+            ALTER TABLE organization_import_ledger
+              DROP CONSTRAINT organization_import_ledger_source_occurrence_check;
+            ALTER TABLE organization_membership_quarantine
+              DROP CONSTRAINT organization_membership_quarantine_source_occurrence_check;
+            ALTER TABLE economy_receipts DROP CONSTRAINT economy_receipts_file_byte_length_check;
+            ALTER TABLE economy_receipts ADD CONSTRAINT economy_receipts_file_byte_length_check
+              CHECK (file_byte_length > 0);
+          `),
+        );
+        const upgraded = yield* checks;
+        yield* Effect.promise(() => pglite.exec(migrationSource));
+
+        return { fresh, upgraded, converged: yield* checks };
+      }),
+    );
+
+    expect(evidence.fresh).toEqual([
+      {
+        name: "economy_receipt_import_ledger_source_occurrence_check",
+        definition: "CHECK ((source_occurrence >= 0))",
+      },
+      {
+        name: "economy_receipts_file_byte_length_check",
+        definition:
+          "CHECK (((file_byte_length > 0) AND (file_byte_length <= '9007199254740991'::bigint)))",
+      },
+      {
+        name: "organization_import_ledger_source_occurrence_check",
+        definition: "CHECK ((source_occurrence >= 0))",
+      },
+      {
+        name: "organization_membership_quarantine_source_occurrence_check",
+        definition: "CHECK ((source_occurrence >= 0))",
+      },
+    ]);
+    expect(evidence.upgraded).toEqual([
+      {
+        name: "economy_receipts_file_byte_length_check",
+        definition: "CHECK ((file_byte_length > 0))",
+      },
+    ]);
+    expect(evidence.converged).toEqual(evidence.fresh);
+  }, 30_000);
 });

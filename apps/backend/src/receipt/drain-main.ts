@@ -61,14 +61,18 @@ const result = await Effect.runPromise(
 
     if (Predicate.isTagged(last, "Failed")) return "Failed";
 
-    if (Predicate.isTagged(last, "Idle")) {
-      const remaining =
-        yield* db`SELECT 1 FROM economy_receipt_outbox WHERE receipt_id = ${receiptId} AND status <> 'Delivered' LIMIT 1`;
+    if (Predicate.isTagged(last, "Delivered")) return "Limit";
 
-      return remaining.length ? "Busy" : "Complete";
-    }
+    // Idle, or ClaimLost to another process: report what the receipt still waits for.
+    const waiting = yield* db<{ readonly status: string }>`
+      SELECT status FROM economy_receipt_outbox
+      WHERE receipt_id = ${receiptId} AND status <> 'Delivered'
+    `;
 
-    return "Limit";
+    // A quarantined effect is terminal and holds back the later effects of its receipt.
+    if (waiting.some(({ status }) => status === "Quarantined")) return "Quarantined";
+
+    return waiting.length > 0 ? "Busy" : "Complete";
   }).pipe(Effect.provide(services)),
 );
 

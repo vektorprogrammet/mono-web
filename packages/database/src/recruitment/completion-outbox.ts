@@ -5,6 +5,7 @@ import { Database, type DatabaseOperations } from "../service.js";
 import {
   markOutboxDelivered,
   markOutboxFailed,
+  type OutboxClaimLost,
   outboxClaimAssignments,
   quarantineOutboxClaim,
   recoverStaleOutboxClaims,
@@ -107,7 +108,9 @@ export type RecruitmentInterviewCompletionDeliveryResult =
       readonly _tag: "Failed";
       readonly claim: ClaimedRecruitmentInterviewCompletion;
       readonly failureTag: string;
-    };
+    }
+  /** The claim was recovered or replaced first, so its outcome was not recorded. */
+  | { readonly _tag: "ClaimLost"; readonly effectId: string };
 
 export const RecruitmentInterviewCompletionDeliveryResult =
   Data.taggedEnum<RecruitmentInterviewCompletionDeliveryResult>();
@@ -136,15 +139,10 @@ const quarantineClaim = (
   effectId: string,
   claimId: string,
   failureTag: string,
-): Effect.Effect<undefined, RecruitmentPersistenceError> =>
+): Effect.Effect<undefined, RecruitmentPersistenceError | OutboxClaimLost> =>
   quarantineOutboxClaim(sql, completionOutbox, { effectId, claimId }, failureTag).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("quarantine interview completion claim", cause)),
-    ),
-    Effect.flatMap((quarantined) =>
-      quarantined
-        ? Effect.void
-        : Effect.fail(persistenceError("quarantine missing interview completion claim")),
     ),
     Effect.as(undefined),
   );
@@ -272,7 +270,10 @@ const claimInTransaction = (
   profile: ProfileOperations,
   claimId: string,
   claimedAt: string,
-): Effect.Effect<ClaimedRecruitmentInterviewCompletion | undefined, RecruitmentPersistenceError> =>
+): Effect.Effect<
+  ClaimedRecruitmentInterviewCompletion | undefined,
+  RecruitmentPersistenceError | OutboxClaimLost
+> =>
   Effect.gen(function* () {
     const rows = yield* sql<ClaimedRow>`
       WITH candidate AS (
@@ -415,7 +416,7 @@ export const claimNextRecruitmentInterviewCompletion = (
   claimedAt: string,
 ): Effect.Effect<
   ClaimedRecruitmentInterviewCompletion | undefined,
-  RecruitmentPersistenceError,
+  RecruitmentPersistenceError | OutboxClaimLost,
   Admissions | Database | Profile
 > =>
   Effect.gen(function* () {
@@ -435,36 +436,30 @@ export const claimNextRecruitmentInterviewCompletion = (
 export const completeRecruitmentInterviewCompletion = (
   claim: ClaimedRecruitmentInterviewCompletion,
   evidence: RecruitmentNotificationEvidence,
-): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
+): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
   Effect.gen(function* () {
     if (evidence.effectId !== claim.effectId)
       return yield* persistenceError("completion delivery evidence effect mismatch");
-    const sql = yield* Database;
 
-    const delivered = yield* markOutboxDelivered(sql, completionOutbox, claim, {
-      deliveredAt: evidence.deliveredAt,
-      providerReference: evidence.providerReference,
-    }).pipe(
+    yield* Database.use((sql) =>
+      markOutboxDelivered(sql, completionOutbox, claim, {
+        deliveredAt: evidence.deliveredAt,
+        providerReference: evidence.providerReference,
+      }),
+    ).pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("complete interview completion claim", cause)),
       ),
     );
-
-    if (!delivered) return yield* persistenceError("complete missing interview completion claim");
   });
 
 export const failRecruitmentInterviewCompletion = (
   claim: ClaimedRecruitmentInterviewCompletion,
   failureTag: string,
-): Effect.Effect<void, RecruitmentPersistenceError, Database> =>
+): Effect.Effect<void, RecruitmentPersistenceError | OutboxClaimLost, Database> =>
   Database.use((sql) => markOutboxFailed(sql, completionOutbox, claim, failureTag)).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("fail interview completion claim", cause)),
-    ),
-    Effect.flatMap((failed) =>
-      failed
-        ? Effect.void
-        : Effect.fail(persistenceError("fail missing interview completion claim")),
     ),
   );
 
@@ -479,7 +474,6 @@ export const releaseRecruitmentInterviewCompletion = (
       "InterruptedRecruitmentInterviewCompletionClaim",
     ),
   ).pipe(
-    Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("release interview completion claim", cause)),
     ),
@@ -513,7 +507,7 @@ export const deliverNextRecruitmentInterviewCompletion = (
       claim,
     ): Effect.Effect<
       RecruitmentInterviewCompletionDeliveryResult,
-      RecruitmentPersistenceError,
+      RecruitmentPersistenceError | OutboxClaimLost,
       Admissions | Database | NotificationGateway | Profile
     > => {
       if (claim === undefined)
@@ -544,6 +538,10 @@ export const deliverNextRecruitmentInterviewCompletion = (
       });
     },
     (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInterviewCompletion(claim)),
+  ).pipe(
+    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+      Effect.succeed(RecruitmentInterviewCompletionDeliveryResult.ClaimLost({ effectId })),
+    ),
   );
 
 export type RecruitmentInterviewCompletionOutboxFailure =

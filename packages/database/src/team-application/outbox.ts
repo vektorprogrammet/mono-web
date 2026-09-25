@@ -76,11 +76,14 @@ const claimNext = (claimId: string, claimedAt: string) =>
     Effect.mapError(persistenceFailure("claim team application outbox")),
   );
 
-/** Records a transition only while `claim` still holds the effect; returns whether it did. */
-const settle = (
+/** Records a transition only while `claim` still holds the effect; a lost claim stays typed. */
+const settle = <E>(
   operation: string,
-  transition: (sql: DatabaseOperations) => Effect.Effect<boolean, SqlError>,
-) => Database.use(transition).pipe(Effect.mapError(persistenceFailure(operation)));
+  transition: (sql: DatabaseOperations) => Effect.Effect<void, E | SqlError>,
+) =>
+  Database.use(transition).pipe(
+    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceFailure(operation)(cause))),
+  );
 
 /** Returns abandoned claims to Failed; the next claim increments the attempt. */
 export const recoverStaleTeamApplicationOutbox = (claimedBefore: string) =>
@@ -126,13 +129,11 @@ export const deliverNextTeamApplicationOutbox = (claimId: string, sender: string
     if (Option.isNone(envelope) || envelope.value.deliveryId !== effectId) {
       const failureTag = "InvalidTeamApplicationEnvelope";
 
-      const held = yield* settle("quarantine team application outbox", (sql) =>
+      yield* settle("quarantine team application outbox", (sql) =>
         quarantineOutboxClaim(sql, teamApplicationOutbox, claim, failureTag),
       );
 
-      return held
-        ? TeamApplicationOutboxDelivery.Quarantined({ effectId, failureTag })
-        : TeamApplicationOutboxDelivery.ClaimLost({ effectId });
+      return TeamApplicationOutboxDelivery.Quarantined({ effectId, failureTag });
     }
 
     return yield* Mail.use((mail) =>
@@ -161,24 +162,16 @@ export const deliverNextTeamApplicationOutbox = (claimId: string, sender: string
 
           return settle("fail team application outbox", (sql) =>
             markOutboxFailed(sql, teamApplicationOutbox, claim, failureTag),
-          ).pipe(
-            Effect.map((held) =>
-              held
-                ? TeamApplicationOutboxDelivery.Failed({ effectId, failureTag })
-                : TeamApplicationOutboxDelivery.ClaimLost({ effectId }),
-            ),
-          );
+          ).pipe(Effect.as(TeamApplicationOutboxDelivery.Failed({ effectId, failureTag })));
         },
         onSuccess: () =>
           settle("deliver team application outbox", (sql) =>
             markOutboxDelivered(sql, teamApplicationOutbox, claim),
-          ).pipe(
-            Effect.map((held) =>
-              held
-                ? TeamApplicationOutboxDelivery.Delivered({ effectId })
-                : TeamApplicationOutboxDelivery.ClaimLost({ effectId }),
-            ),
-          ),
+          ).pipe(Effect.as(TeamApplicationOutboxDelivery.Delivered({ effectId }))),
       }),
     );
-  });
+  }).pipe(
+    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+      Effect.succeed(TeamApplicationOutboxDelivery.ClaimLost({ effectId })),
+    ),
+  );

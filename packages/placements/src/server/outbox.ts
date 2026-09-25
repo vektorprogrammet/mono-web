@@ -5,7 +5,7 @@ import {
   type SchoolServiceNotificationRequest as SchoolServiceNotificationRequestType,
 } from "@vektorprogrammet/placements/contracts";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
-import { flow, Data, Predicate, Effect, Schema } from "effect";
+import { flow, Data, DateTime, Predicate, Effect, Schema } from "effect";
 import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import {
   markOutboxDelivered,
@@ -51,7 +51,9 @@ export type SchoolServiceNotificationDeliveryResult =
       readonly claim: ClaimedSchoolServiceNotification;
       readonly failureTag: string;
     }
-  | { readonly _tag: "Quarantined"; readonly effectId: string; readonly failureTag: string };
+  | { readonly _tag: "Quarantined"; readonly effectId: string; readonly failureTag: string }
+  /** The claim was recovered or replaced first, so its outcome was not recorded. */
+  | { readonly _tag: "ClaimLost"; readonly effectId: string };
 
 export const SchoolServiceNotificationDeliveryResult =
   Data.taggedEnum<SchoolServiceNotificationDeliveryResult>();
@@ -264,10 +266,16 @@ export const deliverNextSchoolServiceNotification = (
               Effect.fail(outboxError("fail school service notification", cause)),
             ),
           ),
+        // Record when the provider acknowledged, not when the claim was taken.
         onSuccess: () =>
-          Database.use((sql) =>
-            markOutboxDelivered(sql, notificationOutbox, claim, { deliveredAt: claimedAt }),
-          ).pipe(
+          DateTime.now.pipe(
+            Effect.flatMap((acknowledgedAt) =>
+              Database.use((sql) =>
+                markOutboxDelivered(sql, notificationOutbox, claim, {
+                  deliveredAt: DateTime.formatIso(acknowledgedAt),
+                }),
+              ),
+            ),
             Effect.as(SchoolServiceNotificationDeliveryResult.Delivered({ claim })),
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(outboxError("deliver school service notification", cause)),
@@ -275,4 +283,8 @@ export const deliverNextSchoolServiceNotification = (
           ),
       }),
     );
-  });
+  }).pipe(
+    Effect.catchTag("OutboxClaimLost", ({ effectId }) =>
+      Effect.succeed(SchoolServiceNotificationDeliveryResult.ClaimLost({ effectId })),
+    ),
+  );

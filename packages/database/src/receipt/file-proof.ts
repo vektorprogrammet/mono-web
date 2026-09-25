@@ -1,5 +1,15 @@
+import type { PgPoolConfig } from "@effect/sql-pg/PgClient";
+import * as Migrator from "effect/unstable/sql/Migrator";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import {
+  databaseMigrationLoader,
+  type ExecuteMigration,
+  runDatabaseMigrations,
+} from "../migrations.js";
+import { sharedPgLayer } from "../pg-pool.js";
 import { Database } from "../service.js";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { Predicate, Cause, Effect } from "effect";
 import {
   ReceiptId,
@@ -27,6 +37,7 @@ interface OutboxStateRow {
 
 interface SchemaDefinitionRow {
   readonly kind: string;
+  readonly relation: string;
   readonly name: string;
   readonly definition: string;
 }
@@ -206,10 +217,125 @@ const drain = (
     (index) => deliverNextReceiptOutbox(`${prefix}-${index}`, claimedAt),
   );
 
+/** Constraint and index definitions of the tables that `0001-receipt-authority.sql` creates. */
+const receiptSchemaDefinition = (sql: SqlClient.SqlClient) =>
+  sql<SchemaDefinitionRow>`
+    WITH receipt_table AS (
+      SELECT table_name::regclass AS relation
+      FROM unnest(ARRAY[
+        'economy_receipts',
+        'economy_receipt_command_receipts',
+        'economy_receipt_outbox',
+        'economy_receipt_audit',
+        'economy_receipt_import_ledger'
+      ]) AS table_name
+    )
+    SELECT 'constraint' AS kind, constraint_row.conrelid::regclass::text AS relation,
+      constraint_row.conname AS name, pg_get_constraintdef(constraint_row.oid) AS definition
+    FROM pg_constraint AS constraint_row
+    WHERE constraint_row.conrelid IN (SELECT relation FROM receipt_table)
+    UNION ALL
+    SELECT 'index' AS kind, index_row.indrelid::regclass::text AS relation,
+      index_row.indexrelid::regclass::text AS name,
+      pg_get_indexdef(index_row.indexrelid) AS definition
+    FROM pg_index AS index_row
+    WHERE index_row.indrelid IN (SELECT relation FROM receipt_table)
+    ORDER BY kind, relation, name
+  `;
+
+/** Migration 4 replays `0001-receipt-authority.sql` over databases that migrations 1-3 created. */
+const receiptAuthorityReplayMigrationId = 4;
+
+/**
+ * Reverts what later versions of `0001-receipt-authority.sql` added before migration 4 replays it:
+ * claim fencing, identity checks, the amount bound, file uniqueness, and the import occurrence.
+ * Restores the first command-ordinal index and import ledger primary key.
+ */
+const legacyReceiptAuthority = `
+  ALTER TABLE economy_receipt_outbox
+    DROP CONSTRAINT IF EXISTS economy_receipt_outbox_status_check;
+  ALTER TABLE economy_receipt_outbox
+    DROP CONSTRAINT IF EXISTS economy_receipt_outbox_claim_check;
+  ALTER TABLE economy_receipt_outbox
+    DROP CONSTRAINT IF EXISTS economy_receipt_outbox_nonempty_identity_check;
+  ALTER TABLE economy_receipt_outbox
+    DROP COLUMN IF EXISTS claim_id,
+    DROP COLUMN IF EXISTS claimed_at,
+    DROP COLUMN IF EXISTS last_failure_tag;
+  ALTER TABLE economy_receipt_outbox
+    ADD CONSTRAINT economy_receipt_outbox_status_check
+    CHECK (status IN ('Pending', 'Delivered', 'Failed'));
+  ALTER TABLE economy_receipts
+    DROP CONSTRAINT IF EXISTS economy_receipts_amount_ore_check;
+  ALTER TABLE economy_receipts
+    DROP CONSTRAINT IF EXISTS economy_receipts_nonempty_identity_check;
+  ALTER TABLE economy_receipts
+    DROP CONSTRAINT IF EXISTS economy_receipts_distinct_file_identity_check;
+  ALTER TABLE economy_receipts
+    ADD CONSTRAINT economy_receipts_amount_ore_check CHECK (amount_ore > 0);
+  ALTER TABLE economy_receipt_command_receipts
+    DROP CONSTRAINT IF EXISTS economy_receipt_command_receipts_nonempty_identity_check;
+  DROP INDEX IF EXISTS economy_receipts_file_ref_unique;
+  DROP INDEX IF EXISTS economy_receipts_file_object_key_unique;
+  CREATE UNIQUE INDEX economy_receipt_outbox_command_ordinal
+    ON economy_receipt_outbox (command_id, ordinal);
+  ALTER TABLE economy_receipt_import_ledger
+    DROP CONSTRAINT IF EXISTS economy_receipt_import_ledger_pkey;
+  ALTER TABLE economy_receipt_import_ledger
+    DROP COLUMN IF EXISTS source_occurrence;
+  ALTER TABLE economy_receipt_import_ledger
+    ADD CONSTRAINT economy_receipt_import_ledger_pkey PRIMARY KEY (
+      source_repository, source_revision, snapshot_id, source_primary_key, transformation_revision
+    );
+`;
+
+/** Migration 4 recorded before `e44bf70e` replayed a 0001 without the `file_byte_length` bound. */
+const replayedReceiptAuthority = `
+  ALTER TABLE economy_receipts
+    DROP CONSTRAINT IF EXISTS economy_receipts_file_byte_length_check;
+  ALTER TABLE economy_receipts
+    ADD CONSTRAINT economy_receipts_file_byte_length_check CHECK (file_byte_length > 0);
+`;
+
+const executeMigration: ExecuteMigration = (source) =>
+  SqlClient.SqlClient.use((sql) => sql.unsafe(source).pipe(Effect.asVoid));
+
+const migrateThrough = (lastMigrationId: number) =>
+  Migrator.make({})({
+    loader: databaseMigrationLoader(executeMigration).pipe(
+      Effect.map((migrations) => migrations.filter(([id]) => id <= lastMigrationId)),
+    ),
+    table: "vektorprogrammet_schema_migrations",
+  });
+
+/**
+ * Upgrades a legacy Receipt database in phases: migrations 1-3 and the legacy Receipt authority,
+ * migration 4 and its replay-era file size check, then the remaining migrations as `DatabaseLive`
+ * runs them.
+ */
+const upgradedLegacyReceiptSchema = (database: PgPoolConfig) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const legacyMigrations = yield* migrateThrough(receiptAuthorityReplayMigrationId - 1);
+    yield* sql.unsafe(legacyReceiptAuthority);
+    const replayMigrations = yield* migrateThrough(receiptAuthorityReplayMigrationId);
+    yield* sql.unsafe(replayedReceiptAuthority);
+    const appliedMigrationIds = [...legacyMigrations, ...replayMigrations].map(([id]) => id).join();
+
+    if (appliedMigrationIds !== "1,2,3,4") {
+      throw new Error(`legacy Receipt upgrade applied migrations ${appliedMigrationIds}, not 1-4`);
+    }
+
+    yield* runDatabaseMigrations(executeMigration);
+
+    return yield* receiptSchemaDefinition(sql);
+  }).pipe(Effect.provide(sharedPgLayer(database)));
+
 export const runReceiptFileProof = (
   fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
   failNextFileEffect: (effectId: string) => Effect.Effect<void>,
   auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
+  legacyUpgradeDatabase: PgPoolConfig,
 ): Effect.Effect<
   ReceiptFileProofEvidence,
   unknown,
@@ -219,24 +345,6 @@ export const runReceiptFileProof = (
     const sql = yield* Database;
     const files = yield* ReceiptFileService;
     yield* sql.unsafe(`
-      TRUNCATE economy_receipt_outbox, economy_receipt_audit,
-        economy_receipt_command_receipts, economy_receipts,
-        economy_receipt_import_ledger CASCADE
-    `);
-    yield* sql.unsafe(`
-      DELETE FROM economy_receipt_approval_grants
-      WHERE approval_grant_id = 'file-proof-approval';
-      DELETE FROM economy_payment_authorities
-      WHERE payment_authority_id = 'file-proof-payment';
-      DELETE FROM organization_memberships
-      WHERE membership_id IN ('file-proof-owner-membership', 'file-proof-approver-membership');
-      DELETE FROM organization_teams
-      WHERE team_id = 'file-proof-team';
-      DELETE FROM organization_departments
-      WHERE department_id = 'file-proof-department';
-      DELETE FROM person_profiles
-      WHERE person_id IN ('file-proof-owner', 'file-proof-approver');
-
       INSERT INTO person_profiles (person_id, first_name, last_name) VALUES
         ('file-proof-owner', 'File', 'Owner'),
         ('file-proof-approver', 'File', 'Approver');
@@ -270,62 +378,20 @@ export const runReceiptFileProof = (
       );
     `);
 
-    const schemaDefinition = () =>
-      sql<SchemaDefinitionRow>`
-        SELECT 'constraint' AS kind, constraint_row.conname AS name,
-          pg_get_constraintdef(constraint_row.oid) AS definition
-        FROM pg_constraint AS constraint_row
-        WHERE constraint_row.conrelid IN (
-          'economy_receipts'::regclass,
-          'economy_receipt_outbox'::regclass
-        )
-        UNION ALL
-        SELECT 'index' AS kind, index_row.indexname AS name, index_row.indexdef AS definition
-        FROM pg_indexes AS index_row
-        WHERE index_row.schemaname = current_schema()
-          AND index_row.tablename IN ('economy_receipts', 'economy_receipt_outbox')
-        ORDER BY kind, name
-      `;
+    const freshSchema = yield* receiptSchemaDefinition(sql);
+    const upgradedSchema = yield* upgradedLegacyReceiptSchema(legacyUpgradeDatabase);
+    const freshDefinitions = new Set(freshSchema.map((row) => canonicalJson(row)));
+    const upgradedDefinitions = new Set(upgradedSchema.map((row) => canonicalJson(row)));
 
-    const freshSchema = yield* schemaDefinition();
-    yield* sql`
-      DELETE FROM vektorprogrammet_schema_migrations
-      WHERE migration_id = 4
-    `;
-    yield* sql.unsafe(`
-      ALTER TABLE economy_receipt_outbox
-        DROP CONSTRAINT IF EXISTS economy_receipt_outbox_status_check;
-      ALTER TABLE economy_receipt_outbox
-        DROP CONSTRAINT IF EXISTS economy_receipt_outbox_claim_check;
-      ALTER TABLE economy_receipt_outbox
-        DROP CONSTRAINT IF EXISTS economy_receipt_outbox_nonempty_identity_check;
-      ALTER TABLE economy_receipt_outbox
-        DROP COLUMN IF EXISTS claim_id,
-        DROP COLUMN IF EXISTS claimed_at,
-        DROP COLUMN IF EXISTS last_failure_tag;
-      ALTER TABLE economy_receipt_outbox
-        ADD CONSTRAINT economy_receipt_outbox_status_check
-        CHECK (status IN ('Pending', 'Delivered', 'Failed'));
-      ALTER TABLE economy_receipts
-        DROP CONSTRAINT IF EXISTS economy_receipts_amount_ore_check;
-      ALTER TABLE economy_receipts
-        DROP CONSTRAINT IF EXISTS economy_receipts_nonempty_identity_check;
-      ALTER TABLE economy_receipts
-        DROP CONSTRAINT IF EXISTS economy_receipts_distinct_file_identity_check;
-      ALTER TABLE economy_receipts
-        ADD CONSTRAINT economy_receipts_amount_ore_check CHECK (amount_ore > 0);
-      ALTER TABLE economy_receipt_command_receipts
-        DROP CONSTRAINT IF EXISTS economy_receipt_command_receipts_nonempty_identity_check;
-      DROP INDEX IF EXISTS economy_receipts_file_ref_unique;
-      DROP INDEX IF EXISTS economy_receipts_file_object_key_unique;
-      CREATE UNIQUE INDEX economy_receipt_outbox_command_ordinal
-        ON economy_receipt_outbox (command_id, ordinal);
-    `);
-    yield* sql.migrate;
-    const upgradedSchema = yield* schemaDefinition();
+    const differingDefinitions = {
+      freshOnly: freshSchema.filter((row) => !upgradedDefinitions.has(canonicalJson(row))),
+      upgradedOnly: upgradedSchema.filter((row) => !freshDefinitions.has(canonicalJson(row))),
+    };
 
-    if (JSON.stringify(freshSchema) !== JSON.stringify(upgradedSchema)) {
-      throw new Error("fresh and upgraded Receipt schemas differ");
+    if (differingDefinitions.freshOnly.length > 0 || differingDefinitions.upgradedOnly.length > 0) {
+      throw new Error(
+        `fresh and upgraded Receipt schemas differ: ${canonicalJson(differingDefinitions)}`,
+      );
     }
 
     yield* files.stage(original);

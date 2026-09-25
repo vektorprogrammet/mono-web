@@ -16,8 +16,10 @@
  *   Attempts count claims; no other transition changes them.
  * - `markOutboxDelivered`, `markOutboxFailed`, `quarantineOutboxClaim`, and
  *   `releaseOutboxClaim` update the row only while its `effect_id`, `status = 'Processing'`,
- *   and `claim_id` match the claim. They clear the claim and succeed with `false` when the
- *   claim is no longer active. The caller decides whether a lost claim is a failure.
+ *   and `claim_id` match the claim, and they clear the claim. If the claim is no longer
+ *   active, stale recovery or another claim owns the row. Then the first three change nothing
+ *   and fail with `OutboxClaimLost`, so a caller cannot report their business outcome.
+ *   `releaseOutboxClaim` succeeds, because a lost claim has nothing to release.
  * - `recoverStaleOutboxClaims` and `recoverStaleOutboxClaim` move `Processing` rows claimed
  *   before a cutoff to a claimable status and succeed with the number of recovered rows.
  *
@@ -25,7 +27,7 @@
  * `payload_json` with `{}`. A table with only the lifecycle columns uses `Retain` and
  * records no delivery evidence. SQL failures remain `SqlError` for the caller to map.
  */
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 import type { DatabaseOperations } from "./service.js";
@@ -56,6 +58,12 @@ export interface OutboxStaleRecovery {
   readonly failureTag: string;
 }
 
+/** The claim no longer owns its Processing row, so the transition changed nothing. */
+export class OutboxClaimLost extends Data.TaggedError("OutboxClaimLost")<{
+  readonly effectId: string;
+  readonly claimId: string;
+}> {}
+
 const noAssignments = Statement.fragment([]);
 
 const scrubbedPayload = Statement.fragment([Statement.literal(", payload_json = '{}'::jsonb")]);
@@ -74,6 +82,20 @@ const leaveProcessing = (
       AND claim_id = ${claim.claimId}
     RETURNING effect_id
   `.pipe(Effect.map((rows) => rows.length === 1));
+
+const settleClaim = (
+  sql: DatabaseOperations,
+  table: OutboxTable,
+  claim: OutboxClaim,
+  assignments: Statement.Fragment,
+): Effect.Effect<void, OutboxClaimLost | SqlError> =>
+  leaveProcessing(sql, table, claim, assignments).pipe(
+    Effect.flatMap((settled) =>
+      settled
+        ? Effect.void
+        : Effect.fail(new OutboxClaimLost({ effectId: claim.effectId, claimId: claim.claimId })),
+    ),
+  );
 
 const recoverStale = (
   sql: DatabaseOperations,
@@ -108,7 +130,7 @@ export const markOutboxDelivered = (
   table: OutboxTable,
   claim: OutboxClaim,
   evidence?: OutboxDeliveryEvidence,
-): Effect.Effect<boolean, SqlError> => {
+): Effect.Effect<void, OutboxClaimLost | SqlError> => {
   const payload = table.terminalPayload === "Scrub" ? scrubbedPayload : noAssignments;
 
   const deliveredAt =
@@ -119,7 +141,7 @@ export const markOutboxDelivered = (
       ? noAssignments
       : sql`, provider_reference = ${evidence.providerReference}`;
 
-  return leaveProcessing(
+  return settleClaim(
     sql,
     table,
     claim,
@@ -132,18 +154,18 @@ export const markOutboxFailed = (
   table: OutboxTable,
   claim: OutboxClaim,
   failureTag: string,
-): Effect.Effect<boolean, SqlError> =>
-  leaveProcessing(sql, table, claim, sql`status = 'Failed', last_failure_tag = ${failureTag}`);
+): Effect.Effect<void, OutboxClaimLost | SqlError> =>
+  settleClaim(sql, table, claim, sql`status = 'Failed', last_failure_tag = ${failureTag}`);
 
 export const quarantineOutboxClaim = (
   sql: DatabaseOperations,
   table: OutboxTable,
   claim: OutboxClaim,
   failureTag: string,
-): Effect.Effect<boolean, SqlError> => {
+): Effect.Effect<void, OutboxClaimLost | SqlError> => {
   const payload = table.terminalPayload === "Scrub" ? scrubbedPayload : noAssignments;
 
-  return leaveProcessing(
+  return settleClaim(
     sql,
     table,
     claim,
@@ -151,14 +173,19 @@ export const quarantineOutboxClaim = (
   );
 };
 
-/** Returns an interrupted claim to Pending without a provider outcome. */
+/** Returns an interrupted claim to Pending without a provider outcome; a lost claim needs none. */
 export const releaseOutboxClaim = (
   sql: DatabaseOperations,
   table: OutboxTable,
   claim: OutboxClaim,
   failureTag: string,
-): Effect.Effect<boolean, SqlError> =>
-  leaveProcessing(sql, table, claim, sql`status = 'Pending', last_failure_tag = ${failureTag}`);
+): Effect.Effect<void, SqlError> =>
+  leaveProcessing(
+    sql,
+    table,
+    claim,
+    sql`status = 'Pending', last_failure_tag = ${failureTag}`,
+  ).pipe(Effect.asVoid);
 
 /** Recovers every Processing row claimed before `claimedBefore`. */
 export const recoverStaleOutboxClaims = (

@@ -17,6 +17,8 @@ export type ReceiptOutboxDeliveryResult =
       readonly _tag: "Failed";
       readonly claim: ClaimedReceiptOutbox;
       readonly failureTag: string;
-    };
+    }
+  /** The claim was recovered or replaced first, so its outcome was not recorded. */
+  | { readonly _tag: "ClaimLost"; readonly effectId: string };
 
 export const ReceiptOutboxDeliveryResult = Data.taggedEnum<ReceiptOutboxDeliveryResult>();

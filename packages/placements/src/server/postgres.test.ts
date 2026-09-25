@@ -1,14 +1,20 @@
-import { SchoolServiceNotificationDeliveryResult } from "./outbox.js";
+import {
+  deliverNextSchoolServiceNotification,
+  recoverStaleSchoolServiceNotifications,
+  SchoolServiceNotificationDeliveryResult,
+} from "./outbox.js";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { afterAll, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/database";
+import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import {
   SchoolServiceAbsenceId,
   SchoolServiceCommitmentId,
   SchoolServiceCoverageAcknowledgementId,
   SchoolServiceDispatchNotificationDeliveryError,
+  SchoolServiceNotificationDeliveryError,
+  SchoolServiceNotificationRequest,
   SchoolServiceOccurrenceId,
   SchoolServiceProposalId,
   SchoolServiceSubstituteOfferId,
@@ -21,8 +27,11 @@ import {
   readOwnAffiliation,
   readPlacementBoard,
 } from "./postgres.js";
-import { deliverNextSchoolServiceDispatchNotification } from "./dispatch-outbox.js";
-import { deliverNextSchoolServiceNotification } from "./outbox.js";
+import {
+  deliverNextSchoolServiceDispatchNotification,
+  recoverStaleSchoolServiceDispatchNotifications,
+  SchoolServiceDispatchNotificationDeliveryResult,
+} from "./dispatch-outbox.js";
 import {
   mutateCoverageBoard,
   mutateOwnCoverage,
@@ -30,6 +39,7 @@ import {
   readOwnCoverage,
 } from "./coverage.js";
 import { Effect, ManagedRuntime } from "effect";
+import { TestClock } from "effect/testing";
 import { DatabaseTest } from "@vektorprogrammet/database/live";
 
 const runtime = ManagedRuntime.make(DatabaseTest());
@@ -1270,5 +1280,428 @@ describe("placement schema ownership", () => {
       await isolated.dispose();
       await pglite.close();
     }
+  }, 15000);
+});
+
+describe("claim-fenced school service delivery", () => {
+  // Later than every claim below: stale recovery by another worker takes the active claim.
+  const staleCutoff = "2026-09-06T02:00:00.000Z";
+
+  const outboxRow = (
+    sql: DatabaseOperations,
+    table: "school_service_notification_outbox" | "school_service_dispatch_notification_outbox",
+    effectId: string,
+  ) =>
+    sql<{
+      status: string;
+      attempts: number;
+      claimId: string | null;
+      lastFailureTag: string | null;
+      deliveredAt: string | null;
+    }>`SELECT status,attempts,claim_id AS "claimId",last_failure_tag AS "lastFailureTag",CASE WHEN delivered_at IS NULL THEN NULL ELSE to_char(delivered_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END AS "deliveredAt" FROM ${sql(table)} WHERE effect_id=${effectId}`;
+
+  const seedRosterNotification = Effect.gen(function* () {
+    const sql = yield* Database;
+    const departmentId = DepartmentId.make("claim-department");
+    const semesterId = SemesterId.make("claim-semester");
+    const volunteerId = PersonId.make("claim-volunteer");
+    const coordinatorId = PersonId.make("claim-coordinator");
+    const proposalId = SchoolServiceProposalId.make(`school-service-proposal-${"c".repeat(64)}`);
+    const confirmedAt = "2026-09-06T01:00:00.000Z";
+    const effectId = `school-service-notification:${proposalId}:${volunteerId}`;
+
+    const assignments = [
+      {
+        placementId: `placement-${"c".repeat(64)}`,
+        personId: volunteerId,
+        firstName: "Vera",
+        lastName: "Volunteer",
+        schoolId: SchoolId.make(1),
+        schoolName: "Claim school",
+        day: "Monday" as const,
+        block: "1" as const,
+      },
+    ];
+
+    yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${departmentId},'Claim department','CLD','claim@example.invalid','Oslo')`;
+    yield* sql`INSERT INTO admission_period_semesters(semester_id,start_at,end_at) VALUES(${semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z')`;
+    yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${volunteerId},'Vera','Volunteer'),(${coordinatorId},'Cora','Coordinator')`;
+    yield* sql`INSERT INTO school_service_proposals(proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,confirmed_at,confirmed_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot) VALUES(${proposalId},${departmentId},${semesterId},'Confirmed',2,${confirmedAt},${coordinatorId},${confirmedAt},${coordinatorId},${sql.json([])},${sql.json(assignments)},${sql.json([])})`;
+    yield* sql`INSERT INTO school_service_notification_outbox(effect_id,proposal_id,person_id,payload_json) VALUES(${effectId},${proposalId},${volunteerId},${sql.json(
+      SchoolServiceNotificationRequest.make({
+        effectId,
+        proposalId,
+        personId: volunteerId,
+        departmentId,
+        semesterId,
+        assignments,
+        confirmedAt,
+      }),
+    )})`;
+
+    return effectId;
+  });
+
+  const seedSubstituteOffer = Effect.gen(function* () {
+    const sql = yield* Database;
+
+    const coverageScope = {
+      departmentId: DepartmentId.make("claim-coverage-department"),
+      semesterId: SemesterId.make("claim-coverage-semester"),
+    };
+
+    const rosterPerson = PersonId.make("claim-roster-person");
+    const candidatePerson = PersonId.make("claim-candidate-person");
+    const coverageCoordinator = PersonId.make("claim-coverage-coordinator");
+    const proposalId = SchoolServiceProposalId.make(`school-service-proposal-${"d".repeat(64)}`);
+
+    const commitmentId = SchoolServiceCommitmentId.make(
+      `school-service-commitment-${"d".repeat(64)}`,
+    );
+
+    const coverageIds = {
+      absenceId: SchoolServiceAbsenceId.make(`school-service-absence-${"d".repeat(64)}`),
+      offerId: SchoolServiceSubstituteOfferId.make(
+        `school-service-substitute-offer-${"d".repeat(64)}`,
+      ),
+      acknowledgementId: SchoolServiceCoverageAcknowledgementId.make(
+        `school-service-coverage-acknowledgement-${"d".repeat(64)}`,
+      ),
+      occurrenceId: SchoolServiceOccurrenceId.make(`school-service-occurrence-${"d".repeat(64)}`),
+    };
+
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql`INSERT INTO organization_departments(department_id,name,short_name,email,city) VALUES(${coverageScope.departmentId},'Claim coverage department','CCD','claim-coverage@example.invalid','Trondheim')`;
+        yield* sql`INSERT INTO admission_period_departments(department_id,name) VALUES(${coverageScope.departmentId},'Claim coverage department')`;
+        yield* sql`INSERT INTO admission_period_semesters VALUES(${coverageScope.semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z')`;
+        yield* sql`INSERT INTO admission_periods VALUES('claim-coverage-period',${coverageScope.departmentId},${coverageScope.semesterId},'2026-08-01T00:00:00Z','2026-12-31T00:00:00Z',0,'claim-coverage-seed')`;
+        yield* sql`INSERT INTO admission_period_fields_of_study VALUES('claim-coverage-field',${coverageScope.departmentId},'Math',true)`;
+        yield* sql`INSERT INTO person_profiles(person_id,first_name,last_name) VALUES(${rosterPerson},'Rosa','Roster'),(${candidatePerson},'Cato','Candidate'),(${coverageCoordinator},'Cora','Coordinator')`;
+
+        const schools = yield* sql<{
+          schoolId: number;
+        }>`INSERT INTO schools_directory_schools(name,contact_person,email,phone,language,active) VALUES('Claim coverage school','Contact','claim-coverage-school@example.invalid','12345678','Norwegian',true) RETURNING school_id::double precision AS "schoolId"`;
+
+        const schoolId = SchoolId.make(schools[0]!.schoolId);
+        yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${coverageScope.departmentId})`;
+        yield* sql`INSERT INTO organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES(${candidatePerson},${coverageScope.departmentId},'Active',1)`;
+        yield* sql`INSERT INTO admission_applicants(applicant_id,normalized_email,email,first_name,last_name,phone,gender,field_of_study_id,year_of_study) VALUES('claim-coverage-applicant','claim-coverage@applicant.invalid','claim-coverage@applicant.invalid','Cato','Candidate','12345678',0,'claim-coverage-field',2)`;
+        yield* sql`INSERT INTO admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at) VALUES('claim-coverage-application','claim-coverage-applicant','claim-coverage-period',${coverageScope.departmentId},'claim-coverage-field',2,${now})`;
+        yield* sql`INSERT INTO applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('claim-coverage-invitation','claim-coverage-application','claim-coverage-applicant',${"a".repeat(64)},'2027-01-01T00:00:00Z','Claimed',${coverageCoordinator},${now})`;
+        yield* sql`INSERT INTO applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES('claim-coverage-applicant',${candidatePerson},${now},'claim-coverage-invitation')`;
+        yield* sql`INSERT INTO admission_substitute_preferences(application_id,active,monday,tuesday,wednesday,thursday,friday,language,revision) VALUES('claim-coverage-application',true,true,false,false,false,false,'Norwegian',1)`;
+        yield* sql`INSERT INTO school_service_proposals(proposal_id,department_id,semester_id,status,revision,created_at,created_by_person_id,confirmed_at,confirmed_by_person_id,demand_snapshot,assignment_snapshot,exception_snapshot,reviewed_exception_ids) VALUES(${proposalId},${coverageScope.departmentId},${coverageScope.semesterId},'Confirmed',2,${now},${coverageCoordinator},${now},${coverageCoordinator},${sql.json([{ schoolId, day: "Monday", block: "1", requiredVolunteers: 1, revision: 1 }])},${sql.json(
+          [
+            {
+              placementId: `placement-${"d".repeat(64)}`,
+              personId: rosterPerson,
+              firstName: "Rosa",
+              lastName: "Roster",
+              schoolId,
+              schoolName: "Claim coverage school",
+              day: "Monday",
+              block: "1",
+            },
+          ],
+        )},${sql.json([])},${sql.json([])})`;
+        yield* lockPlacementDepartment(coverageScope.departmentId);
+        yield* mutatePlacementBoard(
+          coverageScope,
+          {
+            action: "ScheduleService",
+            proposalId,
+            schoolId,
+            day: "Monday",
+            block: "1",
+            serviceDate: "2026-09-14",
+            startTime: "09:00",
+            endTime: "11:00",
+          },
+          coverageCoordinator,
+          now,
+          commitmentId,
+        );
+        yield* mutateCoverageBoard(
+          coverageScope,
+          { action: "ReportAbsenceForVolunteer", personId: rosterPerson, commitmentId },
+          coverageCoordinator,
+          now,
+          coverageIds,
+        );
+        yield* mutateCoverageBoard(
+          coverageScope,
+          {
+            action: "DispatchSubstituteOffer",
+            absenceId: coverageIds.absenceId,
+            candidatePersonId: candidatePerson,
+          },
+          coverageCoordinator,
+          now,
+          coverageIds,
+        );
+      }),
+    );
+
+    return `school-service-substitute-dispatch:${coverageIds.offerId}`;
+  });
+
+  it("reports lost roster notification claims as ClaimLost and dates delivery by acknowledgement", async () => {
+    const evidence = await Effect.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const effectId = yield* seedRosterNotification;
+
+        const loseClaim = recoverStaleSchoolServiceNotifications(staleCutoff).pipe(
+          Effect.provideService(Database, sql),
+          Effect.orDie,
+        );
+
+        const failedAfterLoss = yield* deliverNextSchoolServiceNotification(
+          "claim-worker:1",
+          "2026-09-06T01:01:00.000Z",
+          (request) =>
+            loseClaim.pipe(
+              Effect.andThen(
+                Effect.fail(
+                  new SchoolServiceNotificationDeliveryError({ effectId: request.effectId }),
+                ),
+              ),
+            ),
+        );
+
+        const afterFailedLoss = yield* outboxRow(
+          sql,
+          "school_service_notification_outbox",
+          effectId,
+        );
+
+        const deliveredAfterLoss = yield* deliverNextSchoolServiceNotification(
+          "claim-worker:2",
+          "2026-09-06T01:02:00.000Z",
+          () => loseClaim,
+        );
+
+        const afterDeliveredLoss = yield* outboxRow(
+          sql,
+          "school_service_notification_outbox",
+          effectId,
+        );
+
+        // The provider acknowledges seven seconds after the claim.
+        const delivered = yield* Effect.gen(function* () {
+          yield* TestClock.setTime(Date.parse("2026-09-06T01:03:00.000Z"));
+
+          return yield* deliverNextSchoolServiceNotification(
+            "claim-worker:3",
+            "2026-09-06T01:03:00.000Z",
+            () => TestClock.adjust("7 seconds"),
+          );
+        }).pipe(Effect.provide(TestClock.layer()));
+
+        const afterDelivery = yield* outboxRow(sql, "school_service_notification_outbox", effectId);
+
+        return {
+          effectId,
+          failedAfterLoss,
+          afterFailedLoss,
+          deliveredAfterLoss,
+          afterDeliveredLoss,
+          delivered,
+          afterDelivery,
+        };
+      }).pipe(Effect.provide(DatabaseTest())),
+    );
+
+    const claimLost = SchoolServiceNotificationDeliveryResult.ClaimLost({
+      effectId: evidence.effectId,
+    });
+
+    expect(evidence.failedAfterLoss).toEqual(claimLost);
+    expect(evidence.afterFailedLoss).toEqual([
+      {
+        status: "Failed",
+        attempts: 1,
+        claimId: null,
+        lastFailureTag: "StaleClaim",
+        deliveredAt: null,
+      },
+    ]);
+    expect(evidence.deliveredAfterLoss).toEqual(claimLost);
+    expect(evidence.afterDeliveredLoss).toEqual([
+      {
+        status: "Failed",
+        attempts: 2,
+        claimId: null,
+        lastFailureTag: "StaleClaim",
+        deliveredAt: null,
+      },
+    ]);
+    expect(evidence.delivered._tag).toBe("Delivered");
+    expect(evidence.delivered).toMatchObject({
+      claim: { effectId: evidence.effectId, attempts: 3 },
+    });
+    expect(evidence.afterDelivery).toEqual([
+      {
+        status: "Delivered",
+        attempts: 3,
+        claimId: null,
+        lastFailureTag: null,
+        deliveredAt: "2026-09-06T01:03:07.000Z",
+      },
+    ]);
+  }, 15000);
+
+  it("does not report a quarantine after its claim was taken in the claim transaction", async () => {
+    const evidence = await Effect.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const effectId = yield* seedRosterNotification;
+
+        // Another claimant overwrites the claim before validation quarantines the row.
+        yield* sql.unsafe(`
+          CREATE FUNCTION public.claim_fence_take_claim() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN
+            IF NEW.status = 'Processing' THEN NEW.claim_id := NEW.claim_id || ':taken'; END IF;
+            RETURN NEW;
+          END;
+          $$
+        `);
+        yield* sql.unsafe(`
+          CREATE TRIGGER claim_fence_take_claim
+            BEFORE UPDATE ON public.school_service_notification_outbox
+            FOR EACH ROW EXECUTE FUNCTION public.claim_fence_take_claim()
+        `);
+
+        const result = yield* deliverNextSchoolServiceNotification(
+          "claim-worker:4",
+          "2026-09-06T01:01:00.000Z",
+          () => Effect.die("a taken claim must not reach transport"),
+        );
+
+        const row = yield* outboxRow(sql, "school_service_notification_outbox", effectId);
+
+        return { effectId, result, row };
+      }).pipe(Effect.provide(DatabaseTest())),
+    );
+
+    expect(evidence.result).toEqual(
+      SchoolServiceNotificationDeliveryResult.ClaimLost({ effectId: evidence.effectId }),
+    );
+    expect(evidence.row).toEqual([
+      { status: "Pending", attempts: 0, claimId: null, lastFailureTag: null, deliveredAt: null },
+    ]);
+  }, 15000);
+
+  it("reports lost substitute-offer claims as ClaimLost and dates delivery by acknowledgement", async () => {
+    const evidence = await Effect.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* Database;
+        const effectId = yield* seedSubstituteOffer;
+
+        const loseClaim = recoverStaleSchoolServiceDispatchNotifications(staleCutoff).pipe(
+          Effect.provideService(Database, sql),
+          Effect.orDie,
+        );
+
+        const failedAfterLoss = yield* deliverNextSchoolServiceDispatchNotification(
+          "claim-dispatch-worker:1",
+          "2026-09-06T01:01:00.000Z",
+          (request) =>
+            loseClaim.pipe(
+              Effect.andThen(
+                Effect.fail(
+                  new SchoolServiceDispatchNotificationDeliveryError({
+                    effectId: request.effectId,
+                  }),
+                ),
+              ),
+            ),
+        );
+
+        const afterFailedLoss = yield* outboxRow(
+          sql,
+          "school_service_dispatch_notification_outbox",
+          effectId,
+        );
+
+        const deliveredAfterLoss = yield* deliverNextSchoolServiceDispatchNotification(
+          "claim-dispatch-worker:2",
+          "2026-09-06T01:02:00.000Z",
+          () => loseClaim,
+        );
+
+        const afterDeliveredLoss = yield* outboxRow(
+          sql,
+          "school_service_dispatch_notification_outbox",
+          effectId,
+        );
+
+        // The provider acknowledges seven seconds after the claim.
+        const delivered = yield* Effect.gen(function* () {
+          yield* TestClock.setTime(Date.parse("2026-09-06T01:03:00.000Z"));
+
+          return yield* deliverNextSchoolServiceDispatchNotification(
+            "claim-dispatch-worker:3",
+            "2026-09-06T01:03:00.000Z",
+            () => TestClock.adjust("7 seconds"),
+          );
+        }).pipe(Effect.provide(TestClock.layer()));
+
+        const afterDelivery = yield* outboxRow(
+          sql,
+          "school_service_dispatch_notification_outbox",
+          effectId,
+        );
+
+        return {
+          effectId,
+          failedAfterLoss,
+          afterFailedLoss,
+          deliveredAfterLoss,
+          afterDeliveredLoss,
+          delivered,
+          afterDelivery,
+        };
+      }).pipe(Effect.provide(DatabaseTest())),
+    );
+
+    const claimLost = SchoolServiceDispatchNotificationDeliveryResult.ClaimLost({
+      effectId: evidence.effectId,
+    });
+
+    expect(evidence.failedAfterLoss).toEqual(claimLost);
+    expect(evidence.afterFailedLoss).toEqual([
+      {
+        status: "Failed",
+        attempts: 1,
+        claimId: null,
+        lastFailureTag: "StaleClaim",
+        deliveredAt: null,
+      },
+    ]);
+    expect(evidence.deliveredAfterLoss).toEqual(claimLost);
+    expect(evidence.afterDeliveredLoss).toEqual([
+      {
+        status: "Failed",
+        attempts: 2,
+        claimId: null,
+        lastFailureTag: "StaleClaim",
+        deliveredAt: null,
+      },
+    ]);
+    expect(evidence.delivered._tag).toBe("Delivered");
+    expect(evidence.delivered).toMatchObject({
+      claim: { effectId: evidence.effectId, attempts: 3 },
+    });
+    expect(evidence.afterDelivery).toEqual([
+      {
+        status: "Delivered",
+        attempts: 3,
+        claimId: null,
+        lastFailureTag: null,
+        deliveredAt: "2026-09-06T01:03:07.000Z",
+      },
+    ]);
   }, 15000);
 });

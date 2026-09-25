@@ -93,6 +93,14 @@ const rollbackFile: ReceiptFile = {
   sha256: "b".repeat(64),
 };
 
+const legacyFile: ReceiptFile = {
+  fileRef: "proof-file-legacy",
+  objectKey: "temporary/proof-file-legacy",
+  contentType: "application/pdf",
+  byteLength: 256,
+  sha256: "d".repeat(64),
+};
+
 const ownerPersonId = PersonId.make("proof-person");
 
 const approverPersonId = PersonId.make("proof-approver");
@@ -140,25 +148,6 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
   Effect.gen(function* () {
     const sql = yield* Database;
     yield* sql.unsafe(`
-    TRUNCATE economy_receipt_outbox, economy_receipt_audit,
-      economy_receipt_command_receipts, economy_receipts,
-      economy_receipt_import_ledger CASCADE
-  `);
-    yield* sql.unsafe(`
-      DELETE FROM economy_receipt_approval_grants
-      WHERE approval_grant_id IN ('proof-approval', 'proof-wrong-approval');
-      DELETE FROM economy_payment_authorities
-      WHERE payment_authority_id = 'proof-payment';
-      DELETE FROM organization_memberships
-      WHERE membership_id IN ('proof-owner-membership', 'proof-approver-membership',
-        'proof-wrong-approver-membership');
-      DELETE FROM organization_teams
-      WHERE team_id IN ('proof-team', 'proof-other-team');
-      DELETE FROM organization_departments
-      WHERE department_id IN ('proof-department', 'other-department');
-      DELETE FROM person_profiles
-      WHERE person_id IN ('proof-person', 'proof-approver', 'proof-wrong-scope-approver');
-
       INSERT INTO person_profiles (person_id, first_name, last_name) VALUES
         ('proof-person', 'Receipt', 'Owner'),
         ('proof-approver', 'Receipt', 'Approver'),
@@ -281,7 +270,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     );
 
     yield* sql.unsafe(`
-    CREATE OR REPLACE FUNCTION reject_receipt_proof_audit() RETURNS trigger AS $$
+    CREATE FUNCTION reject_receipt_proof_audit() RETURNS trigger AS $$
     BEGIN
       IF NEW.command_id = 'proof-command-rollback' THEN
         RAISE EXCEPTION 'receipt proof rollback injection';
@@ -333,7 +322,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       status: "pending",
       refundDate: null,
       paymentAccountCiphertext: "ciphertext:v1:legacy-proof",
-      file,
+      file: legacyFile,
     };
 
     const invalidLegacy = {
@@ -462,7 +451,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     });
     assert.deepEqual(evidence.replay, { exactObservation: true, duplicateEffects: 0 });
     assert.deepEqual(evidence.durableRows, {
-      receipts: 2,
+      receipts: 3,
       commandReceipts: 5,
       outbox: 11,
       audit: 5,
@@ -471,10 +460,17 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     assert.deepEqual(evidence.projections.assistantReceiptIds, [
       "proof-receipt-2",
       "proof-receipt-1",
+      "proof-import-1",
     ]);
     assert.deepEqual(evidence.projections.approverReceiptIds, [
       "proof-receipt-2",
       "proof-receipt-1",
+      "proof-import-1",
+    ]);
+    assert.deepEqual(evidence.projections.statusTotals, [
+      { status: "Approved", receiptCount: "1", amountOre: "12345" },
+      { status: "Pending", receiptCount: "1", amountOre: "12345" },
+      { status: "Withdrawn", receiptCount: "1", amountOre: "13000" },
     ]);
 
     return evidence;
