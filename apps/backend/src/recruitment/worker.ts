@@ -11,13 +11,13 @@ import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { NotificationGateway } from "@vektorprogrammet/domain/notification";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { RecruitmentPersistenceError } from "@vektorprogrammet/domain/recruitment";
-import { Duration, Effect } from "effect";
+import { DateTime, Duration, Effect } from "effect";
+import { pollForever } from "../worker-support.js";
 
 export interface RecruitmentInvitationWorkerOptions {
   readonly workerId: string;
   readonly pollIntervalMilliseconds: number;
   readonly staleClaimMilliseconds: number;
-  readonly now: () => string;
   readonly onStart?: () => void;
   readonly onStop?: () => void;
 }
@@ -40,28 +40,33 @@ export const runRecruitmentInvitationWorker = (
   let claimSequence = 0;
 
   const tick = Effect.gen(function* () {
-    const now = options.now();
-    const claimedBefore = new Date(Date.parse(now) - options.staleClaimMilliseconds).toISOString();
+    const now = yield* DateTime.now;
+
+    const claimedBefore = DateTime.formatIso(
+      DateTime.subtract(now, { milliseconds: options.staleClaimMilliseconds }),
+    );
+
     yield* recoverStaleRecruitmentInvitations(claimedBefore);
     yield* recoverStaleRecruitmentInvitationResponses(claimedBefore);
     yield* recoverStaleRecruitmentInterviewCompletions(claimedBefore);
     yield* deliverNextRecruitmentInvitation(
       `${options.workerId}:${claimSequence++}`,
-      options.now(),
+      DateTime.formatIso(yield* DateTime.now),
     );
     yield* deliverNextRecruitmentInvitationResponse(
       `${options.workerId}:response:${claimSequence++}`,
-      options.now(),
+      DateTime.formatIso(yield* DateTime.now),
     );
     yield* deliverNextRecruitmentInterviewCompletion(
       `${options.workerId}:completion:${claimSequence++}`,
-      options.now(),
+      DateTime.formatIso(yield* DateTime.now),
     );
-    yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
   });
 
   return Effect.sync(() => options.onStart?.()).pipe(
-    Effect.andThen(Effect.forever(tick)),
+    Effect.andThen(
+      pollForever(tick, { interval: Duration.millis(options.pollIntervalMilliseconds) }),
+    ),
     Effect.ensuring(Effect.sync(() => options.onStop?.())),
   );
 };

@@ -2,6 +2,7 @@ import { Database } from "@vektorprogrammet/database";
 import { Effect, Schema } from "effect";
 import { ContactEmail } from "@vektorprogrammet/domain/contact";
 import { deliverJson, type HttpDeliveryConfig, type DeliveryFetch } from "../delivery/http.js";
+import { pollForever } from "../worker-support.js";
 
 export interface OnboardingDeliveryConfig {
   readonly sender: string;
@@ -130,9 +131,6 @@ export const expireOnboardingSecrets = Database.use(
 );
 
 /** Lifecycle belongs to backend composition; interruption releases the sleeper. */
-export const runOnboardingExpirySweeper = Effect.gen(function* () {
-  while (true) {
-    yield* expireOnboardingSecrets;
-    yield* Effect.sleep("60 seconds");
-  }
+export const runOnboardingExpirySweeper = pollForever(expireOnboardingSecrets, {
+  interval: "60 seconds",
 });

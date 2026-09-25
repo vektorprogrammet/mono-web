@@ -19,7 +19,7 @@ import {
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { executeNativeHttpCommandPostgres } from "../http-api/receipt-transaction.js";
-import { Cause, Predicate, Effect, Option, Schema } from "effect";
+import { Cause, DateTime, Predicate, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   profileRoleFrom,
@@ -235,7 +235,7 @@ const strictProfileResponse = (
 const readOwnProfile = (request: Request, input: ProfileApiHttpOptions) =>
   Effect.gen(function* () {
     const actor = yield* actorFor(request, input);
-    const now = new Date().toISOString();
+    const now = DateTime.formatIso(yield* DateTime.now);
 
     const personResource = {
       _tag: "Resource" as const,

@@ -1,7 +1,7 @@
 import { Scope } from "@vektorprogrammet/domain/authz";
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Database } from "@vektorprogrammet/database";
-import { Match, Cause, Predicate, Effect, Option, Schema } from "effect";
+import { Clock, DateTime, Match, Cause, Predicate, Effect, Option, Schema } from "effect";
 import {
   AdmissionPeriodNotFound,
   AdmissionPeriodPersistenceError,
@@ -54,6 +54,7 @@ import {
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
   admissionActorForDepartment,
+  currentInstant,
   resolveRequestPersonAuthorityInTransaction,
   type OrganizationResolutionError,
 } from "../authority.js";
@@ -327,6 +328,13 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
 
     const result = yield* executeNativeHttpCommandPostgres(
       Effect.gen(function* () {
+        const clock = yield* Clock.Clock;
+
+        // Returning-assistant persistence reads the instant after it takes its locks.
+        const now =
+          input.config.now ??
+          (() => DateTime.formatIso(DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())));
+
         const authorization = yield* returningAuthorization(
           request,
           input,
@@ -341,7 +349,7 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
             },
             {
               personId: authorization.authority.personId,
-              now: input.config.now,
+              now,
             },
           ),
         );
@@ -377,7 +385,7 @@ const registerReturningAssistant = (request: Request, input: AdmissionApiHttpOpt
                 },
                 {
                   personId: authorization.authority.personId,
-                  now: input.config.now,
+                  now,
                 },
               );
 
@@ -602,7 +610,7 @@ const listManagement = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
     const actor = yield* actorFor(request, input).pipe(Effect.flatMap(requireActive));
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
     yield* authorizePersonNativeOperation({
       spec: Option.getOrThrow(reflectAccessSpec(ListAdmissionPeriodsEndpoint)),
       request,
@@ -962,7 +970,7 @@ const revise = (request: Request, admissionPeriodId: string, input: AdmissionApi
 const listOpen = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
     yield* authorizeAnonymousNativeOperation(
       Option.getOrThrow(reflectAccessSpec(ListOpenAdmissionPeriodsEndpoint)),
       {
@@ -1013,7 +1021,7 @@ const publicRateLimitKey = (_request: Request): string => "public";
 const listPublicCatalog = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
     yield* authorizeAnonymousNativeOperation(
       Option.getOrThrow(reflectAccessSpec(ReadApplicationCatalogEndpoint)),
       {
@@ -1050,7 +1058,7 @@ const listPublicCatalog = (request: Request, input: AdmissionApiHttpOptions) =>
 const submitApplication = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
 
     if (!input.config.rateLimit.consume(publicRateLimitKey(request), now)) {
       return yield* Effect.fail(new PublicApplicationRateLimitExceeded({}));
@@ -1163,7 +1171,7 @@ const publicConfirmation = (
 ) =>
   Effect.gen(function* () {
     yield* requireNoQuery(request);
-    const now = input.config.now();
+    const now = yield* currentInstant(input.config.now);
     yield* authorizeAnonymousNativeOperation(
       Option.getOrThrow(reflectAccessSpec(ReadApplicationConfirmationEndpoint)),
       {

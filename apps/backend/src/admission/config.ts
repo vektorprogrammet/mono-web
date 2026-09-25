@@ -18,7 +18,8 @@ export interface AdmissionApiRateLimit {
 export interface AdmissionApiConfig {
   readonly maxBodyBytes: number;
   readonly rateLimit: AdmissionApiRateLimit;
-  readonly now: () => string;
+  /** Fixed instant from `ADMISSION_FIXED_NOW`; without it, handlers read the Clock service. */
+  readonly now?: () => string;
   readonly nextAdmissionPeriodId: () => AdmissionPeriodId;
   readonly nextApplicantId: () => ApplicantId;
   readonly nextApplicationId: () => PublicApplicationId;
@@ -105,7 +106,7 @@ export const decodeAdmissionApiConfig = (
   return {
     maxBodyBytes,
     rateLimit: makeAdmissionApiRateLimit(rateLimitMax, rateLimitWindow),
-    now: () => configuredNow ?? new Date().toISOString(),
+    now: configuredNow === undefined ? undefined : () => configuredNow,
     nextAdmissionPeriodId: () => AdmissionPeriodIdSchema.make(`admission_period_${randomUUID()}`),
     nextApplicantId: () => ApplicantIdSchema.make(`applicant_${randomUUID()}`),
     nextApplicationId: () => PublicApplicationIdSchema.make(`application_${randomUUID()}`),
