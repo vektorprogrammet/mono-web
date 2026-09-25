@@ -153,7 +153,13 @@ export const createReimbursementObserver = (pool, committedRoot, persons) => {
   const immutable = (facts) => ({
     ...facts,
     outbox: facts.outbox.map(
-      ({ status: _status, attempts: _attempts, last_failure_tag: _lastFailure, delivery_envelope: _envelope, ...row }) => row,
+      ({
+        status: _status,
+        attempts: _attempts,
+        last_failure_tag: _lastFailure,
+        delivery_envelope: _envelope,
+        ...row
+      }) => row,
     ),
   });
 

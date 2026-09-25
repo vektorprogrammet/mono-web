@@ -344,7 +344,7 @@ const cleanup = () =>
     for (const port of ports) {
       try {
         await reservePort(port);
-      } catch (error) {
+      } catch {
         errors.push(`owned listener ${port} remains`);
       }
     }
@@ -536,7 +536,20 @@ try {
   await seedReimbursement(pool, persons);
 
   const boot = async () => {
-    backend = start("bun", ["--no-env-file", "apps/backend/src/main.ts"], backendEnvironment);
+    const environment = { ...backendEnvironment };
+
+    if (environment.RECEIPT_DELIVERY_MODE === "disabled") {
+      for (const key of [
+        "RECEIPT_DELIVERY_URL",
+        "RECEIPT_DELIVERY_TOKEN",
+        "RECEIPT_DELIVERY_TIMEOUT_MS",
+        "RECEIPT_DELIVERY_SENDER",
+        "RECEIPT_DELIVERY_ECONOMY_RECIPIENTS",
+      ])
+        delete environment[key];
+    }
+
+    backend = start("bun", ["--no-env-file", "apps/backend/src/main.ts"], environment);
     await waitHttp(origins.backend + "/health", backend);
   };
 
@@ -554,6 +567,7 @@ try {
     REAL_NATIVE_IDENTITY_E2E: "1",
   };
 
+  await run("bun", ["--no-env-file", "run", "--cwd", "packages/sdk", "build"]);
   const dashboardRoot = join(root, "apps/dashboard");
   await run("bun", ["--no-env-file", "run", "build"], dashboardEnvironment, dashboardRoot, 300_000);
   const files = await dashboardBuildInventory(root);
