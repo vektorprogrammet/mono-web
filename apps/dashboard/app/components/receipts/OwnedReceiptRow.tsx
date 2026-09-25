@@ -9,6 +9,7 @@ import {
   type ReceiptUiError,
   type ReceiptUiErrorField,
 } from "@/lib/receipt-view";
+import { Predicate } from "effect";
 import { Fragment, useId, useState } from "react";
 import { Form, useNavigation } from "react-router";
 import { ReceiptSettlementEvidence } from "./ReceiptSettlementEvidence";
@@ -31,8 +32,15 @@ function fieldDescription(
 }
 
 export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
+  // A failure applies to the revision it was made against, so a draft never lands on a newer
+  // revision. A stale revision is the exception: the action dropped its draft and issued a
+  // new command, so the refreshed row reopens the form with the latest projection.
   const relevantFailure =
-    failure?.receiptId === receipt.receiptId && failure.etag === receipt.etag ? failure : undefined;
+    failure?.receiptId === receipt.receiptId &&
+    (failure.etag === receipt.etag ||
+      (failure.intent === "revise" && Predicate.isTagged(failure.error, "StaleReceiptRevision")))
+      ? failure
+      : undefined;
 
   const [panel, setPanel] = useState<ActionPanel>(relevantFailure?.intent ?? null);
 
