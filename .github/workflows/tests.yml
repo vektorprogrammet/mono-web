@@ -162,8 +162,10 @@ jobs:
       - name: Build
         run: bun turbo build
 
+      # One package at a time, as the pre-push hook runs them. The runner has 4 vCPUs, and
+      # concurrent suites that each start PGlite, PostgreSQL clusters, and worker pools time out.
       - name: Test
-        run: bun turbo test
+        run: bun turbo test --concurrency=1
 
       - name: Prove Receipt authority against PostgreSQL
         env:
