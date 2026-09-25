@@ -8,10 +8,13 @@ import {
   type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import {
+  Department,
   DepartmentJsonSchema,
+  FieldOfStudy,
   FieldOfStudyJsonSchema,
   Organization,
   PersonId,
+  Team,
   TeamJsonSchema,
   type OrganizationOperations,
   OrganizationCommandId,
@@ -110,9 +113,14 @@ const createFieldOfStudyRequest = {
   departmentId: fieldOfStudy.departmentId,
 } as const;
 
+// Like the PostgreSQL layer, the doubles answer with the model instance that they read back.
+// Canonical JSON refuses a model instance, so the response must come from the contract schema.
 const departmentResult = (commandId: OrganizationCommandId) => ({
   committed: true as const,
-  observation: DepartmentCreatedObservationSchema.make({ commandId, department }),
+  observation: {
+    ...DepartmentCreatedObservationSchema.make({ commandId, department }),
+    department: Schema.decodeUnknownSync(Department)(department),
+  },
 });
 
 let publicListCalls = 0;
@@ -173,16 +181,22 @@ const organization = {
 
     return Effect.succeed({
       committed: true as const,
-      observation: TeamCreatedObservationSchema.make({ commandId: command.commandId, team }),
+      observation: {
+        ...TeamCreatedObservationSchema.make({ commandId: command.commandId, team }),
+        team: Schema.decodeUnknownSync(Team)(team),
+      },
     });
   },
   createFieldOfStudy: (command: Parameters<OrganizationOperations["createFieldOfStudy"]>[0]) =>
     Effect.succeed({
       committed: true as const,
-      observation: FieldOfStudyCreatedObservationSchema.make({
-        commandId: command.commandId,
-        fieldOfStudy,
-      }),
+      observation: {
+        ...FieldOfStudyCreatedObservationSchema.make({
+          commandId: command.commandId,
+          fieldOfStudy,
+        }),
+        fieldOfStudy: Schema.decodeUnknownSync(FieldOfStudy)(fieldOfStudy),
+      },
     }),
 } satisfies Partial<OrganizationOperations>;
 
