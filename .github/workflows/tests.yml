@@ -162,8 +162,10 @@ jobs:
       - name: Build
         run: bun turbo build
 
+      # One package at a time, as the pre-push hook runs them. The runner has 4 vCPUs, and
+      # concurrent suites that each start PGlite, PostgreSQL clusters, and worker pools time out.
       - name: Test
-        run: bun turbo test
+        run: bun turbo test --concurrency=1
 
       - name: Prove Receipt authority against PostgreSQL
         env:
@@ -220,10 +222,15 @@ jobs:
           bun run --cwd packages/database proof:identity-postgres | tee "$proof_path"
           test -s "$proof_path"
 
+      # The proof leaves Better Auth signing keys encrypted with its own secret. The focused tests
+      # use another secret, so they run on a database of their own.
       - name: Run focused AuthLive PostgreSQL lifecycle tests
         env:
-          AUTH_TEST_PG_URL: postgres://identity:identity@127.0.0.1:55433/identity_proof_0054
-        run: bun run --cwd packages/database test -- src/auth-live.test.ts
+          AUTH_TEST_PG_URL: postgres://identity:identity@127.0.0.1:55433/identity_auth_live_test
+        run: |
+          psql postgres://identity:identity@127.0.0.1:55433/identity_proof_0054 \
+            --set=ON_ERROR_STOP=1 --command='CREATE DATABASE identity_auth_live_test'
+          bun run --cwd packages/database test -- src/auth-live.test.ts
 
       - name: Upload sanitized native identity evidence
         if: ${{ always() }}
@@ -471,6 +478,11 @@ jobs:
         env:
           APP_ENV: test
           COMPOSER_PROCESS_TIMEOUT: "900"
+          # The test environment reads its key pair from these variables; .env.test points them
+          # at /dev/null so metadata commands boot without keys. The API tests sign real tokens.
+          TEST_JWT_PRIVATE_PATH: "%kernel.project_dir%/config/jwt/private.pem"
+          TEST_JWT_PUBLIC_PATH: "%kernel.project_dir%/config/jwt/public.pem"
+          TEST_JWT_PASSPHRASE: ${{ env.JWT_PASSPHRASE }}
         run: |
 
           set +e
