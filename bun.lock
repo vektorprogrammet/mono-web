@@ -328,6 +328,17 @@
         "typescript": "7.0.2",
       },
     },
+    "tools/placements-docs": {
+      "name": "@monoweb/placements-docs",
+      "version": "0.1.0",
+      "dependencies": {
+        "effect": "catalog:effect-v4",
+      },
+      "devDependencies": {
+        "typedoc": "0.28.20",
+        "typescript": "6.0.3",
+      },
+    },
     "tools/postgres": {
       "name": "@monoweb/postgres",
       "version": "0.1.0",
@@ -338,17 +349,6 @@
         "@types/node": "^22",
         "typescript": "7.0.2",
         "vitest": "catalog:effect-v4",
-      },
-    },
-    "tools/system-guide": {
-      "name": "@monoweb/system-guide",
-      "version": "0.1.0",
-      "dependencies": {
-        "effect": "catalog:effect-v4",
-      },
-      "devDependencies": {
-        "typedoc": "0.28.20",
-        "typescript": "6.0.3",
       },
     },
     "tools/verification": {
@@ -925,11 +925,11 @@
 
     "@monoweb/parity-inventory": ["@monoweb/parity-inventory@workspace:tools/parity"],
 
+    "@monoweb/placements-docs": ["@monoweb/placements-docs@workspace:tools/placements-docs"],
+
     "@monoweb/postgres": ["@monoweb/postgres@workspace:tools/postgres"],
 
     "@monoweb/server": ["@monoweb/server@workspace:apps/server"],
-
-    "@monoweb/system-guide": ["@monoweb/system-guide@workspace:tools/system-guide"],
 
     "@monoweb/verification": ["@monoweb/verification@workspace:tools/verification"],
 
@@ -3477,9 +3477,9 @@
 
     "@monoweb/parity-inventory/yaml": ["yaml@2.8.2", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-mplynKqc1C2hTVYxd0PU2xQAc22TI1vShAYGksCCfxbn/dFwnHTNi1bvYsBTkhdUNtGIf5xNOg938rrSSYvS9A=="],
 
-    "@monoweb/server/vite": ["vite@5.4.21", "", { "dependencies": { "esbuild": "^0.21.3", "postcss": "^8.4.43", "rollup": "^4.20.0" }, "optionalDependencies": { "fsevents": "~2.3.3" }, "peerDependencies": { "@types/node": "^18.0.0 || >=20.0.0", "less": "*", "lightningcss": "^1.21.0", "sass": "*", "sass-embedded": "*", "stylus": "*", "sugarss": "*", "terser": "^5.4.0" }, "optionalPeers": ["@types/node", "less", "lightningcss", "sass", "sass-embedded", "stylus", "sugarss", "terser"], "bin": { "vite": "bin/vite.js" } }, "sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw=="],
+    "@monoweb/placements-docs/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@monoweb/system-guide/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@monoweb/server/vite": ["vite@5.4.21", "", { "dependencies": { "esbuild": "^0.21.3", "postcss": "^8.4.43", "rollup": "^4.20.0" }, "optionalDependencies": { "fsevents": "~2.3.3" }, "peerDependencies": { "@types/node": "^18.0.0 || >=20.0.0", "less": "*", "lightningcss": "^1.21.0", "sass": "*", "sass-embedded": "*", "stylus": "*", "sugarss": "*", "terser": "^5.4.0" }, "optionalPeers": ["@types/node", "less", "lightningcss", "sass", "sass-embedded", "stylus", "sugarss", "terser"], "bin": { "vite": "bin/vite.js" } }, "sha512-o5a9xKjbtuhY6Bi5S3+HvbRERmouabWbyUcpXXUA1u+GNUKoROi9byOJ8M0nHbHYHkYICiMlqxkg1KkYmm25Sw=="],
 
     "@parcel/watcher/picomatch": ["picomatch@4.0.3", "", {}, "sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q=="],
 
