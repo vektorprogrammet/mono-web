@@ -12,6 +12,8 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import {
   emitRuntimeEvidenceReceipt,
   sanitizePlaywrightArtifact,
@@ -26,11 +28,7 @@ const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url)
 
 const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 
-const dashboardPort = 5185;
-
-const backendPort = 8797;
-
-const postgresPort = 55432;
+const [dashboardPort, backendPort, postgresPort] = await reserveLoopbackPorts(3);
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -982,11 +980,6 @@ async function emitReceipt(playwrightOutput) {
 }
 
 async function main() {
-  await Promise.all([
-    assertPortAvailable(dashboardPort),
-    assertPortAvailable(backendPort),
-    assertPortAvailable(postgresPort),
-  ]);
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-organization-0052-"));
   const postgresDataRoot = join(temporaryRoot, "postgres");
   const stagingRoot = join(temporaryRoot, "receipt-staging");
@@ -997,7 +990,11 @@ async function main() {
     mkdir(committedRoot, { recursive: true }),
   ]);
 
-  const baseEnvironment = postgresComposeEnvironment({ ...process.env });
+  const baseEnvironment = postgresComposeEnvironment({
+    ...process.env,
+    RECEIPT_APPROVAL_PG_PORT: String(postgresPort),
+  });
+
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
@@ -1007,18 +1004,7 @@ async function main() {
 
   const apiEnvironment = {
     ...baseEnvironment,
-    BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: String(backendPort),
-    BACKEND_PG_URL: postgresUrl,
-    BETTER_AUTH_SECRET: betterAuthSecret,
-    NATIVE_IDENTITY_DEPLOYMENT: "local",
-    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
-    OAUTH_CANONICAL_ORIGIN: backendOrigin,
-    OAUTH_DASHBOARD_ORIGIN: dashboardOrigin,
-    OAUTH_NATIVE_API_RESOURCE: "urn:vektorprogrammet:native-api",
-    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    PASSWORD_RESET_DELIVERY_MODE: "disabled",
-    RECEIPT_DELIVERY_MODE: "disabled",
+    ...localBackendEnvironment({ backendOrigin, dashboardOrigin, postgresUrl, betterAuthSecret }),
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
