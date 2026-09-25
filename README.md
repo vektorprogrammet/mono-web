@@ -99,7 +99,7 @@ An affected package graph can run separately:
 
 ```bash
 bun run turbo -F @vektorprogrammet/backend check-types --concurrency=1
-bun run --cwd packages/http-api generate:check
+bun run --cwd packages/http-api generate
 ```
 
 Homepage builds require a clean committed source artifact. Do not weaken that provenance guard for a dirty operator tree.

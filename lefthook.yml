@@ -11,9 +11,6 @@ pre-commit:
     lint:
       glob: "*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       run: bunx oxlint --no-error-on-unmatched-pattern {staged_files}
-    contract:
-      glob: "packages/{http-api,sdk}/**"
-      run: bun run --cwd packages/http-api generate:check
 
 # Long loop: everything `check` covers plus tests for packages changed from main.
 pre-push:

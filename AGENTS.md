@@ -54,7 +54,7 @@ For focused Vitest checks, invoke Vitest directly through the package:
 ```bash
 bun run --cwd packages/domain vitest run src/receipt/update.property.test.ts --no-file-parallelism --maxWorkers=1
 bun run --cwd apps/backend vitest run src/http-api/receipt-transaction.test.ts --no-file-parallelism --maxWorkers=1
-bun run --cwd packages/http-api generate:check
+bun run --cwd packages/http-api generate
 ```
 
 The domain aggregate `test` script also runs fixture programs and D1 proofs.
@@ -142,7 +142,7 @@ Record instances you cannot fix in `STATE.md` with their location.
 | A test pins the observed output                                         | Decode the response with the contract schema             | `apps/dashboard/e2e/receipt-approval.spec.ts` decodes with the exported receipt schemas. Counter-example: suites that re-pinned `credential.invalid` after 042e808d.                                 |
 | An operation reports success when its precondition was lost             | Return a typed failure that the caller must handle       | `OutboxClaimLost` in `packages/database/src/outbox-lifecycle.ts`.                                                                                                                                    |
 | A runtime flag grants test authority                                    | Let only the test composition construct it               | `decodeReceiptE2EComposition` rejects receipt E2E flags outside the `local` deployment.                                                                                                              |
-| A check exists but nothing runs it                                      | Run it from a hook or CI job                             | `lefthook.yml` runs format, lint, and contract checks on commit.                                                                                                                                     |
+| A check exists but nothing runs it                                      | Run it from a hook or CI job                             | `lefthook.yml` runs format and lint on commit; `check-types` regenerates the HTTP contract and asserts it.                                                                                           |
 
 ## Verification and resources
 
