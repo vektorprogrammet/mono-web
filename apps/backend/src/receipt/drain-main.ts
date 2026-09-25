@@ -2,14 +2,17 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
-import { deliverNextReceiptOutbox,
-listStaleReceiptOutboxClaimIds,
-recoverStaleReceiptOutbox, } from "@vektorprogrammet/database/receipt/postgres";
+import {
+  deliverNextReceiptOutbox,
+  listStaleReceiptOutboxClaimIds,
+  recoverStaleReceiptOutbox,
+} from "@vektorprogrammet/database/receipt/postgres";
 import { Predicate, Effect, Layer, Redacted, Schema } from "effect";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { decodeReceiptApiConfig } from "./config.js";
 import { ReceiptFileStoreLive } from "./filesystem.js";
 import { ReceiptDeliveryLive, receiptDeliveryConfig } from "./delivery.js";
+import { repeatReceiptDelivery } from "./outbox-drain.js";
 
 const receiptId = process.argv[2];
 
@@ -48,23 +51,19 @@ const result = await Effect.runPromise(
     for (const claim of yield* listStaleReceiptOutboxClaimIds(cutoff, receiptId))
       yield* recoverStaleReceiptOutbox(claim, cutoff);
 
-    for (let count = 0; count < 256; count++) {
-      const next = yield* deliverNextReceiptOutbox(
-        randomUUID(),
-        new Date().toISOString(),
-        receiptId,
-      );
+    const last = yield* repeatReceiptDelivery(
+      Effect.suspend(() =>
+        deliverNextReceiptOutbox(randomUUID(), new Date().toISOString(), receiptId),
+      ),
+    );
 
-      if (Predicate.isTagged(next, "Failed")) return "Failed";
+    if (Predicate.isTagged(last, "Failed")) return "Failed";
 
-      if (Predicate.isTagged(next, "Idle")) {
-        const sql = yield* Database;
+    if (Predicate.isTagged(last, "Idle")) {
+      const remaining =
+        yield* db`SELECT 1 FROM economy_receipt_outbox WHERE receipt_id = ${receiptId} AND status <> 'Delivered' LIMIT 1`;
 
-        const remaining =
-          yield* sql`SELECT 1 FROM economy_receipt_outbox WHERE receipt_id = ${receiptId} AND status <> 'Delivered' LIMIT 1`;
-
-        return remaining.length ? "Busy" : "Complete";
-      }
+      return remaining.length ? "Busy" : "Complete";
     }
 
     return "Limit";
