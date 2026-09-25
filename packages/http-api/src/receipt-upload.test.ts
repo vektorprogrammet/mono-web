@@ -75,9 +75,15 @@ describe("receipt transfer bounds", () => {
       "file",
       new File([new Uint8Array([0, 255, 17, 42, 1])], "receipt.png", { type: "image/png" }),
     );
-    await expect(
-      readBoundedReceiptForm(new Request("http://receipt.test", { method: "POST", body: form }), 4),
-    ).rejects.toBeInstanceOf(RangeError);
+    const encoded = new Request("http://receipt.test", { method: "POST", body: form });
+
+    const request = new Request(encoded.url, {
+      method: encoded.method,
+      headers: encoded.headers,
+      body: await encoded.arrayBuffer(),
+    });
+
+    await expect(readBoundedReceiptForm(request, 4)).rejects.toBeInstanceOf(RangeError);
   });
   it("cancels an incomplete multipart source when the request is aborted", async () => {
     const abort = new AbortController();
@@ -107,6 +113,7 @@ describe("receipt transfer bounds", () => {
       signal: abort.signal,
       duplex: "half",
     };
+
     const pending = readBoundedReceiptForm(new Request("http://receipt.test", options), 1024);
     await started.promise;
     abort.abort();
