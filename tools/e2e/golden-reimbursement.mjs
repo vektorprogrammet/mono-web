@@ -675,7 +675,7 @@ try {
       "source bytes changed during acceptance",
     );
 } catch (error) {
-  failure = sanitize(error instanceof Error ? error.stack : error);
+  failure ??= sanitize(error instanceof Error ? (error.stack ?? error.message) : error);
 }
 
 const cleaned = await cleanup();
