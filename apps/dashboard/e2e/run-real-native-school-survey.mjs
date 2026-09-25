@@ -1216,10 +1216,19 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   await query("UPDATE public.schools_directory_schools SET active = FALSE WHERE school_id = $1", [
     ids.stale,
   ]);
-  assertProblem(
-    await api("POST", submitPath, { body: staleBody, key: staleKey }),
-    422,
-    "validation.failed",
+
+  // 656cefd6: an accepted command replays its committed response after the survey or school
+  // changes, with no new write; only a new command revalidates eligibility.
+  const replayAfterEligibilityLoss = await api("POST", submitPath, {
+    body: staleBody,
+    key: staleKey,
+  });
+
+  assert.equal(replayAfterEligibilityLoss.status, 201);
+  assert.deepEqual(replayAfterEligibilityLoss.body, acceptedBeforeEligibilityLoss.body);
+  assert.deepEqual(
+    replayableHeaders(replayAfterEligibilityLoss.headers),
+    replayableHeaders(acceptedBeforeEligibilityLoss.headers),
   );
   assert.deepEqual(await counts(), afterStaleCommit);
 
@@ -1234,8 +1243,8 @@ const exerciseJourney = async (browser, ledger, apexLedger, proxyControl) => {
   assert.equal(expiredStaleReceipt.rowCount, 1);
   assertProblem(
     await api("POST", submitPath, { body: staleBody, key: staleKey }),
-    422,
-    "validation.failed",
+    409,
+    "idempotency.response-expired",
   );
   assert.deepEqual(await counts(), afterStaleCommit);
   assertProblem(
