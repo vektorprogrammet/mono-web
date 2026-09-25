@@ -343,6 +343,33 @@ export default defineConfig({
       files: ["infra/alchemy/preview/apex-worker.ts"],
       rules: { "no-restricted-imports": "off" },
     },
+    {
+      // Advisory locks go through lockAdvisory, whose registered keys own the lock identity.
+      files: ["apps/**", "packages/**"],
+      rules: { "anti-slop/no-raw-advisory-lock-sql": "error" },
+    },
+    {
+      // The construct owns the advisory-lock SQL.
+      files: ["packages/database/src/advisory-lock.ts"],
+      rules: { "anti-slop/no-raw-advisory-lock-sql": "off" },
+    },
+    {
+      // Raw node-postgres files, pending Effect-SQL migration. Remove an entry when its file
+      // moves to Effect SQL and lockAdvisory; do not add a raw-pg twin of the construct.
+      files: [
+        "apps/dashboard/e2e/run-real-native-school-survey.mjs",
+        "packages/database/runtime/service-principal-grants-postgres-tracer-main.ts",
+        "packages/database/src/historical-service-cohort.ts",
+        "packages/database/src/identity-cohort.ts",
+        "packages/database/src/oauth-live.ts",
+        "packages/database/src/organization/reviewed-cohort.ts",
+        "packages/database/src/password-recovery.ts",
+        "packages/database/src/person-cohort.ts",
+        "packages/database/src/service-principal-grants-live.ts",
+        "packages/placements/src/server/current-assignment-cohort.ts",
+      ],
+      rules: { "anti-slop/no-raw-advisory-lock-sql": "off" },
+    },
   ],
   ignorePatterns: [
     "apps/server/**",
