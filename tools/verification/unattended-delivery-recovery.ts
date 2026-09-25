@@ -339,7 +339,7 @@ try {
   });
   // Prerequisites only: no receipt, reset verification, command receipt, or delivery outcome is seeded.
   await pool.query(
-    "INSERT INTO organization_departments(department_id,name) VALUES($1,'Recovery proof')",
+    "INSERT INTO organization_departments(department_id,name,short_name) VALUES($1,'Recovery proof','RP')",
     [department],
   );
   await pool.query(
