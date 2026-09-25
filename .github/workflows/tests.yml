@@ -31,8 +31,6 @@ jobs:
       - name: Read declared PostgreSQL major
         id: postgresql
         uses: ./.github/actions/postgresql
-        with:
-          install: "false"
 
   placements-docs:
     name: Placements documentation (required-capable gate)
@@ -42,19 +40,19 @@ jobs:
       contents: read
     env:
       PLACEMENTS_DOCS_EXPECTED_REVISION: ${{ github.sha }}
+    defaults:
+      run:
+        shell: devenv shell bash -- -e {0}
     steps:
       - uses: actions/checkout@v4
         timeout-minutes: 2
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        timeout-minutes: 2
-        with:
-          bun-version: 1.3.10
-      - uses: actions/setup-node@v4
-        timeout-minutes: 2
-        with:
-          node-version: 22
+      - uses: ./.github/actions/devenv
+        timeout-minutes: 3
+      - name: Build the devenv shell
+        timeout-minutes: 5
+        run: bun --version
       - name: Install frozen documentation dependencies
         timeout-minutes: 3
         run: bun install --frozen-lockfile --ignore-scripts
@@ -79,6 +77,7 @@ jobs:
       - name: Remove disposable documentation
         if: ${{ always() }}
         timeout-minutes: 1
+        shell: bash
         run: rm -rf -- "$RUNNER_TEMP/placements-docs"
 
   golden-school-service:
@@ -87,35 +86,29 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
+    defaults:
+      run:
+        shell: devenv shell bash -- -e {0}
     steps:
       - uses: actions/checkout@v4
         timeout-minutes: 2
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        timeout-minutes: 2
-        with:
-          bun-version: 1.3.10
-      - uses: actions/setup-node@v4
-        timeout-minutes: 2
-        with:
-          node-version: 22
+      - uses: ./.github/actions/devenv
+        timeout-minutes: 3
+      - name: Build the devenv shell
+        timeout-minutes: 5
+        run: bun --version
       - name: Install frozen dependencies
         timeout-minutes: 3
         run: bun install --frozen-lockfile
       - name: Reject unsafe golden evidence regressions
         timeout-minutes: 1
         run: bun test tools/e2e/golden-school-service-evidence.test.mjs
-      - name: Install declared PostgreSQL
-        timeout-minutes: 3
-        uses: ./.github/actions/postgresql
       - name: Install diagnostic tools
         timeout-minutes: 2
+        shell: bash
         run: sudo apt-get install --yes unzip
-      - name: Install isolated Chromium
-        timeout-minutes: 3
-        working-directory: apps/dashboard
-        run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
       - name: Run required golden journey and accept exact-source evidence
         id: golden
         timeout-minutes: 17
@@ -138,6 +131,9 @@ jobs:
     name: TypeScript (build, test)
     runs-on: ubuntu-latest
     needs: postgresql
+    defaults:
+      run:
+        shell: devenv shell bash -- -e {0}
     services:
       receipt-postgres:
         image: postgres:${{ needs.postgresql.outputs.major }}-alpine
@@ -155,22 +151,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
+      - uses: ./.github/actions/devenv
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Build the devenv shell
+        run: bun --version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Build
         run: bun turbo build
-
-      - name: Install declared PostgreSQL
-        uses: ./.github/actions/postgresql
 
       - name: Test
         run: bun turbo test
@@ -187,6 +177,9 @@ jobs:
     needs: postgresql
     permissions:
       contents: read
+    defaults:
+      run:
+        shell: devenv shell bash -- -e {0}
     services:
       identity-postgres:
         image: postgres:${{ needs.postgresql.outputs.major }}-alpine
@@ -207,27 +200,20 @@ jobs:
           persist-credentials: false
 
       - name: Create private identity evidence directory
+        shell: bash
         run: install -d -m 700 "$RUNNER_TEMP/native-identity-0054"
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
+      - uses: ./.github/actions/devenv
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Build the devenv shell
+        run: bun --version
 
       - name: Install frozen dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install isolated Chromium
-        working-directory: apps/dashboard
-        run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
-
       - name: Prove Better Auth PostgreSQL lifecycle
         env:
           DATABASE_URL: postgres://identity:identity@127.0.0.1:55433/identity_proof_0054
-        shell: bash
         run: |
           set -Eeuo pipefail
           proof_path="$RUNNER_TEMP/native-identity-0054/postgres-proof.json"
@@ -254,27 +240,21 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    defaults:
+      run:
+        shell: devenv shell bash -- -e {0}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - uses: ./.github/actions/devenv
+      - name: Build the devenv shell
+        run: bun --version
       - name: Install frozen dependencies
         run: bun install --frozen-lockfile
-      - name: Install isolated Chromium
-        working-directory: apps/dashboard
-        run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
-      - name: Install declared PostgreSQL
-        uses: ./.github/actions/postgresql
       - name: Create private identity browser evidence directory
         run: install -d -m 700 "$RUNNER_TEMP/native-identity-0065"
       - name: Run bounded native Identity browser capsule
-        shell: bash
         env:
           CI: "true"
         run: |
@@ -296,35 +276,31 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    defaults:
+      run:
+        shell: devenv shell bash -- -e {0}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Create private evidence directory
+        shell: bash
         run: install -d -m 700 "$RUNNER_TEMP/public-applicant-admission"
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.10
+      - uses: ./.github/actions/devenv
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Build the devenv shell
+        run: bun --version
 
       - name: Install frozen dependencies
         run: bun install --frozen-lockfile
-
-      - name: Install isolated Chromium
-        working-directory: apps/homepage
-        run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
 
       - name: Run bounded public-applicant journey
         env:
           CI: "true"
           PUBLIC_APPLICATION_REMOTE_EVIDENCE: "1"
           PUBLIC_APPLICATION_EVIDENCE_PATH: ${{ runner.temp }}/public-applicant-admission/evidence.json
-        shell: bash
         run: |
           set -Eeuo pipefail
           evidence_dir="${RUNNER_TEMP}/public-applicant-admission"
@@ -371,17 +347,12 @@ jobs:
       GEO_IGNORED_ASNS: "[]"
     defaults:
       run:
+        shell: devenv --profile legacy shell bash -- -e {0}
         working-directory: apps/server
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.4"
-          extensions: xml, ctype, iconv, intl, pdo_sqlite, dom, filter, gd, mbstring, sqlite3
-          tools: composer:v2
-          coverage: none
+      - uses: ./.github/actions/devenv
 
       - name: Record PHP runtime and extensions
         run: |
@@ -403,7 +374,6 @@ jobs:
         run: composer install --no-progress --prefer-dist --optimize-autoloader
 
       - name: Generate disposable JWT key pair
-        shell: bash
         run: |
           set -Eeuo pipefail
 
@@ -501,7 +471,6 @@ jobs:
         env:
           APP_ENV: test
           COMPOSER_PROCESS_TIMEOUT: "900"
-        shell: bash
         run: |
 
           set +e

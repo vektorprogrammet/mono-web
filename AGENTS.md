@@ -46,7 +46,9 @@ Keep infrastructure dependencies separate from the application catalog.
 
 ## Commands
 
-Use [README.md#toolchain](README.md#toolchain) for local commands and prerequisites.
+`devenv shell` is the entry point. Run commands inside it, or one at a time with `devenv shell -- <command>`.
+Commands that start PHP, Composer, or MariaDB need `devenv --profile legacy shell`.
+[README.md#toolchain](README.md#toolchain) lists what devenv provides and the local commands.
 Package manifests own exact scripts. Use `bun run`, not `bun test`, for package scripts.
 
 For focused Vitest checks, invoke Vitest directly through the package:
@@ -138,11 +140,11 @@ Record instances you cannot fix in `STATE.md` with their location. Remove the re
 | ----------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A string names a closed set, and a second value repeats a fact about it | Derive the type and every related fact from one registry | `NativeProblemRegistry` in `packages/http-api/src/http-semantics.ts` owns code, status, and body. Counter-example: `nativeProblemResponse(code, status)` accepts a status the registry already owns. |
 | A value is validated at the edge but travels as a plain string          | Decode once to the domain type at the boundary           | Instants belong in `DateTime.Utc`. Counter-example: `compareRfc3339Instants` parses both strings at each call.                                                                                       |
-| A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source              | `lefthook.yml` and `.oxfmtrc.json` hold the only hook and formatter definitions.                                                                                                                     |
+| A copy of a derived value is kept in sync by hand                       | Generate it, or check it against its source              | `devenv.nix` reads tool versions from `package.json`, `bun.lock`, and `composer.json`. It and `.oxfmtrc.json` hold the only hook and formatter definitions.                                          |
 | A test pins the observed output                                         | Decode the response with the contract schema             | `apps/dashboard/e2e/receipt-approval.spec.ts` decodes with the exported receipt schemas. Counter-example: suites that re-pinned `credential.invalid` after 042e808d.                                 |
 | An operation reports success when its precondition was lost             | Return a typed failure that the caller must handle       | `OutboxClaimLost` in `packages/database/src/outbox-lifecycle.ts`.                                                                                                                                    |
 | A runtime flag grants test authority                                    | Let only the test composition construct it               | `decodeReceiptE2EComposition` rejects receipt E2E flags outside the `local` deployment.                                                                                                              |
-| A check exists but nothing runs it                                      | Run it from a hook or CI job                             | `lefthook.yml` runs format and lint on commit; `check-types` regenerates the HTTP contract and asserts it.                                                                                           |
+| A check exists but nothing runs it                                      | Run it from a hook or CI job                             | The `devenv.nix` Git hooks run format, lint, and the changed packages' type checks and tests on commit; `check-types` regenerates the HTTP contract and asserts it.                                  |
 
 ## Verification and resources
 
@@ -161,7 +163,7 @@ and the browser evidence suites (`e2e:*:real`, `e2e:real-*`).
 A worker that needs one reports the exact command to the lead and does not start it.
 
 All other checks and tests can run at the same time under the admission rule below.
-Heavy jobs are real PostgreSQL tests, browsers and dev servers, `turbo check-types`, `turbo test`, and the pre-push hook.
+Heavy jobs are real PostgreSQL tests, browsers and dev servers, `turbo check-types`, and `turbo test`.
 Each agent runs at most one heavy job at a time.
 Run a heavy job through `bun run measure-job --class <class> -- <command...>` to record its resource use.
 The ledger is `${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl`.
@@ -178,6 +180,22 @@ Memory is the hard limit, and CPU is the soft limit because oversubscription onl
 
 If a condition is false, wait and check again.
 Load and `MemAvailable` lag a job that started in the last minute. Include its peak RSS and mean cores before you compare.
+
+Git hooks do not use the admission rule. Their type checks and tests run through `scripts/hook-slot.ts`.
+It holds one of N machine-wide slots, a `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/hook-slot-<n>`.
+If all slots are busy, the hook shows the slot holders and waits.
+The lock is released when the hook process stops, also on a signal.
+Each slot pins its job to 1/N of the allowed CPUs. Vitest starts one worker less than that CPU count.
+Explicit settings, such as `--no-file-parallelism`, still apply. Hook Turbo runs use `--concurrency=1`.
+A staged change that selects no type check or test does not take a slot.
+The ledger records hook jobs as `hook-*` classes.
+
+`VEKTORPROGRAMMET_HOOK_SLOTS` sets N. The default is 5.
+Derive N for a machine as slots = min(memory bound, CPU bound), and use at least 1.
+The memory bound is the usable memory divided by the peak RSS of the heaviest hook job.
+Usable memory is the typical `MemAvailable` minus 20% of `MemTotal`.
+The CPU bound keeps at least 6 CPUs for each job, because the test suites have 5-second timeouts.
+On this machine, the memory bound is 23.5 GiB / 2.4 GiB = 9 and the CPU bound is 32 / 6 = 5.
 
 Bound worker counts and PostgreSQL connections.
 Use private database instances and ports. Dispose runtimes before removing their storage.
@@ -198,10 +216,12 @@ Keep enduring behavior in the system and architecture documents.
 ## Symfony source
 
 Use `apps/server/CLAUDE.md` for Symfony-specific commands and constraints.
-Server commands run through Composer:
+Server commands run through Composer inside `devenv --profile legacy shell`:
 
 ```bash
+devenv --profile legacy shell
 cd apps/server
+composer install
 composer test
 composer lint
 composer analyse

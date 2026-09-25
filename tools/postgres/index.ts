@@ -2,8 +2,8 @@
  * PostgreSQL for disposable clusters in tests, proofs, journeys, and CI.
  *
  * The root manifest declares the PostgreSQL major once, as `engines.postgresql`.
- * Programs of that major resolve from `PATH`, or else from
- * `nixpkgs#postgresql_<major>`. Resolution never falls back to another major.
+ * `devenv shell` puts the programs of that major on `PATH`. Resolution uses the
+ * first `postgres` on `PATH` and rejects any other major.
  * Disposable containers use `compose.yml`, which reads the same major from
  * `VEKTOR_POSTGRES_MAJOR`.
  */
@@ -56,45 +56,19 @@ const majorOf = (postgres: string) => {
   return version?.[1] === undefined ? undefined : Number(version[1]);
 };
 
-const nixBinDirectory = () => {
-  const result = spawnSync(
-    "nix",
-    [
-      "--extra-experimental-features",
-      "nix-command flakes",
-      "build",
-      "--no-link",
-      "--print-out-paths",
-      `nixpkgs#postgresql_${postgresMajor}^out`,
-    ],
-    { encoding: "utf8" },
-  );
-
-  return result.status === 0 ? join(result.stdout.trim(), "bin") : undefined;
-};
-
 const resolveBinDirectory = () => {
-  const mismatches: Array<string> = [];
+  const directory = (process.env.PATH ?? "")
+    .split(delimiter)
+    .find((entry) => entry !== "" && executable(join(entry, "postgres")));
 
-  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-    if (directory === "" || !executable(join(directory, "postgres"))) continue;
+  const major = directory === undefined ? undefined : majorOf(join(directory, "postgres"));
 
-    const major = majorOf(join(directory, "postgres"));
-
-    if (major === postgresMajor) return directory;
-
-    mismatches.push(`${directory} (${major ?? "unknown version"})`);
-  }
-
-  const nix = nixBinDirectory();
-
-  if (nix !== undefined && majorOf(join(nix, "postgres")) === postgresMajor) return nix;
+  if (directory !== undefined && major === postgresMajor) return directory;
 
   throw new Error(
-    `PostgreSQL ${postgresMajor} (package.json engines.postgresql) is required. ` +
-      `PATH provides ${mismatches.length === 0 ? "no postgres" : mismatches.join(", ")}, ` +
-      `and nixpkgs#postgresql_${postgresMajor} is unavailable. ` +
-      `Put the bin directory of PostgreSQL ${postgresMajor} on PATH.`,
+    `PostgreSQL ${postgresMajor} (package.json engines.postgresql) is required on PATH, which provides ` +
+      `${directory === undefined ? "no postgres" : `${directory}/postgres (${major ?? "unknown version"})`}. ` +
+      "Run the command inside `devenv shell`, which provides it.",
   );
 };
 

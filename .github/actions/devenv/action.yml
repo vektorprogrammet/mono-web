@@ -1,0 +1,15 @@
+name: devenv
+description: >-
+  Installs Nix and the devenv CLI from the nixpkgs revision that devenv.lock pins.
+  Nix substitutes from cache.nixos.org and devenv.cachix.org and never pushes.
+  Run steps with `shell: devenv shell bash -- -e {0}`. CI is set, so the shell
+  installs no Git hooks.
+runs:
+  using: composite
+  steps:
+    - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+    - name: Install the devenv CLI that devenv.lock pins
+      shell: bash
+      run: |
+        nix profile add "github:NixOS/nixpkgs/$(jq -er '.nodes["nixpkgs-src"].locked.rev' devenv.lock)#devenv"
+        devenv version

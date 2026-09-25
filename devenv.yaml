@@ -2,3 +2,16 @@
 inputs:
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
+  git-hooks:
+    url: github:cachix/git-hooks.nix
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+  # Historical nixpkgs revisions for the exact Bun and Playwright versions that
+  # package.json and bun.lock declare, which the rolling nixpkgs no longer ships.
+  nixpkgs-multiverse:
+    url: github:fzakaria/nixpkgs-multiverse
+require_version: ">=2.3.1"
+# Fail when a process port is taken instead of moving it, so PGPORT in the shell
+# always names the `devenv up` PostgreSQL server.
+strict_ports: true

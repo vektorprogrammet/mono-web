@@ -64,28 +64,47 @@ The application uses Bun, TypeScript, Effect, PostgreSQL, React Router, Foldkit,
 The PostgreSQL adapter pin preserves the pool shared by Database and Better Auth.
 See [development practices](AGENTS.md#building-reference) before changing it.
 
-`bun install` installs the Git hooks in [lefthook.yml](lefthook.yml) with the pinned Lefthook dependency; no project shell is required.
-The pre-commit hook checks formatting and lint on staged files, plus the generated HTTP contract when `packages/http-api` or `packages/sdk` changes.
-The pre-push hook runs `bun run check` and the tests of packages changed from `main`. Hooks never rewrite or restage files.
-Push from a clean worktree: the homepage type check refuses uncommitted changes.
-Run a hook manually with `bunx lefthook run pre-commit`, or skip hooks once with `LEFTHOOK=0`.
+`devenv shell` is the entry point, locally and in CI. Run a single command with `devenv shell -- <command>`.
+[devenv.nix](devenv.nix) reads each version from the file that declares it and provides:
+
+- Bun at `packageManager` and Node.js at the lowest `engines.node` major;
+- PostgreSQL at `engines.postgresql`, on `PATH` and as the `devenv up` service;
+- the Chromium build of the `@playwright/test` version in `bun.lock`, through `PLAYWRIGHT_BROWSERS_PATH` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`;
+- openssl, Git, and the Git hooks.
+
+The `legacy` profile adds the Symfony toolchain: PHP at the `apps/server/composer.json` version, Composer, and MariaDB.
+Enter it with `devenv --profile legacy shell`. `dev:server`, `rehearsal:account-cohort`, the `rehearsal:legacy-*` scripts,
+and the Symfony browser suites (`e2e:real-core-journeys`, `e2e:real-org-operations`, `e2e:real-background-operations`,
+`e2e:real-content-ops`) refuse to start without it. The default shell has no legacy tools.
+[devenv.lock](devenv.lock) pins nixpkgs. Bun and Playwright come from the historical nixpkgs revision that shipped
+their exact versions, selected through the `nixpkgs-multiverse` input.
+The Checks and Tests workflows run their steps in the same shell through [.github/actions/devenv](.github/actions/devenv/action.yml).
+
+`devenv shell` installs the Git hooks, except when `CI` is set. Hooks check; they never rewrite or restage files.
+The pre-commit hook checks formatting and lint on staged files.
+Then it type checks and tests the packages that the staged change modifies.
+It uses a temporary Git worktree of the staged tree, so unstaged and untracked files do not change the result.
+A change outside all packages, for example to documentation only, runs no type check or test.
+A merge without conflicts type checks and tests the merge result, including the dependents of the changed packages.
+The pre-push hook runs `bun run check` and the tests of packages changed from `main`.
+It checks the working tree, not the pushed commits. Push from a clean worktree.
+While hooks run, the hook runner (prek) moves unstaged changes aside and restores them afterwards.
+Hook type checks and tests wait for a machine-wide slot, as described in [AGENTS.md](AGENTS.md#verification-and-resources).
+Run a hook manually with `prek run` or `prek run --hook-stage pre-push`, or skip hooks once with `git commit --no-verify`.
 
 The root manifest declares a type-only Effect patch. It preserves union-command
 requests and callable Fetch inputs across runtimes. SDK type checks cover both
 contracts, including Bun types. Remove the patch when upstream declarations pass
 those checks without it.
 
-The root manifest declares the PostgreSQL major as `engines.postgresql`. Tests, proofs, journeys,
-and CI use only that major. Programs come from `PATH` when it provides that major, and otherwise
-from `nixpkgs#postgresql_<major>`. The [PostgreSQL toolchain](tools/postgres/index.ts) resolves
-them and fails for any other major. Include the contrib extensions, such as `btree_gist`.
+Tests, proofs, journeys, and CI use only the declared PostgreSQL major. The
+[PostgreSQL toolchain](tools/postgres/index.ts) runs the first `postgres` on `PATH`
+and fails for any other major. The devenv package includes the contrib extensions, such as `btree_gist`.
 
-Backend tests start private PostgreSQL clusters and create an isolated database
-for each fixture. No shared database is used.
-
-Run commands from this repository root:
+Run commands inside `devenv shell`, from this repository root:
 
 ```bash
+devenv shell
 bun install --frozen-lockfile
 bun run build --concurrency=1
 bun run check-types --concurrency=1
@@ -107,6 +126,7 @@ bun run --cwd packages/http-api generate
 ```
 
 Homepage builds require a clean committed source artifact. Do not weaken that provenance guard for a dirty operator tree.
+Only the bundle build applies the guard. Homepage type checks, tests, and the development server accept a dirty tree.
 Use a separate source-matched committed snapshot for acceptance, as described in [AGENTS.md](AGENTS.md#verification-and-resources).
 
 ### Layered system walkthrough
@@ -129,24 +149,26 @@ The renderer records upstream provenance in [its manifest](tools/system-guide/ve
 Use a dedicated local PostgreSQL database with synthetic data. Do not use a shared database or a production tunnel.
 The backend applies schema migrations and can write application data. The launcher does not create or reset PostgreSQL.
 
-Set `BACKEND_PG_URL` and `BETTER_AUTH_SECRET` in your shell or the ignored root `.env`.
-The URL must name a loopback PostgreSQL database without query parameters.
-Use a secret of at least 32 characters, and keep it stable across restarts.
+`devenv up` starts the devenv PostgreSQL service on `127.0.0.1:$PGPORT` (5480), creates the `vektorprogrammet`
+database and owner role on first start, and then runs `bun dev` with `BACKEND_PG_URL` set to that database.
+The data stays in `.devenv/state/postgres`. If the port is taken, `devenv up` stops and names the process that holds it.
+Export `BETTER_AUTH_SECRET` first: at least 32 characters, stable across restarts.
+`devenv up postgres` starts only the database. Without `devenv up`, set `BACKEND_PG_URL` in your shell
+to a loopback PostgreSQL database URL without query parameters.
 
 ```bash
 bun dev --help
-bun dev
+devenv up
 ```
 
 `bun dev` starts the homepage, dashboard, and native Bun backend through the existing Turbo tasks.
 Its help output defines the ports, dashboard mount, and private-file paths. All HTTP listeners use `127.0.0.1`.
 Database records and private files persist across restarts. Ctrl+C stops the owned application tasks, not existing services.
 
-For a new synthetic database, provision the native journey accounts separately before sign-in:
-If you use `.env`, export `BACKEND_PG_URL` in your shell before this seed command.
+While `devenv up` runs, provision the native journey accounts of a new synthetic database before sign-in:
 
 ```bash
-JOURNEY_SEED_PG_URL="$BACKEND_PG_URL" \
+JOURNEY_SEED_PG_URL="postgresql://vektorprogrammet@127.0.0.1:$PGPORT/vektorprogrammet" \
   NATIVE_IDENTITY_DEPLOYMENT=local \
   NATIVE_IDENTITY_TRUSTED_ORIGINS='["http://127.0.0.1:5173"]' \
   bun --no-env-file apps/dashboard/e2e/native-users-journey-seed.mjs
@@ -161,7 +183,7 @@ The launcher does not inherit provider configuration, and the backend does not l
 These boundaries do not prevent database writes.
 
 The homepage development server accepts local edits and labels its provenance `working-tree`.
-Release builds still require clean committed source. The retained Symfony application uses `bun run dev:server`.
+Release builds still require clean committed source. The retained Symfony application uses `bun run dev:server` in the `legacy` profile.
 No development command authorizes production access or cloud provisioning.
 
 ### Current-assignment migration rehearsal
@@ -170,7 +192,7 @@ Run the original synthetic boundary and the reviewed-source journey separately:
 
 ```bash
 bun run rehearsal:current-assignment
-nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
+devenv --profile legacy shell -- bun run rehearsal:legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
 ```
 
 The reviewed-source journey also requires the declared PostgreSQL major. Its evidence directory must not exist.
@@ -192,7 +214,7 @@ Current production data, human review, provider acceptance, and cutover authorit
 Run the reviewed Organization journey:
 
 ```bash
-nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-organization --evidence-dir=/tmp/vektor-organization-review
+devenv --profile legacy shell -- bun run rehearsal:legacy-organization --evidence-dir=/tmp/vektor-organization-review
 ```
 
 This journey requires the declared PostgreSQL major and a new evidence directory. It uses synthetic records and private, disposable databases.
@@ -207,7 +229,7 @@ Current source data, human review, provider acceptance, and cutover authority re
 Run the reviewed receipt journey:
 
 ```bash
-nix shell nixpkgs#mariadb -c bun run rehearsal:legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
+devenv --profile legacy shell -- bun run rehearsal:legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
 ```
 
 This journey requires the declared PostgreSQL major, a clean committed tree, and a new evidence directory.
@@ -230,7 +252,7 @@ Legacy refunded status never creates settlement evidence. Historical import stil
 Run the combined synthetic journey:
 
 ```bash
-nix shell nixpkgs#mariadb nixpkgs#php -c bun run rehearsal:legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
+devenv --profile legacy shell -- bun run rehearsal:legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
 ```
 
 The command requires the declared PostgreSQL major, a clean committed tree, and a new evidence directory.

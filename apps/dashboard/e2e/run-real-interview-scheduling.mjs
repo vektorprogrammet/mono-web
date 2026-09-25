@@ -61,16 +61,6 @@ function assertPortAvailable(port) {
   });
 }
 
-function requireOpenSsl() {
-  const result = spawnSync("openssl", ["version"], { stdio: "ignore" });
-
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      "Missing prerequisite: openssl must be installed and available on PATH for disposable JWT key generation.",
-    );
-  }
-}
-
 function redactLogValue(value) {
   return value
     .replace(/Bearer\s+\S+/gi, "Bearer <redacted>")
@@ -307,7 +297,6 @@ function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
 }
 
 async function main() {
-  requireOpenSsl();
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-scheduling-0029-"));
   const databasePath = join(temporaryRoot, "recruitment.sqlite");
   const privateKeyPath = join(temporaryRoot, "jwt-private.pem");
