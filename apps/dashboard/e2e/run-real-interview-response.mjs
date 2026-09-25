@@ -989,9 +989,8 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
 
 const nativeProblemKeys = ["code", "detail", "status", "title", "type"];
 
-const nativeMutationHeaders = (capability, etag, evidenceKey) => ({
+const nativeMutationHeaders = (capability, etag) => ({
   "content-type": "application/json",
-  "idempotency-key": createHash("sha256").update(evidenceKey, "utf8").digest("hex"),
   "if-match": etag,
   [invitationCapabilityHeader]: capability,
 });
@@ -1065,7 +1064,7 @@ async function exerciseNativeBoundaryFailures() {
       basePath,
       {
         method: "POST",
-        headers: nativeMutationHeaders(capability, etag, "0051-boundary-duplicate-json"),
+        headers: nativeMutationHeaders(capability, etag),
         body: '{"message":"first","message":"second"}',
       },
       400,
@@ -1075,7 +1074,7 @@ async function exerciseNativeBoundaryFailures() {
       basePath,
       {
         method: "POST",
-        headers: nativeMutationHeaders(capability, etag, "0051-boundary-capability-message"),
+        headers: nativeMutationHeaders(capability, etag),
         body: JSON.stringify({ message: malformedCapability }),
       },
       422,
@@ -1085,7 +1084,7 @@ async function exerciseNativeBoundaryFailures() {
       basePath,
       {
         method: "POST",
-        headers: nativeMutationHeaders(capability, etag, "0051-boundary-overlong-body"),
+        headers: nativeMutationHeaders(capability, etag),
         body: JSON.stringify({ message: overlongMessage }),
       },
       413,
@@ -1111,11 +1110,7 @@ async function exerciseNonReplayableRepeat(records) {
       record.status === 204,
   );
 
-  if (
-    original === undefined ||
-    !Predicate.isString(original.idempotencyKey) ||
-    !Predicate.isString(original.ifMatch)
-  ) {
+  if (original === undefined || !Predicate.isString(original.ifMatch)) {
     throw new Error("Non-replay rehearsal could not locate the accepted invitation command");
   }
 
@@ -1123,7 +1118,6 @@ async function exerciseNonReplayableRepeat(records) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "idempotency-key": original.idempotencyKey,
       "if-match": original.ifMatch,
       [invitationCapabilityHeader]: rawCapabilitiesByCase.accepted,
     },
@@ -1145,7 +1139,6 @@ async function exerciseNonReplayableRepeat(records) {
   return {
     status: response.status,
     code: problem.code,
-    reusedIdempotencyKey: true,
     replayedResponse: false,
     recovery: "required-fresh-read",
     headers: semanticResponseHeaders(response.headers),
@@ -1931,13 +1924,13 @@ function assertNativeTransport(records) {
     const expectedBodyKeys = record.path === responseCases[0].commandPath ? [] : ["message"];
 
     if (
-      !Predicate.isString(record.idempotencyKey) ||
+      record.idempotencyKey !== null ||
       record.ifMatch !== sourceRead?.responseEtag ||
       JSON.stringify(Object.keys(record.requestJson ?? {}).sort()) !==
         JSON.stringify(expectedBodyKeys)
     ) {
       throw new Error(
-        "Invitation mutation omitted its Idempotency-Key, source ETag, or exact body",
+        "Invitation mutation sent an Idempotency-Key or omitted its source ETag or exact body",
       );
     }
 

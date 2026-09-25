@@ -50,20 +50,27 @@ export const Sha256Hex = Schema.String.pipe(
 
 export type Sha256Hex = typeof Sha256Hex.Type;
 
-/** Headers accepted by every external native mutation. */
+/** Headers accepted by every replayable external native mutation. */
 export const IdempotencyHeaders = Schema.Struct({
   "idempotency-key": IdempotencyKey,
 }).annotate({ identifier: "IdempotencyHeaders" });
 
 export type IdempotencyHeaders = typeof IdempotencyHeaders.Type;
 
-/** Headers accepted by an existing-resource native mutation. */
+/** Headers accepted by a replayable existing-resource native mutation. */
 export const IdempotencyIfMatchHeaders = Schema.Struct({
   "idempotency-key": IdempotencyKey,
   "if-match": StrongETag,
 }).annotate({ identifier: "IdempotencyIfMatchHeaders" });
 
 export type IdempotencyIfMatchHeaders = typeof IdempotencyIfMatchHeaders.Type;
+
+/** Headers accepted by an existing-resource mutation that stores no replayable receipt. */
+export const IfMatchHeaders = Schema.Struct({
+  "if-match": StrongETag,
+}).annotate({ identifier: "IfMatchHeaders" });
+
+export type IfMatchHeaders = typeof IfMatchHeaders.Type;
 
 const EntityTagConditionHeader = Schema.String.pipe(
   Schema.check(

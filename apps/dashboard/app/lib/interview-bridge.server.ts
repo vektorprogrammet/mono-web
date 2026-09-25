@@ -1,7 +1,6 @@
 import { RecruitmentInvitationCapabilitySchema,
 RecruitmentInvitationResponseMessageSchema, } from "@vektorprogrammet/http-api"
 import { parseJsonWithUniqueMembers } from "@vektorprogrammet/http-api"
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { createConfiguredPromiseClient } from "@vektorprogrammet/sdk";
 import { Schema as S, Match, flow, Option } from "effect";
 import { nativeProblemFrom } from "./native-problem";
@@ -144,15 +143,6 @@ const createInvitationClient = (capability: typeof RecruitmentInvitationCapabili
     headers: { "X-Recruitment-Invitation-Capability": capability },
   }).recruitment;
 
-const makeIdempotencyKey = (): typeof IdempotencyKey.Type => {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let key = "";
-
-  for (const byte of bytes) key += byte.toString(16).padStart(2, "0");
-
-  return IdempotencyKey.make(key);
-};
-
 export const readInvitationCapability = async (capability: string) => {
   const client = createInvitationClient(decodeExchangeCapability(capability));
   const result = await client.readInvitationResponse({ headers: {} });
@@ -214,10 +204,7 @@ export const runOperation = async (
     case "confirmInvitation":
       await client.confirmInvitation({
         params: {},
-        headers: {
-          "idempotency-key": makeIdempotencyKey(),
-          "if-match": operation.etag,
-        },
+        headers: { "if-match": operation.etag },
         payload: {},
       });
 
@@ -225,10 +212,7 @@ export const runOperation = async (
     case "rejectInvitation":
       await client.rejectInvitation({
         params: {},
-        headers: {
-          "idempotency-key": makeIdempotencyKey(),
-          "if-match": operation.etag,
-        },
+        headers: { "if-match": operation.etag },
         payload: operation.message === null ? {} : { message: operation.message },
       });
 
@@ -236,10 +220,7 @@ export const runOperation = async (
     case "requestNewInvitationTime":
       await client.requestNewInvitationTime({
         params: {},
-        headers: {
-          "idempotency-key": makeIdempotencyKey(),
-          "if-match": operation.etag,
-        },
+        headers: { "if-match": operation.etag },
         payload: { message: operation.message },
       });
 

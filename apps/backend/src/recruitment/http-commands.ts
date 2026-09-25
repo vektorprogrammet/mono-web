@@ -159,10 +159,6 @@ export const invitationMutation = <E, R>(
 
     const ifMatch = yield* requiredIfMatch(request);
 
-    yield* Effect.try({
-      try: () => parseIdempotencyKey(headerValues(request, "idempotency-key")),
-      catch: knownRecruitmentFailure,
-    });
     const capability = yield* invitationCapability(request);
 
     const endpoint = Match.value(operation).pipe(

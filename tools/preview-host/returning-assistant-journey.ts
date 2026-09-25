@@ -2000,7 +2000,6 @@ export const runReturningAssistantBrowserJourney = async ({
         headers: {
           ...invitationHeaders,
           "content-type": "application/json",
-          "idempotency-key": "returning-next-invitation-confirm-0104",
           "if-match": invitationETag,
         },
         data: {},

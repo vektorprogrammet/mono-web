@@ -326,7 +326,7 @@ describe("server-held recruitment invitation bridge", () => {
     const [input, init] = transport.mock.calls[0]!;
     const nativeRequest = new Request(input, init);
     expect(nativeRequest.url).toBe("http://api.test/api/recruitment/invitation-response:confirm");
-    expect(nativeRequest.headers.get("idempotency-key")).toMatch(/^[a-f0-9]{64}$/);
+    expect(nativeRequest.headers.get("idempotency-key")).toBeNull();
     expect(nativeRequest.headers.get("if-match")).toBe(etag);
     expect(await nativeRequest.json()).toEqual({});
   });
@@ -336,7 +336,7 @@ describe("server-held recruitment invitation bridge", () => {
       ["resource.not-found", "InvitationNotFound", 404],
       ["invitation.already-responded", "InvitationAlreadyResponded", 409],
       ["validation.failed", "InvitationDecodeError", 422],
-      ["idempotency.unavailable", "InvitationUnavailable", 503],
+      ["dependency.unavailable", "InvitationUnavailable", 503],
     ] as const;
 
     for (const [code, bridgeTag, status] of cases) {
