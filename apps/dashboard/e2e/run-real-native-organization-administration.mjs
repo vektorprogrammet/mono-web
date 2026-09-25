@@ -936,7 +936,6 @@ async function main() {
 
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
-  delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
   delete baseEnvironment.ORGANIZATION_AUTH_TOKENS;
   delete baseEnvironment.ADMISSION_AUTH_TOKENS;
   delete baseEnvironment.RECEIPT_AUTH_TOKENS;

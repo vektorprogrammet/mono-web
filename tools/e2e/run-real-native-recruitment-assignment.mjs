@@ -649,7 +649,6 @@ const main = async () => {
   for (const name of [
     "API_MODE",
     "VITE_API_MODE",
-    "ALCHEMY_CLOUDFLARE_VITE_INJECTED",
     "ADMISSION_AUTH_TOKENS",
     "ORGANIZATION_AUTH_TOKENS",
     "RECEIPT_AUTH_TOKENS",

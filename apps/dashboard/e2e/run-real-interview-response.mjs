@@ -2021,7 +2021,6 @@ async function main() {
 
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
-  delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
 
   const apiEnvironment = {
     ...baseEnvironment,

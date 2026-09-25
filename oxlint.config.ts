@@ -318,11 +318,6 @@ export default defineConfig({
       },
     },
     {
-      // Alchemy is outside the Bun workspace, with its own lockfile; this import is type-only.
-      files: ["infra/alchemy/preview/apex-worker.ts"],
-      rules: { "no-restricted-imports": "off" },
-    },
-    {
       // Advisory locks go through lockAdvisory, whose registered keys own the lock identity.
       files: ["apps/**", "packages/**"],
       rules: { "anti-slop/no-raw-advisory-lock-sql": "error" },
