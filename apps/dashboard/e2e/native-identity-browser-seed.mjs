@@ -237,7 +237,11 @@ try {
   // the administrator's navigation sweep needs one to render rather than report a missing reference.
   await observer.query(
     `INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
-     VALUES ('semester-identity-0065-current', now() - interval '30 days', now() + interval '120 days')
+     VALUES (
+       'semester-identity-0065-current',
+       date_trunc('milliseconds', now() - interval '30 days', 'UTC'),
+       date_trunc('milliseconds', now() + interval '120 days', 'UTC')
+     )
      ON CONFLICT (semester_id) DO NOTHING`,
   );
   await observer.query(
