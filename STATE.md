@@ -16,7 +16,8 @@ Operator decisions:
 - No cloud provisioning or source-data upload is authorized.
 - The private 2024-08-22 legacy backup is the working source for import and parity rehearsals.
   Its schema shape is expected to match current production. Its contents are historical, not current.
-- The native target is PostgreSQL 18. The root manifest declares it once as `engines.postgresql`.
+- The native target is PostgreSQL 17 or 18 (default 18); hosted Supabase runs 17 (operator decision, 2026-09-25).
+  The root manifest declares the set once as `engines.postgresql`; `VEKTOR_POSTGRES_MAJOR` selects a major per environment.
 - `main` is pushed to `origin` (2026-09-25), so hosted CI runs.
   The SDK is not published (operator decision, 2026-09-25). `@vektorprogrammet/sdk` is private; the Release SDK workflow and Changesets are removed.
 

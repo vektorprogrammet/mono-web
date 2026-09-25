@@ -68,7 +68,7 @@ See [development practices](AGENTS.md#building-reference) before changing it.
 [devenv.nix](devenv.nix) reads each version from the file that declares it and provides:
 
 - Bun at `packageManager` and Node.js at the lowest `engines.node` major;
-- PostgreSQL at `engines.postgresql`, on `PATH` and as the `devenv up` service;
+- PostgreSQL at the selected `engines.postgresql` major, on `PATH` and as the `devenv up` service;
 - the Chromium build of the `@playwright/test` version in `bun.lock`, through `PLAYWRIGHT_BROWSERS_PATH` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`;
 - openssl, Git, and the Git hooks.
 
@@ -97,9 +97,16 @@ requests and callable Fetch inputs across runtimes. SDK type checks cover both
 contracts, including Bun types. Remove the patch when upstream declarations pass
 those checks without it.
 
-Tests, proofs, journeys, and CI use only the declared PostgreSQL major. The
+`engines.postgresql` lists the supported PostgreSQL majors, `"17 || 18"`. The hosted Supabase database runs 17.
+The highest major, 18, is the default. `VEKTOR_POSTGRES_MAJOR` selects another supported major for one environment,
+for example `VEKTOR_POSTGRES_MAJOR=17 devenv shell`. devenv re-evaluates the shell when the variable changes.
+A major outside the set fails the shell and every PostgreSQL command, with a message that names the set.
+The `devenv up` data directory belongs to the major that created it; PostgreSQL refuses to start it with another major.
+
+Tests, proofs, journeys, and CI use only the selected PostgreSQL major. The
 [PostgreSQL toolchain](tools/postgres/index.ts) runs the first `postgres` on `PATH`
 and fails for any other major. The devenv package includes the contrib extensions, such as `btree_gist`.
+The Tests workflow runs every suite with the default major and the backend and database suites with each other supported major.
 
 Run commands inside `devenv shell`, from this repository root:
 
@@ -195,7 +202,7 @@ bun run rehearsal:current-assignment
 devenv --profile legacy shell -- bun run rehearsal:legacy-current-assignment --evidence-dir=/tmp/vektor-assignment-review
 ```
 
-The reviewed-source journey also requires the declared PostgreSQL major. Its evidence directory must not exist.
+The reviewed-source journey also requires the selected PostgreSQL major. Its evidence directory must not exist.
 It creates private, disposable MariaDB and PostgreSQL instances and uses synthetic legacy-shaped data.
 It removes those instances after the run and retains an owner-only `report.json`. It does not access production or external providers.
 
@@ -217,7 +224,7 @@ Run the reviewed Organization journey:
 devenv --profile legacy shell -- bun run rehearsal:legacy-organization --evidence-dir=/tmp/vektor-organization-review
 ```
 
-This journey requires the declared PostgreSQL major and a new evidence directory. It uses synthetic records and private, disposable databases.
+This journey requires the selected PostgreSQL major and a new evidence directory. It uses synthetic records and private, disposable databases.
 The cutover requires `--organization=none` or `--organization=PATH`. The first choice leaves Organization unchanged.
 
 The [review schema](packages/domain/src/organization/review.ts) defines the required source evidence, intervals, and exclusions.
@@ -232,7 +239,7 @@ Run the reviewed receipt journey:
 devenv --profile legacy shell -- bun run rehearsal:legacy-receipt --evidence-dir=/tmp/vektor-receipt-review
 ```
 
-This journey requires the declared PostgreSQL major, a clean committed tree, and a new evidence directory.
+This journey requires the selected PostgreSQL major, a clean committed tree, and a new evidence directory.
 It uses invented records, private file bytes, and disposable databases. It does not access production or external providers.
 
 The receipt command runs separately, after accepted Person and reference reconciliation:
@@ -255,7 +262,7 @@ Run the combined synthetic journey:
 devenv --profile legacy shell -- bun run rehearsal:legacy-candidate --evidence-dir=/tmp/vektor-candidate-review
 ```
 
-The command requires the declared PostgreSQL major, a clean committed tree, and a new evidence directory.
+The command requires the selected PostgreSQL major, a clean committed tree, and a new evidence directory.
 PHP generates compatible synthetic password hashes. The command uses no production data or external providers.
 
 The existing cutover and receipt commands share one source, accepted Person identities, and PostgreSQL target.
