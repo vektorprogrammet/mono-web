@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
-import { createServer as createHttpServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -317,12 +316,7 @@ const cleanup = () =>
     }
 
     try {
-      if (provider?.listening) {
-        const closed = Promise.withResolvers();
-        provider.close((error) => (error ? closed.reject(error) : closed.resolve()));
-        provider.closeAllConnections();
-        await closed.promise;
-      }
+      await provider?.stop(true);
     } catch (error) {
       errors.push(sanitize(error));
     }
@@ -449,57 +443,58 @@ try {
       return false;
     }
   });
-  provider = createHttpServer(async (request, response) => {
-    activeDeliveries++;
-    maxActiveDeliveries = Math.max(maxActiveDeliveries, activeDeliveries);
-    const startedAt = Date.now();
-    const disconnected = new AbortController();
-    response.once("close", () => disconnected.abort());
-    let attempt;
+  provider = Bun.serve({
+    hostname: "127.0.0.1",
+    port: providerPort,
+    maxRequestBodySize: 65_536,
+    async fetch(request) {
+      activeDeliveries++;
+      maxActiveDeliveries = Math.max(maxActiveDeliveries, activeDeliveries);
+      const startedAt = Date.now();
+      let attempt;
 
-    try {
-      assert.equal(request.headers.authorization, `Bearer ${token}`);
-      const chunks = [];
-      let size = 0;
+      try {
+        assert.equal(request.headers.get("authorization"), `Bearer ${token}`);
+        const body = Buffer.from(await request.arrayBuffer());
+        assert.ok(body.length <= 65_536, "bounded synthetic provider envelope");
+        const envelope = JSON.parse(body);
+        assert.equal(request.headers.get("idempotency-key"), envelope.deliveryId);
+        attempt = {
+          deliveryId: envelope.deliveryId,
+          envelopeSha256: sha256(body),
+          startedAt: new Date(startedAt).toISOString(),
+          abortedAt: null,
+          finishedAt: null,
+          status: null,
+          elapsedMs: null,
+        };
+        providerAttempts.push(attempt);
+        request.signal.addEventListener(
+          "abort",
+          () => {
+            if (attempt.status === null) attempt.abortedAt = new Date().toISOString();
+          },
+          { once: true },
+        );
 
-      for await (const chunk of request) {
-        size += chunk.length;
-        assert.ok(size <= 65536, "bounded synthetic provider envelope");
-        chunks.push(chunk);
+        if (deliveryMode === "timeout") await pause(2000, undefined, { signal: request.signal });
+        attempt.status = 204;
+
+        return new Response(null, { status: 204 });
+      } catch (error) {
+        if (attempt) attempt.failure = sanitize(error);
+
+        return new Response(null, { status: 503 });
+      } finally {
+        if (attempt) {
+          attempt.elapsedMs = Date.now() - startedAt;
+          attempt.finishedAt = new Date().toISOString();
+        }
+
+        activeDeliveries--;
       }
-
-      const body = Buffer.concat(chunks);
-      const envelope = JSON.parse(body);
-      assert.equal(request.headers["idempotency-key"], envelope.deliveryId);
-      const status = deliveryMode === "timeout" ? 503 : 204;
-      attempt = {
-        deliveryId: envelope.deliveryId,
-        envelopeSha256: sha256(body),
-        status: null,
-        elapsedMs: null,
-      };
-      providerAttempts.push(attempt);
-
-      if (deliveryMode === "timeout") await pause(2000, undefined, { signal: disconnected.signal });
-      response.writeHead(status);
-      response.end();
-      attempt.status = status;
-    } catch {
-      if (!response.destroyed) {
-        response.writeHead(500);
-        response.end();
-      }
-    } finally {
-      if (attempt) attempt.elapsedMs = Date.now() - startedAt;
-      activeDeliveries--;
-    }
+    },
   });
-  provider.requestTimeout = 2000;
-  provider.headersTimeout = 2000;
-  const ready = Promise.withResolvers();
-  provider.once("error", ready.reject);
-  provider.listen(providerPort, "127.0.0.1", ready.resolve);
-  await ready.promise;
 
   const backendEnvironment = {
     ...safeEnvironment,
@@ -644,11 +639,12 @@ try {
     ),
     { mode: 0o600 },
   );
-  assert.equal(maxActiveDeliveries, 1, "fixed provider concurrency");
+  assert.equal(maxActiveDeliveries, 1, "fixed active loopback request concurrency");
   const retried = providerAttempts.filter(({ status }) => status === null);
   assert.ok(retried.length > 0, "notification provider deadline observed");
 
   for (const attempt of retried) {
+    assert.notEqual(attempt.abortedAt, null, "timed-out request cancelled the fixture transport");
     assert.ok(
       attempt.elapsedMs >= 250 && attempt.elapsedMs < 2000,
       "bounded provider deadline interrupted the blocked transport",
@@ -696,7 +692,12 @@ const evidence = {
   fault: fault ?? null,
   observations: observer?.observations ?? [],
   browser: browserEvidence ?? null,
-  delivery: { maxActive: maxActiveDeliveries, attempts: providerAttempts },
+  delivery: {
+    scope:
+      "Active loopback requests; this fixture cancels work on request abort. No remote execution bound is implied.",
+    maxActive: maxActiveDeliveries,
+    attempts: providerAttempts,
+  },
   resources: resourceSnapshots,
   cleanup: cleaned,
 };
