@@ -450,6 +450,24 @@ const bindLoopback = (port: number) =>
     });
   });
 
+/** Binds port 0 until it knows `count` distinct loopback ports that `taken` does not hold. */
+const distinctLoopbackPorts = (count: number, taken: ReadonlyArray<number>) =>
+  Effect.gen(function* () {
+    const ports: Array<number> = [];
+
+    while (ports.length < count) {
+      const port = yield* bindLoopback(0);
+
+      if (!ports.includes(port) && !taken.includes(port)) ports.push(port);
+    }
+
+    return ports;
+  });
+
+/** The golden journeys' port reservation for runners that do not run inside the harness. */
+export const reserveLoopbackPorts = (count: number): Promise<ReadonlyArray<number>> =>
+  Effect.runPromise(distinctLoopbackPorts(count, []));
+
 /** Polls a condition until it holds; a typed failure from the check ends polling at once. */
 export const eventually = <R>(
   label: string,
@@ -1110,19 +1128,9 @@ const main = (journey: GoldenJourney, root: string) =>
           return value;
         }),
       reservePorts: (count) =>
-        Effect.gen(function* () {
-          const ports: Array<number> = [];
-
-          while (ports.length < count) {
-            const port = yield* bindLoopback(0);
-
-            if (!ports.includes(port) && !ledger.ports.includes(port)) ports.push(port);
-          }
-
-          ledger.ports.push(...ports);
-
-          return ports;
-        }),
+        distinctLoopbackPorts(count, ledger.ports).pipe(
+          Effect.tap((ports) => Effect.sync(() => ledger.ports.push(...ports))),
+        ),
       spawn: spawnOwned(ledger),
       run,
       postgres: startPostgres(ledger, root, privateRoot, environment),
