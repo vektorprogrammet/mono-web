@@ -8,7 +8,7 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { stopPreviewScenarioBackend } from "./preview-scenario.js";
+import { stopOwnedProcess } from "./owned-process.js";
 import { Predicate, Schema } from "effect";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -26,7 +26,7 @@ const mode = process.argv[2];
 
 assert.ok(
   process.argv.length === 3 && (mode === "--browser" || mode === "--api-only"),
-  "Usage: bun run tools/preview-host/onboarding-check.ts --browser | --api-only",
+  "Usage: bun run tools/acceptance/onboarding-check.ts --browser | --api-only",
 );
 
 const revision = run("git", ["rev-parse", "HEAD"]).trim();
@@ -62,7 +62,7 @@ const runBrowser = async (args: string[], env: NodeJS.ProcessEnv) => {
   child.stderr?.on("data", (chunk) => (output += String(chunk)));
 
   const timer = setTimeout(() => {
-    void stopPreviewScenarioBackend(child);
+    void stopOwnedProcess(child);
   }, 300000);
 
   try {
@@ -451,7 +451,7 @@ try {
     ).delivery,
     "Pending",
   );
-  await stopPreviewScenarioBackend(backend);
+  await stopOwnedProcess(backend);
   backend = start("bun", ["run", "--cwd", "apps/backend", "start"], environment);
   await ready();
   const retryPre = await board();
@@ -600,7 +600,7 @@ try {
   );
   // Expiry is enforced immediately; physical secret cleanup belongs to the backend lifetime.
   const cleanupApplication = await submit("onboarding-cleanup@example.invalid", "Cleanup");
-  await stopPreviewScenarioBackend(backend);
+  await stopOwnedProcess(backend);
   // Seed an already-expired pending effect; invitation timestamps are immutable.
   const cleanupId = "expiry-cleanup";
   const cleanupToken = "onboard_" + randomBytes(32).toString("hex");
@@ -735,7 +735,7 @@ try {
 } finally {
   if (pool) await pool.end();
 
-  for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
+  for (const child of children.reverse()) await stopOwnedProcess(child);
 
   if (mailbox) await new Promise<void>((resolve) => mailbox!.close(() => resolve()));
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });

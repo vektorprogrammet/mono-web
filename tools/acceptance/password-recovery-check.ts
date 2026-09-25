@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { Predicate, Console, Effect, Layer, Schema } from "effect";
 import { MailDeliveryRequest, Mail } from "@vektorprogrammet/domain/mail";
-import { stopPreviewScenarioBackend } from "./preview-scenario.js";
+import { stopOwnedProcess } from "./owned-process.js";
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
 import { HttpMailLive } from "../../apps/backend/src/mail/http.js";
 
@@ -608,6 +608,6 @@ try {
   await mailbox?.stop(true);
   await pool?.end();
 
-  for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
+  for (const child of children.reverse()) await stopOwnedProcess(child);
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
 }

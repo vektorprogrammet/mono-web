@@ -67,7 +67,7 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: ["infra/**/*.ts", "scripts/**/*.ts", "tools/preview-host/**/*.ts"],
+      files: ["infra/**/*.ts", "scripts/**/*.ts", "tools/acceptance/**/*.ts"],
       role: "composition-root",
       platform: "node",
       strictness: "recommended",
@@ -132,7 +132,7 @@ const crossPackageSourceImportPatternsExceptSdk = [
 const productImportPatterns = [
   ...crossPackageSourceImportPatterns,
   {
-    regex: "(^|/)tools/(verification|preview-host|e2e)(/|$)",
+    regex: "(^|/)tools/(verification|acceptance|e2e)(/|$)",
     message: "Product code must not depend on verification executables.",
   },
 ];
@@ -209,7 +209,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["tools/{verification,preview-host,e2e}/**"],
+      files: ["tools/{verification,acceptance,e2e}/**"],
       rules: {
         "no-restricted-imports": [
           "error",
@@ -283,7 +283,7 @@ export default defineConfig({
       },
     },
     {
-      files: ["tools/preview-host/password-recovery-check.ts", "scripts/changelog.ts"],
+      files: ["tools/acceptance/password-recovery-check.ts", "scripts/changelog.ts"],
       rules: {
         // These Bun entrypoints intentionally use Bun-native lifecycle APIs beside Node compatibility APIs.
         "effect/no-cross-runtime": "off",
@@ -292,7 +292,7 @@ export default defineConfig({
     // Source-import exemptions. Each entry names why an export-map import is not yet possible.
     {
       // No package manifest: Bun's isolated linker gives these scripts no workspace dependencies.
-      files: ["tools/preview-host/**"],
+      files: ["tools/acceptance/**"],
       rules: {
         "no-restricted-imports": ["error", { patterns: placementPublicImportPatterns }],
       },

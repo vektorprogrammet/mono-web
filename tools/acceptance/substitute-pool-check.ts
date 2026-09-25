@@ -15,7 +15,7 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import {type PreviewRuntimeObservation,  stopPreviewScenarioBackend } from "./preview-scenario.js";
+import { stopOwnedProcess } from "./owned-process.js";
 import { reserveLoopbackPorts } from "../e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../e2e/local-backend-environment.ts";
 import { postgresProgram } from "../postgres/index.ts";
@@ -552,7 +552,7 @@ try {
     (await pool.query("SELECT version() AS version")).rows[0].version,
   );
 
-  const runtime: PreviewRuntimeObservation = bunVersion === undefined
+  const runtime: { readonly postgres: string; readonly bun?: string } = bunVersion === undefined
     ? { postgres: postgresVersion }
     : { bun: bunVersion, postgres: postgresVersion };
 
@@ -593,7 +593,7 @@ try {
 } finally {
   if (pool) await pool.end();
 
-  for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
+  for (const child of children.reverse()) await stopOwnedProcess(child);
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
   await rm(join(artifacts, "manifest.json"), { force: true });
 

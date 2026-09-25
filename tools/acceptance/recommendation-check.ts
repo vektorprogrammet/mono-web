@@ -23,7 +23,7 @@ import {
   runApplicantProgress0107,
   seedApplicantProgress0107,
 } from "./applicant-progress-0107.ts";
-import { stopPreviewScenarioBackend } from "./preview-scenario.js";
+import { stopOwnedProcess } from "./owned-process.js";
 import {
   returningAssistantFixture,
   runReturningAssistantBrowserJourney,
@@ -1018,7 +1018,7 @@ try {
       recordGate(
         `returning notification/subscription/audit loopback failure held until deliberate restart (${acceptedReturningRegistrations.rows.length} registrations × ${expectedEffectTypes.length} effects)`,
       );
-      await stopPreviewScenarioBackend(backend);
+      await stopOwnedProcess(backend);
       releaseEffectDelivery = true;
       backend = start("bun", ["apps/backend/src/main.ts"], env);
       await ready(async () => (await fetch(`${api}/health`)).ok);
@@ -2871,6 +2871,6 @@ try {
 
   await pool?.end();
 
-  for (const child of children.reverse()) await stopPreviewScenarioBackend(child);
+  for (const child of children.reverse()) await stopOwnedProcess(child);
   await rm(join(artifacts, "postgres"), { recursive: true, force: true });
 }
