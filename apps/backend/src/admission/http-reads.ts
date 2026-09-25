@@ -16,28 +16,34 @@ import {
   ReadReturningAssistantOptionsEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
+import { Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Option, Predicate, Schema } from "effect";
 import { currentInstant, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
-import { strictOutput } from "../http-api/problem.js";
-import { HttpSemanticFailure, PRIVATE_NO_STORE, deriveStrongETag } from "../http-semantics.js";
 import {
-  authorizeAnonymousNativeOperation,
-  authorizePersonNativeOperation,
-  genericContext,
-} from "../native-operation.js";
+  authorizeAnonymous,
+  requireNoQuery,
+  strictOutput,
+  unreachable,
+} from "../http-api/problem.js";
+import { PRIVATE_NO_STORE, deriveStrongETag } from "../http-semantics.js";
+import { genericContext } from "../native-operation.js";
 import {
   admissionGrantScopes,
+  authorizeAdmissionPerson,
   returningAuthorization,
   returningPersonResource,
 } from "./http-access.js";
-import { actorFor, requireActive, type AdmissionApiHttpOptions } from "./http-context.js";
-import { rejectQueryString } from "./http-decode.js";
-import { jsonResponse } from "./http-problem.js";
-import { conditionalJsonResponse, dynamicAdmissionCache } from "./http-representation.js";
+import { requireActive, type AdmissionApiHttpOptions } from "./http-context.js";
+import { admissionProblems, periodCommandProblems, submissionProblems } from "./http-problem.js";
+import {
+  conditionalCollection,
+  dynamicAdmissionCache,
+  jsonResponse,
+} from "./http-representation.js";
 
 export const readReturningAssistantOptions = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
+    yield* requireNoQuery(request);
 
     const authorization = yield* returningAuthorization(
       request,
@@ -55,14 +61,22 @@ export const readReturningAssistantOptions = (request: Request, input: Admission
     const body = yield* strictOutput(ReturningAssistantOptionsSchema)(options);
 
     return jsonResponse(body);
-  });
+  }).pipe(
+    admissionProblems(request, "returning.unavailable"),
+    // Reading the options selects no team and runs no command.
+    unreachable(
+      "returning.team-scope-denied",
+      "returning.revision-conflict",
+      "idempotency.digest-conflict",
+    ),
+  );
 
 export const listAdmissionPeriods = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
-    const actor = yield* actorFor(request, input).pipe(Effect.flatMap(requireActive));
+    yield* requireNoQuery(request);
+    const actor = yield* input.resolveActor(request).pipe(Effect.flatMap(requireActive));
     const now = yield* currentInstant(input.config.now);
-    yield* authorizePersonNativeOperation({
+    yield* authorizeAdmissionPerson(request, {
       spec: Option.getOrThrow(reflectAccessSpec(ListAdmissionPeriodsEndpoint)),
       request,
       personId: actor.personId,
@@ -102,20 +116,23 @@ export const listAdmissionPeriods = (request: Request, input: AdmissionApiHttpOp
       Schema.Struct({ items: Schema.Array(AdmissionPeriodManagementItem), totalItems: Schema.Int }),
     )({ items, totalItems: items.length });
 
-    return yield* conditionalJsonResponse({
+    return yield* conditionalCollection({
       request,
       body,
       representationKind: "AdmissionPeriodManagementListResponse",
       version: rows.map((row) => [row.id, row.revision] as const),
       cacheControl: PRIVATE_NO_STORE,
     });
-  });
+  }).pipe(
+    admissionProblems(request, "admissions.unavailable"),
+    unreachable(...periodCommandProblems),
+  );
 
 export const listOpenAdmissionPeriods = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
+    yield* requireNoQuery(request);
     const now = yield* currentInstant(input.config.now);
-    yield* authorizeAnonymousNativeOperation(
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ListOpenAdmissionPeriodsEndpoint)),
       {
         selection: "AllMatching",
@@ -144,7 +161,7 @@ export const listOpenAdmissionPeriods = (request: Request, input: AdmissionApiHt
       totalItems: rows.length,
     };
 
-    return yield* conditionalJsonResponse({
+    return yield* conditionalCollection({
       request,
       body,
       representationKind: "OpenAdmissionPeriodListResponse",
@@ -154,13 +171,22 @@ export const listOpenAdmissionPeriods = (request: Request, input: AdmissionApiHt
         rows.flatMap((row) => [row.startAt, row.endAt]),
       ),
     });
-  });
+  }).pipe(
+    admissionProblems(request, "admissions.unavailable"),
+    // The open listing resolves no actor.
+    unreachable(
+      ...periodCommandProblems,
+      "credential.missing",
+      "credential.invalid",
+      "authority.denied",
+    ),
+  );
 
 export const listApplicationOptions = (request: Request, input: AdmissionApiHttpOptions) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
+    yield* requireNoQuery(request);
     const now = yield* currentInstant(input.config.now);
-    yield* authorizeAnonymousNativeOperation(
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ReadApplicationCatalogEndpoint)),
       {
         selection: "AllMatching",
@@ -178,7 +204,7 @@ export const listApplicationOptions = (request: Request, input: AdmissionApiHttp
       listPublicApplicationCatalog({ now }),
     );
 
-    return yield* conditionalJsonResponse({
+    return yield* conditionalCollection({
       request,
       body: source.catalog,
       representationKind: "PublicApplicationCatalog",
@@ -191,7 +217,10 @@ export const listApplicationOptions = (request: Request, input: AdmissionApiHttp
         source.catalog.departments.map((department) => department.closesAt),
       ),
     });
-  });
+  }).pipe(
+    admissionProblems(request, "admissions.unavailable"),
+    unreachable(...submissionProblems, "application.not-found"),
+  );
 
 export const readApplicationConfirmation = (
   request: Request,
@@ -199,9 +228,9 @@ export const readApplicationConfirmation = (
   input: AdmissionApiHttpOptions,
 ) =>
   Effect.gen(function* () {
-    yield* rejectQueryString(request);
+    yield* requireNoQuery(request);
     const now = yield* currentInstant(input.config.now);
-    yield* authorizeAnonymousNativeOperation(
+    yield* authorizeAnonymous(
       Option.getOrThrow(reflectAccessSpec(ReadApplicationConfirmationEndpoint)),
       {
         selection: "ExactlyOne",
@@ -222,15 +251,17 @@ export const readApplicationConfirmation = (
     );
 
     return jsonResponse(confirmation);
-  });
+  }).pipe(
+    admissionProblems(request, "admissions.unavailable"),
+    // The path already decoded the identifier the confirmation lookup decodes again.
+    unreachable(...submissionProblems),
+  );
 
 export const readApplicantProgress = (request: Request, input: AdmissionApiHttpOptions) =>
   Database.use((sql) =>
     sql.withTransaction(
       Effect.gen(function* () {
-        if (new URL(request.url).search !== "") {
-          return yield* Effect.fail(new HttpSemanticFailure("request.malformed", 400));
-        }
+        yield* requireNoQuery(request);
 
         yield* Database.use(
           (transaction) => transaction`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`,
@@ -240,7 +271,7 @@ export const readApplicantProgress = (request: Request, input: AdmissionApiHttpO
           now: input.config.now,
         });
 
-        yield* authorizePersonNativeOperation({
+        yield* authorizeAdmissionPerson(request, {
           spec: Option.getOrThrow(reflectAccessSpec(ReadApplicantProgressEndpoint)),
           credential: authorization.credential,
           personId: authorization.authority.personId,
@@ -279,4 +310,9 @@ export const readApplicantProgress = (request: Request, input: AdmissionApiHttpO
         });
       }),
     ),
+  ).pipe(
+    // A snapshot the database cannot open or commit leaves the service unavailable.
+    Effect.catchTag("SqlError", () => Effect.fail(Problem.make("admissions.unavailable"))),
+    admissionProblems(request, "admissions.unavailable"),
+    unreachable(...submissionProblems, "application.not-found"),
   );

@@ -4,8 +4,8 @@ import {
   AdmissionRoleDenied,
   AdmissionScopeDenied,
   InactiveActor,
-  UnauthenticatedActor,
   type AdmissionPeriodActor,
+  type UnauthenticatedActor,
 } from "@vektorprogrammet/domain/admission-period";
 import type { Identity, IdentityEngineError } from "@vektorprogrammet/domain/identity";
 import {
@@ -13,15 +13,13 @@ import {
   type Organization,
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
-import { Effect, Predicate } from "effect";
+import { Effect } from "effect";
 import {
   admissionActorForDepartment,
   unscopedAdmissionActorFrom,
   type OrganizationResolutionError,
 } from "../authority.js";
-import type { HttpSemanticFailure } from "../http-semantics.js";
 import type { AdmissionApiConfig } from "./config.js";
-import { knownAdmissionFailure } from "./http-problem.js";
 
 export interface AdmissionApiHttpOptions {
   readonly config: AdmissionApiConfig;
@@ -40,8 +38,7 @@ export interface AdmissionApiHttpOptions {
     | InactiveActor
     | AdmissionScopeDenied
     | AdmissionRoleDenied
-    | OrganizationResolutionError
-    | HttpSemanticFailure,
+    | OrganizationResolutionError,
     Identity | OAuthCredentialAuthority | Organization
   >;
 }
@@ -51,23 +48,12 @@ export const requireActive = (actor: AdmissionPeriodActor) =>
     ? Effect.succeed(actor)
     : Effect.fail(new InactiveActor({ personId: actor.personId }));
 
-export const actorFor = (
-  request: Request,
-  input: AdmissionApiHttpOptions,
-  departmentScope?: string,
-) =>
-  input
-    .resolveActor(request, departmentScope)
-    .pipe(
-      Effect.catch((cause) =>
-        Effect.fail(
-          cause !== null && (cause === null || Predicate.isObjectOrArray(cause)) && "_tag" in cause
-            ? cause
-            : new UnauthenticatedActor({ message: "authentication required" }),
-        ),
-      ),
-    );
-
+/**
+ * The admission actor of one department scope. The mapping throws only its
+ * three denials; anything else it throws is a defect.
+ *
+ * @construct http-problem
+ */
 export const admissionActorForAuthority = (
   authority: OrganizationPersonAuthority,
   departmentScope?: string,
@@ -77,5 +63,13 @@ export const admissionActorForAuthority = (
       departmentScope === undefined
         ? unscopedAdmissionActorFrom(authority)
         : admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
-    catch: knownAdmissionFailure,
+    catch: (cause) => {
+      if (
+        cause instanceof InactiveActor ||
+        cause instanceof AdmissionScopeDenied ||
+        cause instanceof AdmissionRoleDenied
+      )
+        return cause;
+      throw cause;
+    },
   }).pipe(Effect.flatMap(requireActive));

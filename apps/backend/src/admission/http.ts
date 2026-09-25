@@ -1,20 +1,8 @@
 /** Native HttpApi composition for admission and public application endpoints. */
-import {
-  AdmissionsCreateAdmissionPeriodProblem,
-  AdmissionsListAdmissionPeriodsProblem,
-  AdmissionsListApplicationOptionsProblem,
-  AdmissionsListOpenAdmissionPeriodsProblem,
-  AdmissionsReadApplicantProgressProblem,
-  AdmissionsReadApplicationConfirmationProblem,
-  AdmissionsReadReturningAssistantOptionsProblem,
-  AdmissionsRegisterReturningAssistantProblem,
-  AdmissionsReviseAdmissionPeriodProblem,
-  AdmissionsSubmitApplicationProblem,
-  ExternalNativeApi,
-} from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { toHttpApiResponse } from "../http-api/transport.js";
+import { webHandler } from "../http-api/problem.js";
 import {
   createAdmissionPeriod,
   registerReturningAssistant,
@@ -22,7 +10,6 @@ import {
   submitApplication,
 } from "./http-commands.js";
 import type { AdmissionApiHttpOptions } from "./http-context.js";
-import { admissionHttpErrorResponse } from "./http-problem.js";
 import {
   listAdmissionPeriods,
   listApplicationOptions,
@@ -32,100 +19,44 @@ import {
   readReturningAssistantOptions,
 } from "./http-reads.js";
 
-/** Each endpoint answers an unclassified failure with its own union's unavailable problem. */
-const problemResponses = {
-  listAdmissionPeriods: admissionHttpErrorResponse(AdmissionsListAdmissionPeriodsProblem),
-  createAdmissionPeriod: admissionHttpErrorResponse(AdmissionsCreateAdmissionPeriodProblem),
-  reviseAdmissionPeriod: admissionHttpErrorResponse(AdmissionsReviseAdmissionPeriodProblem),
-  listOpenAdmissionPeriods: admissionHttpErrorResponse(AdmissionsListOpenAdmissionPeriodsProblem),
-  listApplicationOptions: admissionHttpErrorResponse(AdmissionsListApplicationOptionsProblem),
-  submitApplication: admissionHttpErrorResponse(AdmissionsSubmitApplicationProblem),
-  readApplicationConfirmation: admissionHttpErrorResponse(
-    AdmissionsReadApplicationConfirmationProblem,
-  ),
-  readApplicantProgress: admissionHttpErrorResponse(AdmissionsReadApplicantProgressProblem),
-  readReturningAssistantOptions: admissionHttpErrorResponse(
-    AdmissionsReadReturningAssistantOptionsProblem,
-  ),
-  registerReturningAssistant: admissionHttpErrorResponse(
-    AdmissionsRegisterReturningAssistantProblem,
-  ),
-};
-
 /** Native HttpApi implementations for admission and public application endpoints. */
 export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
   HttpApiBuilder.group(ExternalNativeApi, "admissions", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listAdmissionPeriods", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listAdmissionPeriods(webRequest, input),
-            problemResponses.listAdmissionPeriods,
-          ),
+          webHandler(request, (webRequest) => listAdmissionPeriods(webRequest, input)),
         )
         .handleRaw("createAdmissionPeriod", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => createAdmissionPeriod(webRequest, input),
-            problemResponses.createAdmissionPeriod,
-          ),
+          webHandler(request, (webRequest) => createAdmissionPeriod(webRequest, input)),
         )
         .handleRaw("reviseAdmissionPeriod", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => reviseAdmissionPeriod(webRequest, params.admissionPeriodId, input),
-            problemResponses.reviseAdmissionPeriod,
+          webHandler(request, (webRequest) =>
+            reviseAdmissionPeriod(webRequest, params.admissionPeriodId, input),
           ),
         )
         .handleRaw("listOpenAdmissionPeriods", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listOpenAdmissionPeriods(webRequest, input),
-            problemResponses.listOpenAdmissionPeriods,
-          ),
+          webHandler(request, (webRequest) => listOpenAdmissionPeriods(webRequest, input)),
         )
         .handleRaw("listApplicationOptions", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listApplicationOptions(webRequest, input),
-            problemResponses.listApplicationOptions,
-          ),
+          webHandler(request, (webRequest) => listApplicationOptions(webRequest, input)),
         )
         .handleRaw("submitApplication", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => submitApplication(webRequest, input),
-            problemResponses.submitApplication,
-          ),
+          webHandler(request, (webRequest) => submitApplication(webRequest, input)),
         )
         .handleRaw("readApplicationConfirmation", ({ request, params }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readApplicationConfirmation(webRequest, params.applicationId, input),
-            problemResponses.readApplicationConfirmation,
+          webHandler(request, (webRequest) =>
+            readApplicationConfirmation(webRequest, params.applicationId, input),
           ),
         )
         .handleRaw("readApplicantProgress", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readApplicantProgress(webRequest, input),
-            problemResponses.readApplicantProgress,
-          ),
+          webHandler(request, (webRequest) => readApplicantProgress(webRequest, input)),
         )
         .handleRaw("readReturningAssistantOptions", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => readReturningAssistantOptions(webRequest, input),
-            problemResponses.readReturningAssistantOptions,
-          ),
+          webHandler(request, (webRequest) => readReturningAssistantOptions(webRequest, input)),
         )
         .handleRaw("registerReturningAssistant", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => registerReturningAssistant(webRequest, input),
-            problemResponses.registerReturningAssistant,
-          ),
+          webHandler(request, (webRequest) => registerReturningAssistant(webRequest, input)),
         ),
     ),
   );

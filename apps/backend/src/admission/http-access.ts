@@ -8,7 +8,8 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Predicate } from "effect";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
-import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
+import { authorizePerson, personPresentation, unreachable } from "../http-api/problem.js";
+import { genericContext, type NativePersonAuthorization } from "../native-operation.js";
 import type { AdmissionApiHttpOptions } from "./http-context.js";
 
 export const admissionGrantScopes = (actor: AdmissionPeriodActor) =>
@@ -26,6 +27,21 @@ export const returningPersonResource = (personId: string) =>
     },
   });
 
+/**
+ * Evaluates one admission person AccessSpec. Every admission spec reveals its
+ * denials, so authorization never answers 404.
+ *
+ * @construct http-problem
+ */
+export const authorizeAdmissionPerson = (request: Request, input: NativePersonAuthorization) =>
+  authorizePerson(input, personPresentation(request)).pipe(unreachable("resource.not-found"));
+
+/**
+ * Resolves the current person and authorizes one returning-assistant operation
+ * on that person's own profile.
+ *
+ * @construct http-problem
+ */
 export const returningAuthorization = (
   request: Request,
   input: AdmissionApiHttpOptions,
@@ -38,7 +54,7 @@ export const returningAuthorization = (
       now: input.config.now,
     });
 
-    yield* authorizePersonNativeOperation({
+    yield* authorizeAdmissionPerson(request, {
       spec: Option.getOrThrow(reflectAccessSpec(endpoint)),
       credential: authorization.credential,
       personId: authorization.authority.personId,
