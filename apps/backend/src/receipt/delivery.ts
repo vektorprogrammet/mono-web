@@ -213,6 +213,10 @@ export const ReceiptDeliveryLive = (
               "idempotency-key": request.effectId,
             });
           }).pipe(
+            Effect.catchTags({
+              SqlError: () => Effect.die(new Error("Receipt delivery persistence failed")),
+              SchemaError: () => Effect.die(new Error("Receipt delivery envelope is invalid")),
+            }),
             Effect.mapError(() => new ReceiptDeliveryUnavailable({ effectId: request.effectId })),
           ),
       });

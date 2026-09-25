@@ -153,9 +153,11 @@ const provider = createHttpServer(async (request, response) => {
   let payload = "";
 
   for await (const chunk of request) payload += String(chunk);
+
   const body = Schema.decodeUnknownSync(
     Schema.fromJsonString(Schema.Struct({ deliveryId: Schema.String })),
   )(payload);
+
   const kind = request.url === "/reset" ? "reset" : "receipt";
   const mode = poison.has(body.deliveryId) ? "failure" : kind === "reset" ? resetMode : receiptMode;
   assert.equal(request.headers["idempotency-key"], body.deliveryId);
@@ -238,10 +240,23 @@ let cookie = "";
 const boot = async (changes: NodeJS.ProcessEnv = {}) => {
   current = start({ ...env, ...changes });
   await eventually("native listener", async () => {
-    assert.equal(current!.child.exitCode, null, current!.logs.join("").replaceAll(secret, "[redacted]").replaceAll(providerToken, "[redacted]").replaceAll(password, "[redacted]").replaceAll(email, "[redacted]"));
+    assert.equal(
+      current!.child.exitCode,
+      null,
+      current!.logs
+        .join("")
+        .replaceAll(secret, "[redacted]")
+        .replaceAll(providerToken, "[redacted]")
+        .replaceAll(password, "[redacted]")
+        .replaceAll(email, "[redacted]"),
+    );
 
     try {
-      return (await fetch(`${origin}/health`)).ok;
+      const response = await fetch(`${origin}/health`);
+
+      return changes.BACKEND_INGRESS === "internal"
+        ? response.status === 404 && current!.logs.join("").includes("internal backend listening")
+        : response.ok;
     } catch {
       return false;
     }
@@ -582,6 +597,29 @@ try {
     "stale reset owner cannot acknowledge quarantine; stale receipt owner cannot overwrite replacement delivery; receipt envelope and business facts remain unchanged",
   );
 
+  resetMode = "hold";
+  await boot({ PASSWORD_RESET_DELIVERY_POLL_MS: "100", RECEIPT_DELIVERY_MODE: "disabled" });
+  const shutdownFailure = await resetRequest();
+  await eventually("reset finalization fault prerequisite", async () =>
+    attempts.some((attempt) => attempt.id === shutdownFailure.effect_id),
+  );
+  await pool.query(
+    "ALTER TABLE auth.password_reset_email_outbox RENAME TO password_reset_email_outbox_shutdown_fault",
+  );
+  current!.child.kill("SIGTERM");
+  const shutdownCode = await Promise.race([
+    current!.exited,
+    pause(10_000).then(() => {
+      throw new Error("Finalization failure shutdown timeout");
+    }),
+  ]);
+  assert.equal(shutdownCode, 1, "failed interruption finalization must not exit cleanly");
+  await pool.query(
+    "ALTER TABLE auth.password_reset_email_outbox_shutdown_fault RENAME TO password_reset_email_outbox",
+  );
+  held.splice(0).forEach((release) => release());
+  checks.push("reset interruption finalization SQL failure preserves nonzero root exit");
+
   // Fault injection affects availability, not durable business outcomes.
   for (const kind of ["reset", "receipt"] as const) {
     await boot({
@@ -663,6 +701,6 @@ try {
   );
 }
 
-assert.equal(checks.length, 8);
+assert.equal(checks.length, 9);
 
 process.stdout.write(`PASS ${checks.length} recovery observations; sanitized evidence retained\n`);

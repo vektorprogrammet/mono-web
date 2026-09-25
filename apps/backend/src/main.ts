@@ -359,6 +359,9 @@ if (process.exitCode !== 1) {
       if (passwordResetWorkerFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(passwordResetWorkerFiber));
+          const exit = await runtime.runPromise(Fiber.await(passwordResetWorkerFiber));
+
+          if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) exitCode = 1;
         } catch {
           exitCode = 1;
         }
@@ -367,6 +370,9 @@ if (process.exitCode !== 1) {
       if (receiptWorkerFiber !== undefined) {
         try {
           await runtime.runPromise(Fiber.interrupt(receiptWorkerFiber));
+          const exit = await runtime.runPromise(Fiber.await(receiptWorkerFiber));
+
+          if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) exitCode = 1;
         } catch {
           exitCode = 1;
         }

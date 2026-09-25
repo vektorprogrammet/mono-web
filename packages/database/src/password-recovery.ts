@@ -384,7 +384,7 @@ export const drainPasswordResetMail = (
 
           if (Exit.isFailure(deliveryExit)) {
             // Interruption is ambiguous. Persist quarantine before the owning fiber releases the pool.
-            if (!Cause.hasInterrupts(deliveryExit.cause))
+            if (!Cause.hasInterruptsOnly(deliveryExit.cause))
               return yield* Effect.failCause(deliveryExit.cause);
             interruptedCause = deliveryExit.cause;
             failure = "delivery-timeout";
