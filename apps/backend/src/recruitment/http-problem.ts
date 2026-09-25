@@ -50,6 +50,7 @@ export const recruitmentHttpErrorResponse = (
       return nativeProblemResponse("credential.invalid", 401, {
         "www-authenticate": PERSON_CHALLENGE,
       });
+    case "InactiveActor":
     case "RecruitmentInactiveActor":
     case "RecruitmentRoleDenied":
     case "RecruitmentScopeDenied":

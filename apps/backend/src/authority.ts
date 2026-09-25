@@ -1,10 +1,12 @@
 import { IdentitySnapshot, OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import { Database } from "@vektorprogrammet/database";
-import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import {
+  AdmissionPeriodActorSchema,
+  AdmissionRoleDenied,
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
+  type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
@@ -34,7 +36,11 @@ import {
   type CredentialOutcome,
   type Decision,
 } from "@vektorprogrammet/domain/authz";
-import type { RecruitmentActor } from "@vektorprogrammet/domain/recruitment";
+import {
+  RecruitmentInactiveActor,
+  RecruitmentRoleDenied,
+  type RecruitmentActor,
+} from "@vektorprogrammet/domain/recruitment";
 import { DateTime, Predicate, Effect, Schema } from "effect";
 import { hasBetterAuthSessionCredential } from "./session-security.js";
 
@@ -447,6 +453,45 @@ export const organizationActorFrom = (authority: OrganizationPersonAuthority): O
 export const profileRoleFrom = (authority: OrganizationPersonAuthority): Decision<ProfileRole> =>
   mapOrganizationAuthorityToProfileRole(authority);
 
+/** Departments in which the person holds an active membership, in a stable order. */
+const activeDepartments = (authority: OrganizationPersonAuthority): ReadonlyArray<DepartmentId> =>
+  [
+    ...new Set(
+      authority.memberships
+        .filter((membership) => membership.active)
+        .map((membership) => membership.departmentId),
+    ),
+  ].sort();
+
+/**
+ * Actor of an admission route that names no department. An active global administrator acts
+ * globally; anyone else acts in the single department of their active memberships. A person
+ * without exactly one such department is authenticated but not authorized: a 401 would tell the
+ * dashboard that the session expired and sign the person out.
+ */
+export const unscopedAdmissionActorFrom = (
+  authority: OrganizationPersonAuthority,
+): AdmissionPeriodActor => {
+  if (authority.globalAdministrator === "Active") {
+    return AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
+      personId: authority.personId,
+      active: true,
+    });
+  }
+
+  if (authority.globalAdministrator === "Inactive") {
+    throw new InactiveActor({ personId: authority.personId });
+  }
+
+  const departments = activeDepartments(authority);
+
+  if (departments.length === 1) return admissionActorForDepartment(authority, departments[0]!);
+
+  throw departments.length === 0 && authority.memberships.length > 0
+    ? new InactiveActor({ personId: authority.personId })
+    : new AdmissionRoleDenied({ personId: authority.personId });
+};
+
 /**
  * Board queries use ALL authorized departments (spec 0055 §Recruitment actor).
  * A person with active memberships in exactly one department reads that
@@ -455,26 +500,18 @@ export const profileRoleFrom = (authority: OrganizationPersonAuthority): Decisio
  * request state carries a department selection.
  * Global administrators are NOT recruiters: the domain checkContext rejects
  * GlobalAdmin on recruitment routes, so no GlobalAdmin pass-through exists here.
+ * Every refusal is an authorization denial, because the person is authenticated.
  */
 export const recruitmentBoardActorFrom = (
   authority: OrganizationPersonAuthority,
 ): RecruitmentActor => {
-  const departments = [
-    ...new Set(
-      authority.memberships
-        .filter((membership) => membership.active)
-        .map((membership) => membership.departmentId),
-    ),
-  ].sort();
+  const departments = activeDepartments(authority);
 
   if (departments.length === 1) {
     return admissionActorForDepartment(authority, departments[0]!);
   }
 
-  throw new UnauthenticatedActor({
-    message:
-      departments.length === 0
-        ? "no authorized recruitment department"
-        : `recruitment board requires one department selection; authorized departments: ${departments.join(", ")}`,
-  });
+  throw departments.length === 0 && authority.memberships.length > 0
+    ? new RecruitmentInactiveActor({ personId: authority.personId })
+    : new RecruitmentRoleDenied({ personId: authority.personId });
 };

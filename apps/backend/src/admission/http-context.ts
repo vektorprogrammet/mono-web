@@ -1,7 +1,7 @@
 /** Admission HTTP composition options and request actor resolution. */
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
-  AdmissionPeriodActorSchema,
+  AdmissionRoleDenied,
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
@@ -14,7 +14,11 @@ import {
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { Effect, Predicate } from "effect";
-import { admissionActorForDepartment, type OrganizationResolutionError } from "../authority.js";
+import {
+  admissionActorForDepartment,
+  unscopedAdmissionActorFrom,
+  type OrganizationResolutionError,
+} from "../authority.js";
 import type { HttpSemanticFailure } from "../http-semantics.js";
 import type { AdmissionApiConfig } from "./config.js";
 import { knownAdmissionFailure } from "./http-problem.js";
@@ -24,7 +28,7 @@ export interface AdmissionApiHttpOptions {
   /**
    * Resolves the session cookie into a department-scoped actor (spec 0055).
    * `departmentScope` carries canonical request state (payload department or
-   * the period's immutable department); undefined means global-only scope.
+   * the period's immutable department); undefined resolves the person's own scope.
    */
   readonly resolveActor: (
     request: Request,
@@ -35,6 +39,7 @@ export interface AdmissionApiHttpOptions {
     | UnauthenticatedActor
     | InactiveActor
     | AdmissionScopeDenied
+    | AdmissionRoleDenied
     | OrganizationResolutionError
     | HttpSemanticFailure,
     Identity | OAuthCredentialAuthority | Organization
@@ -68,21 +73,9 @@ export const admissionActorForAuthority = (
   departmentScope?: string,
 ) =>
   Effect.try({
-    try: () => {
-      if (departmentScope !== undefined) {
-        return admissionActorForDepartment(authority, DepartmentId.make(departmentScope));
-      }
-
-      if (authority.globalAdministrator !== "Active") {
-        throw authority.globalAdministrator === "Inactive"
-          ? new InactiveActor({ personId: authority.personId })
-          : new UnauthenticatedActor({ message: "no authority for unscoped management route" });
-      }
-
-      return AdmissionPeriodActorSchema.cases.GlobalAdmin.make({
-        personId: authority.personId,
-        active: true,
-      });
-    },
+    try: () =>
+      departmentScope === undefined
+        ? unscopedAdmissionActorFrom(authority)
+        : admissionActorForDepartment(authority, DepartmentId.make(departmentScope)),
     catch: knownAdmissionFailure,
   }).pipe(Effect.flatMap(requireActive));
