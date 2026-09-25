@@ -408,11 +408,11 @@ describe("GET /api/people (spec 0077.2)", () => {
     const response = await backend.fetch(new Request("http://backend.test/api/people"));
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
-      title: "Invalid credential",
+      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+      title: "Credential required",
       status: 401,
-      detail: "The supplied credential is invalid.",
-      code: "credential.invalid",
+      detail: "A credential is required for this operation.",
+      code: "credential.missing",
     });
   });
 

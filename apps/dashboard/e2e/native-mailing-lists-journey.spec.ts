@@ -127,7 +127,7 @@ test.describe("Native scoped mailing recipients", () => {
     const anonymous = await page.request.get(`${apiOrigin}/api/mailing-lists`);
 
     expect(anonymous.status()).toBe(401);
-    expect(await anonymous.json()).toMatchObject({ code: "credential.invalid" });
+    expect(await anonymous.json()).toMatchObject({ code: "credential.missing" });
     await signIn(page, adminEmail);
 
     const invalidType = await page.request.get(`${apiOrigin}/api/mailing-lists?type=bogus`);

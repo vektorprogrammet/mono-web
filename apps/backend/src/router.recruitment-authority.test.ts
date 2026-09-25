@@ -285,11 +285,11 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
     const response = await request("/api/recruitment/application-assignments?status=new", "");
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
-      title: "Invalid credential",
+      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+      title: "Credential required",
       status: 401,
-      detail: "The supplied credential is invalid.",
-      code: "credential.invalid",
+      detail: "A credential is required for this operation.",
+      code: "credential.missing",
     });
     expect(recruitmentCalls).toEqual([]);
   });
@@ -330,11 +330,11 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
     const response = await request("/api/recruitment/interviews", "");
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
-      title: "Invalid credential",
+      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+      title: "Credential required",
       status: 401,
-      detail: "The supplied credential is invalid.",
-      code: "credential.invalid",
+      detail: "A credential is required for this operation.",
+      code: "credential.missing",
     });
     expect(recruitmentCalls).toEqual([]);
   });

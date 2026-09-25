@@ -21,6 +21,7 @@ import {
 } from "../authority.js";
 import type { ContactConfig } from "../contact/config.js";
 import { nativeProblemResponse } from "../http-semantics.js";
+import { hasBetterAuthSessionCredential } from "../session-security.js";
 
 /**
  * Flattens one Effect-native Web transport operation into an HTTP API response.
@@ -90,15 +91,32 @@ export const requestSchemaErrorResponse = (error: HttpApiError.HttpApiSchemaErro
   return nativeProblemResponse("internal.error", 500);
 };
 
-const rejectedCredential = (
-  challenge:
-    | 'VektorSession realm="native-api"'
-    | 'VektorSession realm="native-api", Bearer realm="native-api"'
-    | 'ContactSSR realm="native-contact"',
-) =>
+type CredentialChallenge =
+  | 'VektorSession realm="native-api"'
+  | 'VektorSession realm="native-api", Bearer realm="native-api"'
+  | 'ContactSSR realm="native-contact"';
+
+const rejectedCredential = (challenge: CredentialChallenge) =>
   HttpServerResponse.fromWeb(
     nativeProblemResponse("credential.invalid", 401, { "www-authenticate": challenge }),
   );
+
+/**
+ * Classifies a failed person or session authentication from the raw request.
+ * Effect decodes an absent credential as an empty value, so absence is read
+ * from the headers: no Better Auth session cookie and no Authorization header
+ * is a missing credential; any presented credential that failed is invalid.
+ */
+const unauthenticatedResponse = (
+  request: HttpServerRequest.HttpServerRequest,
+  challenge: CredentialChallenge,
+) =>
+  request.headers.authorization !== undefined ||
+  hasBetterAuthSessionCredential(request.headers.cookie ?? null)
+    ? rejectedCredential(challenge)
+    : HttpServerResponse.fromWeb(
+        nativeProblemResponse("credential.missing", 401, { "www-authenticate": challenge }),
+      );
 
 const isUnauthenticated = (cause: unknown): cause is UnauthenticatedActor =>
   cause instanceof UnauthenticatedActor;
@@ -116,7 +134,10 @@ const sessionSecurityLayer = Layer.effect(
           );
 
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return rejectedCredential('VektorSession realm="native-api"');
+            return unauthenticatedResponse(
+              yield* HttpServerRequest.HttpServerRequest,
+              'VektorSession realm="native-api"',
+            );
           }
 
           return yield* httpEffect;
@@ -154,7 +175,8 @@ const personSecurityLayer = Layer.effect(
           );
 
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return rejectedCredential(
+            return unauthenticatedResponse(
+              request,
               'VektorSession realm="native-api", Bearer realm="native-api"',
             );
           }
@@ -178,7 +200,8 @@ const personSecurityLayer = Layer.effect(
           );
 
           if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-            return rejectedCredential(
+            return unauthenticatedResponse(
+              request,
               'VektorSession realm="native-api", Bearer realm="native-api"',
             );
           }
@@ -212,7 +235,10 @@ const personOrServiceSecurityLayer = Layer.effect(
         );
 
         if (Result.isFailure(authentication) && isUnauthenticated(authentication.failure)) {
-          return rejectedCredential('VektorSession realm="native-api", Bearer realm="native-api"');
+          return unauthenticatedResponse(
+            request,
+            'VektorSession realm="native-api", Bearer realm="native-api"',
+          );
         }
 
         return yield* httpEffect;

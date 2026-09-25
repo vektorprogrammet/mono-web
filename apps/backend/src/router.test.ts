@@ -29,6 +29,8 @@ import {
 import { Schools } from "@vektorprogrammet/domain/schools";
 import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { SchoolSurveys } from "@vektorprogrammet/domain";
+import { CredentialOutcomeSchema } from "@vektorprogrammet/domain/authz";
+import { Economy } from "@vektorprogrammet/domain/receipt";
 import { DateTime, Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeBackendConfig } from "./config.js";
@@ -340,33 +342,19 @@ describe("unified backend router", () => {
       status: 200,
       body: { activeSchools: [], inactiveSchools: [] },
     });
-    expect({ status: admission.status, body: await admission.json() }).toEqual({
-      status: 401,
-      body: expectedProblem(
-        "credential.invalid",
-        "Invalid credential",
-        401,
-        "The supplied credential is invalid.",
-      ),
-    });
-    expect({ status: receipt.status, body: await receipt.json() }).toEqual({
-      status: 401,
-      body: expectedProblem(
-        "credential.invalid",
-        "Invalid credential",
-        401,
-        "The supplied credential is invalid.",
-      ),
-    });
-    expect({ status: recruitment.status, body: await recruitment.json() }).toEqual({
-      status: 401,
-      body: expectedProblem(
-        "credential.invalid",
-        "Invalid credential",
-        401,
-        "The supplied credential is invalid.",
-      ),
-    });
+
+    for (const response of [admission, receipt, recruitment]) {
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 401,
+        body: expectedProblem(
+          "credential.missing",
+          "Credential required",
+          401,
+          "A credential is required for this operation.",
+        ),
+      });
+    }
+
     expect({
       status: publicRecruitment.status,
       body: await publicRecruitment.json(),
@@ -425,10 +413,10 @@ describe("unified backend router", () => {
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 401,
         body: expectedProblem(
-          "credential.invalid",
-          "Invalid credential",
+          "credential.missing",
+          "Credential required",
           401,
-          "The supplied credential is invalid.",
+          "A credential is required for this operation.",
         ),
       });
     }
@@ -532,6 +520,68 @@ describe("unified backend router", () => {
     }
 
     expect(currentReads).toBe(2);
+  });
+
+  describe("classifies absent and rejected credentials at ingress", () => {
+    const personChallenge = 'VektorSession realm="native-api", Bearer realm="native-api"';
+
+    const classifyingBackend = backendHttpHandler(
+      config,
+      Layer.mergeAll(
+        makeBackendServices({
+          ...successfulIdentity,
+          resolveSession: async (cookieHeader: string | undefined) => {
+            if (cookieHeader?.split(/;\s*/u).includes(`${token}=valid-session`)) {
+              return new IdentityActor({
+                personId: PersonId.make("member-1"),
+                sessionId: "session-1",
+                expiresAt: currentSession.expiresAt,
+              });
+            }
+
+            throw new IdentitySessionNotFound();
+          },
+        }),
+        Layer.succeed(
+          OAuthCredentialAuthority,
+          OAuthCredentialAuthority.of({
+            resolve: async () => CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" }),
+            resolveInTransaction: () =>
+              Effect.succeed(CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" })),
+          }),
+        ),
+        Layer.mock(Economy, {
+          listReceiptsForApproval: () => Effect.succeed({ items: [] }),
+        }),
+      ),
+      unavailableAuthHandler,
+    );
+
+    it.each([
+      ["Session", "/api/session", 'VektorSession realm="native-api"'],
+      ["Person", "/api/profile", personChallenge],
+      ["PersonOrService", "/api/receipt-approval-queue", personChallenge],
+    ] as const)("for a %s-secured operation", async (_security, path, challenge) => {
+      const fetchWith = (headers: Record<string, string>) =>
+        classifyingBackend.fetch(new Request(`http://backend.test${path}`, { headers }));
+
+      for (const [headers, code] of [
+        [{}, "credential.missing"],
+        [{ cookie: "theme=dark; vp.session_token=opaque" }, "credential.missing"],
+        [{ cookie: `theme=dark; ${token}=unknown-session` }, "credential.invalid"],
+        [{ authorization: "Bearer unknown-token" }, "credential.invalid"],
+      ] as const) {
+        const response = await fetchWith(headers);
+
+        expect({
+          status: response.status,
+          code: (await response.json()).code,
+          challenge: response.headers.get("www-authenticate"),
+        }).toEqual({ status: 401, code, challenge });
+      }
+
+      expect((await fetchWith({ cookie: `theme=dark; ${token}=valid-session` })).status).toBe(200);
+    });
   });
 
   it("conceals missing, non-owned, and already-revoked session ids identically", async () => {

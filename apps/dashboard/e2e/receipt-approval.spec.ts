@@ -15,6 +15,12 @@ import {
   type Page,
   type Response as PlaywrightResponse,
 } from "@playwright/test";
+import {
+  ReceiptApprovalQueueResponse,
+  ReceiptListResponse,
+  ReceiptResource,
+} from "@vektorprogrammet/http-api";
+import { Schema } from "effect";
 import { z } from "zod";
 
 const execFileAsync = promisify(execFile);
@@ -88,7 +94,14 @@ const PDF_RECEIPT_FILE = {
   name: "receipt.pdf",
 } as const;
 
-const receiptStatusSchema = z.enum(["Pending", "Approved", "Rejected", "Withdrawn"]);
+/** Receipt bodies decode through the HTTP contract and reject undeclared members. */
+const exactDecoding = { onExcessProperty: "error" } as const;
+
+const decodeReceiptResource = Schema.decodeUnknownSync(ReceiptResource);
+
+const decodeOwnedReceiptPage = Schema.decodeUnknownSync(ReceiptListResponse);
+
+const decodeApprovalQueuePage = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse);
 
 const receiptProblemSchema = z
   .object({
@@ -99,34 +112,6 @@ const receiptProblemSchema = z
     detail: z.string(),
   })
   .passthrough();
-
-const receiptProjectionSchema = z
-  .object({
-    receiptId: z.string().min(1),
-    visualId: z.string().min(1),
-    ownerPersonId: z.string().min(1),
-    departmentId: z.string().min(1),
-    description: z.string().min(1),
-    amountOre: z.number().int().positive(),
-    currency: z.literal("NOK"),
-    receiptDate: z.string(),
-    status: receiptStatusSchema,
-    revision: z.number().int().nonnegative(),
-    etag: z.string().regex(/^"vkr2\./u),
-  })
-  .strict();
-
-const receiptResourceSchema = receiptProjectionSchema.extend({
-  submittedAt: z.string(),
-  approvedAt: z.string().nullable(),
-});
-
-const receiptPageSchema = z
-  .object({
-    items: z.array(receiptProjectionSchema),
-    nextCursor: z.string().optional(),
-  })
-  .strict();
 
 const fileIdentitySchema = z.array(
   z
@@ -148,9 +133,9 @@ const receiptMutationCountsSchema = z
   })
   .strict();
 
-type ReceiptProjection = z.infer<typeof receiptProjectionSchema>;
+type ReceiptProjection = (typeof ReceiptListResponse.Type)["items"][number];
 
-type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
+type ReceiptStatus = ReceiptProjection["status"];
 
 type ResolutionIntent = "approve" | "reject";
 
@@ -269,7 +254,7 @@ function sessionHeaders(cookie: string) {
 }
 
 const actionPath = (receiptId: string, intent: ResolutionIntent): string =>
-  `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}::${intent}`;
+  `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:${intent}`;
 
 const approvalFilePath = (receiptId: string): string =>
   `${BACKEND_ORIGIN}/api/receipt-approval-queue/${encodeURIComponent(receiptId)}/file`;
@@ -535,7 +520,7 @@ async function submitReceipt(
   });
 
   expect(response.status()).toBe(201);
-  const resource = receiptResourceSchema.parse(await response.json());
+  const resource = decodeReceiptResource(await response.json(), exactDecoding);
   expect(resource).toMatchObject({
     status: "Pending",
     revision: 0,
@@ -546,7 +531,7 @@ async function submitReceipt(
   });
 
   expect(ownedResponse.status()).toBe(200);
-  const owned = receiptPageSchema.parse(await ownedResponse.json());
+  const owned = decodeOwnedReceiptPage(await ownedResponse.json(), exactDecoding);
   const projection = owned.items.find((item) => item.receiptId === resource.receiptId);
 
   if (projection === undefined) {
@@ -560,7 +545,7 @@ async function listForApproval(
   request: APIRequestContext,
   cookie: string,
   status?: ReceiptStatus,
-): Promise<z.infer<typeof receiptPageSchema>> {
+): Promise<typeof ReceiptApprovalQueueResponse.Type> {
   const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
 
   const response = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue${query}`, {
@@ -569,7 +554,7 @@ async function listForApproval(
 
   expect(response.status()).toBe(200);
 
-  return receiptPageSchema.parse(await response.json());
+  return decodeApprovalQueuePage(await response.json(), exactDecoding);
 }
 
 async function authenticate(
@@ -1490,7 +1475,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     );
 
     expect(approvalReplayResponse.status()).toBe(200);
-    const approvalReplay = receiptResourceSchema.parse(await approvalReplayResponse.json());
+    const approvalReplay = decodeReceiptResource(await approvalReplayResponse.json(), exactDecoding);
     expect(approvalReplayResponse.headers()["etag"]).toBe(approvalReplay.etag);
     expect(approvalReplay).toMatchObject({
       receiptId: approvedReceipt.projection.receiptId,
@@ -1569,7 +1554,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     );
 
     expect(rejectReplayResponse.status()).toBe(200);
-    const rejectReplay = receiptResourceSchema.parse(await rejectReplayResponse.json());
+    const rejectReplay = decodeReceiptResource(await rejectReplayResponse.json(), exactDecoding);
     expect(rejectReplayResponse.headers()["etag"]).toBe(rejectReplay.etag);
     expect(rejectReplay).toMatchObject({
       receiptId: rejectReceipt.projection.receiptId,
@@ -1679,7 +1664,12 @@ test.describe("Native scoped Receipt approval journey", () => {
     );
 
     expect(externalResolutionResponse.status()).toBe(200);
-    const externalResolution = receiptResourceSchema.parse(await externalResolutionResponse.json());
+
+    const externalResolution = decodeReceiptResource(
+      await externalResolutionResponse.json(),
+      exactDecoding,
+    );
+
     expect(externalResolutionResponse.headers()["etag"]).toBe(externalResolution.etag);
     expect(externalResolution).toMatchObject({
       status: "Rejected",
@@ -1793,8 +1783,9 @@ test.describe("Native scoped Receipt approval journey", () => {
       throw new Error("Concurrent Receipt resolution did not produce exactly one winner and loser");
     }
 
-    const concurrentObservation = receiptResourceSchema.parse(
+    const concurrentObservation = decodeReceiptResource(
       await concurrentWinner.response.json(),
+      exactDecoding,
     );
 
     expect(concurrentWinner.response.headers()["etag"]).toBe(concurrentObservation.etag);
@@ -1825,7 +1816,12 @@ test.describe("Native scoped Receipt approval journey", () => {
     );
 
     expect(concurrentReplayResponse.status()).toBe(200);
-    const concurrentReplay = receiptResourceSchema.parse(await concurrentReplayResponse.json());
+
+    const concurrentReplay = decodeReceiptResource(
+      await concurrentReplayResponse.json(),
+      exactDecoding,
+    );
+
     expect(concurrentReplayResponse.headers()["etag"]).toBe(concurrentReplay.etag);
     expect(concurrentReplay).toEqual(concurrentObservation);
     await listForApproval(request, sessions.global.cookie);
@@ -1950,7 +1946,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       receiptCommandId(
         sessions.global.sessionPersonId,
         action === "approve" ? "receipts.approveReceipt" : "receipts.rejectReceipt",
-        `/api/receipts/${encodeURIComponent(receiptId)}::${action}`,
+        `/api/receipts/${encodeURIComponent(receiptId)}/${action}`,
         idempotencyKey,
       );
 
