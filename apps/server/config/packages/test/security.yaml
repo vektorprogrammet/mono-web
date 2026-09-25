@@ -1,4 +1,0 @@
-security:
-    firewalls:
-        secured_area:
-            login_throttling: false
