@@ -7,7 +7,7 @@ import { DashboardInput, DashboardInputJson, isDashboardRole, LandingSummary } f
 import {
   schedulingBoardFailureMessage,
   SchedulingBoard,
-  toRecruitmentBridgeFailure,
+  recruitmentFailureFromSdk,
 } from "../foldkit/recruitment/bridge";
 import { type SchedulingInput, LoadedSchedulingInput, FailedSchedulingInput } from "../foldkit/scheduling/model";
 import { createAuthenticatedClient } from "../lib/api.server";
@@ -46,7 +46,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         onExcessProperty: "error",
       })});
   } catch (error) {
-    const failure = toRecruitmentBridgeFailure(error);
+    const failure = recruitmentFailureFromSdk(error);
 
     if (Predicate.isTagged(failure, "Unauthorized")) throw await expiredSessionRedirect(request);
 

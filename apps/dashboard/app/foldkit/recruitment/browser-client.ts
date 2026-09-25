@@ -18,7 +18,7 @@ import {
   SchedulingBoard,
   ScheduleInterviewInputSchema,
   ScheduleInterviewResponse as ScheduleInterviewResponseSchema,
-  toRecruitmentBridgeFailure,
+  recruitmentNetworkFailure,
   type RecruitmentBridgeOperation,
   type RecruitmentInterviewConductResource,
 } from "./bridge";
@@ -89,26 +89,30 @@ const bridgeRequest = <A>(
   operation: RecruitmentBridgeOperation,
   schema: S.Decoder<A>,
 ): Effect.Effect<A, RecruitmentBridgeFailure> =>
-  Effect.tryPromise({
-    try: async () => {
-      const response = await fetch(`${import.meta.env.BASE_URL}recruitment`, {
+  Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: () => fetch(`${import.meta.env.BASE_URL}recruitment`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json", accept: "application/json" },
         body: S.encodeSync(RecruitmentBridgeOperationJson)(operation),
-      });
+      }),
+      catch: () => recruitmentNetworkFailure,
+    });
 
-      const payload: unknown = await response.json();
+    const payload = yield* Effect.promise(() => response.json().catch(() => null));
 
-      if (!response.ok) {
-        throw S.decodeUnknownSync(RecruitmentBridgeFailure)(payload, {
-          onExcessProperty: "error",
-        });
-      }
+    if (!response.ok) {
+      const failure = yield* S.decodeUnknownEffect(RecruitmentBridgeFailure)(payload, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError(() => recruitmentNetworkFailure));
 
-      return S.decodeUnknownSync(schema)(payload, {onExcessProperty: "error"});
-    },
-    catch: toRecruitmentBridgeFailure,
+      return yield* Effect.fail(failure);
+    }
+
+    return yield* S.decodeUnknownEffect(schema)(payload, { onExcessProperty: "error" }).pipe(
+      Effect.mapError(() => recruitmentNetworkFailure),
+    );
   });
 
 export const createBrowserRecruitmentClient = (): RecruitmentClient => ({

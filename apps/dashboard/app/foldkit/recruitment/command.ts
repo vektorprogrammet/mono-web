@@ -5,7 +5,6 @@ import {
   boardFailureMessage,
   CreateApplicationInterviewInputSchema,
   RecruitmentBoardStatus,
-  toRecruitmentBridgeFailure,
 } from "./bridge";
 import type {
   CreateApplicationInterviewInput,
@@ -43,7 +42,7 @@ export const commandsFor = (
           Effect.succeed(
             FailedLoadBoard({
               requestId,
-              message: boardFailureMessage(toRecruitmentBridgeFailure(error)),
+              message: boardFailureMessage(error),
             }),
           ),
         ),
@@ -63,7 +62,7 @@ export const commandsFor = (
         Effect.catch((error) =>
           Effect.succeed(
             FailedAssignment({
-              message: assignmentFailureMessage(toRecruitmentBridgeFailure(error)),
+              message: assignmentFailureMessage(error),
             }),
           ),
         ),

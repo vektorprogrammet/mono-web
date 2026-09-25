@@ -1,5 +1,5 @@
 import { nativeProblemFrom } from "../../lib/native-problem";
-import { Predicate, Match, Schema as S, flow, Option } from "effect";
+import { Match, Schema as S } from "effect";
 import { PublicApplicationIdSchema } from "@vektorprogrammet/http-api"
 import { CancelInterviewObservationSchema,
 FinalizeInterviewObservationSchema,
@@ -140,56 +140,44 @@ export const RecruitmentBridgeFailure = S.TaggedUnion({
 "Validation": { message: S.String },
 "Conflict": { message: S.String },
 "Network": { message: S.String },
-"RateLimited": { message: S.String },
-"Configuration": { message: S.String }
+"RateLimited": { message: S.String }
 });
 
 export type RecruitmentBridgeFailure = S.Schema.Type<typeof RecruitmentBridgeFailure>;
 
-export const toRecruitmentBridgeFailure = flow(
- S.decodeUnknownOption(S.Union([RecruitmentBridgeFailure, S.Struct({_tag: S.String}), S.Struct({body: S.Json}), S.Json])),
- Option.getOrUndefined,
- (error): RecruitmentBridgeFailure => {
-  if (S.is(RecruitmentBridgeFailure)(error)) return error;
+const failure = {
+  Unauthorized: RecruitmentBridgeFailure.cases.Unauthorized.make({ message: "Authentication is required" }),
+  Forbidden: RecruitmentBridgeFailure.cases.Forbidden.make({ message: "Recruitment access is denied" }),
+  NotFound: RecruitmentBridgeFailure.cases.NotFound.make({ message: "Recruitment record was not found" }),
+  Conflict: RecruitmentBridgeFailure.cases.Conflict.make({ message: "Recruitment state has changed" }),
+  Validation: RecruitmentBridgeFailure.cases.Validation.make({ message: "Recruitment input is invalid" }),
+  RateLimited: RecruitmentBridgeFailure.cases.RateLimited.make({ message: "Recruitment requests are rate limited" }),
+  Network: RecruitmentBridgeFailure.cases.Network.make({ message: "Recruitment request failed" }),
+} as const;
 
-  const problem = nativeProblemFrom(error);
+/** The browser's failure when the bridge is unreachable or answers outside its contract. */
+export const recruitmentNetworkFailure: RecruitmentBridgeFailure = failure.Network;
 
-  if (problem !== undefined) {
-    switch (problem.status) {
-      case 401:
-        return RecruitmentBridgeFailure.cases.Unauthorized.make({ message: "Authentication is required" });
-      case 403:
-        return RecruitmentBridgeFailure.cases.Forbidden.make({ message: "Recruitment access is denied" });
-      case 404:
-        return RecruitmentBridgeFailure.cases.NotFound.make({ message: "Recruitment record was not found" });
-      case 409:
-      case 412:
-      case 428:
-        return RecruitmentBridgeFailure.cases.Conflict.make({ message: "Recruitment state has changed" });
-      case 400:
-      case 413:
-      case 415:
-      case 422:
-        return RecruitmentBridgeFailure.cases.Validation.make({ message: "Recruitment input is invalid" });
-      case 429:
-        return RecruitmentBridgeFailure.cases.RateLimited.make({ message: "Recruitment requests are rate limited" });
-      case 500:
-      case 503:
-        return RecruitmentBridgeFailure.cases.Network.make({ message: "Recruitment request failed" });
-    }
-  }
+/**
+ * Projects a generated-SDK failure onto the bridge. Pass the SDK cause unchanged:
+ * the problem's registry status decides the case, and anything else is a transport failure.
+ */
+export const recruitmentFailureFromSdk = (cause: unknown): RecruitmentBridgeFailure => {
+  const problem = nativeProblemFrom(cause);
 
-  const tag =
-    Predicate.isObjectOrArray(error) && error !== null && "_tag" in error && Predicate.isString(error._tag)
-      ? error._tag
-      : "";
+  if (problem === undefined) return failure.Network;
 
-  if (tag.toLowerCase().includes("configuration")) {
-    return RecruitmentBridgeFailure.cases.Configuration.make({ message: "Recruitment is not configured" });
-  }
-
-  return RecruitmentBridgeFailure.cases.Network.make({ message: "Recruitment request failed" });
-});
+  return Match.value(problem.status).pipe(
+    Match.when(401, () => failure.Unauthorized),
+    Match.when(403, () => failure.Forbidden),
+    Match.when(404, () => failure.NotFound),
+    Match.whenOr(409, 412, 428, () => failure.Conflict),
+    Match.whenOr(400, 413, 415, 422, () => failure.Validation),
+    Match.when(429, () => failure.RateLimited),
+    Match.whenOr(405, 500, 503, () => failure.Network),
+    Match.exhaustive,
+  );
+};
 
 export const boardFailureMessage = (failure: RecruitmentBridgeFailure): string =>
   Match.value(failure._tag).pipe(
@@ -200,7 +188,6 @@ export const boardFailureMessage = (failure: RecruitmentBridgeFailure): string =
     Match.whenOr(
       "Network",
       "RateLimited",
-      "Configuration",
       () => "Søkeroversikten er midlertidig utilgjengelig. Prøv igjen senere.",
     ),
     Match.exhaustive,
@@ -224,7 +211,6 @@ export const assignmentFailureMessage = (failure: RecruitmentBridgeFailure): str
     Match.whenOr(
       "Network",
       "RateLimited",
-      "Configuration",
       () => "Intervjuet kunne ikke tildeles nå. Prøv igjen senere.",
     ),
     Match.exhaustive,
@@ -239,7 +225,6 @@ export const schedulingBoardFailureMessage = (failure: RecruitmentBridgeFailure)
     Match.whenOr(
       "Network",
       "RateLimited",
-      "Configuration",
       () => "Intervjuoversikten er midlertidig utilgjengelig. Prøv igjen senere.",
     ),
     Match.exhaustive,
@@ -261,7 +246,6 @@ export const schedulingFailureMessage = (failure: RecruitmentBridgeFailure): str
     Match.whenOr(
       "Network",
       "RateLimited",
-      "Configuration",
       () => "Intervjuet kunne ikke planlegges nå. Prøv igjen senere.",
     ),
     Match.exhaustive,
