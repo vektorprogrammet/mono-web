@@ -124,9 +124,9 @@ describe("canonical placement persistence", () => {
             yield* sql`INSERT INTO schools_directory_departments(school_id,department_id) VALUES(${schoolId},${otherDepartment})`;
             yield* sql`INSERT INTO organization_volunteer_affiliations(person_id,department_id,status,revision) VALUES(${coordinator},${scope.departmentId},'Active',1),(${volunteer},${otherDepartment},'Active',1)`;
             yield* sql`INSERT INTO assistant_placements(placement_id,person_id,department_id,semester_id,school_id,day,workdays,block,active,revision) VALUES
-              (${"placement-" + "3".repeat(64)},${coordinator},${scope.departmentId},${scope.semesterId},${schoolId},'Monday',4,'1',true,1),
-              (${"placement-" + "4".repeat(64)},${volunteer},${otherDepartment},${scope.semesterId},${schoolId},'Monday',4,'1',true,1),
-              (${"placement-" + "5".repeat(64)},${volunteer},${scope.departmentId},${otherSemester},${schoolId},'Monday',4,'1',true,1)`;
+              (${"placement-" + "a1".repeat(32)},${coordinator},${scope.departmentId},${scope.semesterId},${schoolId},'Monday',4,'1',true,1),
+              (${"placement-" + "a2".repeat(32)},${volunteer},${otherDepartment},${scope.semesterId},${schoolId},'Monday',4,'1',true,1),
+              (${"placement-" + "a3".repeat(32)},${volunteer},${scope.departmentId},${otherSemester},${schoolId},'Monday',4,'1',true,1)`;
             const ownPlacements = (yield* readOwnCoverage(scope, volunteer)).placements;
             const otherPlacements = (yield* readOwnCoverage(scope, coordinator)).placements;
 
@@ -140,7 +140,7 @@ describe("canonical placement persistence", () => {
       "placement-" + "2".repeat(64),
     ]);
     expect(observed.otherPlacements.map((placement) => placement.placementId)).toEqual([
-      "placement-" + "3".repeat(64),
+      "placement-" + "a1".repeat(32),
     ]);
     expect(observed.board.placements).toMatchObject([
       { active: false, revision: 3, day: "Friday", workdays: 8, block: "1" },
