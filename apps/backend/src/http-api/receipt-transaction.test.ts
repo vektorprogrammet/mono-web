@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Cause, Exit, Result, Predicate, Data, Effect } from "effect";
+import { Cause, Deferred, Exit, Result, Predicate, Data, Effect } from "effect";
 import { Database } from "@vektorprogrammet/database";
+import { AdvisoryLockKey, lockAdvisory } from "@vektorprogrammet/database/advisory-lock";
 import { DatabaseRuntimeLive } from "@vektorprogrammet/database/runtime";
 import { backendPostgres } from "../../test/postgres.js";
 import {
@@ -157,14 +158,26 @@ describe("native HTTP command receipt transaction", () => {
   );
 
   it("returns in-flight while a distinct PostgreSQL session holds the key lock", async () => {
-    await database.compete(
-      Database.use(
-        (sql) => sql`SELECT pg_advisory_lock(hashtextextended(${identity.identitySha256}, 0))`,
+    const held = Deferred.makeUnsafe<void>();
+    const release = Deferred.makeUnsafe<void>();
+
+    const holder = database.compete(
+      Database.use((sql) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* lockAdvisory(sql, AdvisoryLockKey.httpCommandReceipt(identity.identitySha256));
+            yield* Deferred.succeed(held, undefined);
+            yield* Deferred.await(release);
+          }),
+        ),
       ),
     );
+
     let executed = false;
 
     try {
+      await Promise.race([database.run(Deferred.await(held)), holder]);
+
       const execute = Effect.sync(() => {
         executed = true;
 
@@ -177,11 +190,8 @@ describe("native HTTP command receipt transaction", () => {
       expect(executed).toBe(false);
       expect(await database.run(persistedState)).toEqual({ revision: 0, receipts: 0 });
     } finally {
-      await database.compete(
-        Database.use(
-          (sql) => sql`SELECT pg_advisory_unlock(hashtextextended(${identity.identitySha256}, 0))`,
-        ),
-      );
+      await database.run(Deferred.succeed(release, undefined));
+      await holder;
     }
   });
 

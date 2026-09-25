@@ -1,6 +1,7 @@
 import { Schema, Predicate, Data, Effect } from "effect";
 import { isSqlError } from "effect/unstable/sql/SqlError";
 import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
+import { AdvisoryLockKey, tryLockAdvisory } from "@vektorprogrammet/database/advisory-lock";
 
 const sha256Pattern = /^[a-f0-9]{64}$/u;
 
@@ -85,10 +86,6 @@ interface NativeHttpReceiptRow {
   // PostgreSQL bytea decoding allocates an ArrayBuffer-backed Buffer.
   readonly bodyBytes: Uint8Array<ArrayBuffer> | null;
   readonly headers: unknown;
-}
-
-interface LockRow {
-  readonly acquired: boolean;
 }
 
 interface RedactionCountRow {
@@ -272,13 +269,12 @@ export const executeNativeHttpCommandPostgres = <EPrepare, RPrepare, EExecute, R
               : new NativeHttpReceiptInvalid({ reason: "invalid receipt identity" }),
         });
 
-        const lockRows = yield* sql<LockRow>`
-          SELECT pg_try_advisory_xact_lock(
-            hashtextextended(${identity.identitySha256}, 0)
-          ) AS acquired
-        `;
+        const acquired = yield* tryLockAdvisory(
+          sql,
+          AdvisoryLockKey.httpCommandReceipt(identity.identitySha256),
+        );
 
-        if (lockRows[0]?.acquired !== true) {
+        if (!acquired) {
           return NativeHttpCommandOutcome.InFlight({ retryAfterSeconds: 1 });
         }
 
