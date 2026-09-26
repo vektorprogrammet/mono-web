@@ -1,6 +1,7 @@
 import { selectLegacyTargetTransport } from "./legacy-database-transport";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {

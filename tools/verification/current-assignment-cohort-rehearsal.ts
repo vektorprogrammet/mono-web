@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import process from "node:process";
 import { Schema, flow, Match, Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import {

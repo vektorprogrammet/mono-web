@@ -1,5 +1,6 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
+import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Database } from "@vektorprogrammet/database";
 import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";

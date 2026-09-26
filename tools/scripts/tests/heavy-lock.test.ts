@@ -3,6 +3,8 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { Buffer } from "node:buffer";
+import process from "node:process";
 import { heavyLockVariable } from "../heavy-lock.js";
 
 // The tests run real measure-job and hook-slot processes against their own lock directory, so the

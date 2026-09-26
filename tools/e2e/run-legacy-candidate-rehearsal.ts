@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import process from "node:process";
 import { postgresProgram } from "@monoweb/postgres";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
 import { DepartmentId, OrganizationReview, PersonId } from "@vektorprogrammet/domain/organization";

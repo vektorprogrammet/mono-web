@@ -1,5 +1,7 @@
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { Buffer } from "node:buffer";
+import process from "node:process";
 import { deliverJson } from "@vektorprogrammet/backend/delivery/http";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { Database } from "@vektorprogrammet/database";

@@ -21,6 +21,8 @@ import {
 } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Buffer } from "node:buffer";
+import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import {
   loopbackPortFree,

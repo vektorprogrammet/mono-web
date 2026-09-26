@@ -1,5 +1,6 @@
 /** Operator-only bounded retry of durable receipt work. No business command is issued. */
 import { randomUUID } from "node:crypto";
+import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";

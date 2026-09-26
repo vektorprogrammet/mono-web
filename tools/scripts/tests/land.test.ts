@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import process from "node:process";
 
 // Each test lands a branch in its own repository: a main checkout and a linked worktree of the
 // branch `feature`. Git must not see the variables of a hook that runs the tests, nor the user's

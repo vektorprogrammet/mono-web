@@ -27,6 +27,8 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Buffer } from "node:buffer";
+import process from "node:process";
 import { Pool } from "pg";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { ReturningAssistantsLive } from "@vektorprogrammet/database/application";

@@ -7,6 +7,7 @@ import { runReceiptDeliveryWorker } from "./receipt/worker.js";
 import { runPasswordResetDeliveryWorker } from "./password-recovery/worker.js";
 import { HttpMailLive } from "./mail/http.js";
 import { randomUUID } from "node:crypto";
+import process from "node:process";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, databaseHealth } from "@vektorprogrammet/database";

@@ -25,6 +25,30 @@ const group = <T extends Omit<ExpandInput["groups"][number], "severityOverrides"
   severityOverrides: advisorySeverity,
 });
 
+// Bun implements these Node modules, and the Bun groups import them beside Bun's own modules.
+// The rule admits extra modules but no globals, so these files import `process` and `Buffer` too.
+const bunNodeModules = {
+  "no-cross-runtime": {
+    extraAllowedModules: [
+      "node:assert/strict",
+      "node:buffer",
+      "node:child_process",
+      "node:crypto",
+      "node:events",
+      "node:fs",
+      "node:fs/promises",
+      "node:http",
+      "node:module",
+      "node:net",
+      "node:os",
+      "node:path",
+      "node:process",
+      "node:timers/promises",
+      "node:url",
+    ],
+  },
+};
+
 // Oxlint matches override globs without extglob support, so `!(…)` patterns match nothing.
 // Groups therefore use plain globs, ordered from broad sources to narrow exceptions:
 // the last matching group decides every Effect rule for a file (see `totalOverrides`).
@@ -84,8 +108,6 @@ const effectConfig = {
       files: [
         "tools/acceptance/**/*.ts",
         "tools/verification/**/*.ts",
-        "apps/backend/src/main.ts",
-        "apps/backend/src/**/*-main.ts",
         "packages/database/runtime/**/*-main.ts",
         "packages/database/src/**/*-main.ts",
         "packages/database/src/**/*-cli.ts",
@@ -123,10 +145,43 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
-      files: ["tools/e2e/legacy-candidate-native-journey.ts"],
+      // Bun runs these composition roots and the journey runtimes that they share.
+      files: [
+        "apps/backend/src/main.ts",
+        "apps/backend/src/**/*-main.ts",
+        "tools/acceptance/password-recovery-check.ts",
+        "tools/e2e/golden-harness.ts",
+        "tools/e2e/golden-harness-self-test.ts",
+        "tools/e2e/legacy-candidate-native-journey.ts",
+        "tools/e2e/legacy-organization-rehearsal-runtime.ts",
+        "tools/e2e/public-application-outbox-driver.ts",
+        "tools/e2e/record-native-recruitment-invitation-response.ts",
+        "tools/e2e/record-native-recruitment-invitation.ts",
+        "tools/e2e/run-legacy-*.ts",
+        "tools/verification/completion-receipt-postgres-proof-main.ts",
+        "tools/verification/current-assignment-cohort-cli.ts",
+        "tools/verification/current-assignment-cohort-rehearsal.ts",
+        "tools/verification/identity-cohort-rehearsal.ts",
+        "tools/verification/organization-import-rehearsal-main.ts",
+        "tools/verification/receipt-import-rehearsal.ts",
+      ],
       role: "composition-root",
-      platform: "node",
+      platform: "bun",
       strictness: "recommended",
+      ruleOptions: bunNodeModules,
+    }),
+    group({
+      // Bun runs these suites, and the journeys take their file locks through Bun's FFI.
+      files: [
+        "tools/conventions/tests/*.test.ts",
+        "tools/e2e/safe-file-io.ts",
+        "tools/scripts/tests/*.test.ts",
+        "tools/source-safety/tests/source-safety.test.ts",
+      ],
+      role: "test",
+      platform: "bun",
+      strictness: "recommended",
+      ruleOptions: bunNodeModules,
     }),
   ],
 } satisfies ExpandInput;
@@ -243,33 +298,6 @@ export default defineConfig({
     },
     {
       files: [
-        "apps/backend/src/main.ts",
-        "apps/backend/src/password-recovery/drain-main.ts",
-        "apps/backend/src/receipt/drain-main.ts",
-        "tools/e2e/legacy-candidate-native-journey.ts",
-        "tools/e2e/legacy-organization-rehearsal-runtime.ts",
-        "tools/e2e/public-application-outbox-driver.ts",
-        "tools/e2e/record-native-recruitment-invitation-response.ts",
-        "tools/e2e/record-native-recruitment-invitation.ts",
-        "tools/e2e/run-legacy-backup-person-rehearsal.ts",
-        "tools/e2e/run-legacy-candidate-rehearsal.ts",
-        "tools/e2e/run-legacy-current-assignment-rehearsal.ts",
-        "tools/e2e/run-legacy-organization-rehearsal.ts",
-        "tools/e2e/run-legacy-receipt-import.ts",
-        "tools/e2e/run-legacy-receipt-rehearsal.ts",
-        "tools/e2e/run-legacy-service-cutover.ts",
-        "tools/verification/completion-receipt-postgres-proof-main.ts",
-        "tools/verification/current-assignment-cohort-cli.ts",
-        "tools/verification/current-assignment-cohort-rehearsal.ts",
-        "tools/verification/identity-cohort-rehearsal.ts",
-      ],
-      rules: {
-        // These Bun composition roots combine platform-bun with Node-compatible process APIs.
-        "effect/no-cross-runtime": "off",
-      },
-    },
-    {
-      files: [
         "apps/backend/src/native-operation.ts",
         "packages/database/src/oauth-live.ts",
         "packages/database/src/password-recovery.ts",
@@ -277,24 +305,6 @@ export default defineConfig({
       rules: {
         // These named adapters are the explicit Effect-to-Promise or synchronous interoperability seam.
         "effect/no-premature-execution": "off",
-      },
-    },
-    {
-      files: [
-        "tools/source-safety/tests/source-safety.test.ts",
-        "tools/conventions/tests/*.test.ts",
-        "tools/scripts/tests/*.test.ts",
-      ],
-      rules: {
-        // Bun runs these suites; they drive the Node-compatible Git and filesystem seams.
-        "effect/no-cross-runtime": "off",
-      },
-    },
-    {
-      files: ["tools/acceptance/password-recovery-check.ts", "tools/scripts/changelog.ts"],
-      rules: {
-        // These Bun entrypoints intentionally use Bun-native lifecycle APIs beside Node compatibility APIs.
-        "effect/no-cross-runtime": "off",
       },
     },
     // Source-import exemptions. Each entry names why an export-map import is not yet possible.

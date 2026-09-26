@@ -1,3 +1,4 @@
+import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Config, Effect, Layer, Redacted } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";

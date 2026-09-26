@@ -18,6 +18,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { Buffer } from "node:buffer";
+import process from "node:process";
 import {
   type DisposablePostgres,
   postgresProgram,

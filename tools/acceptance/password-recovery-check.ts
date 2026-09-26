@@ -7,6 +7,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import process from "node:process";
 import { Predicate, Console, Effect, Layer, Schema } from "effect";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
 import { MailDeliveryRequest, Mail } from "../../packages/domain/src/mail.js";

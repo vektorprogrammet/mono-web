@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, OAUTH_NATIVE_API_RESOURCE } from "@vektorprogrammet/database";

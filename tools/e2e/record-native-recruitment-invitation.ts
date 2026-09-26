@@ -1,6 +1,7 @@
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import process from "node:process";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";

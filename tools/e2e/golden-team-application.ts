@@ -11,9 +11,9 @@
  * Faults: GOLDEN_TEAM_APPLICATION_FAULT=after-submitted|interrupt-after-submitted
  */
 import { join } from "node:path";
-import type * as BunServices from "@effect/platform-bun/BunServices";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
-import { Effect, Exit, FileSystem, Scope } from "effect";
+import { Crypto, Effect, Exit, FileSystem, Path, Scope, Stdio, Terminal } from "effect";
+import type { ChildProcessSpawner } from "effect/unstable/process";
 import {
   runTeamApplicationBrowser,
   teamApplicationCheckpoints,
@@ -323,7 +323,16 @@ const journey: GoldenJourney = {
         attempts: provider.attempts,
       });
 
-      const services = yield* Effect.context<Scope.Scope | BunServices.BunServices>();
+      const services = yield* Effect.context<
+        | Scope.Scope
+        | ChildProcessSpawner.ChildProcessSpawner
+        | Crypto.Crypto
+        | FileSystem.FileSystem
+        | Path.Path
+        | Stdio.Stdio
+        | Terminal.Terminal
+      >();
+
       const run = Effect.runPromiseWith(services);
 
       const checks = yield* fromAbortable(

@@ -1,3 +1,4 @@
+import process from "node:process";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";

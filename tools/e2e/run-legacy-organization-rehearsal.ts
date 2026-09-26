@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { chmod, lstat, mkdir, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import process from "node:process";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { reachedDepartments, ReachedDepartments } from "@vektorprogrammet/domain/authz";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";

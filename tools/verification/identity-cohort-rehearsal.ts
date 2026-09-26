@@ -8,6 +8,7 @@ import { mkdtemp, readFile, writeFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer as createHttpServer } from "node:http";
+import process from "node:process";
 import { Pool } from "pg";
 import {
   type DisposablePostgres,
