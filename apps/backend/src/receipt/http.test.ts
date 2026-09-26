@@ -71,6 +71,7 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { Predicate, DateTime, Effect, Layer, Schema, Struct } from "effect";
 import { describe, expect, it } from "@effect/vitest";
+import { jsonText } from "../http-api/problem.js";
 import { deriveHttpIdentity, deriveStrongETag } from "../http-semantics.js";
 import {
   makeInternalReceiptTestHttp,
@@ -927,7 +928,7 @@ describe("receipt v0.2 HTTP contract", () => {
       expect(response.headers.get("cache-control")).toBe("private, no-store");
       expect(body).toEqual({
         items: [
-          Schema.decodeSync(ReceiptListItem)({
+          yield* Schema.decodeEffect(ReceiptListItem)({
             ...pendingReceipt(),
             amountOre: 1200,
             settlement: null,
@@ -1239,7 +1240,9 @@ describe("receipt v0.2 HTTP contract", () => {
       const submitState = harness();
       const submitted = yield* submitRequest(submitState.http, "submit-http-replay-key-0001");
       const submittedBody = yield* readJson(submitted);
-      expect(Schema.decodeUnknownSync(ReceiptResource)(submittedBody).approvedAt).toBeNull();
+      expect(
+        (yield* Schema.decodeUnknownEffect(ReceiptResource)(submittedBody)).approvedAt,
+      ).toBeNull();
       const submitReplay = yield* submitRequest(submitState.http, "submit-http-replay-key-0001");
       expect(submitted.status).toBe(201);
       expect(submitReplay.status).toBe(201);
@@ -1425,8 +1428,9 @@ describe("receipt v0.2 HTTP contract", () => {
 
         expect(exact.status).toBe(200);
         expect(
-          Schema.decodeUnknownSync(ReceiptResource)(yield* Effect.promise(() => exact.json()))
-            .approvedAt,
+          (yield* Schema.decodeUnknownEffect(ReceiptResource)(
+            yield* Effect.promise(() => exact.json()),
+          )).approvedAt,
         ).toBe(action === "approve" ? "2026-08-24T12:00:00.000Z" : null);
         expect(state.commands).toHaveLength(1);
         {
@@ -1515,12 +1519,12 @@ describe("receipt v0.2 HTTP contract", () => {
 
         expect(response.status, yield* Effect.promise(() => response.clone().text())).toBe(503);
 
-        const body = Schema.decodeUnknownSync(ReceiptsReopenReceiptProblem)(
+        const body = yield* Schema.decodeUnknownEffect(ReceiptsReopenReceiptProblem)(
           yield* Effect.promise(() => response.json()),
         );
 
         expect(body).toMatchObject({ code: "receipts.unavailable" });
-        expect(JSON.stringify(body)).not.toContain("private SQL details");
+        expect(yield* jsonText(body)).not.toContain("private SQL details");
         expect(yield* state.nativeReceiptCount()).toBe(0);
       }),
   );
@@ -1561,7 +1565,7 @@ describe("receipt v0.2 HTTP contract", () => {
                   receipt: {
                     ...receipt,
                     receiptId: grant.receiptId,
-                    visualId: Schema.decodeSync(ReceiptResource.fields.visualId)(visualId),
+                    visualId: yield* Schema.decodeEffect(ReceiptResource.fields.visualId)(visualId),
                     ownerPersonId: personId,
                   },
                 },
@@ -1579,7 +1583,7 @@ describe("receipt v0.2 HTTP contract", () => {
 
           expect(listed.status).toBe(200);
 
-          const body = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse)(
+          const body = yield* Schema.decodeUnknownEffect(ReceiptApprovalQueueResponse)(
             yield* Effect.promise(() => listed.json()),
           );
 
@@ -1717,7 +1721,7 @@ describe("receipt v0.2 HTTP contract", () => {
           `/api/receipt-approval-queue?status=${row.status}`,
         );
 
-        const body = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse)(
+        const body = yield* Schema.decodeUnknownEffect(ReceiptApprovalQueueResponse)(
           yield* Effect.promise(() => listed.json()),
         );
 
