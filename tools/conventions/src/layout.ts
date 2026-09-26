@@ -222,6 +222,12 @@ export const toolImportExceptions = [
     reason:
       "Browser evidence drivers share the golden harness: the local backend environment, evidence digests, and the delivery sink.",
   },
+  {
+    tool: "tools/conventions",
+    importers: ["apps/docs/"],
+    reason:
+      "The documentation site is the only producer of documentation: it renders the content folders and calls the extractors that read the code, such as the layout declaration, the module guide summaries, and the construct pages.",
+  },
 ] satisfies ReadonlyArray<ToolImportException>;
 
 /** Root `package.json` scripts: only what Bun, Turbo, and tools run. People run `just` recipes. */

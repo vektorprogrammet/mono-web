@@ -27,10 +27,10 @@ export default defineConfig({
           crawlLinks: true,
         },
       },
-
+      // The crawl starts at the start page, whose navigation links every other page.
       pages: [
         {
-          path: "/docs",
+          path: "/",
         },
         {
           path: "/api/search",

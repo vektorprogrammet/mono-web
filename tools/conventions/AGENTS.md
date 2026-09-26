@@ -7,7 +7,9 @@ Package `@monoweb/conventions`.
 
 ## Entry points
 
-The package has no `exports`, so other packages do not import it.
+| Import                        | Module                         |
+| ----------------------------- | ------------------------------ |
+| `@monoweb/conventions/layout` | [src/layout.ts](src/layout.ts) |
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

@@ -1,28 +1,12 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { HomeLayout } from "fumadocs-ui/layouts/home";
-import { baseOptions } from "@/lib/layout.shared";
+import { createFileRoute } from "@tanstack/react-router";
+import { DocsRoutePage, loadPage } from "@/components/docs-page";
 
+// The home page is the start page of the documentation, which includes the README.
 export const Route = createFileRoute("/")({
   component: Home,
+  loader: () => loadPage([]),
 });
 
 function Home() {
-  return (
-    <HomeLayout {...baseOptions()}>
-      <div className="flex flex-col items-center justify-center text-center flex-1">
-        <h1 className="font-medium text-xl mb-4">
-          Documentation for the Vektorprogrammet native replacement.
-        </h1>
-        <Link
-          to="/docs/$"
-          params={{
-            _splat: "",
-          }}
-          className="px-3 py-2 rounded-lg bg-fd-primary text-fd-primary-foreground font-medium text-sm mx-auto"
-        >
-          Open Docs
-        </Link>
-      </div>
-    </HomeLayout>
-  );
+  return <DocsRoutePage data={Route.useLoaderData()} />;
 }

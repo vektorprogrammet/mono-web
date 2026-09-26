@@ -10,6 +10,13 @@ export const gitConfig = {
   branch: "main",
 };
 
+/**
+ * The route of the page with these slugs: the start page, which includes the README, at the root
+ * of the site, and every other page below `/docs`.
+ */
+export const urlOf = (slugs: ReadonlyArray<string>): string =>
+  slugs.length === 0 ? "/" : `${docsRoute}/${slugs.join("/")}`;
+
 const getDocsUrl = createGetUrl(docsRoute);
 
 export function getPageMarkdownUrl(page: { slugs: string[]; locale?: string }) {
