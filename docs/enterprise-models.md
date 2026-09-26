@@ -80,14 +80,14 @@ has started or is authorized.
 | `BR-10` | A file path, team label, menu role, or pool membership does not grant business authority.                                 | [Expense reimbursement](system.md#expense-reimbursement) and [Authority model](system.md#authority-model) |
 | `BR-11` | Receipt approval does not imply payment or bank-settlement authority.                                                     | [Reimburse an expense](operational-responsibility-map.md#reimburse-an-expense)                            |
 | `BR-12` | Production data, providers, deployment, writer transfer, and destructive actions need explicit operator authority.        | [Cutover gates and authority](operational-responsibility-map.md#cutover-gates-and-authority)              |
-| `BR-13` | A recommendation must not imply an admission decision. Add that decision only after the organization defines it.          | [Recruitment and affiliation](system.md#recruitment-and-affiliation)                                      |
+| `BR-13` | An admission outcome is explicit: admitted, substitute, or rejected. A Kanskje recommendation implies no outcome.         | [Recruitment and affiliation](system.md#recruitment-and-affiliation)                                      |
 
 ```mermaid
 flowchart LR
   BR05["BR-05 Scoped authority"] --> BR06["BR-06 Default deny"]
   BR01["BR-01 Separate identities and relationships"] --> BR02["BR-02 Membership is not affiliation"]
   BR01 --> BR03["BR-03 Separate recruitment decisions"]
-  BR03 --> BR13["BR-13 No inferred admission decision"]
+  BR03 --> BR13["BR-13 Explicit admission outcome"]
   BR04["BR-04 Human placement confirmation"] --> G02["G-02 Demand and supply"]
   BR07["BR-07 Atomic durable effects"] --> BR08["BR-08 Post-commit delivery"]
   BR10["BR-10 Labels and paths grant no authority"] --> BR05
@@ -170,8 +170,8 @@ flowchart LR
   BP01 --> BP02 --> BP03 --> BP04 --> BP05 --> BP06 --> BP07 --> BP08 --> BP09
 ```
 
-The sequence does not contain a generic accepted-applicant state. `BR-13` governs
-any future admission decision.
+The sequence does not contain a generic accepted-applicant state. `BR-13` records the
+admission outcome separately. A substitute is admitted without a placement and is on call.
 
 #### Plan and deliver school service
 
@@ -184,8 +184,8 @@ flowchart LR
   BP14["BP-14 Confirm roster"]
   SVCPlan["Establish dated commitment and assignments"]
   BP15["BP-15 Notify participants"]
-  BP17["BP-17 Resolve absence or substitution"]
-  BP16["BP-16 Record actual attendance or no attendance"]
+  BP17["BP-17 Record absence and who covered it"]
+  BP16["BP-16 Derive attendance from roster, absences, and coverage"]
   BP18["BP-18 Record terminal decision and evidence"]
   Completed["Completed"]
   Cancelled["Cancelled"]
@@ -207,7 +207,8 @@ flowchart LR
 
 This target process covers `CAP-SVC` and `CAP-SUB`. A terminal decision records its evidence atomically.
 Covered and Uncovered describe an absence, not the whole service outcome.
-Completion requires actual attendance that meets demand. Cancellation records no attendance.
+Completion requires actual attendance that meets demand. Attendance is the confirmed roster minus
+absent assistants plus the people in coverage records. Cancellation records no attendance.
 Certificates are outside the mandatory core path. [State](../STATE.md#next) records unresolved operational obligations.
 
 #### Reimburse an expense
@@ -400,7 +401,7 @@ flowchart TB
     BPR01["BUS-PRC01 Recruit and onboard volunteer"]
     BPR02["BUS-PRC02 Establish affiliation"]
     BPR03["BUS-PRC03 Plan and deliver school service"]
-    BPR04["BUS-PRC04 Resolve substitute coverage"]
+    BPR04["BUS-PRC04 Record substitute coverage"]
     BPR05["BUS-PRC05 Reimburse expense"]
   end
 

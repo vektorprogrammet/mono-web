@@ -82,7 +82,7 @@ A coordinator records school demand and reviews an assignment proposal.
 Roster confirmation freezes the plan and queues notifications. It does not record attendance.
 
 A dated commitment then names a school, a service interval, the required number of assistants, and their scheduled assignments.
-An absence or acknowledged substitute changes the dated situation without rewriting the original semester plan.
+An absence and the record of who covered it change the dated situation without rewriting the original semester plan.
 
 The terminal outcomes have different meanings:
 
@@ -219,7 +219,7 @@ The Placements HTTP adapter handles transport concerns and calls the service ins
 The service holds the department lock across its precondition, transition, audit, history, and outbox writes.
 
 This boundary permits changes to SQL or internal structure without changing what a caller's operation means.
-It does not imply that every older module already has the same boundary. Substitutes still has direct backend-to-database calls.
+It does not imply that every older module already has the same boundary.
 
 Sources: [domain services](architecture.md#domain-services), [Placements service](../packages/domain/src/placements/service.ts), [Placements HTTP adapter](../apps/backend/src/placements/http.ts), [domain exports](../packages/domain/package.json), [database exports](../packages/database/package.json).
 
@@ -369,8 +369,8 @@ Consider an illustrative school visit. These are not a live school's records.
 
 1. **Plan.** A coordinator records demand and confirms a reviewed roster. The server retains the plan and queues notifications.
 2. **Make a dated commitment.** The coordinator selects the school, interval, and required demand. Scheduled assistants come from the confirmed roster.
-3. **Handle an absence.** A scheduled volunteer reports an absence. A coordinator offers coverage to an eligible substitute. Acceptance and acknowledgement remain separate facts.
-4. **Record attendance.** After the visit, the coordinator records evidence. The dashboard submits a typed command with its revision and command identity.
+3. **Handle an absence.** A scheduled volunteer reports an absence. The volunteer and a substitute agree on cover in Slack. The volunteer or a coordinator then records who covered the date.
+4. **Record the outcome.** After the visit, the coordinator records the outcome and its evidence. Attendance follows from the roster, the absence, and the coverage record. The dashboard submits a typed command with its revision and command identity.
 5. **Check authority.** The backend authenticates the person and resolves current scope inside the transaction.
 6. **Apply the business rule.** The service checks the requested outcome against attendance and demand.
 7. **Commit and show the result.** The transaction retains the outcome and evidence. The dashboard displays the server result.
@@ -396,7 +396,8 @@ The worker retries the retained effect rather than repeat the original decision.
 <details>
 <summary>What if too few assistants attended?</summary>
 
-The system cannot label the commitment Completed without sufficient attendance evidence.
+The system cannot label the commitment Completed when attendance is below demand.
+Attendance is the confirmed roster minus absent assistants plus the people in coverage records.
 Unfulfilled records unmet demand and actual attendance instead of inventing success.
 
 </details>

@@ -24,12 +24,13 @@
 - Stop the backend on delivery infrastructure failure. Prove failure, restart, stale ownership, interruption, and recovery against disposable PostgreSQL.
 - Add an operations guide and the `verify:delivery-recovery` command. Real-provider acceptance remains separate.
 
-### Substitutes operational boundary
+### Substitutes as an admission outcome
 
-- Expose complete pool queries and commands through the portable Substitutes service. Keep SQL helpers private.
-- Preserve caller authority, transaction ownership, response receipts, and precondition priority. Keep legal transition decisions outside SQL.
-- Extend the continuous golden journey through pool eligibility, absence, delivery recovery, acceptance, acknowledgement, actual attendance, and occurrence-linked closure.
-- Add a consumer and maintainer guide with an executable public-import example.
+- Record each application's admission outcome (admitted, substitute, or rejected) as append-only revisions. Admission management decides; other department members see only the substitutes on call and their contact.
+- Record absences and who covered each lesson date. People agree on cover in Slack. A coverage record names an on-call substitute or another assistant and reserves that person's service interval.
+- Derive attendance from the confirmed roster, the absences, and the current coverage records. Terminal decisions no longer take an attendee list.
+- Remove the substitute pool, offers, responses, acknowledgements, and the dispatch notification worker. The migration turns acknowledged coverage into coverage records and keeps closures and audit history.
+- Turn `/dashboard/vikarer` into the on-call list and the outcome register. Rewrite `e2e:real-substitutes` and the substitute part of the golden school-service journey.
 
 ### Source-bound documentation CI
 
@@ -146,7 +147,7 @@
 
 - Identify absent people separately from reporters and substitutes.
 - Show actual attendee names and the deciding actor identifier on terminal service cards. State empty attendance explicitly.
-- Reuse authorized assignment and substitute-offer facts, with stable-ID fallbacks and wrapping for long identifiers.
+- Reuse authorized assignment and coverage-record facts, with stable-ID fallbacks and wrapping for long identifiers.
 - Verify native PostgreSQL and browser journeys, all terminal outcomes, reload, scope isolation, keyboard controls, mobile layout, and accessibility.
 
 ### Requested interview rebooking
