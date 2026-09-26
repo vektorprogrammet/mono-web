@@ -106,8 +106,11 @@ let lastTeamInterestFilter: {
   semesterId?: string;
 };
 
+// The departments that the organization store holds; a test may empty it.
+let storedDepartments = [department, secondDepartment];
+
 const organization = {
-  listDepartments: Effect.succeed([department, secondDepartment]),
+  listDepartments: Effect.sync(() => storedDepartments),
   listTeams: () => Effect.succeed([]),
   listFieldOfStudies: Effect.succeed([]),
   listTeamInterestRegistrations: (filter: {
@@ -395,6 +398,19 @@ describe("spec 0059 team-interest HTTP boundary", () => {
       "department-1",
       "department-2",
     ]);
+  });
+
+  it("gives a global administrator an empty success while no department exists", async () => {
+    storedDepartments = [];
+
+    try {
+      const teamInterest = await get("/api/team-interest-registrations", "session=admin-session");
+
+      expect(teamInterest.status).toBe(200);
+      expect(await teamInterest.json()).toEqual({ "hydra:member": [], "hydra:totalItems": 0 });
+    } finally {
+      storedDepartments = [department, secondDepartment];
+    }
   });
 
   it("rejects an unknown mailing-list type at the decode boundary", async () => {

@@ -672,8 +672,8 @@ const optionalQueryIdentity = <S extends Schema.ConstraintDecoder<unknown, never
 
 /**
  * Spec 0059/0060 gating: the departments where the person holds the capability through a board
- * leadership, a delegation or the global-administrator grant; all departments for a reach over
- * the whole organization.
+ * leadership, a delegation or the global-administrator grant. A reach over the whole organization
+ * authorizes every department, also while there is none.
  */
 const authorizedDepartmentScope = (
   authority: OrganizationPersonAuthority,
@@ -682,11 +682,15 @@ const authorizedDepartmentScope = (
   Effect.gen(function* () {
     const reached = reachedDepartments(authority, capability);
 
-    if (ReachedDepartments.$is("Departments")(reached)) return reached.departmentIds;
+    if (ReachedDepartments.$is("Departments")(reached))
+      return { organizationWide: false, departmentIds: reached.departmentIds };
 
     const departments = yield* Organization.use(({ listDepartments }) => listDepartments);
 
-    return departments.map((department) => department.departmentId);
+    return {
+      organizationWide: true,
+      departmentIds: departments.map((department) => department.departmentId),
+    };
   });
 
 /** Narrows the authorized scope; out-of-scope known department denies with 403. */
@@ -791,7 +795,8 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
     // An authenticated caller without team-interest reach receives a typed denial, never an
     // empty success (spec 0059 authorization boundary). A team's current leader reads the
     // registrations of that team; department reach reads the whole department.
-    const departmentScope = yield* authorizedDepartmentScope(authority, "team-interest.read");
+    const scope = yield* authorizedDepartmentScope(authority, "team-interest.read");
+    const departmentScope = scope.departmentIds;
 
     const teamScope = reachedTeams(authority, "team-interest.read").flatMap((teamId) => {
       const membership = authority.memberships.find((entry) => entry.teamId === teamId);
@@ -799,7 +804,7 @@ const listTeamInterest = (request: Request, input: OrganizationApiHttpOptions) =
       return membership === undefined ? [] : [{ teamId, departmentId: membership.departmentId }];
     });
 
-    if (departmentScope.length === 0 && teamScope.length === 0) {
+    if (!scope.organizationWide && departmentScope.length === 0 && teamScope.length === 0) {
       return yield* Problem.make("authority.denied");
     }
 
@@ -866,13 +871,13 @@ const listMailingLists = (request: Request, input: OrganizationApiHttpOptions) =
 
     const authority = yield* input.resolveAuthority(request);
     const requested = yield* optionalQueryIdentity(request, "department", DepartmentId);
-    const departmentScope = yield* authorizedDepartmentScope(authority, "people.read");
+    const scope = yield* authorizedDepartmentScope(authority, "people.read");
 
-    if (departmentScope.length === 0) {
+    if (!scope.organizationWide && scope.departmentIds.length === 0) {
       return yield* Problem.make("authority.denied");
     }
 
-    const authorized = yield* narrowScopeOrThrow(departmentScope, requested);
+    const authorized = yield* narrowScopeOrThrow(scope.departmentIds, requested);
 
     if (requested !== undefined) yield* assertDepartmentsExist([requested]);
     yield* authorizeOrganizationCollection({
