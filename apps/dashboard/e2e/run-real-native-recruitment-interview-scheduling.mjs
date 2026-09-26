@@ -786,43 +786,6 @@ function assertRecordingEvidence(recording, before, after) {
   assertEqual(after.counts, before.counts, "Post-interpretation scheduling row counts");
 }
 
-async function warmDashboardClient(environment) {
-  const source = `
-    import { chromium } from "@playwright/test";
-    const browser = await chromium.launch({
-      headless: true,
-      executablePath:
-        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
-        "/etc/profiles/per-user/nori/bin/chromium-browser",
-    });
-    try {
-      const page = await browser.newPage();
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const response = await page.goto(${JSON.stringify(`${dashboardOrigin}/login`)}, {
-          waitUntil: "domcontentloaded",
-        });
-        if (response === null || !response.ok()) {
-          throw new Error("Dashboard client warm-up did not load the login route");
-        }
-        await page.waitForTimeout(3_000);
-      }
-    } finally {
-      await browser.close();
-    }
-  `;
-
-  await runCommand(
-    process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-    ["--input-type=module", "--eval", source],
-    {
-      cwd: dashboardRoot,
-      env: environment,
-      label: "Dashboard client dependency warm-up",
-      captureOutput: true,
-    },
-  );
-}
-
 async function main() {
   await Promise.all([
     assertPortAvailable(dashboardPort),
@@ -1002,20 +965,26 @@ async function main() {
       env: journeyEnvironment,
       label: "Native scheduling SDK build",
     });
-    dashboardProcess = startProcess(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      [
-        "node_modules/@react-router/dev/dist/cli/index.js",
-        "dev",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(dashboardPort),
-      ],
-      { cwd: dashboardRoot, env: journeyEnvironment },
-    );
+
+    // The journey serves the production build, whose bundles are never re-optimized and reloaded
+    // under a navigating browser as a dev server's are.
+    const dashboardEnvironment = {
+      ...journeyEnvironment,
+      HOST: "127.0.0.1",
+      PORT: String(dashboardPort),
+      NODE_ENV: "production",
+    };
+
+    await runCommand("bun", ["run", "build"], {
+      cwd: dashboardRoot,
+      env: dashboardEnvironment,
+      label: "Native scheduling dashboard production build",
+    });
+    dashboardProcess = startProcess("bun", ["server.mjs"], {
+      cwd: dashboardRoot,
+      env: dashboardEnvironment,
+    });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
-    await warmDashboardClient(journeyEnvironment);
     proxy.records.length = 0;
 
     const playwrightArgs = [

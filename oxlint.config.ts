@@ -310,8 +310,10 @@ export default defineConfig({
       // Journey fixtures derive window bounds from tools/e2e/journey-clock.ts, so none expires.
       // Hosted journeys run in a depth-1 checkout, so journey code reads no Git history.
       // Journeys reserve ports through reserveLoopbackPorts in tools/postgres, never by a probe.
+      // Journeys serve a build of the current source, never a Vite dev server.
       files: [
         "apps/*/e2e/**",
+        "apps/*/playwright*.config.ts",
         "tools/e2e/**",
         "tools/acceptance/**",
         "tools/verification/**",
@@ -321,7 +323,14 @@ export default defineConfig({
         "anti-slop/no-literal-window-instant": "error",
         "anti-slop/no-git-history": "error",
         "anti-slop/no-port-probe": "error",
+        "anti-slop/no-dev-server": "error",
       },
+    },
+    {
+      // The interactive organization preview (ORGANIZATION_LIFECYCLE_PREVIEW) edits live source
+      // and runs no test, so it keeps a dev server; the journey in the same runner serves the build.
+      files: ["apps/dashboard/e2e/run-real-native-organization-administration.mjs"],
+      rules: { "anti-slop/no-dev-server": "off" },
     },
   ],
   ignorePatterns: [

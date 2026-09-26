@@ -1017,46 +1017,6 @@ async function readJsonFile(path, label) {
   }
 }
 
-async function warmDashboardClient(environment, capability) {
-  const source = `
-    import { chromium } from "@playwright/test";
-    const browser = await chromium.launch({
-      headless: true,
-      executablePath:
-        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
-        "/etc/profiles/per-user/nori/bin/chromium-browser",
-    });
-    try {
-      const page = await browser.newPage();
-      for (const route of [
-        ${JSON.stringify(`${dashboardOrigin}/interview-response/${capability}`)},
-        ${JSON.stringify(`${dashboardOrigin}/login`)},
-      ]) {
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const response = await page.goto(route, { waitUntil: "domcontentloaded" });
-          if (response === null || !response.ok()) {
-            throw new Error("Dashboard client warm-up did not load a required route");
-          }
-          await page.waitForTimeout(3_000);
-        }
-      }
-    } finally {
-      await browser.close();
-    }
-  `;
-
-  await runCommand(
-    process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-    ["--input-type=module", "--eval", source],
-    {
-      cwd: dashboardRoot,
-      env: environment,
-      label: "Dashboard client dependency warm-up",
-      captureOutput: true,
-    },
-  );
-}
-
 async function readResponseEvidence(environment) {
   const invitationIds = responseCases.map(({ invitationId }) => `'${invitationId}'`).join(", ");
 
@@ -2028,6 +1988,8 @@ async function main() {
       NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
       REAL_NATIVE_INVITATION_RESPONSE_E2E: "1",
       REAL_NATIVE_CONDUCT_E2E: "1",
+      // The server keeps development cookies: under production the capability cookie is Secure,
+      // and Playwright's context.cookies() omits a Secure cookie for this plain-HTTP 127.0.0.1 origin.
       NODE_ENV: "development",
       TZ: "Europe/Oslo",
       HOST: "127.0.0.1",
@@ -2054,24 +2016,23 @@ async function main() {
       env: dashboardEnvironment,
       label: "Native invitation-response SDK build",
     });
-    dashboardProcess = startProcess(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      [
-        "node_modules/@react-router/dev/dist/cli/index.js",
-        "dev",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(dashboardPort),
-      ],
-      { cwd: dashboardRoot, env: dashboardEnvironment },
-    );
+
+    // The journey serves a production build, whose bundles are never re-optimized and reloaded
+    // under a navigating browser as a dev server's are.
+    await runCommand("bun", ["run", "build"], {
+      cwd: dashboardRoot,
+      env: { ...dashboardEnvironment, NODE_ENV: "production" },
+      label: "Native invitation-response dashboard production build",
+    });
+    dashboardProcess = startProcess("bun", ["server.mjs"], {
+      cwd: dashboardRoot,
+      env: dashboardEnvironment,
+    });
     await waitForHttp(
       `${dashboardOrigin}/interview-response/redacted`,
       dashboardProcess,
       "Dashboard",
     );
-    await warmDashboardClient(dashboardEnvironment, rawCapabilitiesByCase.accepted);
     proxy.records.length = 0;
 
     const playwrightArgs = [
