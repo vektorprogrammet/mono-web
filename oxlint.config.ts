@@ -279,6 +279,22 @@ export default defineConfig({
       rules: { "anti-slop/no-raw-advisory-lock-sql": "off" },
     },
     {
+      // SQL shifts instants by elapsed time or in a named zone, never by calendar days in the
+      // session TimeZone (migration 0077).
+      files: ["apps/**", "packages/**", "tools/**"],
+      rules: { "anti-slop/no-zoneless-calendar-interval": "error" },
+    },
+    {
+      // The rule's own cases, the upgrade proof that replays the statements before migration
+      // 0077, and the schema check's planted calendar shifts hold the pattern on purpose.
+      files: [
+        "tools/oxlint/anti-slop/rules/no-zoneless-calendar-interval.test.ts",
+        "packages/database/src/oauth-refresh-window.test.ts",
+        "packages/database/src/schema-calendar-arithmetic.test.ts",
+      ],
+      rules: { "anti-slop/no-zoneless-calendar-interval": "off" },
+    },
+    {
       // Unit leadership decides authority only through the reach interpreter (O8-11).
       files: ["apps/*/src/**", "apps/dashboard/app/**", "packages/*/src/**"],
       rules: { "anti-slop/no-leadership-reach": "error" },

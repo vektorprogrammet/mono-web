@@ -246,8 +246,8 @@ try {
     `INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
      VALUES (
        'semester-identity-0065-current',
-       date_trunc('milliseconds', now() - interval '30 days', 'UTC'),
-       date_trunc('milliseconds', now() + interval '120 days', 'UTC')
+       date_trunc('milliseconds', now() - interval '720 hours', 'UTC'),
+       date_trunc('milliseconds', now() + interval '2880 hours', 'UTC')
      )
      ON CONFLICT (semester_id) DO NOTHING`,
   );

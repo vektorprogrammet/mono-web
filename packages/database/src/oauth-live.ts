@@ -58,10 +58,6 @@ const FORM_INPUT_LIMIT = 16 * 1024;
 
 const CLIENT_SECRET_LIFETIME_MS = 90 * 24 * 60 * 60 * 1_000;
 
-const REFRESH_INACTIVITY_MS = 7 * 24 * 60 * 60 * 1_000;
-
-const REFRESH_ABSOLUTE_MS = 30 * 24 * 60 * 60 * 1_000;
-
 export const DELEGATED_RECEIPT_APPROVAL_PUBLIC_CLIENT = {
   clientId: "vektor-0077-2-delegated-receipt-approval",
   name: "Vektorprogrammet delegated receipt approval tracer",
@@ -1027,11 +1023,12 @@ export const makeOAuthClientOperatorService = (
           yield* pgQuery(
             client,
             `UPDATE auth.oauth_client_bindings
-            SET secret_expires_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC') + interval '90 days',
+            SET secret_expires_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
+                  + make_interval(secs => $2),
                 revision = revision + 1,
                 updated_at = date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC')
           WHERE client_id = $1`,
-            [clientId],
+            [clientId, CLIENT_SECRET_LIFETIME_MS / 1_000],
           );
           yield* appendAudit(client, {
             eventKind: "oauth-client-secret-rotated",
@@ -1612,6 +1609,54 @@ const insertIssuedToken = (
     });
   });
 
+/** The refresh family that the first token of an authorization code opens. */
+interface OpenedRefreshFamily {
+  readonly familyId: string;
+  readonly authorizationCodeId: string;
+  readonly clientId: string;
+  readonly personId: string;
+  readonly sessionId: string;
+  /** The issue instant of the first token. */
+  readonly issuedAt: DateTime.Utc;
+}
+
+/**
+ * Opens a refresh family at the issue instant of its first token. Migration 0077 defines its
+ * windows, which its checks enforce.
+ */
+export const openRefreshFamily = (transaction: PoolClient, family: OpenedRefreshFamily) =>
+  pgQuery(
+    transaction,
+    `INSERT INTO auth.oauth_refresh_families (
+       family_id, authorization_code_id, client_id, person_id, session_id,
+       created_at, last_used_at, inactivity_expires_at, absolute_expires_at
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6, $6,
+       auth.oauth_refresh_inactivity_expires_at($6, auth.oauth_refresh_absolute_expires_at($6)),
+       auth.oauth_refresh_absolute_expires_at($6)
+     )`,
+    [
+      family.familyId,
+      family.authorizationCodeId,
+      family.clientId,
+      family.personId,
+      family.sessionId,
+      DateTime.toDateUtc(family.issuedAt),
+    ],
+  );
+
+/** Records a refresh at `usedAt`, the issue instant of the new token in epoch seconds. */
+export const recordRefreshFamilyUse = (transaction: PoolClient, familyId: string, usedAt: number) =>
+  pgQuery(
+    transaction,
+    `UPDATE auth.oauth_refresh_families
+        SET last_used_at = to_timestamp($2),
+            inactivity_expires_at =
+              auth.oauth_refresh_inactivity_expires_at(to_timestamp($2), absolute_expires_at)
+      WHERE family_id = $1 AND revoked_at IS NULL`,
+    [familyId, usedAt],
+  );
+
 const initialCodeExchange = (
   engine: OAuthEngineBoundary,
   pool: Pool,
@@ -1688,35 +1733,19 @@ const initialCodeExchange = (
           });
         }
 
-        const familyId = randomUUID();
-        const issuedAt = DateTime.makeUnsafe(decoded.claims.iat * 1_000);
-        const absolute = DateTime.add(issuedAt, { milliseconds: REFRESH_ABSOLUTE_MS });
-
-        const inactivity = DateTime.min(
-          DateTime.add(issuedAt, { milliseconds: REFRESH_INACTIVITY_MS }),
-          absolute,
-        );
+        const family = {
+          familyId: randomUUID(),
+          authorizationCodeId: codeDigest,
+          clientId: client.client_id,
+          personId: decoded.claims.sub,
+          sessionId: decoded.claims.sid,
+          issuedAt: DateTime.makeUnsafe(decoded.claims.iat * 1_000),
+        };
 
         yield* pgTransaction(pool, (transaction) =>
           Effect.gen(function* () {
-            yield* pgQuery(
-              transaction,
-              `INSERT INTO auth.oauth_refresh_families (
-           family_id, authorization_code_id, client_id, person_id, session_id,
-           created_at, last_used_at, inactivity_expires_at, absolute_expires_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)`,
-              [
-                familyId,
-                codeDigest,
-                client.client_id,
-                decoded.claims.sub,
-                decoded.claims.sid,
-                DateTime.toDateUtc(issuedAt),
-                DateTime.toDateUtc(inactivity),
-                DateTime.toDateUtc(absolute),
-              ],
-            );
-            yield* insertIssuedToken(transaction, decoded.claims, client, familyId, context);
+            yield* openRefreshFamily(transaction, family);
+            yield* insertIssuedToken(transaction, decoded.claims, client, family.familyId, context);
           }),
         );
 
@@ -1869,14 +1898,7 @@ const refreshExchange = (
 
         yield* pgTransaction(pool, (transaction) =>
           Effect.gen(function* () {
-            yield* pgQuery(
-              transaction,
-              `UPDATE auth.oauth_refresh_families
-            SET last_used_at = to_timestamp($2),
-                inactivity_expires_at = LEAST(to_timestamp($2) + interval '7 days', absolute_expires_at)
-          WHERE family_id = $1 AND revoked_at IS NULL`,
-              [familyId, decoded.claims.iat],
-            );
+            yield* recordRefreshFamilyUse(transaction, familyId, decoded.claims.iat);
             yield* insertIssuedToken(transaction, decoded.claims, client, familyId, context);
           }),
         );

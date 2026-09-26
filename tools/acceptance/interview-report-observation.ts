@@ -268,7 +268,7 @@ export async function observeInterviewReport(o: Options) {
   const link = async (key: string, client = pool) => {
     const invitation = `report-link-${key}`;
     await client.query(
-      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '1 day','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
+      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '24 hours','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
       [
         invitation,
         `report-application-${key}`,
@@ -622,7 +622,7 @@ export async function observeInterviewReport(o: Options) {
   for (const [field, bad, good] of [
     ["is_suspended", "true", "false"],
     // Ends after it starts, as the interval check requires, and long before the run.
-    ["end_at", "start_at+interval '1 day'", "NULL"],
+    ["end_at", "start_at+interval '24 hours'", "NULL"],
     ["is_team_leader", "false", "true"],
   ])
     await denyMutation(

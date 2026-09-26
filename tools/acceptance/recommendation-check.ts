@@ -588,7 +588,7 @@ try {
   const link = async (suffix: string, personId: string, sql = pool) => {
     const invitation = `identity-recommendation-${suffix}`;
     await sql.query(
-      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '1 day','Claimed','journey-conduct-leader-0063',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
+      `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '24 hours','Claimed','journey-conduct-leader-0063',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
       [
         invitation,
         `application-recommendation-${suffix}`,
@@ -2004,7 +2004,7 @@ try {
     );
     stage("authority revocation denies correction detail and replay before receipt reuse");
     await pool.query(
-      `UPDATE public.organization_memberships SET end_at=date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC') - interval '1 day' WHERE membership_id='membership-native-conduct-leader-0063'`,
+      `UPDATE public.organization_memberships SET end_at=date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC') - interval '24 hours' WHERE membership_id='membership-native-conduct-leader-0063'`,
     );
     assert.equal((await get(correctionId)).status, 403);
     assert.equal(
@@ -2279,7 +2279,7 @@ try {
     [id],
   );
   await pool.query(
-    `UPDATE public.organization_memberships SET end_at=date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC') - interval '1 day' WHERE membership_id='membership-native-conduct-leader-0063'`,
+    `UPDATE public.organization_memberships SET end_at=date_trunc('milliseconds', CURRENT_TIMESTAMP, 'UTC') - interval '24 hours' WHERE membership_id='membership-native-conduct-leader-0063'`,
   );
   assert.equal((await get(id)).status, 403);
   assert.equal(
@@ -2406,7 +2406,7 @@ try {
   const onboardingToken = `onboard_${randomBytes(32).toString("hex")}`;
   secrets.push(onboardingToken);
   await pool.query(
-    `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('identity-recommendation-no','application-recommendation-no','applicant-recommendation-no',$1,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '1 day','Open','journey-conduct-leader-0063',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
+    `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES('identity-recommendation-no','application-recommendation-no','applicant-recommendation-no',$1,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '24 hours','Open','journey-conduct-leader-0063',date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
     [createHash("sha256").update(onboardingToken).digest("hex")],
   );
   await pool.query(

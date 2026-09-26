@@ -200,9 +200,10 @@ export const toolImportExceptions = [
       "apps/dashboard/e2e/",
       "apps/homepage/e2e/",
       "packages/database/runtime/",
+      "packages/database/src/oauth-refresh-window.test.ts",
     ],
     reason:
-      "Test harnesses, browser evidence drivers, and PostgreSQL proofs start disposable clusters of the selected major through the one toolchain and reserve their loopback ports through it.",
+      "Test harnesses, browser evidence drivers, and PostgreSQL proofs start disposable clusters of the selected major through the one toolchain and reserve their loopback ports through it. The OAuth refresh window test needs a session TimeZone with daylight saving time on the real server.",
   },
   {
     tool: "tools/e2e",

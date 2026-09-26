@@ -709,7 +709,7 @@ export async function assertInterviewCorrectionBoundaries(
     await locker.query(
       `INSERT INTO public.applicant_account_invitations
          (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
-       VALUES ($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '1 day','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
+       VALUES ($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '24 hours','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
       [
         raceInvitation,
         raceIdentity.applicationId,
@@ -987,7 +987,7 @@ export async function assertInterviewCorrectionBoundaries(
     await differentLinkClient.query(
       `INSERT INTO public.applicant_account_invitations
          (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
-       VALUES ($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '1 day','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
+       VALUES ($1,$2,$3,$4,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')+interval '24 hours','Claimed',$5,date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC'))`,
       [
         differentLinkInvitation,
         identity.applicationId,
