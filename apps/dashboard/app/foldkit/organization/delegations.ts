@@ -287,7 +287,7 @@ const view = (model: Model, h: HtmlBuilder<Message>): Html => {
                         [],
                         snapshot.delegations.map((delegation) =>
                           h.tr(
-                            [],
+                            [h.Key(delegation.delegationId)],
                             [
                               h.th([h.Scope("row")], [delegation.name]),
                               h.td([], [teamName(delegation.teamId)]),

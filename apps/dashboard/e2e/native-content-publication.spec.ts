@@ -1,9 +1,9 @@
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { NativeProblem } from "@vektorprogrammet/http-api";
-import { ContentArticleObservationSchema } from "../app/foldkit/content/bridge";
+import { ContentArticleObservationSchema, ContentBridgeActionSchema } from "../app/foldkit/content/bridge";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.js";
 
 
@@ -253,7 +253,26 @@ test.describe("Native Content publication (spec 0062)", () => {
       await leader.page.getByLabel("Brødtekst").fill("<p>Versjon to tekst</p>");
       await leader.page.getByRole("button", { name: "Lagre endringer" }).click();
       await expect(leader.page.locator('[data-dirty="false"]')).toBeAttached();
+
+      // Version 1 is public, so the row reads "Publisert" before this republish commits.
+      // The public reads below wait for the publish command's own response instead.
+      const publishResponse = leader.page.waitForResponse((response) => {
+        const request = response.request();
+
+        return (
+          request.method() === "POST" &&
+          new URL(request.url()).pathname === "/dashboard/content" &&
+          Option.exists(
+            Schema.decodeUnknownOption(ContentBridgeActionSchema)(request.postDataJSON()),
+            (action) => action.operation === "publish",
+          )
+        );
+      });
+
       await twoVersionRow.getByRole("button", { name: "Publiser", exact: true }).click();
+      const publish = await publishResponse;
+      expect(publish.status()).toBe(200);
+      expect(publish.request().postDataJSON()).toMatchObject({ articleId: twoVersionArticleId });
       await expect(twoVersionRow.getByText("Publisert").first()).toBeVisible();
 
       // A plain member owns this article but may not revise it once published.
@@ -267,7 +286,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       contexts.push(publishedAuthor.context);
       await signIn(publishedAuthor.page, persons.authorDepartmentA, "/dashboard/artikler");
 
-      const publishedMemberRevision = Schema.decodeUnknownSync(Schema.Struct({ detailStatus: Schema.Int, status: Schema.Int, body: NativeProblem }))(await publishedAuthor.page.evaluate(
+      const publishedMemberRevision = Schema.decodeSync(Schema.Struct({ detailStatus: Schema.Int, status: Schema.Int, body: NativeProblem }))(await publishedAuthor.page.evaluate(
         async ({
           articleId,
           departmentId,
@@ -398,7 +417,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       const authorDraftId = Number(await authorDraftRow.getAttribute("data-article-id"));
       expect(Number.isSafeInteger(authorDraftId)).toBe(true);
 
-      const directNativePublish = Schema.decodeUnknownSync(Schema.Struct({ status: Schema.Int, body: NativeProblem }))(await author.page.evaluate(
+      const directNativePublish = Schema.decodeSync(Schema.Struct({ status: Schema.Int, body: NativeProblem }))(await author.page.evaluate(
         async ({ articleId, apiOrigin }: { articleId: number; apiOrigin: string }) => {
           const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
             credentials: "include",

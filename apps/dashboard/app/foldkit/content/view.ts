@@ -64,7 +64,11 @@ const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
     [h.Class("content-workspace__list"), h.Role("list")],
     entries.map((entry) =>
       h.li(
-        [h.Class("content-workspace__row"), h.DataAttribute("article-id", String(entry.articleId))],
+        [
+          h.Key(String(entry.articleId)),
+          h.Class("content-workspace__row"),
+          h.DataAttribute("article-id", String(entry.articleId)),
+        ],
         [
           h.button(
             [
@@ -151,7 +155,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
           ]),
           ...model.knownDepartments.map(({ departmentId, name }) =>
             h.div(
-              [h.Class("content-workspace__dept-option")],
+              [h.Key(departmentId), h.Class("content-workspace__dept-option")],
               [
                 h.input([
                   h.Id(`content-dept-${departmentId}`),

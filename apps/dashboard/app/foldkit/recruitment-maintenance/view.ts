@@ -166,7 +166,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
     const id = `rm-question-${question.questionId}`;
 
     return h.fieldset(
-      [h.Class("rm-question"), h.Disabled(locked)],
+      [h.Key(question.questionId), h.Class("rm-question"), h.Disabled(locked)],
       [
         h.legend([], [`Spørsmål ${index + 1}`]),
         input(`${id}-prompt`, "Spørsmål", question.prompt, (value) =>
@@ -203,7 +203,8 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html => {
                   h.p([h.Class("rm-alternatives-label")], ["Svaralternativer i rekkefølge"]),
                   ...question.alternatives.map((value, alternative) =>
                     h.div(
-                      [h.Class("rm-alternative")],
+                      // Draft alternatives may repeat while edited; their messages name positions.
+                      [h.Key(String(alternative)), h.Class("rm-alternative")],
                       [
                         input(
                           `${id}-alternative-${alternative}`,
