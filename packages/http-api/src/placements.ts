@@ -7,6 +7,7 @@ import {
   OwnCoverageCommand,
   OwnCoverageView,
   PlacementBoard,
+  PlacementDraft,
   PlacementCommand,
   PlacementScope,
   PlacementScopes,
@@ -53,6 +54,15 @@ export const CoverageBoardResource = Schema.Struct({
   ...CoverageBoard.fields,
   etag: StrongETag,
 }).annotate({ identifier: "CoverageBoardResource" });
+
+/**
+ * A draft is a read. `boardEtag` names the board version it was drafted from, for the
+ * `If-Match` of the placement commands that apply it.
+ */
+export const PlacementDraftResource = Schema.Struct({
+  ...PlacementDraft.fields,
+  boardEtag: StrongETag,
+}).annotate({ identifier: "PlacementDraftResource" });
 
 export const PlacementProblem = problemUnion("PlacementProblem", [
   "request.malformed",
@@ -192,6 +202,24 @@ export const CommandPlacementBoardEndpoint = HttpApiEndpoint.post(
     ),
   );
 
+export const ReadPlacementDraftEndpoint = HttpApiEndpoint.get(
+  "readDraft",
+  "/api/placements/draft",
+  {
+    query: PlacementScope.fields,
+    success: privateReadResponse(PlacementDraftResource),
+    error: endpointProblemResponses(PlacementProblem),
+  },
+)
+  .middleware(PersonSecurity)
+  .pipe((e) => annotateAccessSpec(e, access("placements.manage")))
+  .annotateMerge(
+    operationAnnotations(
+      "Draft placements",
+      "Drafts open school demand for unplaced active assistants from their weekday availability and teaching blocks. Nothing is stored; coordinators apply the draft with placement commands.",
+    ),
+  );
+
 export const ReadOwnCoverageEndpoint = HttpApiEndpoint.get(
   "readOwnCoverage",
   "/api/placements/coverage/own",
@@ -274,6 +302,7 @@ export class PlacementsApi extends HttpApiGroup.make("placements")
   .add(CommandOwnAffiliationEndpoint)
   .add(ReadPlacementBoardEndpoint)
   .add(CommandPlacementBoardEndpoint)
+  .add(ReadPlacementDraftEndpoint)
   .add(ReadOwnCoverageEndpoint)
   .add(CommandOwnCoverageEndpoint)
   .add(ReadCoverageBoardEndpoint)

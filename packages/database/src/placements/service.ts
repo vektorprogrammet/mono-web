@@ -21,6 +21,7 @@ import {
   readCoverageBoard,
   readOwnCoverage,
 } from "./coverage.js";
+import { readPlacementDraft } from "./draft.js";
 
 const sqlField = (cause: unknown, field: "code" | "constraint", depth = 0): string | null => {
   if (depth >= 8 || !Predicate.isObjectOrArray(cause)) return null;
@@ -148,6 +149,7 @@ export const PlacementsLive = Layer.effect(
       readOwnAffiliation: (personId, departmentId) =>
         run(readOwnAffiliation(personId, departmentId)),
       readBoard: (scope) => run(readPlacementBoard(scope)),
+      readDraft: (scope) => run(readPlacementDraft(scope)),
       readOwnCoverage: (scope, personId) => run(readOwnCoverage(scope, personId)),
       readCoverageBoard: (scope) => run(readCoverageBoard(scope)),
       execute,

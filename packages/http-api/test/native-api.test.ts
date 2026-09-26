@@ -245,6 +245,12 @@ const expectedOperations: ReadonlyArray<ExpectedOperation> = [
   ],
   [
     "GET",
+    "/api/placements/draft",
+    "placements.readDraft",
+    person("placements.manage", "placements.explicit-department", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
     "/api/placements/coverage/own",
     "placements.readOwnCoverage",
     person("placements.self", "placements.explicit-department", [], "SnapshotRead"),
@@ -1015,6 +1021,7 @@ const privateReadOperations = [
   "placements.listScopes",
   "placements.readOwnAffiliation",
   "placements.readBoard",
+  "placements.readDraft",
   "placements.readOwnCoverage",
   "placements.readCoverageBoard",
   "substitutes.listScopes",
