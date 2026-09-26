@@ -79,7 +79,7 @@ import {
 
 import type { ReceiptApiConfig } from "./config.js";
 import { resolveRequestCredentialAtInstant } from "../authority.js";
-import type { ReceiptFileStore } from "./filesystem.js";
+import { ReceiptFileStoreError, type ReceiptFileStore } from "./filesystem.js";
 import type { ReceiptTestHttpOptions } from "../test/native-http.js";
 
 type ReceiptApiHttp = { readonly fetch: (request: Request) => Promise<Response> };
@@ -163,22 +163,21 @@ const fileService = {
 };
 
 const fileStore: ReceiptFileStore = {
-  readCommitted: async () => {
-    throw new Error("unexpected file read");
-  },
+  readCommitted: () => Effect.die("unexpected file read"),
   service: fileService,
   layer: Layer.succeed(ReceiptFileService, fileService),
-  stageBytes: async () => ({
-    file: {
-      fileRef: "staging/file-one",
-      objectKey: "committed/file-one",
-      contentType: "image/png",
-      byteLength: 4,
-      sha256: "aa".repeat(32),
-    },
-    created: true,
-  }),
-  cleanupStage: async () => undefined,
+  stageBytes: () =>
+    Effect.succeed({
+      file: {
+        fileRef: "staging/file-one",
+        objectKey: "committed/file-one",
+        contentType: "image/png",
+        byteLength: 4,
+        sha256: "aa".repeat(32),
+      },
+      created: true,
+    }),
+  cleanupStage: () => Effect.void,
 };
 
 interface HarnessOptions {
@@ -754,13 +753,19 @@ const harness = (options: HarnessOptions = {}) => {
     now: () => evaluatedAt,
     fileStore: {
       ...fileStore,
-      readCommitted: async () => {
-        privateFileReads++;
+      readCommitted: () =>
+        Effect.suspend(() => {
+          privateFileReads++;
 
-        if (options.privateFileUnavailable) throw new Error("private bytes unavailable");
-
-        return new Uint8Array([1, 2, 3, 4]);
-      },
+          return options.privateFileUnavailable
+            ? Effect.fail(
+                new ReceiptFileStoreError({
+                  operation: "readCommitted",
+                  message: "private bytes unavailable",
+                }),
+              )
+            : Effect.succeed(new Uint8Array([1, 2, 3, 4]));
+        }),
     },
   } satisfies ReceiptTestHttpOptions<UnauthenticatedActor | IdentityEngineError, never>;
 

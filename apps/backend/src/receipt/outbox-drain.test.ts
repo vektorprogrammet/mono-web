@@ -6,8 +6,7 @@ import {
   receiptOutboxRequest,
 } from "@vektorprogrammet/domain/receipt";
 import { Effect, Layer } from "effect";
-import { describe, expect, it } from "vitest";
-import { runTestPromise } from "../../test/runtime.js";
+import { describe, expect, it } from "@effect/vitest";
 import type { ReceiptApiConfig } from "./config.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 import { drainReceiptOutboxWith, type ReceiptOutboxDrainOperations } from "./outbox-drain.js";
@@ -35,13 +34,9 @@ const fileService = { stage: () => Effect.void, apply: () => Effect.void };
 const fileStore: ReceiptFileStore = {
   service: fileService,
   layer: Layer.succeed(ReceiptFileService, fileService),
-  readCommitted: async () => {
-    throw new Error("unexpected file read");
-  },
-  stageBytes: async () => {
-    throw new Error("unexpected staging");
-  },
-  cleanupStage: async () => undefined,
+  readCommitted: () => Effect.die("unexpected file read"),
+  stageBytes: () => Effect.die("unexpected staging"),
+  cleanupStage: () => Effect.void,
 };
 
 const config: ReceiptApiConfig = {
@@ -88,52 +83,61 @@ const drain = (
       }),
   };
 
-  return runTestPromise(
-    drainReceiptOutboxWith(economy, { config }, fileStore, receiptId).pipe(
-      Effect.provideService(ReceiptAuxiliaryEffects, { apply: () => Effect.void }),
-    ),
-  ).then((outcome) => ({ outcome, deliveries }));
+  return drainReceiptOutboxWith(economy, { config }, fileStore, receiptId).pipe(
+    Effect.provideService(ReceiptAuxiliaryEffects, { apply: () => Effect.void }),
+    Effect.map((outcome) => ({ outcome, deliveries })),
+  );
 };
 
 describe("receipt request outbox drain", () => {
-  it("bounds one drain to 256 deliveries and stops at the first idle or failed delivery", async () => {
-    await expect(drain(() => "Delivered")).resolves.toEqual({ outcome: "Limit", deliveries: 256 });
-    await expect(drain((attempt) => (attempt === 256 ? "Idle" : "Delivered"))).resolves.toEqual({
-      outcome: "Idle",
-      deliveries: 256,
-    });
-    await expect(drain((attempt) => (attempt === 255 ? "Failed" : "Delivered"))).resolves.toEqual({
-      outcome: "Failed",
-      deliveries: 255,
-    });
-    await expect(drain(() => "Idle")).resolves.toEqual({ outcome: "Idle", deliveries: 1 });
-    await expect(
-      drain((attempt) => (attempt === 2 ? "TransportFailure" : "Delivered")),
-    ).resolves.toEqual({ outcome: "Failed", deliveries: 2 });
-  });
+  it.effect(
+    "bounds one drain to 256 deliveries and stops at the first idle or failed delivery",
+    () =>
+      Effect.gen(function* () {
+        expect(yield* drain(() => "Delivered")).toEqual({ outcome: "Limit", deliveries: 256 });
 
-  it("recovers every stale claim despite recovery failures before delivering", async () => {
-    const recovered: Array<string> = [];
+        expect(yield* drain((attempt) => (attempt === 256 ? "Idle" : "Delivered"))).toEqual({
+          outcome: "Idle",
+          deliveries: 256,
+        });
 
-    const result = await drain(() => "Idle", {
-      listStaleOutboxClaims: () => Effect.succeed(["stale-a", "stale-b"]),
-      recoverStaleOutboxClaim: (staleClaimId) =>
-        staleClaimId === "stale-a"
-          ? Effect.fail(persistenceFailure)
-          : Effect.sync(() => {
-              recovered.push(staleClaimId);
+        expect(yield* drain((attempt) => (attempt === 255 ? "Failed" : "Delivered"))).toEqual({
+          outcome: "Failed",
+          deliveries: 255,
+        });
 
-              return 1;
-            }),
-    });
+        expect(yield* drain(() => "Idle")).toEqual({ outcome: "Idle", deliveries: 1 });
 
-    const unlisted = await drain(() => "Idle", {
-      listStaleOutboxClaims: () => Effect.fail(persistenceFailure),
-      recoverStaleOutboxClaim: () => Effect.die("no stale claims were listed"),
-    });
+        expect(
+          yield* drain((attempt) => (attempt === 2 ? "TransportFailure" : "Delivered")),
+        ).toEqual({ outcome: "Failed", deliveries: 2 });
+      }),
+  );
 
-    expect(recovered).toEqual(["stale-b"]);
-    expect(result).toEqual({ outcome: "Idle", deliveries: 1 });
-    expect(unlisted).toEqual({ outcome: "Idle", deliveries: 1 });
-  });
+  it.effect("recovers every stale claim despite recovery failures before delivering", () =>
+    Effect.gen(function* () {
+      const recovered: Array<string> = [];
+
+      const result = yield* drain(() => "Idle", {
+        listStaleOutboxClaims: () => Effect.succeed(["stale-a", "stale-b"]),
+        recoverStaleOutboxClaim: (staleClaimId) =>
+          staleClaimId === "stale-a"
+            ? Effect.fail(persistenceFailure)
+            : Effect.sync(() => {
+                recovered.push(staleClaimId);
+
+                return 1;
+              }),
+      });
+
+      const unlisted = yield* drain(() => "Idle", {
+        listStaleOutboxClaims: () => Effect.fail(persistenceFailure),
+        recoverStaleOutboxClaim: () => Effect.die("no stale claims were listed"),
+      });
+
+      expect(recovered).toEqual(["stale-b"]);
+      expect(result).toEqual({ outcome: "Idle", deliveries: 1 });
+      expect(unlisted).toEqual({ outcome: "Idle", deliveries: 1 });
+    }),
+  );
 });

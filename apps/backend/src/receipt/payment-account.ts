@@ -1,12 +1,13 @@
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
-import { Schema } from "effect";
+import { Data, Schema } from "effect";
 
 const KeyFile = Schema.Struct({ keyId: Schema.String, keyBase64: Schema.String });
 
-export class PaymentAccountCustodyError extends Error {
-  constructor(readonly code: "InvalidKey" | "InvalidAccount" | "InvalidCiphertext") {
-    super(code);
-    this.name = "PaymentAccountCustodyError";
+export class PaymentAccountCustodyError extends Data.TaggedError("PaymentAccountCustodyError")<{
+  readonly code: "InvalidKey" | "InvalidAccount" | "InvalidCiphertext";
+}> {
+  override get message(): string {
+    return this.code;
   }
 }
 
@@ -19,7 +20,7 @@ export interface PaymentAccountCipher {
 
 const normalizedAccount = (raw: string): string => {
   if (!/^(?:[0-9]{11}|[0-9]{4}([. ])[0-9]{2}\1[0-9]{5})$/.test(raw))
-    throw new PaymentAccountCustodyError("InvalidAccount");
+    throw new PaymentAccountCustodyError({ code: "InvalidAccount" });
 
   const digits = raw.replace(/[. ]/g, "");
   const weights = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
@@ -29,14 +30,14 @@ const normalizedAccount = (raw: string): string => {
     sum += Number(digits[index]) * weights[index]!;
 
   if ((11 - (sum % 11)) % 11 !== Number(digits[10]))
-    throw new PaymentAccountCustodyError("InvalidAccount");
+    throw new PaymentAccountCustodyError({ code: "InvalidAccount" });
 
   return digits;
 };
 
 const associatedData = (receiptId: string): Buffer => {
   if (receiptId.length === 0 || receiptId.length > 512)
-    throw new PaymentAccountCustodyError("InvalidCiphertext");
+    throw new PaymentAccountCustodyError({ code: "InvalidCiphertext" });
 
   return Buffer.from(`vektor/receipt/payment-account/v1:${receiptId}`, "utf8");
 };
@@ -45,7 +46,7 @@ const decodePart = (value: string, size: number): Buffer => {
   const decoded = Buffer.from(value, "base64url");
 
   if (decoded.length !== size || decoded.toString("base64url") !== value)
-    throw new PaymentAccountCustodyError("InvalidCiphertext");
+    throw new PaymentAccountCustodyError({ code: "InvalidCiphertext" });
 
   return decoded;
 };
@@ -55,7 +56,7 @@ export const makePaymentAccountCipher = (config: {
   readonly key: Uint8Array;
 }): PaymentAccountCipher => {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(config.keyId) || config.key.byteLength !== 32)
-    throw new PaymentAccountCustodyError("InvalidKey");
+    throw new PaymentAccountCustodyError({ code: "InvalidKey" });
 
   const encryptionKey = Buffer.from(
     hkdfSync("sha256", config.key, "", "vektor/receipt/payment-account/v1/aead", 32),
@@ -88,11 +89,12 @@ export const makePaymentAccountCipher = (config: {
     },
     decrypt: (ciphertext, receiptId) => {
       try {
-        if (ciphertext.length > 256) throw new PaymentAccountCustodyError("InvalidCiphertext");
+        if (ciphertext.length > 256)
+          throw new PaymentAccountCustodyError({ code: "InvalidCiphertext" });
         const parts = ciphertext.split(".");
 
         if (parts.length !== 5 || parts[0] !== "v1" || parts[1] !== keyId)
-          throw new PaymentAccountCustodyError("InvalidCiphertext");
+          throw new PaymentAccountCustodyError({ code: "InvalidCiphertext" });
         const nonce = decodePart(parts[2]!, 12);
         const encrypted = decodePart(parts[3]!, 11);
         const tag = decodePart(parts[4]!, 16);
@@ -104,7 +106,7 @@ export const makePaymentAccountCipher = (config: {
           Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8"),
         );
       } catch {
-        throw new PaymentAccountCustodyError("InvalidCiphertext");
+        throw new PaymentAccountCustodyError({ code: "InvalidCiphertext" });
       }
     },
   };
@@ -116,10 +118,10 @@ export const decodePaymentAccountCipher = (input: Schema.Json): PaymentAccountCi
     const key = Buffer.from(file.keyBase64, "base64");
 
     if (key.toString("base64") !== file.keyBase64)
-      throw new PaymentAccountCustodyError("InvalidKey");
+      throw new PaymentAccountCustodyError({ code: "InvalidKey" });
 
     return makePaymentAccountCipher({ keyId: file.keyId, key });
   } catch {
-    throw new PaymentAccountCustodyError("InvalidKey");
+    throw new PaymentAccountCustodyError({ code: "InvalidKey" });
   }
 };

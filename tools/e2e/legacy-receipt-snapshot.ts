@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { canonicalJsonValue } from "@vektorprogrammet/domain/shared-kernel";
 import {
   decodeReviewedReceiptSnapshot,
@@ -8,7 +6,7 @@ import {
   type ReceiptSourceRow,
   type ReviewedReceiptSnapshot,
 } from "@vektorprogrammet/domain/receipt";
-import { Schema } from "effect";
+import { Effect, FileSystem, Path, Schema } from "effect";
 import type { PaymentAccountCipher } from "@vektorprogrammet/backend/receipt/payment-account";
 import { reviewedReceiptTransformationRevision } from "@vektorprogrammet/backend/receipt/reviewed-import";
 import { buildLegacyReferences } from "./legacy-cutover-references";
@@ -97,17 +95,22 @@ export const buildLegacyReceiptSnapshot = (
 };
 
 /** Bind every executable transformation, including the reader and operator boundary. */
-export const legacyReceiptTransformationRevision = async (): Promise<string> =>
-  receiptEvidenceDigest(
-    await Promise.all([
-      reviewedReceiptTransformationRevision(),
-      ...[
-        import.meta.url,
-        new URL("./legacy-source-snapshot.ts", import.meta.url),
-        new URL("./legacy-cutover-references.ts", import.meta.url),
-        new URL("./legacy-database-transport.ts", import.meta.url),
-        new URL("./run-legacy-receipt-import.ts", import.meta.url),
-        import.meta.resolve("@vektorprogrammet/database/cohort-cli"),
-      ].map((url) => readFile(fileURLToPath(url), "utf8")),
-    ]),
+export const legacyReceiptTransformationRevision = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const reviewed = yield* reviewedReceiptTransformationRevision;
+
+  const sources = yield* Effect.forEach(
+    [
+      import.meta.url,
+      new URL("./legacy-source-snapshot.ts", import.meta.url),
+      new URL("./legacy-cutover-references.ts", import.meta.url),
+      new URL("./legacy-database-transport.ts", import.meta.url),
+      new URL("./run-legacy-receipt-import.ts", import.meta.url),
+      import.meta.resolve("@vektorprogrammet/database/cohort-cli"),
+    ],
+    (url) => path.fromFileUrl(new URL(url)).pipe(Effect.flatMap((file) => fs.readFileString(file))),
   );
+
+  return receiptEvidenceDigest([reviewed, ...sources]);
+});

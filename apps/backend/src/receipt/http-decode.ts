@@ -12,7 +12,7 @@ import {
   receiptTransferMaxBytes,
 } from "@vektorprogrammet/http-api";
 import { Problem } from "@vektorprogrammet/http-api/http-semantics";
-import { Effect, Predicate } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import { decodeRequest, readJsonBody, requestInvalid } from "../http-api/problem.js";
 
 const SUPPORTED_CONTENT_TYPES = ["image/jpeg", "image/png", "application/pdf"] as const;
@@ -96,7 +96,7 @@ const validated = <A>(decode: () => A): Effect.Effect<A, Problem<"validation.fai
     try {
       return Effect.succeed(decode());
     } catch (cause) {
-      return cause instanceof ReceiptDecodeError
+      return Schema.is(ReceiptDecodeError)(cause)
         ? Effect.fail(requestInvalid())
         : Effect.die(cause);
     }

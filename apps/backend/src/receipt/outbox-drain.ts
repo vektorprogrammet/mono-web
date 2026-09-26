@@ -5,7 +5,7 @@ import {
   ReceiptFileService,
   type EconomyOperations,
 } from "@vektorprogrammet/domain/receipt";
-import { Effect, Predicate } from "effect";
+import { DateTime, Effect, Option, Predicate } from "effect";
 import { currentInstant } from "../authority.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 import type { ReceiptApiConfig } from "./config.js";
@@ -38,13 +38,12 @@ export const repeatReceiptDelivery = <A extends { readonly _tag: string }, E, R>
     }),
   );
 
-const staleOutboxCutoff = (now: string): string => {
-  const timestamp = Date.parse(now);
-
-  return Number.isFinite(timestamp)
-    ? new Date(timestamp - STALE_OUTBOX_CLAIM_AGE_MS).toISOString()
-    : now;
-};
+const staleOutboxCutoff = (now: string): string =>
+  Option.match(DateTime.make(now), {
+    onNone: () => now,
+    onSome: (instant) =>
+      DateTime.formatIso(DateTime.subtract(instant, { milliseconds: STALE_OUTBOX_CLAIM_AGE_MS })),
+  });
 
 /**
  * Recovers stale claims for the receipt, then delivers until the outbox is idle, one delivery

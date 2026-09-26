@@ -1,8 +1,7 @@
 import { isProblem, type Problem } from "@vektorprogrammet/http-api/http-semantics";
 import { Cause, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
-import { describe, expect, it } from "vitest";
-import { runTestPromise } from "../../test/runtime.js";
+import { describe, expect, it } from "@effect/vitest";
 import {
   RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER,
   makeReceiptE2ETransactionBarrier,
@@ -14,88 +13,73 @@ const probe = (lane: ReceiptE2EConcurrencyLane | null) =>
     headers: lane === null ? {} : { [RECEIPT_E2E_CONCURRENCY_REQUEST_HEADER]: lane },
   });
 
-const runWithTestClock = <A, E>(effect: Effect.Effect<A, E>) =>
-  runTestPromise(effect.pipe(Effect.provide(TestClock.layer())));
-
 const malformedStatus = (failure: Problem<"request.malformed"> | Cause.TimeoutError) =>
   isProblem(failure) ? `${failure.code}:${failure.status}` : "other";
 
 describe("receipt E2E transaction barrier", () => {
-  it("holds probed lanes until all three arrive and then admits their retries", async () => {
-    const result = await runWithTestClock(
-      Effect.gen(function* () {
-        const barrier = yield* makeReceiptE2ETransactionBarrier;
+  it.effect("holds probed lanes until all three arrive and then admits their retries", () =>
+    Effect.gen(function* () {
+      const barrier = yield* makeReceiptE2ETransactionBarrier;
 
-        const unprobed = yield* barrier(probe(null), "receipt-1", "approve");
-        const approve = yield* Effect.forkChild(barrier(probe("approve"), "receipt-1", "approve"));
-        const reject = yield* Effect.forkChild(barrier(probe("reject"), "receipt-1", "reject"));
-        yield* Effect.yieldNow;
+      const unprobed = yield* barrier(probe(null), "receipt-1", "approve");
+      const approve = yield* Effect.forkChild(barrier(probe("approve"), "receipt-1", "approve"));
+      const reject = yield* Effect.forkChild(barrier(probe("reject"), "receipt-1", "reject"));
+      yield* Effect.yieldNow;
 
-        const heldBeforeLastLane = approve.pollUnsafe() === undefined;
-        const fileRead = yield* barrier(probe("file-read"), "receipt-1", "file-read");
-        const retry = yield* barrier(probe("approve"), "receipt-1", "approve");
+      const heldBeforeLastLane = approve.pollUnsafe() === undefined;
+      const fileRead = yield* barrier(probe("file-read"), "receipt-1", "file-read");
+      const retry = yield* barrier(probe("approve"), "receipt-1", "approve");
 
-        return {
-          unprobed,
-          heldBeforeLastLane,
-          lanes: [yield* Fiber.join(approve), yield* Fiber.join(reject), fileRead],
-          retry,
-        };
-      }),
-    );
+      expect({
+        unprobed,
+        heldBeforeLastLane,
+        lanes: [yield* Fiber.join(approve), yield* Fiber.join(reject), fileRead],
+        retry,
+      }).toEqual({
+        unprobed: false,
+        heldBeforeLastLane: true,
+        lanes: [true, true, true],
+        retry: true,
+      });
+    }),
+  );
 
-    expect(result).toEqual({
-      unprobed: false,
-      heldBeforeLastLane: true,
-      lanes: [true, true, true],
-      retry: true,
-    });
-  });
+  it.effect("rejects a mismatched lane, another receipt, and an unsynchronized repeat", () =>
+    Effect.gen(function* () {
+      const barrier = yield* makeReceiptE2ETransactionBarrier;
+      const mismatched = yield* Effect.flip(barrier(probe("reject"), "receipt-1", "approve"));
+      const waiting = yield* Effect.forkChild(barrier(probe("approve"), "receipt-1", "approve"));
+      yield* Effect.yieldNow;
+      const otherReceipt = yield* Effect.flip(barrier(probe("reject"), "receipt-2", "reject"));
+      const repeated = yield* Effect.flip(barrier(probe("approve"), "receipt-1", "approve"));
+      yield* Fiber.interrupt(waiting);
 
-  it("rejects a mismatched lane, another receipt, and an unsynchronized repeat", async () => {
-    const failures = await runWithTestClock(
-      Effect.gen(function* () {
-        const barrier = yield* makeReceiptE2ETransactionBarrier;
-        const mismatched = yield* Effect.flip(barrier(probe("reject"), "receipt-1", "approve"));
-        const waiting = yield* Effect.forkChild(barrier(probe("approve"), "receipt-1", "approve"));
-        yield* Effect.yieldNow;
-        const otherReceipt = yield* Effect.flip(barrier(probe("reject"), "receipt-2", "reject"));
-        const repeated = yield* Effect.flip(barrier(probe("approve"), "receipt-1", "approve"));
-        yield* Fiber.interrupt(waiting);
+      expect([mismatched, otherReceipt, repeated].map(malformedStatus)).toEqual([
+        "request.malformed:400",
+        "request.malformed:400",
+        "request.malformed:400",
+      ]);
+    }),
+  );
 
-        return [mismatched, otherReceipt, repeated].map(malformedStatus);
-      }),
-    );
+  it.effect("times every lane out ten seconds after the first arrival and stays expired", () =>
+    Effect.gen(function* () {
+      const barrier = yield* makeReceiptE2ETransactionBarrier;
+      const approve = yield* Effect.forkChild(barrier(probe("approve"), "receipt-1", "approve"));
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("6 seconds");
+      const reject = yield* Effect.forkChild(barrier(probe("reject"), "receipt-1", "reject"));
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("4 seconds");
 
-    expect(failures).toEqual([
-      "request.malformed:400",
-      "request.malformed:400",
-      "request.malformed:400",
-    ]);
-  });
+      const timedOut = [
+        yield* Effect.flip(Fiber.join(approve)),
+        yield* Effect.flip(Fiber.join(reject)),
+      ];
 
-  it("times every lane out ten seconds after the first arrival and stays expired", async () => {
-    const result = await runWithTestClock(
-      Effect.gen(function* () {
-        const barrier = yield* makeReceiptE2ETransactionBarrier;
-        const approve = yield* Effect.forkChild(barrier(probe("approve"), "receipt-1", "approve"));
-        yield* Effect.yieldNow;
-        yield* TestClock.adjust("6 seconds");
-        const reject = yield* Effect.forkChild(barrier(probe("reject"), "receipt-1", "reject"));
-        yield* Effect.yieldNow;
-        yield* TestClock.adjust("4 seconds");
+      const lateLane = yield* Effect.flip(barrier(probe("file-read"), "receipt-1", "file-read"));
 
-        const timedOut = [
-          yield* Effect.flip(Fiber.join(approve)),
-          yield* Effect.flip(Fiber.join(reject)),
-        ];
-
-        const lateLane = yield* Effect.flip(barrier(probe("file-read"), "receipt-1", "file-read"));
-
-        return [...timedOut, lateLane].map(Cause.isTimeoutError);
-      }),
-    );
-
-    expect(result).toEqual([true, true, true]);
-  });
+      expect([...timedOut, lateLane].map(Cause.isTimeoutError)).toEqual([true, true, true]);
+    }),
+  );
 });

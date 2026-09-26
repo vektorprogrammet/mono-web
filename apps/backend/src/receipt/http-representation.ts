@@ -58,7 +58,7 @@ export const projected = <A>(project: () => A): Effect.Effect<A, ReceiptPersiste
     try {
       return Effect.succeed(project());
     } catch (cause) {
-      return cause instanceof ReceiptPersistenceError ? Effect.fail(cause) : Effect.die(cause);
+      return Schema.is(ReceiptPersistenceError)(cause) ? Effect.fail(cause) : Effect.die(cause);
     }
   });
 
@@ -219,10 +219,8 @@ export const readPrivateReceiptFile = (
   maxFileBytes: number,
   extraHeaders: Readonly<Record<string, string>> = {},
 ) =>
-  Effect.tryPromise({
-    try: () => fileStore.readCommitted(file, maxFileBytes),
-    catch: () => Problem.make("receipts.unavailable"),
-  }).pipe(
+  fileStore.readCommitted(file, maxFileBytes).pipe(
+    Effect.mapError(() => Problem.make("receipts.unavailable")),
     Effect.map(
       (bytes) =>
         new Response(bytes, {

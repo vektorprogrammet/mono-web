@@ -26,6 +26,7 @@ import {
   receiptSourceRowDigest,
   type ReceiptSourceRow,
 } from "@vektorprogrammet/domain/receipt";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { Effect, Match, Redacted, Schema } from "effect";
 import type { Pool } from "pg";
 import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";
@@ -555,7 +556,9 @@ const rehearse = async () =>
       receiptSourceRevision: financeRevision,
       snapshotId: "synthetic-receipt-2026",
       sourceWatermark,
-      transformationRevision: await legacyReceiptTransformationRevision(),
+      transformationRevision: await Effect.runPromise(
+        legacyReceiptTransformationRevision.pipe(Effect.provide(BunServices.layer)),
+      ),
       personSnapshotKey,
       referenceSnapshotId: personSnapshotId,
       referenceDigest: buildLegacyReferences(source).referenceDigest,
@@ -1015,18 +1018,22 @@ const rehearse = async () =>
     const nativeOwnership = await freshTarget("receipt_native_ownership");
     const nativeRoots = await rootsFor("native-ownership-files");
 
-    const nativeFiles = FileCustody.makeReceiptFileStore({
-      stagingRoot: nativeRoots.staging,
-      committedRoot: nativeRoots.committed,
-    });
+    const nativeFiles = await Effect.runPromise(
+      FileCustody.makeReceiptFileStore({
+        stagingRoot: nativeRoots.staging,
+        committedRoot: nativeRoots.committed,
+      }).pipe(Effect.provide(BunServices.layer)),
+    );
 
     const nativeIdentity = "prior-native-receipt";
 
-    const nativeFile = await nativeFiles.stageBytes(
-      new File([pdf], "native.pdf"),
-      nativeIdentity,
-      "application/pdf",
-      10 * 1024 * 1024,
+    const nativeFile = await Effect.runPromise(
+      nativeFiles.stageBytes(
+        new File([pdf], "native.pdf"),
+        nativeIdentity,
+        "application/pdf",
+        10 * 1024 * 1024,
+      ),
     );
 
     const nativeEntry = review.entries.find((entry) => entry.sourcePrimaryKey === "1");
@@ -1351,10 +1358,12 @@ const rehearse = async () =>
 
     stage = "SyntheticAdapterCompatibility";
 
-    const syntheticFiles = FileCustody.makeReceiptFileStore({
-      stagingRoot: join(temporaryRoot, "synthetic-stage"),
-      committedRoot: join(temporaryRoot, "synthetic-committed"),
-    });
+    const syntheticFiles = await Effect.runPromise(
+      FileCustody.makeReceiptFileStore({
+        stagingRoot: join(temporaryRoot, "synthetic-stage"),
+        committedRoot: join(temporaryRoot, "synthetic-committed"),
+      }).pipe(Effect.provide(BunServices.layer)),
+    );
 
     const syntheticRow = {
       sourcePrimaryKey: "synthetic-source",
@@ -1405,10 +1414,10 @@ const rehearse = async () =>
       ],
     };
 
-    const synthetic = await prepareReceiptSnapshot(
-      decodeSnapshot(syntheticInput),
-      roots.archive,
-      syntheticFiles,
+    const synthetic = await Effect.runPromise(
+      prepareReceiptSnapshot(decodeSnapshot(syntheticInput), roots.archive, syntheticFiles).pipe(
+        Effect.provide(BunServices.layer),
+      ),
     );
 
     assert.equal(synthetic.results[0]?._tag, "AcceptedReceiptImport");

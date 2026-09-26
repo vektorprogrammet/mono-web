@@ -164,23 +164,20 @@ const stageReceiptFile = (
   contentType: ReceiptFile["contentType"],
   maxFileBytes: number,
 ) =>
-  Effect.tryPromise({
-    try: () => fileStore.stageBytes(file, commandId, contentType, maxFileBytes),
-    catch: (cause) =>
-      cause instanceof ReceiptDecodeError
-        ? cause
-        : new ReceiptPersistenceError({
-            operation: "stage receipt file",
-            message: "receipt file staging failed",
-            cause,
-          }),
-  });
+  fileStore.stageBytes(file, commandId, contentType, maxFileBytes).pipe(
+    Effect.catchTag("ReceiptFileStoreError", (cause) =>
+      Effect.fail(
+        new ReceiptPersistenceError({
+          operation: "stage receipt file",
+          message: "receipt file staging failed",
+          cause,
+        }),
+      ),
+    ),
+  );
 
 const cleanupStagedFile = (fileStore: ReceiptFileStore, staged: StagedReceiptFile) =>
-  Effect.tryPromise({
-    try: () => fileStore.cleanupStage(staged.file),
-    catch: () => undefined,
-  }).pipe(Effect.ignore);
+  fileStore.cleanupStage(staged.file).pipe(Effect.ignore);
 
 export const submitReceipt = <R>(
   request: Request,

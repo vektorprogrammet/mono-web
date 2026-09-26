@@ -1,5 +1,6 @@
 /** Operator-only bounded retry of durable receipt work. No business command is issued. */
 import { randomUUID } from "node:crypto";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
 import {
@@ -7,21 +8,30 @@ import {
   listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
 } from "@vektorprogrammet/database/receipt/postgres";
-import { DateTime, Predicate, Effect, Layer, Redacted, Schema } from "effect";
+import { Config, DateTime, Predicate, Effect, Layer, Redacted, Schema } from "effect";
 import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { decodeReceiptApiConfig } from "./config.js";
 import { ReceiptFileStoreLive } from "./filesystem.js";
 import { ReceiptDeliveryLive, receiptDeliveryConfig } from "./delivery.js";
 import { repeatReceiptDelivery } from "./outbox-drain.js";
 
+// An unset or empty variable is missing.
+const environment = Effect.runSync(
+  Config.all({
+    postgresUrl: Config.String("BACKEND_PG_URL").pipe(Config.withDefault("")),
+    stagingRoot: Config.String("RECEIPT_STAGING_ROOT").pipe(Config.withDefault("")),
+    committedRoot: Config.String("RECEIPT_COMMITTED_ROOT").pipe(Config.withDefault("")),
+  }),
+);
+
 const receiptId = process.argv[2];
 
-if (!receiptId || process.argv.length !== 3 || !process.env.BACKEND_PG_URL)
+if (!receiptId || process.argv.length !== 3 || !environment.postgresUrl)
   throw new TypeError("Usage: BACKEND_PG_URL=... bun run src/receipt/drain-main.ts <receipt-id>");
 
 Schema.decodeSync(ReceiptId)(receiptId);
 
-if (!process.env.RECEIPT_STAGING_ROOT || !process.env.RECEIPT_COMMITTED_ROOT)
+if (!environment.stagingRoot || !environment.committedRoot)
   throw new TypeError("Explicit receipt staging and committed roots required");
 
 const config = receiptDeliveryConfig(process.env);
@@ -29,14 +39,14 @@ const config = receiptDeliveryConfig(process.env);
 if (!config) throw new TypeError("Receipt delivery is not configured");
 
 const database = DatabaseLive({
-  url: Redacted.make(process.env.BACKEND_PG_URL),
+  url: Redacted.make(environment.postgresUrl),
   maxConnections: 2,
 });
 
 const services = Layer.mergeAll(
   database,
   ReceiptDeliveryLive(config).pipe(Layer.provide(database)),
-  ReceiptFileStoreLive(decodeReceiptApiConfig()),
+  ReceiptFileStoreLive(decodeReceiptApiConfig()).pipe(Layer.provide(BunServices.layer)),
 );
 
 const result = await Effect.runPromise(

@@ -29,7 +29,8 @@ import {
   reserveLoopbackPorts,
   startDisposablePostgres,
 } from "@monoweb/postgres";
-import { Schema, Cause, Predicate, Effect, Redacted, Struct } from "effect";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import { Schema, Cause, Predicate, Effect, Layer, Redacted, Struct } from "effect";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Database, databaseHealth } from "@vektorprogrammet/database";
 import {
@@ -280,7 +281,7 @@ try {
         ReceiptFileStoreLive({
           stagingRoot: env.RECEIPT_STAGING_ROOT,
           committedRoot: env.RECEIPT_COMMITTED_ROOT,
-        }),
+        }).pipe(Layer.provide(BunServices.layer)),
       ),
     ),
   );
@@ -290,11 +291,13 @@ try {
   );
 
   const baselineFile = (
-    await files.stageBytes(
-      new File([baselineBytes], "baseline.pdf", { type: "application/pdf" }),
-      "0095-native-baseline",
-      "application/pdf",
-      10 * 1024 * 1024,
+    await Effect.runPromise(
+      files.stageBytes(
+        new File([baselineBytes], "baseline.pdf", { type: "application/pdf" }),
+        "0095-native-baseline",
+        "application/pdf",
+        10 * 1024 * 1024,
+      ),
     )
   ).file;
 
@@ -439,7 +442,10 @@ try {
   });
 
   await writeFile(join(artifacts, "manifest.json"), JSON.stringify(manifest, null, 2));
-  const prepared = await prepareReceiptSnapshot(manifest, fixtureRoot, files);
+
+  const prepared = await Effect.runPromise(
+    prepareReceiptSnapshot(manifest, fixtureRoot, files).pipe(Effect.provide(BunServices.layer)),
+  );
 
   const accepted = prepared.results.filter(
     (r): r is Extract<ReceiptImportResult, { _tag: "AcceptedReceiptImport" }> =>
@@ -519,7 +525,7 @@ try {
         ])
       ).rowCount
     )
-      await files.cleanupStage(file);
+      await Effect.runPromise(files.cleanupStage(file));
   }
 
   backend = start("bun", ["run", "apps/backend/src/main.ts"], env);

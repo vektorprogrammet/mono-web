@@ -204,7 +204,14 @@ export default defineConfig({
       },
     },
     {
-      files: ["apps/backend/src/main.ts", "tools/e2e/legacy-candidate-native-journey.ts"],
+      files: [
+        "apps/backend/src/main.ts",
+        "apps/backend/src/receipt/drain-main.ts",
+        "tools/e2e/legacy-candidate-native-journey.ts",
+        "tools/e2e/run-legacy-candidate-rehearsal.ts",
+        "tools/e2e/run-legacy-receipt-import.ts",
+        "tools/e2e/run-legacy-receipt-rehearsal.ts",
+      ],
       rules: {
         // These Bun composition roots combine platform-bun with Node-compatible process APIs.
         "effect/no-cross-runtime": "off",

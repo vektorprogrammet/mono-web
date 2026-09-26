@@ -1,5 +1,6 @@
-import { ReceiptFileStoreResource } from "./filesystem.js";
-import { Match, Effect, Layer, Predicate } from "effect";
+import { ReceiptFileStoreError, ReceiptFileStoreResource } from "./filesystem.js";
+import { jsonText } from "../http-api/problem.js";
+import { Data, Match, Effect, Layer, Predicate } from "effect";
 import {
   ReceiptDecodeError,
   ReceiptFileEffectConflict,
@@ -10,7 +11,7 @@ import {
   type ReceiptFileRequest,
   type ReceiptFileServiceOperations,
 } from "@vektorprogrammet/domain/receipt";
-import type { ReceiptFileStore, StagedReceiptFile } from "./filesystem.js";
+import type { ReceiptFileStore } from "./filesystem.js";
 
 export interface R2Object {
   readonly size: number;
@@ -47,7 +48,15 @@ interface Digest {
 
 type Existing = "missing" | "matching" | "different";
 
+/** A bucket or Web Crypto call that rejected; each store operation maps it to its own outcome. */
+class R2CallFailure extends Data.TaggedError("R2CallFailure")<{ readonly cause: unknown }> {}
+
+const call = <A>(run: () => Promise<A>) =>
+  Effect.tryPromise({ try: run, catch: (cause) => new R2CallFailure({ cause }) });
+
 const encoder = new TextEncoder();
+
+const decoder = new TextDecoder();
 
 const extensionFor = (contentType: ReceiptFile["contentType"]): string =>
   Match.value(contentType).pipe(
@@ -56,16 +65,15 @@ const extensionFor = (contentType: ReceiptFile["contentType"]): string =>
     Match.orElse(() => "jpeg" as const),
   );
 
-const hexDigest = async (bytes: Uint8Array): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+const hexDigest = (bytes: Uint8Array) =>
+  call(() => crypto.subtle.digest("SHA-256", bytes)).pipe(
+    Effect.map((digest) =>
+      Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    ),
+  );
 
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-};
-
-const digestBytes = async (bytes: Uint8Array): Promise<Digest> => ({
-  byteLength: bytes.byteLength,
-  sha256: await hexDigest(bytes),
-});
+const digestBytes = (bytes: Uint8Array) =>
+  Effect.map(hexDigest(bytes), (sha256): Digest => ({ byteLength: bytes.byteLength, sha256 }));
 
 const keyIsSafe = (key: string): boolean =>
   key.length > 0 &&
@@ -73,89 +81,88 @@ const keyIsSafe = (key: string): boolean =>
   !key.includes("\\") &&
   key.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
 
-const receiptFileIdentity = async (
+const receiptFileIdentity = (
   commandId: string,
   contentType: ReceiptFile["contentType"],
   digest: Digest,
-): Promise<ReceiptFile> => {
-  const commandDigest = await hexDigest(encoder.encode(commandId));
-  const suffix = `${commandDigest.slice(0, 32)}-${digest.sha256}-${extensionFor(contentType)}`;
+) =>
+  Effect.map(hexDigest(encoder.encode(commandId)), (commandDigest): ReceiptFile => {
+    const suffix = `${commandDigest.slice(0, 32)}-${digest.sha256}-${extensionFor(contentType)}`;
 
-  return {
-    fileRef: `staging/${suffix}`,
-    objectKey: `committed/${suffix}`,
-    contentType,
-    byteLength: digest.byteLength,
-    sha256: digest.sha256,
-  };
-};
+    return {
+      fileRef: `staging/${suffix}`,
+      objectKey: `committed/${suffix}`,
+      contentType,
+      byteLength: digest.byteLength,
+      sha256: digest.sha256,
+    };
+  });
 
 const notStaged = (effectId: string, fileRef: string): ReceiptFileNotStaged =>
   new ReceiptFileNotStaged({ effectId, fileRef });
 
-const readMatching = async (
-  bucket: R2Bucket,
-  key: string,
-  file: ReceiptFile,
-): Promise<Existing> => {
-  const object = await bucket.get(key);
+const readMatching = (bucket: R2Bucket, key: string, file: ReceiptFile) =>
+  Effect.gen(function* () {
+    const object = yield* call(() => bucket.get(key));
 
-  if (object === null) return "missing";
+    if (object === null) return "missing" satisfies Existing;
 
-  if (object.size !== file.byteLength || object.httpMetadata?.contentType !== file.contentType)
-    return "different";
-  const bytes = new Uint8Array(await object.arrayBuffer());
-  const digest = await digestBytes(bytes);
+    if (object.size !== file.byteLength || object.httpMetadata?.contentType !== file.contentType)
+      return "different" satisfies Existing;
 
-  return digest.byteLength === file.byteLength && digest.sha256 === file.sha256
-    ? "matching"
-    : "different";
-};
+    const digest = yield* call(() => object.arrayBuffer()).pipe(
+      Effect.flatMap((buffer) => digestBytes(new Uint8Array(buffer))),
+    );
 
-const encodedRequest = (request: ReceiptFileRequest): string => JSON.stringify(request);
-
-const markerKeyFor = async (effectId: string): Promise<string> =>
-  `effects/${await hexDigest(encoder.encode(effectId))}`;
-
-const decoder = new TextDecoder();
-
-const markerRequest = async (bucket: R2Bucket, key: string): Promise<string | null> => {
-  const marker = await bucket.get(key);
-
-  return marker === null ? null : decoder.decode(await marker.arrayBuffer());
-};
-
-const claimEffect = async (
-  bucket: R2Bucket,
-  markerKey: string,
-  request: ReceiptFileRequest,
-): Promise<void> => {
-  const requestJson = encodedRequest(request);
-  const existing = await markerRequest(bucket, markerKey);
-
-  if (existing !== null) {
-    if (existing !== requestJson)
-      throw new ReceiptFileEffectConflict({ effectId: request.effectId });
-
-    return;
-  }
-
-  const claimed = await bucket.put(markerKey, requestJson, {
-    httpMetadata: { contentType: "application/json" },
-    onlyIf: new Headers({ "if-none-match": "*" }),
+    return digest.byteLength === file.byteLength && digest.sha256 === file.sha256
+      ? ("matching" satisfies Existing)
+      : ("different" satisfies Existing);
   });
 
-  if (claimed !== null) return;
-  const winner = await markerRequest(bucket, markerKey);
+const markerRequest = (bucket: R2Bucket, key: string) =>
+  call(() => bucket.get(key)).pipe(
+    Effect.flatMap((marker) =>
+      marker === null
+        ? Effect.succeed(null)
+        : Effect.map(
+            call(() => marker.arrayBuffer()),
+            (buffer) => decoder.decode(buffer),
+          ),
+    ),
+  );
 
-  if (winner !== requestJson) throw new ReceiptFileEffectConflict({ effectId: request.effectId });
-};
+const claimEffect = (bucket: R2Bucket, markerKey: string, request: ReceiptFileRequest) =>
+  Effect.gen(function* () {
+    const requestJson = yield* jsonText(request);
+    const existing = yield* markerRequest(bucket, markerKey);
 
-const ensureFileIdentity = (file: ReceiptFile): void => {
-  if (!keyIsSafe(file.fileRef) || !keyIsSafe(file.objectKey)) {
-    throw new ReceiptFileIdentityConflict({ effectId: "identity", objectKey: file.objectKey });
-  }
-};
+    if (existing !== null) {
+      if (existing !== requestJson)
+        return yield* new ReceiptFileEffectConflict({ effectId: request.effectId });
+
+      return;
+    }
+
+    const claimed = yield* call(() =>
+      bucket.put(markerKey, requestJson, {
+        httpMetadata: { contentType: "application/json" },
+        onlyIf: new Headers({ "if-none-match": "*" }),
+      }),
+    );
+
+    if (claimed !== null) return;
+    const winner = yield* markerRequest(bucket, markerKey);
+
+    if (winner !== requestJson)
+      return yield* new ReceiptFileEffectConflict({ effectId: request.effectId });
+  });
+
+const ensureFileIdentity = (file: ReceiptFile) =>
+  keyIsSafe(file.fileRef) && keyIsSafe(file.objectKey)
+    ? Effect.void
+    : Effect.fail(
+        new ReceiptFileIdentityConflict({ effectId: "identity", objectKey: file.objectKey }),
+      );
 
 export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): ReceiptFileStore => {
   if (
@@ -167,172 +174,206 @@ export const makeR2ReceiptFileStore = (config: R2ReceiptFileStoreConfig): Receip
     throw new TypeError("R2 receipt bucket binding is required");
   }
 
+  const bucket = config.bucket;
   let failNextPromotionEffectId = config.failNextPromotionEffectId;
 
-  const stageBytes = async (
+  const storeFailure =
+    (operation: ReceiptFileStoreError["operation"], message: string) =>
+    (cause: ReceiptFileIdentityConflict | R2CallFailure) =>
+      Effect.fail(new ReceiptFileStoreError({ operation, message, cause }));
+
+  const stageBytes = (
     file: File,
     commandId: string,
     contentType: ReceiptFile["contentType"],
     maxFileBytes: number,
-  ): Promise<StagedReceiptFile> => {
-    const bytes = new Uint8Array(await file.arrayBuffer());
+  ) =>
+    Effect.gen(function* () {
+      const bytes = new Uint8Array(yield* call(() => file.arrayBuffer()));
 
-    if (bytes.byteLength > maxFileBytes) {
-      throw new ReceiptDecodeError({ message: "receipt file exceeds configured limit" });
-    }
+      if (bytes.byteLength > maxFileBytes) {
+        return yield* new ReceiptDecodeError({ message: "receipt file exceeds configured limit" });
+      }
 
-    const identity = await receiptFileIdentity(commandId, contentType, await digestBytes(bytes));
-    const existing = await readMatching(config.bucket, identity.fileRef, identity);
+      const identity = yield* receiptFileIdentity(
+        commandId,
+        contentType,
+        yield* digestBytes(bytes),
+      );
 
-    if (existing === "matching") return { file: identity, created: false };
+      const existing = yield* readMatching(bucket, identity.fileRef, identity);
 
-    if (existing === "different") throw new Error("receipt staging identity conflict");
-    await config.bucket.put(identity.fileRef, bytes, { httpMetadata: { contentType } });
+      if (existing === "matching") return { file: identity, created: false };
 
-    return { file: identity, created: true };
-  };
+      if (existing === "different") {
+        return yield* new ReceiptFileStoreError({
+          operation: "stageBytes",
+          message: "receipt staging identity conflict",
+        });
+      }
 
-  const cleanupStage = async (file: ReceiptFile): Promise<void> => {
-    ensureFileIdentity(file);
-    await config.bucket.delete(file.fileRef);
-  };
+      yield* call(() => bucket.put(identity.fileRef, bytes, { httpMetadata: { contentType } }));
+
+      return { file: identity, created: true };
+    }).pipe(Effect.catchTag("R2CallFailure", storeFailure("stageBytes", "R2 staging failed")));
+
+  const cleanupStage = (file: ReceiptFile) =>
+    ensureFileIdentity(file).pipe(
+      Effect.andThen(call(() => bucket.delete(file.fileRef))),
+      Effect.catchTags({
+        ReceiptFileIdentityConflict: storeFailure("cleanupStage", "unsafe receipt file identity"),
+        R2CallFailure: storeFailure("cleanupStage", "R2 cleanup failed"),
+      }),
+    );
+
+  // The staged bytes of a promotion, verified against the recorded file identity.
+  const verifiedStage = (request: ReceiptFileRequest) =>
+    Effect.gen(function* () {
+      const staged = yield* call(() => bucket.get(request.file.fileRef));
+
+      if (staged === null) return yield* notStaged(request.effectId, request.file.fileRef);
+      const bytes = new Uint8Array(yield* call(() => staged.arrayBuffer()));
+      const digest = yield* digestBytes(bytes);
+
+      if (
+        digest.byteLength !== request.file.byteLength ||
+        digest.sha256 !== request.file.sha256 ||
+        staged.httpMetadata?.contentType !== request.file.contentType
+      ) {
+        return yield* notStaged(request.effectId, request.file.fileRef);
+      }
+
+      return bytes;
+    });
 
   const service: ReceiptFileServiceOperations = {
     stage: (file) =>
-      Effect.tryPromise({
-        try: async () => {
-          ensureFileIdentity(file);
-          const staged = await readMatching(config.bucket, file.fileRef, file);
+      Effect.gen(function* () {
+        yield* ensureFileIdentity(file);
+        const staged = yield* readMatching(bucket, file.fileRef, file);
 
-          if (staged === "matching") return;
+        if (staged === "matching") return;
 
-          if (staged === "different") {
-            throw new ReceiptFileIdentityConflict({ effectId: "stage", objectKey: file.objectKey });
+        if (staged === "different") {
+          return yield* new ReceiptFileIdentityConflict({
+            effectId: "stage",
+            objectKey: file.objectKey,
+          });
+        }
+
+        const committed = yield* readMatching(bucket, file.objectKey, file);
+
+        if (committed === "matching") return;
+
+        if (committed === "different") {
+          return yield* new ReceiptFileIdentityConflict({
+            effectId: "stage",
+            objectKey: file.objectKey,
+          });
+        }
+
+        return yield* notStaged("stage", file.fileRef);
+      }).pipe(
+        Effect.catchTag("R2CallFailure", () => Effect.fail(notStaged("stage", file.fileRef))),
+      ),
+    apply: (request) =>
+      Effect.gen(function* () {
+        yield* ensureFileIdentity(request.file);
+        const markerKey = `effects/${yield* hexDigest(encoder.encode(request.effectId))}`;
+
+        if (Predicate.isTagged(request, "PromoteReceiptFile")) {
+          if (failNextPromotionEffectId === request.effectId) {
+            failNextPromotionEffectId = undefined;
+
+            return yield* notStaged(request.effectId, request.file.fileRef);
           }
 
-          const committed = await readMatching(config.bucket, file.objectKey, file);
-
-          if (committed === "matching") return;
+          const committed = yield* readMatching(bucket, request.file.objectKey, request.file);
 
           if (committed === "different") {
-            throw new ReceiptFileIdentityConflict({ effectId: "stage", objectKey: file.objectKey });
+            return yield* new ReceiptFileIdentityConflict({
+              effectId: request.effectId,
+              objectKey: request.file.objectKey,
+            });
           }
 
-          throw notStaged("stage", file.fileRef);
-        },
-        catch: (cause) =>
-          cause instanceof ReceiptFileIdentityConflict ? cause : notStaged("stage", file.fileRef),
-      }),
-    apply: (request) =>
-      Effect.tryPromise({
-        try: async () => {
-          ensureFileIdentity(request.file);
-          const markerKey = await markerKeyFor(request.effectId);
+          const bytes = committed === "missing" ? yield* verifiedStage(request) : undefined;
+          yield* claimEffect(bucket, markerKey, request);
 
-          if (Predicate.isTagged(request, "PromoteReceiptFile")) {
-            if (failNextPromotionEffectId === request.effectId) {
-              failNextPromotionEffectId = undefined;
-              throw notStaged(request.effectId, request.file.fileRef);
-            }
-
-            const committed = await readMatching(
-              config.bucket,
-              request.file.objectKey,
-              request.file,
-            );
-
-            if (committed === "different") {
-              throw new ReceiptFileIdentityConflict({
-                effectId: request.effectId,
-                objectKey: request.file.objectKey,
-              });
-            }
-
-            let bytes: Uint8Array | undefined;
-
-            if (committed === "missing") {
-              const staged = await config.bucket.get(request.file.fileRef);
-
-              if (staged === null) throw notStaged(request.effectId, request.file.fileRef);
-              bytes = new Uint8Array(await staged.arrayBuffer());
-              const digest = await digestBytes(bytes);
-
-              if (
-                digest.byteLength !== request.file.byteLength ||
-                digest.sha256 !== request.file.sha256 ||
-                staged.httpMetadata?.contentType !== request.file.contentType
-              ) {
-                throw notStaged(request.effectId, request.file.fileRef);
-              }
-            }
-
-            await claimEffect(config.bucket, markerKey, request);
-
-            if (bytes !== undefined) {
-              await config.bucket.put(request.file.objectKey, bytes, {
+          if (bytes !== undefined) {
+            yield* call(() =>
+              bucket.put(request.file.objectKey, bytes, {
                 httpMetadata: { contentType: request.file.contentType },
-              });
-            }
-
-            await config.bucket.delete(request.file.fileRef);
-          } else {
-            const committed = await readMatching(
-              config.bucket,
-              request.file.objectKey,
-              request.file,
+              }),
             );
-
-            if (committed === "different") {
-              throw new ReceiptFileIdentityConflict({
-                effectId: request.effectId,
-                objectKey: request.file.objectKey,
-              });
-            }
-
-            await claimEffect(config.bucket, markerKey, request);
-
-            if (committed === "matching") await config.bucket.delete(request.file.objectKey);
-          }
-        },
-        catch: (cause) => {
-          if (
-            cause instanceof ReceiptFileEffectConflict ||
-            cause instanceof ReceiptFileIdentityConflict ||
-            cause instanceof ReceiptFileNotStaged
-          ) {
-            return cause;
           }
 
-          return notStaged(request.effectId, request.file.fileRef);
-        },
-      }),
+          return yield* call(() => bucket.delete(request.file.fileRef));
+        }
+
+        const committed = yield* readMatching(bucket, request.file.objectKey, request.file);
+
+        if (committed === "different") {
+          return yield* new ReceiptFileIdentityConflict({
+            effectId: request.effectId,
+            objectKey: request.file.objectKey,
+          });
+        }
+
+        yield* claimEffect(bucket, markerKey, request);
+
+        if (committed === "matching") yield* call(() => bucket.delete(request.file.objectKey));
+      }).pipe(
+        Effect.catchTag("R2CallFailure", () =>
+          Effect.fail(notStaged(request.effectId, request.file.fileRef)),
+        ),
+      ),
   };
 
-  return {
-    service,
-    readCommitted: async (file, maxFileBytes) => {
-      ensureFileIdentity(file);
+  const readCommitted = (file: ReceiptFile, maxFileBytes: number) =>
+    Effect.gen(function* () {
+      const mismatch = new ReceiptFileStoreError({
+        operation: "readCommitted",
+        message: "receipt file mismatch",
+      });
 
-      if (file.byteLength > maxFileBytes) throw new Error("receipt file exceeds configured limit");
-      const object = await config.bucket.get(file.objectKey);
+      yield* ensureFileIdentity(file);
 
-      if (object === null || object.size !== file.byteLength || object.size > maxFileBytes) {
-        throw new Error("receipt file mismatch");
+      if (file.byteLength > maxFileBytes) {
+        return yield* new ReceiptFileStoreError({
+          operation: "readCommitted",
+          message: "receipt file exceeds configured limit",
+        });
       }
 
-      const bytes = new Uint8Array(await object.arrayBuffer());
-      const digest = await digestBytes(bytes);
+      const object = yield* call(() => bucket.get(file.objectKey));
+
+      if (object === null || object.size !== file.byteLength || object.size > maxFileBytes) {
+        return yield* mismatch;
+      }
+
+      const bytes = new Uint8Array(yield* call(() => object.arrayBuffer()));
+      const digest = yield* digestBytes(bytes);
 
       if (
         digest.byteLength !== file.byteLength ||
         digest.sha256 !== file.sha256 ||
         object.httpMetadata?.contentType !== file.contentType
       ) {
-        throw new Error("receipt file mismatch");
+        return yield* mismatch;
       }
 
       return bytes;
-    },
+    }).pipe(
+      Effect.catchTags({
+        ReceiptFileIdentityConflict: storeFailure("readCommitted", "unsafe receipt file identity"),
+        R2CallFailure: storeFailure("readCommitted", "R2 read failed"),
+      }),
+    );
+
+  return {
+    service,
+    readCommitted,
     layer: Layer.succeed(ReceiptFileService)(service),
     stageBytes,
     cleanupStage,

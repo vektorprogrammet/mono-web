@@ -1,5 +1,6 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { Database } from "@vektorprogrammet/database";
 import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";
 import { databaseSchemaRevision } from "@vektorprogrammet/database/migrations";
@@ -149,7 +150,11 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
 
     stage = "Transformation";
 
-    if (review.transformationRevision !== (await legacyReceiptTransformationRevision()))
+    const transformationRevision = await Effect.runPromise(
+      legacyReceiptTransformationRevision.pipe(Effect.provide(BunServices.layer)),
+    );
+
+    if (review.transformationRevision !== transformationRevision)
       throw new LegacyReceiptImportFailure(stage, "TransformationMismatch");
     stage = "SourceRead";
     const source = await readLegacySourceSnapshot(sourceUrl, options.organizationSource, "Include");
@@ -217,7 +222,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
             ReceiptFileStoreLive({
               stagingRoot: options.stagingRoot,
               committedRoot: options.committedRoot,
-            }),
+            }).pipe(Layer.provideMerge(BunServices.layer)),
             DatabaseRuntimeLive({
               url: Redacted.make(targetSelection.toString()),
               host: socketPath ?? undefined,

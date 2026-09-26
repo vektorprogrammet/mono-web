@@ -23,7 +23,8 @@ import {
   receiptSourceRowDigest,
 } from "@vektorprogrammet/domain/receipt";
 import { CurrentAssignmentReview } from "@vektorprogrammet/domain/placements";
-import { Schema } from "effect";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import { Effect, Schema } from "effect";
 import type { Pool } from "pg";
 import * as PaymentCustody from "@vektorprogrammet/backend/receipt/payment-account";
 import { buildLegacyReferences } from "./legacy-cutover-references";
@@ -290,7 +291,9 @@ const rehearse = async () =>
         receiptSourceRevision: baseline.receiptRevision,
         snapshotId: `${candidateSnapshotId}-receipts`,
         sourceWatermark: candidateWatermark,
-        transformationRevision: await legacyReceiptTransformationRevision(),
+        transformationRevision: await Effect.runPromise(
+          legacyReceiptTransformationRevision.pipe(Effect.provide(BunServices.layer)),
+        ),
         personSnapshotKey,
         referenceSnapshotId: candidateSnapshotId,
         referenceDigest,

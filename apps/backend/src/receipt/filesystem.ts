@@ -1,8 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { copyFile, mkdir, open, rename, unlink, realpath, link } from "node:fs/promises";
-import { dirname, join, relative, isAbsolute, sep } from "node:path";
-import { Context, Match, Predicate, Effect, Layer } from "effect";
+import {
+  Context,
+  Data,
+  Effect,
+  FileSystem,
+  Layer,
+  Match,
+  Path,
+  PlatformError,
+  Predicate,
+  Stream,
+} from "effect";
 import {
   ReceiptDecodeError,
   receiptEvidenceDigest,
@@ -27,12 +35,21 @@ export interface StagedReceiptFile {
   readonly created: boolean;
 }
 
+/** A private file operation that did not complete; each caller maps it to its own outcome. */
+export class ReceiptFileStoreError extends Data.TaggedError("ReceiptFileStoreError")<{
+  readonly operation: "readCommitted" | "stageBytes" | "cleanupStage";
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 interface FileDigest {
   readonly byteLength: number;
   readonly sha256: string;
 }
 
 type ExistingFile = "missing" | "matching" | "different";
+
+const encoder = new TextEncoder();
 
 const mediaKey = (contentType: ReceiptFile["contentType"]): string =>
   Match.value(contentType).pipe(
@@ -41,85 +58,15 @@ const mediaKey = (contentType: ReceiptFile["contentType"]): string =>
     Match.orElse(() => "jpeg" as const),
   );
 
-const commandKey = (commandId: string): string => {
-  const hash = createHash("sha256");
-  hash.update(commandId);
-
-  return hash.digest("hex").slice(0, 32);
-};
-
-const pathFor = (root: string, key: string): string => {
-  const segments = key.split("/");
-
-  if (
-    segments.length < 2 ||
-    segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")
-  ) {
-    throw new Error("unsafe receipt file identity");
-  }
-
-  return join(root, ...segments);
-};
-
-const digestPath = async (filePath: string, maxBytes: number): Promise<FileDigest> => {
-  const hash = createHash("sha256");
-  let byteLength = 0;
-
-  for await (const chunk of createReadStream(filePath)) {
-    const bytes = Predicate.isString(chunk) ? Buffer.from(chunk) : chunk;
-    byteLength += bytes.byteLength;
-
-    if (byteLength > maxBytes) break;
-    hash.update(bytes);
-  }
-
-  return { byteLength, sha256: hash.digest("hex") };
-};
-
-const inspectFile = async (filePath: string, file: ReceiptFile): Promise<ExistingFile> => {
-  try {
-    const digest = await digestPath(filePath, file.byteLength);
-
-    return digest.byteLength === file.byteLength && digest.sha256 === file.sha256
-      ? "matching"
-      : "different";
-  } catch (cause) {
-    if (
-      cause !== null &&
-      (cause === null || Predicate.isObjectOrArray(cause)) &&
-      "code" in cause &&
-      cause.code === "ENOENT"
-    ) {
-      return "missing";
-    }
-
-    throw cause;
-  }
-};
-
-const removeIfPresent = async (filePath: string): Promise<void> => {
-  try {
-    await unlink(filePath);
-  } catch (cause) {
-    if (
-      cause !== null &&
-      (cause === null || Predicate.isObjectOrArray(cause)) &&
-      "code" in cause &&
-      cause.code === "ENOENT"
-    ) {
-      return;
-    }
-
-    throw cause;
-  }
-};
+const sha256Hex = (value: string | Uint8Array): string =>
+  createHash("sha256").update(value).digest("hex");
 
 const fileIdentity = (
   commandId: string,
   contentType: ReceiptFile["contentType"],
   digest: FileDigest,
 ): ReceiptFile => {
-  const suffix = `${commandKey(commandId)}-${digest.sha256}-${mediaKey(contentType)}`;
+  const suffix = `${sha256Hex(commandId).slice(0, 32)}-${digest.sha256}-${mediaKey(contentType)}`;
 
   return {
     fileRef: `staging/${suffix}`,
@@ -133,17 +80,30 @@ const fileIdentity = (
 const fileFailure = (effectId: string, fileRef: string): ReceiptFileNotStaged =>
   new ReceiptFileNotStaged({ effectId, fileRef });
 
+const failedOperation =
+  (operation: ReceiptFileStoreError["operation"]) => (cause: PlatformError.PlatformError) =>
+    Effect.fail(
+      new ReceiptFileStoreError({
+        operation,
+        message: "private file system operation failed",
+        cause,
+      }),
+    );
+
 export interface ReceiptFileStore {
   readonly service: ReceiptFileServiceOperations;
-  readonly readCommitted: (file: ReceiptFile, maxFileBytes: number) => Promise<Uint8Array>;
+  readonly readCommitted: (
+    file: ReceiptFile,
+    maxFileBytes: number,
+  ) => Effect.Effect<Uint8Array, ReceiptFileStoreError>;
   readonly layer: Layer.Layer<ReceiptFileService>;
   readonly stageBytes: (
     file: File,
     commandId: string,
     contentType: ReceiptFile["contentType"],
     maxFileBytes: number,
-  ) => Promise<StagedReceiptFile>;
-  readonly cleanupStage: (file: ReceiptFile) => Promise<void>;
+  ) => Effect.Effect<StagedReceiptFile, ReceiptDecodeError | ReceiptFileStoreError>;
+  readonly cleanupStage: (file: ReceiptFile) => Effect.Effect<void, ReceiptFileStoreError>;
 }
 
 export class ReceiptFileStoreResource extends Context.Service<
@@ -151,282 +111,363 @@ export class ReceiptFileStoreResource extends Context.Service<
   ReceiptFileStore
 >()("@vektorprogrammet/backend/ReceiptFileStore") {}
 
-export const ReceiptFileStoreLive = (config: ReceiptFileStoreConfig) =>
-  Layer.unwrap(
-    Effect.sync(() => {
-      const store = makeReceiptFileStore(config);
+/** Private receipt files under two local roots, through the platform FileSystem and Path. */
+export const makeReceiptFileStore = (config: ReceiptFileStoreConfig) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    let failNextPromotionEffectId = config.failNextPromotionEffectId;
 
-      return Layer.merge(Layer.succeed(ReceiptFileStoreResource, store), store.layer);
-    }),
-  );
+    const pathFor = (root: string, key: string) => {
+      const segments = key.split("/");
 
-export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFileStore => {
-  let failNextPromotionEffectId = config.failNextPromotionEffectId;
+      return segments.length < 2 ||
+        segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")
+        ? Effect.fail(
+            PlatformError.badArgument({
+              module: "ReceiptFileStore",
+              method: "pathFor",
+              description: "unsafe receipt file identity",
+            }),
+          )
+        : Effect.succeed(path.join(root, ...segments));
+    };
 
-  const reserveEffect = async (effectId: string, digest: string): Promise<void> => {
-    const directory = join(config.committedRoot, ".effects");
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const key = createHash("sha256").update(effectId).digest("hex");
-    const target = join(directory, key);
-    const temporary = join(directory, `.incoming-${randomUUID()}`);
-    const handle = await open(temporary, "wx", 0o600);
+    // Reads at most one byte past the expected length: a longer file is already different.
+    const inspectFile = (filePath: string, file: ReceiptFile) =>
+      fs.stream(filePath, { bytesToRead: file.byteLength + 1 }).pipe(
+        Stream.runFold(
+          () => ({ hash: createHash("sha256"), byteLength: 0 }),
+          (digest, chunk) => ({
+            hash: digest.hash.update(chunk),
+            byteLength: digest.byteLength + chunk.byteLength,
+          }),
+        ),
+        Effect.map(
+          ({ hash, byteLength }): ExistingFile =>
+            byteLength === file.byteLength && hash.digest("hex") === file.sha256
+              ? "matching"
+              : "different",
+        ),
+        Effect.catchReason("PlatformError", "NotFound", () =>
+          Effect.succeed<ExistingFile>("missing"),
+        ),
+      );
 
-    try {
-      await handle.writeFile(digest);
-      await handle.sync();
-      await handle.close();
+    // `force` ignores only a missing path.
+    const removeIfPresent = (filePath: string) => fs.remove(filePath, { force: true });
 
-      try {
-        await link(temporary, target);
-      } catch (cause) {
-        if (!(Predicate.isObject(cause) && "code" in cause && cause.code === "EEXIST")) throw cause;
-      }
+    const readMarker = (target: string) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const marker = yield* fs.open(target, { flag: "r" });
+          const bytes = Buffer.alloc(65);
+          const bytesRead = yield* marker.read(bytes);
 
-      const marker = await open(target, "r");
+          return bytesRead === 64 ? bytes.subarray(0, bytesRead).toString("ascii") : undefined;
+        }),
+      );
 
-      try {
-        const bytes = Buffer.alloc(65);
-        const { bytesRead } = await marker.read(bytes, 0, bytes.length, 0);
+    // One durable marker per effect id: the first writer's digest wins, a replay of the same
+    // request passes, and a different request under the same id conflicts.
+    const reserveEffect = (effectId: string, digest: string) =>
+      Effect.gen(function* () {
+        const directory = path.join(config.committedRoot, ".effects");
+        yield* fs.makeDirectory(directory, { recursive: true, mode: 0o700 });
+        const target = path.join(directory, sha256Hex(effectId));
+        const temporary = path.join(directory, `.incoming-${randomUUID()}`);
 
-        if (bytesRead !== 64 || bytes.subarray(0, bytesRead).toString("ascii") !== digest)
-          throw new ReceiptFileEffectConflict({ effectId });
-      } finally {
-        await marker.close();
-      }
-    } finally {
-      await handle.close();
-      await removeIfPresent(temporary);
-    }
-  };
+        const recorded = yield* Effect.scoped(
+          Effect.acquireUseRelease(
+            fs.open(temporary, { flag: "wx", mode: 0o600 }),
+            (handle) =>
+              Effect.gen(function* () {
+                yield* handle.writeAll(encoder.encode(digest));
+                yield* handle.sync;
+                yield* fs
+                  .link(temporary, target)
+                  .pipe(Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.void));
 
-  const stageBytes = async (
-    file: File,
-    commandId: string,
-    contentType: ReceiptFile["contentType"],
-    maxFileBytes: number,
-  ): Promise<StagedReceiptFile> => {
-    await mkdir(config.stagingRoot, { recursive: true, mode: 0o700 });
-    const temporaryPath = join(config.stagingRoot, `.incoming-${randomUUID()}.part`);
-    const handle = await open(temporaryPath, "wx", 0o600);
-    const hash = createHash("sha256");
-    let byteLength = 0;
+                return yield* readMarker(target);
+              }),
+            () => removeIfPresent(temporary),
+          ),
+        );
 
-    try {
-      const reader = file.stream().getReader();
-
-      try {
-        while (true) {
-          const chunk = await reader.read();
-
-          if (chunk.done) break;
-          byteLength += chunk.value.byteLength;
-
-          if (byteLength > maxFileBytes) {
-            throw new ReceiptDecodeError({ message: "receipt file exceeds configured limit" });
-          }
-
-          hash.update(chunk.value);
-          await handle.writeFile(chunk.value);
-        }
-      } finally {
-        try {
-          await reader.cancel();
-        } finally {
-          reader.releaseLock();
-        }
-      }
-
-      await handle.sync();
-      await handle.close();
-
-      const identity = fileIdentity(commandId, contentType, {
-        byteLength,
-        sha256: hash.digest("hex"),
+        if (recorded !== digest) return yield* new ReceiptFileEffectConflict({ effectId });
       });
 
-      const targetPath = pathFor(config.stagingRoot, identity.fileRef);
-      await mkdir(dirname(targetPath), { recursive: true, mode: 0o700 });
-      const existing = await inspectFile(targetPath, identity);
+    // Streams the upload into the open temporary file; bytes past the limit fail validation.
+    const writeUpload = (handle: FileSystem.File, upload: File, maxFileBytes: number) =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => upload.stream().getReader()),
+        (reader) =>
+          Effect.gen(function* () {
+            const hash = createHash("sha256");
+            let byteLength = 0;
 
-      if (existing === "matching") {
-        await removeIfPresent(temporaryPath);
+            for (;;) {
+              const chunk = yield* Effect.tryPromise({
+                try: () => reader.read(),
+                catch: (cause) =>
+                  new ReceiptFileStoreError({
+                    operation: "stageBytes",
+                    message: "receipt upload unreadable",
+                    cause,
+                  }),
+              });
 
-        return { file: identity, created: false };
-      }
+              if (chunk.done) break;
+              byteLength += chunk.value.byteLength;
 
-      if (existing === "different") {
-        await removeIfPresent(temporaryPath);
-        throw new Error("receipt staging identity conflict");
-      }
+              if (byteLength > maxFileBytes) {
+                return yield* new ReceiptDecodeError({
+                  message: "receipt file exceeds configured limit",
+                });
+              }
 
-      await rename(temporaryPath, targetPath);
+              hash.update(chunk.value);
+              yield* handle.writeAll(chunk.value);
+            }
 
-      return { file: identity, created: true };
-    } catch (cause) {
-      await handle.close().catch(() => undefined);
-      await removeIfPresent(temporaryPath).catch(() => undefined);
-      throw cause;
-    }
-  };
+            return { byteLength, sha256: hash.digest("hex") };
+          }),
+        (reader) =>
+          Effect.tryPromise({
+            try: () => reader.cancel(),
+            catch: (cause) =>
+              new ReceiptFileStoreError({
+                operation: "stageBytes",
+                message: "receipt upload unreadable",
+                cause,
+              }),
+          }).pipe(Effect.ensuring(Effect.sync(() => reader.releaseLock()))),
+      );
 
-  const cleanupStage = async (file: ReceiptFile): Promise<void> => {
-    await removeIfPresent(pathFor(config.stagingRoot, file.fileRef));
-  };
+    const placeStagedFile = (temporaryPath: string, identity: ReceiptFile) =>
+      Effect.gen(function* () {
+        const targetPath = yield* pathFor(config.stagingRoot, identity.fileRef);
+        yield* fs.makeDirectory(path.dirname(targetPath), { recursive: true, mode: 0o700 });
+        const existing = yield* inspectFile(targetPath, identity);
 
-  const service: ReceiptFileServiceOperations = {
-    stage: (file) =>
-      Effect.tryPromise({
-        try: async () => {
-          const stagingPath = pathFor(config.stagingRoot, file.fileRef);
-          const committedPath = pathFor(config.committedRoot, file.objectKey);
-          const staged = await inspectFile(stagingPath, file);
+        if (existing === "matching") {
+          yield* removeIfPresent(temporaryPath);
+
+          return { file: identity, created: false };
+        }
+
+        if (existing === "different") {
+          yield* removeIfPresent(temporaryPath);
+
+          return yield* new ReceiptFileStoreError({
+            operation: "stageBytes",
+            message: "receipt staging identity conflict",
+          });
+        }
+
+        yield* fs.rename(temporaryPath, targetPath);
+
+        return { file: identity, created: true };
+      });
+
+    const stageBytes = (
+      upload: File,
+      commandId: string,
+      contentType: ReceiptFile["contentType"],
+      maxFileBytes: number,
+    ) =>
+      Effect.gen(function* () {
+        yield* fs.makeDirectory(config.stagingRoot, { recursive: true, mode: 0o700 });
+        const temporaryPath = path.join(config.stagingRoot, `.incoming-${randomUUID()}.part`);
+        const removeTemporary = removeIfPresent(temporaryPath).pipe(Effect.ignore);
+
+        // The handle closes after the fsync, before the file is placed.
+        const digest = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* fs.open(temporaryPath, { flag: "wx", mode: 0o600 });
+
+            return yield* writeUpload(handle, upload, maxFileBytes).pipe(
+              Effect.tap(() => handle.sync),
+              Effect.onError(() => removeTemporary),
+            );
+          }),
+        );
+
+        return yield* placeStagedFile(
+          temporaryPath,
+          fileIdentity(commandId, contentType, digest),
+        ).pipe(Effect.onError(() => removeTemporary));
+      }).pipe(Effect.catchTag("PlatformError", failedOperation("stageBytes")));
+
+    // A rename across devices falls back to a copy and removal of the staged file.
+    const promote = (stagingPath: string, committedPath: string) =>
+      fs
+        .rename(stagingPath, committedPath)
+        .pipe(
+          Effect.catchReason("PlatformError", "Unknown", (reason, error) =>
+            Predicate.hasProperty(reason.cause, "code") && reason.cause.code === "EXDEV"
+              ? fs
+                  .copyFile(stagingPath, committedPath)
+                  .pipe(Effect.andThen(removeIfPresent(stagingPath)))
+              : Effect.fail(error),
+          ),
+        );
+
+    const service: ReceiptFileServiceOperations = {
+      stage: (file) =>
+        Effect.gen(function* () {
+          const stagingPath = yield* pathFor(config.stagingRoot, file.fileRef);
+          const committedPath = yield* pathFor(config.committedRoot, file.objectKey);
+          const staged = yield* inspectFile(stagingPath, file);
 
           if (staged === "matching") return;
 
           if (staged === "different") {
-            throw new ReceiptFileIdentityConflict({ effectId: "stage", objectKey: file.objectKey });
+            return yield* new ReceiptFileIdentityConflict({
+              effectId: "stage",
+              objectKey: file.objectKey,
+            });
           }
 
-          const committed = await inspectFile(committedPath, file);
+          const committed = yield* inspectFile(committedPath, file);
 
           if (committed === "matching") return;
 
           if (committed === "different") {
-            throw new ReceiptFileIdentityConflict({ effectId: "stage", objectKey: file.objectKey });
+            return yield* new ReceiptFileIdentityConflict({
+              effectId: "stage",
+              objectKey: file.objectKey,
+            });
           }
 
-          throw fileFailure("stage", file.fileRef);
-        },
-        catch: (cause) =>
-          cause instanceof ReceiptFileIdentityConflict
-            ? cause
-            : new ReceiptFileNotStaged({ effectId: "stage", fileRef: file.fileRef }),
-      }),
-    apply: (request: ReceiptFileRequest) =>
-      Effect.tryPromise({
-        try: async () => {
-          const requestDigest = receiptEvidenceDigest(request);
-          await reserveEffect(request.effectId, requestDigest);
+          return yield* fileFailure("stage", file.fileRef);
+        }).pipe(
+          Effect.catchTag("PlatformError", () => Effect.fail(fileFailure("stage", file.fileRef))),
+        ),
+      apply: (request: ReceiptFileRequest) =>
+        Effect.gen(function* () {
+          yield* reserveEffect(request.effectId, receiptEvidenceDigest(request));
+          const promotion = Predicate.isTagged(request, "PromoteReceiptFile");
 
-          if (
-            Predicate.isTagged(request, "PromoteReceiptFile") &&
-            failNextPromotionEffectId === request.effectId
-          ) {
+          if (promotion && failNextPromotionEffectId === request.effectId) {
             failNextPromotionEffectId = undefined;
-            throw new ReceiptFileInjectedFailure({ effectId: request.effectId });
+
+            return yield* new ReceiptFileInjectedFailure({ effectId: request.effectId });
           }
 
-          const stagingPath = pathFor(config.stagingRoot, request.file.fileRef);
-          const committedPath = pathFor(config.committedRoot, request.file.objectKey);
+          const stagingPath = yield* pathFor(config.stagingRoot, request.file.fileRef);
+          const committedPath = yield* pathFor(config.committedRoot, request.file.objectKey);
+          const committed = yield* inspectFile(committedPath, request.file);
 
-          if (Predicate.isTagged(request, "PromoteReceiptFile")) {
-            const committed = await inspectFile(committedPath, request.file);
-
-            if (committed === "different") {
-              throw new ReceiptFileIdentityConflict({
-                effectId: request.effectId,
-                objectKey: request.file.objectKey,
-              });
-            }
-
-            if (committed === "matching") {
-              await removeIfPresent(stagingPath);
-            } else {
-              const staged = await inspectFile(stagingPath, request.file);
-
-              if (staged !== "matching") throw fileFailure(request.effectId, request.file.fileRef);
-              await mkdir(dirname(committedPath), { recursive: true, mode: 0o700 });
-
-              try {
-                await rename(stagingPath, committedPath);
-              } catch (cause) {
-                if (
-                  !(
-                    cause !== null &&
-                    (cause === null || Predicate.isObjectOrArray(cause)) &&
-                    "code" in cause &&
-                    cause.code === "EXDEV"
-                  )
-                ) {
-                  throw cause;
-                }
-
-                await copyFile(stagingPath, committedPath);
-                await removeIfPresent(stagingPath);
-              }
-            }
-          } else {
-            const committed = await inspectFile(committedPath, request.file);
-
-            if (committed === "different") {
-              throw new ReceiptFileIdentityConflict({
-                effectId: request.effectId,
-                objectKey: request.file.objectKey,
-              });
-            }
-
-            if (committed === "matching") await removeIfPresent(committedPath);
-          }
-        },
-        catch: (cause) => {
-          if (
-            cause instanceof ReceiptFileEffectConflict ||
-            cause instanceof ReceiptFileIdentityConflict ||
-            cause instanceof ReceiptFileInjectedFailure ||
-            cause instanceof ReceiptFileNotStaged
-          ) {
-            return cause;
+          if (committed === "different") {
+            return yield* new ReceiptFileIdentityConflict({
+              effectId: request.effectId,
+              objectKey: request.file.objectKey,
+            });
           }
 
-          return new ReceiptFileNotStaged({
-            effectId: request.effectId,
-            fileRef: request.file.fileRef,
+          if (!promotion) {
+            if (committed === "matching") yield* removeIfPresent(committedPath);
+
+            return;
+          }
+
+          if (committed === "matching") return yield* removeIfPresent(stagingPath);
+          const staged = yield* inspectFile(stagingPath, request.file);
+
+          if (staged !== "matching") {
+            return yield* fileFailure(request.effectId, request.file.fileRef);
+          }
+
+          yield* fs.makeDirectory(path.dirname(committedPath), { recursive: true, mode: 0o700 });
+          yield* promote(stagingPath, committedPath);
+        }).pipe(
+          Effect.catchTag("PlatformError", () =>
+            Effect.fail(fileFailure(request.effectId, request.file.fileRef)),
+          ),
+        ),
+    };
+
+    const readCommitted = (file: ReceiptFile, maxFileBytes: number) =>
+      Effect.gen(function* () {
+        const mismatch = new ReceiptFileStoreError({
+          operation: "readCommitted",
+          message: "receipt file mismatch",
+        });
+
+        if (file.byteLength > maxFileBytes) {
+          return yield* new ReceiptFileStoreError({
+            operation: "readCommitted",
+            message: "receipt file exceeds configured limit",
           });
-        },
-      }),
-  };
-
-  return {
-    service,
-    readCommitted: async (file, maxFileBytes) => {
-      if (file.byteLength > maxFileBytes) throw new Error("receipt file exceeds configured limit");
-      const root = await realpath(config.committedRoot);
-      const path = await realpath(pathFor(root, file.objectKey));
-      const inside = relative(root, path);
-
-      if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside))
-        throw new Error("unsafe receipt file identity");
-      const handle = await open(path, "r");
-
-      try {
-        const stat = await handle.stat();
-
-        if (!stat.isFile() || stat.size !== file.byteLength || stat.size > maxFileBytes)
-          throw new Error("receipt file mismatch");
-        const bytes = Buffer.alloc(file.byteLength);
-        let offset = 0;
-
-        while (offset < bytes.length) {
-          const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
-
-          if (bytesRead === 0) break;
-          offset += bytesRead;
         }
 
-        if (
-          offset !== file.byteLength ||
-          (await handle.stat()).size !== file.byteLength ||
-          createHash("sha256").update(bytes).digest("hex") !== file.sha256
-        )
-          throw new Error("receipt file mismatch");
+        const root = yield* fs.realPath(config.committedRoot);
+        const resolved = yield* fs.realPath(yield* pathFor(root, file.objectKey));
+        const inside = path.relative(root, resolved);
 
-        return bytes;
-      } finally {
-        await handle.close();
-      }
-    },
-    layer: Layer.succeed(ReceiptFileService)(service),
-    stageBytes,
-    cleanupStage,
-  };
-};
+        if (inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
+          return yield* new ReceiptFileStoreError({
+            operation: "readCommitted",
+            message: "unsafe receipt file identity",
+          });
+        }
+
+        return yield* Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* fs.open(resolved, { flag: "r" });
+            const before = yield* handle.stat;
+
+            if (
+              before.type !== "File" ||
+              before.size !== BigInt(file.byteLength) ||
+              before.size > BigInt(maxFileBytes)
+            )
+              return yield* mismatch;
+            const bytes = Buffer.alloc(file.byteLength);
+            let offset = 0;
+
+            while (offset < bytes.length) {
+              const bytesRead = yield* handle.read(bytes.subarray(offset));
+
+              if (bytesRead === 0) break;
+              offset += bytesRead;
+            }
+
+            const after = yield* handle.stat;
+
+            if (
+              offset !== file.byteLength ||
+              after.size !== BigInt(file.byteLength) ||
+              sha256Hex(bytes) !== file.sha256
+            )
+              return yield* mismatch;
+
+            return bytes;
+          }),
+        );
+      }).pipe(Effect.catchTag("PlatformError", failedOperation("readCommitted")));
+
+    const cleanupStage = (file: ReceiptFile) =>
+      pathFor(config.stagingRoot, file.fileRef).pipe(
+        Effect.flatMap(removeIfPresent),
+        Effect.catchTag("PlatformError", failedOperation("cleanupStage")),
+      );
+
+    const store: ReceiptFileStore = {
+      service,
+      readCommitted,
+      layer: Layer.succeed(ReceiptFileService)(service),
+      stageBytes,
+      cleanupStage,
+    };
+
+    return store;
+  });
+
+export const ReceiptFileStoreLive = (config: ReceiptFileStoreConfig) =>
+  Layer.unwrap(
+    Effect.map(makeReceiptFileStore(config), (store) =>
+      Layer.merge(Layer.succeed(ReceiptFileStoreResource, store), store.layer),
+    ),
+  );
