@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { Config, Effect, Layer, Redacted } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { Mail } from "@vektorprogrammet/domain/mail";
@@ -26,7 +27,9 @@ try {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          DatabaseLive({ url: Redacted.make(config.auth.postgresUrl), maxConnections: 2 }),
+          DatabaseLive({ url: Redacted.make(config.auth.postgresUrl), maxConnections: 2 }).pipe(
+            Layer.provide(BunServices.layer),
+          ),
           HttpMailLive(mailDeliveryConfig(process.env)).pipe(Layer.provide(FetchHttpClient.layer)),
         ),
       ),

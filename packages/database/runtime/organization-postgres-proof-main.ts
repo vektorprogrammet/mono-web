@@ -15,6 +15,7 @@ import {
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
 
 const proofCohort = {
@@ -316,7 +317,7 @@ const program = Effect.scoped(
   }),
 );
 
-void Effect.runPromise(program).catch((cause: unknown) => {
+void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;
 });

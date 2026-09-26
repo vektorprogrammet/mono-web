@@ -21,12 +21,12 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "../receipt/postgres-layer.js";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
 import { ProfileLive } from "../profile/postgres-layer.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
 
-const databaseLayer = DatabaseTest();
+const databaseLayer = DatabaseTestLive();
 
 const runtime = makeControlledTestRuntime(
   Layer.mergeAll(

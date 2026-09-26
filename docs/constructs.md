@@ -1011,7 +1011,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
 - `ReceiptE2EBarrierArrival`: `false` for unprobed requests; `true` once all three lanes are synchronized.
   [apps/backend/src/receipt/e2e-support.ts:17](../apps/backend/src/receipt/e2e-support.ts#L17), no consumers.
 - `selectDatabaseMigration`: Selects the registered migration `id` and the migrations that run before it; an absent id throws and names the nearest registered ids.
-  [packages/database/src/migrations.ts:658](../packages/database/src/migrations.ts#L658), 8 consumers:
+  [packages/database/src/migrations.ts:677](../packages/database/src/migrations.ts#L677), 8 consumers:
   - [packages/database/runtime/schema-boundary-postgres-proof-main.ts](../packages/database/runtime/schema-boundary-postgres-proof-main.ts)
   - [packages/database/src/database.test.ts](../packages/database/src/database.test.ts)
   - [packages/database/src/migration-registry.test.ts](../packages/database/src/migration-registry.test.ts)

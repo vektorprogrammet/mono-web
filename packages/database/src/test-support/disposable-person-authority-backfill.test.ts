@@ -9,7 +9,7 @@ import { ApprovalScopeSchema } from "@vektorprogrammet/domain/receipt";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { Database } from "../service.js";
 import { Predicate, Effect } from "effect";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "./platform.js";
 import {
   backfillDisposablePersonAuthoritiesFromPreConfigEvidence,
   type DisposablePersonAuthorityBackfillResult,
@@ -20,7 +20,7 @@ const EVALUATED_AT = "2031-09-15T12:00:00.000Z";
 
 const AUTHORITY_START_AT = "2030-01-01T00:00:00.000Z";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 interface AuthoritySnapshotRow {
   readonly id: string;

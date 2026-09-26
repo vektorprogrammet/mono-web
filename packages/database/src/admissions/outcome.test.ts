@@ -4,10 +4,10 @@ import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application"
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { Admissions, type AdmissionOutcome } from "@vektorprogrammet/domain/admissions";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { AdmissionsLive } from "./index.js";
 
-const database = DatabaseTest();
+const database = DatabaseTestLive();
 
 const runtime = ManagedRuntime.make(
   Layer.merge(database, AdmissionsLive.pipe(Layer.provide(database))),

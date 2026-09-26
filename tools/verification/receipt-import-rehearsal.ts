@@ -166,7 +166,10 @@ try {
   postgres = await startDisposablePostgres({ database: "receipt_0095" });
   const pgUrl = postgres.url;
   pool = new Pool({ connectionString: pgUrl });
-  const databaseLayer = DatabaseLive({ url: Redacted.make(pgUrl), maxConnections: 2 });
+
+  const databaseLayer = DatabaseLive({ url: Redacted.make(pgUrl), maxConnections: 2 }).pipe(
+    Layer.provide(BunServices.layer),
+  );
 
   const run = <A, E>(program: Effect.Effect<A, E, Database>) =>
     Effect.runPromise(program.pipe(Effect.provide(databaseLayer)));

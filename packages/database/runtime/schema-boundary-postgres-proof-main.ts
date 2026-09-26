@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Database } from "../src/service.js";
-import { Predicate, Effect, ManagedRuntime, Redacted } from "effect";
+import { Predicate, Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
@@ -10,6 +10,7 @@ import {
   runDatabaseMigrations,
 } from "../src/migrations.js";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 const inventory = [
@@ -87,6 +88,7 @@ const runRegisteredMigrations = async (url: string) => {
         }),
       ),
       Effect.scoped,
+      Effect.provide(TestPlatform),
     ),
   );
 };
@@ -654,7 +656,7 @@ const runNormalDatabaseRead = async (url: string) => {
       url: Redacted.make(url),
       applicationName: "schema-boundary-proof",
       maxConnections: 1,
-    }),
+    }).pipe(Layer.provide(TestPlatform)),
   );
 
   try {

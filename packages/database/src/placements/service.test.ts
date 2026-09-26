@@ -1,13 +1,13 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Placements, type PlacementMutation } from "@vektorprogrammet/domain/placements";
 import { PlacementsLive } from "./service.js";
 
-const databaseLayer = DatabaseTest();
+const databaseLayer = DatabaseTestLive();
 
 const runtime = ManagedRuntime.make(
   Layer.merge(databaseLayer, PlacementsLive.pipe(Layer.provide(databaseLayer))),

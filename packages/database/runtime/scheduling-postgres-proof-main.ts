@@ -21,6 +21,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 
 const cohort = {
   id: "recruitment-scheduling-postgres-proof-0050-v1",
@@ -534,7 +535,9 @@ const program = Effect.gen(function* () {
   );
 });
 
-void Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
-});
+void Effect.runPromise(Effect.scoped(program).pipe(Effect.provide(TestPlatform))).catch(
+  (cause: unknown) => {
+    process.stderr.write(`${String(cause)}\n`);
+    process.exitCode = 1;
+  },
+);

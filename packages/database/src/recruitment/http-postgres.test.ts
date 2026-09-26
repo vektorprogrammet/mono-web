@@ -9,7 +9,7 @@ import {
   RecruitmentInvitationCapabilitySchema,
 } from "@vektorprogrammet/domain/recruitment";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
 import { RecruitmentLive } from "./postgres-layer.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
@@ -20,7 +20,7 @@ const runtime = makeControlledTestRuntime(
   RecruitmentLive.pipe(
     Layer.provideMerge(
       Layer.mergeAll(AdmissionsLive, ProfileLive).pipe(
-        Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest()))),
+        Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTestLive()))),
       ),
     ),
   ),

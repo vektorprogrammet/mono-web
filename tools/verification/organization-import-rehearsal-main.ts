@@ -1379,7 +1379,7 @@ const makeRehearsalRuntime = (
     url: Redacted.make(databaseUrl),
     applicationName: "spec-0067-organization-import-rehearsal",
     maxConnections: 6,
-  });
+  }).pipe(Layer.provide(BunServices.layer));
 
   const observedDatabaseLayer = Layer.effect(
     Database,

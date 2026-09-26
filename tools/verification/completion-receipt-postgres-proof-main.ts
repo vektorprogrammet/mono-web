@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { deliverJson } from "@vektorprogrammet/backend/delivery/http";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
@@ -95,7 +96,7 @@ const main = async (): Promise<void> => {
       url: Redacted.make(pgUrl),
       applicationName: "interview-completion-receipt-0108",
       maxConnections: 1,
-    });
+    }).pipe(Layer.provide(BunServices.layer));
 
     const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
     const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));

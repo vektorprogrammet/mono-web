@@ -3,6 +3,7 @@ import { Effect, Redacted, Schema, flow } from "effect";
 import { Pool } from "pg";
 import { Database } from "../src/service.js";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 
 const personId = "journey-0065-admin";
 
@@ -144,7 +145,9 @@ const run = async () => {
   const publicAuthzBaseline = readBaseline("IDENTITY_EVIDENCE_PUBLIC_AUTHZ_BASELINE");
   loopbackDatabase(url);
 
-  const schemaRevision = await Effect.runPromise(runMigrations(url));
+  const schemaRevision = await Effect.runPromise(
+    runMigrations(url).pipe(Effect.provide(TestPlatform)),
+  );
 
   const observer = new Pool({
     connectionString: url,

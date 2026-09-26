@@ -2,9 +2,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "./service.js";
 import { Effect } from "effect";
 import { makeControlledTestRuntime } from "../test/runtime.js";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 afterAll(async () => {
   await runtime.dispose();

@@ -23,6 +23,7 @@ import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
 import { Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 
 const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
   const databaseLayer = DatabaseLive({
@@ -502,7 +503,7 @@ const program = Effect.scoped(
   }),
 );
 
-void Effect.runPromise(program).catch((cause: unknown) => {
+void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;
 });

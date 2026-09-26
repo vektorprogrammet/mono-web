@@ -6,7 +6,7 @@ import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application"
 import { claimOnboarding, commandOnboarding } from "@vektorprogrammet/database/onboarding";
 import { Crypto, Effect, Predicate } from "effect";
 import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/unstable/http";
-import { DatabaseTest } from "@vektorprogrammet/database/live";
+import { DatabaseTestLive } from "@vektorprogrammet/database/test-support/platform";
 import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
 import { provisionOnboardingAccount } from "@vektorprogrammet/database/onboarding-account";
 import {
@@ -14,7 +14,7 @@ import {
   expireOnboardingSecrets,
 } from "@vektorprogrammet/backend/onboarding/delivery";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 afterAll(() => runtime.dispose());
 

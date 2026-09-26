@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
 import { chmod, lstat, mkdir, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -21,7 +22,7 @@ import {
   PersonId,
   type ReviewedOrganizationSnapshot,
 } from "@vektorprogrammet/domain/organization";
-import { Effect, flow, Predicate, Redacted, Schema } from "effect";
+import { Effect, flow, Layer, Predicate, Redacted, Schema } from "effect";
 import type { Pool } from "pg";
 import { buildLegacyReferences, seedLegacyReferences } from "./legacy-cutover-references";
 import { buildLegacyOrganizationSnapshot } from "./legacy-organization-snapshot";
@@ -223,7 +224,7 @@ const assertAuthority = async (target: RehearsalTarget, leaderActive = true): Pr
           url: Redacted.make(target.url),
           applicationName: "organization-native-authority-proof",
           maxConnections: 2,
-        }),
+        }).pipe(Layer.provide(BunServices.layer)),
       ),
     ),
   );

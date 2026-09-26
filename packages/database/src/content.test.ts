@@ -3,10 +3,10 @@ import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "./service.js";
 import { ContentWorkspaceSchema } from "@vektorprogrammet/domain/content";
 import { Predicate, Effect } from "effect";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
-const databaseLayer = DatabaseTest();
+const databaseLayer = DatabaseTestLive();
 
 const runtime = makeControlledTestRuntime(databaseLayer);
 

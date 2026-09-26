@@ -21,6 +21,7 @@ import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
 
 const proofCohort = {
@@ -310,7 +311,7 @@ const program = Effect.scoped(
   }).pipe(Effect.timeout("30 seconds")),
 );
 
-void Effect.runPromise(program).catch((cause: unknown) => {
+void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;
 });

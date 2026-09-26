@@ -9,10 +9,10 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { Predicate, Effect, Layer } from "effect";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
-const databaseLayer = DatabaseTest();
+const databaseLayer = DatabaseTestLive();
 
 const runtime = makeControlledTestRuntime(
   Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))),

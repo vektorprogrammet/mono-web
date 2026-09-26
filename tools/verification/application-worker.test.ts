@@ -7,13 +7,13 @@ import {
   type PublicApplicationOutboxRequest,
 } from "@vektorprogrammet/domain/application";
 import { Database } from "@vektorprogrammet/database";
-import { DatabaseTest } from "@vektorprogrammet/database/live";
+import { DatabaseTestLive } from "@vektorprogrammet/database/test-support/platform";
 import { executePublicApplicationCommand } from "@vektorprogrammet/database/application";
 import { makeControlledTestRuntime } from "../../packages/database/test/runtime.js";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/backend/application/worker";
 import { journeyClock } from "../e2e/journey-clock.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 afterAll(() => runtime.dispose());
 

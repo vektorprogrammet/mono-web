@@ -28,9 +28,9 @@ import {
   removeReceiptPaymentAuthority,
 } from "./receipt/authority-postgres.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 const personId = PersonId.make("authority-writer-person");
 

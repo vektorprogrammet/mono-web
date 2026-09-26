@@ -7,7 +7,7 @@ import {
   PersonId,
 } from "@vektorprogrammet/domain/organization";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
 import { SchoolsLive } from "./postgres-layer.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
@@ -30,7 +30,9 @@ const departmentB = DepartmentId.make("schools-journey-b");
 const outsideDepartmentId = DepartmentId.make("schools-journey-outside");
 
 const runtime = makeControlledTestRuntime(
-  SchoolsLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest())))),
+  SchoolsLive.pipe(
+    Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTestLive()))),
+  ),
 );
 
 beforeAll(

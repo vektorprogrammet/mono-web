@@ -1,11 +1,12 @@
 /** Owned synthetic PostgreSQL current assistant assignment reconciliation journey. */
+import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Schema, flow, Match, Effect, Redacted } from "effect";
+import { Schema, flow, Match, Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import {
   type DisposablePostgres,
@@ -90,7 +91,11 @@ try {
   pool = new Pool({ connectionString: databaseUrl, max: 4 });
   await Effect.runPromise(
     databaseHealth.pipe(
-      Effect.provide(DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 })),
+      Effect.provide(
+        DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 }).pipe(
+          Layer.provide(BunServices.layer),
+        ),
+      ),
     ),
   );
   await pool.query(`

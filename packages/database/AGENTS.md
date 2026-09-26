@@ -65,6 +65,7 @@ Each folder of `src` holds a bounded context of [docs/model/contexts.cml](../../
 | `@vektorprogrammet/database/password-codec`                | [src/password-codec.ts](src/password-codec.ts)                               |
 | `@vektorprogrammet/database/pg-pool`                       | [src/pg-pool.ts](src/pg-pool.ts)                                             |
 | `@vektorprogrammet/database/test-support/observe-postgres` | [src/test-support/observe-postgres.ts](src/test-support/observe-postgres.ts) |
+| `@vektorprogrammet/database/test-support/platform`         | [src/test-support/platform.ts](src/test-support/platform.ts)                 |
 
 ## Constructs
 

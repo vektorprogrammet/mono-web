@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -9,7 +10,7 @@ import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postg
 import { databaseHealth } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
-import { Effect, flow, Predicate, Redacted, Schema } from "effect";
+import { Effect, flow, Layer, Predicate, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -171,7 +172,7 @@ export const withOrganizationDatabases = async <A>(
             url: Redacted.make(url),
             applicationName: "synthetic-organization-rehearsal",
             maxConnections: 2,
-          }),
+          }).pipe(Layer.provide(BunServices.layer)),
         ),
       ),
     );

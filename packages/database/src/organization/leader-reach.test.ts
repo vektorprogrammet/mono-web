@@ -7,7 +7,7 @@ import {
   PersonId,
 } from "@vektorprogrammet/domain/organization";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { OrganizationLive } from "./postgres-layer.js";
 import { ProfileLive } from "../profile/postgres-layer.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
@@ -16,7 +16,9 @@ import { makeControlledTestRuntime } from "../../test/runtime.js";
 // administered the whole department; these checks fail on that rule.
 
 const runtime = makeControlledTestRuntime(
-  ProfileLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest())))),
+  ProfileLive.pipe(
+    Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTestLive()))),
+  ),
 );
 
 afterAll(() => runtime.dispose());

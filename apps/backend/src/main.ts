@@ -74,11 +74,12 @@ if (ingress !== "external" && ingress !== "internal") {
 
 const config = decodeBackendConfig(process.env);
 
+// The migration reader reads the migration files through the Bun file system and path services.
 const databaseLayer = DatabaseLive({
   url: Redacted.make(config.postgresUrl),
   applicationName: "vektorprogrammet-backend",
   maxConnections: 8,
-});
+}).pipe(Layer.provide(BunServices.layer));
 
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 

@@ -16,6 +16,7 @@ import {
 } from "@vektorprogrammet/domain/shared-kernel";
 import { Schema, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
 
 const personId = PersonId.make("profile-self-edit-e2e-0064");
@@ -273,7 +274,7 @@ function winnerCommandId(command: UpdateOwnProfileCommand): string {
   return command.commandId;
 }
 
-void Effect.runPromise(program).catch((cause: unknown) => {
+void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;
 });

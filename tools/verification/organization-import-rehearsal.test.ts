@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { importLegacyOrganizationEffect } from "@vektorprogrammet/domain/organization";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import { Database } from "@vektorprogrammet/database";
-import { DatabaseTest } from "@vektorprogrammet/database/live";
+import { DatabaseTestLive } from "@vektorprogrammet/database/test-support/platform";
 import { Schema, Predicate, Effect, Layer } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -321,7 +321,7 @@ describe("spec 0067 frozen Organization import fixture", () => {
 });
 
 describe("spec 0067 SQL observation seam", () => {
-  const databaseRuntime = makeControlledTestRuntime(DatabaseTest());
+  const databaseRuntime = makeControlledTestRuntime(DatabaseTestLive());
 
   afterAll(() => databaseRuntime.dispose());
 

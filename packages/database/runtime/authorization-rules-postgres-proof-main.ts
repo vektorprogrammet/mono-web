@@ -86,6 +86,7 @@ import { spec0055OrganizationAuthorityFixtures } from "@vektorprogrammet/domain/
 import { resolveOrganizationPersonAuthorityForRead } from "../src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../src/receipt/postgres.js";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 import { proveRuleReconciliationMigration } from "../src/rule-reconciliation-migration-postgres-proof.js";
 import {
@@ -4817,7 +4818,12 @@ const program = (databaseUrl: Redacted.Redacted<string>) =>
 
 // The proof resets every schema of its database, so it only ever runs on a cluster it created.
 void withDisposablePostgres("authorization_rules_proof", (databaseUrl) =>
-  Effect.runPromise(Effect.scoped(program(databaseUrl)).pipe(Effect.timeout("90 seconds"))),
+  Effect.runPromise(
+    Effect.scoped(program(databaseUrl)).pipe(
+      Effect.timeout("90 seconds"),
+      Effect.provide(TestPlatform),
+    ),
+  ),
 ).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;

@@ -1,4 +1,5 @@
-import { Effect, Redacted } from "effect";
+import * as BunServices from "@effect/platform-bun/BunServices";
+import { Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import {
   parseDisposableCohortDatabaseUrl,
@@ -75,7 +76,11 @@ export const runCurrentAssignmentCohortCli = async (): Promise<void> => {
   const url = disposableCurrentAssignmentDatabaseUrl(process.env.CURRENT_ASSIGNMENT_PG_URL);
   await Effect.runPromise(
     databaseHealth.pipe(
-      Effect.provide(DatabaseLive({ url: Redacted.make(url), maxConnections: 1 })),
+      Effect.provide(
+        DatabaseLive({ url: Redacted.make(url), maxConnections: 1 }).pipe(
+          Layer.provide(BunServices.layer),
+        ),
+      ),
     ),
   );
   const pool = new Pool({ connectionString: url, max: 2 });

@@ -1,9 +1,10 @@
 import { Effect } from "effect";
+import { TestPlatform } from "../src/test-support/platform.js";
 import { runIdentityCohortCli } from "../src/identity-cohort-cli.js";
 import { IdentityCohortFailure } from "../src/identity-cohort.js";
 
 try {
-  await Effect.runPromise(runIdentityCohortCli);
+  await Effect.runPromise(runIdentityCohortCli.pipe(Effect.provide(TestPlatform)));
 } catch (cause) {
   process.stderr.write(
     JSON.stringify({

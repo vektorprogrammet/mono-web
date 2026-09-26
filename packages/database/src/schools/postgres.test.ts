@@ -2,11 +2,11 @@ import { afterAll, expect, it } from "vitest";
 import { Effect } from "effect";
 import { SchoolDirectoryScopeSchema } from "@vektorprogrammet/domain/schools";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
 import { listSchoolDirectoryPostgres } from "./postgres.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 afterAll(() => runtime.dispose());
 

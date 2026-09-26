@@ -13,6 +13,7 @@ import { Cause, Predicate, Config, Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { type AuthEngine, type AuthEngineConfig } from "../src/auth-engine.js";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseSchemaRevision } from "../src/migrations.js";
 
 const proofCohort = {
@@ -566,7 +567,7 @@ const program = Effect.gen(function* () {
   );
 });
 
-void Effect.runPromise(program).catch((cause: unknown) => {
+void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;
 });

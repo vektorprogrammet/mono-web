@@ -110,6 +110,12 @@ const effectConfig = {
       strictness: "recommended",
     }),
     group({
+      files: ["packages/database/src/test-support/platform.ts"],
+      role: "runtime-adapter",
+      platform: "bun",
+      strictness: "recommended",
+    }),
+    group({
       files: ["tools/e2e/legacy-candidate-native-journey.ts"],
       role: "composition-root",
       platform: "node",
@@ -231,12 +237,24 @@ export default defineConfig({
     {
       files: [
         "apps/backend/src/main.ts",
+        "apps/backend/src/password-recovery/drain-main.ts",
         "apps/backend/src/receipt/drain-main.ts",
         "tools/e2e/legacy-candidate-native-journey.ts",
+        "tools/e2e/legacy-organization-rehearsal-runtime.ts",
+        "tools/e2e/public-application-outbox-driver.ts",
+        "tools/e2e/record-native-recruitment-invitation-response.ts",
+        "tools/e2e/record-native-recruitment-invitation.ts",
+        "tools/e2e/run-legacy-backup-person-rehearsal.ts",
         "tools/e2e/run-legacy-candidate-rehearsal.ts",
+        "tools/e2e/run-legacy-current-assignment-rehearsal.ts",
+        "tools/e2e/run-legacy-organization-rehearsal.ts",
         "tools/e2e/run-legacy-receipt-import.ts",
         "tools/e2e/run-legacy-receipt-rehearsal.ts",
         "tools/e2e/run-legacy-service-cutover.ts",
+        "tools/verification/completion-receipt-postgres-proof-main.ts",
+        "tools/verification/current-assignment-cohort-cli.ts",
+        "tools/verification/current-assignment-cohort-rehearsal.ts",
+        "tools/verification/identity-cohort-rehearsal.ts",
       ],
       rules: {
         // These Bun composition roots combine platform-bun with Node-compatible process APIs.

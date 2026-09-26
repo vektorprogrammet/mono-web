@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { AdmissionsLive } from "@vektorprogrammet/database/admissions";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
@@ -24,7 +25,7 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(databaseUrl),
   applicationName: "native-invitation-response-recording-evidence",
   maxConnections: 1,
-});
+}).pipe(Layer.provide(BunServices.layer));
 
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 

@@ -50,6 +50,7 @@ import {
 import { assertInterviewCorrectionIntegrity } from "./interview-correction-integrity.ts";
 import { runCoInterviewerCorrectionJourney } from "./co-interviewer-correction-0106.ts";
 import { DatabaseLive } from "../../packages/database/src/layers.js";
+import { TestPlatform } from "../../packages/database/src/test-support/platform.js";
 import { AdmissionsLive } from "../../packages/database/src/admissions/index.js";
 import { OrganizationLive } from "../../packages/database/src/organization/index.js";
 import { ProfileLive } from "../../packages/database/src/profile/index.js";
@@ -360,7 +361,7 @@ const deliverRecruitmentInvitationOnce = async ({
     url: Redacted.make(pgUrl),
     applicationName: "native-returning-invitation-delivery",
     maxConnections: 1,
-  });
+  }).pipe(Layer.provide(TestPlatform));
 
   const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
   const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));

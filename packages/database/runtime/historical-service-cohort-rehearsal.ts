@@ -57,7 +57,7 @@ try {
 
   const databaseUrl = postgres.url;
   pool = new Pool({ connectionString: databaseUrl, max: 4 });
-  await Effect.runPromise(
+  await runOnBun(
     databaseHealth.pipe(
       Effect.provide(DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 })),
     ),

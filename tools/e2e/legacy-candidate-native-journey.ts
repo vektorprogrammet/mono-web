@@ -94,7 +94,7 @@ export const observeLegacyCandidateNativeJourney = async (
     url: Redacted.make(input.target.url),
     applicationName: "candidate-native-journey",
     maxConnections: 4,
-  });
+  }).pipe(Layer.provide(BunServices.layer));
 
   const platform = Layer.merge(BunServices.layer, FetchHttpClient.layer);
   const admissions = AdmissionsLive.pipe(Layer.provide(database));

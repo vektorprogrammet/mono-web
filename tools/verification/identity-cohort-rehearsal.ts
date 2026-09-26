@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { Mail } from "@vektorprogrammet/domain/mail";
 /** 0107 owned Person-to-Account reconciliation / Better Auth / recovery / restore journey. */
 import assert from "node:assert/strict";
@@ -137,7 +138,11 @@ try {
   pool = new Pool({ connectionString: databaseUrl, max: 4 });
   await Effect.runPromise(
     databaseHealth.pipe(
-      Effect.provide(DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 })),
+      Effect.provide(
+        DatabaseLive({ url: Redacted.make(databaseUrl), maxConnections: 1 }).pipe(
+          Layer.provide(BunServices.layer),
+        ),
+      ),
     ),
   );
   const php = process.env.IDENTITY_COHORT_PHP ?? "php";

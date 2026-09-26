@@ -35,9 +35,9 @@ import {
 } from "./coverage.js";
 import { Effect, Exit, ManagedRuntime } from "effect";
 import { TestClock } from "effect/testing";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 
-const runtime = ManagedRuntime.make(DatabaseTest());
+const runtime = ManagedRuntime.make(DatabaseTestLive());
 
 afterAll(() => runtime.dispose());
 
@@ -1043,7 +1043,7 @@ describe("placement schema ownership", () => {
     const pglite = new PGlite({ extensions: { btree_gist } });
     await pglite.waitReady;
     await pglite.exec("SET search_path TO auth,public");
-    const isolated = ManagedRuntime.make(DatabaseTest({ liveClient: pglite }));
+    const isolated = ManagedRuntime.make(DatabaseTestLive({ liveClient: pglite }));
 
     try {
       const rows = await isolated.runPromise(
@@ -1181,7 +1181,7 @@ describe("claim-fenced school service delivery", () => {
           delivered,
           afterDelivery,
         };
-      }).pipe(Effect.provide(DatabaseTest())),
+      }).pipe(Effect.provide(DatabaseTestLive())),
     );
 
     const claimLost = SchoolServiceNotificationDeliveryResult.ClaimLost({
@@ -1253,7 +1253,7 @@ describe("claim-fenced school service delivery", () => {
         const row = yield* outboxRow(sql, effectId);
 
         return { effectId, result, row };
-      }).pipe(Effect.provide(DatabaseTest())),
+      }).pipe(Effect.provide(DatabaseTestLive())),
     );
 
     expect(evidence.result).toEqual(

@@ -123,7 +123,7 @@ A read preflight or a successful pure policy calculation does not replace this b
 ## Compose it
 
 The executable read example shows the minimum server Layer composition through public imports.
-`DatabaseTest` owns its in-memory database, canonical migrations, and release finalizer.
+`DatabaseTestLive` owns its in-memory database, canonical migrations, and release finalizer, and reads the migrations through the Bun file system.
 `Effect.provide` scopes that Layer to the program.
 The signal handler requests interruption. The `finally` block removes only the example's signal listeners.
 No database directory, port, child process, credential, or provider request belongs to these examples.

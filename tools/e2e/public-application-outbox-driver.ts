@@ -1,8 +1,9 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { deliverNextPublicApplicationOutbox } from "@vektorprogrammet/database/application";
 import { makeRecordingPublicApplicationEffectInterpreter } from "@vektorprogrammet/domain/application";
-import { Predicate, Effect, Redacted } from "effect";
+import { Predicate, Effect, Layer, Redacted } from "effect";
 
 const postgresUrl = process.env.PUBLIC_APPLICATION_OUTBOX_PG_URL;
 
@@ -18,7 +19,7 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(postgresUrl),
   applicationName: "public-application-recording-outbox-0039",
   maxConnections: 2,
-});
+}).pipe(Layer.provide(BunServices.layer));
 
 const failProof = (message: string): Effect.Effect<never> =>
   Effect.sync(() => {

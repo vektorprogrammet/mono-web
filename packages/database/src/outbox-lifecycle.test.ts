@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Effect, Predicate } from "effect";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 import { Database } from "./service.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import {
@@ -13,7 +13,7 @@ import {
   type OutboxTable,
 } from "./outbox-lifecycle.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 afterAll(() => runtime.dispose());
 

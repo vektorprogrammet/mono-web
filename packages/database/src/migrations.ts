@@ -10,8 +10,7 @@
  * `src/migration-registry.ts` states the numbering and file rules, and `migrations/checksums.json`
  * records the digest of every registered file; `just migration-hashes` checks both.
  */
-import { readFile } from "node:fs/promises";
-import { Data, Effect } from "effect";
+import { Data, Effect, FileSystem, Path } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as Migrator from "effect/unstable/sql/Migrator";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -165,12 +164,18 @@ export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, SqlError | DatabaseMigrationExecutionError, SqlClient.SqlClient>;
 
-const migration = (name: string, url: URL, execute: ExecuteMigration) =>
+const migration = (
+  name: string,
+  url: URL,
+  execute: ExecuteMigration,
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+) =>
   Effect.gen(function* () {
-    const source = yield* Effect.tryPromise({
-      try: () => readFile(url, "utf8"),
-      catch: (cause) => new DatabaseMigrationReadError({ migration: name, cause }),
-    });
+    const source = yield* path.fromFileUrl(url).pipe(
+      Effect.flatMap((file) => fs.readFileString(file)),
+      Effect.mapError((cause) => new DatabaseMigrationReadError({ migration: name, cause })),
+    );
 
     yield* execute(source);
   });
@@ -609,12 +614,26 @@ export const databaseMigrationDefinitions = [
   },
 ] as const;
 
-export const databaseMigrationLoader = (execute: ExecuteMigration) =>
-  Migrator.fromRecord(
-    Object.fromEntries(
-      databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
-    ),
-  );
+/**
+ * The registry as a Migrator loader. Migrator types a migration's effect as needing only
+ * `SqlClient`, so the loader captures the file system and path services when it runs.
+ */
+export const databaseMigrationLoader = (
+  execute: ExecuteMigration,
+): Migrator.Loader<FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+
+    return yield* Migrator.fromRecord(
+      Object.fromEntries(
+        databaseMigrationDefinitions.map(({ id, name, url }) => [
+          id,
+          migration(name, url, execute, fs, path),
+        ]),
+      ),
+    );
+  });
 
 export const databaseSchemaRevision = databaseMigrationDefinitions.at(-1)!.id.replaceAll("-", "_");
 

@@ -2,13 +2,13 @@ import { afterAll, expect, it } from "vitest";
 import { Effect, Layer, Predicate } from "effect";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
 import { readDirectoryPage, readOwnProfileHttpSourcePostgres } from "./postgres.js";
 
 const runtime = makeControlledTestRuntime(
-  OrganizationLive.pipe(Layer.provideMerge(DatabaseTest())),
+  OrganizationLive.pipe(Layer.provideMerge(DatabaseTestLive())),
 );
 
 afterAll(() => runtime.dispose());

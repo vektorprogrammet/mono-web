@@ -23,7 +23,8 @@ import {
   makeIdentitySnapshotService,
 } from "./auth-live.js";
 import { makeAuthEngineOptions } from "./auth-engine.js";
-import { DatabaseLive, DatabaseTest } from "./layers.js";
+import { DatabaseLive } from "./layers.js";
+import { DatabaseTestLive, TestPlatform } from "./test-support/platform.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 /**
@@ -127,13 +128,13 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(config.postgresUrl),
   applicationName: "auth-live-focused-test",
   maxConnections: 4,
-});
+}).pipe(Layer.provide(TestPlatform));
 
 const runtime = makeControlledTestRuntime(AuthLive(config).pipe(Layer.provideMerge(databaseLayer)));
 
 const optionsPool = new Pool({ max: 1 });
 
-const snapshotRuntime = makeControlledTestRuntime(DatabaseTest());
+const snapshotRuntime = makeControlledTestRuntime(DatabaseTestLive());
 
 describe("Better Auth session hardening configuration", () => {
   const localOptions = makeAuthEngineOptions(config, optionsPool, Effect.runPromise);

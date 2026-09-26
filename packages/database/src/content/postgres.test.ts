@@ -13,7 +13,7 @@ import {
   PersonId,
 } from "@vektorprogrammet/domain/organization";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
 import { ProfileLive } from "../profile/postgres-layer.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
@@ -51,7 +51,9 @@ const createCommand = CreateArticleDraftInputSchema.make({
 const createInput = { command: createCommand, personId, authorizationInstant };
 
 const runtime = makeControlledTestRuntime(
-  ProfileLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest())))),
+  ProfileLive.pipe(
+    Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTestLive()))),
+  ),
 );
 
 beforeAll(

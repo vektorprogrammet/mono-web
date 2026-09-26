@@ -11,10 +11,10 @@ import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { Effect, Layer } from "effect";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 
 const schoolsLayer = SchoolsLive.pipe(
-  Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest()))),
+  Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTestLive()))),
 );
 
 layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(

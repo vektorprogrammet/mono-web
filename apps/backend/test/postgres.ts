@@ -3,6 +3,7 @@ import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll } from "vitest";
+import { TestPlatform } from "../src/test/platform.js";
 
 /** Builds a layer into the current scope with its own memo map, as its own runtime would. */
 const buildIsolated = <A, E>(layer: Layer.Layer<A, E>) =>
@@ -24,7 +25,7 @@ const startCluster = Effect.gen(function* () {
       database,
       username: "postgres",
       maxConnections: 1,
-    }).pipe(Layer.orDie);
+    }).pipe(Layer.provide(TestPlatform), Layer.orDie);
 
   const health = Database.use((sql) => sql.health);
   const primary = yield* buildIsolated(connection("postgres"));

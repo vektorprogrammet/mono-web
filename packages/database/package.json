@@ -36,7 +36,8 @@
     "./onboarding-account": "./src/onboarding-account.ts",
     "./password-codec": "./src/password-codec.ts",
     "./pg-pool": "./src/pg-pool.ts",
-    "./test-support/observe-postgres": "./src/test-support/observe-postgres.ts"
+    "./test-support/observe-postgres": "./src/test-support/observe-postgres.ts",
+    "./test-support/platform": "./src/test-support/platform.ts"
   },
   "scripts": {
     "test": "vitest run --no-file-parallelism",

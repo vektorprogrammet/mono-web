@@ -1,7 +1,7 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as PgliteClient from "@effect/sql-pglite/PgliteClient";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer, Path } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   Database,
@@ -32,14 +32,19 @@ const makeDatabase = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
 
     if (observer !== undefined) {
       yield* Effect.sync(observer.onAcquire);
       yield* Effect.addFinalizer(() => Effect.sync(observer.onRelease));
     }
 
+    // `migrate` has no requirement: it reads the migration files through the services of the build.
     const migrate = runDatabaseMigrations(executeMigration).pipe(
       Effect.provideService(SqlClient.SqlClient, sql),
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path),
       Effect.asVoid,
     );
 
@@ -101,6 +106,11 @@ const DatabaseFromPglite = (observer?: DatabaseLayerObserver) =>
     }),
   );
 
+/**
+ * PostgreSQL through the shared pool, migrated to the head revision when the layer is built. It
+ * requires `FileSystem` and `Path`, which read the migration files; the composition root selects
+ * their platform.
+ */
 export const DatabaseLive = (
   config: Parameters<typeof PgClient.layer>[0],
   observer?: DatabaseLayerObserver,
@@ -120,6 +130,7 @@ const pgliteTestConfig = (
   };
 };
 
+/** In-memory PGlite, migrated like `DatabaseLive`; tests take it on Bun from `test-support/platform`. */
 export const DatabaseTest = (
   config?: Parameters<typeof PgliteClient.layer>[0],
   observer?: DatabaseLayerObserver,

@@ -42,7 +42,7 @@ if (!config) throw new TypeError("Receipt delivery is not configured");
 const database = DatabaseLive({
   url: Redacted.make(environment.postgresUrl),
   maxConnections: 2,
-});
+}).pipe(Layer.provide(BunServices.layer));
 
 const services = Layer.mergeAll(
   database,

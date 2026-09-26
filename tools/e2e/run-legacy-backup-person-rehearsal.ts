@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -40,7 +41,7 @@ import {
   sha256Hex,
 } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { flow, Predicate, Effect, Redacted, Schema, SchemaTransformation } from "effect";
+import { flow, Predicate, Effect, Layer, Redacted, Schema, SchemaTransformation } from "effect";
 import { Pool } from "pg";
 import { buildLegacyPersonSnapshot, LegacyUserJson } from "./legacy-person-snapshot";
 import { CutoverStageFailure, runLegacyServiceCutover } from "./run-legacy-service-cutover";
@@ -415,7 +416,7 @@ const migrateNativeDatabase = async (url: string): Promise<void> => {
           url: Redacted.make(url),
           applicationName: "legacy-backup-person-rehearsal",
           maxConnections: 2,
-        }),
+        }).pipe(Layer.provide(BunServices.layer)),
       ),
     ),
   );
@@ -1082,7 +1083,7 @@ const runRehearsal = async (temporaryRoot: string) => {
             url: Redacted.make(restoredUrl),
             applicationName: "legacy-backup-person-profile-read",
             maxConnections: 1,
-          }),
+          }).pipe(Layer.provide(BunServices.layer)),
         ),
       ),
     );

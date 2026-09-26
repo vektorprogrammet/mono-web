@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { Database, type DatabaseOperations } from "./service.js";
-import { Schema, Predicate, Cause, Effect, Option, Redacted } from "effect";
+import { Schema, Predicate, Cause, Effect, FileSystem, Option, Path, Redacted } from "effect";
 import { isSqlError } from "effect/unstable/sql/SqlError";
 import { DatabaseLive } from "./layers.js";
 import { type DatabaseMigrationDefinition, selectDatabaseMigration } from "./migrations.js";
@@ -26,10 +25,12 @@ const reset = (sql: DatabaseOperations) =>
     .pipe(Effect.asVoid, Effect.orDie);
 
 const executeMigration = (sql: DatabaseOperations, migration: DatabaseMigrationDefinition) =>
-  Effect.tryPromise(() => readFile(migration.url, "utf8")).pipe(
-    Effect.flatMap((source) => sql.unsafe(source)),
-    Effect.asVoid,
-  );
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+
+    yield* sql.unsafe(yield* fs.readFileString(yield* path.fromFileUrl(migration.url)));
+  });
 
 const prepareMigration25State = (sql: DatabaseOperations) =>
   Effect.gen(function* () {

@@ -14,6 +14,7 @@ import {
 import { runReceiptFileProof } from "../src/receipt/file-proof.js";
 import { runReceiptPostgresProof } from "../src/receipt/postgres-proof.js";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 
 /** Creates a database for one proof and drops it, with its sessions, when the scope closes. */
 const disposableDatabase = (maintenanceUrl: Redacted.Redacted, name: string) =>
@@ -81,7 +82,7 @@ const program = Effect.gen(function* () {
   );
 });
 
-void Effect.runPromise(program).catch((cause: unknown) => {
+void Effect.runPromise(program.pipe(Effect.provide(TestPlatform))).catch((cause: unknown) => {
   process.stderr.write(`${String(cause)}\n`);
   process.exitCode = 1;
 });

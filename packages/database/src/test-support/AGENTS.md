@@ -10,6 +10,7 @@ The persistence layer holds PostgreSQL adapters and service Layers. They keep st
 | Import                                                     | Module                                     |
 | ---------------------------------------------------------- | ------------------------------------------ |
 | `@vektorprogrammet/database/test-support/observe-postgres` | [observe-postgres.ts](observe-postgres.ts) |
+| `@vektorprogrammet/database/test-support/platform`         | [platform.ts](platform.ts)                 |
 
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 

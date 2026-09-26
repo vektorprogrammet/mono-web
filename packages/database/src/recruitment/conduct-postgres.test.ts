@@ -6,7 +6,7 @@ import {
   RecruitmentInterviewId,
 } from "@vektorprogrammet/domain/recruitment";
 import { Database } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
 import { AdmissionsLive } from "../admissions/postgres-layer.js";
 import { ProfileLive } from "../profile/postgres-layer.js";
@@ -15,7 +15,7 @@ import { readInterviewConduct } from "./conduct-postgres.js";
 
 const runtime = makeControlledTestRuntime(
   Layer.mergeAll(AdmissionsLive, ProfileLive).pipe(
-    Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest()))),
+    Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTestLive()))),
   ),
 );
 

@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { chmod, lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -22,7 +23,7 @@ import {
   decodeReconciledCurrentAssignmentSnapshot,
   importReconciledCurrentAssignmentCohort as importReconciledCurrentAssignmentCohortEffect,
 } from "@vektorprogrammet/database/placements";
-import { Effect, flow, Predicate, Redacted, Schema } from "effect";
+import { Effect, flow, Layer, Predicate, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import { buildLegacyReferences, seedLegacyReferences } from "./legacy-cutover-references";
 import { buildLegacyCurrentAssignmentSnapshot } from "./legacy-current-assignment-snapshot";
@@ -409,7 +410,7 @@ const runRehearsal = async (temporaryRoot: string) => {
             url: Redacted.make(url),
             applicationName: "synthetic-current-assignment-rehearsal",
             maxConnections: 2,
-          }),
+          }).pipe(Layer.provide(BunServices.layer)),
         ),
       ),
     );

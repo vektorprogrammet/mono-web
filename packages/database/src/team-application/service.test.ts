@@ -12,11 +12,11 @@ import {
   type TeamApplicationInput,
   type TeamApplicationIntake,
 } from "@vektorprogrammet/domain/team-application";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { Database } from "../service.js";
 import { TeamApplicationsLive } from "./index.js";
 
-const database = DatabaseTest();
+const database = DatabaseTestLive();
 
 const runtime = ManagedRuntime.make(
   Layer.merge(database, TeamApplicationsLive.pipe(Layer.provide(database))),

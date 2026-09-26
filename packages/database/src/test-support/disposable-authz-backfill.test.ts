@@ -10,14 +10,14 @@ import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { Effect } from "effect";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "./platform.js";
 import {
   disposableAuthzBackfillStartAt as startAt,
   reversedDisposableAuthzBackfillInput as reversedInput,
   validDisposableAuthzBackfillInput as validInput,
 } from "./disposable-authz-backfill-fixtures.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 interface CountRow {
   readonly count: string;

@@ -25,6 +25,7 @@ import { deliverNextRecruitmentInvitationResponse } from "@vektorprogrammet/data
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { Schema, Predicate, Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "../src/layers.js";
+import { TestPlatform } from "../src/test-support/platform.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 
 const cohort = {
@@ -1112,7 +1113,9 @@ const program = Effect.gen(function* () {
   );
 });
 
-void Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
-});
+void Effect.runPromise(Effect.scoped(program).pipe(Effect.provide(TestPlatform))).catch(
+  (cause: unknown) => {
+    process.stderr.write(`${String(cause)}\n`);
+    process.exitCode = 1;
+  },
+);

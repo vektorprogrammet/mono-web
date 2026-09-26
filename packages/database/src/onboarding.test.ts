@@ -9,11 +9,11 @@ import {
   readOnboardingBoard,
 } from "@vektorprogrammet/database/onboarding";
 import { Effect } from "effect";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { provisionOnboardingAccount } from "./onboarding-account.js";
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 afterAll(() => runtime.dispose());
 

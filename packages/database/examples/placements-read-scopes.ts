@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { DatabaseTest } from "@vektorprogrammet/database/live";
+import { DatabaseTestLive } from "@vektorprogrammet/database/test-support/platform";
 import {
   DepartmentId,
   OrganizationPersonAuthoritySchema,
@@ -40,8 +40,8 @@ const program = Effect.gen(function* () {
   console.log("Empty scopes read; unknown department rejected with scope.invalid (422)");
 });
 
-// DatabaseTest owns in-memory PGlite, canonical migrations, and database release.
-const layer = PlacementsLive.pipe(Layer.provide(DatabaseTest()));
+// DatabaseTestLive owns in-memory PGlite, canonical migrations, and database release.
+const layer = PlacementsLive.pipe(Layer.provide(DatabaseTestLive()));
 
 const controller = new AbortController();
 

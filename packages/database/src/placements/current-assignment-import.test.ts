@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { databaseHealth } from "../service.js";
-import { DatabaseTest } from "../layers.js";
+import { DatabaseTestLive } from "../test-support/platform.js";
 import { importPersonCohort as importPersonCohortEffect, PersonMapping } from "../person-cohort.js";
 import { canonicalJson } from "@vektorprogrammet/domain/shared-kernel";
 import { PersonId } from "@vektorprogrammet/domain/organization";
@@ -31,7 +31,7 @@ const withAssignmentDatabase = async (
   action: (database: PGlite, pool: Pool) => Promise<void>,
 ): Promise<void> => {
   const database = new PGlite({ extensions: { btree_gist } });
-  const runtime = ManagedRuntime.make(DatabaseTest({ liveClient: database }));
+  const runtime = ManagedRuntime.make(DatabaseTestLive({ liveClient: database }));
 
   const client = {
     query: async (text: string, values?: unknown[]) => {

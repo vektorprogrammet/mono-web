@@ -93,7 +93,7 @@ import {
   recoverStaleReceiptOutbox,
 } from "./receipt/outbox.js";
 import { Match, Predicate, Effect, Layer } from "effect";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 import {
   databaseMigrationDefinitions,
   databaseSchemaRevision,
@@ -101,7 +101,7 @@ import {
 } from "./migrations.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
-const databaseLayer = DatabaseTest();
+const databaseLayer = DatabaseTestLive();
 
 const applicationAvailability = {
   mondayUnavailable: false,
@@ -122,7 +122,7 @@ const recruitmentLayer = (pglite: PGlite) =>
       ProfileLive.pipe(
         Layer.provideMerge(
           Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(
-            Layer.provideMerge(DatabaseTest({ liveClient: pglite })),
+            Layer.provideMerge(DatabaseTestLive({ liveClient: pglite })),
           ),
         ),
       ),
@@ -397,7 +397,7 @@ const runWithIsolatedDatabase = async <A, E>(
 ): Promise<A> => {
   const pglite = new PGlite({ extensions: { btree_gist } });
   await pglite.waitReady;
-  const isolatedRuntime = makeControlledTestRuntime(DatabaseTest({ liveClient: pglite }));
+  const isolatedRuntime = makeControlledTestRuntime(DatabaseTestLive({ liveClient: pglite }));
 
   try {
     return await isolatedRuntime.runPromise(program(pglite));
@@ -1083,7 +1083,7 @@ describe("DatabaseTest", () => {
 
   it("rebooks requested times without reviving old capabilities or duplicating current reads", async () => {
     const base = Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(
-      Layer.provideMerge(DatabaseTest()),
+      Layer.provideMerge(DatabaseTestLive()),
     );
 
     const isolated = makeControlledTestRuntime(
@@ -4389,7 +4389,7 @@ describe("DatabaseTest", () => {
     let releaseCount = 0;
 
     const observedRuntime = makeControlledTestRuntime(
-      DatabaseTest(undefined, {
+      DatabaseTestLive(undefined, {
         onAcquire: () => {
           acquisitionCount += 1;
         },

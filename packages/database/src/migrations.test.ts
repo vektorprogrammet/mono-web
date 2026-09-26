@@ -4,7 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { Schema, Predicate, Effect } from "effect";
 import { Database } from "./service.js";
-import { DatabaseTest } from "./layers.js";
+import { DatabaseTestLive } from "./test-support/platform.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 import { type DatabaseMigrationId, selectDatabaseMigration } from "./migrations.js";
 
@@ -41,7 +41,7 @@ const checkedSourceUrls = [
   new URL("../migrations/0023-declarative-authorization-rules.sql", import.meta.url),
 ];
 
-const runtime = makeControlledTestRuntime(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTestLive());
 
 const ecmaScriptTrimBoundaryCharacters = [
   "\u0009",

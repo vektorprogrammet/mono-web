@@ -1,3 +1,4 @@
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
@@ -32,7 +33,7 @@ const databaseLayer = DatabaseLive({
   url: Redacted.make(requiredEnvironment("BACKEND_PG_URL")),
   applicationName: "native-scheduling-recording-evidence",
   maxConnections: 1,
-});
+}).pipe(Layer.provide(BunServices.layer));
 
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 
