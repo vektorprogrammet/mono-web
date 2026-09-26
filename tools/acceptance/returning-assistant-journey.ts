@@ -2110,7 +2110,7 @@ export const runReturningAssistantBrowserJourney = async ({
       phase: "returning:native-invitation-accepted",
       interviewId: nextInterviewId,
       responseState: invitationAccepted.responseState,
-      confirmStatus: invitationConfirmResponse.status(),
+      confirmStatus: invitationConfirmResponse.status,
     });
     stage?.("returning:next-period-finalization");
     const conductPath = `${api}/api/recruitment/interviews/${encodeURIComponent(nextInterviewId)}`;
