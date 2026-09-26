@@ -1091,9 +1091,10 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
 - `withDisposablePostgres`: Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
-  [tools/postgres/index.ts:600](../tools/postgres/index.ts#L600), 2 consumers:
+  [tools/postgres/index.ts:600](../tools/postgres/index.ts#L600), 3 consumers:
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
+  - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
 
 ## request-ledger
 

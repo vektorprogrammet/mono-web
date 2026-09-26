@@ -126,6 +126,7 @@ import {
   stableByteSetEvidence,
   type OrganizationImportStableState,
 } from "./organization-import-rehearsal-postgres.js";
+import { withDisposablePostgres } from "@monoweb/postgres";
 
 type RehearsalArtifact = typeof OrganizationImportRehearsalArtifactSchema.Type;
 
@@ -548,7 +549,7 @@ const createDisposableDatabase = async (
     !isLocalPostgresEndpoint(admin)
   ) {
     throw new Error(
-      "ORGANIZATION_IMPORT_REHEARSAL_ADMIN_PG_URL must use loopback PostgreSQL or a local Unix socket",
+      "the administrator PostgreSQL URL must use loopback PostgreSQL or a local Unix socket",
     );
   }
 
@@ -2740,10 +2741,6 @@ const runRehearsal = async (
 };
 
 const program = Effect.gen(function* () {
-  const administratorUrl = yield* Config.Redacted(
-    "ORGANIZATION_IMPORT_REHEARSAL_ADMIN_PG_URL",
-  ).pipe(Config.withDefault(Redacted.make("postgresql:///postgres?host=/run/postgresql")));
-
   // The runner writes its evidence exclusively, so every run needs a path of its own.
   const evidencePath = yield* Config.option(
     Config.String("ORGANIZATION_IMPORT_REHEARSAL_EVIDENCE_PATH"),
@@ -2760,7 +2757,9 @@ const program = Effect.gen(function* () {
   );
 
   return yield* Effect.tryPromise(() =>
-    runRehearsal(Redacted.value(administratorUrl), evidencePath),
+    withDisposablePostgres("organization_import_administrator", (administratorUrl) =>
+      runRehearsal(Redacted.value(administratorUrl), evidencePath),
+    ),
   );
 });
 
