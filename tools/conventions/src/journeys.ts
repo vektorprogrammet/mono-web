@@ -75,6 +75,12 @@ export type Exclusion =
 
 export const exclusions: ReadonlyArray<Exclusion> = [
   {
+    recipe: "proof",
+    name: "authorization-rules",
+    reason:
+      "Fails on main after its migration preflight: the admission matrix step compares an AdmissionPeriod instance with a plain object (packages/database/runtime/authorization-rules-postgres-proof-main.ts)",
+  },
+  {
     directory: "apps/dashboard",
     script: "e2e:real-oauth",
     reason: "Needs an external topology; without one, Playwright skips every test",

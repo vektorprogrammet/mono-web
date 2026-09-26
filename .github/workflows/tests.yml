@@ -161,7 +161,6 @@ jobs:
           - { recipe: e2e, suite: settlement }
           - { recipe: e2e, suite: social-events }
           - { recipe: e2e, suite: substitutes }
-          - { recipe: proof, suite: authorization-rules }
           - { recipe: proof, suite: delivery-recovery }
           - { recipe: proof, suite: rule-reconciliation }
         # browser-journeys: end

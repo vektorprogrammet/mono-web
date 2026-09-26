@@ -410,15 +410,15 @@ Each name is one leg, unless `tools/conventions/src/journeys.ts` gives it a job 
 | `just e2e settlement`            | Browser journeys (e2e settlement)                                |
 | `just e2e social-events`         | Browser journeys (e2e social-events)                             |
 | `just e2e substitutes`           | Browser journeys (e2e substitutes)                               |
-| `just proof authorization-rules` | Browser journeys (proof authorization-rules)                     |
 | `just proof delivery-recovery`   | Browser journeys (proof delivery-recovery)                       |
 | `just proof rule-reconciliation` | Browser journeys (proof rule-reconciliation)                     |
 
 These commands are not hosted:
 
-| Command                                       | Reason                                                               |
-| --------------------------------------------- | -------------------------------------------------------------------- |
-| `bun run --cwd apps/dashboard e2e:real-oauth` | Needs an external topology; without one, Playwright skips every test |
+| Command                                       | Reason                                                                                                                                                                                                 |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `just proof authorization-rules`              | Fails on main after its migration preflight: the admission matrix step compares an AdmissionPeriod instance with a plain object (packages/database/runtime/authorization-rules-postgres-proof-main.ts) |
+| `bun run --cwd apps/dashboard e2e:real-oauth` | Needs an external topology; without one, Playwright skips every test                                                                                                                                   |
 
 [//]: # "hosted-journeys: end"
 
