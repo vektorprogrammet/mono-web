@@ -55,7 +55,7 @@ No row proves production data, a real provider, a deployment, or cutover. Eviden
 `e3177b24` is a disposable snapshot commit, not a commit on `main`.
 The golden fault modes are expected failures that prove cleanup, not successful journeys.
 Other implemented journeys have local observations without a retained record: identity, OAuth, password recovery, profile, directory, team interest,
-admission periods, public applications, interview scheduling and conduct, onboarding, placement rosters, content, contact, social events, and school surveys.
+admission periods, public applications, interview scheduling and conduct, onboarding, placement rosters, content, contact, and social events.
 
 ### Historical backup rehearsal
 
@@ -84,8 +84,8 @@ Fix an instance when a change touches it (see [AGENTS.md](AGENTS.md#construction
 - Typed endpoint problems: every backend group fails with declared `Problem` values; the raw problem path is gone.
   Defects found and left open: `packages/database/src/content/postgres.ts` never recognizes a department foreign-key violation (503, not 422);
   `Schema.Struct({})` request bodies accept excess members; a sanitizer rejection of article HTML answers 500; a lost serialization race
-  inside the survey, content, school, or recruitment-maintenance domain answers 503, not 409 (survey and content errors keep only the cause's text);
-  the dashboard maps a command's `transaction.conflict` to its unknown-error branch (`receipt-view.ts`, `__foldkit.surveys.ts`).
+  inside the content, school, or recruitment-maintenance domain answers 503, not 409 (content errors keep only the cause's text);
+  the dashboard maps a command's `transaction.conflict` to its unknown-error branch (`receipt-view.ts`).
 - `apps/homepage/src/lib/public-application.ts` lists its problem codes by hand and omits `header.malformed`.
   The homepage problem mappers (`mapPublicApplicationError`, `publicTeamApplicationPageFailure`, `failedPublicTeamApplication`) still accept a plain problem-shaped object besides the SDK's `Problem`; the dashboard reads problems only through `nativeProblemFrom`.
 - Instants: domain fields still use `Rfc3339InstantSchema`, not `Instant` (`packages/domain/src/time.ts`).
@@ -170,7 +170,7 @@ The operator decided these on 2026-09-25. Each becomes one design specification 
 | Substitutes scope (interview)            | Substitute is an admission outcome: admitted but unplaced applicants are on call. Record absences and who covered each lesson date; coordination stays in Slack. Remove the offer and dispatch flow.                                                                                                                                                    | M               |
 | Placement scheduling (interview)         | Port the legacy automated scheduler (weekday availability, bolk, school capacity) as a pure domain function that drafts placements; Skolekoordinering adjusts the draft manually.                                                                                                                                                                       | M               |
 | Certificates (operations scan)           | In scope. Skolekoordinering records days served per assistant at semester end; Styret generates certificates for its department.                                                                                                                                                                                                                        | M               |
-| Surveys (operations scan)                | Stay in Google Forms. The system supplies the data Evaluering needs (assistants per bolk, schools) instead of hosting surveys.                                                                                                                                                                                                                          | S               |
+| Surveys (operations scan)                | Stay in Google Forms. The system supplies the data Evaluering needs (assistants per bolk, schools) instead of hosting surveys. Done 2026-09-26: the module and its tables are gone (migration `retire-native-school-surveys`); the placement board read (`placements.manage`) supplies the data until a delegation gives Evaluering its own read.       | S               |
 
 The parity map is at `/tmp/vektor-parity-rebaseline/parity-map.md` (84 capability rows: 27 evidenced, 16 native without evidence, 9 missing, 17 policy).
 Changelogs, articles, generic events and surveys, certificates, and nonessential statistics are not default cutover gates.
