@@ -897,16 +897,11 @@ export const AuthLive = (
             (incoming) => recovery.handler(engine.handler, incoming, context),
             identity,
           )(request, context),
-        oauthHandler: (request, context) =>
-          Effect.tryPromise({
-            try: () => release(request, context),
-            catch: (cause) => engineFailure("oauthHandler", cause),
-          }),
+        oauthHandler: release,
         oauthIntrospectionHandler: (request, context) =>
-          Effect.tryPromise({
-            try: () => introspection(request, context),
-            catch: (cause) => engineFailure("oauthIntrospectionHandler", cause),
-          }),
+          introspection(request, context).pipe(
+            Effect.mapError((cause) => engineFailure("oauthIntrospectionHandler", cause)),
+          ),
         exactRedirectAccepted: (clientId, redirectUri) =>
           exactRedirectAccepted(pool, clientId, redirectUri).pipe(
             Effect.mapError((cause) => engineFailure("exactRedirectAccepted", cause)),

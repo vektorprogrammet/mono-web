@@ -27,6 +27,17 @@ export const pgQuery = <R extends QueryResultRow = QueryResultRow>(
 ): Effect.Effect<QueryResult<R>, PgQueryError> =>
   Effect.tryPromise({ try: () => database.query<R>(text, [...values]), catch: pgFailure });
 
+/** Runs `use` on one client lent by `pool`; the client returns to the pool when `use` ends. */
+export const pgWithClient = <A, E, R>(
+  pool: Pool,
+  use: (client: PoolClient) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | PgQueryError, R> =>
+  Effect.acquireUseRelease(
+    Effect.tryPromise({ try: () => pool.connect(), catch: pgFailure }),
+    use,
+    (client) => Effect.sync(() => client.release()),
+  );
+
 /**
  * Runs `use` in one transaction on a client lent by `pool`: BEGIN, then COMMIT when `use`
  * succeeds, or ROLLBACK when it fails or is interrupted. The client returns to the pool either way.
@@ -35,15 +46,12 @@ export const pgTransaction = <A, E, R>(
   pool: Pool,
   use: (client: PoolClient) => Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E | PgQueryError, R> =>
-  Effect.acquireUseRelease(
-    Effect.tryPromise({ try: () => pool.connect(), catch: pgFailure }),
-    (client) =>
-      pgQuery(client, "BEGIN").pipe(
-        Effect.andThen(use(client)),
-        Effect.tap(() => pgQuery(client, "COMMIT")),
-        Effect.onError(() => Effect.ignore(pgQuery(client, "ROLLBACK"))),
-      ),
-    (client) => Effect.sync(() => client.release()),
+  pgWithClient<A, E | PgQueryError, R>(pool, (client) =>
+    pgQuery(client, "BEGIN").pipe(
+      Effect.andThen(use(client)),
+      Effect.tap(() => pgQuery(client, "COMMIT")),
+      Effect.onError(() => Effect.ignore(pgQuery(client, "ROLLBACK"))),
+    ),
   );
 
 const makeSharedPgPool = (config: Parameters<typeof PgClient.layer>[0]) =>

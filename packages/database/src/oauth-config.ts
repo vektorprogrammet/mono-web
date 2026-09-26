@@ -71,17 +71,17 @@ export interface OAuthProviderRuntimeConfig {
 export const oauthIssuer = (config: OAuthProviderRuntimeConfig): string =>
   `${config.canonicalOrigin}${OAUTH_ISSUER_PATH}`;
 
-export const sha256Base64Url = async (domain: string, value: string): Promise<string> =>
+export const sha256Base64Url = (domain: string, value: string): string =>
   createHash("sha256")
     .update(domain, "utf8")
     .update("\0", "utf8")
     .update(value, "utf8")
     .digest("base64url");
 
-export const hashOAuthClientSecret = (secret: string): Promise<string> =>
+export const hashOAuthClientSecret = (secret: string): string =>
   sha256Base64Url("vektor-oauth-client-secret", secret);
 
-export const hashOAuthToken = (token: string, type: StoreTokenType): Promise<string> =>
+export const hashOAuthToken = (token: string, type: StoreTokenType): string =>
   sha256Base64Url(`vektor-oauth-${type}`, token);
 
 export const makeOAuthOptions = (config: OAuthProviderRuntimeConfig): OAuthOptions<Scope[]> => ({
