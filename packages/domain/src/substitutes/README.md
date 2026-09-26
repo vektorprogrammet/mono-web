@@ -7,7 +7,7 @@ Substitutes owns the admission-backed substitute pool, weekday preferences, lang
 [The architecture](../../../../docs/architecture.md#ownership) owns dependency direction.
 
 The pool entry identifies an application, not an assignment or a school-service outcome.
-[Placements](../../../placements/README.md) owns affiliation, assignments, absence, offers, responses, acknowledgements, attendance, and dated service decisions.
+[Placements](../placements/README.md) owns affiliation, assignments, absence, offers, responses, acknowledgements, attendance, and dated service decisions.
 Its coverage query joins an active pool entry through the application and applicant account link to a Person.
 It also checks scope, active affiliation, weekday availability, and assignment conflicts.
 Pool activation alone does not establish coverage or attendance.
