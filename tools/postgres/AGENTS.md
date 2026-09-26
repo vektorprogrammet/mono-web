@@ -27,7 +27,7 @@ Local invariants, pitfalls, and recipes go below this generated part; `just guid
 
 ## Invariants
 
-- `startDisposablePostgres` is the only starter of a cluster. `PostgresProgram` holds only client programs, so TypeScript cannot resolve `initdb`, `postgres`, `pg_ctl`, or `createdb` through `postgresProgram`.
+- `startDisposablePostgres` is the only starter of a cluster. `PostgresProgram` holds only client programs, and `anti-slop/no-hand-rolled-postgres` rejects `initdb`, `postgres`, `pg_ctl`, and `createdb` elsewhere, also in `.mjs` runners.
 - Ready means that `pg_isready` reports that the server accepts connections. An open port is not ready: a starting server answers on its port and rejects sessions with "the database system is starting up" (CI run 36224459581). `readiness.test.ts` holds this contract against a protocol endpoint that accepts TCP and rejects sessions.
 - The owner process holds the standard input of a sentinel shell. When the owner exits without `stop`, the sentinel stops the server and removes the cluster directory. Bun exits on an uncaught failure without an `exit` event, and SIGKILL runs no handler, so an in-process hook cannot do this.
 - A cluster strips the `PG*` variables of `devenv shell` from its programs and passes the port explicitly. A client that derives its connection from the server, such as `current_setting('unix_socket_directories')`, also reads `current_setting('port')`.
