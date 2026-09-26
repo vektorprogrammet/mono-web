@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { expect, layer } from "@effect/vitest";
 import { Database } from "./service.js";
 import { databaseSchemaRevision } from "./migrations.js";
 import {
@@ -12,24 +12,21 @@ import { readSchoolsDirectory } from "@vektorprogrammet/database/schools";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
-import { makeControlledTestRuntime } from "../test/runtime.js";
 
-const databaseLayer = DatabaseTest();
-
-const runtime = makeControlledTestRuntime(
-  SchoolsLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(databaseLayer)))),
+const schoolsLayer = SchoolsLive.pipe(
+  Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(DatabaseTest()))),
 );
 
-afterAll(async () => {
-  await runtime.dispose();
-});
-
-describe("Schools application migration in PGlite", () => {
-  it("replays the ordered application manifest through the final revision without changing rows", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database`
+layer(schoolsLayer, { excludeTestServices: true, timeout: "15 seconds" })(
+  "Schools application migration in PGlite",
+  (it) => {
+    it.effect(
+      "replays the ordered application manifest through the final revision without changing rows",
+      () =>
+        Effect.gen(function* () {
+          const evidence = yield* Effect.gen(function* () {
+            const database = yield* Database;
+            yield* database`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
@@ -37,12 +34,12 @@ describe("Schools application migration in PGlite", () => {
             'Norwegian', TRUE
           )
         `;
-        yield* database.migrate;
+            yield* database.migrate;
 
-        const migrationRows = yield* database<{
-          readonly migrationId: number;
-          readonly name: string;
-        }>`
+            const migrationRows = yield* database<{
+              readonly migrationId: number;
+              readonly name: string;
+            }>`
           SELECT
             migration.migration_id AS "migrationId",
             migration.name AS "name"
@@ -50,37 +47,40 @@ describe("Schools application migration in PGlite", () => {
           WHERE migration.migration_id = 19
         `;
 
-        const schoolRows = yield* database<{ readonly count: string }>`
+            const schoolRows = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
           FROM public.schools_directory_schools AS school
           WHERE school.name = 'Replay School'
         `;
 
-        yield* database`
+            yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.name = 'Replay School'
         `;
 
-        return {
-          revision: database.schemaRevision,
-          migrationRows,
-          schoolCount: schoolRows[0]?.count,
-        };
-      }),
+            return {
+              revision: database.schemaRevision,
+              migrationRows,
+              schoolCount: schoolRows[0]?.count,
+            };
+          });
+
+          expect(evidence).toEqual({
+            revision: databaseSchemaRevision,
+            migrationRows: [{ migrationId: 19, name: "schools-directory" }],
+            schoolCount: "1",
+          });
+        }),
+      15_000,
     );
 
-    expect(evidence).toEqual({
-      revision: databaseSchemaRevision,
-      migrationRows: [{ migrationId: 19, name: "schools-directory" }],
-      schoolCount: "1",
-    });
-  }, 15_000);
-
-  it("enforces both association foreign keys and restricts deleting associated departments and schools", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database`
+    it.effect(
+      "enforces both association foreign keys and restricts deleting associated departments and schools",
+      () =>
+        Effect.gen(function* () {
+          const evidence = yield* Effect.gen(function* () {
+            const database = yield* Database;
+            yield* database`
           INSERT INTO organization_departments (
             department_id, name, short_name, email, city
           ) VALUES (
@@ -89,7 +89,7 @@ describe("Schools application migration in PGlite", () => {
           )
         `;
 
-        const schools = yield* database<{ readonly schoolId: string }>`
+            const schools = yield* database<{ readonly schoolId: string }>`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
@@ -99,86 +99,88 @@ describe("Schools application migration in PGlite", () => {
           RETURNING school_id::text AS "schoolId"
         `;
 
-        const schoolId = schools[0]!.schoolId;
-        yield* database`
+            const schoolId = schools[0]!.schoolId;
+            yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES (${schoolId}::bigint, 'schools-fk-department')
         `;
 
-        const missingSchoolFailure = yield* Effect.flip(
-          database`
+            const missingSchoolFailure = yield* Effect.flip(
+              database`
             INSERT INTO public.schools_directory_departments (school_id, department_id)
             VALUES (9007199254740991, 'schools-fk-department')
           `,
-        );
+            );
 
-        const missingDepartmentFailure = yield* Effect.flip(
-          database`
+            const missingDepartmentFailure = yield* Effect.flip(
+              database`
             INSERT INTO public.schools_directory_departments (school_id, department_id)
             VALUES (${schoolId}::bigint, 'schools-missing-department')
           `,
-        );
+            );
 
-        const restrictFailure = yield* Effect.flip(
-          database`
+            const restrictFailure = yield* Effect.flip(
+              database`
             DELETE FROM organization_departments AS department
             WHERE department.department_id = 'schools-fk-department'
           `,
-        );
+            );
 
-        const restrictSchoolFailure = yield* Effect.flip(
-          database`
+            const restrictSchoolFailure = yield* Effect.flip(
+              database`
             DELETE FROM public.schools_directory_schools AS school
             WHERE school.school_id = ${schoolId}::bigint
           `,
-        );
+            );
 
-        const associations = yield* database<{ readonly count: string }>`
+            const associations = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
           FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${schoolId}::bigint
         `;
 
-        yield* database`
+            yield* database`
           DELETE FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${schoolId}::bigint
         `;
-        yield* database`
+            yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${schoolId}::bigint
         `;
 
-        yield* database`
+            yield* database`
           DELETE FROM organization_departments AS department
           WHERE department.department_id = 'schools-fk-department'
         `;
 
-        return {
-          missingSchoolTag: missingSchoolFailure._tag,
-          missingDepartmentTag: missingDepartmentFailure._tag,
-          restrictTag: restrictFailure._tag,
-          restrictSchoolTag: restrictSchoolFailure._tag,
-          associationCount: associations[0]?.count,
-        };
-      }),
+            return {
+              missingSchoolTag: missingSchoolFailure._tag,
+              missingDepartmentTag: missingDepartmentFailure._tag,
+              restrictTag: restrictFailure._tag,
+              restrictSchoolTag: restrictSchoolFailure._tag,
+              associationCount: associations[0]?.count,
+            };
+          });
+
+          expect(evidence).toEqual({
+            missingSchoolTag: "SqlError",
+            missingDepartmentTag: "SqlError",
+            restrictTag: "SqlError",
+            restrictSchoolTag: "SqlError",
+            associationCount: "1",
+          });
+        }),
     );
 
-    expect(evidence).toEqual({
-      missingSchoolTag: "SqlError",
-      missingDepartmentTag: "SqlError",
-      restrictTag: "SqlError",
-      restrictSchoolTag: "SqlError",
-      associationCount: "1",
-    });
-  });
-
-  it("runs the named journey against the canonical non-locking Organization projection", async () => {
-    const directory = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        const departmentId = DepartmentId.make("schools-journey-pglite");
-        const personId = PersonId.make("schools-journey-pglite-person");
-        yield* database`
+    it.effect(
+      "runs the named journey against the canonical non-locking Organization projection",
+      () =>
+        Effect.gen(function* () {
+          const directory = yield* Effect.gen(function* () {
+            const database = yield* Database;
+            const departmentId = DepartmentId.make("schools-journey-pglite");
+            const personId = PersonId.make("schools-journey-pglite-person");
+            yield* database`
           INSERT INTO organization_departments (
             department_id, name, short_name, email, city
           ) VALUES (
@@ -186,15 +188,15 @@ describe("Schools application migration in PGlite", () => {
             'schools-journey-pglite@example.invalid', 'Oslo'
           )
         `;
-        yield* database`
+            yield* database`
           INSERT INTO organization_teams (team_id, department_id, name)
           VALUES ('schools-journey-pglite-team', ${departmentId}, 'Journey Team')
         `;
-        yield* database`
+            yield* database`
           INSERT INTO person_profiles (person_id, first_name, last_name)
           VALUES (${personId}, 'Schools', 'Journey')
         `;
-        yield* database`
+            yield* database`
           INSERT INTO organization_memberships (
             membership_id, person_id, team_id, start_at, position_id
           ) VALUES (
@@ -206,7 +208,7 @@ describe("Schools application migration in PGlite", () => {
           )
         `;
 
-        const inserted = yield* database<{ readonly schoolId: string }>`
+            const inserted = yield* database<{ readonly schoolId: string }>`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
@@ -216,72 +218,72 @@ describe("Schools application migration in PGlite", () => {
           RETURNING school_id::text AS "schoolId"
         `;
 
-        yield* database`
+            yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES (${inserted[0]!.schoolId}::bigint, ${departmentId})
         `;
 
-        const directory = yield* readSchoolsDirectory(
-          personId,
-          OrganizationAuthorityInstantSchema.make("2032-01-01T00:00:00.000Z"),
-          {},
-        );
+            const directory = yield* readSchoolsDirectory(
+              personId,
+              OrganizationAuthorityInstantSchema.make("2032-01-01T00:00:00.000Z"),
+              {},
+            );
 
-        yield* database`
+            yield* database`
           DELETE FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${inserted[0]!.schoolId}::bigint
         `;
-        yield* database`
+            yield* database`
           DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${inserted[0]!.schoolId}::bigint
         `;
-        yield* database`
+            yield* database`
           DELETE FROM organization_memberships AS membership
           WHERE membership.membership_id = 'schools-journey-pglite-membership'
         `;
-        yield* database`
+            yield* database`
           DELETE FROM organization_teams AS team
           WHERE team.team_id = 'schools-journey-pglite-team'
         `;
-        yield* database`
+            yield* database`
           DELETE FROM organization_departments AS department
           WHERE department.department_id = ${departmentId}
         `;
 
-        return directory;
-      }),
+            return directory;
+          });
+
+          expect(directory).toEqual({
+            activeSchools: [
+              {
+                schoolId: directory.activeSchools[0]?.schoolId,
+                name: "Journey School",
+                contactPerson: "Journey Contact",
+                email: "journey-school@example.invalid",
+                phone: "+47 900 00 030",
+                language: "Norwegian",
+                departments: [
+                  {
+                    departmentId: "schools-journey-pglite",
+                    name: "Journey Department",
+                  },
+                ],
+                isActive: true,
+              },
+            ],
+            inactiveSchools: [],
+          });
+        }),
     );
 
-    expect(directory).toEqual({
-      activeSchools: [
-        {
-          schoolId: directory.activeSchools[0]?.schoolId,
-          name: "Journey School",
-          contactPerson: "Journey Contact",
-          email: "journey-school@example.invalid",
-          phone: "+47 900 00 030",
-          language: "Norwegian",
-          departments: [
-            {
-              departmentId: "schools-journey-pglite",
-              name: "Journey Department",
-            },
-          ],
-          isActive: true,
-        },
-      ],
-      inactiveSchools: [],
-    });
-  });
-
-  it("returns one deterministic full directory and intersects visible departments", async () => {
-    const evidence = await runtime.runPromise(
+    it.effect("returns one deterministic full directory and intersects visible departments", () =>
       Effect.gen(function* () {
-        const database = yield* Database;
-        const schools = yield* Schools;
-        const departmentA = DepartmentId.make("schools-full-a");
-        const departmentB = DepartmentId.make("schools-full-b");
-        yield* database`
+        const evidence = yield* Effect.gen(function* () {
+          const database = yield* Database;
+          const schools = yield* Schools;
+          const departmentA = DepartmentId.make("schools-full-a");
+          const departmentB = DepartmentId.make("schools-full-b");
+          yield* database`
           INSERT INTO organization_departments (
             department_id, name, short_name, email, city
           ) VALUES
@@ -295,11 +297,11 @@ describe("Schools application migration in PGlite", () => {
             )
         `;
 
-        const inserted = yield* database<{
-          readonly schoolId: string;
-          readonly email: string;
-          readonly name: string;
-        }>`
+          const inserted = yield* database<{
+            readonly schoolId: string;
+            readonly email: string;
+            readonly name: string;
+          }>`
           INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES
@@ -329,11 +331,11 @@ describe("Schools application migration in PGlite", () => {
             name AS "name"
         `;
 
-        const idByEmail = new Map(
-          inserted.map((row) => [row.email, Number(row.schoolId)] as const),
-        );
+          const idByEmail = new Map(
+            inserted.map((row) => [row.email, Number(row.schoolId)] as const),
+          );
 
-        yield* database`
+          yield* database`
           INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES
             (${idByEmail.get("alpha-a@example.invalid")}::bigint, ${departmentA}),
@@ -343,85 +345,86 @@ describe("Schools application migration in PGlite", () => {
             (${idByEmail.get("zulu@example.invalid")}::bigint, ${departmentA})
         `;
 
-        const directory = yield* schools.listDirectory({
-          scope: SchoolDirectoryScopeSchema.cases.All.make({}),
-        });
+          const directory = yield* schools.listDirectory({
+            scope: SchoolDirectoryScopeSchema.cases.All.make({}),
+          });
 
-        const scoped = yield* schools.listDirectory({
-          scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
-            departmentIds: [departmentA, departmentB],
-          }),
-        });
-
-        const shared = scoped.activeSchools.find(
-          (school) => school.email === "shared@example.invalid",
-        );
-
-        const narrowed = yield* schools.listDirectory({
-          scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
-            departmentIds: [departmentA, departmentB],
-          }),
-          departmentId: departmentA,
-        });
-
-        const narrowedShared = narrowed.activeSchools.find(
-          (school) => school.email === "shared@example.invalid",
-        );
-
-        const exceededScopeTag = yield* Effect.flip(
-          schools.listDirectory({
+          const scoped = yield* schools.listDirectory({
             scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
-              departmentIds: [departmentA],
+              departmentIds: [departmentA, departmentB],
             }),
-            departmentId: departmentB,
-          }),
-        ).pipe(Effect.map((failure) => failure._tag));
+          });
 
-        const fullSchoolIds = [
-          ...directory.activeSchools.map((school) => school.schoolId),
-          ...directory.inactiveSchools.map((school) => school.schoolId),
-        ];
+          const shared = scoped.activeSchools.find(
+            (school) => school.email === "shared@example.invalid",
+          );
 
-        return {
-          fullActiveEmails: directory.activeSchools.map((school) => school.email),
-          fullInactiveEmails: directory.inactiveSchools.map((school) => school.email),
-          fullSchoolCount: fullSchoolIds.length,
-          uniqueFullSchoolIds: new Set(fullSchoolIds).size,
-          sharedDepartments: shared?.departments,
-          narrowedSharedDepartments: narrowedShared?.departments,
-          scopedActiveEmails: scoped.activeSchools.map((school) => school.email),
-          scopedInactiveEmails: scoped.inactiveSchools.map((school) => school.email),
-          adminOnlyDepartments: directory.activeSchools.find(
-            (school) => school.email === "admin-only@example.invalid",
-          )?.departments,
-          exceededScopeTag,
-        };
+          const narrowed = yield* schools.listDirectory({
+            scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+              departmentIds: [departmentA, departmentB],
+            }),
+            departmentId: departmentA,
+          });
+
+          const narrowedShared = narrowed.activeSchools.find(
+            (school) => school.email === "shared@example.invalid",
+          );
+
+          const exceededScopeTag = yield* Effect.flip(
+            schools.listDirectory({
+              scope: SchoolDirectoryScopeSchema.cases.DepartmentIds.make({
+                departmentIds: [departmentA],
+              }),
+              departmentId: departmentB,
+            }),
+          ).pipe(Effect.map((failure) => failure._tag));
+
+          const fullSchoolIds = [
+            ...directory.activeSchools.map((school) => school.schoolId),
+            ...directory.inactiveSchools.map((school) => school.schoolId),
+          ];
+
+          return {
+            fullActiveEmails: directory.activeSchools.map((school) => school.email),
+            fullInactiveEmails: directory.inactiveSchools.map((school) => school.email),
+            fullSchoolCount: fullSchoolIds.length,
+            uniqueFullSchoolIds: new Set(fullSchoolIds).size,
+            sharedDepartments: shared?.departments,
+            narrowedSharedDepartments: narrowedShared?.departments,
+            scopedActiveEmails: scoped.activeSchools.map((school) => school.email),
+            scopedInactiveEmails: scoped.inactiveSchools.map((school) => school.email),
+            adminOnlyDepartments: directory.activeSchools.find(
+              (school) => school.email === "admin-only@example.invalid",
+            )?.departments,
+            exceededScopeTag,
+          };
+        });
+
+        expect(evidence).toEqual({
+          fullActiveEmails: [
+            "admin-only@example.invalid",
+            "alpha-a@example.invalid",
+            "alpha-b@example.invalid",
+            "shared@example.invalid",
+          ],
+          fullInactiveEmails: ["zulu@example.invalid"],
+          fullSchoolCount: 5,
+          uniqueFullSchoolIds: 5,
+          sharedDepartments: [
+            { departmentId: "schools-full-a", name: "Department A" },
+            { departmentId: "schools-full-b", name: "Department B" },
+          ],
+          narrowedSharedDepartments: [{ departmentId: "schools-full-a", name: "Department A" }],
+          scopedActiveEmails: [
+            "alpha-a@example.invalid",
+            "alpha-b@example.invalid",
+            "shared@example.invalid",
+          ],
+          scopedInactiveEmails: ["zulu@example.invalid"],
+          adminOnlyDepartments: [],
+          exceededScopeTag: "SchoolsDecodeError",
+        });
       }),
     );
-
-    expect(evidence).toEqual({
-      fullActiveEmails: [
-        "admin-only@example.invalid",
-        "alpha-a@example.invalid",
-        "alpha-b@example.invalid",
-        "shared@example.invalid",
-      ],
-      fullInactiveEmails: ["zulu@example.invalid"],
-      fullSchoolCount: 5,
-      uniqueFullSchoolIds: 5,
-      sharedDepartments: [
-        { departmentId: "schools-full-a", name: "Department A" },
-        { departmentId: "schools-full-b", name: "Department B" },
-      ],
-      narrowedSharedDepartments: [{ departmentId: "schools-full-a", name: "Department A" }],
-      scopedActiveEmails: [
-        "alpha-a@example.invalid",
-        "alpha-b@example.invalid",
-        "shared@example.invalid",
-      ],
-      scopedInactiveEmails: ["zulu@example.invalid"],
-      adminOnlyDepartments: [],
-      exceededScopeTag: "SchoolsDecodeError",
-    });
-  });
-});
+  },
+);

@@ -10,10 +10,8 @@ import {
 } from "@vektorprogrammet/domain/admission-period";
 import {
   Identity,
-  IdentityEngineError,
-  IdentityActor,
-  IdentitySessionExpired,
-  IdentitySessionNotFound,
+  type IdentityEngineError,
+  type IdentityActor,
 } from "@vektorprogrammet/domain/identity";
 import type {
   DepartmentId,
@@ -73,22 +71,10 @@ const decodeAuthorizationInstant = (value: string): OrganizationAuthorityInstant
 const sessionEffect = (
   cookieHeader: string | undefined,
 ): Effect.Effect<IdentityActor, IdentityEngineError | UnauthenticatedActor, Identity> =>
-  Identity.use(({ resolveSession }) =>
-    Effect.tryPromise({
-      try: () => resolveSession(cookieHeader),
-      catch: (cause) => {
-        if (cause instanceof IdentitySessionNotFound || cause instanceof IdentitySessionExpired) {
-          return new UnauthenticatedActor({ message: "authentication required" });
-        }
-
-        return cause instanceof IdentityEngineError
-          ? cause
-          : new IdentityEngineError({
-              operation: "resolveSession",
-              message: cause instanceof Error ? cause.message : "identity provider failure",
-            });
-      },
-    }),
+  Identity.use(({ resolveSession }) => resolveSession(cookieHeader)).pipe(
+    Effect.catchTag(["IdentitySessionNotFound", "IdentitySessionExpired"], () =>
+      Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+    ),
   );
 
 /**
@@ -122,18 +108,7 @@ const requestCredentialEffect = (
   }
 
   if (authorization !== null) {
-    return OAuthCredentialAuthority.use(({ resolve }) =>
-      Effect.tryPromise({
-        try: () => resolve(request, expected),
-        catch: (cause) =>
-          cause instanceof IdentityEngineError
-            ? cause
-            : new IdentityEngineError({
-                operation: "resolveOAuthCredential",
-                message: cause instanceof Error ? cause.message : "identity provider failure",
-              }),
-      }),
-    ).pipe(
+    return OAuthCredentialAuthority.use(({ resolve }) => resolve(request, expected)).pipe(
       Effect.flatMap((outcome) =>
         Predicate.isTagged(outcome, "Accepted")
           ? Effect.succeed(outcome)
@@ -181,7 +156,7 @@ const requestCredentialInTransactionEffect = (
 
   if (authorization !== null) {
     return OAuthCredentialAuthority.use(({ resolveInTransaction }) =>
-      resolveInTransaction(request, expected, new Date(authorizationInstant)),
+      resolveInTransaction(request, expected, DateTime.makeUnsafe(authorizationInstant)),
     ).pipe(
       Effect.flatMap((outcome) =>
         Predicate.isTagged(outcome, "Accepted")
@@ -204,10 +179,8 @@ const requestCredentialInTransactionEffect = (
       principal: { _tag: "Person" as const, personId: actor.personId },
       evidenceRef: CredentialEvidenceRef.make(`better-auth:session:${actor.sessionId}`),
     })),
-    Effect.mapError((cause) =>
-      cause instanceof IdentitySessionNotFound || cause instanceof IdentitySessionExpired
-        ? new UnauthenticatedActor({ message: "authentication required" })
-        : cause,
+    Effect.catchTag("IdentitySessionNotFound", () =>
+      Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
     ),
   );
 };

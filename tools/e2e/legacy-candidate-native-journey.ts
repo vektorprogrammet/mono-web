@@ -27,7 +27,7 @@ import {
   ReceiptListResponse,
   UserProfileResponse,
 } from "@vektorprogrammet/http-api";
-import { Cause, Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
+import { type Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { Etag, HttpRouter } from "effect/unstable/http";
 import { ReceiptDeliveryLive } from "@vektorprogrammet/backend/receipt/delivery";
 import {
@@ -148,15 +148,8 @@ export const observeLegacyCandidateNativeJourney = async (
   try {
     const router = await runtime.runPromise(HttpRouter.HttpRouter);
 
-    const authBoundary = <A>(operation: (engine: AuthEngineService) => Promise<A>) =>
-      runtime.runPromise(
-        AuthEngine.use((engine) =>
-          Effect.tryPromise({
-            try: () => operation(engine),
-            catch: () => new Cause.UnknownError(undefined, "candidate auth operation failed"),
-          }),
-        ),
-      );
+    const authBoundary = <A, E>(operation: (engine: AuthEngineService) => Effect.Effect<A, E>) =>
+      runtime.runPromise(AuthEngine.use(operation));
 
     const auth: BackendAuthHandler = {
       handle: (request, context) => authBoundary((engine) => engine.handler(request, context)),

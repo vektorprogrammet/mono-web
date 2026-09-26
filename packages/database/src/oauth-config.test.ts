@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
+import { Effect } from "effect";
 import { makeAuthEngineOptions } from "./auth-engine.js";
 import {
   OAUTH_NATIVE_API_RESOURCE,
@@ -62,6 +63,7 @@ describe("native OAuth provider composition", () => {
         secureCookies: false,
       },
       pool,
+      Effect.runPromise,
     );
 
     expect(engineOptions.baseURL).toBe(oauth.canonicalOrigin);

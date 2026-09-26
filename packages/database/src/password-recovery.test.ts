@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { withPostgresTestDatabase } from "./test-support/postgres.js";
 import type { AuthEngineConfig } from "./auth-engine.js";
@@ -30,21 +31,23 @@ describe("owned recovery boundary", () => {
         const recovery = makePasswordRecovery(pool, config);
         let called = false;
 
-        const r = await recovery.handler(
-          async () => {
-            called = true;
+        const r = await Effect.runPromise(
+          recovery.handler(
+            async () => {
+              called = true;
 
-            return Response.json({ status: true });
-          },
-          new Request("http://127.0.0.1:8790/api/auth/request-password-reset", {
-            method: "POST",
-            headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
-            body: JSON.stringify({
-              email: "synthetic@example.invalid",
-              redirectTo: "http://127.0.0.1:5174/login",
+              return Response.json({ status: true });
+            },
+            new Request("http://127.0.0.1:8790/api/auth/request-password-reset", {
+              method: "POST",
+              headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
+              body: JSON.stringify({
+                email: "synthetic@example.invalid",
+                redirectTo: "http://127.0.0.1:5174/login",
+              }),
             }),
-          }),
-          context,
+            context,
+          ),
         );
 
         expect(r.status).toBe(403);
@@ -62,17 +65,19 @@ describe("owned recovery boundary", () => {
         const recovery = makePasswordRecovery(pool, config);
         let called = false;
 
-        const r = await recovery.handler(
-          async () => {
-            called = true;
+        const r = await Effect.runPromise(
+          recovery.handler(
+            async () => {
+              called = true;
 
-            return Response.json({ status: true });
-          },
-          new Request("http://127.0.0.1:8790/api/auth/reset-password?token=forbidden-query", {
-            method: "POST",
-            headers: { origin: config.oauth.dashboardOrigin },
-          }),
-          context,
+              return Response.json({ status: true });
+            },
+            new Request("http://127.0.0.1:8790/api/auth/reset-password?token=forbidden-query", {
+              method: "POST",
+              headers: { origin: config.oauth.dashboardOrigin },
+            }),
+            context,
+          ),
         );
 
         expect(r.status).toBe(403);
@@ -86,13 +91,15 @@ describe("owned recovery boundary", () => {
       withPostgresTestDatabase(async (pool) => {
         const recovery = makePasswordRecovery(pool, config);
 
-        const r = await recovery.handler(
-          async () => Response.json({ status: true }),
-          new Request("http://127.0.0.1:8790/api/auth/reset-password", {
-            method: "POST",
-            headers: { origin: config.oauth.dashboardOrigin },
-          }),
-          context,
+        const r = await Effect.runPromise(
+          recovery.handler(
+            async () => Response.json({ status: true }),
+            new Request("http://127.0.0.1:8790/api/auth/reset-password", {
+              method: "POST",
+              headers: { origin: config.oauth.dashboardOrigin },
+            }),
+            context,
+          ),
         );
 
         expect(r.status).toBe(503);
@@ -108,17 +115,19 @@ describe("owned recovery boundary", () => {
         );
         const recovery = makePasswordRecovery(pool, config);
 
-        const r = await recovery.handler(
-          async () => Response.json({ status: true }),
-          new Request("http://127.0.0.1:8790/api/auth/request-password-reset", {
-            method: "POST",
-            headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
-            body: JSON.stringify({
-              email: "unknown@example.invalid",
-              redirectTo: "http://127.0.0.1:5174/tilbakestill-passord",
+        const r = await Effect.runPromise(
+          recovery.handler(
+            async () => Response.json({ status: true }),
+            new Request("http://127.0.0.1:8790/api/auth/request-password-reset", {
+              method: "POST",
+              headers: { origin: config.oauth.dashboardOrigin, "content-type": "application/json" },
+              body: JSON.stringify({
+                email: "unknown@example.invalid",
+                redirectTo: "http://127.0.0.1:5174/tilbakestill-passord",
+              }),
             }),
-          }),
-          context,
+            context,
+          ),
         );
 
         expect(r.status).toBe(503);

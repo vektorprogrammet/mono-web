@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { makeAuthEngineOptions } from "./auth-engine.js";
 import { OAUTH_NATIVE_API_RESOURCE } from "./oauth-config.js";
 
@@ -22,6 +23,7 @@ describe("native password recovery release boundary", () => {
         secureCookies: true,
       },
       database,
+      Effect.runPromise,
     );
 
     expect(options.emailAndPassword).toMatchObject({

@@ -3,7 +3,7 @@ import { memoryAdapter } from "better-auth/adapters/memory";
 import { getCookies } from "better-auth/cookies";
 import { DateTime, Effect, Layer, Redacted, Schema } from "effect";
 import { Pool } from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "@effect/vitest";
 import { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
 import { Database } from "./service.js";
 import {
@@ -136,7 +136,7 @@ const optionsPool = new Pool({ max: 1 });
 const snapshotRuntime = makeControlledTestRuntime(DatabaseTest());
 
 describe("Better Auth session hardening configuration", () => {
-  const localOptions = makeAuthEngineOptions(config, optionsPool);
+  const localOptions = makeAuthEngineOptions(config, optionsPool, Effect.runPromise);
 
   const previewOptions = makeAuthEngineOptions(
     {
@@ -150,6 +150,7 @@ describe("Better Auth session hardening configuration", () => {
       secureCookies: true,
     },
     optionsPool,
+    Effect.runPromise,
   );
 
   it("selects exact local and secure-prefixed cookie attributes", () => {
@@ -167,7 +168,7 @@ describe("Better Auth session hardening configuration", () => {
 
   it("rejects the public sign-up route before creating identity state", async () => {
     const engine = betterAuth({
-      ...makeAuthEngineOptions(config, optionsPool),
+      ...makeAuthEngineOptions(config, optionsPool, Effect.runPromise),
       database: memoryAdapter({ ...oauthMemoryModels }),
     });
 
@@ -315,64 +316,78 @@ describe("Better Auth session hardening configuration", () => {
 });
 
 describe("audited Better Auth response ordering", () => {
-  it("does not return credential success when the required post-transition audit append fails", async () => {
-    const ordering: string[] = [];
+  it.effect(
+    "does not return credential success when the required post-transition audit append fails",
+    () =>
+      Effect.gen(function* () {
+        const ordering: string[] = [];
 
-    const actor = new IdentityActor({
-      personId: PersonId.make("audit-ordering-person"),
-      sessionId: "audit-ordering-session",
-      expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
-    });
+        const actor = new IdentityActor({
+          personId: PersonId.make("audit-ordering-person"),
+          sessionId: "audit-ordering-session",
+          expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
+        });
 
-    const handler = auditedAuthHandler(
-      {
-        handler: async () => {
-          ordering.push("credential-state-transition");
+        const handler = auditedAuthHandler(
+          () =>
+            Effect.sync(() => {
+              ordering.push("credential-state-transition");
 
-          return new Response(JSON.stringify({ user: { id: actor.personId } }), {
-            status: 200,
-            headers: {
-              "content-type": "application/json",
-              "set-cookie": "better-auth.session_token=opaque-test-value; Path=/; HttpOnly",
-            },
-          });
-        },
-      },
-      {
-        resolveSession: async (cookieHeader) => {
-          ordering.push("persisted-session-resolved");
-          expect(cookieHeader).toBe("better-auth.session_token=opaque-test-value");
+              return Response.json(
+                { user: { id: actor.personId } },
+                {
+                  status: 200,
+                  headers: {
+                    "content-type": "application/json",
+                    "set-cookie": "better-auth.session_token=opaque-test-value; Path=/; HttpOnly",
+                  },
+                },
+              );
+            }),
+          {
+            resolveSession: (cookieHeader) =>
+              Effect.sync(() => {
+                ordering.push("persisted-session-resolved");
+                expect(cookieHeader).toBe("better-auth.session_token=opaque-test-value");
 
-          return actor;
-        },
-        recordSecurityEvent: async (event) => {
-          ordering.push("audit-append-attempted");
-          expect(event).toMatchObject({
-            eventKind: "sign-in-success",
-            subjectPersonId: actor.personId,
-            sessionId: actor.sessionId,
-          });
-          throw new Error("injected audit append failure");
-        },
-      },
-    );
+                return actor;
+              }),
+            recordSecurityEvent: (event) =>
+              Effect.suspend(() => {
+                ordering.push("audit-append-attempted");
+                expect(event).toMatchObject({
+                  eventKind: "sign-in-success",
+                  subjectPersonId: actor.personId,
+                  sessionId: actor.sessionId,
+                });
 
-    const response = await handler(
-      new Request("http://127.0.0.1:8790/api/auth/sign-in/email", { method: "POST" }),
-      requestContext,
-    );
+                return Effect.fail(
+                  new IdentityEngineError({
+                    operation: "recordSecurityEvent",
+                    message: "injected audit append failure",
+                  }),
+                );
+              }),
+          },
+        );
 
-    expect(ordering).toEqual([
-      "credential-state-transition",
-      "persisted-session-resolved",
-      "audit-append-attempted",
-    ]);
-    expect(response.status).toBe(503);
-    expect(response.headers.getSetCookie()).toEqual([]);
-    await expect(response.json()).resolves.toEqual({
-      error: { tag: "IdentityEngineError" },
-    });
-  });
+        const response = yield* handler(
+          new Request("http://127.0.0.1:8790/api/auth/sign-in/email", { method: "POST" }),
+          requestContext,
+        );
+
+        expect(ordering).toEqual([
+          "credential-state-transition",
+          "persisted-session-resolved",
+          "audit-append-attempted",
+        ]);
+        expect(response.status).toBe(503);
+        expect(response.headers.getSetCookie()).toEqual([]);
+        expect(yield* Effect.promise(() => response.json())).toEqual({
+          error: { tag: "IdentityEngineError" },
+        });
+      }),
+  );
 });
 
 dsl("AuthLive (spec 0054)", () => {
@@ -401,9 +416,7 @@ dsl("AuthLive (spec 0054)", () => {
         const identity = yield* Identity;
         const snapshotIdentity = yield* IdentitySnapshot;
 
-        const signedIn = yield* Effect.tryPromise(() =>
-          identity.signIn({ email: cohort.email, password: cohort.password }),
-        );
+        const signedIn = yield* identity.signIn({ email: cohort.email, password: cohort.password });
 
         const cookie = signedIn.setCookie.split(";")[0] ?? signedIn.setCookie;
         expect(signedIn.actor.personId).toBe(cohort.personId);
@@ -417,7 +430,7 @@ dsl("AuthLive (spec 0054)", () => {
 
               return yield* snapshotIdentity.resolveSession(
                 cookie,
-                AuthorizationInstant.make(new Date().toISOString()),
+                AuthorizationInstant.make(DateTime.formatIso(yield* DateTime.now)),
               );
             }),
           ),
@@ -426,13 +439,11 @@ dsl("AuthLive (spec 0054)", () => {
         expect(snapshotActor.personId).toBe(cohort.personId);
         expect(signedIn.setCookie).toMatch(/HttpOnly/i);
 
-        const handlerResponse = yield* Effect.promise(() =>
-          engine.handler(
-            new Request("http://127.0.0.1:8790/api/auth/get-session", {
-              headers: new Headers({ cookie }),
-            }),
-            requestContext,
-          ),
+        const handlerResponse = yield* engine.handler(
+          new Request("http://127.0.0.1:8790/api/auth/get-session", {
+            headers: new Headers({ cookie }),
+          }),
+          requestContext,
         );
 
         const handlerBody = yield* Effect.promise(() => handlerResponse.json()).pipe(
@@ -445,11 +456,9 @@ dsl("AuthLive (spec 0054)", () => {
 
         expect(handlerBody.user?.id).toBe(cohort.personId);
 
-        yield* Effect.tryPromise(() => identity.signOut(cookie));
+        yield* identity.signOut(cookie);
 
-        const revoked = yield* Effect.exit(
-          Effect.tryPromise(() => identity.resolveSession(cookie)),
-        );
+        const revoked = yield* Effect.exit(identity.resolveSession(cookie));
 
         expect(revoked._tag).toBe("Failure");
       }),
@@ -462,9 +471,7 @@ dsl("AuthLive (spec 0054)", () => {
       Effect.gen(function* () {
         const identity = yield* Identity;
 
-        const result = yield* Effect.exit(
-          Effect.tryPromise(() => identity.resolveSession("vp.session_token=unknown")),
-        );
+        const result = yield* Effect.exit(identity.resolveSession("vp.session_token=unknown"));
 
         expect(result._tag).toBe("Failure");
       }),
@@ -491,7 +498,7 @@ dsl("AuthLive (spec 0054)", () => {
     const signIn = async (
       person: Readonly<{ email: string; password: string }>,
     ): Promise<{ readonly cookie: string; readonly sessionId: string }> => {
-      const signedIn = await identity.signIn(person);
+      const signedIn = await runtime.runPromise(identity.signIn(person));
 
       return {
         cookie: signedIn.setCookie.split(";")[0] ?? signedIn.setCookie,
@@ -509,17 +516,21 @@ dsl("AuthLive (spec 0054)", () => {
     const current = await signIn(cohort);
     const owned = await signIn(cohort);
     const nonOwned = await signIn(otherCohort);
-    const listed = await identity.listSessions(current.cookie);
+    const listed = await runtime.runPromise(identity.listSessions(current.cookie));
     expect(listed).toHaveLength(2);
     expect(listed.filter(({ current: isCurrent }) => isCurrent)).toHaveLength(1);
     expect(listed.map(({ sessionId }) => sessionId)).not.toContain(nonOwned.sessionId);
 
     const missingOutcomes = await Promise.all(
       ["missing-session", nonOwned.sessionId].map((sessionId) =>
-        identity.revokeSession(current.cookie, sessionId, context(`concealed-${sessionId}`)).then(
-          () => undefined,
-          (cause: unknown) => cause,
-        ),
+        runtime
+          .runPromise(
+            identity.revokeSession(current.cookie, sessionId, context(`concealed-${sessionId}`)),
+          )
+          .then(
+            () => undefined,
+            (cause: unknown) => cause,
+          ),
       ),
     );
 
@@ -544,9 +555,11 @@ dsl("AuthLive (spec 0054)", () => {
       FOR EACH ROW EXECUTE FUNCTION auth.fail_identity_security_audit_test()
     `);
     await expect(
-      identity.revokeSession(current.cookie, owned.sessionId, context("auth-live-rollback")),
+      runtime.runPromise(
+        identity.revokeSession(current.cookie, owned.sessionId, context("auth-live-rollback")),
+      ),
     ).rejects.toBeInstanceOf(IdentityEngineError);
-    await expect(identity.resolveSession(owned.cookie)).resolves.toMatchObject({
+    await expect(runtime.runPromise(identity.resolveSession(owned.cookie))).resolves.toMatchObject({
       sessionId: owned.sessionId,
     });
     await observer.query(
@@ -554,39 +567,61 @@ dsl("AuthLive (spec 0054)", () => {
     );
     await observer.query(`DROP FUNCTION auth.fail_identity_security_audit_test()`);
 
-    await identity.revokeSession(current.cookie, owned.sessionId, context("auth-live-revoke-one"));
-    await expect(identity.resolveSession(owned.cookie)).rejects.toBeDefined();
+    await runtime.runPromise(
+      identity.revokeSession(current.cookie, owned.sessionId, context("auth-live-revoke-one")),
+    );
+    await expect(runtime.runPromise(identity.resolveSession(owned.cookie))).rejects.toBeDefined();
     await expect(
-      identity.revokeSession(
-        current.cookie,
-        owned.sessionId,
-        context("auth-live-revoke-one-retry"),
+      runtime.runPromise(
+        identity.revokeSession(
+          current.cookie,
+          owned.sessionId,
+          context("auth-live-revoke-one-retry"),
+        ),
       ),
     ).rejects.toBeInstanceOf(IdentityOwnedSessionNotFound);
 
     const otherOne = await signIn(cohort);
     const otherTwo = await signIn(cohort);
-    await identity.revokeOtherSessions(current.cookie, context("auth-live-revoke-others"));
-    await expect(identity.resolveSession(current.cookie)).resolves.toMatchObject({
+    await runtime.runPromise(
+      identity.revokeOtherSessions(current.cookie, context("auth-live-revoke-others")),
+    );
+    await expect(
+      runtime.runPromise(identity.resolveSession(current.cookie)),
+    ).resolves.toMatchObject({
       sessionId: current.sessionId,
     });
-    await expect(identity.resolveSession(otherOne.cookie)).rejects.toBeDefined();
-    await expect(identity.resolveSession(otherTwo.cookie)).rejects.toBeDefined();
     await expect(
-      identity.revokeOtherSessions(current.cookie, context("auth-live-revoke-others-repeat")),
+      runtime.runPromise(identity.resolveSession(otherOne.cookie)),
+    ).rejects.toBeDefined();
+    await expect(
+      runtime.runPromise(identity.resolveSession(otherTwo.cookie)),
+    ).rejects.toBeDefined();
+    await expect(
+      runtime.runPromise(
+        identity.revokeOtherSessions(current.cookie, context("auth-live-revoke-others-repeat")),
+      ),
     ).resolves.toEqual({ setCookies: [] });
 
-    await identity.revokeAllSessions(current.cookie, context("auth-live-revoke-all"));
-    await expect(identity.resolveSession(current.cookie)).rejects.toBeDefined();
+    await runtime.runPromise(
+      identity.revokeAllSessions(current.cookie, context("auth-live-revoke-all")),
+    );
+    await expect(runtime.runPromise(identity.resolveSession(current.cookie))).rejects.toBeDefined();
     await expect(
-      identity.revokeAllSessions(current.cookie, context("auth-live-revoke-all-retry")),
+      runtime.runPromise(
+        identity.revokeAllSessions(current.cookie, context("auth-live-revoke-all-retry")),
+      ),
     ).rejects.toBeDefined();
 
     const ended = await signIn(cohort);
-    await identity.revokeCurrentSession(ended.cookie, context("auth-live-end-current"));
-    await expect(identity.resolveSession(ended.cookie)).rejects.toBeDefined();
+    await runtime.runPromise(
+      identity.revokeCurrentSession(ended.cookie, context("auth-live-end-current")),
+    );
+    await expect(runtime.runPromise(identity.resolveSession(ended.cookie))).rejects.toBeDefined();
     await expect(
-      identity.revokeCurrentSession(ended.cookie, context("auth-live-end-current-retry")),
+      runtime.runPromise(
+        identity.revokeCurrentSession(ended.cookie, context("auth-live-end-current-retry")),
+      ),
     ).rejects.toBeDefined();
 
     const audit = await observer.query<{
@@ -652,15 +687,13 @@ dsl("AuthLive (spec 0054)", () => {
       Effect.gen(function* () {
         const engine = yield* AuthEngine;
 
-        return yield* Effect.tryPromise(() =>
-          engine.handler(
-            new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
-              method: "POST",
-              headers: new Headers({ "content-type": "application/json" }),
-              body: JSON.stringify({ email: cohort.email, password: cohort.password }),
-            }),
-            requestContext,
-          ),
+        return yield* engine.handler(
+          new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
+            method: "POST",
+            headers: new Headers({ "content-type": "application/json" }),
+            body: JSON.stringify({ email: cohort.email, password: cohort.password }),
+          }),
+          requestContext,
         );
       }),
     );
@@ -672,15 +705,13 @@ dsl("AuthLive (spec 0054)", () => {
       Effect.gen(function* () {
         const engine = yield* AuthEngine;
 
-        return yield* Effect.tryPromise(() =>
-          engine.handler(
-            new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
-              method: "POST",
-              headers: new Headers({ "content-type": "application/json" }),
-              body: JSON.stringify({ email: cohort.email, password: cohort.password }),
-            }),
-            requestContext,
-          ),
+        return yield* engine.handler(
+          new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
+            method: "POST",
+            headers: new Headers({ "content-type": "application/json" }),
+            body: JSON.stringify({ email: cohort.email, password: cohort.password }),
+          }),
+          requestContext,
         );
       }),
     );

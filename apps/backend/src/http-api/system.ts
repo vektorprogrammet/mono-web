@@ -4,13 +4,12 @@ import { IdentitySnapshot, type IdentitySnapshotService } from "@vektorprogramme
 import { databaseHealth, type Database } from "@vektorprogrammet/database";
 import {
   Identity,
-  IdentityEngineError,
-  IdentityOwnedSessionNotFound,
-  IdentitySessionExpired,
-  IdentitySessionNotFound,
+  type IdentityEngineError,
+  type IdentityOwnedSessionNotFound,
+  type IdentitySessionExpired,
+  type IdentitySessionNotFound,
   type IdentityActor,
   type IdentitySession,
-  type IdentityOperations,
 } from "@vektorprogrammet/domain/identity";
 import {
   DeleteOwnedSessionEndpoint,
@@ -108,32 +107,6 @@ const projection = (personId: string, session: IdentitySession) => ({
   current: session.current,
 });
 
-const identityOperation = <A>(
-  operation: (identity: IdentityOperations) => Promise<A>,
-): Effect.Effect<
-  A,
-  | IdentityEngineError
-  | IdentitySessionNotFound
-  | IdentitySessionExpired
-  | IdentityOwnedSessionNotFound,
-  Identity
-> =>
-  Identity.use((identity) =>
-    Effect.tryPromise({
-      try: () => operation(identity),
-      catch: (cause) =>
-        cause instanceof IdentityEngineError ||
-        cause instanceof IdentitySessionNotFound ||
-        cause instanceof IdentitySessionExpired ||
-        cause instanceof IdentityOwnedSessionNotFound
-          ? cause
-          : new IdentityEngineError({
-              operation: "nativeSessionResource",
-              message: cause instanceof Error ? cause.message : "identity provider failure",
-            }),
-    }),
-  );
-
 interface SystemOptions {
   readonly now?: () => string;
 }
@@ -199,8 +172,8 @@ const readSession = (request: Request, options: SystemOptions) => {
     yield* requireNoQuery(request);
     const principal = yield* principalFor(request, options);
 
-    const session = yield* identityOperation((identity) =>
-      identity.readCurrentSession(request.headers.get("cookie") ?? undefined),
+    const session = yield* Identity.use(({ readCurrentSession }) =>
+      readCurrentSession(request.headers.get("cookie") ?? undefined),
     );
 
     yield* authorizeSessionOperation(
@@ -228,8 +201,8 @@ const listSessions = (request: Request, options: SystemOptions) => {
       presentation,
     );
 
-    const sessions = yield* identityOperation((identity) =>
-      identity.listSessions(request.headers.get("cookie") ?? undefined),
+    const sessions = yield* Identity.use(({ listSessions }) =>
+      listSessions(request.headers.get("cookie") ?? undefined),
     );
 
     return jsonResponse(

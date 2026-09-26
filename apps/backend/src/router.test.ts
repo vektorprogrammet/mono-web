@@ -188,7 +188,7 @@ const socialEvents = SocialEvents.of({
 });
 
 const oauthCredentialAuthority = OAuthCredentialAuthority.of({
-  resolve: () => Promise.reject(new Error("unexpected OAuth credential resolution")),
+  resolve: () => Effect.die("unexpected OAuth credential resolution"),
   resolveInTransaction: () => Effect.die("unexpected OAuth credential resolution"),
 });
 
@@ -207,28 +207,30 @@ const makeBackendServices = (
       IdentitySnapshot,
       IdentitySnapshot.of({
         resolveSession: (cookieHeader) =>
-          Effect.tryPromise({
-            try: () => identity.resolveSession(cookieHeader),
-            catch: (cause) =>
-              cause instanceof IdentitySessionNotFound || cause instanceof IdentityEngineError
-                ? cause
-                : new IdentityEngineError({
-                    operation: "resolveSnapshotSession",
-                    message: "test identity failure",
-                  }),
-          }),
+          identity.resolveSession(cookieHeader).pipe(
+            Effect.catchTag("IdentitySessionExpired", () =>
+              Effect.fail(
+                new IdentityEngineError({
+                  operation: "resolveSnapshotSession",
+                  message: "test identity failure",
+                }),
+              ),
+            ),
+          ),
         revokeCurrentSession: () => Effect.succeed({ setCookies: [] }),
         revokeSession: (_actor, sessionId, request) =>
-          Effect.tryPromise({
-            try: () => identity.revokeSession(undefined, sessionId, request),
-            catch: (cause) =>
-              cause instanceof IdentityOwnedSessionNotFound
-                ? cause
-                : new IdentityEngineError({
+          identity.revokeSession(undefined, sessionId, request).pipe(
+            Effect.catchTag(
+              ["IdentitySessionNotFound", "IdentitySessionExpired", "IdentityEngineError"],
+              () =>
+                Effect.fail(
+                  new IdentityEngineError({
                     operation: "revokeSession",
                     message: "Session revocation failed",
                   }),
-          }),
+                ),
+            ),
+          ),
         revokeOtherSessions: () => Effect.succeed({ setCookies: [] }),
         revokeAllSessions: () => Effect.succeed({ setCookies: [] }),
       }),
@@ -247,26 +249,25 @@ const currentSession = new IdentitySession({
 });
 
 const successfulIdentity = Identity.of({
-  signIn: () => Promise.reject(new Error("unexpected sign-in")),
-  resolveSession: async (cookieHeader: string | undefined) => {
-    if (cookieHeader !== undefined && cookieHeader.includes(`${token}=`)) {
-      return new IdentityActor({
-        personId: PersonId.make("member-1"),
-        sessionId: "session-1",
-        expiresAt: currentSession.expiresAt,
-      });
-    }
-
-    throw new IdentitySessionNotFound();
-  },
-  readCurrentSession: async () => currentSession,
-  listSessions: async () => [currentSession],
-  revokeCurrentSession: async () => ({ setCookies: [] }),
-  revokeSession: async () => ({ setCookies: [] }),
-  revokeOtherSessions: async () => ({ setCookies: [] }),
-  revokeAllSessions: async () => ({ setCookies: [] }),
-  recordSecurityEvent: async () => undefined,
-  signOut: async () => ({ setCookies: [] }),
+  signIn: () => Effect.die("unexpected sign-in"),
+  resolveSession: (cookieHeader: string | undefined) =>
+    cookieHeader !== undefined && cookieHeader.includes(`${token}=`)
+      ? Effect.succeed(
+          new IdentityActor({
+            personId: PersonId.make("member-1"),
+            sessionId: "session-1",
+            expiresAt: currentSession.expiresAt,
+          }),
+        )
+      : Effect.fail(new IdentitySessionNotFound()),
+  readCurrentSession: () => Effect.succeed(currentSession),
+  listSessions: () => Effect.succeed([currentSession]),
+  revokeCurrentSession: () => Effect.succeed({ setCookies: [] }),
+  revokeSession: () => Effect.succeed({ setCookies: [] }),
+  revokeOtherSessions: () => Effect.succeed({ setCookies: [] }),
+  revokeAllSessions: () => Effect.succeed({ setCookies: [] }),
+  recordSecurityEvent: () => Effect.void,
+  signOut: () => Effect.succeed({ setCookies: [] }),
 } satisfies IdentityOperations);
 
 const unavailableAuthHandler = {
@@ -494,11 +495,12 @@ describe("unified backend router", () => {
       config,
       makeBackendServices({
         ...successfulIdentity,
-        readCurrentSession: async () => {
-          currentReads += 1;
+        readCurrentSession: () =>
+          Effect.sync(() => {
+            currentReads += 1;
 
-          return currentSession;
-        },
+            return currentSession;
+          }),
       }),
       unavailableAuthHandler,
     );
@@ -539,22 +541,22 @@ describe("unified backend router", () => {
       Layer.mergeAll(
         makeBackendServices({
           ...successfulIdentity,
-          resolveSession: async (cookieHeader: string | undefined) => {
-            if (cookieHeader?.split(/;\s*/u).includes(`${token}=valid-session`)) {
-              return new IdentityActor({
-                personId: PersonId.make("member-1"),
-                sessionId: "session-1",
-                expiresAt: currentSession.expiresAt,
-              });
-            }
-
-            throw new IdentitySessionNotFound();
-          },
+          resolveSession: (cookieHeader: string | undefined) =>
+            cookieHeader?.split(/;\s*/u).includes(`${token}=valid-session`)
+              ? Effect.succeed(
+                  new IdentityActor({
+                    personId: PersonId.make("member-1"),
+                    sessionId: "session-1",
+                    expiresAt: currentSession.expiresAt,
+                  }),
+                )
+              : Effect.fail(new IdentitySessionNotFound()),
         }),
         Layer.succeed(
           OAuthCredentialAuthority,
           OAuthCredentialAuthority.of({
-            resolve: async () => CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" }),
+            resolve: () =>
+              Effect.succeed(CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" })),
             resolveInTransaction: () =>
               Effect.succeed(CredentialOutcomeSchema.cases.Rejected.make({ reason: "Invalid" })),
           }),
@@ -681,24 +683,23 @@ describe("unified backend router", () => {
         makeBackendServices(
           {
             ...successfulIdentity,
-            resolveSession: async (cookieHeader: string | undefined) => {
-              if (cookieHeader?.split(/;\s*/u).includes(sessionCookie) !== true) {
-                throw new IdentitySessionNotFound();
-              }
-
-              return new IdentityActor({
-                personId: PersonId.make("member-1"),
-                sessionId: "session-1",
-                expiresAt: currentSession.expiresAt,
-              });
-            },
+            resolveSession: (cookieHeader: string | undefined) =>
+              cookieHeader?.split(/;\s*/u).includes(sessionCookie) === true
+                ? Effect.succeed(
+                    new IdentityActor({
+                      personId: PersonId.make("member-1"),
+                      sessionId: "session-1",
+                      expiresAt: currentSession.expiresAt,
+                    }),
+                  )
+                : Effect.fail(new IdentitySessionNotFound()),
           },
           actingOrganization,
         ),
         Layer.succeed(
           OAuthCredentialAuthority,
           OAuthCredentialAuthority.of({
-            resolve: async (request, expected) => bearerOutcome(request, expected),
+            resolve: (request, expected) => Effect.succeed(bearerOutcome(request, expected)),
             resolveInTransaction: (request, expected) =>
               Effect.succeed(bearerOutcome(request, expected)),
           }),
@@ -801,15 +802,14 @@ describe("unified backend router", () => {
       config,
       makeBackendServices({
         ...successfulIdentity,
-        revokeSession: async (_cookie, sessionId) => {
-          revokeCalls += 1;
+        revokeSession: (_cookie, sessionId) =>
+          Effect.suspend(() => {
+            revokeCalls += 1;
 
-          if (!owned.delete(sessionId)) {
-            throw new IdentityOwnedSessionNotFound({ sessionId });
-          }
-
-          return { setCookies: [] };
-        },
+            return owned.delete(sessionId)
+              ? Effect.succeed({ setCookies: [] })
+              : Effect.fail(new IdentityOwnedSessionNotFound({ sessionId }));
+          }),
       }),
       unavailableAuthHandler,
     );
@@ -1138,14 +1138,6 @@ describe("unified backend router", () => {
       "Identity unavailable",
       "The identity service is temporarily unavailable.",
     ],
-    [
-      "unknown provider failure",
-      new Error("connection refused"),
-      503,
-      "identity.unavailable",
-      "Identity unavailable",
-      "The identity service is temporarily unavailable.",
-    ],
   ] as const)(
     "maps %s at the session HTTP boundary",
     async (_name, failure, status, code, title, detail) => {
@@ -1153,7 +1145,7 @@ describe("unified backend router", () => {
         config,
         makeBackendServices({
           ...successfulIdentity,
-          readCurrentSession: () => Promise.reject(failure),
+          readCurrentSession: () => Effect.fail(failure),
         }),
         unavailableAuthHandler,
       );

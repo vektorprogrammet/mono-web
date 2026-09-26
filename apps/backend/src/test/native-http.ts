@@ -162,13 +162,13 @@ type TestApplicationRequirement =
   | HttpPlatform.HttpPlatform;
 
 const unavailableIdentity = () =>
-  Promise.reject(
+  Effect.fail(
     new IdentityEngineError({ operation: "test", message: "Unexpected identity operation" }),
   );
 
 const unimplementedServices = Layer.mergeAll(
   Layer.mock(IdentitySnapshot, {}),
-  Layer.mock(OAuthCredentialAuthority, { resolve: unavailableIdentity }),
+  Layer.mock(OAuthCredentialAuthority, {}),
   Layer.succeed(Identity, {
     signIn: unavailableIdentity,
     resolveSession: unavailableIdentity,

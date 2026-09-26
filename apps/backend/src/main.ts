@@ -151,31 +151,19 @@ const router = await runtime.runPromise(HttpRouter.HttpRouter);
 
 const nativeHandler = nativeRouterWebHandler(router);
 
-const authBoundary = <A>(operation: (engine: AuthEngineService) => Promise<A>) =>
-  AuthEngine.use((engine) =>
-    Effect.tryPromise({
-      try: () => operation(engine),
-      catch: (cause) => new Cause.UnknownError(cause, "Better Auth runtime operation failed"),
-    }),
-  );
+const runAuthEngine = <A, E>(operation: (engine: AuthEngineService) => Effect.Effect<A, E>) =>
+  runtime.runPromise(AuthEngine.use(operation));
 
 const authHandler: BackendAuthHandler = {
-  handle: (request, context) =>
-    runtime.runPromise(authBoundary((engine) => engine.handler(request, context))),
+  handle: (request, context) => runAuthEngine((engine) => engine.handler(request, context)),
   handleOAuth: (request, context) =>
-    runtime.runPromise(authBoundary((engine) => engine.oauthHandler(request, context))),
+    runAuthEngine((engine) => engine.oauthHandler(request, context)),
   handleOAuthIntrospection: (request, context) =>
-    runtime.runPromise(
-      authBoundary((engine) => engine.oauthIntrospectionHandler(request, context)),
-    ),
+    runAuthEngine((engine) => engine.oauthIntrospectionHandler(request, context)),
   exactRedirectAccepted: (clientId, redirectUri) =>
-    runtime.runPromise(
-      authBoundary((engine) => engine.exactRedirectAccepted(clientId, redirectUri)),
-    ),
+    runAuthEngine((engine) => engine.exactRedirectAccepted(clientId, redirectUri)),
   recordTrustedOriginRejection: (context, credentialFlow) =>
-    runtime.runPromise(
-      authBoundary((engine) => engine.recordTrustedOriginRejection(context, credentialFlow)),
-    ),
+    runAuthEngine((engine) => engine.recordTrustedOriginRejection(context, credentialFlow)),
 };
 
 const api =

@@ -2,7 +2,7 @@ export { Identity } from "./service.js";
 
 export * from "./access.js";
 
-export type { IdentityOperations } from "./service.js";
+export type { IdentityOperations, IdentitySessionFailure } from "./service.js";
 
 export {
   IdentityEngineError,

@@ -800,7 +800,9 @@ try {
       hostname: "127.0.0.1",
       port: authPort,
       fetch: (request) =>
-        recovery.handler(engine.handler, request, identityRequestContext(request)),
+        runtime.runPromise(
+          recovery.handler(engine.handler, request, identityRequestContext(request)),
+        ),
     });
 
     return engine;

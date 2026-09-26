@@ -85,32 +85,36 @@ const execution = {
   requestCorrelation: "service-principal-grants-postgres-proof",
 } as const;
 
-await operator.bootstrapSigningKey(execution);
+await authRuntime.runPromise(operator.bootstrapSigningKey(execution));
 
-const provisionedService = await operator.provision(
-  {
-    clientId: "service-receipt-approval-client",
-    name: "Service receipt approval client",
-    clientKind: "Service",
-    redirectUris: [],
-    scopes: ["native-api"],
-    servicePrincipalId: "service-receipt-approval",
-    servicePrincipalName: "Service receipt approval",
-  },
-  execution,
+const provisionedService = await authRuntime.runPromise(
+  operator.provision(
+    {
+      clientId: "service-receipt-approval-client",
+      name: "Service receipt approval client",
+      clientKind: "Service",
+      redirectUris: [],
+      scopes: ["native-api"],
+      servicePrincipalId: "service-receipt-approval",
+      servicePrincipalName: "Service receipt approval",
+    },
+    execution,
+  ),
 );
 
 assert.ok(Predicate.isString(provisionedService.clientSecret));
 
-await operator.provision(
-  {
-    clientId: "service-receipt-approval-resource-server",
-    name: "Service receipt approval resource server",
-    clientKind: "ResourceServer",
-    redirectUris: [],
-    scopes: [],
-  },
-  execution,
+await authRuntime.runPromise(
+  operator.provision(
+    {
+      clientId: "service-receipt-approval-resource-server",
+      name: "Service receipt approval resource server",
+      clientKind: "ResourceServer",
+      redirectUris: [],
+      scopes: [],
+    },
+    execution,
+  ),
 );
 
 await pool.query(
@@ -163,7 +167,10 @@ const requestContext = new IdentityRequestContext({
   userAgent: "service-principal-grants-postgres-proof",
 });
 
-const release = (await authRuntime.runPromise(AuthEngine)).oauthHandler;
+const authEngine = await authRuntime.runPromise(AuthEngine);
+
+const release = (request: Request, context: IdentityRequestContext) =>
+  authRuntime.runPromise(authEngine.oauthHandler(request, context));
 
 const tokenResponse = await release(
   new Request("http://127.0.0.1:4173/api/auth/oauth2/token", {
@@ -196,11 +203,13 @@ const bearer = tokenPayload.access_token;
 
 const credentialAuthority = await authRuntime.runPromise(OAuthCredentialAuthority);
 
-const resolved = await credentialAuthority.resolve(
-  new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
-    headers: { authorization: `Bearer ${bearer}` },
-  }),
-  "OAuthServiceBearer",
+const resolved = await authRuntime.runPromise(
+  credentialAuthority.resolve(
+    new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
+      headers: { authorization: `Bearer ${bearer}` },
+    }),
+    "OAuthServiceBearer",
+  ),
 );
 
 assert.equal(resolved._tag, "Accepted");
@@ -410,22 +419,28 @@ const afterRevocation = await Effect.runPromise(
 
 assert.deepEqual(afterRevocation.candidates, []);
 
-const stillAccepted = await credentialAuthority.resolve(
-  new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
-    headers: { authorization: `Bearer ${bearer}` },
-  }),
-  "OAuthServiceBearer",
+const stillAccepted = await authRuntime.runPromise(
+  credentialAuthority.resolve(
+    new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
+      headers: { authorization: `Bearer ${bearer}` },
+    }),
+    "OAuthServiceBearer",
+  ),
 );
 
 assert.equal(stillAccepted._tag, "Accepted");
 
-await operator.disableServicePrincipal("service-receipt-approval", execution);
+await authRuntime.runPromise(
+  operator.disableServicePrincipal("service-receipt-approval", execution),
+);
 
-const disabled = await credentialAuthority.resolve(
-  new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
-    headers: { authorization: `Bearer ${bearer}` },
-  }),
-  "OAuthServiceBearer",
+const disabled = await authRuntime.runPromise(
+  credentialAuthority.resolve(
+    new Request("http://127.0.0.1:4173/api/receipt-approval-queue", {
+      headers: { authorization: `Bearer ${bearer}` },
+    }),
+    "OAuthServiceBearer",
+  ),
 );
 
 assert.deepEqual(disabled, CredentialOutcomeSchema.cases.Rejected.make({ reason: "Revoked" }));
