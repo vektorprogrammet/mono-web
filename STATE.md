@@ -140,23 +140,33 @@ PGlite performance and full native composition are unmeasured.
 
 ### Lead handoff
 
-Updated 2026-09-26. A new lead resumes from this list, the branches, and `docs/specs/`, not from chat or session files.
-Each branch lives in its own worktree next to this checkout. Writers commit there and never push; the lead lands each branch and pushes `main`.
+Updated 2026-09-26 at `74e165ef`. A new lead resumes from this section, `AGENTS.md`, and `docs/specs/`, not from chat or session files.
+No product branch is in flight: every worktree from this session is landed and removed.
 
-| Branch                                     | Scope                                                                                                                                                 | State                                                                   |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `feat/reach-delegation-0926`               | O8-11 to O8-17: board reach, delegations, Økonomi approval, migration 76. Contract: `docs/specs/reach-and-delegation.md`.                             | Design approved; implementation in progress.                            |
-| `fix/red-suites-0926`                      | Receipt upload bound (413), interview-response contract check, migration-26 proofs, hermetic contact suite, hosted CI coverage check.                 | In progress. These suites are red on `main` and not yet hosted.         |
-| `build/lead-constructs-0926`               | Machine-wide heavy-job lock in `just measure`; recipes for model checks and branch landing; seed-date rule; migration registry invariants; AGENTS.md. | In progress. Until it lands, heavy jobs are serialised by the lead.     |
-| homelab `feat/btrbk-root-offload-ironwolf` | Root snapshots 7d local; IronWolf keeps the latest first, 4w 6m from 2026-10-04; `@downloads` cap 2540G.                                              | Built, not deployed. Deploy only with the operator steps in its report. |
+How work runs: one writer per worktree and branch; heavy commands go through `just measure`, whose machine-wide lock serialises every agent;
+the lead lands with `just land <branch>` and pushes `main`; hosted CI runs every journey named in the `just` sets.
 
-Queued after these: certificates (needs delegations), formatter scope for the frontends, per-domain typed problems and instants,
-lint enforcement of shared constructs and migration of ad-hoc code onto them.
+Next, in this order:
+
+1. Keep hosted CI green. The journey legs added on 2026-09-26 had passed only locally when they landed; fix any red leg at its cause.
+2. The recommendation default and report modes (excluded; see Known gaps) and `just proof authorization-rules` (red at its admission step, excluded).
+3. Certificates for days served (O8-16). It adds the derived Styret and Hovedstyret seat list that the delegation slice specified.
+4. Retire the receipt person grants: the receipt seeds and the golden reimbursement journey issue the Økonomi delegations instead (O8-15).
+5. Formatter scope for the frontends; per-domain typed problems and instants; lint enforcement of shared constructs and migration of ad-hoc code onto them.
+6. A reusable migration upgrade-proof recipe. The 72 to 75 proof was a throwaway harness.
+
+The `legacy-data` devenv profile cannot build while the home binary cache answers 502. The homelab change in the operator steps makes a dead cache non-fatal.
 
 ### Operator steps pending
 
 - Staging deploys run `docker compose down` without `--remove-orphans`. After the PostgreSQL 18 change reaches the `staging` branch,
   run `docker compose down --remove-orphans` once on the staging host to remove the orphaned `receipt-postgres` container.
+- Homelab branch `feat/btrbk-root-offload-ironwolf` (in `/srv/share/projects/homelab-btrbk-offload`) is built, not merged or deployed.
+  It keeps root snapshots 7d locally, sends the latest to the IronWolf until 2026-10-04 and 4w 6m after, caps `@downloads` at 2540G,
+  ages `/tmp` at 7d, and makes a dead binary cache non-fatal. Merge it into homelab `main` and rebuild the workstation from the homelab justfile, following the steps in its docs.
+- Add the `CLOUDFLARE_API_TOKEN` repository secret for the frontend previews, and decide whether to delete the retired Cloudflare Workers listed above.
+- Before any production use of reach and delegation: classify the Styret and national teams, recognize independent departments,
+  and issue the Økonomi delegations, each by explicit command (see Production gates).
 
 ### Remaining migration work
 
