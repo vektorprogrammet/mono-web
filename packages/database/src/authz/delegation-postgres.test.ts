@@ -13,6 +13,13 @@ import {
   PersonId,
   TeamId,
 } from "@vektorprogrammet/domain/organization";
+import {
+  Economy,
+  ReceiptCommandRequestSchema,
+  ReceiptId,
+  ReceiptSettlementCommandRequestSchema,
+} from "@vektorprogrammet/domain/receipt";
+import { EconomyLive } from "../receipt/postgres-layer.js";
 import { Database } from "../service.js";
 import { DatabaseTest } from "../layers.js";
 import { OrganizationLive } from "../organization/postgres-layer.js";
@@ -22,7 +29,10 @@ import { makeControlledTestRuntime } from "../../test/runtime.js";
 const databaseLayer = DatabaseTest();
 
 const runtime = makeControlledTestRuntime(
-  ProfileLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(databaseLayer)))),
+  Layer.mergeAll(
+    ProfileLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(databaseLayer)))),
+    EconomyLive.pipe(Layer.provide(databaseLayer)),
+  ),
 );
 
 afterAll(() => runtime.dispose());
@@ -283,5 +293,91 @@ describe("delegated reach (O8-12)", () => {
     expect(reachedDepartments(reinstated, "admissions.outcomes")).toEqual(
       ReachedDepartments.Departments({ departmentIds: [trondheim] }),
     );
+  });
+});
+
+describe("the economy team's national delegations (O8-15)", () => {
+  const instant = "2038-06-15T12:00:00.000Z";
+
+  const receipt = (receiptId: string, digest: string) =>
+    Database.use(
+      (sql) => sql`INSERT INTO public.economy_receipts (
+        receipt_id, visual_id, owner_person_id, department_id, amount_ore, currency, description,
+        receipt_date, submitted_at, status, approved_at, payment_account_ciphertext, file_ref,
+        file_object_key, file_content_type, file_byte_length, file_sha256, revision
+      ) VALUES (
+        ${receiptId}, ${receiptId.toUpperCase()}, ${person.owner}, ${oslo}, 12345, 'NOK', 'Reise',
+        '2038-06-14', '2038-06-14T10:00:00.000Z', 'Pending', NULL, 'ciphertext:v1:delegation',
+        ${`${receiptId}-file`}, ${`temporary/${receiptId}`}, 'application/pdf', 128, ${digest}, 0
+      )`,
+    );
+
+  const principal = (personId: PersonId) => ({ personId, authorizationInstant: instant });
+
+  it("lets every member approve and only the finance lead record the settlement", async () => {
+    await runtime.runPromise(receipt("delegation-receipt-1", "a".repeat(64)));
+
+    const approved = await runtime.runPromise(
+      Economy.use((economy) =>
+        economy.executeReceipt(
+          ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
+            commandId: "delegation-approve-1",
+            receiptId: ReceiptId.make("delegation-receipt-1"),
+            expectedRevision: 0,
+          }),
+          principal(person.economyMember),
+        ),
+      ),
+    );
+
+    expect(approved.receipt.status).toBe("Approved");
+
+    const settle = (personId: PersonId, commandId: string) =>
+      Economy.use((economy) =>
+        economy.recordReceiptSettlement(
+          ReceiptSettlementCommandRequestSchema.cases.RecordReceiptSettlement.make({
+            commandId,
+            receiptId: ReceiptId.make("delegation-receipt-1"),
+            expectedRevision: approved.receipt.revision,
+            externalAuthority: "delegation-bank",
+            externalReference: commandId,
+            settledAt: "2038-06-15T11:00:00.000Z",
+          }),
+          principal(personId),
+        ),
+      );
+
+    const memberSettlement = await runtime.runPromise(
+      Effect.flip(settle(person.economyMember, "delegation-settle-member")),
+    );
+
+    expect(memberSettlement).toHaveProperty("_tag", "ReceiptNotFound");
+
+    const leaderSettlement = await runtime.runPromise(
+      settle(person.financeLead, "delegation-settle-lead"),
+    );
+
+    expect(leaderSettlement.receipt.receiptId).toBe("delegation-receipt-1");
+  });
+
+  it("gives an ordinary team's member no approval", async () => {
+    await runtime.runPromise(receipt("delegation-receipt-2", "b".repeat(64)));
+
+    const denied = await runtime.runPromise(
+      Effect.flip(
+        Economy.use((economy) =>
+          economy.executeReceipt(
+            ReceiptCommandRequestSchema.cases.ApproveReceipt.make({
+              commandId: "delegation-approve-2",
+              receiptId: ReceiptId.make("delegation-receipt-2"),
+              expectedRevision: 0,
+            }),
+            principal(person.recruiter),
+          ),
+        ),
+      ),
+    );
+
+    expect(denied).toHaveProperty("_tag", "ReceiptScopeDenied");
   });
 });
