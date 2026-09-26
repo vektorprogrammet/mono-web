@@ -3,12 +3,18 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from
 import { availableParallelism, homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { Option, Schema } from "effect";
+import { heavyLockVariable, takeHeavyLock } from "./heavy-lock.js";
 
 const usage = `Usage:
   just measure --class <job-class> [--ledger <path>] -- <command...>
   just measure --report [--ledger <path>]
 
-Runs the command and samples its process tree every ${500} ms through /proc.
+Takes the machine-wide heavy lock exclusively, then runs the command and samples
+its process tree every ${500} ms through /proc. The lock is
+  \${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/heavy.lock
+While another heavy job or a hook job holds it, the command waits and the
+holders are shown. Hook slots hold it shared. A command inside a job that holds
+the lock (${heavyLockVariable} names a live holder) does not take it again.
 Appends one JSON line per run to the machine-local ledger:
   \${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl
 The ledger is runtime evidence. Do not commit it.
@@ -340,6 +346,17 @@ const [program, ...programArguments] = command;
 
 if (program === undefined) fail("Pass the command after --.");
 
+// The lock is taken before the readings, so the ledger measures the job, not the wait.
+let jobEnv: NodeJS.ProcessEnv;
+
+try {
+  jobEnv = takeHeavyLock("exclusive", jobClass, command, (message) =>
+    process.stderr.write(`measure-job: ${message}\n`),
+  );
+} catch (error) {
+  fail(`The heavy lock failed: ${error instanceof Error ? error.message : String(error)}`);
+}
+
 // Measurement
 
 const git = (...gitArguments: Array<string>) => {
@@ -363,7 +380,7 @@ const startedAt = new Date();
 
 const startedMs = performance.now();
 
-const child = spawn(program, programArguments, { stdio: "inherit" });
+const child = spawn(program, programArguments, { stdio: "inherit", env: jobEnv });
 
 const rssSamples: Array<number> = [];
 

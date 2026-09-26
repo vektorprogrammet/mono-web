@@ -1,15 +1,21 @@
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, ftruncateSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import { heavyLockVariable, takeHeavyLock } from "./heavy-lock.js";
 
 const usage = `Usage:
   just hook-slot --class <job-class> -- <command...>
 
-Runs the command through measure-job while this process holds one of N
-machine-wide hook slots. A slot is a flock(1) lock on
+Runs the command through measure-job while this process holds the machine-wide
+heavy lock shared and one of N machine-wide hook slots. The heavy lock is
+  \${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/heavy.lock
+While a heavy job holds it or waits for it (\`just measure\`), the command waits
+and the holder is shown. Inside a job that holds the lock (${heavyLockVariable}
+names a live holder), the command does not take it again. A slot is a flock(1)
+lock on
   \${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/hook-slot-<1..N>
 N is \${VEKTORPROGRAMMET_HOOK_SLOTS:-5}. If all slots are busy, the command
-waits for one. The lock is released when this process exits, also on a signal.
+waits for one. The locks are released when this process exits, also on a signal.
 The command runs with CPU affinity to 1/N of the allowed CPUs.
 `;
 
@@ -53,6 +59,16 @@ const slotCount = Number(process.env.VEKTORPROGRAMMET_HOOK_SLOTS || "5");
 
 if (!Number.isInteger(slotCount) || slotCount < 1)
   fail("VEKTORPROGRAMMET_HOOK_SLOTS must be a positive integer.");
+
+// The heavy lock comes before the slot: a hook job that waits for a heavy job holds no slot, so
+// hook jobs inside that heavy job, such as the hooks of its commits, still get one.
+let jobEnv: NodeJS.ProcessEnv;
+
+try {
+  jobEnv = takeHeavyLock("shared", jobClass, command, log);
+} catch (error) {
+  fail(`The heavy lock failed: ${error instanceof Error ? error.message : String(error)}`);
+}
 
 const slotDirectory = join(process.env.XDG_RUNTIME_DIR || "/tmp", "vektorprogrammet");
 
@@ -143,7 +159,7 @@ const child = spawn(
     "--",
     ...command,
   ],
-  { stdio: "inherit" },
+  { stdio: "inherit", env: jobEnv },
 );
 
 const signalHandlers = (["SIGINT", "SIGTERM", "SIGHUP"] as const).map(

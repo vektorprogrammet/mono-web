@@ -64,7 +64,7 @@ Package manifests own the per-package scripts that recipes and Turbo run. Use `b
 | check     | `just guides [args...]`           | Check the AGENTS.md guide and CLAUDE.md link of every app, package, and context folder; `just guides write` renders them.                                                                                                                    |
 | check     | `just layout [args...]`           | Check the repository layout and its generated sections: the README and AGENTS.md tables and the hosted journey legs; `just layout write` renders them.                                                                                       |
 | check     | `just lint [args...]`             | Lint with Oxlint.                                                                                                                                                                                                                            |
-| check     | `just measure [args...]`          | Run a heavy job with resource measurement, or show the ledger with `just measure --report`.                                                                                                                                                  |
+| check     | `just measure [args...]`          | Run a heavy job under the machine-wide heavy lock and measure it, or show the ledger with `just measure --report`.                                                                                                                           |
 | check     | `just source-safety`              | Scan every file in the Git index for credentials, personal data, and SQL data.                                                                                                                                                               |
 | check     | `just test [args...]`             | Test every package, a heavy job (AGENTS.md#verification-and-resources). Arguments go to Turbo.                                                                                                                                               |
 | develop   | `just build [args...]`            | Build every package through Turbo. Arguments go to Turbo.                                                                                                                                                                                    |
@@ -73,7 +73,7 @@ Package manifests own the per-package scripts that recipes and Turbo run. Use `b
 | develop   | `just docs [script]`              | Serve the documentation site, or run another of its scripts, such as `just docs build`.                                                                                                                                                      |
 | develop   | `just seed`                       | Provision the native journey accounts in the `devenv up` database.                                                                                                                                                                           |
 | hooks     | `just check-staged [args...]`     | Type check and test the packages that the staged tree changes (pre-commit and merge hooks).                                                                                                                                                  |
-| hooks     | `just hook-slot [args...]`        | Run a command in one of the machine-wide hook slots (pre-push hooks).                                                                                                                                                                        |
+| hooks     | `just hook-slot [args...]`        | Run a command in one of the machine-wide hook slots under the shared heavy lock (pre-push hooks).                                                                                                                                            |
 | hooks     | `just hooks [args...]`            | Run the Git hooks by hand, for example `just hooks --hook-stage pre-push`.                                                                                                                                                                   |
 | journeys  | `just e2e <suite>`                | Run a browser suite: admission-periods, applicant, approval, conduct, contact, content-publication, identity, interview-response, organization, owner, profile, recruitment, scheduling, schools, settlement, social-events, or substitutes. |
 | journeys  | `just fixture <name> [args...]`   | Build a PostgreSQL fixture in JOURNEY_SEED_PG_URL: recommendation-preupgrade.                                                                                                                                                                |
@@ -213,37 +213,34 @@ For property checks, generate reachable command sequences and assert business in
 Use the installed Arbitrary API with bounded runs, deterministic seeds, and typed options.
 Valid schema generation does not cover malformed wire input.
 
-Full end-to-end suites dominate machine load. Only the orchestrating lead starts them, one at a time.
+Full end-to-end suites dominate machine load. Only the orchestrating lead starts them.
 They are the golden journeys (`just golden <journey>`) and their CI wrappers, `just proof delivery-recovery`,
-and the browser evidence suites (`e2e:*:real`, `e2e:real-*`).
+and the browser suites (`just e2e <suite>`).
 A worker that needs one reports the exact command to the lead and does not start it.
 
-All other checks and tests can run at the same time under the admission rule below.
-Heavy jobs are real PostgreSQL tests, browsers and dev servers, `just check-types`, and `just test`.
-Each agent runs at most one heavy job at a time.
-Run a heavy job through `just measure --class <class> -- <command...>` to record its resource use.
-The ledger is `${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl`.
-It is machine runtime evidence. Do not commit it.
+Heavy jobs are real PostgreSQL tests, browser suites and the servers they start, JVM model checks, `just check`, `just check-types`, and `just test`.
+Run every heavy job through `just measure --class <class> -- <command...>`.
+`just measure` holds the heavy lock while its command runs, an exclusive `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/heavy.lock`.
+The lock is per machine and user: every worktree and every agent shares it, so one heavy job runs at a time.
+Hook jobs hold the same lock shared. A heavy job waits for the running hook jobs, and hook jobs that start later wait for the heavy job.
+A waiting job shows each holder: process id, class, start time, directory, and command.
+The lock belongs to the `just measure` process. It is released when that process exits, also on a signal or `kill -9`.
+The job's processes inherit `VEKTORPROGRAMMET_HEAVY_LOCK`, the process id of the holder.
+A `just measure` or hook job inside a job that holds the lock, such as the hooks of a commit, runs without taking it again.
+Setting that variable by hand bypasses the lock. Only the lead does that, to run a job beside the holder on purpose.
+A service that runs until it is stopped, such as `devenv up`, does not run through `just measure`, because it would hold the lock until it stops.
 
-Before a heavy job, run `just measure --report`. Read the max peak RSS and max mean cores of the class.
-If the class has no ledger row, measure it first while no other heavy job runs.
-Start the job only if both conditions are true:
+`just measure` records the resource use of each job in `${XDG_STATE_HOME:-~/.local/state}/vektorprogrammet/job-ledger.jsonl`.
+The ledger is machine runtime evidence. Do not commit it.
+`just measure --report` shows the peak RSS and cores of each class beside the free memory and load of the machine.
 
-- `MemAvailable - peak RSS >= 20% of MemTotal`
-- `1-minute load + mean cores <= 80% of logical CPUs`
-
-Memory is the hard limit, and CPU is the soft limit because oversubscription only slows jobs.
-
-If a condition is false, wait and check again.
-Load and `MemAvailable` lag a job that started in the last minute. Include its peak RSS and mean cores before you compare.
-
-Git hooks do not use the admission rule. Their type checks and tests run through `just hook-slot` (`tools/scripts/hook-slot.ts`).
-It holds one of N machine-wide slots, a `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/hook-slot-<n>`.
-If all slots are busy, the hook shows the slot holders and waits.
-The lock is released when the hook process stops, also on a signal.
+Git hooks run their type checks and tests through `just hook-slot` (`tools/scripts/hook-slot.ts`).
+It holds the heavy lock shared, then one of N machine-wide slots, a `flock` lock on `${XDG_RUNTIME_DIR:-/tmp}/vektorprogrammet/hook-slot-<n>`.
+If a heavy job holds or waits for the heavy lock, or if all slots are busy, the hook shows the holders and waits.
+The locks are released when the hook process stops, also on a signal.
 Each slot pins its job to 1/N of the allowed CPUs. Vitest starts one worker less than that CPU count.
 Explicit settings, such as `--no-file-parallelism`, still apply. Hook Turbo runs use `--concurrency=1`.
-A staged change that selects no type check or test does not take a slot.
+A staged change that selects no type check or test takes neither the lock nor a slot.
 The ledger records hook jobs as `hook-*` classes.
 
 `VEKTORPROGRAMMET_HOOK_SLOTS` sets N. The default is 5.

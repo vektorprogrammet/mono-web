@@ -81,7 +81,7 @@ check-types *args:
 test *args:
     bun x turbo test "$@"
 
-# Run a heavy job with resource measurement, or show the ledger with `just measure --report`.
+# Run a heavy job under the machine-wide heavy lock and measure it, or show the ledger with `just measure --report`.
 [group('check')]
 measure *args:
     bun --no-env-file tools/scripts/measure-job.ts "$@"
@@ -177,7 +177,7 @@ migration name *args:
 check-staged *args:
     bun --no-env-file tools/scripts/check-staged.ts "$@"
 
-# Run a command in one of the machine-wide hook slots (pre-push hooks).
+# Run a command in one of the machine-wide hook slots under the shared heavy lock (pre-push hooks).
 [group('hooks')]
 hook-slot *args:
     bun --no-env-file tools/scripts/hook-slot.ts "$@"
