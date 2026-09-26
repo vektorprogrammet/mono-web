@@ -102,7 +102,7 @@ const teamInterestStack =
   "Needs a stack that e2e/native-team-interest-mailing-list-seed.mjs seeds, with REAL_NATIVE_IDENTITY_E2E set; no runner or recipe provides it, and without it every test skips";
 
 const recommendationWithoutInvitationDelivery =
-  "Outside --returning-mode, recommendation-check.ts disables the application effects and runs the returning journey without a deliverRecruitmentInvitation hook, which the journey requires since adf70a9a (red: assert.ok at tools/acceptance/returning-assistant-journey.ts:2002); only just e2e recommendation-returning passes one";
+  "Outside --returning-mode, recommendation-check.ts disables the application effects and runs the returning journey without a deliverRecruitmentInvitation hook, which the journey requires since adf70a9a (red: assert.ok at tools/acceptance/returning-assistant-journey.ts:2053); only just e2e recommendation-returning passes one";
 
 export const exclusions: ReadonlyArray<Exclusion> = [
   {

@@ -1,5 +1,6 @@
 import { type RecruitmentInvitationDeliveryResult } from "../../packages/database/src/recruitment/index.js";
 import { NativeProblem } from "../../packages/http-api/src/http-semantics.js";
+import { AdmissionsRegisterReturningAssistantProblem } from "../../packages/http-api/src/endpoint-problems.js";
 import {
   RecruitmentInterviewResource,
   ScheduleInterviewResponse,
@@ -17,6 +18,7 @@ import type { Pool } from "pg";
 import type { Browser, Locator, Page } from "@playwright/test";
 import { AdmissionFieldOfStudyId } from "../../packages/domain/src/admission-period/schema.js";
 import { publicApplicationCommandDigest } from "../../packages/domain/src/application/digest.js";
+import { ReturningAssistantRegistrationResponseSchema } from "../../packages/domain/src/application/returning.js";
 import {
   SubmitPublicApplicationCommandSchema,
   PublicApplicationCommandIdSchema,
@@ -1593,14 +1595,13 @@ export const runReturningAssistantBrowserJourney = async ({
       total: 24,
     });
 
-    const concurrent = await Promise.all([
-      context.request.post(`${api}/api/returning-assistant/registrations`, {
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": "returning-concurrent-a-0104",
-          origin: ui,
-        },
-        data: {
+    // Both writes expect revision 2. The registration transaction takes the person's lock, so
+    // the first request to take it commits revision 3 and the second fails its precondition.
+    // Which request comes first varies by runner, so revision 3 holds the winner's preferences.
+    const concurrentRevisions = [
+      {
+        idempotencyKey: "returning-concurrent-a-0104",
+        payload: {
           commandId: "returning-concurrent-a-0104",
           admissionPeriodId,
           expectedRevision: 2,
@@ -1617,14 +1618,10 @@ export const runReturningAssistantBrowserJourney = async ({
           teamInterest: false,
           teamIds: [],
         },
-      }),
-      context.request.post(`${api}/api/returning-assistant/registrations`, {
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": "returning-concurrent-b-0104",
-          origin: ui,
-        },
-        data: {
+      },
+      {
+        idempotencyKey: "returning-concurrent-b-0104",
+        payload: {
           commandId: "returning-concurrent-b-0104",
           admissionPeriodId,
           expectedRevision: 2,
@@ -1641,14 +1638,25 @@ export const runReturningAssistantBrowserJourney = async ({
           teamInterest: false,
           teamIds: [],
         },
-      }),
-    ]);
+      },
+    ] as const;
 
     const concurrentDetails = await Promise.all(
-      concurrent.map(async (response) => ({
-        status: response.status(),
-        body: await response.text(),
-      })),
+      concurrentRevisions.map(async ({ idempotencyKey, payload }) => {
+        const response = await context.request.post(
+          `${api}/api/returning-assistant/registrations`,
+          {
+            headers: {
+              "content-type": "application/json",
+              "idempotency-key": idempotencyKey,
+              origin: ui,
+            },
+            data: payload,
+          },
+        );
+
+        return { idempotencyKey, payload, status: response.status(), body: await response.text() };
+      }),
     );
 
     assert.deepEqual(
@@ -1657,12 +1665,55 @@ export const runReturningAssistantBrowserJourney = async ({
       JSON.stringify(concurrentDetails),
     );
 
+    const concurrentWinner = concurrentDetails.find(({ status }) => status === 201);
+    const concurrentLoser = concurrentDetails.find(({ status }) => status === 412);
+    assert.ok(concurrentWinner);
+    assert.ok(concurrentLoser);
+
+    const concurrentRegistration = Schema.decodeUnknownSync(
+      ReturningAssistantRegistrationResponseSchema,
+    )(JSON.parse(concurrentWinner.body));
+
+    assert.equal(concurrentRegistration.observation.revision, 3);
+    assert.equal(concurrentRegistration.replayed, false);
+
+    const concurrentConflict = Schema.decodeUnknownSync(
+      AdmissionsRegisterReturningAssistantProblem,
+    )(JSON.parse(concurrentLoser.body));
+
+    assert.equal(concurrentConflict.code, "returning.revision-conflict");
+    trace.push({
+      phase: "concurrent-revision",
+      winner: concurrentWinner.idempotencyKey,
+      loser: concurrentLoser.idempotencyKey,
+    });
+
     const concurrentRows = await pool.query(
       "SELECT revision FROM public.admission_returning_registrations WHERE person_id=$1 AND admission_period_id=$2 ORDER BY revision",
       [person.personId, admissionPeriodId],
     );
 
     assert.deepEqual(concurrentRows.rows, [{ revision: 1 }, { revision: 2 }, { revision: 3 }]);
+
+    const { payload: won } = concurrentWinner;
+
+    const concurrentRevisionRow = {
+      admission_period_id: admissionPeriodId,
+      revision: 3,
+      year_of_study: won.yearOfStudy,
+      monday_unavailable: won.mondayUnavailable,
+      tuesday_unavailable: won.tuesdayUnavailable,
+      wednesday_unavailable: won.wednesdayUnavailable,
+      thursday_unavailable: won.thursdayUnavailable,
+      friday_unavailable: won.fridayUnavailable,
+      position_weeks: won.positionWeeks,
+      preferred_group: won.preferredGroup,
+      language: won.language,
+      preferred_school: won.preferredSchool,
+      team_interest: won.teamInterest,
+      team_ids: won.teamIds,
+    };
+
     stage?.("returning:next-period-assignment");
 
     const nextApplication = await pool.query(
@@ -2270,22 +2321,7 @@ export const runReturningAssistantBrowserJourney = async ({
         team_interest: false,
         team_ids: [],
       },
-      {
-        admission_period_id: admissionPeriodId,
-        revision: 3,
-        year_of_study: 4,
-        monday_unavailable: false,
-        tuesday_unavailable: false,
-        wednesday_unavailable: false,
-        thursday_unavailable: false,
-        friday_unavailable: false,
-        position_weeks: 4,
-        preferred_group: "all",
-        language: "Engelsk",
-        preferred_school: null,
-        team_interest: false,
-        team_ids: [],
-      },
+      concurrentRevisionRow,
       {
         admission_period_id: nextAdmissionPeriodId,
         revision: 1,
