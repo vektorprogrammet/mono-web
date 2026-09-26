@@ -50,36 +50,31 @@ const readDepartments = (
         FROM public.content_article_departments
         WHERE ${database.in("article_id", articleIds)}
         ORDER BY article_id, department_id
-      `
-        .pipe(
-          Effect.flatMap(
-            Schema.decodeUnknownEffect(
-              Schema.Array(
-                Schema.Struct({
-                  articleId: Schema.Union([Schema.String, Schema.Number]),
-                  departmentId: DepartmentId,
-                }),
-              ),
+      `.pipe(
+        Effect.flatMap(
+          Schema.decodeUnknownEffect(
+            Schema.Array(
+              Schema.Struct({
+                articleId: Schema.Union([Schema.String, Schema.Number]),
+                departmentId: DepartmentId,
+              }),
             ),
           ),
-          Effect.catchTag("SchemaError", (cause) =>
-            integrityError("decode news departments", cause),
-          ),
-        )
-        .pipe(
-          Effect.catchTag("SqlError", (cause) => integrityError("read news departments", cause)),
-          Effect.map((rows) => {
-            const map = new Map<number, Array<DepartmentId>>();
+        ),
+        Effect.catchTag("SchemaError", (cause) => integrityError("decode news departments", cause)),
+        Effect.catchTag("SqlError", (cause) => integrityError("read news departments", cause)),
+        Effect.map((rows) => {
+          const map = new Map<number, Array<DepartmentId>>();
 
-            for (const row of rows) {
-              const list = map.get(Number(row.articleId)) ?? [];
-              list.push(row.departmentId);
-              map.set(Number(row.articleId), list);
-            }
+          for (const row of rows) {
+            const list = map.get(Number(row.articleId)) ?? [];
+            list.push(row.departmentId);
+            map.set(Number(row.articleId), list);
+          }
 
-            return map;
-          }),
-        );
+          return map;
+        }),
+      );
 
 /**
  * Reads every article's current published version in one repeatable-read,
@@ -133,16 +128,13 @@ export const readNewsListingPostgres = (
               ON article.article_id = version.article_id
              AND article.current_version_number = version.version_number
             ORDER BY version.sticky DESC, version.published_at DESC, version.article_id DESC
-          `
-            .pipe(
-              Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(CurrentVersionRowSchema))),
-              Effect.catchTag("SchemaError", (cause) =>
-                integrityError("decode published article rows", cause),
-              ),
-            )
-            .pipe(
-              Effect.catchTag("SqlError", (cause) => integrityError("read news listing", cause)),
-            );
+          `.pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(CurrentVersionRowSchema))),
+            Effect.catchTag("SchemaError", (cause) =>
+              integrityError("decode published article rows", cause),
+            ),
+            Effect.catchTag("SqlError", (cause) => integrityError("read news listing", cause)),
+          );
 
           if (rows.length === 0) {
             return { articles: [] } as const;
@@ -244,18 +236,15 @@ export const readPublishedArticlePostgres = (
              AND article.current_version_number IS NOT NULL
             WHERE version.slug = ${slug}
             ORDER BY version.version_number DESC
-          `
-            .pipe(
-              Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PublishedVersionRowSchema))),
-              Effect.catchTag("SchemaError", (cause) =>
-                integrityError("decode published article rows", cause),
-              ),
-            )
-            .pipe(
-              Effect.catchTag("SqlError", (cause) =>
-                integrityError("read published article versions", cause),
-              ),
-            );
+          `.pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PublishedVersionRowSchema))),
+            Effect.catchTag("SchemaError", (cause) =>
+              integrityError("decode published article rows", cause),
+            ),
+            Effect.catchTag("SqlError", (cause) =>
+              integrityError("read published article versions", cause),
+            ),
+          );
 
           const current = versions[0];
 

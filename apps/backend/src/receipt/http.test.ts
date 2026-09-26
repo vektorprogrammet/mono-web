@@ -525,52 +525,51 @@ const harness = (options: HarnessOptions = {}) => {
         return Effect.succeed({ items: options.approvalRows ?? [] });
       },
       readReceiptFileForApproval: (requestedReceiptId, queryPersonId, authorizationInstant) =>
-        transactionIsolation
-          .pipe(
-            Effect.flatMap((snapshotIsolation) =>
-              Effect.suspend<ReceiptFile, ReceiptApprovalFileReadFailure, never>(() => {
-                approvalFileQueries.push({
-                  receiptId: requestedReceiptId,
-                  personId: queryPersonId,
-                  authorizationInstant,
-                  snapshotIsolation,
-                });
-                const source = options.approvalFileRow;
+        transactionIsolation.pipe(
+          Effect.flatMap((snapshotIsolation) =>
+            Effect.suspend<ReceiptFile, ReceiptApprovalFileReadFailure, never>(() => {
+              approvalFileQueries.push({
+                receiptId: requestedReceiptId,
+                personId: queryPersonId,
+                authorizationInstant,
+                snapshotIsolation,
+              });
+              const source = options.approvalFileRow;
 
-                if (options.approvalFileFailure === "Decode") {
-                  return Effect.fail(
-                    new ReceiptDecodeError({ message: "malformed stored file metadata" }),
-                  );
-                }
+              if (options.approvalFileFailure === "Decode") {
+                return Effect.fail(
+                  new ReceiptDecodeError({ message: "malformed stored file metadata" }),
+                );
+              }
 
-                if (options.approvalFileFailure === "Inactive") {
-                  return Effect.fail(new InactiveActor({ personId: queryPersonId }));
-                }
+              if (options.approvalFileFailure === "Inactive") {
+                return Effect.fail(new InactiveActor({ personId: queryPersonId }));
+              }
 
-                if (options.approvalFileFailure === "Scope") {
-                  return Effect.fail(
-                    new ReceiptScopeDenied({
-                      receiptId: requestedReceiptId,
-                      departmentId: source?.departmentId ?? departmentOne,
-                    }),
-                  );
-                }
+              if (options.approvalFileFailure === "Scope") {
+                return Effect.fail(
+                  new ReceiptScopeDenied({
+                    receiptId: requestedReceiptId,
+                    departmentId: source?.departmentId ?? departmentOne,
+                  }),
+                );
+              }
 
-                if (source === undefined || source.receiptId !== requestedReceiptId) {
-                  return Effect.fail(new ReceiptNotFound({ receiptId: requestedReceiptId }));
-                }
+              if (source === undefined || source.receiptId !== requestedReceiptId) {
+                return Effect.fail(new ReceiptNotFound({ receiptId: requestedReceiptId }));
+              }
 
-                return Effect.succeed({
-                  fileRef: "staging/approval-file",
-                  objectKey: "committed/approval-file",
-                  contentType: options.approvalFileContentType ?? "application/pdf",
-                  byteLength: 4,
-                  sha256: "b".repeat(64),
-                });
-              }),
-            ),
-          )
-          .pipe(Effect.provideService(Database, sql)),
+              return Effect.succeed({
+                fileRef: "staging/approval-file",
+                objectKey: "committed/approval-file",
+                contentType: options.approvalFileContentType ?? "application/pdf",
+                byteLength: 4,
+                sha256: "b".repeat(64),
+              });
+            }),
+          ),
+          Effect.provideService(Database, sql),
+        ),
       readReceiptLifecycleEvidence: (id, ownerPersonId) =>
         Effect.sync(() => {
           evidenceReads.push({ receiptId: id, personId: ownerPersonId });

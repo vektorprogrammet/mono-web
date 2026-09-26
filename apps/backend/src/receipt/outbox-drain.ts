@@ -75,12 +75,11 @@ export const drainReceiptOutboxWith = (
     );
 
     const last = yield* repeatReceiptDelivery(
-      currentInstant(options.config.now)
-        .pipe(Effect.flatMap((now) => economy.deliverNextOutboxEffect(claimId, now, receiptId)))
-        .pipe(
-          Effect.provideService(ReceiptFileService, fileStore.service),
-          Effect.orElseSucceed(() => ({ _tag: "Failed" as const })),
-        ),
+      currentInstant(options.config.now).pipe(
+        Effect.flatMap((now) => economy.deliverNextOutboxEffect(claimId, now, receiptId)),
+        Effect.provideService(ReceiptFileService, fileStore.service),
+        Effect.orElseSucceed(() => ({ _tag: "Failed" as const })),
+      ),
     );
 
     return Predicate.isTagged(last, "Delivered") ? ("Limit" as const) : last._tag;
