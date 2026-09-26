@@ -162,11 +162,13 @@ Answers a native HTTP request with a declared problem: failure mapping, credenti
   - [apps/backend/src/receipt/http-commands.ts](../apps/backend/src/receipt/http-commands.ts)
   - [apps/backend/src/router.ts](../apps/backend/src/router.ts)
 - `jsonText`: The JSON text of a representation, byte for byte what `JSON.stringify` writes.
-  [apps/backend/src/http-api/problem.ts:72](../apps/backend/src/http-api/problem.ts#L72), 9 consumers:
+  [apps/backend/src/http-api/problem.ts:72](../apps/backend/src/http-api/problem.ts#L72), 11 consumers:
   - [apps/backend/src/admission/http-reads.ts](../apps/backend/src/admission/http-reads.ts)
   - [apps/backend/src/admission/outcome-http.ts](../apps/backend/src/admission/outcome-http.ts)
   - [apps/backend/src/content/http-commands.ts](../apps/backend/src/content/http-commands.ts)
   - [apps/backend/src/content/http-reads.ts](../apps/backend/src/content/http-reads.ts)
+  - [apps/backend/src/organization/http.test.ts](../apps/backend/src/organization/http.test.ts)
+  - [apps/backend/src/placements/http.test.ts](../apps/backend/src/placements/http.test.ts)
   - [apps/backend/src/receipt/r2.ts](../apps/backend/src/receipt/r2.ts)
   - [apps/backend/src/recruitment/http-commands.ts](../apps/backend/src/recruitment/http-commands.ts)
   - [apps/backend/src/recruitment/maintenance-http.ts](../apps/backend/src/recruitment/maintenance-http.ts)

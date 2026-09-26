@@ -15,9 +15,10 @@ import {
 } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
+import { jsonText } from "../http-api/problem.js";
 import { makeBackendTestHttp } from "../test/native-http.js";
 
 const environment = {
@@ -159,7 +160,7 @@ const sessionActor = (cookie: string | undefined) => {
     : new IdentityActor({
         personId: PersonId.make(person),
         sessionId: `session-${person}`,
-        expiresAt: DateTime.makeUnsafe(new Date("2099-01-01T00:00:00.000Z")),
+        expiresAt: DateTime.makeUnsafe("2099-01-01T00:00:00.000Z"),
       });
 };
 
@@ -227,128 +228,143 @@ const decodeStrict = <S extends Schema.ConstraintDecoder<unknown, never>>(
   schema: S,
   response: Response,
 ) =>
-  response
-    .json()
-    .then((body) => Schema.decodeUnknownSync(schema)(body, { onExcessProperty: "error" }));
+  Effect.promise(() => response.json()).pipe(
+    Effect.flatMap((body) =>
+      Schema.decodeUnknownEffect(schema)(body, { onExcessProperty: "error" }),
+    ),
+  );
 
 describe("placement drafts over HTTP and PostgreSQL", () => {
-  it("drafts open demand within capacity for unplaced active assistants", async () => {
-    const { request } = fixture();
-    const response = await request(`/api/placements/draft?${scope}`);
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-
-    const draft = await decodeStrict(PlacementDraftResource, response);
-
-    const board = await decodeStrict(
-      PlacementBoardResource,
-      await request(`/api/placements?${scope}`),
-    );
-
-    expect(draft.boardEtag).toBe(board.etag);
-    expect(draft.openPlaces).toBe(4);
-    expect(draft.filledPlaces).toBe(3);
-    // Nora is a new applicant: her application supplies her weekday, block, and school wish.
-    expect(
-      draft.placements.map(({ personId, schoolName, day, block, workdays, wishes }) => [
-        personId,
-        schoolName,
-        day,
-        block,
-        workdays,
-        wishes,
-      ]),
-    ).toEqual([
-      [
-        "carl",
-        "Alpha skole",
-        "Monday",
-        "2",
-        4,
-        { language: "Norsk", preferredSchool: "Alpha skole" },
-      ],
-      ["nora", "Beta skole", "Tuesday", "1", 4, { language: "Engelsk", preferredSchool: null }],
-      ["berit", "Beta skole", "Tuesday", "2", 4, { language: "Norsk", preferredSchool: null }],
-    ]);
-    // Olav's interview is not conducted, so his application supplies nothing yet.
-    expect(
-      draft.unplaced.map(({ personId, reason, wishes }) => [personId, reason, wishes]),
-    ).toEqual([
-      ["dina", "NoOpenPlace", { language: "Norsk", preferredSchool: null }],
-      ["erik", "NoAvailability", null],
-      ["olav", "NoAvailability", null],
-    ]);
-    expect(
-      draft.openSlots.map(({ schoolName, day, block, places }) => [schoolName, day, block, places]),
-    ).toEqual([["Beta skole", "Wednesday", "1", 1]]);
-
-    // Nothing is stored, and the same board gives the same draft.
-    const again = await request(`/api/placements/draft?${scope}`);
-
-    expect(await again.json()).toEqual(draft);
-  });
-
-  it("applies through the placement commands, after which only the unfilled rest remains", async () => {
-    const { request } = fixture();
-
-    const draft = await decodeStrict(
-      PlacementDraftResource,
-      await request(`/api/placements/draft?${scope}`),
-    );
-
-    let etag = draft.boardEtag;
-
-    for (const placement of draft.placements) {
-      const response = await request(`/api/placements?${scope}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "if-match": etag,
-          "idempotency-key": `apply-draft-${placement.personId}`.padEnd(22, "0"),
-        },
-        body: JSON.stringify({
-          action: "Create",
-          personId: placement.personId,
-          schoolId: placement.schoolId,
-          day: placement.day,
-          workdays: placement.workdays,
-          block: placement.block,
-        }),
-      });
+  it.live("drafts open demand within capacity for unplaced active assistants", () =>
+    Effect.gen(function* () {
+      const { request } = fixture();
+      const response = yield* request(`/api/placements/draft?${scope}`);
 
       expect(response.status).toBe(200);
-      etag = (await decodeStrict(PlacementBoardResource, response)).etag;
-    }
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
 
-    const after = await decodeStrict(
-      PlacementDraftResource,
-      await request(`/api/placements/draft?${scope}`),
-    );
+      const draft = yield* decodeStrict(PlacementDraftResource, response);
 
-    expect(after.boardEtag).toBe(etag);
-    expect(after.placements).toEqual([]);
-    expect(after.filledPlaces).toBe(0);
-    expect(after.openPlaces).toBe(1);
-    expect(after.unplaced.map(({ personId }) => personId)).toEqual(["dina", "erik", "olav"]);
-  });
+      const board = yield* decodeStrict(
+        PlacementBoardResource,
+        yield* request(`/api/placements?${scope}`),
+      );
 
-  it("serves drafts to scoped coordinators for a known semester only", async () => {
-    const { request } = fixture();
-    const assistant = await request(`/api/placements/draft?${scope}`, {}, "berit");
+      expect(draft.boardEtag).toBe(board.etag);
+      expect(draft.openPlaces).toBe(4);
+      expect(draft.filledPlaces).toBe(3);
+      // Nora is a new applicant: her application supplies her weekday, block, and school wish.
+      expect(
+        draft.placements.map(({ personId, schoolName, day, block, workdays, wishes }) => [
+          personId,
+          schoolName,
+          day,
+          block,
+          workdays,
+          wishes,
+        ]),
+      ).toEqual([
+        [
+          "carl",
+          "Alpha skole",
+          "Monday",
+          "2",
+          4,
+          { language: "Norsk", preferredSchool: "Alpha skole" },
+        ],
+        ["nora", "Beta skole", "Tuesday", "1", 4, { language: "Engelsk", preferredSchool: null }],
+        ["berit", "Beta skole", "Tuesday", "2", 4, { language: "Norsk", preferredSchool: null }],
+      ]);
+      // Olav's interview is not conducted, so his application supplies nothing yet.
+      expect(
+        draft.unplaced.map(({ personId, reason, wishes }) => [personId, reason, wishes]),
+      ).toEqual([
+        ["dina", "NoOpenPlace", { language: "Norsk", preferredSchool: null }],
+        ["erik", "NoAvailability", null],
+        ["olav", "NoAvailability", null],
+      ]);
+      expect(
+        draft.openSlots.map(({ schoolName, day, block, places }) => [
+          schoolName,
+          day,
+          block,
+          places,
+        ]),
+      ).toEqual([["Beta skole", "Wednesday", "1", 1]]);
 
-    expect(assistant.status).toBe(403);
-    await expect(decodeStrict(PlacementProblem, assistant)).resolves.toMatchObject({
-      code: "authority.denied",
-    });
+      // Nothing is stored, and the same board gives the same draft.
+      const again = yield* request(`/api/placements/draft?${scope}`);
 
-    const unknown = await request(
-      `/api/placements/draft?${new URLSearchParams({ departmentId, semesterId: "draft-unknown" }).toString()}`,
-    );
+      expect(yield* Effect.promise(() => again.json())).toEqual(draft);
+    }),
+  );
 
-    expect(unknown.status).toBe(422);
-    await expect(decodeStrict(PlacementProblem, unknown)).resolves.toMatchObject({
-      code: "scope.invalid",
-    });
-  });
+  it.live(
+    "applies through the placement commands, after which only the unfilled rest remains",
+    () =>
+      Effect.gen(function* () {
+        const { request } = fixture();
+
+        const draft = yield* decodeStrict(
+          PlacementDraftResource,
+          yield* request(`/api/placements/draft?${scope}`),
+        );
+
+        let etag = draft.boardEtag;
+
+        for (const placement of draft.placements) {
+          const response = yield* request(`/api/placements?${scope}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "if-match": etag,
+              "idempotency-key": `apply-draft-${placement.personId}`.padEnd(22, "0"),
+            },
+            body: yield* jsonText({
+              action: "Create",
+              personId: placement.personId,
+              schoolId: placement.schoolId,
+              day: placement.day,
+              workdays: placement.workdays,
+              block: placement.block,
+            }),
+          });
+
+          expect(response.status).toBe(200);
+          etag = (yield* decodeStrict(PlacementBoardResource, response)).etag;
+        }
+
+        const after = yield* decodeStrict(
+          PlacementDraftResource,
+          yield* request(`/api/placements/draft?${scope}`),
+        );
+
+        expect(after.boardEtag).toBe(etag);
+        expect(after.placements).toEqual([]);
+        expect(after.filledPlaces).toBe(0);
+        expect(after.openPlaces).toBe(1);
+        expect(after.unplaced.map(({ personId }) => personId)).toEqual(["dina", "erik", "olav"]);
+      }),
+  );
+
+  it.live("serves drafts to scoped coordinators for a known semester only", () =>
+    Effect.gen(function* () {
+      const { request } = fixture();
+      const assistant = yield* request(`/api/placements/draft?${scope}`, {}, "berit");
+
+      expect(assistant.status).toBe(403);
+      expect(yield* decodeStrict(PlacementProblem, assistant)).toMatchObject({
+        code: "authority.denied",
+      });
+
+      const unknown = yield* request(
+        `/api/placements/draft?${new URLSearchParams({ departmentId, semesterId: "draft-unknown" }).toString()}`,
+      );
+
+      expect(unknown.status).toBe(422);
+      expect(yield* decodeStrict(PlacementProblem, unknown)).toMatchObject({
+        code: "scope.invalid",
+      });
+    }),
+  );
 });

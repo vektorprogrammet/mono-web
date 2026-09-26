@@ -20,12 +20,12 @@ import {
   TeamApplicationsSubmitProblem,
 } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeTeamApplicationApiConfig } from "../config.js";
 import { makeTeamApplicationsTestHttp } from "../test/native-http.js";
 
-const expiresAt = DateTime.makeUnsafe(new Date("2099-01-01T00:00:00.000Z"));
+const expiresAt = DateTime.makeUnsafe("2099-01-01T00:00:00.000Z");
 
 const sessionPerson = (cookie: string | undefined) =>
   /better-auth\.session_token=([^;]+)/u.exec(cookie ?? "")?.[1];
@@ -78,7 +78,7 @@ const oauth = OAuthCredentialAuthority.of({
 type TestRequest = (
   pathname: string,
   init?: RequestInit & { readonly person?: string },
-) => Promise<Response>;
+) => Effect.Effect<Response>;
 
 /** Each fixture is one backend process: its own database and its own public rate limit. */
 const fixture = (environment: Readonly<Record<string, string>> = {}) => {
@@ -159,11 +159,15 @@ const application = {
 const key = (value: string) => value.padEnd(22, "0");
 
 /** Decodes a response body through its declared contract schema. */
-const decoded = async <S extends Schema.ConstraintDecoder<unknown, never>>(
+const decoded = <S extends Schema.ConstraintDecoder<unknown, never>>(
   response: Response,
   schema: S,
-): Promise<S["Type"]> =>
-  Schema.decodeUnknownSync(schema)(await response.json(), { onExcessProperty: "error" });
+) =>
+  Effect.promise(() => response.json()).pipe(
+    Effect.flatMap((body) =>
+      Schema.decodeUnknownEffect(schema)(body, { onExcessProperty: "error" }),
+    ),
+  );
 
 const submit = (
   request: TestRequest,
@@ -178,222 +182,241 @@ const submit = (
   });
 
 describe("team application submission over HTTP", () => {
-  it("replays one key, rejects a changed request, and keeps a new key distinct", async () => {
-    const { request, count } = fixture();
-    const first = await submit(request, "http-open", "submitA");
-    const firstBody = await first.text();
+  it.live("replays one key, rejects a changed request, and keeps a new key distinct", () =>
+    Effect.gen(function* () {
+      const { request, count } = fixture();
+      const first = yield* submit(request, "http-open", "submitA");
+      const firstBody = yield* Effect.promise(() => first.text());
 
-    const confirmation = Schema.decodeSync(Schema.fromJsonString(TeamApplicationConfirmation))(
-      firstBody,
-    );
+      const confirmation = yield* Schema.decodeEffect(
+        Schema.fromJsonString(TeamApplicationConfirmation),
+      )(firstBody);
 
-    expect(first.status).toBe(201);
-    expect(first.headers.get("location")).toBe(
-      `/api/team-applications/${confirmation.applicationId}`,
-    );
+      expect(first.status).toBe(201);
+      expect(first.headers.get("location")).toBe(
+        `/api/team-applications/${confirmation.applicationId}`,
+      );
 
-    const replay = await submit(request, "http-open", "submitA");
+      const replay = yield* submit(request, "http-open", "submitA");
 
-    expect(replay.status).toBe(201);
-    await expect(replay.text()).resolves.toBe(firstBody);
+      expect(replay.status).toBe(201);
+      expect(yield* Effect.promise(() => replay.text())).toBe(firstBody);
 
-    const changed = await submit(request, "http-open", "submitA", { ...application, name: "Bea" });
+      const changed = yield* submit(request, "http-open", "submitA", {
+        ...application,
+        name: "Bea",
+      });
 
-    expect(changed.status).toBe(409);
-    expect((await decoded(changed, TeamApplicationsSubmitProblem)).code).toBe(
-      "idempotency.digest-conflict",
-    );
+      expect(changed.status).toBe(409);
+      expect((yield* decoded(changed, TeamApplicationsSubmitProblem)).code).toBe(
+        "idempotency.digest-conflict",
+      );
 
-    const second = await submit(request, "http-open", "submitB");
+      const second = yield* submit(request, "http-open", "submitB");
 
-    expect(second.status).toBe(201);
-    expect((await decoded(second, TeamApplicationConfirmation)).applicationId).not.toBe(
-      confirmation.applicationId,
-    );
-    await expect(count("team_applications")).resolves.toBe(2);
-    await expect(count("team_application_outbox")).resolves.toBe(4);
-    await expect(count("native_http_idempotency_receipts")).resolves.toBe(2);
-  });
+      expect(second.status).toBe(201);
+      expect((yield* decoded(second, TeamApplicationConfirmation)).applicationId).not.toBe(
+        confirmation.applicationId,
+      );
+      expect(yield* count("team_applications")).toBe(2);
+      expect(yield* count("team_application_outbox")).toBe(4);
+      expect(yield* count("native_http_idempotency_receipts")).toBe(2);
+    }),
+  );
 
-  it("rejects closed and unknown teams and invalid fields without receipts", async () => {
-    const { request, count } = fixture();
-    const closed = await submit(request, "http-closed", "closed");
-    const unknown = await submit(request, "http-unknown", "unknown");
+  it.live("rejects closed and unknown teams and invalid fields without receipts", () =>
+    Effect.gen(function* () {
+      const { request, count } = fixture();
+      const closed = yield* submit(request, "http-closed", "closed");
+      const unknown = yield* submit(request, "http-unknown", "unknown");
 
-    const invalid = await submit(request, "http-open", "invalid", {
-      ...application,
-      fieldOfStudy: "x".repeat(46),
-    });
+      const invalid = yield* submit(request, "http-open", "invalid", {
+        ...application,
+        fieldOfStudy: "x".repeat(46),
+      });
 
-    expect(closed.status).toBe(409);
-    expect((await decoded(closed, TeamApplicationsSubmitProblem)).code).toBe(
-      "team-application.intake-closed",
-    );
-    expect(unknown.status).toBe(404);
-    expect((await decoded(unknown, TeamApplicationsSubmitProblem)).code).toBe("resource.not-found");
-    expect(invalid.status).toBe(422);
-    expect(await decoded(invalid, TeamApplicationsSubmitProblem)).toMatchObject({
-      code: "validation.failed",
-      validation: { errors: [{ pointer: "/fieldOfStudy", code: "invalid" }] },
-    });
+      expect(closed.status).toBe(409);
+      expect((yield* decoded(closed, TeamApplicationsSubmitProblem)).code).toBe(
+        "team-application.intake-closed",
+      );
+      expect(unknown.status).toBe(404);
+      expect((yield* decoded(unknown, TeamApplicationsSubmitProblem)).code).toBe(
+        "resource.not-found",
+      );
+      expect(invalid.status).toBe(422);
+      expect(yield* decoded(invalid, TeamApplicationsSubmitProblem)).toMatchObject({
+        code: "validation.failed",
+        validation: { errors: [{ pointer: "/fieldOfStudy", code: "invalid" }] },
+      });
 
-    await expect(count("team_applications")).resolves.toBe(0);
-    await expect(count("native_http_idempotency_receipts")).resolves.toBe(0);
-  });
+      expect(yield* count("team_applications")).toBe(0);
+      expect(yield* count("native_http_idempotency_receipts")).toBe(0);
+    }),
+  );
 
-  it("counts every public submission before reading its body", async () => {
-    const { request, count } = fixture({
-      TEAM_APPLICATION_RATE_LIMIT_MAX: "2",
-      TEAM_APPLICATION_RATE_LIMIT_WINDOW_MS: "90000",
-    });
+  it.live("counts every public submission before reading its body", () =>
+    Effect.gen(function* () {
+      const { request, count } = fixture({
+        TEAM_APPLICATION_RATE_LIMIT_MAX: "2",
+        TEAM_APPLICATION_RATE_LIMIT_WINDOW_MS: "90000",
+      });
 
-    expect((await submit(request, "http-open", "limited")).status).toBe(201);
-    // A replay uses the window like any other submission.
-    expect((await submit(request, "http-open", "limited")).status).toBe(201);
+      expect((yield* submit(request, "http-open", "limited")).status).toBe(201);
+      // A replay uses the window like any other submission.
+      expect((yield* submit(request, "http-open", "limited")).status).toBe(201);
 
-    // Over the limit, even an unreadable body is refused before parsing.
-    const limited = await request("/api/teams/http-open/applications", {
-      method: "POST",
-      headers: { "content-type": "application/json", "idempotency-key": key("overLimit") },
-      body: "{",
-    });
+      // Over the limit, even an unreadable body is refused before parsing.
+      const limited = yield* request("/api/teams/http-open/applications", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": key("overLimit") },
+        body: "{",
+      });
 
-    expect(limited.status).toBe(429);
-    expect(limited.headers.get("retry-after")).toBe("90");
-    expect((await decoded(limited, TeamApplicationsSubmitProblem)).code).toBe(
-      "rate-limit.exceeded",
-    );
-    expect((await submit(request, "http-open", "afterLimit")).status).toBe(429);
-    await expect(count("team_applications")).resolves.toBe(1);
-    await expect(count("native_http_idempotency_receipts")).resolves.toBe(1);
-  });
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get("retry-after")).toBe("90");
+      expect((yield* decoded(limited, TeamApplicationsSubmitProblem)).code).toBe(
+        "rate-limit.exceeded",
+      );
+      expect((yield* submit(request, "http-open", "afterLimit")).status).toBe(429);
+      expect(yield* count("team_applications")).toBe(1);
+      expect(yield* count("native_http_idempotency_receipts")).toBe(1);
+    }),
+  );
 });
 
 describe("team application staff routes over HTTP", () => {
-  it("applies current team authority to reads and leader-only deletion", async () => {
-    const { request, count } = fixture();
+  it.live("applies current team authority to reads and leader-only deletion", () =>
+    Effect.gen(function* () {
+      const { request, count } = fixture();
 
-    const { applicationId } = await decoded(
-      await submit(request, "http-open", "staff"),
-      TeamApplicationConfirmation,
-    );
+      const { applicationId } = yield* decoded(
+        yield* submit(request, "http-open", "staff"),
+        TeamApplicationConfirmation,
+      );
 
-    const anonymous = await request("/api/teams/http-open/applications");
+      const anonymous = yield* request("/api/teams/http-open/applications");
 
-    const outsider = await request("/api/teams/http-open/applications", {
-      person: "http-outsider",
-    });
-
-    const member = await request("/api/teams/http-open/applications", { person: "http-member" });
-
-    expect(anonymous.status).toBe(401);
-    // The security middleware declares credential problems for every staff route.
-    expect((await decoded(anonymous, SessionUnauthorizedProblem)).code).toBe("credential.missing");
-    expect(outsider.status).toBe(403);
-    expect((await decoded(outsider, TeamApplicationsStaffReadProblem)).code).toBe(
-      "authority.denied",
-    );
-    expect(member.status).toBe(200);
-    expect(await decoded(member, TeamApplicationListResponse)).toMatchObject({
-      teamId: "http-open",
-      items: [{ applicationId, name: application.name }],
-      intake: { acceptApplication: true, open: true },
-      canManage: false,
-    });
-
-    const detail = await request(`/api/team-applications/${applicationId}`, {
-      person: "http-member",
-    });
-
-    expect(detail.status).toBe(200);
-    expect(await decoded(detail, TeamApplicationResource)).toMatchObject({
-      ...application,
-      canManage: false,
-    });
-
-    const remove = (person: string, idempotencyKey: string) =>
-      request(`/api/team-applications/${applicationId}`, {
-        method: "DELETE",
-        person,
-        headers: { "idempotency-key": key(idempotencyKey) },
+      const outsider = yield* request("/api/teams/http-open/applications", {
+        person: "http-outsider",
       });
 
-    const memberDelete = await remove("http-member", "memberDelete");
+      const member = yield* request("/api/teams/http-open/applications", { person: "http-member" });
 
-    expect(memberDelete.status).toBe(403);
-    expect((await decoded(memberDelete, TeamApplicationsDeleteProblem)).code).toBe(
-      "authority.denied",
-    );
-    await expect(count("team_applications")).resolves.toBe(1);
-    expect((await remove("http-leader", "leaderDelete")).status).toBe(204);
-    expect((await remove("http-leader", "leaderDelete")).status).toBe(204);
-
-    const deletedAgain = await remove("http-leader", "leaderDeleteAgain");
-
-    expect(deletedAgain.status).toBe(404);
-    expect((await decoded(deletedAgain, TeamApplicationsDeleteProblem)).code).toBe(
-      "resource.not-found",
-    );
-    await expect(count("team_applications")).resolves.toBe(0);
-    await expect(count("team_application_audit")).resolves.toBe(1);
-  });
-
-  it("revises intake only at the observed entity tag and replays the result", async () => {
-    const { request } = fixture();
-
-    const list = await decoded(
-      await request("/api/teams/http-open/applications", { person: "http-leader" }),
-      TeamApplicationListResponse,
-    );
-
-    const revise = (ifMatch: string, idempotencyKey: string) =>
-      request("/api/teams/http-open/application-intake", {
-        method: "PATCH",
-        person: "http-leader",
-        headers: {
-          "content-type": "application/merge-patch+json",
-          "idempotency-key": key(idempotencyKey),
-          "if-match": ifMatch,
-        },
-        body: JSON.stringify({ acceptApplication: false }),
+      expect(anonymous.status).toBe(401);
+      // The security middleware declares credential problems for every staff route.
+      expect((yield* decoded(anonymous, SessionUnauthorizedProblem)).code).toBe(
+        "credential.missing",
+      );
+      expect(outsider.status).toBe(403);
+      expect((yield* decoded(outsider, TeamApplicationsStaffReadProblem)).code).toBe(
+        "authority.denied",
+      );
+      expect(member.status).toBe(200);
+      expect(yield* decoded(member, TeamApplicationListResponse)).toMatchObject({
+        teamId: "http-open",
+        items: [{ applicationId, name: application.name }],
+        intake: { acceptApplication: true, open: true },
+        canManage: false,
       });
 
-    const stale = await revise('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"', "stale");
+      const detail = yield* request(`/api/team-applications/${applicationId}`, {
+        person: "http-member",
+      });
 
-    expect(stale.status).toBe(412);
-    expect((await decoded(stale, TeamApplicationsReviseIntakeProblem)).code).toBe(
-      "precondition.failed",
-    );
+      expect(detail.status).toBe(200);
+      expect(yield* decoded(detail, TeamApplicationResource)).toMatchObject({
+        ...application,
+        canManage: false,
+      });
 
-    const revised = await revise(list.intake.etag, "revise");
-    const body = await revised.text();
+      const remove = (person: string, idempotencyKey: string) =>
+        request(`/api/team-applications/${applicationId}`, {
+          method: "DELETE",
+          person,
+          headers: { "idempotency-key": key(idempotencyKey) },
+        });
 
-    expect(revised.status).toBe(200);
-    expect(Schema.decodeSync(Schema.fromJsonString(TeamApplicationIntakeResource))(body)).toEqual({
-      acceptApplication: false,
-      deadline: null,
-      open: false,
-      revision: list.intake.revision + 1,
-      etag: revised.headers.get("etag"),
-    });
+      const memberDelete = yield* remove("http-member", "memberDelete");
 
-    const replay = await revise(list.intake.etag, "revise");
+      expect(memberDelete.status).toBe(403);
+      expect((yield* decoded(memberDelete, TeamApplicationsDeleteProblem)).code).toBe(
+        "authority.denied",
+      );
+      expect(yield* count("team_applications")).toBe(1);
+      expect((yield* remove("http-leader", "leaderDelete")).status).toBe(204);
+      expect((yield* remove("http-leader", "leaderDelete")).status).toBe(204);
 
-    expect(replay.status).toBe(200);
-    await expect(replay.text()).resolves.toBe(body);
+      const deletedAgain = yield* remove("http-leader", "leaderDeleteAgain");
 
-    const intake = await request("/api/teams/http-open/application-intake");
+      expect(deletedAgain.status).toBe(404);
+      expect((yield* decoded(deletedAgain, TeamApplicationsDeleteProblem)).code).toBe(
+        "resource.not-found",
+      );
+      expect(yield* count("team_applications")).toBe(0);
+      expect(yield* count("team_application_audit")).toBe(1);
+    }),
+  );
 
-    expect(await decoded(intake, PublicTeamApplicationIntake)).toMatchObject({
-      teamId: "http-open",
-      open: false,
-    });
+  it.live("revises intake only at the observed entity tag and replays the result", () =>
+    Effect.gen(function* () {
+      const { request } = fixture();
 
-    const afterClose = await submit(request, "http-open", "afterClose");
+      const list = yield* decoded(
+        yield* request("/api/teams/http-open/applications", { person: "http-leader" }),
+        TeamApplicationListResponse,
+      );
 
-    expect(afterClose.status).toBe(409);
-    expect((await decoded(afterClose, TeamApplicationsSubmitProblem)).code).toBe(
-      "team-application.intake-closed",
-    );
-  });
+      const revise = (ifMatch: string, idempotencyKey: string) =>
+        request("/api/teams/http-open/application-intake", {
+          method: "PATCH",
+          person: "http-leader",
+          headers: {
+            "content-type": "application/merge-patch+json",
+            "idempotency-key": key(idempotencyKey),
+            "if-match": ifMatch,
+          },
+          body: JSON.stringify({ acceptApplication: false }),
+        });
+
+      const stale = yield* revise('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"', "stale");
+
+      expect(stale.status).toBe(412);
+      expect((yield* decoded(stale, TeamApplicationsReviseIntakeProblem)).code).toBe(
+        "precondition.failed",
+      );
+
+      const revised = yield* revise(list.intake.etag, "revise");
+      const body = yield* Effect.promise(() => revised.text());
+
+      expect(revised.status).toBe(200);
+      expect(
+        yield* Schema.decodeEffect(Schema.fromJsonString(TeamApplicationIntakeResource))(body),
+      ).toEqual({
+        acceptApplication: false,
+        deadline: null,
+        open: false,
+        revision: list.intake.revision + 1,
+        etag: revised.headers.get("etag"),
+      });
+
+      const replay = yield* revise(list.intake.etag, "revise");
+
+      expect(replay.status).toBe(200);
+      expect(yield* Effect.promise(() => replay.text())).toBe(body);
+
+      const intake = yield* request("/api/teams/http-open/application-intake");
+
+      expect(yield* decoded(intake, PublicTeamApplicationIntake)).toMatchObject({
+        teamId: "http-open",
+        open: false,
+      });
+
+      const afterClose = yield* submit(request, "http-open", "afterClose");
+
+      expect(afterClose.status).toBe(409);
+      expect((yield* decoded(afterClose, TeamApplicationsSubmitProblem)).code).toBe(
+        "team-application.intake-closed",
+      );
+    }),
+  );
 });

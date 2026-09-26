@@ -70,7 +70,7 @@ import {
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
 import { Predicate, DateTime, Effect, Layer, Schema, Struct } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { deriveHttpIdentity, deriveStrongETag } from "../http-semantics.js";
 import {
   makeInternalReceiptTestHttp,
@@ -81,8 +81,9 @@ import type { ReceiptApiConfig } from "./config.js";
 import { resolveRequestCredentialAtInstant } from "../authority.js";
 import { ReceiptFileStoreError, type ReceiptFileStore } from "./filesystem.js";
 import type { ReceiptTestHttpOptions } from "../test/native-http.js";
+import type { BackendHttpHandler } from "../router.js";
 
-type ReceiptApiHttp = { readonly fetch: (request: Request) => Promise<Response> };
+type ReceiptApiHttp = { readonly fetch: BackendHttpHandler };
 
 type ProjectionRow = Omit<OwnedReceiptProjectionItem, "settlement">;
 
@@ -642,7 +643,7 @@ const harness = (options: HarnessOptions = {}) => {
         return new IdentityActor({
           personId,
           sessionId: "receipt-http-session",
-          expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+          expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
         });
       }),
     revokeCurrentSession: () => Effect.die("unexpected session mutation"),
@@ -711,7 +712,7 @@ const harness = (options: HarnessOptions = {}) => {
       E,
       Database | Economy | IdentitySnapshot | ServicePrincipalGrantAuthority
     >,
-  ): Promise<A> =>
+  ): Effect.Effect<A, E> =>
     database.run(
       effect.pipe(
         Effect.provide(economyLayer),
@@ -792,27 +793,33 @@ const harness = (options: HarnessOptions = {}) => {
       ),
     run,
     currentTransactionId: transactionId,
-    mutationTransactions: async () => ({
-      commandTransactionIds,
-      receiptWriteTransactionIds: await database.run(
-        Database.use(
-          (sql) =>
-            sql<{
-              id: string;
-            }>`SELECT xmin::text AS id FROM public.native_http_idempotency_receipts ORDER BY committed_at`,
-        ).pipe(Effect.map((rows) => rows.map((row) => row.id))),
-      ),
-    }),
+    mutationTransactions: () =>
+      Effect.gen(function* () {
+        return {
+          commandTransactionIds,
+          receiptWriteTransactionIds: yield* database.run(
+            Database.use(
+              (sql) =>
+                sql<{
+                  id: string;
+                }>`SELECT xmin::text AS id FROM public.native_http_idempotency_receipts ORDER BY committed_at`,
+            ).pipe(Effect.map((rows) => rows.map((row) => row.id))),
+          ),
+        };
+      }),
     evidenceCounts: () => ({ evidenceReads }),
-    snapshotObservations: async () => ({
-      identitySnapshotIsolations,
-      identitySnapshotVersions,
-      committedVersion: await database.run(
-        Database.use((sql) => sql<{ version: number }>`SELECT version FROM test_credential`).pipe(
-          Effect.map((rows) => rows[0]!.version),
-        ),
-      ),
-    }),
+    snapshotObservations: () =>
+      Effect.gen(function* () {
+        return {
+          identitySnapshotIsolations,
+          identitySnapshotVersions,
+          committedVersion: yield* database.run(
+            Database.use(
+              (sql) => sql<{ version: number }>`SELECT version FROM test_credential`,
+            ).pipe(Effect.map((rows) => rows[0]!.version)),
+          ),
+        };
+      }),
     revokeCredential: () =>
       database.run(
         Database.use((sql) => sql`UPDATE test_credential SET version=2`).pipe(Effect.asVoid),
@@ -833,7 +840,7 @@ const request = (
   pathname: string,
   init?: RequestInit,
   includeCookie = true,
-): Promise<Response> => {
+): Effect.Effect<Response> => {
   const headers = new Headers(init?.headers);
 
   if (includeCookie) headers.set("cookie", "better-auth.session_token=receipt-test-session");
@@ -845,7 +852,7 @@ const request = (
   return http.fetch(new Request(`http://backend.test${pathname}`, { ...init, headers }));
 };
 
-const submitRequest = (http: ReceiptApiHttp, idempotencyKey: string): Promise<Response> => {
+const submitRequest = (http: ReceiptApiHttp, idempotencyKey: string): Effect.Effect<Response> => {
   const boundary = "receipt-http-test-boundary";
 
   const body = [
@@ -873,7 +880,7 @@ const actionRequest = (
   idempotencyKey: string,
   revision = 0,
   body: Schema.Json = {},
-): Promise<Response> =>
+): Effect.Effect<Response> =>
   request(http, pathname, {
     method: "POST",
     headers: {
@@ -885,10 +892,12 @@ const actionRequest = (
     body: JSON.stringify(body),
   });
 
-const readJson = async (response: Response) =>
-  Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(await response.json());
+const readJson = (response: Response) =>
+  Effect.promise(() => response.json()).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Json))),
+  );
 
-const expectProblem = async (
+const expectProblem = (
   response: Response,
   expected: {
     readonly code: string;
@@ -896,202 +905,228 @@ const expectProblem = async (
     readonly status: number;
     readonly detail: string;
   },
-) => {
-  expect(response.status).toBe(expected.status);
-  expect(response.headers.get("content-type")).toContain("application/problem+json");
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(await response.json()).toEqual({
-    type: `urn:vektorprogrammet:problem:v0.2:${expected.code}`,
-    ...expected,
+) =>
+  Effect.gen(function* () {
+    expect(response.status).toBe(expected.status);
+    expect(response.headers.get("content-type")).toContain("application/problem+json");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(yield* Effect.promise(() => response.json())).toEqual({
+      type: `urn:vektorprogrammet:problem:v0.2:${expected.code}`,
+      ...expected,
+    });
   });
-};
 
 describe("receipt v0.2 HTTP contract", () => {
-  it("lists only the authenticated person's receipts with private projection ETags", async () => {
-    const state = harness({ ownedRows: [pendingReceipt()] });
-    const response = await request(state.http, "/api/receipts?status=Pending");
-    const body = await readJson(response);
+  it.live("lists only the authenticated person's receipts with private projection ETags", () =>
+    Effect.gen(function* () {
+      const state = harness({ ownedRows: [pendingReceipt()] });
+      const response = yield* request(state.http, "/api/receipts?status=Pending");
+      const body = yield* readJson(response);
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(body).toEqual({
-      items: [
-        Schema.decodeSync(ReceiptListItem)({
-          ...pendingReceipt(),
-          amountOre: 1200,
-          settlement: null,
-          etag: receiptEtag(receiptId, 0),
-        }),
-      ],
-    });
-    expect(state.authorizationPrincipalCalls()).toBe(1);
-  });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(body).toEqual({
+        items: [
+          Schema.decodeSync(ReceiptListItem)({
+            ...pendingReceipt(),
+            amountOre: 1200,
+            settlement: null,
+            etag: receiptEtag(receiptId, 0),
+          }),
+        ],
+      });
+      expect(state.authorizationPrincipalCalls()).toBe(1);
+    }),
+  );
 
-  it("lists only approved unsettled receipts in the private settlement queue", async () => {
-    const queueRow = pendingReceipt({
-      status: "Approved",
-      approvedAt: evaluatedAt,
-      revision: 2,
-    });
+  it.live("lists only approved unsettled receipts in the private settlement queue", () =>
+    Effect.gen(function* () {
+      const queueRow = pendingReceipt({
+        status: "Approved",
+        approvedAt: evaluatedAt,
+        revision: 2,
+      });
 
-    const state = harness({ settlementRows: [queueRow] });
-    const response = await request(state.http, "/api/receipt-settlement-queue");
+      const state = harness({ settlementRows: [queueRow] });
+      const response = yield* request(state.http, "/api/receipt-settlement-queue");
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(response.headers.get("vary")).toBe("Origin");
-    expect(await readJson(response)).toEqual({
-      items: [
-        {
-          receiptId,
-          visualId,
-          ownerPersonId: personId,
-          departmentId: departmentOne,
-          description: "bus ticket",
-          amountOre: 1200,
-          currency: "NOK",
-          receiptDate: "2026-08-01",
-          status: "Approved",
-          approvedAt: evaluatedAt,
-          revision: 2,
-          etag: receiptEtag(receiptId, 2),
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("vary")).toBe("Origin");
+      expect(yield* readJson(response)).toEqual({
+        items: [
+          {
+            receiptId,
+            visualId,
+            ownerPersonId: personId,
+            departmentId: departmentOne,
+            description: "bus ticket",
+            amountOre: 1200,
+            currency: "NOK",
+            receiptDate: "2026-08-01",
+            status: "Approved",
+            approvedAt: evaluatedAt,
+            revision: 2,
+            etag: receiptEtag(receiptId, 2),
+          },
+        ],
+      });
+    }),
+  );
+
+  it.live("rejects settlement media types outside the declared JSON contract", () =>
+    Effect.gen(function* () {
+      const state = harness();
+
+      const response = yield* request(state.http, `/api/receipts/${receiptId}:settle`, {
+        method: "POST",
+        headers: {
+          "content-type": "text/plain",
+          "idempotency-key": "settle-wrong-media-type-0001",
+          "if-match": receiptEtag(receiptId, 2),
         },
-      ],
-    });
-  });
+        body: "not-json",
+      });
 
-  it("rejects settlement media types outside the declared JSON contract", async () => {
-    const state = harness();
+      expect(response.status).toBe(415);
+      expect(yield* Effect.promise(() => response.json())).toMatchObject({
+        code: "media-type.unsupported",
+      });
+      expect(state.settlementCommands).toHaveLength(0);
+    }),
+  );
 
-    const response = await request(state.http, `/api/receipts/${receiptId}:settle`, {
-      method: "POST",
-      headers: {
-        "content-type": "text/plain",
-        "idempotency-key": "settle-wrong-media-type-0001",
-        "if-match": receiptEtag(receiptId, 2),
-      },
-      body: "not-json",
-    });
+  it.live("stops reading an undeclared oversized settlement body", () =>
+    Effect.gen(function* () {
+      const state = harness();
 
-    expect(response.status).toBe(415);
-    expect(await response.json()).toMatchObject({ code: "media-type.unsupported" });
-    expect(state.settlementCommands).toHaveLength(0);
-  });
+      const response = yield* request(state.http, `/api/receipts/${receiptId}:settle`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "settle-oversized-stream-0001",
+          "if-match": receiptEtag(receiptId, 2),
+        },
+        body: "x".repeat(65_537),
+      });
 
-  it("stops reading an undeclared oversized settlement body", async () => {
-    const state = harness();
+      expect(response.status).toBe(413);
+      expect(yield* Effect.promise(() => response.json())).toMatchObject({
+        code: "request.too-large",
+      });
+      expect(state.settlementCommands).toHaveLength(0);
+    }),
+  );
 
-    const response = await request(state.http, `/api/receipts/${receiptId}:settle`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": "settle-oversized-stream-0001",
-        "if-match": receiptEtag(receiptId, 2),
-      },
-      body: "x".repeat(65_537),
-    });
+  it.live("records private immutable settlement evidence with revision and idempotent replay", () =>
+    Effect.gen(function* () {
+      const queueRow = pendingReceipt({
+        status: "Approved",
+        approvedAt: evaluatedAt,
+        revision: 2,
+      });
 
-    expect(response.status).toBe(413);
-    expect(await response.json()).toMatchObject({ code: "request.too-large" });
-    expect(state.settlementCommands).toHaveLength(0);
-  });
+      const evidence = settlementEvidence({ receiptRevision: 3 });
+      const state = harness({ settlementRows: [queueRow], settlementEvidence: evidence });
 
-  it("records private immutable settlement evidence with revision and idempotent replay", async () => {
-    const queueRow = pendingReceipt({
-      status: "Approved",
-      approvedAt: evaluatedAt,
-      revision: 2,
-    });
+      const payload = {
+        expectedRevision: 2,
+        externalAuthority: evidence.externalAuthority,
+        externalReference: evidence.externalReference,
+        settledAt: evidence.settledAt,
+      };
 
-    const evidence = settlementEvidence({ receiptRevision: 3 });
-    const state = harness({ settlementRows: [queueRow], settlementEvidence: evidence });
+      const key = "settle-receipt-idempotency-key-0001";
 
-    const payload = {
-      expectedRevision: 2,
-      externalAuthority: evidence.externalAuthority,
-      externalReference: evidence.externalReference,
-      settledAt: evidence.settledAt,
-    };
+      const recorded = yield* actionRequest(
+        state.http,
+        `/api/receipts/${receiptId}:settle`,
+        key,
+        2,
+        payload,
+      );
 
-    const key = "settle-receipt-idempotency-key-0001";
+      const recordedBody = yield* readJson(recorded);
 
-    const recorded = await actionRequest(
-      state.http,
-      `/api/receipts/${receiptId}:settle`,
-      key,
-      2,
-      payload,
-    );
+      const replay = yield* actionRequest(
+        state.http,
+        `/api/receipts/${receiptId}:settle`,
+        key,
+        2,
+        payload,
+      );
 
-    const recordedBody = await readJson(recorded);
+      const changedReplay = yield* actionRequest(
+        state.http,
+        `/api/receipts/${receiptId}:settle`,
+        key,
+        2,
+        {
+          ...payload,
+          externalReference: "changed-external-reference",
+        },
+      );
 
-    const replay = await actionRequest(
-      state.http,
-      `/api/receipts/${receiptId}:settle`,
-      key,
-      2,
-      payload,
-    );
+      expect(changedReplay.status).toBe(409);
+      expect(changedReplay.headers.get("cache-control")).toBe("no-store");
+      expect(yield* Effect.promise(() => changedReplay.json())).toMatchObject({
+        code: "idempotency.digest-conflict",
+      });
 
-    const changedReplay = await actionRequest(
-      state.http,
-      `/api/receipts/${receiptId}:settle`,
-      key,
-      2,
-      { ...payload, externalReference: "changed-external-reference" },
-    );
+      expect(recorded.status).toBe(200);
+      expect(recorded.headers.get("cache-control")).toBe("private, no-store");
+      expect(recorded.headers.get("vary")).toBe("Origin");
+      expect(recorded.headers.get("etag")).toBe(receiptEtag(receiptId, 3));
+      expect(recordedBody).toMatchObject(evidence);
+      expect(yield* Effect.promise(() => replay.json())).toEqual(recordedBody);
+      expect(state.settlementCommands).toHaveLength(1);
+    }),
+  );
 
-    expect(changedReplay.status).toBe(409);
-    expect(changedReplay.headers.get("cache-control")).toBe("no-store");
-    expect(await changedReplay.json()).toMatchObject({ code: "idempotency.digest-conflict" });
+  it.live("reads finance settlement evidence privately and conceals a missing settlement", () =>
+    Effect.gen(function* () {
+      const evidence = settlementEvidence();
+      const state = harness({ settlementEvidence: evidence });
 
-    expect(recorded.status).toBe(200);
-    expect(recorded.headers.get("cache-control")).toBe("private, no-store");
-    expect(recorded.headers.get("vary")).toBe("Origin");
-    expect(recorded.headers.get("etag")).toBe(receiptEtag(receiptId, 3));
-    expect(recordedBody).toMatchObject(evidence);
-    expect(await replay.json()).toEqual(recordedBody);
-    expect(state.settlementCommands).toHaveLength(1);
-  });
+      const visible = yield* request(
+        state.http,
+        `/api/receipt-settlement-queue/${encodeURIComponent(receiptId)}`,
+      );
 
-  it("reads finance settlement evidence privately and conceals a missing settlement", async () => {
-    const evidence = settlementEvidence();
-    const state = harness({ settlementEvidence: evidence });
+      const concealed = yield* request(state.http, "/api/receipt-settlement-queue/not-visible");
 
-    const visible = await request(
-      state.http,
-      `/api/receipt-settlement-queue/${encodeURIComponent(receiptId)}`,
-    );
+      expect(visible.status).toBe(200);
+      expect(visible.headers.get("cache-control")).toBe("private, no-store");
+      expect(yield* readJson(visible)).toMatchObject(evidence);
+      expect(state.settlementReads()).toEqual([
+        { receiptId, personId },
+        { receiptId: ReceiptId.make("not-visible"), personId },
+      ]);
+      expect(concealed.status).toBe(404);
+      expect(concealed.headers.get("cache-control")).toBe("no-store");
+      expect(yield* Effect.promise(() => concealed.json())).toMatchObject({
+        code: "receipt.not-found",
+      });
+    }),
+  );
 
-    const concealed = await request(state.http, "/api/receipt-settlement-queue/not-visible");
+  it.live("returns the frozen RFC 9457 credential problem", () =>
+    Effect.gen(function* () {
+      const response = yield* request(
+        harness({ unauthenticated: true }).http,
+        "/api/receipts",
+        undefined,
+        false,
+      );
 
-    expect(visible.status).toBe(200);
-    expect(visible.headers.get("cache-control")).toBe("private, no-store");
-    expect(await readJson(visible)).toMatchObject(evidence);
-    expect(state.settlementReads()).toEqual([
-      { receiptId, personId },
-      { receiptId: ReceiptId.make("not-visible"), personId },
-    ]);
-    expect(concealed.status).toBe(404);
-    expect(concealed.headers.get("cache-control")).toBe("no-store");
-    expect(await concealed.json()).toMatchObject({ code: "receipt.not-found" });
-  });
-
-  it("returns the frozen RFC 9457 credential problem", async () => {
-    const response = await request(
-      harness({ unauthenticated: true }).http,
-      "/api/receipts",
-      undefined,
-      false,
-    );
-
-    await expectProblem(response, {
-      code: "credential.missing",
-      title: "Credential required",
-      status: 401,
-      detail: "A credential is required for this operation.",
-    });
-  });
+      yield* expectProblem(response, {
+        code: "credential.missing",
+        title: "Credential required",
+        status: 401,
+        detail: "A credential is required for this operation.",
+      });
+    }),
+  );
 
   it("derives opaque command identity only from credential, operation, target, and idempotency key", () => {
     const first = deriveHttpIdentity({
@@ -1115,552 +1150,621 @@ describe("receipt v0.2 HTTP contract", () => {
     expect(first.commandId).not.toContain("submit-receipt-idempotency-key");
   });
 
-  it("persists and replays exact 201 and 200 response capsules in transaction-scoped native receipts", async () => {
-    const state = harness();
-    const executedIn: Array<string> = [];
+  it.live(
+    "persists and replays exact 201 and 200 response capsules in transaction-scoped native receipts",
+    () =>
+      Effect.gen(function* () {
+        const state = harness();
+        const executedIn: Array<string> = [];
 
-    const cases = [
-      {
-        key: "created-response-idempotency-key",
-        requestSha256: "a".repeat(64),
-        operationId: "receipts.submitReceipt",
-        capsule: {
-          status: 201,
-          mediaType: "application/json",
-          bodyBytes: new TextEncoder().encode('{"receiptId":"receipt-one"}'),
-          headers: {
-            "content-type": "application/json",
-            location: `/api/receipts/${receiptId}`,
-            etag: receiptEtag(receiptId, 0),
+        const cases = [
+          {
+            key: "created-response-idempotency-key",
+            requestSha256: "a".repeat(64),
+            operationId: "receipts.submitReceipt",
+            capsule: {
+              status: 201,
+              mediaType: "application/json",
+              bodyBytes: new TextEncoder().encode('{"receiptId":"receipt-one"}'),
+              headers: {
+                "content-type": "application/json",
+                location: `/api/receipts/${receiptId}`,
+                etag: receiptEtag(receiptId, 0),
+              },
+            },
           },
-        },
-      },
-      {
-        key: "entity-response-idempotency-key",
-        requestSha256: "b".repeat(64),
-        operationId: "receipts.withdrawReceipt",
-        capsule: {
-          status: 200,
-          mediaType: "application/json",
-          bodyBytes: new TextEncoder().encode('{"status":"Withdrawn"}'),
-          headers: {
-            "content-type": "application/json",
-            etag: receiptEtag(receiptId, 1),
+          {
+            key: "entity-response-idempotency-key",
+            requestSha256: "b".repeat(64),
+            operationId: "receipts.withdrawReceipt",
+            capsule: {
+              status: 200,
+              mediaType: "application/json",
+              bodyBytes: new TextEncoder().encode('{"status":"Withdrawn"}'),
+              headers: {
+                "content-type": "application/json",
+                etag: receiptEtag(receiptId, 1),
+              },
+            },
           },
-        },
-      },
-    ] as const;
+        ] as const;
 
-    for (const item of cases) {
-      const derived = deriveHttpIdentity({
-        credentialSubject: `Person:${personId}`,
-        qualifiedOperationId: item.operationId,
-        normalizedTarget: "/api/receipts",
-        idempotencyKey: IdempotencyKey.make(item.key),
-      });
+        for (const item of cases) {
+          const derived = deriveHttpIdentity({
+            credentialSubject: `Person:${personId}`,
+            qualifiedOperationId: item.operationId,
+            normalizedTarget: "/api/receipts",
+            idempotencyKey: IdempotencyKey.make(item.key),
+          });
 
-      const identity = {
-        identitySha256: derived.identitySha256,
-        requestSha256: item.requestSha256,
-        operationId: item.operationId,
-      };
+          const identity = {
+            identitySha256: derived.identitySha256,
+            requestSha256: item.requestSha256,
+            operationId: item.operationId,
+          };
 
-      const execute = Effect.gen(function* () {
-        executedIn.push(yield* state.currentTransactionId);
+          const execute = Effect.gen(function* () {
+            executedIn.push(yield* state.currentTransactionId);
 
-        return item.capsule;
-      });
+            return item.capsule;
+          });
 
-      const plan = Effect.succeed({ identity, execute });
-      const committed = await state.run(executeNativeHttpCommandPostgres(plan));
-      const replayed = await state.run(executeNativeHttpCommandPostgres(plan));
+          const plan = Effect.succeed({ identity, execute });
+          const committed = yield* state.run(executeNativeHttpCommandPostgres(plan));
+          const replayed = yield* state.run(executeNativeHttpCommandPostgres(plan));
 
-      expect(committed).toEqual(NativeHttpCommandOutcome.Committed({ response: item.capsule }));
-      expect(replayed._tag).toBe("Replay");
+          expect(committed).toEqual(NativeHttpCommandOutcome.Committed({ response: item.capsule }));
+          expect(replayed._tag).toBe("Replay");
 
-      if (!Predicate.isTagged(replayed, "Replay"))
-        throw new Error("expected native receipt replay");
+          if (!Predicate.isTagged(replayed, "Replay"))
+            throw new Error("expected native receipt replay");
 
-      expect({
-        ...replayed.response,
-        bodyBytes:
-          replayed.response.bodyBytes === null ? null : Array.from(replayed.response.bodyBytes),
-      }).toEqual({ ...item.capsule, bodyBytes: Array.from(item.capsule.bodyBytes) });
-    }
+          expect({
+            ...replayed.response,
+            bodyBytes:
+              replayed.response.bodyBytes === null ? null : Array.from(replayed.response.bodyBytes),
+          }).toEqual({ ...item.capsule, bodyBytes: Array.from(item.capsule.bodyBytes) });
+        }
 
-    expect(executedIn).toHaveLength(2);
-    expect(await state.nativeReceiptCount()).toBe(2);
-    expect((await state.mutationTransactions()).receiptWriteTransactionIds).toEqual(executedIn);
-  });
+        expect(executedIn).toHaveLength(2);
+        expect(yield* state.nativeReceiptCount()).toBe(2);
+        expect((yield* state.mutationTransactions()).receiptWriteTransactionIds).toEqual(
+          executedIn,
+        );
+      }),
+  );
 
-  it("preserves exact 201 and 200 statuses through the public HTTP replay path", async () => {
-    const submitState = harness();
-    const submitted = await submitRequest(submitState.http, "submit-http-replay-key-0001");
-    const submittedBody = await readJson(submitted);
-    expect(Schema.decodeUnknownSync(ReceiptResource)(submittedBody).approvedAt).toBeNull();
-    const submitReplay = await submitRequest(submitState.http, "submit-http-replay-key-0001");
-    expect(submitted.status).toBe(201);
-    expect(submitReplay.status).toBe(201);
-    expect(await submitReplay.json()).toEqual(submittedBody);
-    expect(submitReplay.headers.get("location")).toBe(submitted.headers.get("location"));
-    expect(submitReplay.headers.get("etag")).toBe(submitted.headers.get("etag"));
-    expect(submitted.headers.get("cache-control")).toBe("no-store");
-    expect(submitReplay.headers.get("cache-control")).toBe("no-store");
-    expect(submitState.commands).toHaveLength(1);
+  it.live("preserves exact 201 and 200 statuses through the public HTTP replay path", () =>
+    Effect.gen(function* () {
+      const submitState = harness();
+      const submitted = yield* submitRequest(submitState.http, "submit-http-replay-key-0001");
+      const submittedBody = yield* readJson(submitted);
+      expect(Schema.decodeUnknownSync(ReceiptResource)(submittedBody).approvedAt).toBeNull();
+      const submitReplay = yield* submitRequest(submitState.http, "submit-http-replay-key-0001");
+      expect(submitted.status).toBe(201);
+      expect(submitReplay.status).toBe(201);
+      expect(yield* Effect.promise(() => submitReplay.json())).toEqual(submittedBody);
+      expect(submitReplay.headers.get("location")).toBe(submitted.headers.get("location"));
+      expect(submitReplay.headers.get("etag")).toBe(submitted.headers.get("etag"));
+      expect(submitted.headers.get("cache-control")).toBe("no-store");
+      expect(submitReplay.headers.get("cache-control")).toBe("no-store");
+      expect(submitState.commands).toHaveLength(1);
 
-    const actionState = harness({ ownedRows: [pendingReceipt()] });
+      const actionState = harness({ ownedRows: [pendingReceipt()] });
 
-    const withdrawn = await actionRequest(
-      actionState.http,
-      `/api/receipts/${receiptId}:withdraw`,
-      "withdraw-http-replay-key-0001",
-    );
-
-    const withdrawnBody = await readJson(withdrawn);
-
-    const withdrawReplay = await actionRequest(
-      actionState.http,
-      `/api/receipts/${receiptId}:withdraw`,
-      "withdraw-http-replay-key-0001",
-    );
-
-    expect(withdrawn.status).toBe(200);
-    expect(withdrawReplay.status).toBe(200);
-    expect(withdrawn.headers.get("cache-control")).toBe("no-store");
-    expect(withdrawReplay.headers.get("cache-control")).toBe("no-store");
-    expect(await withdrawReplay.json()).toEqual(withdrawnBody);
-    expect(withdrawReplay.headers.get("etag")).toBe(withdrawn.headers.get("etag"));
-    expect(actionState.commands).toHaveLength(1);
-  });
-
-  it("authorizes and writes in one snapshot, then rejects replay after credential revocation", async () => {
-    const state = harness({ ownedRows: [pendingReceipt()] });
-    const pathname = `/api/receipts/${receiptId}:withdraw`;
-    const idempotencyKey = "withdraw-current-auth-key-0001";
-
-    const accepted = await actionRequest(state.http, pathname, idempotencyKey);
-    expect(accepted.status).toBe(200);
-    expect(await state.snapshotObservations()).toEqual({
-      identitySnapshotIsolations: ["serializable"],
-      identitySnapshotVersions: [1],
-
-      committedVersion: 1,
-    });
-    const committedTransactions = await state.mutationTransactions();
-    expect(committedTransactions.commandTransactionIds).toHaveLength(1);
-    expect(committedTransactions.receiptWriteTransactionIds).toEqual(
-      committedTransactions.commandTransactionIds,
-    );
-    expect(state.authorizationPrincipalCalls()).toBe(0);
-
-    await state.revokeCredential();
-    const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
-    expect(revokedReplay.status).toBe(401);
-    expect(state.commands).toHaveLength(1);
-    expect(await state.mutationTransactions()).toEqual(committedTransactions);
-    expect(await state.snapshotObservations()).toEqual({
-      identitySnapshotIsolations: ["serializable", "serializable"],
-      identitySnapshotVersions: [1, 2],
-
-      committedVersion: 2,
-    });
-  });
-
-  it("denies a matching owner replay after owner authority revocation without another transition", async () => {
-    const state = harness({ ownedRows: [pendingReceipt()] });
-    const pathname = `/api/receipts/${receiptId}:withdraw`;
-    const idempotencyKey = "withdraw-owner-revocation-key-0001";
-
-    const accepted = await actionRequest(state.http, pathname, idempotencyKey);
-    expect(accepted.status).toBe(200);
-    expect(state.commands).toHaveLength(1);
-    expect(state.authorizationChecks()).toEqual(["WithdrawPendingReceipt"]);
-
-    const committedTransactions = await state.mutationTransactions();
-    state.revokeAuthority("Owner");
-    const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
-    await expectProblem(revokedReplay, {
-      code: "authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-    });
-    expect(state.authorizationChecks()).toEqual([
-      "WithdrawPendingReceipt",
-      "WithdrawPendingReceipt",
-    ]);
-    expect(state.commands).toHaveLength(1);
-    expect(await state.nativeReceiptCount()).toBe(1);
-    expect(await state.mutationTransactions()).toEqual(committedTransactions);
-  });
-
-  it("denies a matching approval replay after grant revocation without another transition", async () => {
-    const state = harness({ approvalRows: [pendingReceipt()] });
-    const pathname = `/api/receipts/${receiptId}:approve`;
-    const idempotencyKey = "approve-approval-revocation-key-0001";
-
-    const accepted = await actionRequest(state.http, pathname, idempotencyKey);
-    expect(accepted.status).toBe(200);
-    expect(state.commands).toHaveLength(1);
-    expect(state.authorizationChecks()).toEqual(["ApproveReceipt"]);
-
-    const committedTransactions = await state.mutationTransactions();
-    state.revokeAuthority("Approval");
-    const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
-    await expectProblem(revokedReplay, {
-      code: "authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-    });
-    expect(state.authorizationChecks()).toEqual(["ApproveReceipt", "ApproveReceipt"]);
-    expect(state.commands).toHaveLength(1);
-    expect(await state.nativeReceiptCount()).toBe(1);
-    expect(await state.mutationTransactions()).toEqual(committedTransactions);
-  });
-
-  it("denies a matching reopening replay after grant revocation without another transition", async () => {
-    const state = harness({ approvalRows: [{ ...pendingReceipt(), status: "Rejected" }] });
-    const pathname = `/api/receipts/${receiptId}:reopen`;
-    const idempotencyKey = "reopen-approval-revocation-key-0001";
-
-    const accepted = await actionRequest(state.http, pathname, idempotencyKey);
-    expect(accepted.status).toBe(200);
-    expect(state.commands).toHaveLength(1);
-    expect(state.authorizationChecks()).toEqual(["ReopenRejectedReceipt"]);
-
-    const committedTransactions = await state.mutationTransactions();
-    state.revokeAuthority("Approval");
-    const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
-    await expectProblem(revokedReplay, {
-      code: "authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-    });
-    expect(state.authorizationChecks()).toEqual(["ReopenRejectedReceipt", "ReopenRejectedReceipt"]);
-    expect(state.commands).toHaveLength(1);
-    expect(await state.nativeReceiptCount()).toBe(1);
-    expect(await state.mutationTransactions()).toEqual(committedTransactions);
-  });
-
-  it("registers and executes only the exact frozen action suffixes", async () => {
-    const actions = [
-      ["withdraw", "WithdrawPendingReceipt"],
-      ["approve", "ApproveReceipt"],
-      ["reject", "RejectReceipt"],
-    ] as const;
-
-    for (const [action, commandTag] of actions) {
-      const state = harness({ ownedRows: [pendingReceipt()], approvalRows: [pendingReceipt()] });
-
-      const exact = await actionRequest(
-        state.http,
-        `/api/receipts/${receiptId}:${action}`,
-        `${action}-receipt-idempotency-key`,
+      const withdrawn = yield* actionRequest(
+        actionState.http,
+        `/api/receipts/${receiptId}:withdraw`,
+        "withdraw-http-replay-key-0001",
       );
 
-      expect(exact.status).toBe(200);
-      expect(Schema.decodeUnknownSync(ReceiptResource)(await exact.json()).approvedAt).toBe(
-        action === "approve" ? "2026-08-24T12:00:00.000Z" : null,
+      const withdrawnBody = yield* readJson(withdrawn);
+
+      const withdrawReplay = yield* actionRequest(
+        actionState.http,
+        `/api/receipts/${receiptId}:withdraw`,
+        "withdraw-http-replay-key-0001",
       );
-      expect(state.commands).toHaveLength(1);
-      {
-        const observed = state.commands[0];
-        expect(observed).toHaveProperty("_tag", commandTag);
-        expect(observed).toMatchObject({ receiptId, expectedRevision: 0 });
+
+      expect(withdrawn.status).toBe(200);
+      expect(withdrawReplay.status).toBe(200);
+      expect(withdrawn.headers.get("cache-control")).toBe("no-store");
+      expect(withdrawReplay.headers.get("cache-control")).toBe("no-store");
+      expect(yield* Effect.promise(() => withdrawReplay.json())).toEqual(withdrawnBody);
+      expect(withdrawReplay.headers.get("etag")).toBe(withdrawn.headers.get("etag"));
+      expect(actionState.commands).toHaveLength(1);
+    }),
+  );
+
+  it.live(
+    "authorizes and writes in one snapshot, then rejects replay after credential revocation",
+    () =>
+      Effect.gen(function* () {
+        const state = harness({ ownedRows: [pendingReceipt()] });
+        const pathname = `/api/receipts/${receiptId}:withdraw`;
+        const idempotencyKey = "withdraw-current-auth-key-0001";
+
+        const accepted = yield* actionRequest(state.http, pathname, idempotencyKey);
+        expect(accepted.status).toBe(200);
+        expect(yield* state.snapshotObservations()).toEqual({
+          identitySnapshotIsolations: ["serializable"],
+          identitySnapshotVersions: [1],
+
+          committedVersion: 1,
+        });
+        const committedTransactions = yield* state.mutationTransactions();
+        expect(committedTransactions.commandTransactionIds).toHaveLength(1);
+        expect(committedTransactions.receiptWriteTransactionIds).toEqual(
+          committedTransactions.commandTransactionIds,
+        );
+        expect(state.authorizationPrincipalCalls()).toBe(0);
+
+        yield* state.revokeCredential();
+        const revokedReplay = yield* actionRequest(state.http, pathname, idempotencyKey);
+        expect(revokedReplay.status).toBe(401);
+        expect(state.commands).toHaveLength(1);
+        expect(yield* state.mutationTransactions()).toEqual(committedTransactions);
+        expect(yield* state.snapshotObservations()).toEqual({
+          identitySnapshotIsolations: ["serializable", "serializable"],
+          identitySnapshotVersions: [1, 2],
+
+          committedVersion: 2,
+        });
+      }),
+  );
+
+  it.live(
+    "denies a matching owner replay after owner authority revocation without another transition",
+    () =>
+      Effect.gen(function* () {
+        const state = harness({ ownedRows: [pendingReceipt()] });
+        const pathname = `/api/receipts/${receiptId}:withdraw`;
+        const idempotencyKey = "withdraw-owner-revocation-key-0001";
+
+        const accepted = yield* actionRequest(state.http, pathname, idempotencyKey);
+        expect(accepted.status).toBe(200);
+        expect(state.commands).toHaveLength(1);
+        expect(state.authorizationChecks()).toEqual(["WithdrawPendingReceipt"]);
+
+        const committedTransactions = yield* state.mutationTransactions();
+        state.revokeAuthority("Owner");
+        const revokedReplay = yield* actionRequest(state.http, pathname, idempotencyKey);
+        yield* expectProblem(revokedReplay, {
+          code: "authority.denied",
+          title: "Authority denied",
+          status: 403,
+          detail: "The authenticated principal is not permitted to perform this operation.",
+        });
+        expect(state.authorizationChecks()).toEqual([
+          "WithdrawPendingReceipt",
+          "WithdrawPendingReceipt",
+        ]);
+        expect(state.commands).toHaveLength(1);
+        expect(yield* state.nativeReceiptCount()).toBe(1);
+        expect(yield* state.mutationTransactions()).toEqual(committedTransactions);
+      }),
+  );
+
+  it.live(
+    "denies a matching approval replay after grant revocation without another transition",
+    () =>
+      Effect.gen(function* () {
+        const state = harness({ approvalRows: [pendingReceipt()] });
+        const pathname = `/api/receipts/${receiptId}:approve`;
+        const idempotencyKey = "approve-approval-revocation-key-0001";
+
+        const accepted = yield* actionRequest(state.http, pathname, idempotencyKey);
+        expect(accepted.status).toBe(200);
+        expect(state.commands).toHaveLength(1);
+        expect(state.authorizationChecks()).toEqual(["ApproveReceipt"]);
+
+        const committedTransactions = yield* state.mutationTransactions();
+        state.revokeAuthority("Approval");
+        const revokedReplay = yield* actionRequest(state.http, pathname, idempotencyKey);
+        yield* expectProblem(revokedReplay, {
+          code: "authority.denied",
+          title: "Authority denied",
+          status: 403,
+          detail: "The authenticated principal is not permitted to perform this operation.",
+        });
+        expect(state.authorizationChecks()).toEqual(["ApproveReceipt", "ApproveReceipt"]);
+        expect(state.commands).toHaveLength(1);
+        expect(yield* state.nativeReceiptCount()).toBe(1);
+        expect(yield* state.mutationTransactions()).toEqual(committedTransactions);
+      }),
+  );
+
+  it.live(
+    "denies a matching reopening replay after grant revocation without another transition",
+    () =>
+      Effect.gen(function* () {
+        const state = harness({ approvalRows: [{ ...pendingReceipt(), status: "Rejected" }] });
+        const pathname = `/api/receipts/${receiptId}:reopen`;
+        const idempotencyKey = "reopen-approval-revocation-key-0001";
+
+        const accepted = yield* actionRequest(state.http, pathname, idempotencyKey);
+        expect(accepted.status).toBe(200);
+        expect(state.commands).toHaveLength(1);
+        expect(state.authorizationChecks()).toEqual(["ReopenRejectedReceipt"]);
+
+        const committedTransactions = yield* state.mutationTransactions();
+        state.revokeAuthority("Approval");
+        const revokedReplay = yield* actionRequest(state.http, pathname, idempotencyKey);
+        yield* expectProblem(revokedReplay, {
+          code: "authority.denied",
+          title: "Authority denied",
+          status: 403,
+          detail: "The authenticated principal is not permitted to perform this operation.",
+        });
+        expect(state.authorizationChecks()).toEqual([
+          "ReopenRejectedReceipt",
+          "ReopenRejectedReceipt",
+        ]);
+        expect(state.commands).toHaveLength(1);
+        expect(yield* state.nativeReceiptCount()).toBe(1);
+        expect(yield* state.mutationTransactions()).toEqual(committedTransactions);
+      }),
+  );
+
+  it.live("registers and executes only the exact frozen action suffixes", () =>
+    Effect.gen(function* () {
+      const actions = [
+        ["withdraw", "WithdrawPendingReceipt"],
+        ["approve", "ApproveReceipt"],
+        ["reject", "RejectReceipt"],
+      ] as const;
+
+      for (const [action, commandTag] of actions) {
+        const state = harness({ ownedRows: [pendingReceipt()], approvalRows: [pendingReceipt()] });
+
+        const exact = yield* actionRequest(
+          state.http,
+          `/api/receipts/${receiptId}:${action}`,
+          `${action}-receipt-idempotency-key`,
+        );
+
+        expect(exact.status).toBe(200);
+        expect(
+          Schema.decodeUnknownSync(ReceiptResource)(yield* Effect.promise(() => exact.json()))
+            .approvedAt,
+        ).toBe(action === "approve" ? "2026-08-24T12:00:00.000Z" : null);
+        expect(state.commands).toHaveLength(1);
+        {
+          const observed = state.commands[0];
+          expect(observed).toHaveProperty("_tag", commandTag);
+          expect(observed).toMatchObject({ receiptId, expectedRevision: 0 });
+        }
+
+        expect(state.commands[0]?.commandId).toMatch(/^httpv2_[A-Za-z0-9_-]{43}$/u);
       }
 
-      expect(state.commands[0]?.commandId).toMatch(/^httpv2_[A-Za-z0-9_-]{43}$/u);
-    }
-
-    const aliases = harness({ ownedRows: [pendingReceipt()], approvalRows: [pendingReceipt()] });
-    expect(
-      (await actionRequest(aliases.http, `/api/receipts/${receiptId}/withdraw`, "slash-alias-key"))
-        .status,
-    ).toBe(404);
-    expect(
-      (
-        await actionRequest(
+      const aliases = harness({ ownedRows: [pendingReceipt()], approvalRows: [pendingReceipt()] });
+      expect(
+        (yield* actionRequest(
+          aliases.http,
+          `/api/receipts/${receiptId}/withdraw`,
+          "slash-alias-key",
+        )).status,
+      ).toBe(404);
+      expect(
+        (yield* actionRequest(
           aliases.http,
           `/api/admin/receipts/${receiptId}/refund`,
           "admin-alias-key",
-        )
-      ).status,
-    ).toBe(404);
-  });
+        )).status,
+      ).toBe(404);
+    }),
+  );
 
-  it("returns RFC 9457 malformed-request problems for manual and schema query failures", async () => {
-    for (const pathname of [
-      "/api/receipts?status=Pending&status=Approved",
-      "/api/receipts?status=Unknown",
-      "/api/receipt-approval-queue?status=Pending&unexpected=1",
-      "/api/receipt-approval-queue?status=Unknown",
-    ]) {
-      const response = await request(harness().http, pathname);
-      await expectProblem(response, {
+  it.live("returns RFC 9457 malformed-request problems for manual and schema query failures", () =>
+    Effect.gen(function* () {
+      for (const pathname of [
+        "/api/receipts?status=Pending&status=Approved",
+        "/api/receipts?status=Unknown",
+        "/api/receipt-approval-queue?status=Pending&unexpected=1",
+        "/api/receipt-approval-queue?status=Unknown",
+      ]) {
+        const response = yield* request(harness().http, pathname);
+        yield* expectProblem(response, {
+          code: "request.malformed",
+          title: "Malformed request",
+          status: 400,
+          detail: "The request is malformed.",
+        });
+      }
+    }),
+  );
+
+  it.live("rejects query parameters on semantic receipt commands before execution", () =>
+    Effect.gen(function* () {
+      const state = harness();
+
+      const response = yield* actionRequest(
+        state.http,
+        `/api/receipts/${receiptId}:approve?unexpected=1`,
+        "approve-query-rejected-0109",
+      );
+
+      yield* expectProblem(response, {
         code: "request.malformed",
         title: "Malformed request",
         status: 400,
         detail: "The request is malformed.",
       });
-    }
-  });
+      expect(state.commands).toEqual([]);
+    }),
+  );
 
-  it("rejects query parameters on semantic receipt commands before execution", async () => {
-    const state = harness();
+  it.live(
+    "projects receipt persistence failure through the reopening endpoint's declared problem schema",
+    () =>
+      Effect.gen(function* () {
+        const state = harness({
+          approvalRows: [{ ...pendingReceipt(), status: "Rejected" }],
+          commandFailure: new ReceiptPersistenceError({
+            operation: "synthetic",
+            message: "private SQL details",
+          }),
+        });
 
-    const response = await actionRequest(
-      state.http,
-      `/api/receipts/${receiptId}:approve?unexpected=1`,
-      "approve-query-rejected-0109",
-    );
+        const response = yield* actionRequest(
+          state.http,
+          `/api/receipts/${receiptId}:reopen`,
+          "reopen-failed-command-0102",
+        );
 
-    await expectProblem(response, {
-      code: "request.malformed",
-      title: "Malformed request",
-      status: 400,
-      detail: "The request is malformed.",
-    });
-    expect(state.commands).toEqual([]);
-  });
+        expect(response.status, yield* Effect.promise(() => response.clone().text())).toBe(503);
 
-  it("projects receipt persistence failure through the reopening endpoint's declared problem schema", async () => {
-    const state = harness({
-      approvalRows: [{ ...pendingReceipt(), status: "Rejected" }],
-      commandFailure: new ReceiptPersistenceError({
-        operation: "synthetic",
-        message: "private SQL details",
+        const body = Schema.decodeUnknownSync(ReceiptsReopenReceiptProblem)(
+          yield* Effect.promise(() => response.json()),
+        );
+
+        expect(body).toMatchObject({ code: "receipts.unavailable" });
+        expect(JSON.stringify(body)).not.toContain("private SQL details");
+        expect(yield* state.nativeReceiptCount()).toBe(0);
       }),
-    });
+  );
 
-    const response = await actionRequest(
-      state.http,
-      `/api/receipts/${receiptId}:reopen`,
-      "reopen-failed-command-0102",
-    );
+  it.live(
+    "service-principal queue items expose the same entity condition consumed by person decisions",
+    () =>
+      Effect.gen(function* () {
+        for (const action of ["approve", "reopen"] as const) {
+          const receipt = pendingReceipt({
+            status: action === "reopen" ? "Rejected" : "Pending",
+            revision: 2,
+          });
 
-    expect(response.status, await response.clone().text()).toBe(503);
-    const body = Schema.decodeUnknownSync(ReceiptsReopenReceiptProblem)(await response.json());
-    expect(body).toMatchObject({ code: "receipts.unavailable" });
-    expect(JSON.stringify(body)).not.toContain("private SQL details");
-    expect(await state.nativeReceiptCount()).toBe(0);
-  });
+          const grant = makeServicePrincipalReceiptGrant({
+            grantId: "service-queue0102",
+            servicePrincipalId: "service0102",
+            clientId: "client0102",
+            protectedResource: NATIVE_API_PROTECTED_RESOURCE,
+            operationId: RECEIPT_APPROVAL_QUEUE_OPERATION,
+            capabilityId: "approveReceipt",
+            resourceKind: "receipt",
+            receiptId,
+            startAt: "2026-01-01T00:00:00Z",
+            endAt: null,
+            revokedAt: null,
+            revision: 0,
+          });
 
-  it("service-principal queue items expose the same entity condition consumed by person decisions", async () => {
-    for (const action of ["approve", "reopen"] as const) {
-      const receipt = pendingReceipt({
-        status: action === "reopen" ? "Rejected" : "Pending",
-        revision: 2,
-      });
+          const service = harness({
+            serviceApproval: {
+              servicePrincipalId: ServicePrincipalId.make("service0102"),
+              clientId: grant.clientId,
+              protectedResource: NATIVE_API_PROTECTED_RESOURCE,
+              candidates: [
+                {
+                  grant,
+                  receipt: {
+                    ...receipt,
+                    receiptId: grant.receiptId,
+                    visualId: Schema.decodeSync(ReceiptResource.fields.visualId)(visualId),
+                    ownerPersonId: personId,
+                  },
+                },
+              ],
+              rules: [],
+            },
+          });
 
-      const grant = makeServicePrincipalReceiptGrant({
-        grantId: "service-queue0102",
-        servicePrincipalId: "service0102",
-        clientId: "client0102",
-        protectedResource: NATIVE_API_PROTECTED_RESOURCE,
-        operationId: RECEIPT_APPROVAL_QUEUE_OPERATION,
-        capabilityId: "approveReceipt",
-        resourceKind: "receipt",
-        receiptId,
-        startAt: "2026-01-01T00:00:00Z",
-        endAt: null,
-        revokedAt: null,
-        revision: 0,
-      });
+          const listed = yield* request(
+            service.http,
+            `/api/receipt-approval-queue?status=${receipt.status}`,
+            { headers: { authorization: `Bearer ${serviceBearer}` } },
+            false,
+          );
 
-      const service = harness({
-        serviceApproval: {
-          servicePrincipalId: ServicePrincipalId.make("service0102"),
+          expect(listed.status).toBe(200);
+
+          const body = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse)(
+            yield* Effect.promise(() => listed.json()),
+          );
+
+          const item = body.items[0]!;
+          expect(item.etag).toBe(receiptEtag(receiptId, 2));
+          const person = harness({ approvalRows: [receipt] });
+
+          const accepted = yield* request(person.http, `/api/receipts/${receiptId}:${action}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "idempotency-key": `${action}-service-queue0102`,
+              "if-match": item.etag,
+            },
+            body: "{}",
+          });
+
+          expect(accepted.status).toBe(200);
+        }
+      }),
+  );
+
+  it.live(
+    "authenticates scoped service bearers at HTTP ingress without widening person access",
+    () =>
+      Effect.gen(function* () {
+        const scoped = pendingReceipt();
+
+        const excluded = pendingReceipt({
+          receiptId: ReceiptId.make("receipt-other"),
+          visualId: ReceiptVisualId.make("visual-other"),
+        });
+
+        const grant = makeServicePrincipalReceiptGrant({
+          grantId: "service-scoped",
+          servicePrincipalId: "service0102",
+          clientId: "client0102",
+          protectedResource: NATIVE_API_PROTECTED_RESOURCE,
+          operationId: RECEIPT_APPROVAL_QUEUE_OPERATION,
+          capabilityId: "approveReceipt",
+          resourceKind: "receipt",
+          receiptId,
+          startAt: "2026-01-01T00:00:00Z",
+          endAt: null,
+          revokedAt: null,
+          revision: 0,
+        });
+
+        const candidate = (row: ProjectionRow, currentGrant: typeof grant) => ({
+          grant: currentGrant,
+          receipt: {
+            ...row,
+            receiptId: Schema.decodeSync(ReceiptResource.fields.receiptId)(row.receiptId),
+            visualId: Schema.decodeSync(ReceiptResource.fields.visualId)(row.visualId),
+            ownerPersonId: personId,
+          },
+        });
+
+        const serviceApproval = {
+          servicePrincipalId: grant.servicePrincipalId,
           clientId: grant.clientId,
           protectedResource: NATIVE_API_PROTECTED_RESOURCE,
           candidates: [
-            {
-              grant,
-              receipt: {
-                ...receipt,
-                receiptId: grant.receiptId,
-                visualId: Schema.decodeSync(ReceiptResource.fields.visualId)(visualId),
-                ownerPersonId: personId,
-              },
-            },
+            candidate(scoped, grant),
+            candidate(
+              excluded,
+              makeServicePrincipalReceiptGrant({
+                ...grant,
+                grantId: "service-revoked",
+                receiptId: ReceiptId.make("receipt-other"),
+                revokedAt: evaluatedAt,
+              }),
+            ),
           ],
           rules: [],
-        },
-      });
+        } satisfies ServicePrincipalReceiptGrantAuthority;
 
-      const listed = await request(
-        service.http,
-        `/api/receipt-approval-queue?status=${receipt.status}`,
-        { headers: { authorization: `Bearer ${serviceBearer}` } },
-        false,
-      );
+        const state = harness({ serviceApproval, approvalRows: [scoped] });
+        const bearer = { headers: { authorization: `Bearer ${serviceBearer}` } };
+        const listed = yield* request(state.http, "/api/receipt-approval-queue", bearer, false);
+        expect(listed.status).toBe(200);
+        expect(yield* readJson(listed)).toMatchObject({
+          items: [{ receiptId }],
+        });
+        expect(state.authorizationPrincipalCalls()).toBe(0);
+        const serviceOnPersonOnly = yield* request(state.http, "/api/receipts", bearer, false);
+        expect(serviceOnPersonOnly.status).toBe(401);
 
-      expect(listed.status).toBe(200);
-      const body = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse)(await listed.json());
-      const item = body.items[0]!;
-      expect(item.etag).toBe(receiptEtag(receiptId, 2));
-      const person = harness({ approvalRows: [receipt] });
+        const unscoped = harness({
+          serviceApproval: { ...serviceApproval, candidates: [serviceApproval.candidates[1]!] },
+        });
 
-      const accepted = await request(person.http, `/api/receipts/${receiptId}:${action}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": `${action}-service-queue0102`,
-          "if-match": item.etag,
-        },
-        body: "{}",
-      });
+        const denied = yield* request(unscoped.http, "/api/receipt-approval-queue", bearer, false);
+        expect(denied.status).toBe(403);
+        yield* expectProblem(denied, {
+          code: "authority.denied",
+          title: "Authority denied",
+          status: 403,
+          detail: "The authenticated principal is not permitted to perform this operation.",
+        });
+        const mixed = yield* request(state.http, "/api/receipt-approval-queue", bearer);
+        expect(mixed.status).toBe(401);
+        state.revokeServiceBearer();
+        const revoked = yield* request(state.http, "/api/receipt-approval-queue", bearer, false);
+        expect(revoked.status).toBe(401);
+        const person = harness({ approvalRows: [scoped] });
+        const human = yield* request(person.http, "/api/receipt-approval-queue");
+        expect(human.status).toBe(200);
+        expect(yield* readJson(human)).toMatchObject({ items: [{ receiptId }] });
 
-      expect(accepted.status).toBe(200);
-    }
-  });
+        const userBearer = yield* request(
+          state.http,
+          "/api/receipt-approval-queue",
+          { headers: { authorization: `Bearer ${personBearer}` } },
+          false,
+        );
 
-  it("authenticates scoped service bearers at HTTP ingress without widening person access", async () => {
-    const scoped = pendingReceipt();
+        expect(userBearer.status).toBe(200);
+        expect(yield* readJson(userBearer)).toMatchObject({ items: [{ receiptId }] });
+      }),
+  );
 
-    const excluded = pendingReceipt({
-      receiptId: ReceiptId.make("receipt-other"),
-      visualId: ReceiptVisualId.make("visual-other"),
-    });
-
-    const grant = makeServicePrincipalReceiptGrant({
-      grantId: "service-scoped",
-      servicePrincipalId: "service0102",
-      clientId: "client0102",
-      protectedResource: NATIVE_API_PROTECTED_RESOURCE,
-      operationId: RECEIPT_APPROVAL_QUEUE_OPERATION,
-      capabilityId: "approveReceipt",
-      resourceKind: "receipt",
-      receiptId,
-      startAt: "2026-01-01T00:00:00Z",
-      endAt: null,
-      revokedAt: null,
-      revision: 0,
-    });
-
-    const candidate = (row: ProjectionRow, currentGrant: typeof grant) => ({
-      grant: currentGrant,
-      receipt: {
-        ...row,
-        receiptId: Schema.decodeSync(ReceiptResource.fields.receiptId)(row.receiptId),
-        visualId: Schema.decodeSync(ReceiptResource.fields.visualId)(row.visualId),
-        ownerPersonId: personId,
-      },
-    });
-
-    const serviceApproval = {
-      servicePrincipalId: grant.servicePrincipalId,
-      clientId: grant.clientId,
-      protectedResource: NATIVE_API_PROTECTED_RESOURCE,
-      candidates: [
-        candidate(scoped, grant),
-        candidate(
-          excluded,
-          makeServicePrincipalReceiptGrant({
-            ...grant,
-            grantId: "service-revoked",
-            receiptId: ReceiptId.make("receipt-other"),
-            revokedAt: evaluatedAt,
-          }),
-        ),
-      ],
-      rules: [],
-    } satisfies ServicePrincipalReceiptGrantAuthority;
-
-    const state = harness({ serviceApproval, approvalRows: [scoped] });
-    const bearer = { headers: { authorization: `Bearer ${serviceBearer}` } };
-    const listed = await request(state.http, "/api/receipt-approval-queue", bearer, false);
-    expect(listed.status).toBe(200);
-    expect(await readJson(listed)).toMatchObject({
-      items: [{ receiptId }],
-    });
-    expect(state.authorizationPrincipalCalls()).toBe(0);
-    const serviceOnPersonOnly = await request(state.http, "/api/receipts", bearer, false);
-    expect(serviceOnPersonOnly.status).toBe(401);
-
-    const unscoped = harness({
-      serviceApproval: { ...serviceApproval, candidates: [serviceApproval.candidates[1]!] },
-    });
-
-    const denied = await request(unscoped.http, "/api/receipt-approval-queue", bearer, false);
-    expect(denied.status).toBe(403);
-    await expectProblem(denied, {
-      code: "authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-    });
-    const mixed = await request(state.http, "/api/receipt-approval-queue", bearer);
-    expect(mixed.status).toBe(401);
-    state.revokeServiceBearer();
-    const revoked = await request(state.http, "/api/receipt-approval-queue", bearer, false);
-    expect(revoked.status).toBe(401);
-    const person = harness({ approvalRows: [scoped] });
-    const human = await request(person.http, "/api/receipt-approval-queue");
-    expect(human.status).toBe(200);
-    expect(await readJson(human)).toMatchObject({ items: [{ receiptId }] });
-
-    const userBearer = await request(
-      state.http,
-      "/api/receipt-approval-queue",
-      { headers: { authorization: `Bearer ${personBearer}` } },
-      false,
-    );
-
-    expect(userBearer.status).toBe(200);
-    expect(await readJson(userBearer)).toMatchObject({ items: [{ receiptId }] });
-  });
-
-  it("uses the queue's canonical receipt ETag for approval and reopening commands", async () => {
-    for (const action of ["approve", "reopen"] as const) {
-      const row = pendingReceipt({
-        status: action === "reopen" ? "Rejected" : "Pending",
-        revision: 2,
-      });
-
-      const state = harness({ approvalRows: [row] });
-      const listed = await request(state.http, `/api/receipt-approval-queue?status=${row.status}`);
-      const body = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse)(await listed.json());
-      const item = body.items[0]!;
-      expect(item.etag).toBe(receiptEtag(receiptId, 2));
-
-      const accepted = await request(state.http, `/api/receipts/${receiptId}:${action}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": `${action}-from-queue-0102`,
-          "if-match": item.etag,
-        },
-        body: "{}",
-      });
-
-      expect(accepted.status).toBe(200);
-    }
-  });
-
-  it("uses the frozen approval-queue path and passes one canonical authorization instant", async () => {
-    const row = pendingReceipt({ revision: 2 });
-    const state = harness({ approvalRows: [row] });
-    const response = await request(state.http, "/api/receipt-approval-queue?status=Pending");
-    const body = await readJson(response);
-
-    expect(response.status).toBe(200);
-    expect(body).toMatchObject({
-      items: [
-        {
-          receiptId,
-          amountOre: 1200,
-          status: "Pending",
+  it.live("uses the queue's canonical receipt ETag for approval and reopening commands", () =>
+    Effect.gen(function* () {
+      for (const action of ["approve", "reopen"] as const) {
+        const row = pendingReceipt({
+          status: action === "reopen" ? "Rejected" : "Pending",
           revision: 2,
-        },
-      ],
-    });
-    expect(state.approvalQueries).toEqual([
-      { personId, authorizationInstant: evaluatedAt, status: "Pending" },
-    ]);
-    expect((await request(harness().http, "/api/admin/receipts")).status).toBe(404);
-  });
+        });
+
+        const state = harness({ approvalRows: [row] });
+
+        const listed = yield* request(
+          state.http,
+          `/api/receipt-approval-queue?status=${row.status}`,
+        );
+
+        const body = Schema.decodeUnknownSync(ReceiptApprovalQueueResponse)(
+          yield* Effect.promise(() => listed.json()),
+        );
+
+        const item = body.items[0]!;
+        expect(item.etag).toBe(receiptEtag(receiptId, 2));
+
+        const accepted = yield* request(state.http, `/api/receipts/${receiptId}:${action}`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": `${action}-from-queue-0102`,
+            "if-match": item.etag,
+          },
+          body: "{}",
+        });
+
+        expect(accepted.status).toBe(200);
+      }
+    }),
+  );
+
+  it.live(
+    "uses the frozen approval-queue path and passes one canonical authorization instant",
+    () =>
+      Effect.gen(function* () {
+        const row = pendingReceipt({ revision: 2 });
+        const state = harness({ approvalRows: [row] });
+        const response = yield* request(state.http, "/api/receipt-approval-queue?status=Pending");
+        const body = yield* readJson(response);
+
+        expect(response.status).toBe(200);
+        expect(body).toMatchObject({
+          items: [
+            {
+              receiptId,
+              amountOre: 1200,
+              status: "Pending",
+              revision: 2,
+            },
+          ],
+        });
+        expect(state.approvalQueries).toEqual([
+          { personId, authorizationInstant: evaluatedAt, status: "Pending" },
+        ]);
+        expect((yield* request(harness().http, "/api/admin/receipts")).status).toBe(404);
+      }),
+  );
 });
 
 describe("internal receipt evidence separation", () => {
@@ -1680,310 +1784,341 @@ describe("internal receipt evidence separation", () => {
     audit: [],
   };
 
-  it("registers internal.readReceiptEvidence only on the internal Cookie surface", async () => {
-    const state = harness({
-      evidenceAccessRows: [
-        {
-          ownerPersonId: personId,
-          departmentId: departmentOne,
-          status: "Pending",
-          revision: 2,
-        },
-      ],
-      evidenceResult: evidence,
-    });
+  it.live("registers internal.readReceiptEvidence only on the internal Cookie surface", () =>
+    Effect.gen(function* () {
+      const state = harness({
+        evidenceAccessRows: [
+          {
+            ownerPersonId: personId,
+            departmentId: departmentOne,
+            status: "Pending",
+            revision: 2,
+          },
+        ],
+        evidenceResult: evidence,
+      });
 
-    expect((await request(state.http, internalPath)).status).toBe(404);
-    expect((await request(state.internalHttp, "/api/receipts")).status).toBe(404);
+      expect((yield* request(state.http, internalPath)).status).toBe(404);
+      expect((yield* request(state.internalHttp, "/api/receipts")).status).toBe(404);
 
-    const bearerOnly = await request(
-      state.internalHttp,
-      internalPath,
-      { headers: { authorization: "Bearer service-token" } },
-      false,
-    );
-
-    expect(bearerOnly.headers.get("www-authenticate")).toBe('VektorSession realm="native-api"');
-    await expectProblem(bearerOnly, {
-      code: "credential.invalid",
-      title: "Invalid credential",
-      status: 401,
-      detail: "The supplied credential is invalid.",
-    });
-
-    const response = await request(state.internalHttp, internalPath);
-    expect({ status: response.status, body: await response.json() }).toEqual({
-      status: 200,
-      body: evidence,
-    });
-  });
-
-  it("does not read receipt state when the internal Cookie credential is unavailable", async () => {
-    const missing = harness({ unauthenticated: true });
-    const missingResponse = await request(missing.internalHttp, internalPath);
-    await expectProblem(missingResponse, {
-      code: "credential.invalid",
-      title: "Invalid credential",
-      status: 401,
-      detail: "The supplied credential is invalid.",
-    });
-    expect(missing.evidenceReads).toEqual([]);
-
-    const unavailable = harness({
-      identitySnapshotFailure: new IdentityEngineError({
-        operation: "resolveSnapshotSession",
-        message: "database unavailable",
-      }),
-    });
-
-    const unavailableResponse = await request(unavailable.internalHttp, internalPath);
-    await expectProblem(unavailableResponse, {
-      code: "receipts.unavailable",
-      title: "Receipts unavailable",
-      status: 503,
-      detail: "The receipt service is temporarily unavailable.",
-    });
-    expect(unavailable.evidenceReads).toEqual([]);
-  });
-});
-
-describe("private receipt owner reads", () => {
-  it("uses canonical owner authorization before binary storage IO", async () => {
-    const owner = harness({ privateFileOwner: personId });
-
-    const response = await owner.http.fetch(
-      new Request("http://localhost/api/receipts/private/file", {
-        headers: { cookie: "better-auth.session_token=fixture" },
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3, 4]);
-    expect({
-      contentType: response.headers.get("content-type"),
-      contentLength: response.headers.get("content-length"),
-      contentDisposition: response.headers.get("content-disposition"),
-      contentTypeOptions: response.headers.get("x-content-type-options"),
-      cacheControl: response.headers.get("cache-control"),
-      vary: response.headers.get("vary"),
-    }).toEqual({
-      contentType: "application/pdf",
-      contentLength: "4",
-      contentDisposition: 'inline; filename="receipt.pdf"',
-      contentTypeOptions: "nosniff",
-      cacheControl: "private, no-store",
-      vary: "Origin",
-    });
-    expect(owner.privateFileReads()).toBe(1);
-    const foreign = harness({ privateFileOwner: "different-person" });
-
-    const denied = await foreign.http.fetch(
-      new Request("http://localhost/api/receipts/private/file", {
-        headers: { cookie: "better-auth.session_token=fixture" },
-      }),
-    );
-
-    expect(denied.status).toBe(404);
-    expect(foreign.privateFileReads()).toBe(0);
-  });
-  it("does not expose a successful attachment for unavailable private bytes", async () => {
-    const owner = harness({ privateFileOwner: personId, privateFileUnavailable: true });
-
-    const response = await owner.http.fetch(
-      new Request("http://localhost/api/receipts/private/file", {
-        headers: { cookie: "better-auth.session_token=fixture" },
-      }),
-    );
-
-    expect(response.status).toBe(503);
-    expect(response.headers.get("content-disposition")).toBeNull();
-  });
-});
-
-describe("scoped receipt approval file reads", () => {
-  it("reads an active scoped terminal receipt in the credential snapshot with exact file headers", async () => {
-    const state = harness({
-      approvalFileRow: pendingReceipt({
-        receiptId: ReceiptId.make("terminal-approval-file"),
-        status: "Approved",
-      }),
-      approvalFileContentType: "application/pdf",
-    });
-
-    const response = await request(
-      state.http,
-      "/api/receipt-approval-queue/terminal-approval-file/file",
-    );
-
-    expect(response.status).toBe(200);
-    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3, 4]);
-    expect({
-      contentType: response.headers.get("content-type"),
-      contentLength: response.headers.get("content-length"),
-      contentDisposition: response.headers.get("content-disposition"),
-      contentTypeOptions: response.headers.get("x-content-type-options"),
-      cacheControl: response.headers.get("cache-control"),
-      vary: response.headers.get("vary"),
-    }).toEqual({
-      contentType: "application/pdf",
-      contentLength: "4",
-      contentDisposition: 'inline; filename="receipt.pdf"',
-      contentTypeOptions: "nosniff",
-      cacheControl: "private, no-store",
-      vary: "Origin",
-    });
-    expect(state.approvalFileQueries()).toEqual([
-      {
-        receiptId: ReceiptId.make("terminal-approval-file"),
-        personId,
-        authorizationInstant: evaluatedAt,
-        snapshotIsolation: "repeatable read",
-      },
-    ]);
-    expect((await state.snapshotObservations()).identitySnapshotIsolations).toEqual([
-      "repeatable read",
-    ]);
-    expect(state.privateFileReads()).toBe(1);
-    expect(state.commands).toEqual([]);
-    expect(await state.nativeReceiptCount()).toBe(0);
-  });
-
-  it("does not widen scoped approver access into the owner route", async () => {
-    const state = harness({
-      approvalFileRow: pendingReceipt({ receiptId: ReceiptId.make("approver-only-file") }),
-    });
-
-    const approval = await request(
-      state.http,
-      "/api/receipt-approval-queue/approver-only-file/file",
-    );
-
-    expect(approval.status).toBe(200);
-
-    const owner = await request(state.http, "/api/receipts/approver-only-file/file");
-    await expectProblem(owner, {
-      code: "resource.not-found",
-      title: "Resource not found",
-      status: 404,
-      detail: "The requested resource was not found.",
-    });
-    expect(state.privateFileReads()).toBe(1);
-  });
-
-  it("keeps credential, absence, foreign scope, and inactive authority failures typed", async () => {
-    const unauthenticated = harness({ unauthenticated: true });
-    await expectProblem(
-      await request(
-        unauthenticated.http,
-        "/api/receipt-approval-queue/approval-file/file",
-        undefined,
+      const bearerOnly = yield* request(
+        state.internalHttp,
+        internalPath,
+        { headers: { authorization: "Bearer service-token" } },
         false,
-      ),
-      {
-        code: "credential.missing",
-        title: "Credential required",
-        status: 401,
-        detail: "A credential is required for this operation.",
-      },
-    );
-    expect(unauthenticated.privateFileReads()).toBe(0);
+      );
 
-    const invalid = harness({ unauthenticated: true });
-    await expectProblem(
-      await request(invalid.http, "/api/receipt-approval-queue/approval-file/file"),
-      {
+      expect(bearerOnly.headers.get("www-authenticate")).toBe('VektorSession realm="native-api"');
+      yield* expectProblem(bearerOnly, {
         code: "credential.invalid",
         title: "Invalid credential",
         status: 401,
         detail: "The supplied credential is invalid.",
-      },
-    );
-    expect(invalid.privateFileReads()).toBe(0);
+      });
 
-    const missing = harness();
-    await expectProblem(
-      await request(missing.http, "/api/receipt-approval-queue/missing-file/file"),
-      {
+      const response = yield* request(state.internalHttp, internalPath);
+      expect({
+        status: response.status,
+        body: yield* Effect.promise(() => response.json()),
+      }).toEqual({
+        status: 200,
+        body: evidence,
+      });
+    }),
+  );
+
+  it.live("does not read receipt state when the internal Cookie credential is unavailable", () =>
+    Effect.gen(function* () {
+      const missing = harness({ unauthenticated: true });
+      const missingResponse = yield* request(missing.internalHttp, internalPath);
+      yield* expectProblem(missingResponse, {
+        code: "credential.invalid",
+        title: "Invalid credential",
+        status: 401,
+        detail: "The supplied credential is invalid.",
+      });
+      expect(missing.evidenceReads).toEqual([]);
+
+      const unavailable = harness({
+        identitySnapshotFailure: new IdentityEngineError({
+          operation: "resolveSnapshotSession",
+          message: "database unavailable",
+        }),
+      });
+
+      const unavailableResponse = yield* request(unavailable.internalHttp, internalPath);
+      yield* expectProblem(unavailableResponse, {
+        code: "receipts.unavailable",
+        title: "Receipts unavailable",
+        status: 503,
+        detail: "The receipt service is temporarily unavailable.",
+      });
+      expect(unavailable.evidenceReads).toEqual([]);
+    }),
+  );
+});
+
+describe("private receipt owner reads", () => {
+  it.live("uses canonical owner authorization before binary storage IO", () =>
+    Effect.gen(function* () {
+      const owner = harness({ privateFileOwner: personId });
+
+      const response = yield* owner.http.fetch(
+        new Request("http://localhost/api/receipts/private/file", {
+          headers: { cookie: "better-auth.session_token=fixture" },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect([...new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()))]).toEqual([
+        1, 2, 3, 4,
+      ]);
+      expect({
+        contentType: response.headers.get("content-type"),
+        contentLength: response.headers.get("content-length"),
+        contentDisposition: response.headers.get("content-disposition"),
+        contentTypeOptions: response.headers.get("x-content-type-options"),
+        cacheControl: response.headers.get("cache-control"),
+        vary: response.headers.get("vary"),
+      }).toEqual({
+        contentType: "application/pdf",
+        contentLength: "4",
+        contentDisposition: 'inline; filename="receipt.pdf"',
+        contentTypeOptions: "nosniff",
+        cacheControl: "private, no-store",
+        vary: "Origin",
+      });
+      expect(owner.privateFileReads()).toBe(1);
+      const foreign = harness({ privateFileOwner: "different-person" });
+
+      const denied = yield* foreign.http.fetch(
+        new Request("http://localhost/api/receipts/private/file", {
+          headers: { cookie: "better-auth.session_token=fixture" },
+        }),
+      );
+
+      expect(denied.status).toBe(404);
+      expect(foreign.privateFileReads()).toBe(0);
+    }),
+  );
+  it.live("does not expose a successful attachment for unavailable private bytes", () =>
+    Effect.gen(function* () {
+      const owner = harness({ privateFileOwner: personId, privateFileUnavailable: true });
+
+      const response = yield* owner.http.fetch(
+        new Request("http://localhost/api/receipts/private/file", {
+          headers: { cookie: "better-auth.session_token=fixture" },
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("content-disposition")).toBeNull();
+    }),
+  );
+});
+
+describe("scoped receipt approval file reads", () => {
+  it.live(
+    "reads an active scoped terminal receipt in the credential snapshot with exact file headers",
+    () =>
+      Effect.gen(function* () {
+        const state = harness({
+          approvalFileRow: pendingReceipt({
+            receiptId: ReceiptId.make("terminal-approval-file"),
+            status: "Approved",
+          }),
+          approvalFileContentType: "application/pdf",
+        });
+
+        const response = yield* request(
+          state.http,
+          "/api/receipt-approval-queue/terminal-approval-file/file",
+        );
+
+        expect(response.status).toBe(200);
+        expect([...new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()))]).toEqual([
+          1, 2, 3, 4,
+        ]);
+        expect({
+          contentType: response.headers.get("content-type"),
+          contentLength: response.headers.get("content-length"),
+          contentDisposition: response.headers.get("content-disposition"),
+          contentTypeOptions: response.headers.get("x-content-type-options"),
+          cacheControl: response.headers.get("cache-control"),
+          vary: response.headers.get("vary"),
+        }).toEqual({
+          contentType: "application/pdf",
+          contentLength: "4",
+          contentDisposition: 'inline; filename="receipt.pdf"',
+          contentTypeOptions: "nosniff",
+          cacheControl: "private, no-store",
+          vary: "Origin",
+        });
+        expect(state.approvalFileQueries()).toEqual([
+          {
+            receiptId: ReceiptId.make("terminal-approval-file"),
+            personId,
+            authorizationInstant: evaluatedAt,
+            snapshotIsolation: "repeatable read",
+          },
+        ]);
+        expect((yield* state.snapshotObservations()).identitySnapshotIsolations).toEqual([
+          "repeatable read",
+        ]);
+        expect(state.privateFileReads()).toBe(1);
+        expect(state.commands).toEqual([]);
+        expect(yield* state.nativeReceiptCount()).toBe(0);
+      }),
+  );
+
+  it.live("does not widen scoped approver access into the owner route", () =>
+    Effect.gen(function* () {
+      const state = harness({
+        approvalFileRow: pendingReceipt({ receiptId: ReceiptId.make("approver-only-file") }),
+      });
+
+      const approval = yield* request(
+        state.http,
+        "/api/receipt-approval-queue/approver-only-file/file",
+      );
+
+      expect(approval.status).toBe(200);
+
+      const owner = yield* request(state.http, "/api/receipts/approver-only-file/file");
+      yield* expectProblem(owner, {
         code: "resource.not-found",
         title: "Resource not found",
         status: 404,
         detail: "The requested resource was not found.",
-      },
-    );
-    expect(missing.privateFileReads()).toBe(0);
-
-    for (const approvalFileFailure of ["Scope", "Inactive"] as const) {
-      const denied = harness({
-        approvalFileRow: pendingReceipt({ receiptId: ReceiptId.make("foreign-file") }),
-        approvalFileFailure,
       });
-
-      await expectProblem(
-        await request(denied.http, "/api/receipt-approval-queue/foreign-file/file"),
-        {
-          code: "authority.denied",
-          title: "Authority denied",
-          status: 403,
-          detail: "The authenticated principal is not permitted to perform this operation.",
-        },
-      );
-      expect(denied.privateFileReads()).toBe(0);
-    }
-  });
-
-  it("does not expose file headers when the approved object is unavailable", async () => {
-    const state = harness({
-      approvalFileRow: pendingReceipt({ receiptId: ReceiptId.make("missing-approval-object") }),
-      privateFileUnavailable: true,
-    });
-
-    const response = await request(
-      state.http,
-      "/api/receipt-approval-queue/missing-approval-object/file",
-    );
-
-    await expectProblem(response, {
-      code: "receipts.unavailable",
-      title: "Receipts unavailable",
-      status: 503,
-      detail: "The receipt service is temporarily unavailable.",
-    });
-    expect(response.headers.get("content-disposition")).toBeNull();
-    expect(state.privateFileReads()).toBe(1);
-    expect(state.commands).toEqual([]);
-  });
-
-  it("maps malformed stored file metadata to the declared unavailable response", async () => {
-    const state = harness({
-      approvalFileRow: pendingReceipt({ receiptId: ReceiptId.make("malformed-approval-file") }),
-      approvalFileFailure: "Decode",
-    });
-
-    const response = await request(
-      state.http,
-      "/api/receipt-approval-queue/malformed-approval-file/file",
-    );
-
-    await expectProblem(response, {
-      code: "receipts.unavailable",
-      title: "Receipts unavailable",
-      status: 503,
-      detail: "The receipt service is temporarily unavailable.",
-    });
-    expect(state.privateFileReads()).toBe(0);
-    expect(state.commands).toEqual([]);
-  });
-});
-
-it("owned list response preserves the canonical private cache contract consumed by the SDK", async () => {
-  const owner = harness();
-
-  const response = await owner.http.fetch(
-    new Request("http://localhost/api/receipts", {
-      headers: { cookie: "better-auth.session_token=fixture" },
+      expect(state.privateFileReads()).toBe(1);
     }),
   );
 
-  expect(response.status).toBe(200);
-  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  it.live("keeps credential, absence, foreign scope, and inactive authority failures typed", () =>
+    Effect.gen(function* () {
+      const unauthenticated = harness({ unauthenticated: true });
+      yield* expectProblem(
+        yield* request(
+          unauthenticated.http,
+          "/api/receipt-approval-queue/approval-file/file",
+          undefined,
+          false,
+        ),
+        {
+          code: "credential.missing",
+          title: "Credential required",
+          status: 401,
+          detail: "A credential is required for this operation.",
+        },
+      );
+      expect(unauthenticated.privateFileReads()).toBe(0);
+
+      const invalid = harness({ unauthenticated: true });
+      yield* expectProblem(
+        yield* request(invalid.http, "/api/receipt-approval-queue/approval-file/file"),
+        {
+          code: "credential.invalid",
+          title: "Invalid credential",
+          status: 401,
+          detail: "The supplied credential is invalid.",
+        },
+      );
+      expect(invalid.privateFileReads()).toBe(0);
+
+      const missing = harness();
+      yield* expectProblem(
+        yield* request(missing.http, "/api/receipt-approval-queue/missing-file/file"),
+        {
+          code: "resource.not-found",
+          title: "Resource not found",
+          status: 404,
+          detail: "The requested resource was not found.",
+        },
+      );
+      expect(missing.privateFileReads()).toBe(0);
+
+      for (const approvalFileFailure of ["Scope", "Inactive"] as const) {
+        const denied = harness({
+          approvalFileRow: pendingReceipt({ receiptId: ReceiptId.make("foreign-file") }),
+          approvalFileFailure,
+        });
+
+        yield* expectProblem(
+          yield* request(denied.http, "/api/receipt-approval-queue/foreign-file/file"),
+          {
+            code: "authority.denied",
+            title: "Authority denied",
+            status: 403,
+            detail: "The authenticated principal is not permitted to perform this operation.",
+          },
+        );
+        expect(denied.privateFileReads()).toBe(0);
+      }
+    }),
+  );
+
+  it.live("does not expose file headers when the approved object is unavailable", () =>
+    Effect.gen(function* () {
+      const state = harness({
+        approvalFileRow: pendingReceipt({ receiptId: ReceiptId.make("missing-approval-object") }),
+        privateFileUnavailable: true,
+      });
+
+      const response = yield* request(
+        state.http,
+        "/api/receipt-approval-queue/missing-approval-object/file",
+      );
+
+      yield* expectProblem(response, {
+        code: "receipts.unavailable",
+        title: "Receipts unavailable",
+        status: 503,
+        detail: "The receipt service is temporarily unavailable.",
+      });
+      expect(response.headers.get("content-disposition")).toBeNull();
+      expect(state.privateFileReads()).toBe(1);
+      expect(state.commands).toEqual([]);
+    }),
+  );
+
+  it.live("maps malformed stored file metadata to the declared unavailable response", () =>
+    Effect.gen(function* () {
+      const state = harness({
+        approvalFileRow: pendingReceipt({ receiptId: ReceiptId.make("malformed-approval-file") }),
+        approvalFileFailure: "Decode",
+      });
+
+      const response = yield* request(
+        state.http,
+        "/api/receipt-approval-queue/malformed-approval-file/file",
+      );
+
+      yield* expectProblem(response, {
+        code: "receipts.unavailable",
+        title: "Receipts unavailable",
+        status: 503,
+        detail: "The receipt service is temporarily unavailable.",
+      });
+      expect(state.privateFileReads()).toBe(0);
+      expect(state.commands).toEqual([]);
+    }),
+  );
 });
+
+it.live(
+  "owned list response preserves the canonical private cache contract consumed by the SDK",
+  () =>
+    Effect.gen(function* () {
+      const owner = harness();
+
+      const response = yield* owner.http.fetch(
+        new Request("http://localhost/api/receipts", {
+          headers: { cookie: "better-auth.session_token=fixture" },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+    }),
+);

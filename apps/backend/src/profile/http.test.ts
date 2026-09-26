@@ -15,7 +15,7 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { DateTime, Effect, Layer, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.js";
 
 const authority = (
@@ -88,9 +88,9 @@ const securityServices = Layer.mergeAll(
   Layer.succeed(OAuthCredentialAuthority, oauthCredentialAuthority),
 );
 
-const request = async (
+const request = (
   resolved: Effect.Effect<OrganizationPersonAuthority, OrganizationPersistenceError>,
-): Promise<Response> =>
+) =>
   makeProfileApiHttp(
     {
       config: backendTestConfig,
@@ -104,33 +104,37 @@ const request = async (
   );
 
 describe("Profile HTTP authority failures", () => {
-  it.each([
+  it.live.each([
     [
       "AuthorityInactive",
       authority("profile-test-person", "Inactive", [{ active: false, unitLeader: false }]),
     ],
     ["NotInScope", authority("profile-test-person", "Absent", [])],
-  ] as const)("preserves %s as a typed scope denial", async (_, resolved) => {
-    const response = await request(Effect.succeed(resolved));
+  ] as const)("preserves %s as a typed scope denial", ([_, resolved]) =>
+    Effect.gen(function* () {
+      const response = yield* request(Effect.succeed(resolved));
 
-    expect(response.status).toBe(403);
-    expect(response.headers.get("content-type")).toBe("application/problem+json");
-    expect(await response.json()).toEqual(authorityDeniedProblem);
-  });
+      expect(response.status).toBe(403);
+      expect(response.headers.get("content-type")).toBe("application/problem+json");
+      expect(yield* Effect.promise(() => response.json())).toEqual(authorityDeniedProblem);
+    }),
+  );
 
-  it("maps an unavailable authority provider failure to unavailable", async () => {
-    const response = await request(
-      Effect.fail(
-        new OrganizationPersistenceError({
-          operation: "resolve profile test authority",
-          message: "provider unavailable",
-        }),
-      ),
-    );
+  it.live("maps an unavailable authority provider failure to unavailable", () =>
+    Effect.gen(function* () {
+      const response = yield* request(
+        Effect.fail(
+          new OrganizationPersistenceError({
+            operation: "resolve profile test authority",
+            message: "provider unavailable",
+          }),
+        ),
+      );
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual(profileUnavailableProblem);
-  });
+      expect(response.status).toBe(503);
+      expect(yield* Effect.promise(() => response.json())).toEqual(profileUnavailableProblem);
+    }),
+  );
 });
 
 describe("Profile HTTP ETag", () => {
@@ -186,18 +190,20 @@ describe("Profile HTTP ETag", () => {
     );
   };
 
-  it("changes only after the persisted role representation revision changes", async () => {
-    const member = await readAs("ROLE_TEAM_MEMBER", 3);
-    const changedProjectionWithoutRevision = await readAs("ROLE_TEAM_LEADER", 3);
-    const leaderAfterCommittedAuthorityChange = await readAs("ROLE_TEAM_LEADER", 4);
+  it.live("changes only after the persisted role representation revision changes", () =>
+    Effect.gen(function* () {
+      const member = yield* readAs("ROLE_TEAM_MEMBER", 3);
+      const changedProjectionWithoutRevision = yield* readAs("ROLE_TEAM_LEADER", 3);
+      const leaderAfterCommittedAuthorityChange = yield* readAs("ROLE_TEAM_LEADER", 4);
 
-    expect(member.status).toBe(200);
-    expect(changedProjectionWithoutRevision.status).toBe(200);
-    expect(leaderAfterCommittedAuthorityChange.status).toBe(200);
-    expect(member.headers.get("etag")).toMatch(/^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
-    expect(changedProjectionWithoutRevision.headers.get("etag")).toBe(member.headers.get("etag"));
-    expect(leaderAfterCommittedAuthorityChange.headers.get("etag")).not.toBe(
-      member.headers.get("etag"),
-    );
-  });
+      expect(member.status).toBe(200);
+      expect(changedProjectionWithoutRevision.status).toBe(200);
+      expect(leaderAfterCommittedAuthorityChange.status).toBe(200);
+      expect(member.headers.get("etag")).toMatch(/^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
+      expect(changedProjectionWithoutRevision.headers.get("etag")).toBe(member.headers.get("etag"));
+      expect(leaderAfterCommittedAuthorityChange.headers.get("etag")).not.toBe(
+        member.headers.get("etag"),
+      );
+    }),
+  );
 });

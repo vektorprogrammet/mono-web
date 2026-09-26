@@ -30,7 +30,7 @@ import {
   type ProfileOperations,
 } from "@vektorprogrammet/domain/profile";
 import { Schema, DateTime, Effect, Layer } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { decodeBackendConfig } from "../config.js";
 import { makeBackendTestHttp as backendHttpHandler } from "../test/native-http.js";
 
@@ -387,7 +387,7 @@ const backend = backendHttpHandler(config, backendServices, {
   recordTrustedOriginRejection: () => Effect.void,
 });
 
-const request = (): Promise<Response> =>
+const request = (): Effect.Effect<Response> =>
   backend.fetch(
     new Request("http://backend.test/api/people", {
       headers: { cookie: `${token}=value` },
@@ -395,210 +395,238 @@ const request = (): Promise<Response> =>
   );
 
 describe("GET /api/people (spec 0077.2)", () => {
-  it("answers 401 without a session", async () => {
-    const response = await backend.fetch(new Request("http://backend.test/api/people"));
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
-      title: "Credential required",
-      status: 401,
-      detail: "A credential is required for this operation.",
-      code: "credential.missing",
-    });
-  });
+  it.live("answers 401 without a session", () =>
+    Effect.gen(function* () {
+      const response = yield* backend.fetch(new Request("http://backend.test/api/people"));
+      expect(response.status).toBe(401);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+        title: "Credential required",
+        status: 401,
+        detail: "A credential is required for this operation.",
+        code: "credential.missing",
+      });
+    }),
+  );
 
-  it("denies a plain member with typed 403 AuthorityInactive", async () => {
-    resetScenario();
-    callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson.set("person-caller", [
-      {
-        personId: PersonId.make("person-caller"),
-        departmentId: DepartmentId.make(departmentA),
-        active: true,
-        boardLeader: false,
-      },
-    ]);
-    const response = await request();
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-      code: "authority.denied",
-    });
-  });
-
-  it("denies an inactive leader with typed 403 AuthorityInactive", async () => {
-    resetScenario();
-    callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson.set("person-caller", [
-      {
-        personId: PersonId.make("person-caller"),
-        departmentId: DepartmentId.make(departmentA),
-        active: false,
-        boardLeader: true,
-      },
-    ]);
-    const response = await request();
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-      code: "authority.denied",
-    });
-  });
-
-  it("denies an inactive administrator with typed 403 AuthorityInactive", async () => {
-    resetScenario();
-    callerProjection = { globalAdministrator: "Inactive" };
-    const response = await request();
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-      code: "authority.denied",
-    });
-  });
-
-  it("shows an active global administrator the cross-department directory", async () => {
-    resetScenario();
-    const response = await request();
-    expect(response.status).toBe(200);
-
-    const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(await response.json());
-
-    expect(body.activePeople.map((row) => row.personId)).toEqual([
-      "person-multi-department",
-      "person-leader-a",
-    ]);
-    expect(body.inactivePeople.map((row) => row.personId)).toEqual(["person-ended-membership"]);
-    expect(body.nextCursor).toBeNull();
-    const multi = body.activePeople.find((row) => row.personId === "person-multi-department");
-    // The frozen entry carries department NAMES (spec 0057 falsifier), sorted.
-    expect(multi?.departments).toEqual(["Name of department-a", "Name of department-b"]);
-
-    for (const row of [...body.activePeople, ...body.inactivePeople]) {
-      expect(Object.keys(row).sort()).toEqual([
-        "departments",
-        "email",
-        "firstName",
-        "isActive",
-        "lastName",
-        "personId",
-        "phone",
-        "studyProgramme",
+  it.live("denies a plain member with typed 403 AuthorityInactive", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      callerProjection = { globalAdministrator: "Absent" };
+      membershipsByPerson.set("person-caller", [
+        {
+          personId: PersonId.make("person-caller"),
+          departmentId: DepartmentId.make(departmentA),
+          active: true,
+          boardLeader: false,
+        },
       ]);
-      expect(row.studyProgramme).toBeNull();
-    }
-  });
+      const response = yield* request();
+      expect(response.status).toBe(403);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+        title: "Authority denied",
+        status: 403,
+        detail: "The authenticated principal is not permitted to perform this operation.",
+        code: "authority.denied",
+      });
+    }),
+  );
 
-  it("denies a caller with no Organization record with typed 403 NotInScope", async () => {
-    resetScenario();
-    // Absent grant plus no memberships at all: NotInScope, never a 401.
-    callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson.set("person-caller", []);
-    const response = await request();
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-      code: "authority.denied",
-    });
-  });
+  it.live("denies an inactive leader with typed 403 AuthorityInactive", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      callerProjection = { globalAdministrator: "Absent" };
+      membershipsByPerson.set("person-caller", [
+        {
+          personId: PersonId.make("person-caller"),
+          departmentId: DepartmentId.make(departmentA),
+          active: false,
+          boardLeader: true,
+        },
+      ]);
+      const response = yield* request();
+      expect(response.status).toBe(403);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+        title: "Authority denied",
+        status: 403,
+        detail: "The authenticated principal is not permitted to perform this operation.",
+        code: "authority.denied",
+      });
+    }),
+  );
 
-  it("scopes a department leader to the intersection of their leader departments", async () => {
-    resetScenario();
-    callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson.set("person-caller", [
-      {
-        personId: PersonId.make("person-caller"),
-        departmentId: DepartmentId.make(departmentB),
-        active: true,
-        boardLeader: true,
-      },
-    ]);
-    const response = await request();
-    expect(response.status).toBe(200);
+  it.live("denies an inactive administrator with typed 403 AuthorityInactive", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      callerProjection = { globalAdministrator: "Inactive" };
+      const response = yield* request();
+      expect(response.status).toBe(403);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+        title: "Authority denied",
+        status: 403,
+        detail: "The authenticated principal is not permitted to perform this operation.",
+        code: "authority.denied",
+      });
+    }),
+  );
 
-    const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(await response.json());
+  it.live("shows an active global administrator the cross-department directory", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      const response = yield* request();
+      expect(response.status).toBe(200);
 
-    // Only the multi-department person touches department B.
-    expect(body.activePeople.map((row) => row.personId)).toEqual(["person-multi-department"]);
-    expect(body.inactivePeople).toEqual([]);
-  });
+      const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(
+        yield* Effect.promise(() => response.json()),
+      );
 
-  it("returns a legitimate 200 with empty arrays when nothing intersects", async () => {
-    resetScenario();
-    callerProjection = { globalAdministrator: "Absent" };
-    membershipsByPerson.set("person-caller", [
-      {
-        personId: PersonId.make("person-caller"),
-        departmentId: DepartmentId.make("department-empty"),
-        active: true,
-        boardLeader: true,
-      },
-    ]);
-    people = [];
-    const response = await request();
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      activePeople: [],
-      inactivePeople: [],
-      nextCursor: null,
-    });
-  });
+      expect(body.activePeople.map((row) => row.personId)).toEqual([
+        "person-multi-department",
+        "person-leader-a",
+      ]);
+      expect(body.inactivePeople.map((row) => row.personId)).toEqual(["person-ended-membership"]);
+      expect(body.nextCursor).toBeNull();
+      const multi = body.activePeople.find((row) => row.personId === "person-multi-department");
+      // The frozen entry carries department NAMES (spec 0057 falsifier), sorted.
+      expect(multi?.departments).toEqual(["Name of department-a", "Name of department-b"]);
 
-  it("walks every page until exhaustion without duplicating or dropping a person", async () => {
-    resetScenario();
-    people = Array.from({ length: 205 }, (_, index) => ({
-      personId: PersonId.make(`person-bulk-${String(index + 1).padStart(4, "0")}`),
-      firstName: "Bulk",
-      lastName: `Family${String(index % 7)}`,
-      email: `bulk-${index + 1}@example.invalid`,
-      phone: "90000000",
-    }));
-    membershipsByPerson = new Map<string, Array<SeededMembership>>([]);
-    grantsByPerson = {};
-    const response = await request();
-    expect(response.status).toBe(200);
+      for (const row of [...body.activePeople, ...body.inactivePeople]) {
+        expect(Object.keys(row).sort()).toEqual([
+          "departments",
+          "email",
+          "firstName",
+          "isActive",
+          "lastName",
+          "personId",
+          "phone",
+          "studyProgramme",
+        ]);
+        expect(row.studyProgramme).toBeNull();
+      }
+    }),
+  );
 
-    const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(await response.json());
+  it.live("denies a caller with no Organization record with typed 403 NotInScope", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      // Absent grant plus no memberships at all: NotInScope, never a 401.
+      callerProjection = { globalAdministrator: "Absent" };
+      membershipsByPerson.set("person-caller", []);
+      const response = yield* request();
+      expect(response.status).toBe(403);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+        title: "Authority denied",
+        status: 403,
+        detail: "The authenticated principal is not permitted to perform this operation.",
+        code: "authority.denied",
+      });
+    }),
+  );
 
-    const ids = [...body.activePeople, ...body.inactivePeople].map((row) => row.personId);
-    expect(new Set(ids).size).toBe(205);
-    expect(ids.length).toBe(205);
-  });
+  it.live("scopes a department leader to the intersection of their leader departments", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      callerProjection = { globalAdministrator: "Absent" };
+      membershipsByPerson.set("person-caller", [
+        {
+          personId: PersonId.make("person-caller"),
+          departmentId: DepartmentId.make(departmentB),
+          active: true,
+          boardLeader: true,
+        },
+      ]);
+      const response = yield* request();
+      expect(response.status).toBe(200);
 
-  it("fails 503 when a scanned person has no contact row instead of dropping them", async () => {
-    resetScenario();
-    missingContactFor = "person-multi-department";
-    const response = await request();
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:directory.unavailable",
-      title: "Directory unavailable",
-      status: 503,
-      detail: "The directory service is temporarily unavailable.",
-      code: "directory.unavailable",
-    });
-  });
+      const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(
+        yield* Effect.promise(() => response.json()),
+      );
 
-  it("rejects a query string with 422", async () => {
-    resetScenario();
+      // Only the multi-department person touches department B.
+      expect(body.activePeople.map((row) => row.personId)).toEqual(["person-multi-department"]);
+      expect(body.inactivePeople).toEqual([]);
+    }),
+  );
 
-    const response = await backend.fetch(
-      new Request("http://backend.test/api/people?page=2", {
-        headers: { cookie: `${token}=value` },
-      }),
-    );
+  it.live("returns a legitimate 200 with empty arrays when nothing intersects", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      callerProjection = { globalAdministrator: "Absent" };
+      membershipsByPerson.set("person-caller", [
+        {
+          personId: PersonId.make("person-caller"),
+          departmentId: DepartmentId.make("department-empty"),
+          active: true,
+          boardLeader: true,
+        },
+      ]);
+      people = [];
+      const response = yield* request();
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        activePeople: [],
+        inactivePeople: [],
+        nextCursor: null,
+      });
+    }),
+  );
 
-    expect(response.status).toBe(422);
-  });
+  it.live("walks every page until exhaustion without duplicating or dropping a person", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      people = Array.from({ length: 205 }, (_, index) => ({
+        personId: PersonId.make(`person-bulk-${String(index + 1).padStart(4, "0")}`),
+        firstName: "Bulk",
+        lastName: `Family${String(index % 7)}`,
+        email: `bulk-${index + 1}@example.invalid`,
+        phone: "90000000",
+      }));
+      membershipsByPerson = new Map<string, Array<SeededMembership>>([]);
+      grantsByPerson = {};
+      const response = yield* request();
+      expect(response.status).toBe(200);
+
+      const body = Schema.decodeUnknownSync(PeopleDirectoryResponse)(
+        yield* Effect.promise(() => response.json()),
+      );
+
+      const ids = [...body.activePeople, ...body.inactivePeople].map((row) => row.personId);
+      expect(new Set(ids).size).toBe(205);
+      expect(ids.length).toBe(205);
+    }),
+  );
+
+  it.live("fails 503 when a scanned person has no contact row instead of dropping them", () =>
+    Effect.gen(function* () {
+      resetScenario();
+      missingContactFor = "person-multi-department";
+      const response = yield* request();
+      expect(response.status).toBe(503);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:directory.unavailable",
+        title: "Directory unavailable",
+        status: 503,
+        detail: "The directory service is temporarily unavailable.",
+        code: "directory.unavailable",
+      });
+    }),
+  );
+
+  it.live("rejects a query string with 422", () =>
+    Effect.gen(function* () {
+      resetScenario();
+
+      const response = yield* backend.fetch(
+        new Request("http://backend.test/api/people?page=2", {
+          headers: { cookie: `${token}=value` },
+        }),
+      );
+
+      expect(response.status).toBe(422);
+    }),
+  );
 });

@@ -29,8 +29,9 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { makeNativeValidationError } from "@vektorprogrammet/http-api/http-semantics";
 import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { decodeOrganizationApiConfig } from "./config.js";
+import { jsonText } from "../http-api/problem.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
 
 const ADMIN_SESSION = "organization-admin-session";
@@ -220,7 +221,7 @@ const identitySnapshot = IdentitySnapshot.of({
             new IdentityActor({
               personId,
               sessionId: "organization-http-session",
-              expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+              expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
             }),
           );
     }),
@@ -301,7 +302,7 @@ const http = makeOrganizationApiHttp(
   services,
 );
 
-const request = (pathname: string, init?: RequestInit): Promise<Response> =>
+const request = (pathname: string, init?: RequestInit): Effect.Effect<Response> =>
   http.fetch(new Request(`http://backend.test${pathname}`, init));
 
 const post = (
@@ -310,7 +311,7 @@ const post = (
   body: Schema.Json,
   idempotencyKey: string,
   contentType = "application/json",
-): Promise<Response> =>
+): Effect.Effect<Response> =>
   request(pathname, {
     method: "POST",
     headers: {
@@ -322,10 +323,13 @@ const post = (
     body: JSON.stringify(body),
   });
 
-const responseBody = async (response: Response) => ({
-  status: response.status,
-  body: await response.json(),
-});
+const responseBody = (response: Response) =>
+  Effect.gen(function* () {
+    return {
+      status: response.status,
+      body: yield* Effect.promise(() => response.json()),
+    };
+  });
 
 const expectedProblem = (code: string, title: string, status: number, detail: string) => ({
   type: `urn:vektorprogrammet:problem:v0.2:${code}`,
@@ -346,231 +350,252 @@ const requestValidationProblem = {
 };
 
 describe("Organization HTTP boundary", () => {
-  it("returns only canonical Organization JSON projections from all public routes", async () => {
-    const [departments, teams, fields] = await Promise.all([
-      request("/api/departments"),
-      request("/api/teams"),
-      request("/api/field-of-studies"),
-    ]);
+  it.live("returns only canonical Organization JSON projections from all public routes", () =>
+    Effect.gen(function* () {
+      const [departments, teams, fields] = yield* Effect.all(
+        [request("/api/departments"), request("/api/teams"), request("/api/field-of-studies")],
+        { concurrency: "unbounded" },
+      );
 
-    expect(await responseBody(departments)).toEqual({ status: 200, body: [department] });
-    expect(await responseBody(teams)).toEqual({ status: 200, body: [team] });
-    expect(await responseBody(fields)).toEqual({ status: 200, body: [fieldOfStudy] });
+      expect(yield* responseBody(departments)).toEqual({ status: 200, body: [department] });
+      expect(yield* responseBody(teams)).toEqual({ status: 200, body: [team] });
+      expect(yield* responseBody(fields)).toEqual({ status: 200, body: [fieldOfStudy] });
 
-    const serialized = JSON.stringify([
-      await request("/api/departments").then((response) => response.json()),
-      await request("/api/teams").then((response) => response.json()),
-      await request("/api/field-of-studies").then((response) => response.json()),
-    ]);
+      const serialized = yield* jsonText(
+        yield* Effect.forEach(
+          ["/api/departments", "/api/teams", "/api/field-of-studies"],
+          (pathname) =>
+            request(pathname).pipe(
+              Effect.flatMap(responseBody),
+              Effect.map(({ body }) => body),
+            ),
+        ),
+      );
 
-    for (const forbidden of ["personId", "membership", "commandId", "audit", "actorsByToken"]) {
-      expect(serialized).not.toContain(forbidden);
-    }
-  });
+      for (const forbidden of ["personId", "membership", "commandId", "audit", "actorsByToken"]) {
+        expect(serialized).not.toContain(forbidden);
+      }
+    }),
+  );
 
-  it("returns canonical resources for committed and replayed generated operations", async () => {
-    const departmentKey = "department-create-key-0001";
+  it.live("returns canonical resources for committed and replayed generated operations", () =>
+    Effect.gen(function* () {
+      const departmentKey = "department-create-key-0001";
 
-    const created = await post(
-      "/api/departments",
-      ADMIN_SESSION,
-      createDepartmentRequest,
-      departmentKey,
-    );
+      const created = yield* post(
+        "/api/departments",
+        ADMIN_SESSION,
+        createDepartmentRequest,
+        departmentKey,
+      );
 
-    const createdTeam = await post(
-      "/api/teams",
-      ADMIN_SESSION,
-      createTeamRequest,
-      "team-create-key-00000001",
-    );
+      const createdTeam = yield* post(
+        "/api/teams",
+        ADMIN_SESSION,
+        createTeamRequest,
+        "team-create-key-00000001",
+      );
 
-    const createdField = await post(
-      "/api/field-of-studies",
-      ADMIN_SESSION,
-      createFieldOfStudyRequest,
-      "field-create-key-0000001",
-    );
+      const createdField = yield* post(
+        "/api/field-of-studies",
+        ADMIN_SESSION,
+        createFieldOfStudyRequest,
+        "field-create-key-0000001",
+      );
 
-    const replayed = await post(
-      "/api/departments",
-      ADMIN_SESSION,
-      createDepartmentRequest,
-      departmentKey,
-    );
+      const replayed = yield* post(
+        "/api/departments",
+        ADMIN_SESSION,
+        createDepartmentRequest,
+        departmentKey,
+      );
 
-    expect(await responseBody(created)).toEqual({ status: 201, body: department });
-    expect(created.headers.get("location")).toBe("/api/departments/department-created");
-    expect(created.headers.get("etag")).toMatch(/^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
-    expect(await responseBody(createdTeam)).toEqual({ status: 201, body: team });
-    expect(await responseBody(createdField)).toEqual({ status: 201, body: fieldOfStudy });
-    expect(await responseBody(replayed)).toEqual({ status: 201, body: department });
-  });
+      expect(yield* responseBody(created)).toEqual({ status: 201, body: department });
+      expect(created.headers.get("location")).toBe("/api/departments/department-created");
+      expect(created.headers.get("etag")).toMatch(/^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
+      expect(yield* responseBody(createdTeam)).toEqual({ status: 201, body: team });
+      expect(yield* responseBody(createdField)).toEqual({ status: 201, body: fieldOfStudy });
+      expect(yield* responseBody(replayed)).toEqual({ status: 201, body: department });
+    }),
+  );
 
-  it("maps authority, reference, conflict, and dependency failures to RFC 9457", async () => {
-    const denied = await post(
-      "/api/departments",
-      MEMBER_SESSION,
-      createDepartmentRequest,
-      "department-denied-key-0001",
-    );
+  it.live("maps authority, reference, conflict, and dependency failures to RFC 9457", () =>
+    Effect.gen(function* () {
+      const denied = yield* post(
+        "/api/departments",
+        MEMBER_SESSION,
+        createDepartmentRequest,
+        "department-denied-key-0001",
+      );
 
-    const invalidReference = await post(
-      "/api/teams",
-      ADMIN_SESSION,
-      { ...createTeamRequest, departmentId: "department-unknown" },
-      "team-invalid-ref-key-00001",
-    );
+      const invalidReference = yield* post(
+        "/api/teams",
+        ADMIN_SESSION,
+        { ...createTeamRequest, departmentId: "department-unknown" },
+        "team-invalid-ref-key-00001",
+      );
 
-    const conflict = await post(
-      "/api/departments",
-      ADMIN_SESSION,
-      { ...createDepartmentRequest, name: "Conflict" },
-      "department-conflict-key-01",
-    );
+      const conflict = yield* post(
+        "/api/departments",
+        ADMIN_SESSION,
+        { ...createDepartmentRequest, name: "Conflict" },
+        "department-conflict-key-01",
+      );
 
-    const unavailable = await post(
-      "/api/departments",
-      ADMIN_SESSION,
-      { ...createDepartmentRequest, name: "Unavailable" },
-      "department-unavailable-001",
-    );
+      const unavailable = yield* post(
+        "/api/departments",
+        ADMIN_SESSION,
+        { ...createDepartmentRequest, name: "Unavailable" },
+        "department-unavailable-001",
+      );
 
-    expect(await responseBody(denied)).toEqual({
-      status: 403,
-      body: expectedProblem(
-        "authority.denied",
-        "Authority denied",
-        403,
-        "The authenticated principal is not permitted to perform this operation.",
-      ),
-    });
-    expect(await responseBody(invalidReference)).toEqual({
-      status: 422,
-      body: expectedProblem(
-        "organization.invalid-reference",
-        "Invalid organization reference",
-        422,
-        "An organization reference is invalid.",
-      ),
-    });
-    expect(await responseBody(conflict)).toEqual({
-      status: 409,
-      body: expectedProblem(
-        "idempotency.digest-conflict",
-        "Idempotency conflict",
-        409,
-        "This idempotency key identifies a different semantic request.",
-      ),
-    });
-    expect(await responseBody(unavailable)).toEqual({
-      status: 503,
-      body: expectedProblem(
-        "organization.unavailable",
-        "Organization unavailable",
-        503,
-        "The organization service is temporarily unavailable.",
-      ),
-    });
-  });
+      expect(yield* responseBody(denied)).toEqual({
+        status: 403,
+        body: expectedProblem(
+          "authority.denied",
+          "Authority denied",
+          403,
+          "The authenticated principal is not permitted to perform this operation.",
+        ),
+      });
+      expect(yield* responseBody(invalidReference)).toEqual({
+        status: 422,
+        body: expectedProblem(
+          "organization.invalid-reference",
+          "Invalid organization reference",
+          422,
+          "An organization reference is invalid.",
+        ),
+      });
+      expect(yield* responseBody(conflict)).toEqual({
+        status: 409,
+        body: expectedProblem(
+          "idempotency.digest-conflict",
+          "Idempotency conflict",
+          409,
+          "This idempotency key identifies a different semantic request.",
+        ),
+      });
+      expect(yield* responseBody(unavailable)).toEqual({
+        status: 503,
+        body: expectedProblem(
+          "organization.unavailable",
+          "Organization unavailable",
+          503,
+          "The organization service is temporarily unavailable.",
+        ),
+      });
+    }),
+  );
 
-  it("rejects malformed JSON, wrong content type, excess fields, and oversized bodies", async () => {
-    const before = createCalls;
+  it.live("rejects malformed JSON, wrong content type, excess fields, and oversized bodies", () =>
+    Effect.gen(function* () {
+      const before = createCalls;
 
-    const malformed = await request("/api/departments", {
-      method: "POST",
-      headers: {
-        cookie: `better-auth.session_token=${ADMIN_SESSION}`,
-        "content-type": "application/json",
-        "idempotency-key": "department-malformed-key-01",
-        origin: "http://127.0.0.1:5174",
-      },
-      body: "{",
-    });
+      const malformed = yield* request("/api/departments", {
+        method: "POST",
+        headers: {
+          cookie: `better-auth.session_token=${ADMIN_SESSION}`,
+          "content-type": "application/json",
+          "idempotency-key": "department-malformed-key-01",
+          origin: "http://127.0.0.1:5174",
+        },
+        body: "{",
+      });
 
-    const wrongContentType = await post(
-      "/api/departments",
-      ADMIN_SESSION,
-      createDepartmentRequest,
-      "department-media-key-0001",
-      "text/plain",
-    );
+      const wrongContentType = yield* post(
+        "/api/departments",
+        ADMIN_SESSION,
+        createDepartmentRequest,
+        "department-media-key-0001",
+        "text/plain",
+      );
 
-    const excess = await post(
-      "/api/departments",
-      ADMIN_SESSION,
-      { ...createDepartmentRequest, actorRole: "OrganizationAdministrator" },
-      "department-excess-key-001",
-    );
+      const excess = yield* post(
+        "/api/departments",
+        ADMIN_SESSION,
+        { ...createDepartmentRequest, actorRole: "OrganizationAdministrator" },
+        "department-excess-key-001",
+      );
 
-    const oversized = await post(
-      "/api/departments",
-      ADMIN_SESSION,
-      { ...createDepartmentRequest, name: "x".repeat(2_000) },
-      "department-oversize-key-01",
-    );
+      const oversized = yield* post(
+        "/api/departments",
+        ADMIN_SESSION,
+        { ...createDepartmentRequest, name: "x".repeat(2_000) },
+        "department-oversize-key-01",
+      );
 
-    for (const response of [malformed, wrongContentType, excess]) {
-      expect(await responseBody(response)).toEqual({ status: 422, body: requestValidationProblem });
-    }
+      for (const response of [malformed, wrongContentType, excess]) {
+        expect(yield* responseBody(response)).toEqual({
+          status: 422,
+          body: requestValidationProblem,
+        });
+      }
 
-    expect(await responseBody(oversized)).toEqual({
-      status: 413,
-      body: expectedProblem(
-        "request.too-large",
-        "Request too large",
-        413,
-        "The request body exceeds the permitted size.",
-      ),
-    });
-    expect(createCalls).toBe(before);
-  });
+      expect(yield* responseBody(oversized)).toEqual({
+        status: 413,
+        body: expectedProblem(
+          "request.too-large",
+          "Request too large",
+          413,
+          "The request body exceeds the permitted size.",
+        ),
+      });
+      expect(createCalls).toBe(before);
+    }),
+  );
 
-  it("rejects public query strings before reading Organization and uses exact credentialed preflight origins", async () => {
-    const before = publicListCalls;
-    const queried = await request("/api/departments?active=true");
+  it.live(
+    "rejects public query strings before reading Organization and uses exact credentialed preflight origins",
+    () =>
+      Effect.gen(function* () {
+        const before = publicListCalls;
+        const queried = yield* request("/api/departments?active=true");
 
-    const preflight = await request("/api/departments", {
-      method: "OPTIONS",
-      headers: {
-        origin: "http://127.0.0.1:5174",
-        "access-control-request-method": "GET",
-      },
-    });
+        const preflight = yield* request("/api/departments", {
+          method: "OPTIONS",
+          headers: {
+            origin: "http://127.0.0.1:5174",
+            "access-control-request-method": "GET",
+          },
+        });
 
-    expect(await responseBody(queried)).toEqual({
-      status: 400,
-      body: expectedProblem(
-        "request.malformed",
-        "Malformed request",
-        400,
-        "The request is malformed.",
-      ),
-    });
-    expect(publicListCalls).toBe(before);
-    expect(preflight.status).toBe(204);
-    expect(preflight.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5174");
-    expect(preflight.headers.get("access-control-allow-credentials")).toBe("true");
-  });
+        expect(yield* responseBody(queried)).toEqual({
+          status: 400,
+          body: expectedProblem(
+            "request.malformed",
+            "Malformed request",
+            400,
+            "The request is malformed.",
+          ),
+        });
+        expect(publicListCalls).toBe(before);
+        expect(preflight.status).toBe(204);
+        expect(preflight.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5174");
+        expect(preflight.headers.get("access-control-allow-credentials")).toBe("true");
+      }),
+  );
 
-  it("fails closed with an RFC 9457 credential problem", async () => {
-    const anonymous = await request("/api/departments", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": "anonymous-department-key-01",
-      },
-      body: JSON.stringify(createDepartmentRequest),
-    });
+  it.live("fails closed with an RFC 9457 credential problem", () =>
+    Effect.gen(function* () {
+      const anonymous = yield* request("/api/departments", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "anonymous-department-key-01",
+        },
+        body: yield* jsonText(createDepartmentRequest),
+      });
 
-    expect(await responseBody(anonymous)).toEqual({
-      status: 401,
-      body: expectedProblem(
-        "credential.missing",
-        "Credential required",
-        401,
-        "A credential is required for this operation.",
-      ),
-    });
-  });
+      expect(yield* responseBody(anonymous)).toEqual({
+        status: 401,
+        body: expectedProblem(
+          "credential.missing",
+          "Credential required",
+          401,
+          "A credential is required for this operation.",
+        ),
+      });
+    }),
+  );
 });

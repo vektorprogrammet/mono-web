@@ -1,61 +1,59 @@
 import { Database } from "@vektorprogrammet/database";
-import { backendPostgres } from "./postgres.js";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Cause, Context, Duration, Effect, Exit, Layer, ManagedRuntime } from "effect";
 import { afterEach } from "vitest";
+import { backendPostgres } from "./postgres.js";
 
 const postgres = backendPostgres();
 
-const active = new Set<() => Promise<void>>();
+/** Releases the databases that the running test acquired. */
+const active = new Set<Effect.Effect<void>>();
 
-afterEach(async () => {
-  const failures = [];
+afterEach(() =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const releases = [...active];
+      active.clear();
+      const exits = yield* Effect.forEach(releases, Effect.exit);
 
-  for (const close of active) {
-    active.delete(close);
+      const failures = exits.flatMap((exit) =>
+        Exit.isFailure(exit) ? [Cause.squash(exit.cause)] : [],
+      );
 
-    try {
-      await close();
-    } catch (cause) {
-      failures.push(cause);
-    }
-  }
-
-  if (failures.length > 0) throw new AggregateError(failures, "Database fixture cleanup failed");
-});
+      if (failures.length > 0)
+        return yield* Effect.die(new AggregateError(failures, "Database fixture cleanup failed"));
+    }),
+  ),
+);
 
 /** A migrated PostgreSQL engine retained across requests, never across test cases. */
 export const backendDatabase = <E>(seed: Effect.Effect<void, E, Database> = Effect.void) => {
-  let initialized: Promise<ManagedRuntime.ManagedRuntime<Database, never>> | undefined;
+  const [database, forget] = Effect.runSync(
+    Effect.cachedInvalidateWithTTL(
+      Effect.gen(function* () {
+        const created = yield* postgres.createDatabase;
+        const runtime = ManagedRuntime.make(created.layer);
 
-  const acquire = () => {
-    initialized ??= (async () => {
-      const database = await postgres.createDatabase();
-      const runtime = ManagedRuntime.make(database.layer);
-      active.add(async () => {
-        initialized = undefined;
+        active.add(
+          forget.pipe(
+            Effect.andThen(runtime.disposeEffect),
+            Effect.ensuring(Effect.orDie(created.drop)),
+          ),
+        );
 
-        try {
-          await runtime.dispose();
-        } finally {
-          await database.drop();
-        }
-      });
-      await runtime.runPromise(seed);
+        const context = yield* runtime.contextEffect;
+        yield* Effect.provide(seed, context);
 
-      return runtime;
-    })();
-
-    return initialized;
-  };
-
-  const run = async <A, Error>(effect: Effect.Effect<A, Error, Database>): Promise<A> =>
-    (await acquire()).runPromise(effect);
+        return context;
+      }).pipe(Effect.orDie),
+      Duration.infinity,
+    ),
+  );
 
   return {
-    layer: Layer.effect(
-      Database,
-      Effect.promise(() => run(Database)),
-    ),
-    run,
+    /** Provides the test's database to a request's services. */
+    layer: Layer.effect(Database, Effect.map(database, Context.get(Database))),
+    /** Runs in the test's database. */
+    run: <A, Failure>(effect: Effect.Effect<A, Failure, Database>) =>
+      Effect.flatMap(database, (context) => Effect.provide(effect, context)),
   };
 };

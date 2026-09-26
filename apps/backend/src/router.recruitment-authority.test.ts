@@ -30,7 +30,7 @@ import { SocialEvents } from "@vektorprogrammet/domain/social-events";
 import { Admissions } from "@vektorprogrammet/domain";
 import { NativeProblem } from "@vektorprogrammet/http-api";
 import { Predicate, DateTime, Effect, Layer, Schema } from "effect";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "@effect/vitest";
 import { decodeBackendConfig } from "./config.js";
 import { makeBackendTestHttp as backendHttpHandler } from "./test/native-http.js";
 
@@ -247,168 +247,194 @@ const backend = backendHttpHandler(config, backendServices, {
   recordTrustedOriginRejection: () => Effect.void,
 });
 
-const request = (pathname: string, sessionValue: string): Promise<Response> =>
+const request = (pathname: string, sessionValue: string): Effect.Effect<Response> =>
   backend.fetch(
     new Request(`http://backend.test${pathname}`, {
       headers: { cookie: `better-auth.session_token=${sessionValue}` },
     }),
   );
 
-const problem = async (response: Response) => {
-  const decoded = Schema.decodeUnknownSync(NativeProblem)(await response.json());
+const problem = (response: Response) =>
+  Effect.gen(function* () {
+    const decoded = Schema.decodeUnknownSync(NativeProblem)(
+      yield* Effect.promise(() => response.json()),
+    );
 
-  return { status: response.status, code: decoded.code };
-};
+    return { status: response.status, code: decoded.code };
+  });
 
 describe("recruitment actors from authorized departments (spec 0055)", () => {
   beforeEach(() => {
     recruitmentCalls.length = 0;
   });
 
-  it("allows a DepartmentAdministrator to read the canonical assignment board once", async () => {
-    const response = await request(
-      "/api/recruitment/application-assignments?status=new",
-      leaderToken,
-    );
+  it.live("allows a DepartmentAdministrator to read the canonical assignment board once", () =>
+    Effect.gen(function* () {
+      const response = yield* request(
+        "/api/recruitment/application-assignments?status=new",
+        leaderToken,
+      );
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(assignmentBoard);
-    expect(recruitmentCalls).toEqual([
-      {
-        operation: "readAssignmentBoard",
-        actor: expect.objectContaining(
-          AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
-            personId: PersonId.make("leader-1"),
-            departmentId: DepartmentId.make("department-1"),
-            active: true,
-          }),
-        ),
-      },
-    ]);
-  });
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.json())).toEqual(assignmentBoard);
+      expect(recruitmentCalls).toEqual([
+        {
+          operation: "readAssignmentBoard",
+          actor: expect.objectContaining(
+            AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
+              personId: PersonId.make("leader-1"),
+              departmentId: DepartmentId.make("department-1"),
+              active: true,
+            }),
+          ),
+        },
+      ]);
+    }),
+  );
 
-  it("denies a plain active member from the assignment board", async () => {
-    const response = await request(
-      "/api/recruitment/application-assignments?status=new",
-      memberToken,
-    );
+  it.live("denies a plain active member from the assignment board", () =>
+    Effect.gen(function* () {
+      const response = yield* request(
+        "/api/recruitment/application-assignments?status=new",
+        memberToken,
+      );
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-      code: "authority.denied",
-    });
-    expect(recruitmentCalls).toEqual([]);
-  });
+      expect(response.status).toBe(403);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+        title: "Authority denied",
+        status: 403,
+        detail: "The authenticated principal is not permitted to perform this operation.",
+        code: "authority.denied",
+      });
+      expect(recruitmentCalls).toEqual([]);
+    }),
+  );
 
-  it("denies an anonymous assignment-board caller before any domain call", async () => {
-    const response = await request("/api/recruitment/application-assignments?status=new", "");
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
-      title: "Credential required",
-      status: 401,
-      detail: "A credential is required for this operation.",
-      code: "credential.missing",
-    });
-    expect(recruitmentCalls).toEqual([]);
-  });
+  it.live("denies an anonymous assignment-board caller before any domain call", () =>
+    Effect.gen(function* () {
+      const response = yield* request("/api/recruitment/application-assignments?status=new", "");
+      expect(response.status).toBe(401);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+        title: "Credential required",
+        status: 401,
+        detail: "A credential is required for this operation.",
+        code: "credential.missing",
+      });
+      expect(recruitmentCalls).toEqual([]);
+    }),
+  );
 
-  it("allows an active department member to read the scheduling board once", async () => {
-    const response = await request("/api/recruitment/interviews", memberToken);
+  it.live("allows an active department member to read the scheduling board once", () =>
+    Effect.gen(function* () {
+      const response = yield* request("/api/recruitment/interviews", memberToken);
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(schedulingBoard);
-    expect(recruitmentCalls).toEqual([
-      {
-        operation: "readSchedulingBoard",
-        actor: expect.objectContaining(
-          AdmissionPeriodActorSchema.cases.Member.make({
-            personId: PersonId.make("member-1"),
-            departmentId: DepartmentId.make("department-1"),
-            active: true,
-          }),
-        ),
-      },
-    ]);
-  });
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.json())).toEqual(schedulingBoard);
+      expect(recruitmentCalls).toEqual([
+        {
+          operation: "readSchedulingBoard",
+          actor: expect.objectContaining(
+            AdmissionPeriodActorSchema.cases.Member.make({
+              personId: PersonId.make("member-1"),
+              departmentId: DepartmentId.make("department-1"),
+              active: true,
+            }),
+          ),
+        },
+      ]);
+    }),
+  );
 
-  it("denies an inactive department member from the scheduling board", async () => {
-    const response = await request("/api/recruitment/interviews", inactiveToken);
+  it.live("denies an inactive department member from the scheduling board", () =>
+    Effect.gen(function* () {
+      const response = yield* request("/api/recruitment/interviews", inactiveToken);
 
-    expect(await problem(response)).toEqual({ status: 403, code: "authority.denied" });
-    expect(recruitmentCalls).toEqual([]);
-  });
+      expect(yield* problem(response)).toEqual({ status: 403, code: "authority.denied" });
+      expect(recruitmentCalls).toEqual([]);
+    }),
+  );
 
   // A 401 tells the dashboard that the session expired, and it signs the person out.
-  it("denies an authenticated person without a department instead of rejecting the session", async () => {
-    const [board, admissionPeriods] = await Promise.all([
-      request("/api/recruitment/interviews", unassignedToken),
-      request("/api/admission-periods", unassignedToken),
-    ]);
+  it.live(
+    "denies an authenticated person without a department instead of rejecting the session",
+    () =>
+      Effect.gen(function* () {
+        const [board, admissionPeriods] = yield* Effect.all(
+          [
+            request("/api/recruitment/interviews", unassignedToken),
+            request("/api/admission-periods", unassignedToken),
+          ],
+          { concurrency: "unbounded" },
+        );
 
-    expect([await problem(board), await problem(admissionPeriods)]).toEqual([
-      { status: 403, code: "authority.denied" },
-      { status: 403, code: "authority.denied" },
-    ]);
-    expect(recruitmentCalls).toEqual([]);
-  });
-
-  it("lists admission periods in a department leader's own department without a scope", async () => {
-    const response = await request("/api/admission-periods", leaderToken);
-
-    expect(response.status).toBe(200);
-    expect(recruitmentCalls).toEqual([
-      {
-        operation: "listAdmissionPeriodsForManagement",
-        actor: expect.objectContaining(
-          AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
-            personId: PersonId.make("leader-1"),
-            departmentId: DepartmentId.make("department-1"),
-            active: true,
-          }),
-        ),
-      },
-    ]);
-  });
-
-  it("keeps a department leadership after the leader's administrator grant has ended", async () => {
-    const [admissionPeriods, board] = [
-      await request("/api/admission-periods", formerAdministratorToken),
-      await request(
-        "/api/recruitment/application-assignments?status=new",
-        formerAdministratorToken,
-      ),
-    ];
-
-    const leader = expect.objectContaining(
-      AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
-        personId: PersonId.make("former-administrator-1"),
-        departmentId: DepartmentId.make("department-1"),
-        active: true,
+        expect([yield* problem(board), yield* problem(admissionPeriods)]).toEqual([
+          { status: 403, code: "authority.denied" },
+          { status: 403, code: "authority.denied" },
+        ]);
+        expect(recruitmentCalls).toEqual([]);
       }),
-    );
+  );
 
-    expect([admissionPeriods.status, board.status]).toEqual([200, 200]);
-    expect(recruitmentCalls).toEqual([
-      { operation: "listAdmissionPeriodsForManagement", actor: leader },
-      { operation: "readAssignmentBoard", actor: leader },
-    ]);
-  });
+  it.live("lists admission periods in a department leader's own department without a scope", () =>
+    Effect.gen(function* () {
+      const response = yield* request("/api/admission-periods", leaderToken);
 
-  it("denies an anonymous scheduling-board caller before any domain call", async () => {
-    const response = await request("/api/recruitment/interviews", "");
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
-      title: "Credential required",
-      status: 401,
-      detail: "A credential is required for this operation.",
-      code: "credential.missing",
-    });
-    expect(recruitmentCalls).toEqual([]);
-  });
+      expect(response.status).toBe(200);
+      expect(recruitmentCalls).toEqual([
+        {
+          operation: "listAdmissionPeriodsForManagement",
+          actor: expect.objectContaining(
+            AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
+              personId: PersonId.make("leader-1"),
+              departmentId: DepartmentId.make("department-1"),
+              active: true,
+            }),
+          ),
+        },
+      ]);
+    }),
+  );
+
+  it.live("keeps a department leadership after the leader's administrator grant has ended", () =>
+    Effect.gen(function* () {
+      const [admissionPeriods, board] = [
+        yield* request("/api/admission-periods", formerAdministratorToken),
+        yield* request(
+          "/api/recruitment/application-assignments?status=new",
+          formerAdministratorToken,
+        ),
+      ];
+
+      const leader = expect.objectContaining(
+        AdmissionPeriodActorSchema.cases.DepartmentAdministrator.make({
+          personId: PersonId.make("former-administrator-1"),
+          departmentId: DepartmentId.make("department-1"),
+          active: true,
+        }),
+      );
+
+      expect([admissionPeriods.status, board.status]).toEqual([200, 200]);
+      expect(recruitmentCalls).toEqual([
+        { operation: "listAdmissionPeriodsForManagement", actor: leader },
+        { operation: "readAssignmentBoard", actor: leader },
+      ]);
+    }),
+  );
+
+  it.live("denies an anonymous scheduling-board caller before any domain call", () =>
+    Effect.gen(function* () {
+      const response = yield* request("/api/recruitment/interviews", "");
+      expect(response.status).toBe(401);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+        title: "Credential required",
+        status: 401,
+        detail: "A credential is required for this operation.",
+        code: "credential.missing",
+      });
+      expect(recruitmentCalls).toEqual([]);
+    }),
+  );
 });

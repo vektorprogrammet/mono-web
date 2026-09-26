@@ -41,7 +41,7 @@ import {
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { NativeProblem, SocialEventsReadScopeProblem } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { decodeBackendConfig } from "./config.js";
 import { contactConfig } from "./contact/config.js";
 import {
@@ -240,9 +240,9 @@ const makeBackendServices = (
 
 const currentSession = new IdentitySession({
   sessionId: "session-1",
-  createdAt: DateTime.makeUnsafe(new Date("2031-09-15T12:00:00.000Z")),
-  updatedAt: DateTime.makeUnsafe(new Date("2031-09-15T12:00:00.000Z")),
-  expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+  createdAt: DateTime.makeUnsafe("2031-09-15T12:00:00.000Z"),
+  updatedAt: DateTime.makeUnsafe("2031-09-15T12:00:00.000Z"),
+  expiresAt: DateTime.makeUnsafe("2031-09-16T12:00:00.000Z"),
   ipAddress: "127.0.0.1",
   userAgent: "router-test",
   current: true,
@@ -279,7 +279,7 @@ const successfulServices = makeBackendServices(successfulIdentity);
 
 const backend = backendHttpHandler(config, successfulServices, unavailableAuthHandler);
 
-const request = (pathname: string, init?: RequestInit): Promise<Response> =>
+const request = (pathname: string, init?: RequestInit): Effect.Effect<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
 
 const expectedProblem = (code: string, title: string, status: number, detail: string) => ({
@@ -295,241 +295,283 @@ describe("unified backend router", () => {
     expect(externalNativePreflightMethodsForPath("/api/session")).toEqual(["GET", "DELETE"]);
     expect(externalNativePreflightAttachmentGaps).toEqual([]);
   });
-  it("owns health, Profile, Organization, Schools, Admission, Receipt, and Recruitment routes", async () => {
-    const [
-      health,
-      profile,
-      organizationResponse,
-      schoolsResponse,
-      admission,
-      receipt,
-      recruitment,
-      publicRecruitment,
-      missing,
-      internalEvidence,
-    ] = await Promise.all([
-      request("/health"),
-      request("/api/profile", { headers: { cookie: `${token}=value` } }),
-      request("/api/departments"),
-      request("/api/schools", { headers: { cookie: `${token}=value` } }),
-      request("/api/admission-periods"),
-      request("/api/receipts"),
-      request("/api/recruitment/application-assignments?status=new"),
-      request("/api/recruitment/invitation-response"),
-      request("/api/not-a-capability"),
-      request("/api/e2e/receipts/receipt-one/evidence", {
-        headers: { cookie: `${token}=value` },
+  it.live(
+    "owns health, Profile, Organization, Schools, Admission, Receipt, and Recruitment routes",
+    () =>
+      Effect.gen(function* () {
+        const [
+          health,
+          profile,
+          organizationResponse,
+          schoolsResponse,
+          admission,
+          receipt,
+          recruitment,
+          publicRecruitment,
+          missing,
+          internalEvidence,
+        ] = yield* Effect.all(
+          [
+            request("/health"),
+            request("/api/profile", { headers: { cookie: `${token}=value` } }),
+            request("/api/departments"),
+            request("/api/schools", { headers: { cookie: `${token}=value` } }),
+            request("/api/admission-periods"),
+            request("/api/receipts"),
+            request("/api/recruitment/application-assignments?status=new"),
+            request("/api/recruitment/invitation-response"),
+            request("/api/not-a-capability"),
+            request("/api/e2e/receipts/receipt-one/evidence", {
+              headers: { cookie: `${token}=value` },
+            }),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        expect({ status: health.status, body: yield* Effect.promise(() => health.json()) }).toEqual(
+          {
+            status: 200,
+            body: { status: "ok" },
+          },
+        );
+        expect({
+          status: profile.status,
+          body: yield* Effect.promise(() => profile.json()),
+        }).toEqual({
+          status: 200,
+          body: {
+            personId: PersonId.make("member-1"),
+            firstName: "Member",
+            lastName: "One",
+            email: "member@example.invalid",
+            phone: "90000000",
+            role: "ROLE_TEAM_MEMBER",
+            nameRevision: 0,
+            contactRevision: 0,
+          },
+        });
+        expect({
+          status: organizationResponse.status,
+          body: yield* Effect.promise(() => organizationResponse.json()),
+        }).toEqual({
+          status: 200,
+          body: [],
+        });
+        expect({
+          status: schoolsResponse.status,
+          body: yield* Effect.promise(() => schoolsResponse.json()),
+        }).toEqual({
+          status: 200,
+          body: { activeSchools: [], inactiveSchools: [] },
+        });
+
+        for (const response of [admission, receipt, recruitment]) {
+          expect({
+            status: response.status,
+            body: yield* Effect.promise(() => response.json()),
+          }).toEqual({
+            status: 401,
+            body: expectedProblem(
+              "credential.missing",
+              "Credential required",
+              401,
+              "A credential is required for this operation.",
+            ),
+          });
+        }
+
+        expect({
+          status: publicRecruitment.status,
+          body: yield* Effect.promise(() => publicRecruitment.json()),
+        }).toEqual({
+          status: 404,
+          body: expectedProblem(
+            "resource.not-found",
+            "Resource not found",
+            404,
+            "The requested resource was not found.",
+          ),
+        });
+
+        for (const response of [missing, internalEvidence]) {
+          expect({
+            status: response.status,
+            body: yield* Effect.promise(() => response.json()),
+          }).toEqual({
+            status: 404,
+            body: expectedProblem(
+              "resource.not-found",
+              "Resource not found",
+              404,
+              "The requested resource was not found.",
+            ),
+          });
+        }
       }),
-    ]);
+  );
 
-    expect({ status: health.status, body: await health.json() }).toEqual({
-      status: 200,
-      body: { status: "ok" },
-    });
-    expect({ status: profile.status, body: await profile.json() }).toEqual({
-      status: 200,
-      body: {
-        personId: PersonId.make("member-1"),
-        firstName: "Member",
-        lastName: "One",
-        email: "member@example.invalid",
-        phone: "90000000",
-        role: "ROLE_TEAM_MEMBER",
-        nameRevision: 0,
-        contactRevision: 0,
-      },
-    });
-    expect({
-      status: organizationResponse.status,
-      body: await organizationResponse.json(),
-    }).toEqual({
-      status: 200,
-      body: [],
-    });
-    expect({ status: schoolsResponse.status, body: await schoolsResponse.json() }).toEqual({
-      status: 200,
-      body: { activeSchools: [], inactiveSchools: [] },
-    });
+  it.live("leaves every off-spec content alias at the unified 404 boundary", () =>
+    Effect.gen(function* () {
+      const responses = yield* Effect.all(
+        [
+          request("/api/admin/content/drafts", { method: "POST" }),
+          request("/api/admin/content/drafts/7", { method: "PUT" }),
+          request("/api/admin/content", { method: "POST" }),
+          request("/api/articles", { method: "GET" }),
+          request("/articles/7", { method: "GET" }),
+        ],
+        { concurrency: "unbounded" },
+      );
 
-    for (const response of [admission, receipt, recruitment]) {
-      expect({ status: response.status, body: await response.json() }).toEqual({
-        status: 401,
-        body: expectedProblem(
-          "credential.missing",
-          "Credential required",
-          401,
-          "A credential is required for this operation.",
-        ),
-      });
-    }
+      for (const response of responses) {
+        expect({
+          status: response.status,
+          body: yield* Effect.promise(() => response.json()),
+        }).toEqual({
+          status: 404,
+          body: expectedProblem(
+            "resource.not-found",
+            "Resource not found",
+            404,
+            "The requested resource was not found.",
+          ),
+        });
+      }
+    }),
+  );
 
-    expect({
-      status: publicRecruitment.status,
-      body: await publicRecruitment.json(),
-    }).toEqual({
-      status: 404,
-      body: expectedProblem(
-        "resource.not-found",
-        "Resource not found",
-        404,
-        "The requested resource was not found.",
-      ),
-    });
+  it.live("dispatches team-interest and mailing-list reads through Organization", () =>
+    Effect.gen(function* () {
+      const [teamInterest, mailingLists] = yield* Effect.all(
+        [request("/api/team-interest-registrations"), request("/api/mailing-lists")],
+        { concurrency: "unbounded" },
+      );
 
-    for (const response of [missing, internalEvidence]) {
-      expect({ status: response.status, body: await response.json() }).toEqual({
-        status: 404,
-        body: expectedProblem(
-          "resource.not-found",
-          "Resource not found",
-          404,
-          "The requested resource was not found.",
-        ),
-      });
-    }
-  });
+      for (const response of [teamInterest, mailingLists]) {
+        expect({
+          status: response.status,
+          body: yield* Effect.promise(() => response.json()),
+        }).toEqual({
+          status: 401,
+          body: expectedProblem(
+            "credential.missing",
+            "Credential required",
+            401,
+            "A credential is required for this operation.",
+          ),
+        });
+      }
+    }),
+  );
 
-  it("leaves every off-spec content alias at the unified 404 boundary", async () => {
-    const responses = await Promise.all([
-      request("/api/admin/content/drafts", { method: "POST" }),
-      request("/api/admin/content/drafts/7", { method: "PUT" }),
-      request("/api/admin/content", { method: "POST" }),
-      request("/api/articles", { method: "GET" }),
-      request("/articles/7", { method: "GET" }),
-    ]);
+  it.live("exposes exactly the six safe native session resources and removes the old path", () =>
+    Effect.gen(function* () {
+      const cookieHeaders = { cookie: `${token}=value; other=1` };
 
-    for (const response of responses) {
-      expect({ status: response.status, body: await response.json() }).toEqual({
-        status: 404,
-        body: expectedProblem(
-          "resource.not-found",
-          "Resource not found",
-          404,
-          "The requested resource was not found.",
-        ),
-      });
-    }
-  });
+      const mutationHeaders = {
+        ...cookieHeaders,
+        origin: "http://127.0.0.1:5174",
+        "idempotency-key": "session-mutation-key-0001",
+      };
 
-  it("dispatches team-interest and mailing-list reads through Organization", async () => {
-    const [teamInterest, mailingLists] = await Promise.all([
-      request("/api/team-interest-registrations"),
-      request("/api/mailing-lists"),
-    ]);
-
-    for (const response of [teamInterest, mailingLists]) {
-      expect({ status: response.status, body: await response.json() }).toEqual({
-        status: 401,
-        body: expectedProblem(
-          "credential.missing",
-          "Credential required",
-          401,
-          "A credential is required for this operation.",
-        ),
-      });
-    }
-  });
-
-  it("exposes exactly the six safe native session resources and removes the old path", async () => {
-    const cookieHeaders = { cookie: `${token}=value; other=1` };
-
-    const mutationHeaders = {
-      ...cookieHeaders,
-      origin: "http://127.0.0.1:5174",
-      "idempotency-key": "session-mutation-key-0001",
-    };
-
-    const current = await request("/api/session", { headers: cookieHeaders });
-    expect(current.headers.get("cache-control")).toBe("private, no-store");
-    expect({ status: current.status, body: await current.json() }).toEqual({
-      status: 200,
-      body: {
-        sessionId: "session-1",
-        personId: PersonId.make("member-1"),
-        createdAt: "2031-09-15T12:00:00.000Z",
-        updatedAt: "2031-09-15T12:00:00.000Z",
-        expiresAt: "2031-09-16T12:00:00.000Z",
-        ipAddress: "127.0.0.1",
-        userAgent: "router-test",
-        current: true,
-      },
-    });
-    const listed = await request("/api/sessions", { headers: cookieHeaders });
-    expect(listed.headers.get("cache-control")).toBe("private, no-store");
-    expect({ status: listed.status, body: await listed.json() }).toEqual({
-      status: 200,
-      body: [
+      const current = yield* request("/api/session", { headers: cookieHeaders });
+      expect(current.headers.get("cache-control")).toBe("private, no-store");
+      expect({ status: current.status, body: yield* Effect.promise(() => current.json()) }).toEqual(
         {
-          sessionId: "session-1",
-          createdAt: "2031-09-15T12:00:00.000Z",
-          updatedAt: "2031-09-15T12:00:00.000Z",
-          expiresAt: "2031-09-16T12:00:00.000Z",
-          ipAddress: "127.0.0.1",
-          userAgent: "router-test",
-          personId: PersonId.make("member-1"),
-          current: true,
+          status: 200,
+          body: {
+            sessionId: "session-1",
+            personId: PersonId.make("member-1"),
+            createdAt: "2031-09-15T12:00:00.000Z",
+            updatedAt: "2031-09-15T12:00:00.000Z",
+            expiresAt: "2031-09-16T12:00:00.000Z",
+            ipAddress: "127.0.0.1",
+            userAgent: "router-test",
+            current: true,
+          },
         },
-      ],
-    });
+      );
+      const listed = yield* request("/api/sessions", { headers: cookieHeaders });
+      expect(listed.headers.get("cache-control")).toBe("private, no-store");
+      expect({ status: listed.status, body: yield* Effect.promise(() => listed.json()) }).toEqual({
+        status: 200,
+        body: [
+          {
+            sessionId: "session-1",
+            createdAt: "2031-09-15T12:00:00.000Z",
+            updatedAt: "2031-09-15T12:00:00.000Z",
+            expiresAt: "2031-09-16T12:00:00.000Z",
+            ipAddress: "127.0.0.1",
+            userAgent: "router-test",
+            personId: PersonId.make("member-1"),
+            current: true,
+          },
+        ],
+      });
 
-    for (const [path, method] of [
-      ["/api/session", "DELETE"],
-      ["/api/sessions/session-1", "DELETE"],
-      ["/api/sessions:revoke-others", "POST"],
-      ["/api/sessions:revoke-all", "POST"],
-    ] as const) {
-      const response = await request(path, { method, headers: mutationHeaders });
-      expect(response.status).toBe(204);
-      expect(await response.text()).toBe("");
-      expect(response.headers.getSetCookie()).toHaveLength(0);
-    }
+      for (const [path, method] of [
+        ["/api/session", "DELETE"],
+        ["/api/sessions/session-1", "DELETE"],
+        ["/api/sessions:revoke-others", "POST"],
+        ["/api/sessions:revoke-all", "POST"],
+      ] as const) {
+        const response = yield* request(path, { method, headers: mutationHeaders });
+        expect(response.status).toBe(204);
+        expect(yield* Effect.promise(() => response.text())).toBe("");
+        expect(response.headers.getSetCookie()).toHaveLength(0);
+      }
 
-    expect((await request("/api/session")).status).toBe(401);
-    expect((await request("/api/me/session", { headers: cookieHeaders })).status).toBe(404);
-  });
+      expect((yield* request("/api/session")).status).toBe(401);
+      expect((yield* request("/api/me/session", { headers: cookieHeaders })).status).toBe(404);
+    }),
+  );
 
-  it("requires a recognized Better Auth session cookie before authoritative handlers run", async () => {
-    let currentReads = 0;
+  it.live(
+    "requires a recognized Better Auth session cookie before authoritative handlers run",
+    () =>
+      Effect.gen(function* () {
+        let currentReads = 0;
 
-    const guardedBackend = backendHttpHandler(
-      config,
-      makeBackendServices({
-        ...successfulIdentity,
-        readCurrentSession: () =>
-          Effect.sync(() => {
-            currentReads += 1;
+        const guardedBackend = backendHttpHandler(
+          config,
+          makeBackendServices({
+            ...successfulIdentity,
+            readCurrentSession: () =>
+              Effect.sync(() => {
+                currentReads += 1;
 
-            return currentSession;
+                return currentSession;
+              }),
           }),
+          unavailableAuthHandler,
+        );
+
+        for (const cookie of [undefined, "", "theme=dark", "vp.session_token=opaque"]) {
+          const response = yield* guardedBackend.fetch(
+            new Request("http://backend.test/api/session", {
+              headers: cookie === undefined ? undefined : { cookie },
+            }),
+          );
+
+          expect(response.status).toBe(401);
+        }
+
+        expect(currentReads).toBe(0);
+
+        for (const cookie of [
+          "better-auth.session_token=opaque",
+          "__Secure-better-auth.session_token=opaque",
+        ]) {
+          const response = yield* guardedBackend.fetch(
+            new Request("http://backend.test/api/session", { headers: { cookie } }),
+          );
+
+          expect(response.status).toBe(200);
+        }
+
+        expect(currentReads).toBe(2);
       }),
-      unavailableAuthHandler,
-    );
-
-    for (const cookie of [undefined, "", "theme=dark", "vp.session_token=opaque"]) {
-      const response = await guardedBackend.fetch(
-        new Request("http://backend.test/api/session", {
-          headers: cookie === undefined ? undefined : { cookie },
-        }),
-      );
-
-      expect(response.status).toBe(401);
-    }
-
-    expect(currentReads).toBe(0);
-
-    for (const cookie of [
-      "better-auth.session_token=opaque",
-      "__Secure-better-auth.session_token=opaque",
-    ]) {
-      const response = await guardedBackend.fetch(
-        new Request("http://backend.test/api/session", { headers: { cookie } }),
-      );
-
-      expect(response.status).toBe(200);
-    }
-
-    expect(currentReads).toBe(2);
-  });
+  );
 
   describe("classifies absent and rejected credentials at ingress", () => {
     const personChallenge = 'VektorSession realm="native-api", Bearer realm="native-api"';
@@ -568,78 +610,86 @@ describe("unified backend router", () => {
       unavailableAuthHandler,
     );
 
-    it.each([
+    it.live.each([
       ["Session", "/api/session", 'VektorSession realm="native-api"'],
       ["Person", "/api/profile", personChallenge],
       ["PersonOrService", "/api/receipt-approval-queue", personChallenge],
-    ] as const)("for a %s-secured operation", async (_security, path, challenge) => {
-      const fetchWith = (headers: Record<string, string>) =>
-        classifyingBackend.fetch(new Request(`http://backend.test${path}`, { headers }));
+    ] as const)("for a %s-secured operation", ([_security, path, challenge]) =>
+      Effect.gen(function* () {
+        const fetchWith = (headers: Record<string, string>) =>
+          classifyingBackend.fetch(new Request(`http://backend.test${path}`, { headers }));
 
-      for (const [headers, code] of [
-        [{}, "credential.missing"],
-        [{ cookie: "theme=dark; vp.session_token=opaque" }, "credential.missing"],
-        [{ cookie: `theme=dark; ${token}=unknown-session` }, "credential.invalid"],
-        [{ authorization: "Bearer unknown-token" }, "credential.invalid"],
-      ] as const) {
-        const response = await fetchWith(headers);
+        for (const [headers, code] of [
+          [{}, "credential.missing"],
+          [{ cookie: "theme=dark; vp.session_token=opaque" }, "credential.missing"],
+          [{ cookie: `theme=dark; ${token}=unknown-session` }, "credential.invalid"],
+          [{ authorization: "Bearer unknown-token" }, "credential.invalid"],
+        ] as const) {
+          const response = yield* fetchWith(headers);
 
-        expect({
-          status: response.status,
-          code: decodeProblemCode(await response.json()).code,
-          challenge: response.headers.get("www-authenticate"),
-        }).toEqual({ status: 401, code, challenge });
-      }
+          expect({
+            status: response.status,
+            code: decodeProblemCode(yield* Effect.promise(() => response.json())).code,
+            challenge: response.headers.get("www-authenticate"),
+          }).toEqual({ status: 401, code, challenge });
+        }
 
-      expect((await fetchWith({ cookie: `theme=dark; ${token}=valid-session` })).status).toBe(200);
-    });
+        expect((yield* fetchWith({ cookie: `theme=dark; ${token}=valid-session` })).status).toBe(
+          200,
+        );
+      }),
+    );
 
-    it("for the contact server credential", async () => {
-      const contactBackend = backendHttpHandler(
-        {
-          ...config,
-          contact: contactConfig({
-            CONTACT_BACKEND_TOKEN: "router-contact-credential-00000000000000",
-            CONTACT_DELIVERY_TOKEN: "router-contact-delivery",
-            CONTACT_SENDER: "contact@example.org",
-            CONTACT_DELIVERY_URL: "http://127.0.0.1:9",
-            CONTACT_DELIVERY_TIMEOUT_MS: "100",
-          }),
-        },
-        successfulServices,
-        unavailableAuthHandler,
-      );
-
-      for (const [headers, code] of [
-        [{}, "credential.missing"],
-        [{ "x-vektor-contact-backend": "wrong" }, "credential.invalid"],
-      ] as const) {
-        const response = await contactBackend.fetch(
-          new Request("http://backend.test/api/contact-messages", {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              origin: "http://127.0.0.1:5174",
-              "x-vektor-contact-ip": "127.0.0.1",
-              ...headers,
-            },
-            body: JSON.stringify({
-              departmentId: "one",
-              name: "Ola",
-              email: "ola@example.org",
-              subject: "Hei",
-              message: "Hei",
+    it.live("for the contact server credential", () =>
+      Effect.gen(function* () {
+        const contactBackend = backendHttpHandler(
+          {
+            ...config,
+            contact: contactConfig({
+              CONTACT_BACKEND_TOKEN: "router-contact-credential-00000000000000",
+              CONTACT_DELIVERY_TOKEN: "router-contact-delivery",
+              CONTACT_SENDER: "contact@example.org",
+              CONTACT_DELIVERY_URL: "http://127.0.0.1:9",
+              CONTACT_DELIVERY_TIMEOUT_MS: "100",
             }),
-          }),
+          },
+          successfulServices,
+          unavailableAuthHandler,
         );
 
-        expect({
-          status: response.status,
-          code: Schema.decodeUnknownSync(NativeProblem)(await response.json()).code,
-          challenge: response.headers.get("www-authenticate"),
-        }).toEqual({ status: 401, code, challenge: 'ContactSSR realm="native-contact"' });
-      }
-    });
+        for (const [headers, code] of [
+          [{}, "credential.missing"],
+          [{ "x-vektor-contact-backend": "wrong" }, "credential.invalid"],
+        ] as const) {
+          const response = yield* contactBackend.fetch(
+            new Request("http://backend.test/api/contact-messages", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                origin: "http://127.0.0.1:5174",
+                "x-vektor-contact-ip": "127.0.0.1",
+                ...headers,
+              },
+              body: JSON.stringify({
+                departmentId: "one",
+                name: "Ola",
+                email: "ola@example.org",
+                subject: "Hei",
+                message: "Hei",
+              }),
+            }),
+          );
+
+          expect({
+            status: response.status,
+            code: Schema.decodeUnknownSync(NativeProblem)(
+              yield* Effect.promise(() => response.json()),
+            ).code,
+            challenge: response.headers.get("www-authenticate"),
+          }).toEqual({ status: 401, code, challenge: 'ContactSSR realm="native-contact"' });
+        }
+      }),
+    );
   });
 
   describe("accepts exactly one credential per request", () => {
@@ -712,22 +762,23 @@ describe("unified backend router", () => {
     );
 
     // A problem names its code; a profile names the Person who acted.
-    const answer = async (path: string, headers: Record<string, string>) => {
-      const response = await oneCredentialBackend.fetch(
-        new Request(`http://backend.test${path}`, { headers }),
-      );
+    const answer = (path: string, headers: Record<string, string>) =>
+      Effect.gen(function* () {
+        const response = yield* oneCredentialBackend.fetch(
+          new Request(`http://backend.test${path}`, { headers }),
+        );
 
-      return {
-        status: response.status,
-        challenge: response.headers.get("www-authenticate"),
-        ...Schema.decodeUnknownSync(
-          Schema.Struct({
-            code: Schema.optional(Schema.String),
-            personId: Schema.optional(Schema.String),
-          }),
-        )(await response.json()),
-      };
-    };
+        return {
+          status: response.status,
+          challenge: response.headers.get("www-authenticate"),
+          ...Schema.decodeUnknownSync(
+            Schema.Struct({
+              code: Schema.optional(Schema.String),
+              personId: Schema.optional(Schema.String),
+            }),
+          )(yield* Effect.promise(() => response.json())),
+        };
+      });
 
     // Each test case gets a fresh database, so both cases seed the bearer's Person.
     const seedBearerPerson = () =>
@@ -740,325 +791,355 @@ describe("unified backend router", () => {
         ),
       );
 
-    it.each([
+    it.live.each([
       ["Session", "/api/session", 'VektorSession realm="native-api"'],
       ["Person", "/api/profile", personChallenge],
       ["PersonOrService", "/api/receipt-approval-queue", personChallenge],
     ] as const)(
       "rejects a session cookie with a bearer at a %s-secured operation",
-      async (_security, path, challenge) => {
-        await seedBearerPerson();
+      ([_security, path, challenge]) =>
+        Effect.gen(function* () {
+          yield* seedBearerPerson();
 
-        // The first bearer names another Person than the session; the second names the same one.
-        for (const bearer of ["Bearer member-2-bearer", "Bearer member-1-bearer"]) {
-          expect({
-            bearer,
-            ...(await answer(path, {
-              cookie: `theme=dark; ${sessionCookie}`,
-              authorization: bearer,
-            })),
-          }).toEqual({ bearer, status: 401, code: "credential.invalid", challenge });
-        }
-      },
+          // The first bearer names another Person than the session; the second names the same one.
+          for (const bearer of ["Bearer member-2-bearer", "Bearer member-1-bearer"]) {
+            expect({
+              bearer,
+              ...(yield* answer(path, {
+                cookie: `theme=dark; ${sessionCookie}`,
+                authorization: bearer,
+              })),
+            }).toEqual({ bearer, status: 401, code: "credential.invalid", challenge });
+          }
+        }),
     );
 
-    it("lets either person credential alone name the acting Person", async () => {
-      await seedBearerPerson();
+    it.live("lets either person credential alone name the acting Person", () =>
+      Effect.gen(function* () {
+        yield* seedBearerPerson();
 
-      expect(await answer("/api/profile", { cookie: sessionCookie })).toEqual({
-        status: 200,
-        challenge: null,
-        personId: "member-1",
-      });
-      expect(await answer("/api/profile", { authorization: "Bearer member-2-bearer" })).toEqual({
-        status: 200,
-        challenge: null,
-        personId: "member-2",
-      });
-    });
-  });
-
-  it("answers a handler defect with the frozen internal.error problem", async () => {
-    // The router's SocialEvents service dies on every call.
-    const response = await request("/api/social-events/scope", {
-      headers: { cookie: `${token}=value` },
-    });
-
-    expect(response.status).toBe(500);
-    expect(response.headers.get("content-type")).toBe("application/problem+json");
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(
-      Schema.decodeUnknownSync(SocialEventsReadScopeProblem)(await response.json(), {
-        onExcessProperty: "error",
-      }).code,
-    ).toBe("internal.error");
-  });
-
-  it("conceals missing, non-owned, and already-revoked session ids identically", async () => {
-    const owned = new Set(["owned-session"]);
-    let revokeCalls = 0;
-
-    const ownerBackend = backendHttpHandler(
-      config,
-      makeBackendServices({
-        ...successfulIdentity,
-        revokeSession: (_cookie, sessionId) =>
-          Effect.suspend(() => {
-            revokeCalls += 1;
-
-            return owned.delete(sessionId)
-              ? Effect.succeed({ setCookies: [] })
-              : Effect.fail(new IdentityOwnedSessionNotFound({ sessionId }));
-          }),
+        expect(yield* answer("/api/profile", { cookie: sessionCookie })).toEqual({
+          status: 200,
+          challenge: null,
+          personId: "member-1",
+        });
+        expect(yield* answer("/api/profile", { authorization: "Bearer member-2-bearer" })).toEqual({
+          status: 200,
+          challenge: null,
+          personId: "member-2",
+        });
       }),
-      unavailableAuthHandler,
     );
+  });
 
-    const headers = {
-      cookie: `${token}=value`,
-      origin: "http://127.0.0.1:5174",
-      "idempotency-key": "owned-session-delete-key-01",
-    };
+  it.live("answers a handler defect with the frozen internal.error problem", () =>
+    Effect.gen(function* () {
+      // The router's SocialEvents service dies on every call.
+      const response = yield* request("/api/social-events/scope", {
+        headers: { cookie: `${token}=value` },
+      });
 
-    expect(
-      (
-        await ownerBackend.fetch(
+      expect(response.status).toBe(500);
+      expect(response.headers.get("content-type")).toBe("application/problem+json");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(
+        Schema.decodeUnknownSync(SocialEventsReadScopeProblem)(
+          yield* Effect.promise(() => response.json()),
+          {
+            onExcessProperty: "error",
+          },
+        ).code,
+      ).toBe("internal.error");
+    }),
+  );
+
+  it.live("conceals missing, non-owned, and already-revoked session ids identically", () =>
+    Effect.gen(function* () {
+      const owned = new Set(["owned-session"]);
+      let revokeCalls = 0;
+
+      const ownerBackend = backendHttpHandler(
+        config,
+        makeBackendServices({
+          ...successfulIdentity,
+          revokeSession: (_cookie, sessionId) =>
+            Effect.suspend(() => {
+              revokeCalls += 1;
+
+              return owned.delete(sessionId)
+                ? Effect.succeed({ setCookies: [] })
+                : Effect.fail(new IdentityOwnedSessionNotFound({ sessionId }));
+            }),
+        }),
+        unavailableAuthHandler,
+      );
+
+      const headers = {
+        cookie: `${token}=value`,
+        origin: "http://127.0.0.1:5174",
+        "idempotency-key": "owned-session-delete-key-01",
+      };
+
+      expect(
+        (yield* ownerBackend.fetch(
           new Request("http://backend.test/api/sessions/owned-session", {
             method: "DELETE",
             headers,
           }),
-        )
-      ).status,
-    ).toBe(204);
+        )).status,
+      ).toBe(204);
 
-    const replay = await ownerBackend.fetch(
-      new Request("http://backend.test/api/sessions/owned-session", { method: "DELETE", headers }),
-    );
-
-    expect(replay.status).toBe(204);
-    expect(revokeCalls).toBe(1);
-
-    for (const sessionId of ["owned-session", "missing-session", "another-person-session"]) {
-      const response = await ownerBackend.fetch(
-        new Request(`http://backend.test/api/sessions/${sessionId}`, {
+      const replay = yield* ownerBackend.fetch(
+        new Request("http://backend.test/api/sessions/owned-session", {
           method: "DELETE",
-          headers: { ...headers, "idempotency-key": `conceal-session-${sessionId}-key` },
-        }),
-      );
-
-      expect({ status: response.status, body: await response.json() }).toEqual({
-        status: 404,
-        body: expectedProblem(
-          "resource.not-found",
-          "Resource not found",
-          404,
-          "The requested resource was not found.",
-        ),
-      });
-    }
-
-    expect(revokeCalls).toBe(4);
-  });
-
-  it("centralizes trusted-origin, CSRF rejection, audit, and credentialed CORS", async () => {
-    const handled: string[] = [];
-    const rejectedCorrelations: string[] = [];
-
-    const originBackend = backendHttpHandler(config, successfulServices, {
-      handler: (request) =>
-        Effect.sync(() => {
-          handled.push(new URL(request.url).pathname);
-
-          return new Response(null, { status: 204 });
-        }),
-      recordTrustedOriginRejection: (context) =>
-        Effect.sync(() => {
-          rejectedCorrelations.push(context.requestCorrelation);
-        }),
-    });
-
-    const trustedOrigin = "http://127.0.0.1:5174";
-
-    const trusted = await originBackend.fetch(
-      new Request("http://backend.test/api/auth/sign-in/email", {
-        method: "POST",
-        headers: { origin: trustedOrigin },
-      }),
-    );
-
-    expect(trusted.status).toBe(204);
-    expect(trusted.headers.get("access-control-allow-origin")).toBe(trustedOrigin);
-    expect(trusted.headers.get("access-control-allow-credentials")).toBe("true");
-    expect(trusted.headers.get("access-control-allow-origin")).not.toBe("*");
-
-    for (const headers of [
-      new Headers({ origin: "https://untrusted.example.invalid" }),
-      new Headers(),
-    ]) {
-      const rejected = await originBackend.fetch(
-        new Request("http://backend.test/api/auth/sign-in/email", {
-          method: "POST",
           headers,
         }),
       );
 
-      expect({ status: rejected.status, body: await rejected.json() }).toEqual({
-        status: 403,
-        body: {
-          type: "urn:vektorprogrammet:problem:v0.2:origin.denied",
-          title: "Origin denied",
-          status: 403,
-          code: "origin.denied",
-          detail: "The browser origin is not trusted for this operation.",
-        },
+      expect(replay.status).toBe(204);
+      expect(revokeCalls).toBe(1);
+
+      for (const sessionId of ["owned-session", "missing-session", "another-person-session"]) {
+        const response = yield* ownerBackend.fetch(
+          new Request(`http://backend.test/api/sessions/${sessionId}`, {
+            method: "DELETE",
+            headers: { ...headers, "idempotency-key": `conceal-session-${sessionId}-key` },
+          }),
+        );
+
+        expect({
+          status: response.status,
+          body: yield* Effect.promise(() => response.json()),
+        }).toEqual({
+          status: 404,
+          body: expectedProblem(
+            "resource.not-found",
+            "Resource not found",
+            404,
+            "The requested resource was not found.",
+          ),
+        });
+      }
+
+      expect(revokeCalls).toBe(4);
+    }),
+  );
+
+  it.live("centralizes trusted-origin, CSRF rejection, audit, and credentialed CORS", () =>
+    Effect.gen(function* () {
+      const handled: string[] = [];
+      const rejectedCorrelations: string[] = [];
+
+      const originBackend = backendHttpHandler(config, successfulServices, {
+        handler: (request) =>
+          Effect.sync(() => {
+            handled.push(new URL(request.url).pathname);
+
+            return new Response(null, { status: 204 });
+          }),
+        recordTrustedOriginRejection: (context) =>
+          Effect.sync(() => {
+            rejectedCorrelations.push(context.requestCorrelation);
+          }),
       });
-      expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
-    }
 
-    const protectedCrossOrigin = await originBackend.fetch(
-      new Request("http://backend.test/api/session", {
-        headers: {
-          cookie: `${token}=value`,
-          origin: "https://untrusted.example.invalid",
-        },
-      }),
-    );
+      const trustedOrigin = "http://127.0.0.1:5174";
 
-    expect(protectedCrossOrigin.status).toBe(403);
+      const trusted = yield* originBackend.fetch(
+        new Request("http://backend.test/api/auth/sign-in/email", {
+          method: "POST",
+          headers: { origin: trustedOrigin },
+        }),
+      );
 
-    const preflight = await originBackend.fetch(
-      new Request("http://backend.test/api/session", {
-        method: "OPTIONS",
-        headers: { origin: trustedOrigin, "access-control-request-method": "GET" },
-      }),
-    );
+      expect(trusted.status).toBe(204);
+      expect(trusted.headers.get("access-control-allow-origin")).toBe(trustedOrigin);
+      expect(trusted.headers.get("access-control-allow-credentials")).toBe("true");
+      expect(trusted.headers.get("access-control-allow-origin")).not.toBe("*");
 
-    expect(preflight.status).toBe(204);
-    expect(preflight.headers.get("access-control-allow-origin")).toBe(trustedOrigin);
-    expect(preflight.headers.get("access-control-allow-credentials")).toBe("true");
-    expect(handled).toEqual(["/api/auth/sign-in/email"]);
-    expect(rejectedCorrelations).toHaveLength(3);
-    expect(new Set(rejectedCorrelations).size).toBe(3);
-  });
-  it("keeps OAuth protocol errors outside the native origin problem boundary", async () => {
-    const oauthCalls: string[] = [];
-    const rejectedCorrelations: string[] = [];
+      for (const headers of [
+        new Headers({ origin: "https://untrusted.example.invalid" }),
+        new Headers(),
+      ]) {
+        const rejected = yield* originBackend.fetch(
+          new Request("http://backend.test/api/auth/sign-in/email", {
+            method: "POST",
+            headers,
+          }),
+        );
 
-    const oauthBackend = backendHttpHandler(config, successfulServices, {
-      handler: () => Effect.succeed(new Response(null, { status: 404 })),
-      oauthHandler: (request) =>
-        Effect.sync(() => {
-          oauthCalls.push(`${request.method} ${new URL(request.url).pathname}`);
+        expect({
+          status: rejected.status,
+          body: yield* Effect.promise(() => rejected.json()),
+        }).toEqual({
+          status: 403,
+          body: {
+            type: "urn:vektorprogrammet:problem:v0.2:origin.denied",
+            title: "Origin denied",
+            status: 403,
+            code: "origin.denied",
+            detail: "The browser origin is not trusted for this operation.",
+          },
+        });
+        expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
+      }
 
-          return Response.json(
-            { error: "invalid_request" },
-            {
-              status: 400,
-              headers: {
-                "cache-control": "no-store",
-                "content-type": "application/json",
+      const protectedCrossOrigin = yield* originBackend.fetch(
+        new Request("http://backend.test/api/session", {
+          headers: {
+            cookie: `${token}=value`,
+            origin: "https://untrusted.example.invalid",
+          },
+        }),
+      );
+
+      expect(protectedCrossOrigin.status).toBe(403);
+
+      const preflight = yield* originBackend.fetch(
+        new Request("http://backend.test/api/session", {
+          method: "OPTIONS",
+          headers: { origin: trustedOrigin, "access-control-request-method": "GET" },
+        }),
+      );
+
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("access-control-allow-origin")).toBe(trustedOrigin);
+      expect(preflight.headers.get("access-control-allow-credentials")).toBe("true");
+      expect(handled).toEqual(["/api/auth/sign-in/email"]);
+      expect(rejectedCorrelations).toHaveLength(3);
+      expect(new Set(rejectedCorrelations).size).toBe(3);
+    }),
+  );
+  it.live("keeps OAuth protocol errors outside the native origin problem boundary", () =>
+    Effect.gen(function* () {
+      const oauthCalls: string[] = [];
+      const rejectedCorrelations: string[] = [];
+
+      const oauthBackend = backendHttpHandler(config, successfulServices, {
+        handler: () => Effect.succeed(new Response(null, { status: 404 })),
+        oauthHandler: (request) =>
+          Effect.sync(() => {
+            oauthCalls.push(`${request.method} ${new URL(request.url).pathname}`);
+
+            return Response.json(
+              { error: "invalid_request" },
+              {
+                status: 400,
+                headers: {
+                  "cache-control": "no-store",
+                  "content-type": "application/json",
+                },
               },
-            },
-          );
+            );
+          }),
+        recordTrustedOriginRejection: (context) =>
+          Effect.sync(() => {
+            rejectedCorrelations.push(context.requestCorrelation);
+          }),
+      });
+
+      const response = yield* oauthBackend.fetch(
+        new Request("http://backend.test/api/auth/oauth2/consent", {
+          method: "POST",
+          headers: { origin: "https://untrusted.example.invalid" },
         }),
-      recordTrustedOriginRejection: (context) =>
-        Effect.sync(() => {
-          rejectedCorrelations.push(context.requestCorrelation);
-        }),
-    });
+      );
 
-    const response = await oauthBackend.fetch(
-      new Request("http://backend.test/api/auth/oauth2/consent", {
-        method: "POST",
-        headers: { origin: "https://untrusted.example.invalid" },
-      }),
-    );
-
-    expect({ status: response.status, body: await response.json() }).toEqual({
-      status: 400,
-      body: { error: "invalid_request" },
-    });
-    expect(response.headers.get("access-control-allow-origin")).toBeNull();
-    expect(oauthCalls).toEqual(["POST /api/auth/oauth2/consent"]);
-    expect(rejectedCorrelations).toEqual([]);
-  });
-
-  it("allows only the centralized native browser request headers before dispatch", async () => {
-    const dispatched: string[] = [];
-    const rejectedCorrelations: string[] = [];
-    const origin = "http://127.0.0.1:5174";
-
-    const backend = backendHttpHandler(config, successfulServices, {
-      handler: (request) =>
-        Effect.sync(() => {
-          dispatched.push(new URL(request.url).pathname);
-
-          return new Response(null, { status: 204 });
-        }),
-      recordTrustedOriginRejection: (context) =>
-        Effect.sync(() => {
-          rejectedCorrelations.push(context.requestCorrelation);
-        }),
-    });
-
-    const allowed = await backend.fetch(
-      new Request("http://backend.test/api/session", {
-        method: "OPTIONS",
-        headers: {
-          origin,
-          "access-control-request-method": "DELETE",
-          "access-control-request-headers":
-            "CONTENT-type, idempotency-KEY, IF-match, If-None-Match, x-Recruitment-Invitation-Capability",
-        },
-      }),
-    );
-
-    expect(allowed.status).toBe(204);
-    expect(allowed.headers.get("access-control-allow-headers")).toBe(
-      "Authorization, Content-Type, Idempotency-Key, If-Match, If-None-Match, X-Recruitment-Invitation-Capability",
-    );
-    expect(allowed.headers.get("access-control-allow-methods")).toBe("GET, HEAD, DELETE, OPTIONS");
-    expect(allowed.headers.get("vary")).toBe(
-      "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
-    );
-
-    const unknown = await backend.fetch(
-      new Request("http://backend.test/api/session", {
-        method: "OPTIONS",
-        headers: {
-          origin,
-          "access-control-request-method": "DELETE",
-          "access-control-request-headers": "Content-Type, X-Unknown-Native-Header",
-        },
-      }),
-    );
-
-    expect({ status: unknown.status, body: await unknown.json() }).toEqual({
-      status: 400,
-      body: {
-        type: "urn:vektorprogrammet:problem:v0.2:header.malformed",
-        title: "Malformed header",
+      expect({
+        status: response.status,
+        body: yield* Effect.promise(() => response.json()),
+      }).toEqual({
         status: 400,
-        code: "header.malformed",
-        detail: "A request header is malformed.",
-      },
-    });
+        body: { error: "invalid_request" },
+      });
+      expect(response.headers.get("access-control-allow-origin")).toBeNull();
+      expect(oauthCalls).toEqual(["POST /api/auth/oauth2/consent"]);
+      expect(rejectedCorrelations).toEqual([]);
+    }),
+  );
 
-    const wrongMethod = await backend.fetch(
-      new Request("http://backend.test/api/session", {
-        method: "OPTIONS",
-        headers: {
-          origin,
-          "access-control-request-method": "POST",
+  it.live("allows only the centralized native browser request headers before dispatch", () =>
+    Effect.gen(function* () {
+      const dispatched: string[] = [];
+      const rejectedCorrelations: string[] = [];
+      const origin = "http://127.0.0.1:5174";
+
+      const backend = backendHttpHandler(config, successfulServices, {
+        handler: (request) =>
+          Effect.sync(() => {
+            dispatched.push(new URL(request.url).pathname);
+
+            return new Response(null, { status: 204 });
+          }),
+        recordTrustedOriginRejection: (context) =>
+          Effect.sync(() => {
+            rejectedCorrelations.push(context.requestCorrelation);
+          }),
+      });
+
+      const allowed = yield* backend.fetch(
+        new Request("http://backend.test/api/session", {
+          method: "OPTIONS",
+          headers: {
+            origin,
+            "access-control-request-method": "DELETE",
+            "access-control-request-headers":
+              "CONTENT-type, idempotency-KEY, IF-match, If-None-Match, x-Recruitment-Invitation-Capability",
+          },
+        }),
+      );
+
+      expect(allowed.status).toBe(204);
+      expect(allowed.headers.get("access-control-allow-headers")).toBe(
+        "Authorization, Content-Type, Idempotency-Key, If-Match, If-None-Match, X-Recruitment-Invitation-Capability",
+      );
+      expect(allowed.headers.get("access-control-allow-methods")).toBe(
+        "GET, HEAD, DELETE, OPTIONS",
+      );
+      expect(allowed.headers.get("vary")).toBe(
+        "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+      );
+
+      const unknown = yield* backend.fetch(
+        new Request("http://backend.test/api/session", {
+          method: "OPTIONS",
+          headers: {
+            origin,
+            "access-control-request-method": "DELETE",
+            "access-control-request-headers": "Content-Type, X-Unknown-Native-Header",
+          },
+        }),
+      );
+
+      expect({ status: unknown.status, body: yield* Effect.promise(() => unknown.json()) }).toEqual(
+        {
+          status: 400,
+          body: {
+            type: "urn:vektorprogrammet:problem:v0.2:header.malformed",
+            title: "Malformed header",
+            status: 400,
+            code: "header.malformed",
+            detail: "A request header is malformed.",
+          },
         },
-      }),
-    );
+      );
 
-    expect(wrongMethod.status).toBe(405);
-    expect(wrongMethod.headers.get("allow")).toBe("GET, HEAD, DELETE, OPTIONS");
-    expect(dispatched).toEqual([]);
-    expect(rejectedCorrelations).toHaveLength(0);
-  });
+      const wrongMethod = yield* backend.fetch(
+        new Request("http://backend.test/api/session", {
+          method: "OPTIONS",
+          headers: {
+            origin,
+            "access-control-request-method": "POST",
+          },
+        }),
+      );
+
+      expect(wrongMethod.status).toBe(405);
+      expect(wrongMethod.headers.get("allow")).toBe("GET, HEAD, DELETE, OPTIONS");
+      expect(dispatched).toEqual([]);
+      expect(rejectedCorrelations).toHaveLength(0);
+    }),
+  );
 
   it("composes local and production cookie policy without invented origins", () => {
     expect(config.sessionBoundary).toEqual({
@@ -1097,37 +1178,39 @@ describe("unified backend router", () => {
     expect(() => decodeBackendConfig({ ...environment, [name]: value })).toThrow("unsupported");
   });
 
-  it("forwards an evidence-only clock to protected authority resolution", async () => {
-    const authorizationInstants: string[] = [];
-    const pinnedInstant = "2037-01-15T12:00:00.000Z";
+  it.live("forwards an evidence-only clock to protected authority resolution", () =>
+    Effect.gen(function* () {
+      const authorizationInstants: string[] = [];
+      const pinnedInstant = "2037-01-15T12:00:00.000Z";
 
-    const observedOrganization: Partial<OrganizationOperations> = {
-      ...organization,
-      resolvePersonAuthority: (personId, authorizationInstant) => {
-        authorizationInstants.push(authorizationInstant);
+      const observedOrganization: Partial<OrganizationOperations> = {
+        ...organization,
+        resolvePersonAuthority: (personId, authorizationInstant) => {
+          authorizationInstants.push(authorizationInstant);
 
-        return organization.resolvePersonAuthority(personId, authorizationInstant);
-      },
-    };
+          return organization.resolvePersonAuthority(personId, authorizationInstant);
+        },
+      };
 
-    const pinnedBackend = backendHttpHandler(
-      config,
-      makeBackendServices(successfulIdentity, observedOrganization),
-      unavailableAuthHandler,
-      { now: () => pinnedInstant },
-    );
+      const pinnedBackend = backendHttpHandler(
+        config,
+        makeBackendServices(successfulIdentity, observedOrganization),
+        unavailableAuthHandler,
+        { now: () => pinnedInstant },
+      );
 
-    const response = await pinnedBackend.fetch(
-      new Request("http://backend.test/api/profile", {
-        headers: { cookie: `${token}=value` },
-      }),
-    );
+      const response = yield* pinnedBackend.fetch(
+        new Request("http://backend.test/api/profile", {
+          headers: { cookie: `${token}=value` },
+        }),
+      );
 
-    expect(response.status).toBe(200);
-    expect(authorizationInstants).toEqual([pinnedInstant]);
-  });
+      expect(response.status).toBe(200);
+      expect(authorizationInstants).toEqual([pinnedInstant]);
+    }),
+  );
 
-  it.each([
+  it.live.each([
     [
       "expired session",
       new IdentitySessionExpired(),
@@ -1149,47 +1232,53 @@ describe("unified backend router", () => {
     ],
   ] as const)(
     "maps %s at the session HTTP boundary",
-    async (_name, failure, status, code, title, detail) => {
-      const failingBackend = backendHttpHandler(
-        config,
-        makeBackendServices({
-          ...successfulIdentity,
-          readCurrentSession: () => Effect.fail(failure),
-        }),
-        unavailableAuthHandler,
-      );
+    ([_name, failure, status, code, title, detail]) =>
+      Effect.gen(function* () {
+        const failingBackend = backendHttpHandler(
+          config,
+          makeBackendServices({
+            ...successfulIdentity,
+            readCurrentSession: () => Effect.fail(failure),
+          }),
+          unavailableAuthHandler,
+        );
 
-      const response = await failingBackend.fetch(
-        new Request("http://backend.test/api/session", {
-          headers: { cookie: "better-auth.session_token=session-value" },
-        }),
-      );
+        const response = yield* failingBackend.fetch(
+          new Request("http://backend.test/api/session", {
+            headers: { cookie: "better-auth.session_token=session-value" },
+          }),
+        );
 
-      expect({ status: response.status, body: await response.json() }).toEqual({
-        status,
-        body: expectedProblem(code, title, status, detail),
-      });
-    },
+        expect({
+          status: response.status,
+          body: yield* Effect.promise(() => response.json()),
+        }).toEqual({
+          status,
+          body: expectedProblem(code, title, status, detail),
+        });
+      }),
   );
 
-  it("mounts the auth engine handler over the /api/auth/* surface", async () => {
-    const probingBackend = backendHttpHandler(config, successfulServices, {
-      handler: (request) =>
-        Effect.sync(() => new Response(`auth-saw:${new URL(request.url).pathname}`)),
-      recordTrustedOriginRejection: () => Effect.void,
-    });
+  it.live("mounts the auth engine handler over the /api/auth/* surface", () =>
+    Effect.gen(function* () {
+      const probingBackend = backendHttpHandler(config, successfulServices, {
+        handler: (request) =>
+          Effect.sync(() => new Response(`auth-saw:${new URL(request.url).pathname}`)),
+        recordTrustedOriginRejection: () => Effect.void,
+      });
 
-    for (const path of ["/api/auth/get-session", "/api/auth/sign-in/email", "/api/auth/"]) {
-      const response = await probingBackend.fetch(
-        new Request(`http://backend.test${path}`, {
-          method: "POST",
-          headers: { origin: "http://127.0.0.1:5174" },
-        }),
-      );
+      for (const path of ["/api/auth/get-session", "/api/auth/sign-in/email", "/api/auth/"]) {
+        const response = yield* probingBackend.fetch(
+          new Request(`http://backend.test${path}`, {
+            method: "POST",
+            headers: { origin: "http://127.0.0.1:5174" },
+          }),
+        );
 
-      expect(await response.text()).toBe(`auth-saw:${path}`);
-    }
-  });
+        expect(yield* Effect.promise(() => response.text())).toBe(`auth-saw:${path}`);
+      }
+    }),
+  );
 
   it("requires TLS for non-loopback application effect providers", () => {
     expect(() =>
@@ -1226,38 +1315,38 @@ describe("unified backend router", () => {
   });
 });
 
-it("classifies only exact password recovery method/path origin rejections", async () => {
-  const observed: Array<string | undefined> = [];
+it.live("classifies only exact password recovery method/path origin rejections", () =>
+  Effect.gen(function* () {
+    const observed: Array<string | undefined> = [];
 
-  const backend = backendHttpHandler(config, successfulServices, {
-    handler: () => Effect.die(new Error("Rejected origin must not reach engine")),
-    recordTrustedOriginRejection: (_context, flow) =>
-      Effect.sync(() => {
-        observed.push(flow);
-      }),
-  });
+    const backend = backendHttpHandler(config, successfulServices, {
+      handler: () => Effect.die(new Error("Rejected origin must not reach engine")),
+      recordTrustedOriginRejection: (_context, flow) =>
+        Effect.sync(() => {
+          observed.push(flow);
+        }),
+    });
 
-  const cases = [
-    ["POST", "/api/auth/request-password-reset", "PasswordRecovery"],
-    ["POST", "/api/auth/reset-password", "PasswordRecovery"],
-    ["GET", "/api/auth/reset-password/opaque", "PasswordRecovery"],
-    ["GET", "/api/auth/request-password-reset", undefined],
-    ["POST", "/api/auth/reset-password/opaque", undefined],
-    ["GET", "/api/auth/reset-password/opaque/extra", undefined],
-    ["POST", "/api/auth/sign-in/email", undefined],
-  ] as const;
+    const cases = [
+      ["POST", "/api/auth/request-password-reset", "PasswordRecovery"],
+      ["POST", "/api/auth/reset-password", "PasswordRecovery"],
+      ["GET", "/api/auth/reset-password/opaque", "PasswordRecovery"],
+      ["GET", "/api/auth/request-password-reset", undefined],
+      ["POST", "/api/auth/reset-password/opaque", undefined],
+      ["GET", "/api/auth/reset-password/opaque/extra", undefined],
+      ["POST", "/api/auth/sign-in/email", undefined],
+    ] as const;
 
-  for (const [method, path, flow] of cases) {
-    expect(
-      (
-        await backend.fetch(
+    for (const [method, path, flow] of cases) {
+      expect(
+        (yield* backend.fetch(
           new Request(`http://backend.test${path}`, {
             method,
             headers: { origin: "https://untrusted.example.invalid" },
           }),
-        )
-      ).status,
-    ).toBe(403);
-    expect(observed.at(-1)).toBe(flow);
-  }
-});
+        )).status,
+      ).toBe(403);
+      expect(observed.at(-1)).toBe(flow);
+    }
+  }),
+);

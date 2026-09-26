@@ -3,7 +3,7 @@ import { Database } from "@vektorprogrammet/database";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
 import { Effect, Layer, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { decodeBackendConfig } from "../config.js";
 import { makeBackendTestHttp } from "../test/native-http.js";
 import { contactConfig } from "./config.js";
@@ -93,64 +93,76 @@ const contactIngress = (contact: typeof config | undefined) => {
   };
 };
 
-const problemOf = async (response: Response) => ({
-  status: response.status,
-  code: Schema.decodeUnknownSync(NativeProblem)(await response.json()).code,
-});
+const problemOf = (response: Response) =>
+  Effect.gen(function* () {
+    return {
+      status: response.status,
+      code: Schema.decodeUnknownSync(NativeProblem)(yield* Effect.promise(() => response.json()))
+        .code,
+    };
+  });
 
 describe("native contact trust boundary", () => {
-  it("rejects missing, wrong and wrong-hop tokens before quota or delivery", async () => {
-    const ingress = contactIngress(config);
+  it.live("rejects missing, wrong and wrong-hop tokens before quota or delivery", () =>
+    Effect.gen(function* () {
+      const ingress = contactIngress(config);
 
-    for (const [token, code] of [
-      [undefined, "credential.missing"],
-      ["wrong", "credential.invalid"],
-      ["ingress-test-credential-0000000000000000", "credential.invalid"],
-    ] as const) {
-      expect(await problemOf(await ingress.submit({ ip: "127.0.0.1", token }))).toEqual({
-        status: 401,
-        code,
-      });
-    }
+      for (const [token, code] of [
+        [undefined, "credential.missing"],
+        ["wrong", "credential.invalid"],
+        ["ingress-test-credential-0000000000000000", "credential.invalid"],
+      ] as const) {
+        expect(yield* problemOf(yield* ingress.submit({ ip: "127.0.0.1", token }))).toEqual({
+          status: 401,
+          code,
+        });
+      }
 
-    expect(await ingress.consumedWindows()).toEqual([{ count: 0 }]);
-  });
+      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+    }),
+  );
 
-  it("fails closed for absent configuration and noncanonical addresses before mutation", async () => {
-    const unconfigured = contactIngress(undefined);
+  it.live("fails closed for absent configuration and noncanonical addresses before mutation", () =>
+    Effect.gen(function* () {
+      const unconfigured = contactIngress(undefined);
 
-    expect(
-      await problemOf(await unconfigured.submit({ ip: "127.0.0.1", token: undefined })),
-    ).toEqual({ status: 503, code: "contact.unavailable" });
+      expect(
+        yield* problemOf(yield* unconfigured.submit({ ip: "127.0.0.1", token: undefined })),
+      ).toEqual({ status: 503, code: "contact.unavailable" });
 
-    const ingress = contactIngress(config);
+      const ingress = contactIngress(config);
 
-    for (const ip of ["", "::ffff:127.0.0.1", "127.0.0.1/32", "127.0.0.1,127.0.0.2"]) {
-      expect(await problemOf(await ingress.submit({ ip, token: config.backendToken }))).toEqual({
-        status: 400,
-        code: "header.malformed",
-      });
-    }
+      for (const ip of ["", "::ffff:127.0.0.1", "127.0.0.1/32", "127.0.0.1,127.0.0.2"]) {
+        expect(yield* problemOf(yield* ingress.submit({ ip, token: config.backendToken }))).toEqual(
+          {
+            status: 400,
+            code: "header.malformed",
+          },
+        );
+      }
 
-    expect(await ingress.consumedWindows()).toEqual([{ count: 0 }]);
-  });
+      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+    }),
+  );
 
-  it("rejects schema invalid and injected recipient before quota", async () => {
-    const ingress = contactIngress(config);
+  it.live("rejects schema invalid and injected recipient before quota", () =>
+    Effect.gen(function* () {
+      const ingress = contactIngress(config);
 
-    const credentials = { ip: "127.0.0.1", token: config.backendToken };
+      const credentials = { ip: "127.0.0.1", token: config.backendToken };
 
-    for (const payload of [
-      { ...message, email: "malformed" },
-      { ...message, to: "attacker@example.org" },
-      { ...message, subject: "Hei\r\nBcc: bad" },
-    ]) {
-      expect(await problemOf(await ingress.submit(credentials, payload))).toEqual({
-        status: 422,
-        code: "validation.failed",
-      });
-    }
+      for (const payload of [
+        { ...message, email: "malformed" },
+        { ...message, to: "attacker@example.org" },
+        { ...message, subject: "Hei\r\nBcc: bad" },
+      ]) {
+        expect(yield* problemOf(yield* ingress.submit(credentials, payload))).toEqual({
+          status: 422,
+          code: "validation.failed",
+        });
+      }
 
-    expect(await ingress.consumedWindows()).toEqual([{ count: 0 }]);
-  });
+      expect(yield* ingress.consumedWindows()).toEqual([{ count: 0 }]);
+    }),
+  );
 });

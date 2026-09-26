@@ -1,87 +1,96 @@
-import { type DisposablePostgres, startDisposablePostgres } from "@monoweb/postgres";
+import { startDisposablePostgres } from "@monoweb/postgres";
 import { Database } from "@vektorprogrammet/database";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll } from "vitest";
 
-/** Independent PostgreSQL sessions on a private Unix socket, with no TCP listener. */
-export const backendPostgres = () => {
-  let cluster: DisposablePostgres | undefined;
-  let databaseSequence = 0;
-  let primary: ManagedRuntime.ManagedRuntime<Database, never> | undefined;
-  let contender: ManagedRuntime.ManagedRuntime<Database, never> | undefined;
-  let migratedTemplate: Promise<string> | undefined;
+/** Builds a layer into the current scope with its own memo map, as its own runtime would. */
+const buildIsolated = <A, E>(layer: Layer.Layer<A, E>) =>
+  Effect.flatMap(Effect.scope, (scope) =>
+    Layer.buildWithMemoMap(layer, Layer.makeMemoMapUnsafe(), scope),
+  );
 
-  const connection = (database: string) => ({
-    host: cluster?.socketDirectory,
-    port: cluster?.port,
-    database,
-    username: "postgres",
-    maxConnections: 1,
-  });
+/** Starts the cluster and opens two independent sessions on its `postgres` database. */
+const startCluster = Effect.gen(function* () {
+  const cluster = yield* Effect.acquireRelease(
+    Effect.promise(() => startDisposablePostgres({ listen: "socket" })),
+    (started) => Effect.promise(() => started.stop()),
+  );
 
-  /** Migrates once per cluster; fixtures clone it instead of replaying every migration. */
-  const template = (admin: ManagedRuntime.ManagedRuntime<Database, never>) =>
-    (migratedTemplate ??= (async () => {
+  const connection = (database: string) =>
+    DatabaseLive({
+      host: cluster.socketDirectory,
+      port: cluster.port,
+      database,
+      username: "postgres",
+      maxConnections: 1,
+    }).pipe(Layer.orDie);
+
+  const health = Database.use((sql) => sql.health);
+  const primary = yield* buildIsolated(connection("postgres"));
+  yield* Effect.provide(health, primary);
+  const contender = yield* buildIsolated(connection("postgres"));
+  yield* Effect.provide(health, contender);
+
+  // Migrates once per cluster; fixtures clone it instead of replaying every migration.
+  const template = yield* Effect.cached(
+    Effect.gen(function* () {
       const name = "backend_fixture_template";
-      await admin.runPromise(Database.use((sql) => sql`CREATE DATABASE ${sql(name)}`));
-      const migrator = ManagedRuntime.make(DatabaseLive(connection(name)).pipe(Layer.orDie));
-
-      try {
-        await migrator.runPromise(Database.use((sql) => sql.health));
-      } finally {
-        await migrator.dispose();
-      }
+      yield* Effect.provide(
+        Database.use((sql) => sql`CREATE DATABASE ${sql(name)}`),
+        primary,
+      );
+      yield* Effect.provide(health, connection(name), { local: true });
 
       return name;
-    })());
+    }),
+  );
 
-  beforeAll(async () => {
-    cluster = await startDisposablePostgres({ listen: "socket" });
-    primary = ManagedRuntime.make(DatabaseLive(connection("postgres")).pipe(Layer.orDie));
-    await primary.runPromise(Database.use((sql) => sql.health));
-    contender = ManagedRuntime.make(DatabaseLive(connection("postgres")).pipe(Layer.orDie));
-    await contender.runPromise(Database.use((sql) => sql.health));
-  }, 30_000);
+  let databaseSequence = 0;
 
-  afterAll(async () => {
-    try {
-      await contender?.dispose();
-    } finally {
-      try {
-        await primary?.dispose();
-      } finally {
-        await cluster?.stop();
-      }
-    }
-  }, 30_000);
+  const createDatabase = Effect.gen(function* () {
+    const source = yield* template;
+    const name = `backend_fixture_${++databaseSequence}`;
+    yield* Effect.provide(
+      Database.use((sql) => sql`CREATE DATABASE ${sql(name)} TEMPLATE ${sql(source)}`),
+      primary,
+    );
+
+    return {
+      layer: connection(name),
+      drop: Effect.provide(
+        Database.use((sql) => sql`DROP DATABASE ${sql(name)}`),
+        primary,
+      ),
+    };
+  });
+
+  return { primary, contender, createDatabase };
+});
+
+class BackendCluster extends Context.Service<
+  BackendCluster,
+  Effect.Success<typeof startCluster>
+>()("apps/backend/test/BackendCluster") {}
+
+/**
+ * Independent PostgreSQL sessions on a private Unix socket, with no TCP listener. The cluster
+ * belongs to the test file: it starts before the first test and stops after the last.
+ */
+export const backendPostgres = () => {
+  const runtime = ManagedRuntime.make(Layer.effect(BackendCluster, startCluster));
+  const cluster = Effect.map(runtime.contextEffect, Context.get(BackendCluster));
+
+  beforeAll(() => runtime.runPromise(Effect.void), 30_000);
+  afterAll(() => runtime.dispose(), 30_000);
 
   return {
-    createDatabase: async () => {
-      if (primary === undefined || cluster === undefined)
-        throw new Error("PostgreSQL fixture is not initialized");
-
-      const admin = primary;
-      const source = await template(admin);
-      const name = `backend_fixture_${++databaseSequence}`;
-      await admin.runPromise(
-        Database.use((sql) => sql`CREATE DATABASE ${sql(name)} TEMPLATE ${sql(source)}`),
-      );
-
-      return {
-        layer: DatabaseLive(connection(name)).pipe(Layer.orDie),
-        drop: () => admin.runPromise(Database.use((sql) => sql`DROP DATABASE ${sql(name)}`)),
-      };
-    },
-    run: <A, E>(effect: Effect.Effect<A, E, Database>): Promise<A> => {
-      if (primary === undefined) throw new Error("PostgreSQL fixture is not initialized");
-
-      return primary.runPromise(effect);
-    },
-    compete: <A, E>(effect: Effect.Effect<A, E, Database>): Promise<A> => {
-      if (contender === undefined) throw new Error("PostgreSQL fixture is not initialized");
-
-      return contender.runPromise(effect);
-    },
+    createDatabase: Effect.flatMap(cluster, (started) => started.createDatabase),
+    /** Runs on the primary session. */
+    run: <A, E>(effect: Effect.Effect<A, E, Database>) =>
+      Effect.flatMap(cluster, (started) => Effect.provide(effect, started.primary)),
+    /** Runs on a second session, which competes with the primary for locks. */
+    compete: <A, E>(effect: Effect.Effect<A, E, Database>) =>
+      Effect.flatMap(cluster, (started) => Effect.provide(effect, started.contender)),
   };
 };

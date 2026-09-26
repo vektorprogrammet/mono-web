@@ -89,10 +89,10 @@ const notFound = HttpRouter.use((router) =>
     "*",
     Effect.sync(() =>
       HttpServerResponse.fromWeb(
-        new Response(JSON.stringify({ error: { tag: "RouteNotFound" } }), {
-          status: 404,
-          headers: { "content-type": "application/json; charset=utf-8" },
-        }),
+        Response.json(
+          { error: { tag: "RouteNotFound" } },
+          { status: 404, headers: { "content-type": "application/json; charset=utf-8" } },
+        ),
       ),
     ),
   ),
@@ -260,17 +260,10 @@ const testRouterFetch = (
   );
 };
 
-// Until the tests run as Effects (effect-diagnostics step 5), they await each response.
-const promised = (handler: BackendHttpHandler) => (request: Request) =>
-  Effect.runPromise(handler(request));
-
 const testFetch = (
   app: Layer.Layer<never, never, TestApplicationRequirement>,
   services: TestServiceLayer,
-) =>
-  promised(
-    backendHttpHandler(testRouterFetch(app, services), testAuthHandler, testSessionBoundary),
-  );
+) => backendHttpHandler(testRouterFetch(app, services), testAuthHandler, testSessionBoundary);
 
 export const makeOrganizationTestHttp = <S extends TestServiceLayer>(
   options: OrganizationApiHttpOptions,
@@ -342,14 +335,12 @@ export const makeInternalReceiptTestHttp = <
   options: ReceiptApiHttpOptions<E, BackendTestServices>,
   services: S,
 ) => ({
-  fetch: promised(
-    testRouterFetch(
-      HttpApiBuilder.layer(internalReceiptContract).pipe(
-        Layer.provide(InternalReceiptApiHandlers(options)),
-        Layer.provide(NativeHttpApiMiddlewareLive),
-      ),
-      services,
+  fetch: testRouterFetch(
+    HttpApiBuilder.layer(internalReceiptContract).pipe(
+      Layer.provide(InternalReceiptApiHandlers(options)),
+      Layer.provide(NativeHttpApiMiddlewareLive),
     ),
+    services,
   ),
 });
 
@@ -453,7 +444,7 @@ export const makeBackendTestHttp = (
     }),
   );
 
-  return { fetch: promised(backendHttpHandler(native, authHandler, config.sessionBoundary)) };
+  return { fetch: backendHttpHandler(native, authHandler, config.sessionBoundary) };
 };
 
 export const makeBackendInternalTestHttp = (
@@ -467,12 +458,10 @@ export const makeBackendInternalTestHttp = (
   ).pipe(Layer.provideMerge(platform));
 
   return {
-    fetch: promised(
-      serveEachRequest(() =>
-        HttpRouter.toWebHandler(routerLayer, {
-          disableLogger: true,
-        }),
-      ),
+    fetch: serveEachRequest(() =>
+      HttpRouter.toWebHandler(routerLayer, {
+        disableLogger: true,
+      }),
     ),
   };
 };

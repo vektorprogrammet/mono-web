@@ -14,7 +14,7 @@ import {
   type HttpApiEndpoint,
   type HttpApiGroup,
 } from "effect/unstable/httpapi";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import {
   makeContentManagementTestHttp,
   makeOrganizationTestHttp,
@@ -22,18 +22,19 @@ import {
 } from "../test/native-http.js";
 import { requestSchemaErrorResponse } from "./transport.js";
 
-const expectProblem = async (response: Response, status: number, code: string): Promise<void> => {
-  expect(response.status).toBe(status);
-  expect(response.headers.get("content-type")).toBe("application/problem+json");
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  const body = await response.json();
-  expect(body).toMatchObject({
-    type: `urn:vektorprogrammet:problem:v0.2:${code}`,
-    status,
-    code,
+const expectProblem = (response: Response, status: number, code: string) =>
+  Effect.gen(function* () {
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-type")).toBe("application/problem+json");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = yield* Effect.promise(() => response.json());
+    expect(body).toMatchObject({
+      type: `urn:vektorprogrammet:problem:v0.2:${code}`,
+      status,
+      code,
+    });
+    expect(body).not.toHaveProperty("error");
   });
-  expect(body).not.toHaveProperty("error");
-};
 
 const unreachable = vi.fn(() => Effect.die("request schema failure reached endpoint dispatch"));
 
@@ -66,7 +67,7 @@ const validIdempotencyKey = "A".repeat(22);
 const validETag = '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"';
 
 describe("native request schema error transport", () => {
-  it.each([
+  it.live.each([
     ["missing If-Match", { "idempotency-key": validIdempotencyKey }, 428, "precondition.required"],
     [
       "malformed If-Match",
@@ -80,64 +81,70 @@ describe("native request schema error transport", () => {
       400,
       "idempotency-key.invalid",
     ],
-  ] as const)("maps %s before dispatch", async (_name, transportHeaders, status, code) => {
-    unreachable.mockClear();
+  ] as const)("maps %s before dispatch", ([_name, transportHeaders, status, code]) =>
+    Effect.gen(function* () {
+      unreachable.mockClear();
 
-    const response = await makeProfileTestHttp(
-      {
-        config: backendTestConfig,
-        resolveActor: unreachable,
-      },
-      securityServices,
-    ).fetch(
-      new Request("http://backend.test/api/profile", {
-        method: "PATCH",
-        headers: {
-          cookie: "better-auth.session_token=transport-test-session",
-          "content-type": "application/merge-patch+json",
-          origin: "http://127.0.0.1:5174",
-          ...transportHeaders,
+      const response = yield* makeProfileTestHttp(
+        {
+          config: backendTestConfig,
+          resolveActor: unreachable,
         },
-        body: '{"firstName":"Ada"}',
-      }),
-    );
+        securityServices,
+      ).fetch(
+        new Request("http://backend.test/api/profile", {
+          method: "PATCH",
+          headers: {
+            cookie: "better-auth.session_token=transport-test-session",
+            "content-type": "application/merge-patch+json",
+            origin: "http://127.0.0.1:5174",
+            ...transportHeaders,
+          },
+          body: '{"firstName":"Ada"}',
+        }),
+      );
 
-    await expectProblem(response, status, code);
-    expect(unreachable).not.toHaveBeenCalled();
-  });
+      yield* expectProblem(response, status, code);
+      expect(unreachable).not.toHaveBeenCalled();
+    }),
+  );
 
-  it("maps query decoding to request.malformed before dispatch", async () => {
-    unreachable.mockClear();
+  it.live("maps query decoding to request.malformed before dispatch", () =>
+    Effect.gen(function* () {
+      unreachable.mockClear();
 
-    const response = await makeOrganizationTestHttp(
-      {
-        config: backendTestConfig.organization,
-        resolveActor: unreachable,
-        resolveAuthority: unreachable,
-      },
-      securityServices,
-    ).fetch(
-      new Request("http://backend.test/api/mailing-lists?type=unknown", {
-        headers: { cookie: "better-auth.session_token=transport-test-session" },
-      }),
-    );
+      const response = yield* makeOrganizationTestHttp(
+        {
+          config: backendTestConfig.organization,
+          resolveActor: unreachable,
+          resolveAuthority: unreachable,
+        },
+        securityServices,
+      ).fetch(
+        new Request("http://backend.test/api/mailing-lists?type=unknown", {
+          headers: { cookie: "better-auth.session_token=transport-test-session" },
+        }),
+      );
 
-    await expectProblem(response, 400, "request.malformed");
-    expect(unreachable).not.toHaveBeenCalled();
-  });
+      yield* expectProblem(response, 400, "request.malformed");
+      expect(unreachable).not.toHaveBeenCalled();
+    }),
+  );
 
-  it("maps path-parameter decoding to request.malformed before dispatch", async () => {
-    unreachable.mockClear();
+  it.live("maps path-parameter decoding to request.malformed before dispatch", () =>
+    Effect.gen(function* () {
+      unreachable.mockClear();
 
-    const response = await makeContentManagementTestHttp(unreachable, securityServices).fetch(
-      new Request("http://backend.test/api/content/articles/not-a-number", {
-        headers: { cookie: "better-auth.session_token=transport-test-session" },
-      }),
-    );
+      const response = yield* makeContentManagementTestHttp(unreachable, securityServices).fetch(
+        new Request("http://backend.test/api/content/articles/not-a-number", {
+          headers: { cookie: "better-auth.session_token=transport-test-session" },
+        }),
+      );
 
-    await expectProblem(response, 400, "request.malformed");
-    expect(unreachable).not.toHaveBeenCalled();
-  });
+      yield* expectProblem(response, 400, "request.malformed");
+      expect(unreachable).not.toHaveBeenCalled();
+    }),
+  );
 });
 
 const inputProperties = (schema: Schema.Top | undefined) => {
@@ -212,36 +219,38 @@ const schemaErrorChecks = <Id extends string, Groups extends HttpApiGroup.Constr
 };
 
 describe("request schema error coverage", () => {
-  it("answers every request schema failure with a problem the endpoint declares", async () => {
-    const checks = [
-      ...schemaErrorChecks(ExternalNativeApi),
-      ...schemaErrorChecks(InternalNativeApi),
-    ];
+  it.live("answers every request schema failure with a problem the endpoint declares", () =>
+    Effect.gen(function* () {
+      const checks = [
+        ...schemaErrorChecks(ExternalNativeApi),
+        ...schemaErrorChecks(InternalNativeApi),
+      ];
 
-    const answered = new Set<string>();
-    const gaps: Array<string> = [];
+      const answered = new Set<string>();
+      const gaps: Array<string> = [];
 
-    for (const { operation, declared, error } of checks) {
-      const { code } = Schema.decodeUnknownSync(NativeProblem)(
-        await requestSchemaErrorResponse(error).json(),
-      );
+      for (const { operation, declared, error } of checks) {
+        const { code } = Schema.decodeUnknownSync(NativeProblem)(
+          yield* Effect.promise(() => requestSchemaErrorResponse(error).json()),
+        );
 
-      const problem = Problem.fromWire({ code }, {});
-      answered.add(code);
+        const problem = Problem.fromWire({ code }, {});
+        answered.add(code);
 
-      if (!declared.some((schema) => Schema.is(schema)(problem))) {
-        gaps.push(`${operation} ${error.kind} ${code}`);
+        if (!declared.some((schema) => Schema.is(schema)(problem))) {
+          gaps.push(`${operation} ${error.kind} ${code}`);
+        }
       }
-    }
 
-    // Every client-caused transform branch is reachable from some declared endpoint input.
-    expect([...answered].sort()).toEqual([
-      "header.malformed",
-      "idempotency-key.invalid",
-      "precondition.invalid",
-      "precondition.required",
-      "request.malformed",
-    ]);
-    expect(gaps).toEqual([]);
-  });
+      // Every client-caused transform branch is reachable from some declared endpoint input.
+      expect([...answered].sort()).toEqual([
+        "header.malformed",
+        "idempotency-key.invalid",
+        "precondition.invalid",
+        "precondition.required",
+        "request.malformed",
+      ]);
+      expect(gaps).toEqual([]);
+    }),
+  );
 });

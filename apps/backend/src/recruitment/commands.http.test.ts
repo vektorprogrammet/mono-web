@@ -20,8 +20,8 @@ import {
   RecruitmentScheduleCommandId,
 } from "@vektorprogrammet/domain/recruitment";
 import { CorrectInterviewAssessmentResponse } from "@vektorprogrammet/http-api";
-import { DateTime, Effect, Layer, ManagedRuntime, Schedule, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { DateTime, Deferred, Effect, Fiber, Layer, Schedule, Schema } from "effect";
+import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { makeRecruitmentTestHttp } from "../test/native-http.js";
 
@@ -152,7 +152,7 @@ const identitySnapshot = IdentitySnapshot.of({
           new IdentityActor({
             personId: PersonId.make(person),
             sessionId: `session-${person}`,
-            expiresAt: DateTime.makeUnsafe(new Date("2099-01-01T00:00:00.000Z")),
+            expiresAt: DateTime.makeUnsafe("2099-01-01T00:00:00.000Z"),
           }),
         );
   },
@@ -219,8 +219,8 @@ const fixture = () => {
   };
 
   /** A second session on the fixture database, outside the handler's single connection. */
-  const competitor = async () => {
-    const [target] = await database.run(
+  const competitor = Effect.gen(function* () {
+    const [target] = yield* database.run(
       Database.use(
         (sql) =>
           sql<{
@@ -234,66 +234,61 @@ const fixture = () => {
 
     if (target === undefined) throw new Error("Missing PostgreSQL connection configuration");
 
-    return ManagedRuntime.make(
-      DatabaseRuntimeLive({ ...target, maxConnections: 1 }).pipe(Layer.orDie),
-    );
-  };
+    return DatabaseRuntimeLive({ ...target, maxConnections: 1 }).pipe(Layer.orDie);
+  });
 
   return { database, request, competitor };
 };
 
 describe("recruitment commands over HTTP and PostgreSQL", () => {
-  it("retries an assessment correction once after a PostgreSQL serialization failure", async () => {
-    const { database, request, competitor } = fixture();
-    const conduct = await request(`/api/recruitment/interviews/${interviewId}`);
-    const etag = conduct.headers.get("etag");
+  it.live("retries an assessment correction once after a PostgreSQL serialization failure", () =>
+    Effect.gen(function* () {
+      const { database, request, competitor } = fixture();
+      const conduct = yield* request(`/api/recruitment/interviews/${interviewId}`);
+      const etag = conduct.headers.get("etag");
 
-    expect(conduct.status).toBe(200);
+      expect(conduct.status).toBe(200);
 
-    if (etag === null) throw new Error("The conduct read returned no entity tag");
-    await expect(database.run(persistedCorrection)).resolves.toEqual({
-      corrections: 0,
-      correctionReceipts: 0,
-      audits: 0,
-      httpReceipts: 0,
-      revision: 2,
-    });
+      if (etag === null) throw new Error("The conduct read returned no entity tag");
+      expect(yield* database.run(persistedCorrection)).toEqual({
+        corrections: 0,
+        correctionReceipts: 0,
+        audits: 0,
+        httpReceipts: 0,
+        revision: 2,
+      });
 
-    const runtime = await competitor();
-
-    try {
-      const rowHeld = Promise.withResolvers<void>();
+      const competing = yield* competitor;
+      const rowHeld = yield* Deferred.make<void>();
 
       // The concurrent transaction commits only after the command waits on its
       // row lock, so the command's SERIALIZABLE snapshot is already older than
       // the committed update and its first attempt fails with SQLSTATE 40001.
-      const concurrentUpdate = runtime.runPromise(
-        Database.use((sql) =>
-          sql.withTransaction(
-            Effect.gen(function* () {
-              yield* sql`UPDATE public.recruitment_interviews SET revision = revision WHERE interview_id = ${interviewId}`;
-              yield* Effect.sync(() => rowHeld.resolve());
+      const concurrentUpdate = yield* Database.use((sql) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`UPDATE public.recruitment_interviews SET revision = revision WHERE interview_id = ${interviewId}`;
+            yield* Deferred.succeed(rowHeld, undefined);
 
-              return yield* sql<{ readonly waiting: number }>`
-                SELECT count(*)::integer AS waiting
-                FROM pg_locks
-                WHERE locktype = 'transactionid' AND NOT granted
-              `.pipe(
-                Effect.map((rows) => rows[0]?.waiting ?? 0),
-                Effect.repeat({
-                  until: (waiting) => waiting > 0,
-                  times: 400,
-                  schedule: Schedule.spaced("10 millis"),
-                }),
-              );
-            }),
-          ),
+            return yield* sql<{ readonly waiting: number }>`
+              SELECT count(*)::integer AS waiting
+              FROM pg_locks
+              WHERE locktype = 'transactionid' AND NOT granted
+            `.pipe(
+              Effect.map((rows) => rows[0]?.waiting ?? 0),
+              Effect.repeat({
+                until: (waiting) => waiting > 0,
+                times: 400,
+                schedule: Schedule.spaced("10 millis"),
+              }),
+            );
+          }),
         ),
-      );
+      ).pipe(Effect.provide(competing, { local: true }), Effect.forkChild);
 
-      await rowHeld.promise;
+      yield* Deferred.await(rowHeld);
 
-      const correction = await request(`/api/recruitment/interviews/${interviewId}:correct`, {
+      const correction = yield* request(`/api/recruitment/interviews/${interviewId}:correct`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -303,57 +298,60 @@ describe("recruitment commands over HTTP and PostgreSQL", () => {
         body: correctionBody,
       });
 
-      await expect(concurrentUpdate).resolves.toBe(1);
+      expect(yield* Fiber.join(concurrentUpdate)).toBe(1);
       expect(correction.status).toBe(200);
       expect(
-        Schema.decodeUnknownSync(CorrectInterviewAssessmentResponse)(await correction.json(), {
-          onExcessProperty: "error",
-        }),
+        yield* Schema.decodeUnknownEffect(CorrectInterviewAssessmentResponse)(
+          yield* Effect.promise(() => correction.json()),
+          { onExcessProperty: "error" },
+        ),
       ).toMatchObject({
         interviewId,
         predecessorRevision: 2,
         resultingRevision: 3,
         replayed: false,
       });
-    } finally {
-      await runtime.dispose();
-    }
 
-    await expect(database.run(persistedCorrection)).resolves.toEqual({
-      corrections: 1,
-      correctionReceipts: 1,
-      audits: 1,
-      httpReceipts: 1,
-      revision: 3,
-    });
-  });
+      expect(yield* database.run(persistedCorrection)).toEqual({
+        corrections: 1,
+        correctionReceipts: 1,
+        audits: 1,
+        httpReceipts: 1,
+        revision: 3,
+      });
+    }),
+  );
 
-  it("rejects an exponent Content-Length before the correction starts", async () => {
-    const { database, request } = fixture();
-    const conduct = await request(`/api/recruitment/interviews/${interviewId}`);
-    const etag = conduct.headers.get("etag");
+  it.live("rejects an exponent Content-Length before the correction starts", () =>
+    Effect.gen(function* () {
+      const { database, request } = fixture();
+      const conduct = yield* request(`/api/recruitment/interviews/${interviewId}`);
+      const etag = conduct.headers.get("etag");
 
-    if (etag === null) throw new Error("The conduct read returned no entity tag");
+      if (etag === null) throw new Error("The conduct read returned no entity tag");
 
-    const correction = await request(`/api/recruitment/interviews/${interviewId}:correct`, {
-      method: "POST",
-      headers: {
-        "content-length": "1e3",
-        "content-type": "application/json",
-        "idempotency-key": "commands-exponent".padEnd(22, "0"),
-        "if-match": etag,
-      },
-      body: correctionBody,
-    });
+      const correction = yield* request(`/api/recruitment/interviews/${interviewId}:correct`, {
+        method: "POST",
+        headers: {
+          "content-length": "1e3",
+          "content-type": "application/json",
+          "idempotency-key": "commands-exponent".padEnd(22, "0"),
+          "if-match": etag,
+        },
+        body: correctionBody,
+      });
 
-    expect(correction.status).toBe(400);
-    await expect(correction.json()).resolves.toMatchObject({ code: "request.malformed" });
-    await expect(database.run(persistedCorrection)).resolves.toEqual({
-      corrections: 0,
-      correctionReceipts: 0,
-      audits: 0,
-      httpReceipts: 0,
-      revision: 2,
-    });
-  });
+      expect(correction.status).toBe(400);
+      expect(yield* Effect.promise(() => correction.json())).toMatchObject({
+        code: "request.malformed",
+      });
+      expect(yield* database.run(persistedCorrection)).toEqual({
+        corrections: 0,
+        correctionReceipts: 0,
+        audits: 0,
+        httpReceipts: 0,
+        revision: 2,
+      });
+    }),
+  );
 });

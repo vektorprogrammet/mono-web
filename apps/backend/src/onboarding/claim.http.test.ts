@@ -13,7 +13,7 @@ import { OnboardingClaim, OnboardingClaimResult } from "@vektorprogrammet/domain
 import { DepartmentId, Organization, PersonId } from "@vektorprogrammet/domain/organization";
 import { NativeProblem } from "@vektorprogrammet/http-api";
 import { DateTime, Effect, Layer, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 import { decodeBackendConfig } from "../config.js";
 import { makeBackendTestHttp } from "../test/native-http.js";
@@ -107,7 +107,7 @@ const http = makeBackendTestHttp(
               new IdentityActor({
                 personId: PersonId.make("member-1"),
                 sessionId: "member-1-session",
-                expiresAt: DateTime.makeUnsafe(new Date("2099-01-01T00:00:00.000Z")),
+                expiresAt: DateTime.makeUnsafe("2099-01-01T00:00:00.000Z"),
               }),
             )
           : Effect.fail(new IdentitySessionNotFound()),
@@ -134,34 +134,32 @@ const http = makeBackendTestHttp(
   },
 );
 
-const claim = async (
-  body: typeof OnboardingClaim.Encoded,
-  headers: Record<string, string> = {},
-) => {
-  const response = await http.fetch(
-    new Request("http://backend.test/api/onboarding/claim", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: "http://127.0.0.1:5174",
-        ...headers,
-      },
-      body: JSON.stringify(body),
-    }),
-  );
+const claim = (body: typeof OnboardingClaim.Encoded, headers: Record<string, string> = {}) =>
+  Effect.gen(function* () {
+    const response = yield* http.fetch(
+      new Request("http://backend.test/api/onboarding/claim", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "http://127.0.0.1:5174",
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      }),
+    );
 
-  const json: unknown = await response.json();
+    const json: unknown = yield* Effect.promise(() => response.json());
 
-  if (response.ok)
-    return { status: response.status, ...Schema.decodeUnknownSync(OnboardingClaimResult)(json) };
+    if (response.ok)
+      return { status: response.status, ...Schema.decodeUnknownSync(OnboardingClaimResult)(json) };
 
-  const code = Schema.decodeUnknownSync(NativeProblem)(json).code;
+    const code = Schema.decodeUnknownSync(NativeProblem)(json).code;
 
-  // A credential problem also names the credential the claim accepts.
-  return response.status === 401
-    ? { status: response.status, code, challenge: response.headers.get("www-authenticate") }
-    : { status: response.status, code };
-};
+    // A credential problem also names the credential the claim accepts.
+    return response.status === 401
+      ? { status: response.status, code, challenge: response.headers.get("www-authenticate") }
+      : { status: response.status, code };
+  });
 
 // Links, invitation states, and Persons are the facts a claim may change.
 const claimFacts = () =>
@@ -198,94 +196,104 @@ const unclaimed = {
 };
 
 describe("onboarding claim principal", () => {
-  it("links the session's Person once, to the invitation its token binds", async () => {
-    const existing = { mode: "ExistingAccount", token: tokens.a } as const;
+  it.live("links the session's Person once, to the invitation its token binds", () =>
+    Effect.gen(function* () {
+      const existing = { mode: "ExistingAccount", token: tokens.a } as const;
 
-    expect(await claim(existing, { cookie: session })).toEqual({
-      status: 200,
-      state: "Claimed",
-      departmentId: "claim-department",
-    });
-    expect(await claim(existing, { cookie: session })).toEqual({
-      status: 400,
-      code: "onboarding.claim-invalid",
-    });
-    expect(await claimFacts()).toEqual({
-      links: [
-        {
-          applicantId: "claim-applicant-a",
-          personId: "member-1",
-          invitationId: "claim-invitation-a",
-        },
-      ],
-      invitations: [
-        { invitationId: "claim-invitation-a", state: "Claimed" },
-        { invitationId: "claim-invitation-b", state: "Open" },
-      ],
-      persons: 2,
-    });
-  });
-
-  it("requires the session before it reads an existing-account token", async () => {
-    // Without its one principal, the claim answers a valid and an unknown token alike.
-    for (const token of [tokens.a, tokens.unknown]) {
-      expect(await claim({ mode: "ExistingAccount", token })).toEqual({
-        status: 401,
-        code: "credential.missing",
-        challenge: 'VektorSession realm="native-api"',
+      expect(yield* claim(existing, { cookie: session })).toEqual({
+        status: 200,
+        state: "Claimed",
+        departmentId: "claim-department",
       });
-    }
-
-    expect(await claimFacts()).toEqual(unclaimed);
-  });
-
-  it("lets only the browser session make an existing-account claim", async () => {
-    const existing = { mode: "ExistingAccount", token: tokens.a } as const;
-
-    // The bearer names the session's own Person, yet a delegated bearer cannot claim.
-    for (const token of [tokens.a, tokens.unknown]) {
-      expect(await claim({ mode: "ExistingAccount", token }, { authorization: bearer })).toEqual({
-        status: 401,
-        code: "credential.invalid",
-        challenge: 'VektorSession realm="native-api"',
+      expect(yield* claim(existing, { cookie: session })).toEqual({
+        status: 400,
+        code: "onboarding.claim-invalid",
       });
-    }
-
-    expect(await claimFacts()).toEqual(unclaimed);
-    expect(await claim(existing, { cookie: session })).toEqual({
-      status: 200,
-      state: "Claimed",
-      departmentId: "claim-department",
-    });
-    expect(await claim(existing, { cookie: session })).toEqual({
-      status: 400,
-      code: "onboarding.claim-invalid",
-    });
-  });
-
-  it("rejects a new-account token presented beside a session or a bearer", async () => {
-    const created = {
-      mode: "NewAccount",
-      token: tokens.b,
-      password: "correct horse battery",
-    } as const;
-
-    for (const [header, credential] of [
-      ["cookie", session],
-      ["authorization", bearer],
-    ] as const) {
-      expect(await claim(created, { [header]: credential })).toEqual({
-        status: 401,
-        code: "credential.invalid",
-        challenge: 'VektorSession realm="native-api"',
+      expect(yield* claimFacts()).toEqual({
+        links: [
+          {
+            applicantId: "claim-applicant-a",
+            personId: "member-1",
+            invitationId: "claim-invitation-a",
+          },
+        ],
+        invitations: [
+          { invitationId: "claim-invitation-a", state: "Claimed" },
+          { invitationId: "claim-invitation-b", state: "Open" },
+        ],
+        persons: 2,
       });
-    }
+    }),
+  );
 
-    expect(await claimFacts()).toEqual(unclaimed);
-    expect(await claim(created)).toEqual({
-      status: 200,
-      state: "Claimed",
-      departmentId: "claim-department",
-    });
-  });
+  it.live("requires the session before it reads an existing-account token", () =>
+    Effect.gen(function* () {
+      // Without its one principal, the claim answers a valid and an unknown token alike.
+      for (const token of [tokens.a, tokens.unknown]) {
+        expect(yield* claim({ mode: "ExistingAccount", token })).toEqual({
+          status: 401,
+          code: "credential.missing",
+          challenge: 'VektorSession realm="native-api"',
+        });
+      }
+
+      expect(yield* claimFacts()).toEqual(unclaimed);
+    }),
+  );
+
+  it.live("lets only the browser session make an existing-account claim", () =>
+    Effect.gen(function* () {
+      const existing = { mode: "ExistingAccount", token: tokens.a } as const;
+
+      // The bearer names the session's own Person, yet a delegated bearer cannot claim.
+      for (const token of [tokens.a, tokens.unknown]) {
+        expect(yield* claim({ mode: "ExistingAccount", token }, { authorization: bearer })).toEqual(
+          {
+            status: 401,
+            code: "credential.invalid",
+            challenge: 'VektorSession realm="native-api"',
+          },
+        );
+      }
+
+      expect(yield* claimFacts()).toEqual(unclaimed);
+      expect(yield* claim(existing, { cookie: session })).toEqual({
+        status: 200,
+        state: "Claimed",
+        departmentId: "claim-department",
+      });
+      expect(yield* claim(existing, { cookie: session })).toEqual({
+        status: 400,
+        code: "onboarding.claim-invalid",
+      });
+    }),
+  );
+
+  it.live("rejects a new-account token presented beside a session or a bearer", () =>
+    Effect.gen(function* () {
+      const created = {
+        mode: "NewAccount",
+        token: tokens.b,
+        password: "correct horse battery",
+      } as const;
+
+      for (const [header, credential] of [
+        ["cookie", session],
+        ["authorization", bearer],
+      ] as const) {
+        expect(yield* claim(created, { [header]: credential })).toEqual({
+          status: 401,
+          code: "credential.invalid",
+          challenge: 'VektorSession realm="native-api"',
+        });
+      }
+
+      expect(yield* claimFacts()).toEqual(unclaimed);
+      expect(yield* claim(created)).toEqual({
+        status: 200,
+        state: "Claimed",
+        departmentId: "claim-department",
+      });
+    }),
+  );
 });

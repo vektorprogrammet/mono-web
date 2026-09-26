@@ -7,7 +7,7 @@ import {
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Effect, Schema } from "effect";
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { backendDatabase } from "../../test/database.js";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -52,50 +52,54 @@ const withReturningAssistants = <A, E>(effect: Effect.Effect<A, E, ReturningAssi
   database.run(effect.pipe(Effect.provide(ReturningAssistantsLive)));
 
 describe("returning-assistant registration on PostgreSQL", () => {
-  it("stores the chosen teams as a JSON array and reads them back", async () => {
-    // The teams are out of sorted order: the registration keeps the order the assistant chose.
-    const teamIds = ["returning-team-b", "returning-team-a"];
+  it.live("stores the chosen teams as a JSON array and reads them back", () =>
+    Effect.gen(function* () {
+      // The teams are out of sorted order: the registration keeps the order the assistant chose.
+      const teamIds = ["returning-team-b", "returning-team-a"];
 
-    const input = Schema.decodeSync(ReturningAssistantRegistrationInputSchema)({
-      commandId: "returning-registration-command",
-      admissionPeriodId: "returning-autumn-period",
-      expectedRevision: 0,
-      yearOfStudy: 3,
-      mondayUnavailable: false,
-      tuesdayUnavailable: true,
-      wednesdayUnavailable: false,
-      thursdayUnavailable: false,
-      fridayUnavailable: false,
-      positionWeeks: 4,
-      preferredGroup: "all",
-      language: "Norsk",
-      preferredSchool: null,
-      teamInterest: true,
-      teamIds,
-    });
+      const input = Schema.decodeSync(ReturningAssistantRegistrationInputSchema)({
+        commandId: "returning-registration-command",
+        admissionPeriodId: "returning-autumn-period",
+        expectedRevision: 0,
+        yearOfStudy: 3,
+        mondayUnavailable: false,
+        tuesdayUnavailable: true,
+        wednesdayUnavailable: false,
+        thursdayUnavailable: false,
+        fridayUnavailable: false,
+        positionWeeks: 4,
+        preferredGroup: "all",
+        language: "Norsk",
+        preferredSchool: null,
+        teamInterest: true,
+        teamIds,
+      });
 
-    const registered = await withReturningAssistants(
-      ReturningAssistants.use((returning) => returning.register(input, { personId, now })),
-    );
+      const registered = yield* withReturningAssistants(
+        ReturningAssistants.use((returning) => returning.register(input, { personId, now })),
+      );
 
-    expect([registered.replayed, registered.observation.revision]).toEqual([false, 1]);
+      expect([registered.replayed, registered.observation.revision]).toEqual([false, 1]);
 
-    const stored = await database.run(
-      Database.use(
-        (sql) => sql<{ readonly teamIds: unknown; readonly kind: string }>`
+      const stored = yield* database.run(
+        Database.use(
+          (sql) => sql<{ readonly teamIds: unknown; readonly kind: string }>`
           SELECT team_ids AS "teamIds", jsonb_typeof(team_ids) AS kind
           FROM public.admission_returning_registrations
           WHERE person_id = ${personId}
         `,
-      ),
-    );
+        ),
+      );
 
-    expect(stored).toEqual([{ teamIds, kind: "array" }]);
+      expect(stored).toEqual([{ teamIds, kind: "array" }]);
 
-    const options = await withReturningAssistants(
-      ReturningAssistants.use((returning) => returning.readOptions({ personId, now })),
-    );
+      const options = yield* withReturningAssistants(
+        ReturningAssistants.use((returning) => returning.readOptions({ personId, now })),
+      );
 
-    expect(options.periods.map((period) => period.currentPreferences?.teamIds)).toEqual([teamIds]);
-  });
+      expect(options.periods.map((period) => period.currentPreferences?.teamIds)).toEqual([
+        teamIds,
+      ]);
+    }),
+  );
 });

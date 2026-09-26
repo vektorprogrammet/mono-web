@@ -16,17 +16,22 @@ import { ContentApi, ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { NativeProblem } from "@vektorprogrammet/http-api/http-semantics";
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { makeContentManagementTestHttp, makePublicNewsTestHttp } from "../test/native-http.js";
 import { contentOperationId } from "./http-context.js";
 
 /** Checks a problem response and decodes its body with the contract's problem schema. */
-const expectProblem = async (response: Response, status: number, code: string): Promise<void> => {
-  expect(response.headers.get("content-type")).toBe("application/problem+json");
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  const problem = Schema.decodeUnknownSync(NativeProblem)(await response.json());
-  expect([response.status, problem.code]).toEqual([status, code]);
-};
+const expectProblem = (response: Response, status: number, code: string) =>
+  Effect.gen(function* () {
+    expect(response.headers.get("content-type")).toBe("application/problem+json");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+
+    const problem = Schema.decodeUnknownSync(NativeProblem)(
+      yield* Effect.promise(() => response.json()),
+    );
+
+    expect([response.status, problem.code]).toEqual([status, code]);
+  });
 
 /** A request with a staff session cookie from the trusted dashboard origin. */
 const staffRequest = (
@@ -61,7 +66,7 @@ const administrator = Layer.mergeAll(
         new IdentityActor({
           personId: staffPerson,
           sessionId: "content-staff-session",
-          expiresAt: DateTime.makeUnsafe(new Date("2099-01-01T00:00:00.000Z")),
+          expiresAt: DateTime.makeUnsafe("2099-01-01T00:00:00.000Z"),
         }),
       ),
   }),
@@ -127,138 +132,153 @@ describe("native content HTTP boundary", () => {
     );
   });
 
-  it("answers owned domain failures with the problems their operations declare", async () => {
-    const cases: ReadonlyArray<readonly [string, ContentManagementFailure, number, string]> = [
-      ["/api/content/articles/1", new ContentArticleNotFound({}), 404, "content.article-not-found"],
-      [
-        "/api/content/articles/1",
-        new ContentIntegrityError({ operation: "read", message: "missing author" }),
-        500,
-        "content.integrity-error",
-      ],
-      [
-        "/api/content/articles/1",
-        new ContentPersistenceError({ operation: "read", message: "database unavailable" }),
-        503,
-        "content.unavailable",
-      ],
-      [
-        "/api/content/articles?department=department-1",
-        new ContentDepartmentNotFound({ departmentId: DepartmentId.make("department-1") }),
-        422,
-        "content.department-not-found",
-      ],
-    ];
+  it.live("answers owned domain failures with the problems their operations declare", () =>
+    Effect.gen(function* () {
+      const cases: ReadonlyArray<readonly [string, ContentManagementFailure, number, string]> = [
+        [
+          "/api/content/articles/1",
+          new ContentArticleNotFound({}),
+          404,
+          "content.article-not-found",
+        ],
+        [
+          "/api/content/articles/1",
+          new ContentIntegrityError({ operation: "read", message: "missing author" }),
+          500,
+          "content.integrity-error",
+        ],
+        [
+          "/api/content/articles/1",
+          new ContentPersistenceError({ operation: "read", message: "database unavailable" }),
+          503,
+          "content.unavailable",
+        ],
+        [
+          "/api/content/articles?department=department-1",
+          new ContentDepartmentNotFound({ departmentId: DepartmentId.make("department-1") }),
+          422,
+          "content.department-not-found",
+        ],
+      ];
 
-    for (const [path, failure, status, code] of cases) {
-      const content = Layer.mock(ContentManagement, {
-        readArticleDetail: () => Effect.fail(failure),
-        readWorkspace: () => Effect.fail(failure),
-      });
+      for (const [path, failure, status, code] of cases) {
+        const content = Layer.mock(ContentManagement, {
+          readArticleDetail: () => Effect.fail(failure),
+          readWorkspace: () => Effect.fail(failure),
+        });
 
-      const response = await makeContentManagementTestHttp(
-        signedIn,
-        Layer.merge(administrator, content),
-      ).fetch(staffRequest(path));
+        const response = yield* makeContentManagementTestHttp(
+          signedIn,
+          Layer.merge(administrator, content),
+        ).fetch(staffRequest(path));
 
-      await expectProblem(response, status, code);
-      expect(response.headers.get("retry-after")).toBe(status === 503 ? "5" : null);
-    }
-  });
+        yield* expectProblem(response, status, code);
+        expect(response.headers.get("retry-after")).toBe(status === 503 ? "5" : null);
+      }
+    }),
+  );
 
-  it("answers a slug conflict from inside the create transaction", async () => {
-    const response = await makeContentManagementTestHttp(signedIn, administrator).fetch(
-      staffRequest("/api/content/articles", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": "content-create-slug-conflict",
-        },
-        // The title leaves no letter or digit to build a slug from.
-        body: JSON.stringify({ title: "!!!", bodyHtml: "<p>Tekst</p>", departmentIds: [] }),
-      }),
-    );
-
-    await expectProblem(response, 422, "content.slug-conflict");
-  });
-
-  it("routes an article slug of the maximum length to the news read", async () => {
-    const slug = "a".repeat(ARTICLE_SLUG_MAX_LENGTH);
-    const reads: Array<string> = [];
-
-    const content = Layer.mock(Content, {
-      readPublishedArticle: (requested) => {
-        reads.push(requested);
-
-        return Effect.fail(new ContentArticleNotFound({}));
-      },
-    });
-
-    const response = await makePublicNewsTestHttp(content).fetch(
-      new Request(`http://backend.test/api/news/${slug}`),
-    );
-
-    await expectProblem(response, 404, "content.article-not-found");
-    expect(reads).toEqual([slug]);
-  });
-
-  it("answers a person rejected after ingress from the credential the request presented", async () => {
-    // The test services leave Identity unavailable, so person security admits
-    // the request, and the handler's own person resolution rejects it.
-    const http = makeContentManagementTestHttp(
-      () => Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
-      Layer.empty,
-    );
-
-    for (const [headers, code] of [
-      [{ cookie: "better-auth.session_token=content-staff" }, "credential.invalid"],
-      [{}, "credential.missing"],
-    ] as const) {
-      const response = await http.fetch(
-        new Request("http://backend.test/api/content/articles", { headers }),
-      );
-
-      await expectProblem(response, 401, code);
-      expect(response.headers.get("www-authenticate")).toBe(
-        'VektorSession realm="native-api", Bearer realm="native-api"',
-      );
-    }
-  });
-
-  it("reads one bounded JSON body of its media type before decoding it", async () => {
-    const http = makeContentManagementTestHttp(
-      () => Effect.die("unexpected person resolution"),
-      Layer.empty,
-    );
-
-    const create = (headers: Record<string, string>, body: string) =>
-      http.fetch(
+  it.live("answers a slug conflict from inside the create transaction", () =>
+    Effect.gen(function* () {
+      const response = yield* makeContentManagementTestHttp(signedIn, administrator).fetch(
         staffRequest("/api/content/articles", {
           method: "POST",
-          headers: { "idempotency-key": "content-body-test-0000000", ...headers },
-          body,
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": "content-create-slug-conflict",
+          },
+          // The title leaves no letter or digit to build a slug from.
+          body: JSON.stringify({ title: "!!!", bodyHtml: "<p>Tekst</p>", departmentIds: [] }),
         }),
       );
 
-    await expectProblem(
-      await create({ "content-type": "text/plain" }, "{}"),
-      415,
-      "media-type.unsupported",
-    );
-    await expectProblem(
-      await create({ "content-type": "application/json", "content-length": "1048577" }, "{}"),
-      413,
-      "request.too-large",
-    );
-    await expectProblem(
-      await create({ "content-type": "application/json", "content-length": "+2" }, "{}"),
-      400,
-      "request.malformed",
-    );
-    await expectProblem(
-      await create({ "content-type": "application/json" }, '{"title":"first","title":"second"}'),
-      400,
-      "request.malformed",
-    );
-  });
+      yield* expectProblem(response, 422, "content.slug-conflict");
+    }),
+  );
+
+  it.live("routes an article slug of the maximum length to the news read", () =>
+    Effect.gen(function* () {
+      const slug = "a".repeat(ARTICLE_SLUG_MAX_LENGTH);
+      const reads: Array<string> = [];
+
+      const content = Layer.mock(Content, {
+        readPublishedArticle: (requested) => {
+          reads.push(requested);
+
+          return Effect.fail(new ContentArticleNotFound({}));
+        },
+      });
+
+      const response = yield* makePublicNewsTestHttp(content).fetch(
+        new Request(`http://backend.test/api/news/${slug}`),
+      );
+
+      yield* expectProblem(response, 404, "content.article-not-found");
+      expect(reads).toEqual([slug]);
+    }),
+  );
+
+  it.live("answers a person rejected after ingress from the credential the request presented", () =>
+    Effect.gen(function* () {
+      // The test services leave Identity unavailable, so person security admits
+      // the request, and the handler's own person resolution rejects it.
+      const http = makeContentManagementTestHttp(
+        () => Effect.fail(new UnauthenticatedActor({ message: "authentication required" })),
+        Layer.empty,
+      );
+
+      for (const [headers, code] of [
+        [{ cookie: "better-auth.session_token=content-staff" }, "credential.invalid"],
+        [{}, "credential.missing"],
+      ] as const) {
+        const response = yield* http.fetch(
+          new Request("http://backend.test/api/content/articles", { headers }),
+        );
+
+        yield* expectProblem(response, 401, code);
+        expect(response.headers.get("www-authenticate")).toBe(
+          'VektorSession realm="native-api", Bearer realm="native-api"',
+        );
+      }
+    }),
+  );
+
+  it.live("reads one bounded JSON body of its media type before decoding it", () =>
+    Effect.gen(function* () {
+      const http = makeContentManagementTestHttp(
+        () => Effect.die("unexpected person resolution"),
+        Layer.empty,
+      );
+
+      const create = (headers: Record<string, string>, body: string) =>
+        http.fetch(
+          staffRequest("/api/content/articles", {
+            method: "POST",
+            headers: { "idempotency-key": "content-body-test-0000000", ...headers },
+            body,
+          }),
+        );
+
+      yield* expectProblem(
+        yield* create({ "content-type": "text/plain" }, "{}"),
+        415,
+        "media-type.unsupported",
+      );
+      yield* expectProblem(
+        yield* create({ "content-type": "application/json", "content-length": "1048577" }, "{}"),
+        413,
+        "request.too-large",
+      );
+      yield* expectProblem(
+        yield* create({ "content-type": "application/json", "content-length": "+2" }, "{}"),
+        400,
+        "request.malformed",
+      );
+      yield* expectProblem(
+        yield* create({ "content-type": "application/json" }, '{"title":"first","title":"second"}'),
+        400,
+        "request.malformed",
+      );
+    }),
+  );
 });

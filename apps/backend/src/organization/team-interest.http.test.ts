@@ -18,7 +18,7 @@ import {
   type OrganizationOperations,
 } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect, Layer, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { decodeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
 import { PRIVATE_NO_STORE } from "../http-semantics.js";
@@ -317,7 +317,7 @@ const http = makeOrganizationApiHttp(
   services,
 );
 
-const get = (pathname: string, cookie?: string): Promise<Response> =>
+const get = (pathname: string, cookie?: string): Effect.Effect<Response> =>
   http.fetch(
     new Request(`http://backend.test${pathname}`, {
       headers:
@@ -328,114 +328,135 @@ const get = (pathname: string, cookie?: string): Promise<Response> =>
   );
 
 describe("spec 0059 team-interest HTTP boundary", () => {
-  it("answers 401 without a session before any data leaves the store", async () => {
-    const response = await get("/api/team-interest-registrations");
-    expect(response.status).toBe(401);
-  });
+  it.live("answers 401 without a session before any data leaves the store", () =>
+    Effect.gen(function* () {
+      const response = yield* get("/api/team-interest-registrations");
+      expect(response.status).toBe(401);
+    }),
+  );
 
-  it("denies a plain member and an inactive leader with typed 403", async () => {
-    const member = await get("/api/team-interest-registrations", "session=member-session");
-    expect(member.status).toBe(403);
-    expect(await member.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
-      title: "Authority denied",
-      status: 403,
-      detail: "The authenticated principal is not permitted to perform this operation.",
-      code: "authority.denied",
-    });
+  it.live("denies a plain member and an inactive leader with typed 403", () =>
+    Effect.gen(function* () {
+      const member = yield* get("/api/team-interest-registrations", "session=member-session");
+      expect(member.status).toBe(403);
+      expect(yield* Effect.promise(() => member.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+        title: "Authority denied",
+        status: 403,
+        detail: "The authenticated principal is not permitted to perform this operation.",
+        code: "authority.denied",
+      });
 
-    const inactive = await get("/api/team-interest-registrations", "session=inactive-leader");
-    expect(inactive.status).toBe(403);
-  });
+      const inactive = yield* get("/api/team-interest-registrations", "session=inactive-leader");
+      expect(inactive.status).toBe(403);
+    }),
+  );
 
-  it("scopes a leader to their authorized union and emits the exact fixture envelope", async () => {
-    const response = await get("/api/team-interest-registrations", "session=leader-session");
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      "hydra:member": [
-        { id: 1, userName: "User A", teamName: "Team One" },
-        { id: 2, userName: "User B", teamName: "Team One" },
-      ],
-      "hydra:totalItems": 2,
-    });
-    // Rows ordered registration_id ASC regardless of insert order.
-    expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual(["department-1"]);
-  });
+  it.live("scopes a leader to their authorized union and emits the exact fixture envelope", () =>
+    Effect.gen(function* () {
+      const response = yield* get("/api/team-interest-registrations", "session=leader-session");
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        "hydra:member": [
+          { id: 1, userName: "User A", teamName: "Team One" },
+          { id: 2, userName: "User B", teamName: "Team One" },
+        ],
+        "hydra:totalItems": 2,
+      });
+      // Rows ordered registration_id ASC regardless of insert order.
+      expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual(["department-1"]);
+    }),
+  );
 
-  it("lets an ordinary team's leader read the own team's interest only (O8-11)", async () => {
-    const response = await get("/api/team-interest-registrations", "session=team-captain");
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      "hydra:member": [{ id: 3, userName: "User C", teamName: "Team Two" }],
-      "hydra:totalItems": 1,
-    });
-    expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([]);
-    expect(lastTeamInterestFilter.authorizedTeamIds).toEqual(["team-2"]);
+  it.live("lets an ordinary team's leader read the own team's interest only (O8-11)", () =>
+    Effect.gen(function* () {
+      const response = yield* get("/api/team-interest-registrations", "session=team-captain");
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        "hydra:member": [{ id: 3, userName: "User C", teamName: "Team Two" }],
+        "hydra:totalItems": 1,
+      });
+      expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([]);
+      expect(lastTeamInterestFilter.authorizedTeamIds).toEqual(["team-2"]);
 
-    const otherDepartment = await get(
-      "/api/team-interest-registrations?department=department-1",
-      "session=team-captain",
-    );
+      const otherDepartment = yield* get(
+        "/api/team-interest-registrations?department=department-1",
+        "session=team-captain",
+      );
 
-    expect(otherDepartment.status).toBe(403);
-  });
+      expect(otherDepartment.status).toBe(403);
+    }),
+  );
 
-  it("gives a global administrator every department despite having one membership", async () => {
-    const teamInterest = await get("/api/team-interest-registrations", "session=admin-session");
-    expect(teamInterest.status).toBe(200);
-    // The contract declares a private read; the dashboard's SDK rejects any other cache policy.
-    expect(teamInterest.headers.get("cache-control")).toBe(PRIVATE_NO_STORE);
-    expect(await teamInterest.json()).toEqual({
-      "hydra:member": [
-        { id: 1, userName: "User A", teamName: "Team One" },
-        { id: 2, userName: "User B", teamName: "Team One" },
-        { id: 3, userName: "User C", teamName: "Team Two" },
-      ],
-      "hydra:totalItems": 3,
-    });
-    expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([
-      "department-1",
-      "department-2",
-    ]);
-  });
+  it.live("gives a global administrator every department despite having one membership", () =>
+    Effect.gen(function* () {
+      const teamInterest = yield* get("/api/team-interest-registrations", "session=admin-session");
+      expect(teamInterest.status).toBe(200);
+      // The contract declares a private read; the dashboard's SDK rejects any other cache policy.
+      expect(teamInterest.headers.get("cache-control")).toBe(PRIVATE_NO_STORE);
+      expect(yield* Effect.promise(() => teamInterest.json())).toEqual({
+        "hydra:member": [
+          { id: 1, userName: "User A", teamName: "Team One" },
+          { id: 2, userName: "User B", teamName: "Team One" },
+          { id: 3, userName: "User C", teamName: "Team Two" },
+        ],
+        "hydra:totalItems": 3,
+      });
+      expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([
+        "department-1",
+        "department-2",
+      ]);
+    }),
+  );
 
-  it("gives a global administrator an empty success while no department exists", async () => {
-    storedDepartments = [];
+  it.live("gives a global administrator an empty success while no department exists", () =>
+    Effect.gen(function* () {
+      storedDepartments = [];
 
-    try {
-      const teamInterest = await get("/api/team-interest-registrations", "session=admin-session");
+      const teamInterest = yield* get("/api/team-interest-registrations", "session=admin-session");
 
       expect(teamInterest.status).toBe(200);
-      expect(await teamInterest.json()).toEqual({ "hydra:member": [], "hydra:totalItems": 0 });
-    } finally {
-      storedDepartments = [department, secondDepartment];
-    }
-  });
+      expect(yield* Effect.promise(() => teamInterest.json())).toEqual({
+        "hydra:member": [],
+        "hydra:totalItems": 0,
+      });
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          storedDepartments = [department, secondDepartment];
+        }),
+      ),
+    ),
+  );
 
-  it("rejects an unknown mailing-list type at the decode boundary", async () => {
-    const response = await get("/api/mailing-lists?type=unknown", "session=admin-session");
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      type: "urn:vektorprogrammet:problem:v0.2:request.malformed",
-      title: "Malformed request",
-      status: 400,
-      detail: "The request is malformed.",
-      code: "request.malformed",
-    });
-  });
-  it("narrows by department inside scope and denies out-of-scope with 403", async () => {
-    const inScope = await get(
-      "/api/team-interest-registrations?department=department-1",
-      "session=leader-session",
-    );
+  it.live("rejects an unknown mailing-list type at the decode boundary", () =>
+    Effect.gen(function* () {
+      const response = yield* get("/api/mailing-lists?type=unknown", "session=admin-session");
+      expect(response.status).toBe(400);
+      expect(yield* Effect.promise(() => response.json())).toEqual({
+        type: "urn:vektorprogrammet:problem:v0.2:request.malformed",
+        title: "Malformed request",
+        status: 400,
+        detail: "The request is malformed.",
+        code: "request.malformed",
+      });
+    }),
+  );
+  it.live("narrows by department inside scope and denies out-of-scope with 403", () =>
+    Effect.gen(function* () {
+      const inScope = yield* get(
+        "/api/team-interest-registrations?department=department-1",
+        "session=leader-session",
+      );
 
-    expect(inScope.status).toBe(200);
+      expect(inScope.status).toBe(200);
 
-    const outOfScope = await get(
-      "/api/team-interest-registrations?department=department-2",
-      "session=leader-session",
-    );
+      const outOfScope = yield* get(
+        "/api/team-interest-registrations?department=department-2",
+        "session=leader-session",
+      );
 
-    expect(outOfScope.status).toBe(403);
-  });
+      expect(outOfScope.status).toBe(403);
+    }),
+  );
 });
