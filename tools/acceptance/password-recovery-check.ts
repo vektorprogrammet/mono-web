@@ -385,11 +385,20 @@ try {
   await pool.query(
     `UPDATE auth.password_reset_email_outbox SET status='Processing',claim_id=gen_random_uuid(),claimed_at=date_trunc('milliseconds',CURRENT_TIMESTAMP,'UTC')-INTERVAL '2 minutes' WHERE status='Pending'`,
   );
-  assert.equal(await drain(), "Delivered");
+  // An expired claim may already have sent its mail, so the drain quarantines it instead of resending.
+  assert.equal(await drain(), "Empty");
+  assert.equal(
+    (
+      await pool.query(
+        `SELECT count(*)::int AS n FROM auth.password_reset_email_outbox WHERE status='Quarantined' AND last_failure_code='stale-claim'`,
+      )
+    ).rows[0].n,
+    1,
+  );
   await requestReset();
   const simultaneous = await Promise.all([drain(), drain()]);
   assert.deepEqual(simultaneous.sort(), ["Delivered", "Empty"]);
-  gates.push("stale recovery and concurrent SKIP LOCKED claims");
+  gates.push("stale claim quarantined and concurrent SKIP LOCKED claims");
 
   const nextToken = async () => {
     assert.equal((await requestReset()).status, 200);
