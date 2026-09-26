@@ -44,7 +44,7 @@ export const buildLegacyCurrentAssignmentSnapshot = (
     readonly referenceDigest: string;
   },
 ): ReconciledCurrentAssignmentSnapshot => {
-  const review = Schema.decodeUnknownSync(CurrentAssignmentReview)(reviewInput, {
+  const review = Schema.decodeSync(CurrentAssignmentReview)(reviewInput, {
     onExcessProperty: "error",
   });
 

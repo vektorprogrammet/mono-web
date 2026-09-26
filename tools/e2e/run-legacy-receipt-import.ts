@@ -103,7 +103,7 @@ export const runLegacyReceiptImport = async (input: LegacyReceiptImportOptions) 
   let stage: ImportStage = "Selection";
 
   try {
-    const options = Schema.decodeUnknownSync(LegacyReceiptImportOptions)(input, {
+    const options = Schema.decodeSync(LegacyReceiptImportOptions)(input, {
       onExcessProperty: "error",
     });
 

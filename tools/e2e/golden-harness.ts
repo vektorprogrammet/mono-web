@@ -545,9 +545,7 @@ export const selectRows = <Row>(
 ) =>
   Effect.tryPromise({ try: () => client.query(text, [...values]), catch: failure(label) }).pipe(
     Effect.flatMap((result) =>
-      Schema.decodeUnknownEffect(Schema.Array(row))(result.rows).pipe(
-        Effect.mapError(failure(label)),
-      ),
+      Schema.decodeEffect(Schema.Array(row))(result.rows).pipe(Effect.mapError(failure(label))),
     ),
   );
 

@@ -829,7 +829,7 @@ try {
       origin: dashboardOrigin,
     });
 
-    const query = Schema.decodeUnknownSync(PlacementScope)({ departmentId, semesterId });
+    const query = Schema.decodeSync(PlacementScope)({ departmentId, semesterId });
     const boardPath = `/api/placements?${new URLSearchParams(query)}`;
     const ownPath = `/api/placements/affiliation?departmentId=${departmentId}`;
     const coverageBoardPath = `/api/placements/coverage?${new URLSearchParams(query)}`;
@@ -878,7 +878,7 @@ try {
     };
 
     const idempotencyHeaders = (etag: string, key = randomBytes(18).toString("base64url")) =>
-      Schema.decodeUnknownSync(IdempotencyIfMatchHeaders)({
+      Schema.decodeSync(IdempotencyIfMatchHeaders)({
         "if-match": etag,
         "idempotency-key": key,
       });
@@ -2493,7 +2493,7 @@ try {
         { ...environment, PLACEMENT_JOURNEY_MANIFEST: manifestPath },
         300_000,
       );
-      browserEvidence = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.JsonObject))(
+      browserEvidence = Schema.decodeSync(Schema.fromJsonString(Schema.JsonObject))(
         await readFile(join(artifacts, "browser-evidence.json"), "utf8"),
       );
       assert.equal(browserEvidence?.passed, true);

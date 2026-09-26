@@ -137,7 +137,7 @@ const privateJson = async (path: string, value: Schema.Json): Promise<void> => {
 };
 
 const storedReceipts = async (pool: Pool) =>
-  Schema.decodeUnknownSync(Schema.Array(StoredReceipt))(
+  Schema.decodeSync(Schema.Array(StoredReceipt))(
     (
       await pool.query(`
  SELECT receipt_id,visual_id,owner_person_id,description,payment_account_ciphertext,file_ref,file_object_key,file_sha256
@@ -264,7 +264,7 @@ const rehearse = async () =>
         }),
       });
 
-      const assignments = Schema.decodeUnknownSync(CurrentAssignmentReview)({
+      const assignments = Schema.decodeSync(CurrentAssignmentReview)({
         sourceRevision: baseline.baseRevision,
         sourceWatermark: candidateWatermark,
         sourceSemesterId: candidateScope.semesterId,
@@ -284,7 +284,7 @@ const rehearse = async () =>
 
       stage = "BuildReceiptReview";
 
-      const receiptReview = Schema.decodeUnknownSync(ReceiptReview)({
+      const receiptReview = Schema.decodeSync(ReceiptReview)({
         sourceRepository: repository,
         sourceRevision: baseline.baseRevision,
         receiptSourceRevision: baseline.receiptRevision,

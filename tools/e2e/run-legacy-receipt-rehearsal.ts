@@ -549,7 +549,7 @@ const rehearse = async () =>
       }),
     );
 
-    const review = Schema.decodeUnknownSync(ReceiptReview)({
+    const review = Schema.decodeSync(ReceiptReview)({
       sourceRepository: repository,
       sourceRevision: baseRevision,
       receiptSourceRevision: financeRevision,

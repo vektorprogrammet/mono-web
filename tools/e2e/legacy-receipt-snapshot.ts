@@ -79,7 +79,7 @@ export const buildLegacyReceiptSnapshot = (
   cipher: PaymentAccountCipher,
 ): ReviewedReceiptSnapshot => {
   try {
-    const review = Schema.decodeUnknownSync(ReceiptReview)(reviewInput, {
+    const review = Schema.decodeSync(ReceiptReview)(reviewInput, {
       onExcessProperty: "error",
     });
 
