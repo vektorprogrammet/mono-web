@@ -216,7 +216,7 @@ const recordGate = (...observations: string[]) => {
 
 const secrets: string[] = [];
 
-const accessibility: Array<unknown> = [];
+const accessibility: Array<{ state: string; violations: ReadonlyArray<unknown> }> = [];
 
 const auditPage = async (page: any, state: string) => {
   const violations = (await new AxeBuilder({ page }).analyze()).violations.map(
@@ -1168,6 +1168,11 @@ try {
         null,
         2,
       ),
+    );
+    assert.deepEqual(
+      accessibility.filter((result) => result.violations.length > 0),
+      [],
+      "Returning registration and report accessibility violations retained in accessibility.json",
     );
     throw new ReturningTargetedComplete({ returningStages, reportEvidence });
   }

@@ -399,16 +399,16 @@ export default function TidligereAssistenter() {
 
   if (error || options === null) {
     return (
-      <main className="space-y-4">
+      <div className="space-y-4">
         <h1>Tidligere assistenter</h1>
         <p role="alert">{error ?? "Alternativene kunne ikke lastes."}</p>
-      </main>
+      </div>
     );
   }
 
   if (savedDrafts.length > 1) {
     return (
-      <main className="space-y-4">
+      <div className="space-y-4">
         <h1>Tidligere assistenter</h1>
         <p role="alert">
           Flere lagrede utkast krever et valg før registreringen kan fortsette.
@@ -416,13 +416,13 @@ export default function TidligereAssistenter() {
         <Button type="button" onClick={discardDraft}>
           Forkast lagrede utkast
         </Button>
-      </main>
+      </div>
     );
   }
 
   if (savedDraft !== null && selectedPeriod === undefined) {
     return (
-      <main className="space-y-4">
+      <div className="space-y-4">
         <h1>Tidligere assistenter</h1>
         <p role="alert">
           Det lagrede utkastet gjelder en opptaksperiode som ikke lenger er tilgjengelig.
@@ -430,12 +430,12 @@ export default function TidligereAssistenter() {
         <Button type="button" onClick={discardDraft}>
           Forkast lagret utkast
         </Button>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="max-w-3xl space-y-6">
+    <div className="max-w-3xl space-y-6">
       <header className="space-y-2">
         <h1>Tidligere assistenter</h1>
         <p>
@@ -560,7 +560,7 @@ export default function TidligereAssistenter() {
           </Button>
         )}
       </fetcher.Form>
-    </main>
+    </div>
   );
 }
 
@@ -568,7 +568,7 @@ export function ErrorBoundary() {
   useRouteError();
 
   return (
-    <main className="space-y-4">
+    <div className="space-y-4">
       <h1>Tidligere assistenter</h1>
       <p role="alert">
         Registreringen ble avbrutt. Utkastet er lagret på denne enheten.
@@ -577,6 +577,6 @@ export function ErrorBoundary() {
         Prøv igjen
       </Button>
       <p>Hvis du ikke vil sende utkastet på nytt, velg Forkast lagret utkast etter omlasting.</p>
-    </main>
+    </div>
   );
 }

@@ -48,7 +48,7 @@ export default function Profile() {
     if (identity === null) throw new Error("Missing session identity for unavailable profile");
 
     return (
-      <main className="mx-10 mt-10">
+      <div className="mx-10 mt-10">
         <h1 className="mb-2 font-semibold text-2xl lg:mb-4 lg:text-4xl">{identity.name}</h1>
         <p>
           <a className="text-blue-600 hover:underline" href={`mailto:${identity.email}`}>
@@ -62,7 +62,7 @@ export default function Profile() {
             fullstendige profilen.
           </p>
         </section>
-      </main>
+      </div>
     );
   }
 

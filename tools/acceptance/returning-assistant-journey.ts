@@ -1489,6 +1489,14 @@ export const runReturningAssistantBrowserJourney = async ({
     );
 
     assert.deepEqual(nextPeriodRevision.rows, [{ revision: 3, year_of_study: 5 }]);
+    // Audit the settled form. The status appears while the fetcher still revalidates, so the
+    // submit button is disabled and then fades in; Axe must not read its colors mid-transition.
+    await waitForActionReady(periodForm);
+    await periodForm
+      .locator('button[type="submit"]')
+      .evaluate((button) =>
+        Promise.all(button.getAnimations().map((animation) => animation.finished)),
+      );
     await auditPage(returning, "returning-registration");
 
     const finalCustody = await pool.query(
