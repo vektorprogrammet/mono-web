@@ -196,10 +196,13 @@ in
       fail_fast = true;
     };
     # Type-aware lint builds TypeScript programs, so it runs in a hook slot like the type checks.
+    # One process lints every staged file: parallel batches would each regenerate the same
+    # React Router route types at once, and one batch then reads another's half-written files.
     lint = {
       enable = true;
       entry = "${hookEnv} just hook-slot --class hook-pre-commit-lint -- just lint --no-error-on-unmatched-pattern";
       files = "\\.(js|jsx|mjs|cjs|ts|tsx|mts|cts)$";
+      require_serial = true;
       stages = [ "pre-commit" ];
       priority = 0;
       fail_fast = true;

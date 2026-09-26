@@ -306,14 +306,14 @@ The ledger records hook jobs as `hook-*` classes.
 
 Type-aware `just lint` builds a TypeScript program for each project that it lints.
 Measured on this machine on `08865605` with the wiring: the whole tree takes 20 s, 3.3 GiB peak RSS, and 9 peak cores, route type generation included; plain lint took 3 s and 0.3 GiB.
-In a hook slot (6 CPUs), the whole tree takes 20 s and 2.9 GiB, five staged files in five packages 5 s and 1.0 GiB, and one file 3 s and 0.4 GiB.
+In a hook slot (6 CPUs), the lint hook runs as one process: on every file it takes 21 s and 3.2 GiB, on five staged files in five packages 5 s and 1.0 GiB, and on one file 3 s and 0.4 GiB.
 
 `VEKTORPROGRAMMET_HOOK_SLOTS` sets N. The default is 5.
 Derive N for a machine as slots = min(memory bound, CPU bound), and use at least 1.
 The memory bound is the usable memory divided by the peak RSS of the heaviest hook job.
 Usable memory is the typical `MemAvailable` minus 20% of `MemTotal`.
 The CPU bound keeps at least 6 CPUs for each job, because the test suites have 5-second timeouts.
-On this machine, the memory bound is 23.5 GiB / 2.9 GiB (type-aware lint of the whole tree) = 8 and the CPU bound is 32 / 6 = 5.
+On this machine, the memory bound is 23.5 GiB / 3.2 GiB (the lint hook on every file) = 7 and the CPU bound is 32 / 6 = 5.
 
 Bound worker counts and PostgreSQL connections.
 Use private database instances and ports. Dispose runtimes before removing their storage.

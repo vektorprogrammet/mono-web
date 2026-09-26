@@ -53,7 +53,7 @@ if (jobClass === undefined) fail("Pass --class <job-class>. Use --help.");
 
 if (command.length === 0) fail("Pass the command after --.");
 
-// slots = min(memory bound 23.5 GiB / 2.9 GiB = 8, CPU bound 32 / 6 = 5) on
+// slots = min(memory bound 23.5 GiB / 3.2 GiB = 7, CPU bound 32 / 6 = 5) on
 // the development machine. AGENTS.md shows how to derive it for another one.
 const slotCount = Number(process.env.VEKTORPROGRAMMET_HOOK_SLOTS || "5");
 
