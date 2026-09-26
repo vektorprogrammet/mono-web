@@ -13,7 +13,9 @@
  * starts up, shuts down, or recovers answers on its port and rejects every session. A sentinel
  * process removes the cluster when its owner exits without `stop`: on an uncaught failure, on a
  * signal, and on SIGKILL. Bun exits on an uncaught failure without an `exit` event, so an
- * in-process exit hook would not cover that case.
+ * in-process exit hook would not cover that case. The sentinel runs in its own session and ignores
+ * the termination signals, because the killers that end an owner also reach the owner's children:
+ * a bash tool timeout and `hub stop` send SIGTERM to every descendant, also in other sessions.
  */
 import { type ChildProcess, execFile, spawn, spawnSync } from "node:child_process";
 import { accessSync, closeSync, constants, openSync, readFileSync } from "node:fs";
@@ -288,7 +290,10 @@ export const waitForPostgres = async (
 
 // The owner holds the sentinel's standard input, so the sentinel reads end of file when the owner
 // exits, however it exits. `stop` writes `released` instead, after it removed the cluster itself.
+// A signal that ends the owner can reach the sentinel too, as a process-tree SIGTERM does, so the
+// sentinel ignores HUP, INT, QUIT, and TERM; its own session keeps it out of process-group kills.
 const sentinelScript = [
+  "trap '' HUP INT QUIT TERM",
   'if read -r line && [ "$line" = released ]; then exit 0; fi',
   '"$1" stop --pgdata="$2" --mode=immediate --wait --timeout=30 >/dev/null 2>&1',
   'rm -rf -- "$3"',

@@ -1028,9 +1028,9 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
   - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
 - `selectedPostgresMajor`: The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
-  [tools/postgres/index.ts:87](../tools/postgres/index.ts#L87), no consumers.
+  [tools/postgres/index.ts:89](../tools/postgres/index.ts#L89), no consumers.
 - `postgresProgram`: Absolute path of a client program of the selected PostgreSQL major.
-  [tools/postgres/index.ts:153](../tools/postgres/index.ts#L153), 19 consumers:
+  [tools/postgres/index.ts:155](../tools/postgres/index.ts#L155), 19 consumers:
   - [apps/dashboard/e2e/receipt-approval.spec.ts](../apps/dashboard/e2e/receipt-approval.spec.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
@@ -1051,12 +1051,12 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/verification/identity-cohort-rehearsal.ts](../tools/verification/identity-cohort-rehearsal.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `postgresVersion`: The `postgres --version` line of the selected major, such as `postgres (PostgreSQL) 18.6`, for evidence that names the toolchain whether or not a cluster started.
-  [tools/postgres/index.ts:161](../tools/postgres/index.ts#L161), 3 consumers:
+  [tools/postgres/index.ts:163](../tools/postgres/index.ts#L163), 3 consumers:
   - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
   - [tools/e2e/golden-reimbursement.mjs](../tools/e2e/golden-reimbursement.mjs)
   - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
 - `startDisposablePostgres`: Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
-  [tools/postgres/index.ts:388](../tools/postgres/index.ts#L388), 33 consumers:
+  [tools/postgres/index.ts:393](../tools/postgres/index.ts#L393), 33 consumers:
   - [apps/backend/test/postgres.ts](../apps/backend/test/postgres.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
@@ -1091,7 +1091,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
 - `withDisposablePostgres`: Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
-  [tools/postgres/index.ts:600](../tools/postgres/index.ts#L600), 3 consumers:
+  [tools/postgres/index.ts:605](../tools/postgres/index.ts#L605), 3 consumers:
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
   - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
