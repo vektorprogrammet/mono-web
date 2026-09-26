@@ -1,4 +1,4 @@
-import { DatabasePgPool } from "./pg-pool.js";
+import { DatabasePgPool, pgQuery, pgTransaction, pgWithClient } from "./pg-pool.js";
 import { withoutCursorTimestamp, type CursorPositioned } from "./receipt/cursor.js";
 import {
   AuthzRuleSubjectSchema,
@@ -35,8 +35,8 @@ import {
   type ReceiptCursorPosition,
   type ReceiptStatus,
 } from "@vektorprogrammet/domain/receipt";
-import { Predicate, Match, Effect, Layer, Schema } from "effect";
-import type { Pool, PoolClient } from "pg";
+import { Data, Predicate, Match, Effect, Layer, Schema } from "effect";
+import type { Pool, PoolClient, QueryResult } from "pg";
 
 type CurrentServiceBindingRow = {
   readonly client_id: string;
@@ -90,23 +90,23 @@ type PersistedServiceRuleRow = {
   readonly revision: number;
 };
 
-const acquireSharedAuthorizationLock = async (client: PoolClient): Promise<void> => {
-  await client.query(
+const acquireSharedAuthorizationLock = (client: PoolClient) =>
+  pgQuery(
+    client,
     `SELECT pg_catalog.pg_advisory_xact_lock_shared(
        pg_catalog.hashtextextended($1, 0)
      )`,
     [AUTHZ_LOCK_PROTOCOL.advisoryKey],
   );
-};
 
-const acquireExclusiveAuthorizationLock = async (client: PoolClient): Promise<void> => {
-  await client.query(
+const acquireExclusiveAuthorizationLock = (client: PoolClient) =>
+  pgQuery(
+    client,
     `SELECT pg_catalog.pg_advisory_xact_lock(
        pg_catalog.hashtextextended($1, 0)
      )`,
     [AUTHZ_LOCK_PROTOCOL.advisoryKey],
   );
-};
 
 const credentialEvidencePattern =
   /^oauth:ServicePrincipal:([^:]{1,160}):([^:]{1,160}):([0-9]{1,20})$/u;
@@ -197,24 +197,37 @@ const decodePersistedServiceRule = (row: PersistedServiceRuleRow): AuthzRule => 
   );
 };
 
-const currentServiceBinding = async (
+/** A persisted grant, rule, or receipt row outside its schema. */
+class PersistedRowRejected extends Data.TaggedError("PersistedRowRejected")<{
+  readonly cause: unknown;
+}> {}
+
+const decodePersistedRow = <Row, A>(row: Row, decode: (row: Row) => A) =>
+  Effect.try({
+    try: () => decode(row),
+    catch: (cause) => new PersistedRowRejected({ cause }),
+  });
+
+const currentServiceBinding = (
   client: PoolClient,
   credential: AcceptedOAuthServiceCredential,
   authorizationInstant: string,
-): Promise<string> => {
-  const evidence = credentialEvidencePattern.exec(credential.evidenceRef);
+) =>
+  Effect.gen(function* () {
+    const evidence = credentialEvidencePattern.exec(credential.evidenceRef);
 
-  if (evidence === null) {
-    throw new ServicePrincipalGrantAuthorityError({
-      reason: "InvalidCredentialEvidence",
-      message: "OAuth service credential evidence is not canonical",
-    });
-  }
+    if (evidence === null) {
+      return yield* new ServicePrincipalGrantAuthorityError({
+        reason: "InvalidCredentialEvidence",
+        message: "OAuth service credential evidence is not canonical",
+      });
+    }
 
-  const [, jti, clientId, issuedAt] = evidence;
+    const [, jti, clientId, issuedAt] = evidence;
 
-  const result = await client.query<CurrentServiceBindingRow>(
-    `SELECT binding.client_id
+    const result = yield* pgQuery<CurrentServiceBindingRow>(
+      client,
+      `SELECT binding.client_id
        FROM auth.oauth_access_token_state AS state
        JOIN auth.oauth_client_bindings AS binding
          ON binding.client_id = state.client_id
@@ -245,36 +258,37 @@ const currentServiceBinding = async (
         AND provider_client."clientCredentialsScopes" = '["native-api"]'::jsonb
         AND principal.state = 'Active'
         AND protected_resource.disabled IS NOT TRUE`,
-    [
-      jti,
-      clientId,
-      credential.principal.servicePrincipalId,
-      issuedAt,
-      authorizationInstant,
-      NATIVE_API_PROTECTED_RESOURCE,
-    ],
-  );
+      [
+        jti,
+        clientId,
+        credential.principal.servicePrincipalId,
+        issuedAt,
+        authorizationInstant,
+        NATIVE_API_PROTECTED_RESOURCE,
+      ],
+    );
 
-  if (result.rowCount !== 1 || result.rows[0] === undefined) {
-    throw new ServicePrincipalGrantAuthorityError({
-      reason: "CurrentBindingRejected",
-      message: "OAuth service credential binding is not current",
-    });
-  }
+    if (result.rowCount !== 1 || result.rows[0] === undefined) {
+      return yield* new ServicePrincipalGrantAuthorityError({
+        reason: "CurrentBindingRejected",
+        message: "OAuth service credential binding is not current",
+      });
+    }
 
-  return result.rows[0].client_id;
-};
+    return result.rows[0].client_id;
+  });
 
 type PositionedServiceCandidate = CursorPositioned<ServicePrincipalReceiptGrantCandidate>;
 
-const readExactGrantCandidates = async (
+const readExactGrantCandidates = (
   client: PoolClient,
   credential: AcceptedOAuthServiceCredential,
   clientId: string,
   authorizationInstant: string,
   after: ReceiptCursorPosition | undefined,
-): Promise<ReadonlyArray<PositionedServiceCandidate>> => {
-  const result = await client.query<ServiceReceiptGrantRow>(
+) =>
+  pgQuery<ServiceReceiptGrantRow>(
+    client,
     `WITH receipt_page AS (
        SELECT receipt.* FROM public.economy_receipts AS receipt
        WHERE ($6::timestamptz IS NULL OR receipt.submitted_at < $6::timestamptz
@@ -338,37 +352,44 @@ const readExactGrantCandidates = async (
       after?.receiptId ?? null,
       RECEIPT_PAGE_SIZE + 1,
     ],
+  ).pipe(
+    Effect.flatMap((result) =>
+      Effect.forEach(result.rows, (candidateRow) =>
+        decodePersistedRow(
+          candidateRow,
+          (row): PositionedServiceCandidate => ({
+            cursorTimestamp: row.cursor_timestamp,
+            grant: decodePersistedGrant(row),
+            receipt: Schema.decodeUnknownSync(ServicePrincipalReceiptCandidateSchema)(
+              {
+                receiptId: row.resource_id,
+                visualId: row.visual_id,
+                ownerPersonId: row.owner_person_id,
+                departmentId: row.department_id,
+                amountOre: row.amount_ore,
+                currency: row.currency,
+                description: row.description,
+                receiptDate: row.receipt_date,
+                status: row.receipt_status,
+                approvedAt: row.approved_at?.toISOString() ?? null,
+                revision: row.receipt_revision,
+              },
+              { onExcessProperty: "error" },
+            ),
+          }),
+        ),
+      ),
+    ),
   );
 
-  return result.rows.map((row) => ({
-    cursorTimestamp: row.cursor_timestamp,
-    grant: decodePersistedGrant(row),
-    receipt: Schema.decodeUnknownSync(ServicePrincipalReceiptCandidateSchema)(
-      {
-        receiptId: row.resource_id,
-        visualId: row.visual_id,
-        ownerPersonId: row.owner_person_id,
-        departmentId: row.department_id,
-        amountOre: row.amount_ore,
-        currency: row.currency,
-        description: row.description,
-        receiptDate: row.receipt_date,
-        status: row.receipt_status,
-        approvedAt: row.approved_at?.toISOString() ?? null,
-        revision: row.receipt_revision,
-      },
-      { onExcessProperty: "error" },
-    ),
-  }));
-};
-
-const readServicePrincipalRules = async (
+const readServicePrincipalRules = (
   client: PoolClient,
   servicePrincipalId: string,
   authorizationInstant: string,
   receiptIds: ReadonlyArray<string>,
-): Promise<ReadonlyArray<AuthzRule>> => {
-  const result = await client.query<PersistedServiceRuleRow>(
+) =>
+  pgQuery<PersistedServiceRuleRow>(
+    client,
     `SELECT
        rule_id,
        capability_id,
@@ -398,171 +419,177 @@ const readServicePrincipalRules = async (
        AND (end_at IS NULL OR $2::timestamptz < end_at)
      ORDER BY resource_id ASC, rule_id ASC`,
     [servicePrincipalId, authorizationInstant, receiptIds],
+  ).pipe(
+    Effect.flatMap((result) =>
+      Effect.forEach(result.rows, (ruleRow) =>
+        decodePersistedRow(ruleRow, decodePersistedServiceRule),
+      ),
+    ),
   );
 
-  return result.rows.map(decodePersistedServiceRule);
-};
-
-const readInCurrentSnapshot = async (
+const readInCurrentSnapshot = (
   pool: Pool,
   credential: AcceptedOAuthServiceCredential,
   authorizationInstant: AuthorizationInstant,
   status: ReceiptStatus | undefined,
   after: ReceiptCursorPosition | undefined,
-): Promise<ServicePrincipalReceiptGrantAuthority> => {
-  const client = await pool.connect();
+) =>
+  pgWithClient(pool, (client) =>
+    Effect.gen(function* () {
+      yield* pgQuery(client, "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      yield* acquireSharedAuthorizationLock(client);
+      const clientId = yield* currentServiceBinding(client, credential, authorizationInstant);
 
-  try {
-    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    await acquireSharedAuthorizationLock(client);
-    const clientId = await currentServiceBinding(client, credential, authorizationInstant);
+      let position = after;
+      const visible: PositionedServiceCandidate[] = [];
+      const visibleIds = new Set<string>();
+      let fallback: ServicePrincipalReceiptGrantAuthority | undefined;
 
-    let position = after;
-    const visible: PositionedServiceCandidate[] = [];
-    const visibleIds = new Set<string>();
-    let fallback: ServicePrincipalReceiptGrantAuthority | undefined;
+      const base = {
+        servicePrincipalId: credential.principal.servicePrincipalId,
+        clientId: yield* Schema.decodeEffect(OAuthClientId)(clientId, {
+          onExcessProperty: "error",
+        }),
+        protectedResource: NATIVE_API_PROTECTED_RESOURCE,
+      };
 
-    const base = {
-      servicePrincipalId: credential.principal.servicePrincipalId,
-      clientId: Schema.decodeSync(OAuthClientId)(clientId, { onExcessProperty: "error" }),
-      protectedResource: NATIVE_API_PROTECTED_RESOURCE,
-    };
+      let denied: ServicePrincipalReceiptGrantAuthority = { ...base, candidates: [], rules: [] };
 
-    let denied: ServicePrincipalReceiptGrantAuthority = { ...base, candidates: [], rules: [] };
-
-    while (visibleIds.size <= RECEIPT_PAGE_SIZE) {
-      const candidates = await readExactGrantCandidates(
-        client,
-        credential,
-        clientId,
-        authorizationInstant,
-        position,
-      );
-
-      if (candidates.length === 0) break;
-      const candidateIds = [...new Set(candidates.map(({ receipt }) => receipt.receiptId))];
-
-      const rules = await readServicePrincipalRules(
-        client,
-        credential.principal.servicePrincipalId,
-        authorizationInstant,
-        candidateIds,
-      );
-
-      const batch = { ...base, candidates, rules };
-
-      const evaluation = evaluateServicePrincipalReceiptApprovalAccess(
-        credential,
-        batch,
-        authorizationInstant,
-      );
-
-      if (Predicate.isTagged(evaluation, "Allow")) {
-        const allowed = new Set<string>(
-          evaluation.resolution.contexts.flatMap((context) =>
-            context.resource === null ? [] : [context.resource.id],
-          ),
+      while (visibleIds.size <= RECEIPT_PAGE_SIZE) {
+        const candidates = yield* readExactGrantCandidates(
+          client,
+          credential,
+          clientId,
+          authorizationInstant,
+          position,
         );
 
-        if (fallback === undefined) {
-          const first = candidates.find((candidate) => allowed.has(candidate.receipt.receiptId))!;
+        if (candidates.length === 0) break;
+        const candidateIds = [...new Set(candidates.map(({ receipt }) => receipt.receiptId))];
 
-          const firstCandidates = candidates.filter(
-            (candidate) => candidate.receipt.receiptId === first.receipt.receiptId,
-          );
-
-          fallback = {
-            ...base,
-            candidates: firstCandidates,
-            rules: await readServicePrincipalRules(
-              client,
-              credential.principal.servicePrincipalId,
-              authorizationInstant,
-              [first.receipt.receiptId],
-            ),
-          };
-        }
-
-        for (const candidate of candidates) {
-          if (
-            !allowed.has(candidate.receipt.receiptId) ||
-            (status !== undefined && candidate.receipt.status !== status)
-          )
-            continue;
-
-          if (!visibleIds.has(candidate.receipt.receiptId) && visibleIds.size > RECEIPT_PAGE_SIZE)
-            break;
-          visibleIds.add(candidate.receipt.receiptId);
-          visible.push(candidate);
-        }
-      } else if (denied.candidates.length === 0) {
-        denied = batch;
-      }
-
-      if (candidateIds.length <= RECEIPT_PAGE_SIZE) break;
-      const last = candidates[candidates.length - 1]!;
-      position = { timestamp: last.cursorTimestamp, receiptId: last.receipt.receiptId };
-    }
-
-    let authority: ServicePrincipalReceiptGrantAuthority;
-
-    if (visible.length === 0) {
-      authority = fallback ?? denied;
-    } else {
-      const pageIds = [...visibleIds].slice(0, RECEIPT_PAGE_SIZE);
-      const retained = new Set(pageIds);
-      const candidates = visible.filter((candidate) => retained.has(candidate.receipt.receiptId));
-      const last = candidates[candidates.length - 1]!;
-      authority = {
-        ...base,
-        candidates: candidates.map(withoutCursorTimestamp),
-        rules: await readServicePrincipalRules(
+        const rules = yield* readServicePrincipalRules(
           client,
           credential.principal.servicePrincipalId,
           authorizationInstant,
-          pageIds,
-        ),
-      };
+          candidateIds,
+        );
 
-      if (visibleIds.size > RECEIPT_PAGE_SIZE) {
-        authority = {
-          ...authority,
-          nextCursor: encodeReceiptCursor({
-            timestamp: last.cursorTimestamp,
-            receiptId: last.receipt.receiptId,
-          }),
-        };
+        const batch = { ...base, candidates, rules };
+
+        const evaluation = evaluateServicePrincipalReceiptApprovalAccess(
+          credential,
+          batch,
+          authorizationInstant,
+        );
+
+        if (Predicate.isTagged(evaluation, "Allow")) {
+          const allowed = new Set<string>(
+            evaluation.resolution.contexts.flatMap((context) =>
+              context.resource === null ? [] : [context.resource.id],
+            ),
+          );
+
+          if (fallback === undefined) {
+            const first = candidates.find((candidate) => allowed.has(candidate.receipt.receiptId))!;
+
+            const firstCandidates = candidates.filter(
+              (candidate) => candidate.receipt.receiptId === first.receipt.receiptId,
+            );
+
+            fallback = {
+              ...base,
+              candidates: firstCandidates,
+              rules: yield* readServicePrincipalRules(
+                client,
+                credential.principal.servicePrincipalId,
+                authorizationInstant,
+                [first.receipt.receiptId],
+              ),
+            };
+          }
+
+          for (const candidate of candidates) {
+            if (
+              !allowed.has(candidate.receipt.receiptId) ||
+              (status !== undefined && candidate.receipt.status !== status)
+            )
+              continue;
+
+            if (!visibleIds.has(candidate.receipt.receiptId) && visibleIds.size > RECEIPT_PAGE_SIZE)
+              break;
+            visibleIds.add(candidate.receipt.receiptId);
+            visible.push(candidate);
+          }
+        } else if (denied.candidates.length === 0) {
+          denied = batch;
+        }
+
+        if (candidateIds.length <= RECEIPT_PAGE_SIZE) break;
+        const last = candidates[candidates.length - 1]!;
+        position = { timestamp: last.cursorTimestamp, receiptId: last.receipt.receiptId };
       }
-    }
 
-    await client.query("COMMIT");
+      let authority: ServicePrincipalReceiptGrantAuthority;
 
-    return authority;
-  } catch (cause) {
-    await client.query("ROLLBACK").catch(() => undefined);
+      if (visible.length === 0) {
+        authority = fallback ?? denied;
+      } else {
+        const pageIds = [...visibleIds].slice(0, RECEIPT_PAGE_SIZE);
+        const retained = new Set(pageIds);
 
-    if (cause instanceof ServicePrincipalGrantAuthorityError) throw cause;
-    throw new ServicePrincipalGrantAuthorityError({
-      reason: "PersistenceFailure",
-      message: "Service-principal grant authority read failed",
-    });
-  } finally {
-    client.release();
-  }
-};
+        const candidates = visible.filter((candidate) => retained.has(candidate.receipt.receiptId));
+
+        const last = candidates[candidates.length - 1]!;
+        authority = {
+          ...base,
+          candidates: candidates.map(withoutCursorTimestamp),
+          rules: yield* readServicePrincipalRules(
+            client,
+            credential.principal.servicePrincipalId,
+            authorizationInstant,
+            pageIds,
+          ),
+        };
+
+        if (visibleIds.size > RECEIPT_PAGE_SIZE) {
+          authority = {
+            ...authority,
+            nextCursor: encodeReceiptCursor({
+              timestamp: last.cursorTimestamp,
+              receiptId: last.receipt.receiptId,
+            }),
+          };
+        }
+      }
+
+      yield* pgQuery(client, "COMMIT");
+
+      return authority;
+    }).pipe(Effect.onError(() => Effect.ignore(pgQuery(client, "ROLLBACK")))),
+  ).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof ServicePrincipalGrantAuthorityError
+        ? cause
+        : new ServicePrincipalGrantAuthorityError({
+            reason: "PersistenceFailure",
+            message: "Service-principal grant authority read failed",
+          }),
+    ),
+  );
 
 type ServicePrincipalGrantAuditEventKind =
   | "service-principal-grant-created"
   | "service-principal-grant-ended"
   | "service-principal-grant-revoked";
 
-const appendGrantAudit = async (
+const appendGrantAudit = (
   client: PoolClient,
   eventKind: ServicePrincipalGrantAuditEventKind,
   grant: ServicePrincipalReceiptGrant,
   audit: ServicePrincipalGrantAuditContext,
-): Promise<void> => {
-  await client.query(
+) =>
+  pgQuery(
+    client,
     `INSERT INTO public.service_principal_grant_audit (
        event_id,
        occurred_at,
@@ -594,7 +621,6 @@ const appendGrantAudit = async (
       audit.requestCorrelation,
     ],
   );
-};
 
 const mutationRejected = (): ServicePrincipalGrantAuthorityError =>
   new ServicePrincipalGrantAuthorityError({
@@ -602,13 +628,26 @@ const mutationRejected = (): ServicePrincipalGrantAuthorityError =>
     message: "Service-principal grant mutation was rejected",
   });
 
-const createGrant = async (
+/** Decodes the one grant row that a mutation returned and appends its audit event. */
+const auditMutatedGrant = (
   client: PoolClient,
-  input: CreateServicePrincipalGrantInput,
-): Promise<ServicePrincipalReceiptGrant> => {
-  const grant = input.grant;
+  result: QueryResult<PersistedServiceReceiptGrantRow>,
+  eventKind: ServicePrincipalGrantAuditEventKind,
+  audit: ServicePrincipalGrantAuditContext,
+) =>
+  Effect.gen(function* () {
+    const row = result.rows[0];
 
-  const result = await client.query<PersistedServiceReceiptGrantRow>(
+    if (result.rowCount !== 1 || row === undefined) return yield* mutationRejected();
+    const grant = yield* decodePersistedRow(row, decodePersistedGrant);
+    yield* appendGrantAudit(client, eventKind, grant, audit);
+
+    return grant;
+  });
+
+const createGrant = (client: PoolClient, input: CreateServicePrincipalGrantInput) =>
+  pgQuery<PersistedServiceReceiptGrantRow>(
+    client,
     `INSERT INTO public.service_principal_grants (
        grant_id,
        service_principal_id,
@@ -642,36 +681,29 @@ const createGrant = async (
        revoked_at,
        revision AS grant_revision`,
     [
-      grant.grantId,
-      grant.servicePrincipalId,
-      grant.clientId,
-      grant.protectedResource,
-      grant.operationId,
-      grant.capabilityId,
-      grant.resourceKind,
-      grant.receiptId,
-      grant.startAt,
-      grant.endAt,
-      grant.revokedAt,
-      grant.revision,
+      input.grant.grantId,
+      input.grant.servicePrincipalId,
+      input.grant.clientId,
+      input.grant.protectedResource,
+      input.grant.operationId,
+      input.grant.capabilityId,
+      input.grant.resourceKind,
+      input.grant.receiptId,
+      input.grant.startAt,
+      input.grant.endAt,
+      input.grant.revokedAt,
+      input.grant.revision,
       input.audit.occurredAt,
     ],
+  ).pipe(
+    Effect.flatMap((result) =>
+      auditMutatedGrant(client, result, "service-principal-grant-created", input.audit),
+    ),
   );
 
-  const row = result.rows[0];
-
-  if (result.rowCount !== 1 || row === undefined) throw mutationRejected();
-  const created = decodePersistedGrant(row);
-  await appendGrantAudit(client, "service-principal-grant-created", created, input.audit);
-
-  return created;
-};
-
-const endGrant = async (
-  client: PoolClient,
-  input: EndServicePrincipalGrantInput,
-): Promise<ServicePrincipalReceiptGrant> => {
-  const result = await client.query<PersistedServiceReceiptGrantRow>(
+const endGrant = (client: PoolClient, input: EndServicePrincipalGrantInput) =>
+  pgQuery<PersistedServiceReceiptGrantRow>(
+    client,
     `UPDATE public.service_principal_grants
         SET end_at = $2::timestamptz,
             revision = revision + 1,
@@ -695,22 +727,15 @@ const endGrant = async (
         revoked_at,
         revision AS grant_revision`,
     [input.grantId, input.endAt, input.expectedRevision, input.audit.occurredAt],
+  ).pipe(
+    Effect.flatMap((result) =>
+      auditMutatedGrant(client, result, "service-principal-grant-ended", input.audit),
+    ),
   );
 
-  const row = result.rows[0];
-
-  if (result.rowCount !== 1 || row === undefined) throw mutationRejected();
-  const ended = decodePersistedGrant(row);
-  await appendGrantAudit(client, "service-principal-grant-ended", ended, input.audit);
-
-  return ended;
-};
-
-const revokeGrant = async (
-  client: PoolClient,
-  input: RevokeServicePrincipalGrantInput,
-): Promise<ServicePrincipalReceiptGrant> => {
-  const result = await client.query<PersistedServiceReceiptGrantRow>(
+const revokeGrant = (client: PoolClient, input: RevokeServicePrincipalGrantInput) =>
+  pgQuery<PersistedServiceReceiptGrantRow>(
+    client,
     `UPDATE public.service_principal_grants
         SET revoked_at = $2::timestamptz,
             revision = revision + 1,
@@ -733,42 +758,29 @@ const revokeGrant = async (
         revoked_at,
         revision AS grant_revision`,
     [input.grantId, input.revokedAt, input.expectedRevision, input.audit.occurredAt],
+  ).pipe(
+    Effect.flatMap((result) =>
+      auditMutatedGrant(client, result, "service-principal-grant-revoked", input.audit),
+    ),
   );
 
-  const row = result.rows[0];
-
-  if (result.rowCount !== 1 || row === undefined) throw mutationRejected();
-  const revoked = decodePersistedGrant(row);
-  await appendGrantAudit(client, "service-principal-grant-revoked", revoked, input.audit);
-
-  return revoked;
-};
-
-const mutateGrant = async <A>(
+/** Runs `mutation` in one transaction under the exclusive authorization lock. */
+const mutateGrant = <A, E>(
   pool: Pool,
-  mutation: (client: PoolClient) => Promise<A>,
-): Promise<A> => {
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-    await acquireExclusiveAuthorizationLock(client);
-    const result = await mutation(client);
-    await client.query("COMMIT");
-
-    return result;
-  } catch (cause) {
-    await client.query("ROLLBACK").catch(() => undefined);
-
-    if (cause instanceof ServicePrincipalGrantAuthorityError) throw cause;
-    throw new ServicePrincipalGrantAuthorityError({
-      reason: "PersistenceFailure",
-      message: "Service-principal grant mutation failed",
-    });
-  } finally {
-    client.release();
-  }
-};
+  mutation: (client: PoolClient) => Effect.Effect<A, E | ServicePrincipalGrantAuthorityError>,
+) =>
+  pgTransaction(pool, (client) =>
+    acquireExclusiveAuthorizationLock(client).pipe(Effect.andThen(mutation(client))),
+  ).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof ServicePrincipalGrantAuthorityError
+        ? cause
+        : new ServicePrincipalGrantAuthorityError({
+            reason: "PersistenceFailure",
+            message: "Service-principal grant mutation failed",
+          }),
+    ),
+  );
 
 export const makeServicePrincipalGrantAuthorityService = (
   pool: Pool,
@@ -799,16 +811,7 @@ export const makeServicePrincipalGrantAuthorityService = (
                   ),
                 );
 
-          return yield* Effect.tryPromise({
-            try: () => readInCurrentSnapshot(pool, credential, instant, status, position),
-            catch: (cause) =>
-              cause instanceof ServicePrincipalGrantAuthorityError
-                ? cause
-                : new ServicePrincipalGrantAuthorityError({
-                    reason: "PersistenceFailure",
-                    message: "Service-principal grant authority read failed",
-                  }),
-          });
+          return yield* readInCurrentSnapshot(pool, credential, instant, status, position);
         }),
       ),
     ),
@@ -817,54 +820,21 @@ export const makeServicePrincipalGrantAuthorityService = (
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError(mutationRejected),
-      Effect.flatMap((decoded) =>
-        Effect.tryPromise({
-          try: () => mutateGrant(pool, (client) => createGrant(client, decoded)),
-          catch: (cause) =>
-            cause instanceof ServicePrincipalGrantAuthorityError
-              ? cause
-              : new ServicePrincipalGrantAuthorityError({
-                  reason: "PersistenceFailure",
-                  message: "Service-principal grant mutation failed",
-                }),
-        }),
-      ),
+      Effect.flatMap((decoded) => mutateGrant(pool, (client) => createGrant(client, decoded))),
     ),
   endGrant: (input) =>
     Schema.decodeEffect(EndServicePrincipalGrantInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError(mutationRejected),
-      Effect.flatMap((decoded) =>
-        Effect.tryPromise({
-          try: () => mutateGrant(pool, (client) => endGrant(client, decoded)),
-          catch: (cause) =>
-            cause instanceof ServicePrincipalGrantAuthorityError
-              ? cause
-              : new ServicePrincipalGrantAuthorityError({
-                  reason: "PersistenceFailure",
-                  message: "Service-principal grant mutation failed",
-                }),
-        }),
-      ),
+      Effect.flatMap((decoded) => mutateGrant(pool, (client) => endGrant(client, decoded))),
     ),
   revokeGrant: (input) =>
     Schema.decodeEffect(RevokeServicePrincipalGrantInputSchema)(input, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError(mutationRejected),
-      Effect.flatMap((decoded) =>
-        Effect.tryPromise({
-          try: () => mutateGrant(pool, (client) => revokeGrant(client, decoded)),
-          catch: (cause) =>
-            cause instanceof ServicePrincipalGrantAuthorityError
-              ? cause
-              : new ServicePrincipalGrantAuthorityError({
-                  reason: "PersistenceFailure",
-                  message: "Service-principal grant mutation failed",
-                }),
-        }),
-      ),
+      Effect.flatMap((decoded) => mutateGrant(pool, (client) => revokeGrant(client, decoded))),
     ),
 });
 
