@@ -41,9 +41,9 @@ changelog *args:
 land branch:
     bun --no-env-file tools/scripts/land.ts "$1"
 
-# Check layout, constructs, guides, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
+# Check layout, constructs, guides, Effect exceptions, source safety, format, lint, types, and the HTTP contract. Arguments go to Turbo.
 [group('check')]
-check *args: layout constructs guides source-safety (format "--check") lint
+check *args: layout constructs guides exceptions source-safety (format "--check") lint
     bun x turbo check-types "$@"
 
 # Check the repository layout and its generated sections: the README and AGENTS.md tables and the hosted journey legs; `just layout write` renders them.
@@ -60,6 +60,11 @@ constructs *args:
 [group('check')]
 guides *args:
     bun --no-env-file tools/conventions/src/cli.ts guides "$@"
+
+# Check that every suppression of an Effect rule names its entry in docs/effect-exceptions.json, and every entry its current sites and versions.
+[group('check')]
+exceptions *args:
+    bun --no-env-file tools/conventions/src/cli.ts exceptions "$@"
 
 # Check the migration registry and the checksums of applied migrations; `just migration-hashes write` records new ones.
 [group('check')]

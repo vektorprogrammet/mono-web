@@ -7,7 +7,7 @@ import {
 } from "@vektorprogrammet/domain/receipt";
 /** Spec 0095: bounded synthetic snapshot adapter, using the Receipt importer. */
 import { createHash } from "node:crypto";
-// oxlint-disable-next-line effecttsgo/node-builtin-import -- Effect FileSystem.open has no O_NOFOLLOW; the snapshot reader refuses a symlink at open time
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0003: Effect FileSystem.open has no O_NOFOLLOW; the snapshot reader refuses a symlink at open time
 import { constants, open } from "node:fs/promises";
 import { Data, Effect, FileSystem, Match, Option, Path, Predicate, Result, Schema } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";

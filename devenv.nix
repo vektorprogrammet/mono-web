@@ -246,6 +246,17 @@ in
       priority = 0;
       fail_fast = true;
     };
+    # Every suppression of an Effect rule in the staged tree names its entry in
+    # docs/effect-exceptions.json, and every entry names current sites and package versions.
+    exceptions = hook {
+      entry = "${hookEnv} just exceptions --staged";
+      stages = [
+        "pre-commit"
+        "pre-merge-commit"
+      ];
+      priority = 0;
+      fail_fast = true;
+    };
     # Type checks and tests of the packages that the staged tree changes.
     changed-packages = hook {
       entry = "${hookEnv} just check-staged --class hook-pre-commit";

@@ -166,10 +166,10 @@ const declared = (
 };
 
 // Rolldown exports the parse result but not its comment type.
-type Comment = ParseResult["comments"][number];
+export type Comment = ParseResult["comments"][number];
 
-// JSDoc lines without the leading `*`.
-const docLines = (comment: Comment): ReadonlyArray<string> =>
+/** JSDoc lines without the leading `*`. */
+export const docLines = (comment: Comment): ReadonlyArray<string> =>
   comment.value.split("\n").map((line) => line.replace(/^\s*\*? ?/u, "").trimEnd());
 
 const tagLine = /^@construct(?:\s+(.*))?$/u;

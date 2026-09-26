@@ -261,7 +261,6 @@ const main = async (): Promise<void> => {
       };
     }).pipe(Effect.provide([gateway, authorityLayers]), Effect.scoped);
 
-    // oxlint-disable-next-line effect/no-premature-execution -- executable proof composition root
     const observed = await Effect.runPromise(program);
 
     if (

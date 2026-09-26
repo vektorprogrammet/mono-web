@@ -164,7 +164,7 @@ export const problemMapper =
     });
 
     // SAFETY: failures with a mapped tag became the problem their case returns; the rest are unchanged.
-    // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- Each failure tag maps to the problem type its case returns; TypeScript cannot index the generic `Cases` by the failure tag to infer that union, so the mapped error channel is asserted once here.
+    // oxlint-disable-next-line effecttsgo/unsafe-effect-type-assertion -- EX-0002: Each failure tag maps to the problem type its case returns; TypeScript cannot index the generic `Cases` by the failure tag to infer that union, so the mapped error channel is asserted once here.
     return mapped as Effect.Effect<A, MappedFailure<E, Failure, Cases>, R>;
   };
 

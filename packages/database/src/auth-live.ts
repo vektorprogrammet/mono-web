@@ -115,6 +115,8 @@ export interface IdentitySnapshotService {
 /**
  * Session reads run in the caller's ambient Database transaction, so every method requires it.
  *
+ * The leaking expectation below is exception EX-0005 of docs/effect-exceptions.json.
+ *
  * @effect-expect-leaking Database
  */
 export class IdentitySnapshot extends Context.Service<IdentitySnapshot, IdentitySnapshotService>()(

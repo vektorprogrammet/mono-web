@@ -2,7 +2,7 @@
 
 # tools/conventions
 
-Layout, module guide, and construct catalogue checks and their generated files.
+Layout, guide, construct, and Effect exception checks and their generated files.
 Package `@monoweb/conventions`.
 
 ## Entry points

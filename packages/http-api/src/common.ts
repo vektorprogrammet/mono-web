@@ -89,6 +89,8 @@ export class SessionSecurity extends HttpApiMiddleware.Service<SessionSecurity>(
  * a delegated OAuth user bearer. The backend resolves either mechanism to the
  * same canonical Person principal before current authorization is evaluated.
  *
+ * The leaking expectation below is exception EX-0007 of docs/effect-exceptions.json.
+ *
  * @since 0.1.0
  * @category Security
  * @effect-expect-leaking HttpServerRequest ParsedSearchParams RouteContext
@@ -107,6 +109,8 @@ export class PersonSecurity extends HttpApiMiddleware.Service<PersonSecurity>()(
 /**
  * Contract marker for the one native operation that accepts either a person
  * credential or a service-principal bearer.
+ *
+ * The leaking expectation below is exception EX-0007 of docs/effect-exceptions.json.
  *
  * @effect-expect-leaking HttpServerRequest ParsedSearchParams RouteContext
  */

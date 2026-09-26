@@ -1,4 +1,4 @@
-// oxlint-disable-next-line effecttsgo/node-builtin-import -- Effect FileSystem.open has no O_NOFOLLOW; the cohort reader refuses a symlink at open time
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- EX-0008: Effect FileSystem.open has no O_NOFOLLOW; the cohort reader refuses a symlink at open time
 import { constants, open } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 

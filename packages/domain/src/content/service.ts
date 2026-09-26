@@ -61,6 +61,8 @@ export interface ContentManagementOperations {
  * The capability topology gives ContentManagement no layer dependency, so the composition root
  * supplies Organization to every operation.
  *
+ * The leaking expectation below is exception EX-0006 of docs/effect-exceptions.json.
+ *
  * @effect-expect-leaking Organization
  */
 export class ContentManagement extends Context.Service<

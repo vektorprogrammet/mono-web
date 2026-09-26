@@ -1,0 +1,169 @@
+{
+  "description": "Registered exceptions to the Effect rules of mono-web. Each suppression of an Effect rule (effecttsgo/*, effect/*, anti-slop-effect/*, @effect-expect-leaking, @effect-leakable-service, @effect-diagnostics) and each non-native substitute names its entry id in a comment at the site. `just exceptions` checks every entry against its sites, its owner, and the versions that package.json pins. .agents/skills/effect-house/references/exceptions.md describes the fields and how an entry is added and retired.",
+  "exceptions": [
+    {
+      "id": "EX-0001",
+      "rules": ["FX005", "effecttsgo/any-unknown-in-error-context"],
+      "scope": {
+        "files": ["apps/backend/src/router.ts"],
+        "symbols": ["nativeRouterWebHandler"]
+      },
+      "reason": "The native web handler serves the built router through HttpEffect.toWebHandler. toWebHandler answers every failure cause with a response, so the handler never fails.",
+      "missingCapability": "HttpRouter.asHttpEffect() types the failure of the built router as unknown.",
+      "nativeAlternatives": [
+        "HttpRouter.toHttpEffect(appLayer) types the failure from the route layers, but it builds the router from the application layer in the caller's scope. The entry point, the legacy candidate journey, and the organization import rehearsal read the router from their ManagedRuntime, which also runs their other services, such as the workers and the identity engine of the entry point.",
+        "Handling the failure before HttpEffect.toWebHandler, for example with Effect.catchCause, replaces the response that toWebHandler writes for each cause."
+      ],
+      "verification": [
+        "Every journey that starts the backend entry point serves its requests through this handler, for example `just e2e interview-response`.",
+        "`just rehearsal organization-import` serves its native API through this handler."
+      ],
+      "owner": "apps/backend",
+      "examinedWith": { "effect": "4.0.0-rc.116" },
+      "retirementTrigger": "HttpRouter.asHttpEffect() types its failure, or the callers build their handler with HttpRouter.toHttpEffect. Then remove the suppression."
+    },
+    {
+      "id": "EX-0002",
+      "rules": ["FX008", "effecttsgo/unsafe-effect-type-assertion"],
+      "scope": {
+        "files": ["apps/backend/src/http-api/problem.ts"],
+        "symbols": ["problemMapper"]
+      },
+      "reason": "Each failure tag maps to the problem type that its case returns, and other failures pass through unchanged, so the type check of an endpoint still sees an unmapped failure.",
+      "missingCapability": "TypeScript cannot index the generic Cases record by the failure tag inside Effect.mapError, so it does not infer the mapped failure union MappedFailure<E, Failure, Cases>.",
+      "nativeAlternatives": [
+        "Effect.mapError without the assertion types the failure as E | Problem, which loses the problem type of each tag that the endpoint checks rely on.",
+        "Effect.catchTags takes Effect-returning handlers keyed by literal tags. Deriving them from the generic cases record needs the same assertion.",
+        "Effect.catchIf with a type guard, as unreachable in the same file does, narrows one known failure, not a record of cases."
+      ],
+      "verification": [
+        "`just check-types` checks every endpoint whose problems a mapper produces.",
+        "The HTTP tests of the contexts decode the answered problems with the contract schemas, for example `apps/backend/src/content/http.test.ts`."
+      ],
+      "owner": "apps/backend/src/http-api",
+      "examinedWith": { "effect": "4.0.0-rc.116", "typescript": "7.0.2" },
+      "retirementTrigger": "TypeScript infers the mapped failure union from the generic cases record. Then remove the assertion and the suppression."
+    },
+    {
+      "id": "EX-0003",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["apps/backend/src/receipt/import-snapshot.ts"],
+        "symbols": ["readRegularFile"]
+      },
+      "reason": "The snapshot reader must refuse a symbolic link that replaces a checked path between the check and the open, so it opens each file with O_NOFOLLOW.",
+      "missingCapability": "Effect FileSystem.open takes an OpenFlag string, such as \"r\", which has no no-follow form, so it cannot refuse a symbolic link when it opens the file.",
+      "nativeAlternatives": [
+        "FileSystem.stat or FileSystem.readLink before FileSystem.open: a symbolic link can replace the path between the check and the open.",
+        "FileSystem.realPath and a check that the result stays under the root: the same race between the check and the open."
+      ],
+      "verification": [
+        "`apps/backend/src/receipt/import-snapshot.test.ts` rejects traversal, missing bytes, and a symbolic link out of the root before it imports private files.",
+        "No test replaces a path between the check and the open; review verifies the O_NOFOLLOW open."
+      ],
+      "owner": "apps/backend/src/receipt",
+      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
+    },
+    {
+      "id": "EX-0004",
+      "rules": ["FX003", "effect/no-cross-runtime"],
+      "scope": {
+        "files": ["apps/dashboard/e2e/real-interview-response.spec.ts"],
+        "symbols": ["canonicalUrl"]
+      },
+      "reason": "Playwright serializes the page.evaluate callback and runs it in the browser page, where window is the global of the page. The journey removes the trailing slash from the page URL without a new request.",
+      "missingCapability": "effect/no-cross-runtime judges code by the platform of its module, which oxlint.config.ts declares node for the journey specs. It cannot see that Playwright runs a page.evaluate callback in the browser.",
+      "nativeAlternatives": [
+        "page.goto with the canonical URL loads the page again, which reads the invitation again. history.replaceState changes the URL without a request.",
+        "A module that oxlint.config.ts declares platform browser can hold the callback, because Playwright serializes only the source of a self-contained function. This needs a group in oxlint.config.ts."
+      ],
+      "verification": ["`just e2e interview-response` runs the spec in the hosted journey matrix."],
+      "owner": "apps/dashboard",
+      "examinedWith": { "@phibkro/oxlint-effect-plugin": "0.1.0" },
+      "retirementTrigger": "The callback moves to a module that oxlint.config.ts declares platform browser, or effect/no-cross-runtime recognizes Playwright page callbacks. Then remove the suppressions."
+    },
+    {
+      "id": "EX-0005",
+      "rules": ["FX006", "effecttsgo/leaking-requirements"],
+      "scope": {
+        "files": ["packages/database/src/auth-live.ts"],
+        "symbols": ["IdentitySnapshot"]
+      },
+      "reason": "Session reads and revocations run in the ambient Database transaction of the caller, so every IdentitySnapshot operation requires Database.",
+      "missingCapability": "None in Effect: the requirement is part of the contract. effecttsgo/leaking-requirements reports a service whose operations all require the same service, and the expectation accepts Database only.",
+      "nativeAlternatives": [
+        "Resolving Database when the layer is built, as the rule suggests: the operations would then use the Database of the layer, not the Database of the caller whose transaction they join."
+      ],
+      "verification": [
+        "`packages/database/src/auth-live.test.ts` runs the session reads against a disposable cluster (AUTH_TEST_PG_URL).",
+        "`just e2e identity` signs in, reads, and revokes sessions through the backend."
+      ],
+      "owner": "packages/database",
+      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "retirementTrigger": "No caller runs these operations inside its own transaction. Then resolve Database when the layer is built and remove the expectation."
+    },
+    {
+      "id": "EX-0006",
+      "rules": ["FX006", "effecttsgo/leaking-requirements"],
+      "scope": {
+        "files": ["packages/domain/src/content/service.ts"],
+        "symbols": ["ContentManagement"]
+      },
+      "reason": "The capability topology gives ContentManagement no layer dependency, so the composition root supplies Organization to every operation.",
+      "missingCapability": "None in Effect: the requirement follows the capability topology. The backend builds ContentManagementLive from the database layer alone and provides Organization per request with HttpRouter.provideRequest.",
+      "nativeAlternatives": [
+        "Resolving Organization when the ContentManagement layer is built, as the rule suggests: this adds the layer dependency that the capability topology leaves out."
+      ],
+      "verification": [
+        "`apps/backend/src/content/http.test.ts` answers the content operations with the problems that they declare.",
+        "`just e2e content-publication` publishes articles through the backend."
+      ],
+      "owner": "packages/domain/src/content",
+      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "retirementTrigger": "The capability topology lets ContentManagement depend on Organization. Then provide Organization when the layer is built and remove the expectation."
+    },
+    {
+      "id": "EX-0007",
+      "rules": ["FX006", "effecttsgo/leaking-requirements"],
+      "scope": {
+        "files": ["packages/http-api/src/common.ts"],
+        "symbols": ["PersonSecurity", "PersonOrServiceSecurity"]
+      },
+      "reason": "HttpApiMiddleware security handlers run per request, so they require the request, its parsed search parameters, and its route context.",
+      "missingCapability": "Effect does not mark HttpServerRequest, ParsedSearchParams, or RouteContext with @effect-leakable-service, so effecttsgo/leaking-requirements reports the security services that require them.",
+      "nativeAlternatives": [
+        "Resolving the request services when the layer is built: they exist only per request.",
+        "Marking the services @effect-leakable-service: the effect package declares them, and this repository does not edit it."
+      ],
+      "verification": [
+        "`just check-types` checks the security middleware of every endpoint that declares it.",
+        "`apps/backend/src/receipt/http.test.ts` sends person and service bearers through both, because the receipt group declares them."
+      ],
+      "owner": "packages/http-api",
+      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/tsgo": "0.36.4" },
+      "retirementTrigger": "Effect marks these per-request services leakable, or @effect/tsgo stops reporting the requirements of HttpApiMiddleware services. Then remove the expectations."
+    },
+    {
+      "id": "EX-0008",
+      "rules": ["FX002", "effecttsgo/node-builtin-import"],
+      "scope": {
+        "files": ["packages/database/src/cohort-cli.ts"],
+        "symbols": ["readPrivateCohortJson"]
+      },
+      "reason": "The cohort reader must refuse a symbolic link that replaces the private cohort file between the check and the open, so it opens the file with O_RDONLY | O_NOFOLLOW and checks the type, size, mode, and owner of the opened file.",
+      "missingCapability": "Effect FileSystem.open takes an OpenFlag string, such as \"r\", which has no no-follow form, so it cannot refuse a symbolic link when it opens the file.",
+      "nativeAlternatives": [
+        "FileSystem.stat or FileSystem.readLink before FileSystem.open: a symbolic link can replace the path between the check and the open.",
+        "FileSystem.readFileString after a check of the path: the same race, and the read cannot check the file that it opened."
+      ],
+      "verification": [
+        "`just rehearsal current-assignment` writes a private cohort file and imports it through `tools/verification/current-assignment-cohort-cli.ts`, which reads it with readPrivateCohortJson.",
+        "No test replaces the path with a symbolic link or widens its mode; review verifies the O_NOFOLLOW open and the checks of the opened file."
+      ],
+      "owner": "packages/database",
+      "examinedWith": { "effect": "4.0.0-rc.116", "@effect/platform-bun": "4.0.0-rc.116" },
+      "retirementTrigger": "Effect FileSystem.open can refuse a symbolic link, for example with a no-follow flag. Then open through FileSystem and remove the node:fs/promises import."
+    }
+  ]
+}

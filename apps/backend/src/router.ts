@@ -373,7 +373,7 @@ const sourceNetworkList = (networks: ReadonlyArray<string>): BlockList => {
  * every failure cause as a response, so its promise never rejects.
  */
 export const nativeRouterWebHandler = (router: HttpRouter.HttpRouter): BackendHttpHandler => {
-  // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- effect types HttpRouter.asHttpEffect's failure as unknown; routes decide their own failures.
+  // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- EX-0001: effect types HttpRouter.asHttpEffect's failure as unknown; routes decide their own failures.
   const handler = HttpEffect.toWebHandler(router.asHttpEffect());
 
   return (request) => Effect.promise(() => handler(request));

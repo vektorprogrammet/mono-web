@@ -11,6 +11,7 @@
     "!/docs/",
     "/docs/*",
     "!/docs/*.md",
+    "!/docs/effect-exceptions.json",
     "!/apps/",
     "/apps/*",
     "!/apps/backend/",

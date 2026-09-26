@@ -89,6 +89,7 @@ const renderLayout = (): string => {
     `${code("just layout")} checks the tree against [${declaration}](${declaration}), which lists the exceptions and their reasons.`,
     `Every app, package, and context folder has an ${code("AGENTS.md")} guide and a ${code("CLAUDE.md")} link to it; ${code("just guides write")} renders their generated part.`,
     `[docs/constructs.md](docs/constructs.md) lists the shared constructs and their consumers; ${code("just constructs write")} renders it.`,
+    `[docs/effect-exceptions.json](docs/effect-exceptions.json) registers each suppression of an Effect rule; ${code("just exceptions")} checks it against the sites.`,
   ].join("\n");
 };
 
