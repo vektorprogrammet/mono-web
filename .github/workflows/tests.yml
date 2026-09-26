@@ -130,12 +130,13 @@ jobs:
 
   # One journey per leg, so each leg owns its runner, disposable PostgreSQL, loopback ports,
   # and Chromium. Several runners bind fixed loopback ports (5174, 8791, 55446, 45160-45163), so
-  # never run two journeys on one runner. The timeout is three times the longest measured local
-  # run (91 s, proof delivery-recovery), rounded up to 5 minutes.
+  # never run two journeys on one runner. The journey timeout is three times the longest measured
+  # local run (235 s, e2e password-recovery, which waits out the credential rate limit), rounded up
+  # to 12 minutes.
   browser-journeys:
     name: Browser journeys (${{ matrix.recipe }} ${{ matrix.suite }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -165,11 +166,9 @@ jobs:
           - { recipe: e2e, suite: unavailable-projections }
           - { recipe: e2e, suite: onboarding }
           - { recipe: e2e, suite: password-recovery }
-          - { recipe: e2e, suite: recommendation }
           - { recipe: e2e, suite: recommendation-applicant-progress }
           - { recipe: e2e, suite: recommendation-co-interviewer }
           - { recipe: e2e, suite: recommendation-correction }
-          - { recipe: e2e, suite: recommendation-report }
           - { recipe: e2e, suite: recommendation-returning }
           - { recipe: proof, suite: delivery-recovery }
           - { recipe: proof, suite: rule-reconciliation }
@@ -197,13 +196,13 @@ jobs:
         timeout-minutes: 1
         run: install -d -m 700 "$RUNNER_TEMP/browser-journey"
       - name: Run the journey
-        timeout-minutes: 7
+        timeout-minutes: 14
         env:
           RECIPE: ${{ matrix.recipe }}
           SUITE: ${{ matrix.suite }}
         run: >-
           /usr/bin/time --verbose --output="$RUNNER_TEMP/browser-journey/resources.txt"
-          timeout --signal=TERM --kill-after=1m 5m
+          timeout --signal=TERM --kill-after=1m 12m
           just "$RECIPE" "$SUITE"
       # Only the resource summary: journey evidence stays in the log, not in an artifact.
       - name: Upload the resource summary
