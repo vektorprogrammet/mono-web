@@ -239,7 +239,7 @@ in
       priority = 0;
       fail_fast = true;
     };
-    # The module guides and their CLAUDE.md links against the context map, the construct tags,
+    # The module guides and the CLAUDE.md files that import them against the context map, the construct tags,
     # and the package exports of the staged tree.
     guides = hook {
       entry = "${hookEnv} just guides --staged";

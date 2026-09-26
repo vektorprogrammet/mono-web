@@ -1,6 +1,7 @@
 /**
  * The module guides: an `AGENTS.md` in every app, package, and context folder, and a `CLAUDE.md`
- * link to it.
+ * beside it that imports it (`@AGENTS.md`). A file, not a symbolic link, so a clone without
+ * symbolic links and an editor that refuses to write through one both see the same instructions.
  *
  * A guide opens with its generated part, between markers. For a context folder, that part states
  * the bounded context from `docs/model/contexts.cml`: its responsibility, the aggregates that it
@@ -52,6 +53,9 @@ export interface Guide {
 export const guideFile = "AGENTS.md";
 
 export const linkFile = "CLAUDE.md";
+
+/** The whole content of each `CLAUDE.md`: Claude Code expands the import into the guide. */
+export const linkText = `@${guideFile}\n`;
 
 const guideFiles = new Set([guideFile, linkFile]);
 
@@ -506,8 +510,11 @@ export const checkGuides = (repository: Repository, set: GuideSet): ReadonlyArra
 
     if (!paths.has(link))
       findings.push({ path: link, message: `is missing; run just guides write` });
-    else if (!repository.links.has(link) || repository.readLink(link) !== guideFile)
-      findings.push({ path: link, message: `must be a symbolic link to ${guideFile}` });
+    else if (repository.links.has(link) || repository.read(link) !== linkText)
+      findings.push({
+        path: link,
+        message: `must be a file that holds only ${JSON.stringify(linkText.trim())}; run just guides write`,
+      });
   }
 
   const directories = new Set(set.guides.map((guide) => guide.directory));

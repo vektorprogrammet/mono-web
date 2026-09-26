@@ -48,7 +48,7 @@ A person or an agent can find the right place for new code, the shared construct
 
 ### Module guides
 
-- Every app, every package, and every context folder has an `AGENTS.md` with a `CLAUDE.md` symlink.
+- Every app, every package, and every context folder has an `AGENTS.md` with a `CLAUDE.md` that imports it (`@AGENTS.md`).
 - The context section is generated from the CML: responsibility, owned aggregates, what the context does not own, upstream and downstream relationships, and the role of this layer.
 - The constructs section and the entry-point section are generated from `@construct` tags and `exports`.
 - Local invariants, pitfalls, and recipes are hand-written below the generated sections.
@@ -107,7 +107,7 @@ Each phase lands green on `main` before the next starts.
 1. `just` lists every command that the README and `AGENTS.md` mention, and no root script duplicates a recipe.
 2. A new top-level folder, a package outside `apps/`, `packages/`, or `tools/`, or a context folder missing from the CML fails the layout check in the pre-commit hook and in CI.
 3. Editing the CML without regenerating fails the check that compares generated outputs, and so does editing a generated section of a module guide by hand.
-4. Every app, package, and context folder has a guide and a `CLAUDE.md` symlink. The context section of each guide matches the CML.
+4. Every app, package, and context folder has a guide and a `CLAUDE.md` that imports it. The context section of each guide matches the CML.
 5. The catalogue lists every tagged construct with consumer counts computed from imports. An exported construct used by three or more modules outside its own without a tag is reported.
 6. A staged import across contexts without a declared CML relationship fails. A staged raw SQL statement outside `packages/database` fails. Each rule has a negative control in its test.
 7. Knip and syncpack run in CI with no unexplained findings.
