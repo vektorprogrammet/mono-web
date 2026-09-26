@@ -182,8 +182,8 @@ interface RefreshLookupRow extends QueryResultRow {
 const AccessTokenResponseSchema = Schema.Struct({
   access_token: Schema.String,
   token_type: Schema.String,
-  expires_in: Schema.Number,
-  expires_at: Schema.optional(Schema.Number),
+  expires_in: Schema.Finite,
+  expires_at: Schema.optional(Schema.Finite),
   refresh_token: Schema.optional(Schema.String),
   scope: Schema.optional(Schema.String),
 });

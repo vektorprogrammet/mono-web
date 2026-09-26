@@ -50,7 +50,7 @@ const PositiveOre = Schema.Int.pipe(
   Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
 );
 
-const PositiveOreFromText = Schema.NumberFromString.pipe(
+const PositiveOreFromText = Schema.FiniteFromString.pipe(
   Schema.check(
     Schema.makeFilter(Number.isSafeInteger, { message: "an integer" }),
     Schema.isGreaterThan(0),
@@ -345,7 +345,7 @@ export const LegacyReceiptFileSchema = Schema.Struct({
   fileRef: Schema.String,
   objectKey: Schema.String,
   contentType: Schema.String,
-  byteLength: Schema.Number,
+  byteLength: Schema.Finite,
   sha256: Schema.String,
 });
 

@@ -53,7 +53,7 @@ export class ReceiptOwnerDenied extends Schema.TaggedError<ReceiptOwnerDenied>()
 
 export class StaleReceiptRevision extends Schema.TaggedError<StaleReceiptRevision>()(
   "StaleReceiptRevision",
-  { receiptId: Schema.String, expected: Schema.Number, actual: Schema.Number },
+  { receiptId: Schema.String, expected: Schema.Int, actual: Schema.Int },
 ) {}
 
 export class InvalidReceiptTransition extends Schema.TaggedError<InvalidReceiptTransition>()(

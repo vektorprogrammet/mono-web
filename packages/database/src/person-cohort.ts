@@ -115,9 +115,9 @@ export type PersonCohortOccurrence = typeof PersonCohortOccurrence.Type;
 export const PersonCohortReport = Schema.Struct({
   snapshotKey: Schema.String,
   replay: Schema.Boolean,
-  input: Schema.Number,
-  accepted: Schema.Number,
-  quarantined: Schema.Number,
+  input: Schema.Int,
+  accepted: Schema.Int,
+  quarantined: Schema.Int,
   occurrences: Schema.Array(PersonCohortOccurrence),
   aliases: Schema.Literal("LegacyUsernameAndCompanyEmailUnsupported"),
   credentials: Schema.Literal("HandledByCredentialCohort"),

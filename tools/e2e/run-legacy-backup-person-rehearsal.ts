@@ -75,7 +75,7 @@ const sha256 = (value: string | Uint8Array): string =>
 
 const digest = flow(canonicalJsonBytes, sha256Hex);
 
-const Aggregate = Schema.Union([Schema.Number, Schema.String]);
+const Aggregate = Schema.Union([Schema.Int, Schema.String]);
 
 const toInt = flow(Schema.decodeUnknownSync(Aggregate), (value): number => {
   const parsed = Number(value);

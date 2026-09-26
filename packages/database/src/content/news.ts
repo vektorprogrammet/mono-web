@@ -55,7 +55,7 @@ const readDepartments = (
           Schema.decodeUnknownEffect(
             Schema.Array(
               Schema.Struct({
-                articleId: Schema.Union([Schema.String, Schema.Number]),
+                articleId: Schema.Union([Schema.String, Schema.Int]),
                 departmentId: DepartmentId,
               }),
             ),

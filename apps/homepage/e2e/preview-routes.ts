@@ -17,7 +17,7 @@ const BasicStateSchema = Schema.Literals([
 ]);
 
 const RouteExpectationSchema = Schema.Struct({
-  status: Schema.Number,
+  status: Schema.Int,
   basicState: BasicStateSchema,
   redirectTo: Schema.optionalKey(Schema.String),
 });

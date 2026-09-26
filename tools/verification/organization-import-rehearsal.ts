@@ -598,22 +598,22 @@ const NotObservedSectionSchema = Schema.Struct({
 const StringArraySchema = Schema.Array(Schema.String);
 
 const ImportCountsSchema = Schema.Struct({
-  departments: Schema.Number,
-  teams: Schema.Number,
-  memberships: Schema.Number,
-  quarantine: Schema.Number,
-  ledger: Schema.Number,
+  departments: Schema.Int,
+  teams: Schema.Int,
+  memberships: Schema.Int,
+  quarantine: Schema.Int,
+  ledger: Schema.Int,
 });
 
 const StableTableProjectionSchema = Schema.Struct({
   qualifiedName: Schema.String,
-  rowCount: Schema.Number,
-  byteLength: Schema.Number,
+  rowCount: Schema.Int,
+  byteLength: Schema.Int,
   sha256: Schema.String,
 });
 
 const StableByteSetSchema = Schema.Struct({
-  byteLength: Schema.Number,
+  byteLength: Schema.Int,
   sha256: Schema.String,
   tables: Schema.Array(StableTableProjectionSchema),
 });
@@ -658,14 +658,14 @@ const OutcomeReasonSchema = Schema.Union([
 ]);
 
 const OutcomeMatrixEntrySchema = Schema.Struct({
-  order: Schema.Number,
+  order: Schema.Int,
   kind: Schema.Union([
     Schema.Literal("department"),
     Schema.Literal("team"),
     Schema.Literal("membership"),
   ]),
   sourcePrimaryKey: Schema.String,
-  sourceOccurrence: Schema.Number,
+  sourceOccurrence: Schema.Int,
   result: Schema.Union([Schema.Literal("Accepted"), Schema.Literal("Quarantined")]),
   reason: OutcomeReasonSchema,
   destinationIdentity: Schema.NullOr(Schema.String),
@@ -675,8 +675,8 @@ const OutcomeMatrixEntrySchema = Schema.Struct({
 const SourceMetadataSchema = Schema.Union([
   Schema.Null,
   Schema.Struct({
-    startSemesterId: Schema.NullOr(Schema.Number),
-    endSemesterId: Schema.NullOr(Schema.Number),
+    startSemesterId: Schema.NullOr(Schema.Int),
+    endSemesterId: Schema.NullOr(Schema.Int),
   }),
 ]);
 
@@ -690,7 +690,7 @@ const ProvenanceEntrySchema = Schema.Struct({
     Schema.Literal("membership"),
   ]),
   sourcePrimaryKey: Schema.String,
-  sourceOccurrence: Schema.Number,
+  sourceOccurrence: Schema.Int,
   transformationRevision: Schema.String,
   targetSemanticIdentity: Schema.String,
   destinationIdentity: Schema.NullOr(Schema.String),
@@ -701,7 +701,7 @@ const ProvenanceEntrySchema = Schema.Struct({
 });
 
 const ImportResultEvidenceSchema = Schema.Struct({
-  byteLength: Schema.Number,
+  byteLength: Schema.Int,
   sha256: Schema.String,
   counts: ImportCountsSchema,
   outcomeMatrix: Schema.Array(OutcomeMatrixEntrySchema),
@@ -709,8 +709,8 @@ const ImportResultEvidenceSchema = Schema.Struct({
 });
 
 const TriggerCatalogSchema = Schema.Struct({
-  triggerCount: Schema.Number,
-  functionCount: Schema.Number,
+  triggerCount: Schema.Int,
+  functionCount: Schema.Int,
 });
 
 const ProcessObservationSchema = Schema.Struct({
@@ -722,7 +722,7 @@ const ProcessObservationSchema = Schema.Struct({
     Schema.Literal("AlreadyExited"),
     Schema.Literal("NotStarted"),
   ]),
-  exitCode: Schema.NullOr(Schema.Number),
+  exitCode: Schema.NullOr(Schema.Int),
   signal: Schema.NullOr(Schema.String),
 });
 
@@ -737,14 +737,14 @@ const GeneratedOutputRestorationSchema = Schema.Struct({
 const BackendRequestSchema = Schema.Struct({
   method: Schema.String,
   path: Schema.String,
-  status: Schema.Number,
+  status: Schema.Int,
   sessionCookieAuth: Schema.Boolean,
 });
 
 const ProxyRequestSchema = Schema.Struct({
   method: Schema.String,
   path: Schema.String,
-  status: Schema.Number,
+  status: Schema.Int,
   sessionCookieAuth: Schema.Boolean,
   requestSource: Schema.Union([
     Schema.Literal("BrowserSameOrigin"),
@@ -755,7 +755,7 @@ const ProxyRequestSchema = Schema.Struct({
 
 const NativeBrowserPathObservationSchema = Schema.Struct({
   path: Schema.String,
-  status: Schema.Number,
+  status: Schema.Int,
   sessionCookieAuth: Schema.Boolean,
   access: Schema.Union([Schema.Literal("Public"), Schema.Literal("BoundedSession")]),
   requestSource: Schema.Union([
@@ -800,7 +800,7 @@ const UnexpectedApiRequestSchema = Schema.Struct({
 
 const ExistingPageSessionCapabilityObservationSchema = Schema.Struct({
   path: Schema.String,
-  status: Schema.Number,
+  status: Schema.Int,
   location: Schema.NullOr(Schema.String),
 });
 
@@ -868,7 +868,7 @@ const BrowserDiagnosticRequestsSchema = Schema.Array(BrowserDiagnosticRequestSch
 const BrowserFailedResponseSchema = Schema.Struct({
   origin: BrowserDiagnosticOriginSchema,
   path: BrowserDiagnosticTextSchema,
-  status: Schema.Number,
+  status: Schema.Int,
 });
 
 const BrowserFailedResponsesSchema = Schema.Array(BrowserFailedResponseSchema).pipe(
@@ -891,7 +891,7 @@ export const OrganizationImportBrowserObservedEvidenceSchema = Schema.Struct({
   authorizationInstant: Schema.String,
   pages: Schema.Array(BrowserPageSchema),
   pageErrors: StringArraySchema,
-  legacyOrganizationRequests: Schema.Number,
+  legacyOrganizationRequests: Schema.Int,
   rejectedDestinations: StringArraySchema,
   unexpectedApiRequests: Schema.Array(UnexpectedApiRequestSchema),
   requests: Schema.Array(BrowserRequestSchema),
@@ -916,7 +916,7 @@ const BrowserUnexpectedApiRequestsSchema = Schema.Array(
 
 const BrowserDiagnosticElementStateSchema = Schema.Struct({
   connected: Schema.Boolean,
-  childCount: Schema.Number,
+  childCount: Schema.Int,
 });
 
 const BrowserFinalPageStateSchema = Schema.Struct({
@@ -977,12 +977,12 @@ const StrictNativeProjectionSchema = Schema.Struct({
       city: Schema.String,
       emailSha256: Schema.String,
       address: Schema.NullOr(Schema.String),
-      latitude: Schema.NullOr(Schema.Number),
-      longitude: Schema.NullOr(Schema.Number),
+      latitude: Schema.NullOr(Schema.Finite),
+      longitude: Schema.NullOr(Schema.Finite),
       logoPath: Schema.NullOr(Schema.String),
       slackChannel: Schema.NullOr(Schema.String),
       active: Schema.Boolean,
-      revision: Schema.Number,
+      revision: Schema.Int,
     }),
   ),
   teams: Schema.Array(
@@ -996,7 +996,7 @@ const StrictNativeProjectionSchema = Schema.Struct({
       deadline: Schema.NullOr(Schema.String),
       acceptApplication: Schema.Boolean,
       active: Schema.Boolean,
-      revision: Schema.Number,
+      revision: Schema.Int,
     }),
   ),
   session: Schema.Struct({
@@ -1012,7 +1012,7 @@ const StrictNativeProjectionSchema = Schema.Struct({
   missingSession: Schema.Struct({
     type: Schema.String,
     title: Schema.String,
-    status: Schema.Number,
+    status: Schema.Int,
     detail: Schema.String,
     code: Schema.String,
   }),
@@ -1045,10 +1045,10 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       status: Schema.Literal("Observed"),
       postgresqlVersion: Schema.String,
       databaseNameSha256: Schema.String,
-      migrationCount: Schema.Number,
+      migrationCount: Schema.Int,
       databaseSchemaRevision: Schema.String,
       migration23: Schema.Struct({
-        migrationId: Schema.Number,
+        migrationId: Schema.Int,
         name: Schema.String,
       }),
     }),
@@ -1076,7 +1076,7 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
           lastName: Schema.String,
           emailSha256: Schema.String,
           phoneSha256: Schema.String,
-          revision: Schema.Number,
+          revision: Schema.Int,
         }),
       ),
       administratorGrant: Schema.Struct({
@@ -1084,10 +1084,10 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
         personId: Schema.String,
         startAt: Schema.String,
         endAt: Schema.NullOr(Schema.String),
-        revision: Schema.Number,
+        revision: Schema.Int,
       }),
       baseline: StableStateEvidenceSchema,
-      authDataRowCount: Schema.Number,
+      authDataRowCount: Schema.Int,
     }),
   ]),
   classifier: Schema.Union([
@@ -1096,7 +1096,7 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       status: Schema.Literal("Observed"),
       strictRuntimeDecoded: Schema.Boolean,
       snapshotObjectFrozen: Schema.Boolean,
-      byteLength: Schema.Number,
+      byteLength: Schema.Int,
       sha256: Schema.String,
       counts: ImportCountsSchema,
       outcomeMatrix: Schema.Array(OutcomeMatrixEntrySchema),
@@ -1148,8 +1148,8 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     NotObservedSectionSchema,
     Schema.Struct({
       status: Schema.Literal("Observed"),
-      serviceImportInvocationCount: Schema.Number,
-      distinctServiceSnapshotObjectCount: Schema.Number,
+      serviceImportInvocationCount: Schema.Int,
+      distinctServiceSnapshotObjectCount: Schema.Int,
       allServiceInvocationsUsedDecodedSnapshot: Schema.Boolean,
       committedResult: ImportResultEvidenceSchema,
       replayResult: ImportResultEvidenceSchema,
@@ -1169,7 +1169,7 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
           positionId: Schema.String,
           isTeamLeader: Schema.Boolean,
           isSuspended: Schema.Boolean,
-          revision: Schema.Number,
+          revision: Schema.Int,
         }),
       ),
     }),
@@ -1191,7 +1191,7 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       projection: PersonAuthorityProjectionSchema,
       fixedEvaluatedAt: Schema.String,
       authzRuleRows: Schema.Array(StableTableProjectionSchema),
-      personSpecificRuleLockAttempts: Schema.Number,
+      personSpecificRuleLockAttempts: Schema.Int,
     }),
   ]),
   browser: Schema.Union([
@@ -1224,19 +1224,19 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     NotObservedSectionSchema,
     Schema.Struct({
       status: Schema.Literal("Observed"),
-      ruleWriteAttempts: Schema.Number,
-      authWriteAttempts: Schema.Number,
-      receiptWriteAttempts: Schema.Number,
-      outboxWriteAttempts: Schema.Number,
-      outboxClaimAttempts: Schema.Number,
-      credentialAttempts: Schema.Number,
-      identityMutationAttempts: Schema.Number,
-      providerRequests: Schema.Number,
-      legacyOrganizationRequests: Schema.Number,
-      unexpectedApiRequestAttempts: Schema.Number,
-      productionResourceAttempts: Schema.Number,
-      deploymentAttempts: Schema.Number,
-      remoteEffectAttempts: Schema.Number,
+      ruleWriteAttempts: Schema.Int,
+      authWriteAttempts: Schema.Int,
+      receiptWriteAttempts: Schema.Int,
+      outboxWriteAttempts: Schema.Int,
+      outboxClaimAttempts: Schema.Int,
+      credentialAttempts: Schema.Int,
+      identityMutationAttempts: Schema.Int,
+      providerRequests: Schema.Int,
+      legacyOrganizationRequests: Schema.Int,
+      unexpectedApiRequestAttempts: Schema.Int,
+      productionResourceAttempts: Schema.Int,
+      deploymentAttempts: Schema.Int,
+      remoteEffectAttempts: Schema.Int,
       allowedDestinations: StringArraySchema,
       rejectedDestinations: StringArraySchema,
     }),
@@ -1251,7 +1251,7 @@ export const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     }),
     databaseDisposal: Schema.Struct({
       databaseAbsent: Schema.Boolean,
-      residualConnections: Schema.Number,
+      residualConnections: Schema.Int,
     }),
     failureObjectsRemovedBeforeCommit: Schema.Union([
       Schema.Literal("NotObservedDueToFailure"),

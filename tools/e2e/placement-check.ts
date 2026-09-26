@@ -2499,7 +2499,7 @@ try {
 
       const browserCoverageExpected = Schema.decodeUnknownSync(
         Schema.Struct({
-          absencePosts: Schema.Number,
+          absencePosts: Schema.Int,
           proposalId: Schema.String,
           completedCommitmentId: Schema.String,
           unfulfilledCommitmentId: Schema.String,

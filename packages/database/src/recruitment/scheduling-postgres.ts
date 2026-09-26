@@ -107,7 +107,7 @@ const SchedulingBoardRowSchema = Schema.Struct({
   departmentId: Schema.String,
   interviewerPersonId: Schema.String,
   coInterviewerPersonId: Schema.NullOr(Schema.String),
-  revision: Schema.Number,
+  revision: Schema.Int,
   scheduledAt: Schema.NullOr(Schema.String),
   room: Schema.NullOr(Schema.String),
   campus: Schema.NullOr(Schema.String),
@@ -115,7 +115,7 @@ const SchedulingBoardRowSchema = Schema.Struct({
   message: Schema.NullOr(Schema.String),
   scheduledByPersonId: Schema.NullOr(Schema.String),
   committedAt: Schema.NullOr(Schema.String),
-  scheduleRevision: Schema.NullOr(Schema.Number),
+  scheduleRevision: Schema.NullOr(Schema.Int),
   responseState: Schema.NullOr(Schema.String),
   responseMessage: Schema.NullOr(Schema.String),
   notificationState: Schema.NullOr(Schema.String),
@@ -126,13 +126,13 @@ const SchedulingInterviewRowSchema = Schema.Struct({
   applicationId: Schema.String,
   departmentId: Schema.String,
   interviewerPersonId: Schema.String,
-  revision: Schema.Number,
+  revision: Schema.Int,
 });
 
 const StoredScheduleReceiptRowSchema = Schema.Struct({
   commandSha256: Schema.String,
   interviewId: Schema.String,
-  scheduleRevision: Schema.Number,
+  scheduleRevision: Schema.Int,
   observationJson: Schema.Unknown,
 });
 

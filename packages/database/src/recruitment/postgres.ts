@@ -149,21 +149,21 @@ const ApplicationBoardRowSchema = Schema.Struct({
   assignedByPersonId: Schema.NullOr(Schema.String),
   assignedAt: Schema.NullOr(Schema.String),
   scheduledAt: Schema.NullOr(Schema.String),
-  interviewRevision: Schema.NullOr(Schema.Number),
-  snapshotQuestionCount: Schema.Number,
+  interviewRevision: Schema.NullOr(Schema.Int),
+  snapshotQuestionCount: Schema.Int,
 });
 
 const InterviewSchemaRowSchema = Schema.Struct({
   interviewSchemaId: Schema.String,
   name: Schema.String,
-  questionCount: Schema.Number,
+  questionCount: Schema.Int,
   active: Schema.Boolean,
-  revision: Schema.Number,
+  revision: Schema.Int,
 });
 
 const InterviewQuestionRowSchema = Schema.Struct({
   questionId: Schema.String,
-  ordinal: Schema.Number,
+  ordinal: Schema.Int,
   prompt: Schema.String,
   helpText: Schema.NullOr(Schema.String),
   kind: Schema.String,
@@ -186,7 +186,7 @@ const StoredInterviewRowSchema = Schema.Struct({
   interviewSchemaId: Schema.String,
   assignedByPersonId: Schema.String,
   assignedAt: Schema.String,
-  revision: Schema.Number,
+  revision: Schema.Int,
 });
 
 const AssignmentApplicationRowSchema = Schema.Struct({

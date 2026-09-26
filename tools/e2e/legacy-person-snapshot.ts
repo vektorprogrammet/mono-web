@@ -10,8 +10,8 @@ import { Schema } from "effect";
 
 // Contact and name values remain raw: Person reconciliation owns quarantine decisions.
 export const LegacyUserJson = Schema.Struct({
-  id: Schema.Union([Schema.Number, Schema.String]),
-  active: Schema.Union([Schema.Number, Schema.String, Schema.Boolean]),
+  id: Schema.Union([Schema.Int, Schema.String]),
+  active: Schema.Union([Schema.Int, Schema.String, Schema.Boolean]),
   firstName: Schema.Unknown,
   lastName: Schema.Unknown,
   email: Schema.Unknown,
