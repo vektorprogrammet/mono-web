@@ -1,7 +1,7 @@
 import { Schema } from "effect";
-import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
-import { SchoolId } from "@vektorprogrammet/domain/schools";
-import { isRfc3339Instant } from "@vektorprogrammet/domain/time";
+import { DepartmentId, PersonId, SemesterId } from "../organization/index.js";
+import { SchoolId } from "../schools/index.js";
+import { isRfc3339Instant } from "../time.js";
 
 const Id = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z0-9._:-]{1,128}$/)));
 

@@ -1,8 +1,9 @@
 /**
  * Database-backed Placements, notification delivery, and reviewed cohort import.
- * Import from `@vektorprogrammet/placements/server` in a trusted server runtime.
+ * Import from `@vektorprogrammet/database/placements` in a trusted server runtime.
  * Private adapter modules are not supported import paths.
  * @packageDocumentation
+ * @module @vektorprogrammet/database/placements
  */
 export { PlacementsLive } from "./service.js";
 

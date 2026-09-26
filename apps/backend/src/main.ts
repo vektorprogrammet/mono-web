@@ -21,7 +21,7 @@ import { ReturningAssistantsLive } from "@vektorprogrammet/database/application"
 import { ContentLive, ContentManagementLive } from "@vektorprogrammet/database/content";
 import { OrganizationLive } from "@vektorprogrammet/database/organization";
 import { ProfileLive } from "@vektorprogrammet/database/profile";
-import { PlacementsLive } from "@vektorprogrammet/placements/server";
+import { PlacementsLive } from "@vektorprogrammet/database/placements";
 import { SubstitutesLive } from "@vektorprogrammet/database/substitutes";
 import { EconomyLive } from "@vektorprogrammet/database/receipt/postgres";
 import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";

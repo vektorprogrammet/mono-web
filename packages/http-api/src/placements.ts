@@ -10,7 +10,7 @@ import {
   PlacementCommand,
   PlacementScope,
   PlacementScopes,
-} from "@vektorprogrammet/placements/contracts";
+} from "@vektorprogrammet/domain/placements";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";

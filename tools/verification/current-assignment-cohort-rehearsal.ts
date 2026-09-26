@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 import { Schema, flow, Match, Predicate, Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { postgresProgram } from "@monoweb/postgres";
-import { CurrentAssignmentSnapshot } from "@vektorprogrammet/placements/contracts";
+import { CurrentAssignmentSnapshot } from "@vektorprogrammet/domain/placements";
 import { databaseHealth } from "@vektorprogrammet/database";
 import {
   canonicalJsonBytes,
@@ -20,7 +20,7 @@ import {
   CurrentAssignmentFailure,
   currentAssignmentPlacementId,
   importCurrentAssignmentCohort,
-} from "@vektorprogrammet/placements/server";
+} from "@vektorprogrammet/database/placements";
 import { currentAssignmentForbiddenAmbientConfigurationKeys } from "./current-assignment-cohort-cli.js";
 import { DatabaseLive } from "@vektorprogrammet/database/live";
 import { importPersonCohort } from "@vektorprogrammet/database/person-cohort";

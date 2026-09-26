@@ -6,7 +6,7 @@ import {
   PlacementScope,
   SchoolServiceDispatchNotificationRequest,
   SchoolServiceNotificationRequest,
-} from "@vektorprogrammet/placements/contracts";
+} from "@vektorprogrammet/domain/placements";
 import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/http-api/http-semantics";
 /** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
 import assert from "node:assert/strict";

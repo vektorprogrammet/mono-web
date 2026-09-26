@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@vektorprogrammet/domain": "workspace:*",
-    "@vektorprogrammet/placements": "workspace:*",
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {

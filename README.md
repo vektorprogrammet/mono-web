@@ -21,7 +21,7 @@ The durable documentation set is:
 | [docs/operational-responsibility-map.md](docs/operational-responsibility-map.md) | Stakeholders, end-to-end processes, and replacement contracts                              |
 | [docs/enterprise-models.md](docs/enterprise-models.md)                           | 4EM and ArchiMate views derived from the system documents                                  |
 | [docs/system-walkthrough.mdx](docs/system-walkthrough.mdx)                       | Layered reading guide with MDXCN figures                                                   |
-| [Placements developer guide](packages/placements/README.md)                      | Public imports, executable examples, API reference generation, and maintainer tasks        |
+| [Placements developer guide](packages/domain/src/placements/README.md)           | Public imports, executable examples, API reference generation, and maintainer tasks        |
 | [Substitutes developer guide](packages/domain/src/substitutes/README.md)         | Pool service, caller authority, transaction ownership, and the continuous coverage journey |
 | [Receipt developer guide](packages/domain/src/receipt/README.md)                 | Claim, approval, settlement evidence, private files, bounded reads, and recovery           |
 | [Delivery recovery guide](docs/delivery-recovery.md)                             | Native worker configuration, lifecycle, retry limits, and recovery proof                   |
@@ -45,7 +45,6 @@ apps/homepage      public React application
 apps/dashboard     authenticated React Router and Foldkit application
 packages/domain    business values, transitions, failures, and authority
 packages/database  PostgreSQL migrations, persistence, locks, audit, and outbox
-packages/placements portable Placements contracts and private server implementation
 packages/http-api  transport schemas, middleware contracts, and OpenAPI
 packages/sdk       generated native API client
 tools/verification cross-application PostgreSQL proofs and migration rehearsals
@@ -220,7 +219,7 @@ bun --no-env-file tools/e2e/run-legacy-service-cutover.ts --help
 ```
 
 `--current-assignments=none` leaves current assignments unimported. A private review file selects the reviewed-source path.
-The [review schema](packages/placements/src/current-assignment-contracts.ts) defines the required evidence.
+The [review schema](packages/domain/src/placements/current-assignment-contracts.ts) defines the required evidence.
 Current production data, human review, provider acceptance, and cutover authority remain separate gates.
 
 ### Reviewed Organization migration

@@ -1,9 +1,5 @@
 import { Context, Data, type Effect } from "effect";
-import type {
-  DepartmentId,
-  OrganizationPersonAuthority,
-  PersonId,
-} from "@vektorprogrammet/domain/organization";
+import type { DepartmentId, OrganizationPersonAuthority, PersonId } from "../organization/index.js";
 import type { PlacementFailure } from "./policy.js";
 import type {
   Affiliation,
@@ -102,5 +98,5 @@ export interface PlacementsOperations {
 
 /** The portable service key. The server entry point supplies its database-backed Layer. */
 export class Placements extends Context.Service<Placements, PlacementsOperations>()(
-  "@vektorprogrammet/placements/Placements",
+  "@vektorprogrammet/domain/Placements",
 ) {}

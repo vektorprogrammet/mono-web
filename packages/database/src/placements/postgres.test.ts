@@ -6,7 +6,7 @@ import {
 import { PGlite } from "@electric-sql/pglite";
 import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { afterAll, describe, expect, it } from "vitest";
-import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
+import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId, PersonId, SemesterId } from "@vektorprogrammet/domain/organization";
 import {
   SchoolServiceAbsenceId,
@@ -18,7 +18,7 @@ import {
   SchoolServiceOccurrenceId,
   SchoolServiceProposalId,
   SchoolServiceSubstituteOfferId,
-} from "@vektorprogrammet/placements/contracts";
+} from "@vektorprogrammet/domain/placements";
 import { SchoolId } from "@vektorprogrammet/domain/schools";
 import {
   lockPlacementDepartment,
@@ -40,7 +40,7 @@ import {
 } from "./coverage.js";
 import { Effect, ManagedRuntime } from "effect";
 import { TestClock } from "effect/testing";
-import { DatabaseTest } from "@vektorprogrammet/database/live";
+import { DatabaseTest } from "../layers.js";
 
 const runtime = ManagedRuntime.make(DatabaseTest());
 

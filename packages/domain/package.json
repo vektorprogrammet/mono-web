@@ -36,6 +36,7 @@
     "./substitutes": "./src/substitutes/index.ts",
     "./team-application": "./src/team-application/index.ts",
     "./onboarding": "./src/onboarding/index.ts",
+    "./placements": "./src/placements/index.ts",
     "./organization/authority-fixtures": "./src/organization/authority-fixtures.test-support.ts"
   },
   "scripts": {

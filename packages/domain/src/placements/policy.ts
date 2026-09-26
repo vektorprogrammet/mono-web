@@ -2,9 +2,9 @@ import { Result, Array, Predicate, Data } from "effect";
 import {
   mapOrganizationAuthorityToAdmissionPeriodActor,
   type OrganizationPersonAuthority,
-} from "@vektorprogrammet/domain/organization";
-import type { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
-import type { SchoolId } from "@vektorprogrammet/domain/schools";
+} from "../organization/index.js";
+import type { DepartmentId, PersonId } from "../organization/index.js";
+import type { SchoolId } from "../schools/index.js";
 import type {
   Affiliation,
   OwnAffiliationCommand,

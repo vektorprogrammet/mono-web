@@ -9,13 +9,19 @@ import { SchoolId } from "@vektorprogrammet/domain/schools";
 import {
   CurrentAssignmentSnapshot,
   ReconciledCurrentAssignmentSnapshot,
-} from "../current-assignment-contracts.js";
+} from "@vektorprogrammet/domain/placements";
 
 export const currentAssignmentImportSourceDigest = async (): Promise<string> =>
   digest(
     await Promise.all([
       readFile(new URL("./current-assignment-cohort.ts", import.meta.url), "utf8"),
-      readFile(new URL("../current-assignment-contracts.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL(
+          "current-assignment-contracts.ts",
+          import.meta.resolve("@vektorprogrammet/domain/placements"),
+        ),
+        "utf8",
+      ),
     ]),
   );
 

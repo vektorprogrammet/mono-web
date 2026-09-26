@@ -6,8 +6,8 @@ import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence
 import {
   CurrentAssignmentReview,
   type ReconciledCurrentAssignmentSnapshot,
-} from "@vektorprogrammet/placements/contracts";
-import { decodeReconciledCurrentAssignmentSnapshot } from "@vektorprogrammet/placements/server";
+} from "@vektorprogrammet/domain/placements";
+import { decodeReconciledCurrentAssignmentSnapshot } from "@vektorprogrammet/database/placements";
 import { flow, Schema } from "effect";
 import { buildLegacyReferences } from "./legacy-cutover-references";
 import type { LegacySourceSnapshot } from "./legacy-source-snapshot";

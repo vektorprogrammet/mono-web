@@ -5,8 +5,8 @@ import {
   OrganizationPersonAuthoritySchema,
   PersonId,
 } from "@vektorprogrammet/domain/organization";
-import { Placements } from "@vektorprogrammet/placements/contracts";
-import { PlacementsLive } from "@vektorprogrammet/placements/server";
+import { Placements } from "@vektorprogrammet/domain/placements";
+import { PlacementsLive } from "@vektorprogrammet/database/placements";
 import { Effect, Layer } from "effect";
 
 // Synthetic, unprivileged authority for an empty disposable database.

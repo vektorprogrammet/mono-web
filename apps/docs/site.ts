@@ -40,7 +40,7 @@ export const sections = [
     text: "Developer guides",
     sources: [
       "docs/module-developer-documentation.md",
-      "packages/placements/README.md",
+      "packages/domain/src/placements/README.md",
       "packages/domain/src/substitutes/README.md",
       "packages/domain/src/receipt/README.md",
     ],
@@ -48,7 +48,7 @@ export const sections = [
     links: [
       {
         text: "Placements API reference",
-        link: "https://vektorprogrammet.github.io/mono-web/packages/placements/api/",
+        link: "https://vektorprogrammet.github.io/mono-web/packages/domain/src/placements/api/",
       },
     ],
   },

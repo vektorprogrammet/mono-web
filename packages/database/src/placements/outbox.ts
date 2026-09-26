@@ -3,10 +3,10 @@ import {
   SchoolServiceNotificationOutboxError,
   SchoolServiceNotificationRequest,
   type SchoolServiceNotificationRequest as SchoolServiceNotificationRequestType,
-} from "@vektorprogrammet/placements/contracts";
+} from "@vektorprogrammet/domain/placements";
 import { canonicalJson } from "@vektorprogrammet/domain/evidence";
 import { flow, Data, DateTime, Predicate, Effect, Schema } from "effect";
-import { Database, type DatabaseOperations } from "@vektorprogrammet/database";
+import { Database, type DatabaseOperations } from "../service.js";
 import {
   markOutboxDelivered,
   markOutboxFailed,
@@ -14,7 +14,7 @@ import {
   quarantineOutboxClaim,
   recoverStaleOutboxClaims,
   type OutboxTable,
-} from "@vektorprogrammet/database/outbox-lifecycle";
+} from "../outbox-lifecycle.js";
 
 const ClaimedRow = Schema.Struct({
   effectId: Schema.String,

@@ -63,10 +63,10 @@ jobs:
       - name: Check examples and generate exact-source reference
         id: docs
         timeout-minutes: 4
-        run: bun run --cwd packages/placements docs:ci "$RUNNER_TEMP/placements-docs"
+        run: bun run --cwd tools/placements-docs docs:ci "$RUNNER_TEMP/placements-docs"
       - name: Accept retained documentation without regeneration
         timeout-minutes: 1
-        run: bun run --cwd packages/placements docs:accept "$RUNNER_TEMP/placements-docs"
+        run: bun run --cwd tools/placements-docs docs:accept "$RUNNER_TEMP/placements-docs"
       - name: Upload complete public documentation
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         timeout-minutes: 2

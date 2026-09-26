@@ -23,6 +23,7 @@
     "./migrations": "./src/migrations.ts",
     "./password-recovery": "./src/password-recovery.ts",
     "./person-cohort": "./src/person-cohort.ts",
+    "./placements": "./src/placements/index.ts",
     "./profile": "./src/profile/index.ts",
     "./receipt/postgres": "./src/receipt/postgres-index.ts",
     "./runtime": "./src/runtime-layer.ts",

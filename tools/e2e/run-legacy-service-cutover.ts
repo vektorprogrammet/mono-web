@@ -19,12 +19,12 @@ import {
   type CohortReport as IdentityCohortReport,
 } from "@vektorprogrammet/database/identity-cohort";
 import { readPrivateCohortJson } from "@vektorprogrammet/database/cohort-cli";
-import { CurrentAssignmentReview } from "@vektorprogrammet/placements/contracts";
+import { CurrentAssignmentReview } from "@vektorprogrammet/domain/placements";
 import {
   currentAssignmentImportSourceDigest,
   importReconciledCurrentAssignmentCohort,
   type CurrentAssignmentReport,
-} from "@vektorprogrammet/placements/server";
+} from "@vektorprogrammet/database/placements";
 import { OrganizationReview } from "@vektorprogrammet/domain/organization";
 import {
   importReviewedOrganizationCohort,
