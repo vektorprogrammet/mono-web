@@ -164,7 +164,7 @@ const readLedger = Effect.fnUntraced(function* (
     stored.target_semantic_identity !== result.targetSemanticIdentity ||
     stored.source_watermark !== p.sourceWatermark
   )
-    return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
+    return yield* invalid("PersistedEvidenceConflict");
 
   const decoded = yield* Schema.decodeUnknownEffect(
     Schema.Struct({ reasons: Schema.Array(ReceiptQuarantineReason) }),
@@ -190,8 +190,7 @@ const readReport = Effect.fnUntraced(function* (
     Effect.mapError(() => invalid("PersistedEvidenceConflict")),
   );
 
-  if (decoded.length !== expectedCount)
-    return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
+  if (decoded.length !== expectedCount) return yield* invalid("PersistedEvidenceConflict");
   const counts = { Accepted: 0, Quarantined: 0, Excluded: 0 };
   const acceptedResults: AcceptedResult[] = [];
 
@@ -203,14 +202,14 @@ const readReport = Effect.fnUntraced(function* (
         row.acceptedResult === null ||
         row.acceptedResult.sourcePrimaryKey !== row.sourcePrimaryKey
       )
-        return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
+        return yield* invalid("PersistedEvidenceConflict");
       const persisted = yield* readLedger(sql, row.acceptedResult);
 
       if (persisted.disposition !== "Accepted" || persisted.reasons.length !== 0)
-        return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
+        return yield* invalid("PersistedEvidenceConflict");
       acceptedResults.push(row.acceptedResult);
     } else if (row.acceptedResult !== null) {
-      return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
+      return yield* invalid("PersistedEvidenceConflict");
     }
   }
 
@@ -238,7 +237,7 @@ const resolveEvidence = Effect.fnUntraced(function* (
       AND source_revision = ${r.sourceRevision} FOR SHARE
   `;
 
-  if (personSnapshots.length !== 1) return yield* Effect.fail(invalid("PersonSnapshotConflict"));
+  if (personSnapshots.length !== 1) return yield* invalid("PersonSnapshotConflict");
 
   const references = yield* sql<{
     readonly source_revision: string;
@@ -258,7 +257,7 @@ const resolveEvidence = Effect.fnUntraced(function* (
     reference.source_revision !== r.sourceRevision ||
     reference.reference_digest !== r.referenceDigest
   )
-    return yield* Effect.fail(invalid("ReferenceProvenanceConflict"));
+    return yield* invalid("ReferenceProvenanceConflict");
 
   const mappings = yield* Schema.decodeUnknownEffect(References)(reference.source_id_mappings).pipe(
     Effect.mapError(() => invalid("ReferenceProvenanceConflict")),
@@ -269,7 +268,7 @@ const resolveEvidence = Effect.fnUntraced(function* (
   );
 
   if (departments.size !== mappings.departments.length)
-    return yield* Effect.fail(invalid("ReferenceProvenanceConflict"));
+    return yield* invalid("ReferenceProvenanceConflict");
 
   const people = yield* sql<{
     readonly occurrence_id: string;
@@ -480,7 +479,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
 
         if (prior[0]) {
           if (prior[0].snapshot_digest !== snapshotDigest)
-            return yield* Effect.fail(invalid("SnapshotConflict"));
+            return yield* invalid("SnapshotConflict");
 
           return yield* readReport(sql, snapshotKey, true, snapshot.rows.length);
         }
@@ -515,7 +514,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
             binding.review_digest !== entryReviewDigest(snapshot, entry) ||
             binding.transformation_revision !== r.transformationRevision
           )
-            return yield* Effect.fail(invalid("SourceConflict"));
+            return yield* invalid("SourceConflict");
 
           const accepted = yield* Effect.try({
             try: () => decodeAccepted(binding.accepted_result_json),
@@ -531,7 +530,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
             current.receiptId !== accepted.receipt.receiptId ||
             accepted.sourcePrimaryKey !== entry.sourcePrimaryKey
           )
-            return yield* Effect.fail(invalid("SourceConflict"));
+            return yield* invalid("SourceConflict");
           reused.set(entry.sourcePrimaryKey, accepted);
         }
 
@@ -572,11 +571,11 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
             owner.source_watermark !== accepted.provenance.sourceWatermark ||
             owner.target_semantic_identity !== accepted.targetSemanticIdentity
           )
-            return yield* Effect.fail(invalid("SourceConflict"));
+            return yield* invalid("SourceConflict");
           ownedSources.add(owner.source_primary_key);
         }
 
-        if (ownedSources.size !== reused.size) return yield* Effect.fail(invalid("SourceConflict"));
+        if (ownedSources.size !== reused.size) return yield* invalid("SourceConflict");
 
         // Persist the immutable review before invoking any filesystem-writing callback.
         yield* sql`
@@ -620,7 +619,7 @@ export const importReviewedReceiptCohort = Effect.fn("importReviewedReceiptCohor
 
             if (disposition === "Accepted") {
               if (!Predicate.isTagged(result, "AcceptedReceiptImport"))
-                return yield* Effect.fail(invalid("PersistedEvidenceConflict"));
+                return yield* invalid("PersistedEvidenceConflict");
               accepted = result;
             }
           }

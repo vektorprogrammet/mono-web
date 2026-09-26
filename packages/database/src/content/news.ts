@@ -260,7 +260,7 @@ export const readPublishedArticlePostgres = (
           const current = versions[0];
 
           if (current === undefined) {
-            return yield* Effect.fail(new ContentArticleNotFound({}));
+            return yield* new ContentArticleNotFound({});
           }
 
           const selected =
@@ -269,7 +269,7 @@ export const readPublishedArticlePostgres = (
               : versions.find((version) => version.versionNumber === versionNumber);
 
           if (selected === undefined) {
-            return yield* Effect.fail(new ContentArticleNotFound({}));
+            return yield* new ContentArticleNotFound({});
           }
 
           const departments = yield* readDepartments(database, [selected.articleId]);

@@ -379,11 +379,9 @@ export const storeReceiptImportResult = (
 
           if (prior?.result === "Accepted") {
             if (!isExactReplay(prior)) {
-              return yield* Effect.fail(
-                persistenceError(
-                  "conflicting receipt import replay",
-                  `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
-                ),
+              return yield* persistenceError(
+                "conflicting receipt import replay",
+                `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
               );
             }
 
@@ -478,11 +476,9 @@ export const storeReceiptImportResult = (
             const exactReplay = isExactReplay(existing);
 
             if (!exactReplay) {
-              return yield* Effect.fail(
-                persistenceError(
-                  "conflicting receipt import replay",
-                  `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
-                ),
+              return yield* persistenceError(
+                "conflicting receipt import replay",
+                `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
               );
             }
 
@@ -556,8 +552,9 @@ export const reconcileReceiptImport = (
             ledger[0]?.source_digest !== p.sourceDigest ||
             ledger[0]?.result !== "Accepted"
           ) {
-            return yield* Effect.fail(
-              persistenceError("reconcile receipt import", "exact accepted occurrence required"),
+            return yield* persistenceError(
+              "reconcile receipt import",
+              "exact accepted occurrence required",
             );
           }
 

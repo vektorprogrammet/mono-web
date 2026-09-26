@@ -127,9 +127,7 @@ export const readSocialEventSnapshotInstantPostgres = (): Effect.Effect<
       const row = rows[0];
 
       if (row === undefined) {
-        return yield* Effect.fail(
-          persistenceError("read social-event snapshot instant", "no row returned"),
-        );
+        return yield* persistenceError("read social-event snapshot instant", "no row returned");
       }
 
       return yield* decodeSnapshotInstant("decode social-event snapshot instant")(row.observedAt);
@@ -154,11 +152,9 @@ export const readSocialEventScopePostgres = (
     const observedAt = yield* observedAtForRead(input.observedAt);
 
     if (input.authority.evaluatedAt !== observedAt) {
-      return yield* Effect.fail(
-        decodeError(
-          "read social-event scope",
-          "Organization authority and social-event snapshot instants differ",
-        ),
+      return yield* decodeError(
+        "read social-event scope",
+        "Organization authority and social-event snapshot instants differ",
       );
     }
 
@@ -226,12 +222,10 @@ export const validateSocialEventScopePostgres = (
     `;
 
     if (departmentRows[0]?.exists !== true || semesterRows[0]?.exists !== true) {
-      return yield* Effect.fail(
-        new SocialEventScopeInvalid({
-          departmentId: String(scope.departmentId),
-          semesterId: String(scope.semesterId),
-        }),
-      );
+      return yield* new SocialEventScopeInvalid({
+        departmentId: String(scope.departmentId),
+        semesterId: String(scope.semesterId),
+      });
     }
 
     return scope;
@@ -344,9 +338,7 @@ export const createSocialEventPostgres = (
     const row = rows[0];
 
     if (row === undefined) {
-      return yield* Effect.fail(
-        persistenceError("insert social-event", "insert did not return an event"),
-      );
+      return yield* persistenceError("insert social-event", "insert did not return an event");
     }
 
     const resource = yield* decodeResource("decode created social-event")(row);

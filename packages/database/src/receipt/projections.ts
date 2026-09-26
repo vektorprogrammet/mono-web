@@ -262,7 +262,7 @@ export const readReceiptLifecycleEvidence = (
 
     const receipt = receipts[0];
 
-    if (receipt === undefined) return yield* Effect.fail(new ReceiptNotFound({ receiptId }));
+    if (receipt === undefined) return yield* new ReceiptNotFound({ receiptId });
     const settlement = yield* selectSettlementEvidence(sql, receiptId);
 
     const outbox = yield* sql<ReceiptLifecycleOutboxProjection>`
