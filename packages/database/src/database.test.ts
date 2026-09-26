@@ -99,6 +99,17 @@ import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
 
+const applicationAvailability = {
+  mondayUnavailable: false,
+  tuesdayUnavailable: true,
+  wednesdayUnavailable: false,
+  thursdayUnavailable: false,
+  fridayUnavailable: false,
+  positionWeeks: 4,
+  preferredGroup: "all",
+  language: "Norsk",
+} as const;
+
 const runtime = makeControlledTestRuntime(EconomyLive.pipe(Layer.provideMerge(databaseLayer)));
 
 const recruitmentLayer = (pglite: PGlite) =>
@@ -3526,6 +3537,7 @@ describe("DatabaseTest", () => {
             gender: 1,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 3,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:00:00.000Z",
@@ -3617,6 +3629,7 @@ describe("DatabaseTest", () => {
             gender: 0,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 1,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:10:00.000Z",
@@ -3636,6 +3649,7 @@ describe("DatabaseTest", () => {
             gender: 1,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 2,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:11:00.000Z",
@@ -3836,6 +3850,7 @@ describe("DatabaseTest", () => {
             gender: 0,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 2,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:20:00.000Z",
@@ -3920,6 +3935,7 @@ describe("DatabaseTest", () => {
             gender: 1,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 3,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:21:00.000Z",
@@ -4016,6 +4032,7 @@ describe("DatabaseTest", () => {
             gender: 1,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 2,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:21:00.000Z",
@@ -4082,6 +4099,7 @@ describe("DatabaseTest", () => {
             gender: 1,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 2,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:22:00.000Z",
@@ -4156,6 +4174,7 @@ describe("DatabaseTest", () => {
             gender: 1,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 2,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:22:30.000Z",
@@ -4197,6 +4216,7 @@ describe("DatabaseTest", () => {
             gender: 1,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 3,
+            availability: applicationAvailability,
           },
           {
             now: "2032-09-15T12:22:30.000Z",
@@ -4282,6 +4302,7 @@ describe("DatabaseTest", () => {
             gender: 0,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 2,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:23:00.000Z",
@@ -4305,6 +4326,7 @@ describe("DatabaseTest", () => {
             gender: 1,
             fieldOfStudyId: "outbox-field",
             yearOfStudy: 3,
+            availability: applicationAvailability,
           },
           {
             now: "2031-09-15T12:23:01.000Z",
@@ -5125,6 +5147,7 @@ describe("claim-fenced outbox delivery", () => {
         gender: 1,
         fieldOfStudyId: "outbox-field",
         yearOfStudy: 2,
+        availability: applicationAvailability,
       },
       {
         now: "2031-09-15T12:30:00.000Z",

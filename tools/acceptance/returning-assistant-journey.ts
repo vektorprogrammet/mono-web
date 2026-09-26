@@ -76,6 +76,16 @@ const originalPublicCommand =
     gender: PublicApplicationGenderSchema.make(0),
     fieldOfStudyId: AdmissionFieldOfStudyId.make(fieldOfStudyId),
     yearOfStudy: PublicApplicationYearOfStudySchema.make(2),
+    availability: {
+      mondayUnavailable: false,
+      tuesdayUnavailable: true,
+      wednesdayUnavailable: false,
+      thursdayUnavailable: false,
+      fridayUnavailable: false,
+      positionWeeks: 4,
+      preferredGroup: "all",
+      language: "Norsk",
+    },
   });
 
 const originalPublicCommandDigest = publicApplicationCommandDigest(originalPublicCommand);

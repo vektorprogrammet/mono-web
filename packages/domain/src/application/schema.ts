@@ -13,6 +13,7 @@ import {
   AdmissionPeriodId,
 } from "../admission-period/schema.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
+import { AssistantAvailabilitySchema } from "./availability.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 /** Stable IDs are opaque, non-empty, and free of control characters. */
@@ -227,6 +228,15 @@ export class PublicApplication extends Model.Class<PublicApplication>("PublicApp
     select: Schema.NullOr(Sha256Schema),
     insert: Schema.NullOr(Sha256Schema),
   }),
+  /**
+   * What the applicant states about weekdays, blocks, and teaching language. A public
+   * application states it. It is null for an application submitted before the form asked,
+   * and for the application of a returning registration, which states it itself.
+   */
+  availability: Model.Field({
+    select: Schema.NullOr(AssistantAvailabilitySchema),
+    insert: AssistantAvailabilitySchema,
+  }),
 }) {}
 
 export const PublicApplicationSchema = PublicApplication;
@@ -261,6 +271,7 @@ const SubmitPublicApplicationFields = {
   gender: ApplicantCreateFields.gender,
   fieldOfStudyId: ApplicantCreateFields.fieldOfStudyId,
   yearOfStudy: ApplicantCreateFields.yearOfStudy,
+  availability: AssistantAvailabilitySchema,
 };
 
 export const PublicApplicationSubmitInputSchema = Schema.Struct(SubmitPublicApplicationFields);

@@ -27,6 +27,7 @@ export const publicApplicationCommandPayload = (
   gender: command.gender,
   fieldOfStudyId: AdmissionFieldOfStudyId.make(command.fieldOfStudyId.trim()),
   yearOfStudy: command.yearOfStudy,
+  availability: command.availability,
 });
 
 export const publicApplicationCommandBytes = (

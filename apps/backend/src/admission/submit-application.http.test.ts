@@ -57,6 +57,16 @@ const application = {
   gender: 0,
   fieldOfStudyId: "field-http",
   yearOfStudy: 3,
+  availability: {
+    mondayUnavailable: false,
+    tuesdayUnavailable: true,
+    wednesdayUnavailable: false,
+    thursdayUnavailable: false,
+    fridayUnavailable: true,
+    positionWeeks: 4,
+    preferredGroup: "block-2",
+    language: "Norsk og engelsk",
+  },
 };
 
 /** Each fixture is one backend process with its own database and public rate limit. */
@@ -150,8 +160,8 @@ describe("public application submission over HTTP", () => {
     await expect(count("native_http_idempotency_receipts")).resolves.toBe(0);
   });
 
-  it("reads the confirmation of a submitted application", async () => {
-    const { submit, read } = fixture();
+  it("reads the confirmation of a submitted application and stores its availability", async () => {
+    const { database, submit, read } = fixture();
     const submitted = await submit("confirmedApplication");
 
     expect(submitted.status).toBe(201);
@@ -169,6 +179,25 @@ describe("public application submission over HTTP", () => {
         onExcessProperty: "error",
       }),
     ).toEqual(PublicApplicationConfirmationSchema.make({ applicationId }));
+
+    const stored = await database.run(
+      Database.use(
+        (sql) => sql`
+          SELECT monday_unavailable AS "mondayUnavailable",
+            tuesday_unavailable AS "tuesdayUnavailable",
+            wednesday_unavailable AS "wednesdayUnavailable",
+            thursday_unavailable AS "thursdayUnavailable",
+            friday_unavailable AS "fridayUnavailable",
+            position_weeks AS "positionWeeks",
+            preferred_group AS "preferredGroup",
+            language
+          FROM admission_applications
+          WHERE application_id = ${applicationId}
+        `,
+      ),
+    );
+
+    expect(stored).toEqual([application.availability]);
   });
 
   it("answers the loser of a concurrent same-applicant race as a duplicate", async () => {
@@ -280,6 +309,7 @@ describe("public application submission over HTTP", () => {
         firstName: "",
         email: "not-an-email",
         nickname: "Ada",
+        availability: { ...application.availability, positionWeeks: 6 },
       }),
     });
 
@@ -288,6 +318,7 @@ describe("public application submission over HTTP", () => {
       code: "validation.failed",
       validation: {
         errors: [
+          makeNativeValidationError("/availability/positionWeeks", "invalid"),
           makeNativeValidationError("/email", "invalid"),
           makeNativeValidationError("/firstName", "invalid"),
           makeNativeValidationError("/lastName", "missing"),

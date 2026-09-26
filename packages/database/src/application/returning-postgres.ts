@@ -437,6 +437,17 @@ const registerInTransaction = (
         gender: identity.applicant.gender,
         fieldOfStudyId: identity.applicant.fieldOfStudyId,
         yearOfStudy: input.yearOfStudy,
+        // The registration row, not this application, records the availability.
+        availability: {
+          mondayUnavailable: input.mondayUnavailable,
+          tuesdayUnavailable: input.tuesdayUnavailable,
+          wednesdayUnavailable: input.wednesdayUnavailable,
+          thursdayUnavailable: input.thursdayUnavailable,
+          fridayUnavailable: input.fridayUnavailable,
+          positionWeeks: input.positionWeeks,
+          preferredGroup: input.preferredGroup,
+          language: input.language,
+        },
       });
 
       const id = PublicApplicationIdSchema.make(`application-${appDigest.slice(0, 32)}`);

@@ -4,6 +4,7 @@ import {
   AdmissionPeriodProjectionSchema,
   AdmissionFieldOfStudyId,
 } from "../admission-period/schema.js";
+import { AssistantAvailabilityFields } from "./availability.js";
 import {
   ApplicantIdSchema,
   PublicApplicationIdSchema,
@@ -25,14 +26,7 @@ export const ReturningCommandIdSchema = Schema.String.pipe(
 
 export type ReturningCommandId = typeof ReturningCommandIdSchema.Type;
 
-export const ReturningLanguageSchema = Schema.Literals(["Norsk", "Engelsk", "Norsk og engelsk"]);
-
-export type ReturningLanguage = typeof ReturningLanguageSchema.Type;
-
-export const ReturningPreferredGroupSchema = Schema.Literals(["all", "block-1", "block-2"]);
-
-export type ReturningPreferredGroup = typeof ReturningPreferredGroupSchema.Type;
-
+/** A school the assistant wishes to return to, as the legacy registration asked it. */
 const PreferredSchool = Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(255))));
 
 const TeamIds = Schema.Array(TeamId).pipe(
@@ -43,14 +37,7 @@ const TeamIds = Schema.Array(TeamId).pipe(
 
 const ReturningPreferenceFields = {
   yearOfStudy: PublicApplicationYearOfStudySchema,
-  mondayUnavailable: Schema.Boolean,
-  tuesdayUnavailable: Schema.Boolean,
-  wednesdayUnavailable: Schema.Boolean,
-  thursdayUnavailable: Schema.Boolean,
-  fridayUnavailable: Schema.Boolean,
-  positionWeeks: Schema.Literals([4, 8]),
-  preferredGroup: ReturningPreferredGroupSchema,
-  language: ReturningLanguageSchema,
+  ...AssistantAvailabilityFields,
   preferredSchool: PreferredSchool,
   teamInterest: Schema.Boolean,
   teamIds: TeamIds,

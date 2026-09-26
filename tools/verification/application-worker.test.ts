@@ -76,6 +76,16 @@ describe("public application delivery worker", () => {
               gender: 0,
               fieldOfStudyId: "outbox-field",
               yearOfStudy: 4,
+              availability: {
+                mondayUnavailable: false,
+                tuesdayUnavailable: true,
+                wednesdayUnavailable: false,
+                thursdayUnavailable: false,
+                fridayUnavailable: false,
+                positionWeeks: 4,
+                preferredGroup: "all",
+                language: "Norsk",
+              },
             },
             {
               now: "2031-09-15T12:01:00.000Z",

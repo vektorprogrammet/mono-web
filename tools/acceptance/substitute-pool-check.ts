@@ -204,6 +204,16 @@ try {
     gender: 1,
     fieldOfStudyId: "field-native-journey-0049",
     yearOfStudy: 3,
+    availability: {
+      mondayUnavailable: false,
+      tuesdayUnavailable: true,
+      wednesdayUnavailable: false,
+      thursdayUnavailable: false,
+      fridayUnavailable: false,
+      positionWeeks: 4,
+      preferredGroup: "all",
+      language: "Norsk",
+    },
   };
 
   const submitted = await request(

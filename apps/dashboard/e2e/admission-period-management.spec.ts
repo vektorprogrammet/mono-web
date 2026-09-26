@@ -14,6 +14,7 @@ import {
   OpenAdmissionPeriodListResponse,
   PublicApplicationConfirmationSchema,
   SessionUnauthorizedProblem,
+  type SubmitApplicationRequest,
 } from "@vektorprogrammet/http-api";
 import { DateTime, Schema } from "effect";
 import { dashboardMount, dashboardPagePath } from "../dashboard-base";
@@ -45,6 +46,18 @@ const CONFLICTING_END = "2025-09-30T20:00:00.000Z";
 const CONCURRENT_ENDS = ["2025-09-25T20:00:00.000Z", "2025-09-26T20:00:00.000Z"] as const;
 
 const exact = { onExcessProperty: "error" } as const;
+
+/** Tuesday does not suit; four weeks in either block, at a Norwegian school. */
+const APPLICANT_AVAILABILITY: SubmitApplicationRequest["availability"] = {
+  mondayUnavailable: false,
+  tuesdayUnavailable: true,
+  wednesdayUnavailable: false,
+  thursdayUnavailable: false,
+  fridayUnavailable: false,
+  positionWeeks: 4,
+  preferredGroup: "all",
+  language: "Norsk",
+};
 
 const JourneyReference = Schema.fromJsonString(
   Schema.Struct({
@@ -473,6 +486,7 @@ test.describe("Native admission-period management", () => {
         gender: 0,
         fieldOfStudyId: reference.fieldOfStudyId,
         yearOfStudy: 3,
+        availability: APPLICANT_AVAILABILITY,
       },
     });
 
@@ -618,6 +632,7 @@ test.describe("Native admission-period management", () => {
           gender: 1,
           fieldOfStudyId: reference.fieldOfStudyId,
           yearOfStudy: 2,
+          availability: APPLICANT_AVAILABILITY,
         },
       }),
       AdmissionsSubmitApplicationProblem,

@@ -12,6 +12,12 @@
  * same input and seed give the same draft.
  */
 import { Schema, type Random } from "effect";
+import {
+  AssistantLanguageSchema,
+  ReturningAssistantPreferencesSchema,
+  type AssistantAvailability,
+  type AssistantPreferredGroup,
+} from "../application/index.js";
 import { PersonId } from "../organization/index.js";
 import { SchoolId } from "../schools/index.js";
 import {
@@ -42,6 +48,22 @@ export const PlacementAvailability = Schema.Struct({
   block: DraftBlock,
 });
 
+/**
+ * What an assistant wishes about the school: its teaching language and, from a returning
+ * registration, one named school. A draft shows the wishes to the coordinator; it does not
+ * score them.
+ */
+export const SchoolWishes = Schema.Struct({
+  language: AssistantLanguageSchema,
+  preferredSchool: ReturningAssistantPreferencesSchema.fields.preferredSchool,
+});
+
+/** An assistant's supply with the school wishes that the same record states. */
+export const PlacementSupply = Schema.Struct({
+  ...PlacementAvailability.fields,
+  wishes: SchoolWishes,
+});
+
 /** Places a draft may still fill at one school, weekday, and block. */
 export const DraftSlot = Schema.Struct({
   schoolId: SchoolId,
@@ -66,13 +88,16 @@ export const DraftedPlacement = Schema.Struct({
   day: TeachingDay,
   block: PlacementValues.fields.block,
   workdays: PlacementValues.fields.workdays,
+  wishes: SchoolWishes,
 });
 
+/** An assistant the draft leaves without a place; `wishes` is null without a supply record. */
 export const UnplacedAssistant = Schema.Struct({
   personId: PersonId,
   firstName: Schema.String,
   lastName: Schema.String,
   reason: Schema.Literals(["NoAvailability", "NoOpenPlace"]),
+  wishes: Schema.NullOr(SchoolWishes),
 });
 
 export const OpenDraftSlot = Schema.Struct({
@@ -100,6 +125,10 @@ export const PlacementDraft = Schema.Struct({
 export type DraftBlock = typeof DraftBlock.Type;
 
 export type PlacementAvailability = typeof PlacementAvailability.Type;
+
+export type SchoolWishes = typeof SchoolWishes.Type;
+
+export type PlacementSupply = typeof PlacementSupply.Type;
 
 export type DraftSlot = typeof DraftSlot.Type;
 
@@ -641,11 +670,43 @@ export interface PlacementDraftSource {
     PlacementBoard,
     "departmentId" | "semesterId" | "affiliations" | "placements" | "schools" | "demands"
   >;
-  /** Supply per person; a person without an entry has no availability on record. */
-  readonly availability: ReadonlyArray<PlacementAvailability>;
+  /** Supply per person, one entry each; a person without one has no availability on record. */
+  readonly availability: ReadonlyArray<PlacementSupply>;
   /** Capacity plans; a school without a plan for a weekday is bounded by demand alone. */
   readonly capacities: ReadonlyArray<SchoolDayCapacity>;
 }
+
+/** "all" takes either block of a four-week position; a named block excludes the other. */
+const blockByGroup: Record<AssistantPreferredGroup, DraftBlock> = {
+  all: "Either",
+  "block-1": "1",
+  "block-2": "2",
+};
+
+/**
+ * The supply that an assistant's stated availability gives: the weekdays not marked
+ * unavailable, and, as in the legacy scheduler, both blocks for an eight-week position,
+ * whatever block a four-week position would take.
+ */
+export const placementSupplyOf = (
+  personId: PersonId,
+  availability: AssistantAvailability,
+  preferredSchool: SchoolWishes["preferredSchool"],
+): PlacementSupply => ({
+  personId,
+  days: days.filter(
+    (day) =>
+      !{
+        Monday: availability.mondayUnavailable,
+        Tuesday: availability.tuesdayUnavailable,
+        Wednesday: availability.wednesdayUnavailable,
+        Thursday: availability.thursdayUnavailable,
+        Friday: availability.fridayUnavailable,
+      }[day],
+  ),
+  block: availability.positionWeeks === 8 ? "Both" : blockByGroup[availability.preferredGroup],
+  wishes: { language: availability.language, preferredSchool },
+});
 
 const workdaysPerBlock = 4;
 
@@ -733,13 +794,22 @@ export const buildPlacementDraft = (
   return {
     departmentId: board.departmentId,
     semesterId: board.semesterId,
-    placements: plan.assignments.map((assignment) => ({
-      ...assignment,
-      firstName: byPerson.get(assignment.personId)?.firstName ?? "",
-      lastName: byPerson.get(assignment.personId)?.lastName ?? "",
-      schoolName: schoolNames.get(assignment.schoolId) ?? "",
-      workdays: halves(assignment.block).length * workdaysPerBlock,
-    })),
+    placements: plan.assignments.map((assignment) => {
+      const entry = supply.get(assignment.personId);
+
+      // The scheduler places only the assistants that the supply lists.
+      if (entry === undefined)
+        throw new Error("placement draft placed an assistant without supply");
+
+      return {
+        ...assignment,
+        firstName: byPerson.get(assignment.personId)?.firstName ?? "",
+        lastName: byPerson.get(assignment.personId)?.lastName ?? "",
+        schoolName: schoolNames.get(assignment.schoolId) ?? "",
+        workdays: halves(assignment.block).length * workdaysPerBlock,
+        wishes: entry.wishes,
+      };
+    }),
     unplaced: people.flatMap((person) =>
       drafted.has(person.personId)
         ? []
@@ -751,6 +821,7 @@ export const buildPlacementDraft = (
               reason: withoutPlace.has(person.personId)
                 ? ("NoOpenPlace" as const)
                 : ("NoAvailability" as const),
+              wishes: supply.get(person.personId)?.wishes ?? null,
             },
           ],
     ),

@@ -24,6 +24,7 @@ it.effect("strictly decodes persisted records without exposing sensitive fields"
     departmentId: DepartmentId.make("department-1"),
     fieldOfStudyId: "field-1",
     yearOfStudy: 3,
+    availability: null,
     submittedAt: "2026-08-23T12:00:00.000Z",
     revision: 0,
     activationDigest: null,
@@ -43,6 +44,33 @@ it.effect("strictly decodes persisted records without exposing sensitive fields"
     });
 
     expect(decodedApplication.id).toBe("application-model-1");
+
+    const availability = {
+      mondayUnavailable: false,
+      tuesdayUnavailable: true,
+      wednesdayUnavailable: false,
+      thursdayUnavailable: false,
+      fridayUnavailable: false,
+      positionWeeks: 4,
+      preferredGroup: "all",
+      language: "Norsk",
+    };
+
+    const decodedAvailability = yield* Schema.decodeUnknownEffect(PublicApplication)(
+      { ...application, availability },
+      { onExcessProperty: "error" },
+    );
+
+    expect(decodedAvailability.availability).toEqual(availability);
+
+    const invalidAvailability = yield* Effect.flip(
+      Schema.decodeUnknownEffect(PublicApplication)(
+        { ...application, availability: { ...availability, positionWeeks: 6 } },
+        { onExcessProperty: "error" },
+      ),
+    );
+
+    expect(String(invalidAvailability)).toContain("positionWeeks");
 
     const excess = yield* Effect.flip(
       Schema.decodeUnknownEffect(ApplicantRecord)(

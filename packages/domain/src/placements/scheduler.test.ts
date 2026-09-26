@@ -7,6 +7,7 @@ import {
   DraftBlock,
   buildPlacementDraft,
   draftPlacements,
+  placementSupplyOf,
   type DraftSearch,
   type PlacementDraftInput,
 } from "./scheduler.js";
@@ -218,6 +219,10 @@ describe("placement draft for a board", () => {
     revision: 1,
   });
 
+  const norwegian = { language: "Norsk", preferredSchool: null } as const;
+
+  const returning = { language: "Engelsk", preferredSchool: "Lade skole" } as const;
+
   it("drafts open demand within capacity for unplaced active assistants", () => {
     const draft = buildPlacementDraft(
       {
@@ -230,6 +235,7 @@ describe("placement draft for a board", () => {
             person("double"),
             person("single"),
             person("unavailable"),
+            person("unregistered"),
             person("pending", "Pending"),
           ],
           placements: [
@@ -253,11 +259,16 @@ describe("placement draft for a board", () => {
           demands: [demand("Monday", "1", 3), demand("Monday", "2", 3), demand("Tuesday", "1", 1)],
         },
         availability: [
-          { personId: PersonId.make("placed"), days: ["Monday"], block: "1" },
-          { personId: PersonId.make("double"), days: ["Monday"], block: "Both" },
-          { personId: PersonId.make("single"), days: ["Tuesday"], block: "Either" },
-          { personId: PersonId.make("unavailable"), days: [], block: "Either" },
-          { personId: PersonId.make("pending"), days: ["Tuesday"], block: "1" },
+          { personId: PersonId.make("placed"), days: ["Monday"], block: "1", wishes: norwegian },
+          { personId: PersonId.make("double"), days: ["Monday"], block: "Both", wishes: returning },
+          {
+            personId: PersonId.make("single"),
+            days: ["Tuesday"],
+            block: "Either",
+            wishes: norwegian,
+          },
+          { personId: PersonId.make("unavailable"), days: [], block: "Either", wishes: norwegian },
+          { personId: PersonId.make("pending"), days: ["Tuesday"], block: "1", wishes: norwegian },
         ],
         capacities: [{ schoolId: school, day: "Monday", places: 2 }],
       },
@@ -267,22 +278,54 @@ describe("placement draft for a board", () => {
     expect(draft.openPlaces).toBe(4);
     expect(draft.filledPlaces).toBe(3);
     expect(
-      draft.placements.map(({ personId, day, block, workdays, schoolName }) => [
+      draft.placements.map(({ personId, day, block, workdays, schoolName, wishes }) => [
         personId,
         schoolName,
         day,
         block,
         workdays,
+        wishes,
       ]),
     ).toEqual([
-      ["double", "Lade skole", "Monday", "Both", 8],
-      ["single", "Lade skole", "Tuesday", "1", 4],
+      ["double", "Lade skole", "Monday", "Both", 8, returning],
+      ["single", "Lade skole", "Tuesday", "1", 4, norwegian],
     ]);
-    expect(draft.unplaced.map(({ personId, reason }) => [personId, reason])).toEqual([
-      ["unavailable", "NoAvailability"],
+    // A registration without a suiting weekday keeps its wishes; no registration has none.
+    expect(
+      draft.unplaced.map(({ personId, reason, wishes }) => [personId, reason, wishes]),
+    ).toEqual([
+      ["unavailable", "NoAvailability", norwegian],
+      ["unregistered", "NoAvailability", null],
     ]);
     expect(draft.openSlots.map(({ day, block, places }) => [day, block, places])).toEqual([
       ["Monday", "2", 1],
     ]);
+  });
+
+  it("takes the weekdays not marked unavailable, and both blocks for eight weeks", () => {
+    const stated = {
+      mondayUnavailable: true,
+      tuesdayUnavailable: false,
+      wednesdayUnavailable: true,
+      thursdayUnavailable: false,
+      fridayUnavailable: false,
+      positionWeeks: 4,
+      preferredGroup: "block-2",
+      language: "Engelsk",
+    } as const;
+
+    expect(placementSupplyOf(PersonId.make("assistant"), stated, "Lade skole")).toEqual({
+      personId: "assistant",
+      days: ["Tuesday", "Thursday", "Friday"],
+      block: "2",
+      wishes: returning,
+    });
+    expect(
+      placementSupplyOf(PersonId.make("assistant"), { ...stated, preferredGroup: "all" }, null),
+    ).toMatchObject({ block: "Either" });
+    // An eight-week position serves both blocks, whatever block the form also named.
+    expect(
+      placementSupplyOf(PersonId.make("assistant"), { ...stated, positionWeeks: 8 }, null),
+    ).toMatchObject({ block: "Both" });
   });
 });

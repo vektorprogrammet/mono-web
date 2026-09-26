@@ -14,6 +14,17 @@ import {
 
 const activationToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
 
+const availability = {
+  mondayUnavailable: false,
+  tuesdayUnavailable: true,
+  wednesdayUnavailable: false,
+  thursdayUnavailable: false,
+  fridayUnavailable: false,
+  positionWeeks: 4,
+  preferredGroup: "all",
+  language: "Norsk",
+} as const;
+
 const input = {
   commandId: "command-1",
   departmentId: DepartmentId.make("department-1"),
@@ -24,6 +35,7 @@ const input = {
   gender: 1,
   fieldOfStudyId: "field-1",
   yearOfStudy: 3,
+  availability,
 } as const;
 
 const application = {
@@ -36,6 +48,7 @@ const application = {
   submittedAt: "2026-08-23T12:00:00.000Z",
   revision: 0,
   activationDigest: null,
+  availability,
 } as const;
 
 const applicant = {
@@ -72,6 +85,7 @@ describe("public applicant domain", () => {
         "gender",
         "fieldOfStudyId",
         "yearOfStudy",
+        "availability",
       ]);
     }),
   );
@@ -90,6 +104,16 @@ describe("public applicant domain", () => {
 
       expect(publicApplicationCommandDigest(normalized)).toBe(
         publicApplicationCommandDigest(equivalent),
+      );
+
+      // A replay that states other availability is another command, not the same one.
+      const otherAvailability = yield* decodePublicApplicationSubmitInput({
+        ...input,
+        availability: { ...availability, positionWeeks: 8 },
+      });
+
+      expect(publicApplicationCommandDigest(otherAvailability)).not.toBe(
+        publicApplicationCommandDigest(normalized),
       );
     }),
   );

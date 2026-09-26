@@ -20,6 +20,12 @@ import type {
   PublicApplicationErrorView,
   PublicApplicationLoaderData,
 } from "~/lib/public-application";
+import {
+  languageOptions,
+  positionOptions,
+  unavailableWeekdayValue,
+  weekdayOptions,
+} from "~/lib/public-application-choices";
 import { cn } from "~/lib/utils";
 
 type PublicApplicationFormProps = {
@@ -30,6 +36,11 @@ type PublicApplicationFormProps = {
 
 const selectClassName =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm";
+
+const choiceClassName =
+  "size-4 shrink-0 accent-primary disabled:cursor-not-allowed disabled:opacity-50";
+
+const choiceLabelClassName = "flex items-center gap-2 font-normal leading-snug";
 
 function NativeSelect({
   className,
@@ -457,6 +468,91 @@ export function PublicApplicationForm({
                   <FieldError field="gender" error={submissionError} />
                 </div>
               </div>
+            </fieldset>
+
+            <div className="border-t" />
+
+            <fieldset className="space-y-6">
+              <legend className="font-semibold text-lg">Tilgjengelighet og skoleønsker</legend>
+
+              <fieldset
+                className="space-y-3"
+                aria-describedby={errorDescription("weekdays", submissionError, "weekdays-hint")}
+              >
+                <legend className="font-medium text-sm">Hvilke ukedager passer ikke for deg?</legend>
+                <p id="weekdays-hint" className="text-muted-foreground text-sm">
+                  Du er på skolen én dag i uka. Kryss av dagene som ikke passer, og la resten
+                  stå tomme.
+                </p>
+                <div className="flex flex-wrap gap-x-6 gap-y-3">
+                  {weekdayOptions.map((weekday) => (
+                    <Label key={weekday.name} className={choiceLabelClassName}>
+                      <input
+                        type="checkbox"
+                        name={weekday.name}
+                        value={unavailableWeekdayValue}
+                        disabled={submitting}
+                        aria-invalid={Boolean(submissionError?.fieldErrors?.weekdays)}
+                        className={choiceClassName}
+                      />
+                      {weekday.label}
+                    </Label>
+                  ))}
+                </div>
+                <FieldError field="weekdays" error={submissionError} />
+              </fieldset>
+
+              <fieldset
+                className="space-y-3"
+                aria-describedby={errorDescription("position", submissionError)}
+              >
+                <legend className="font-medium text-sm">
+                  Hvor lenge og i hvilken bolk kan du være vektorassistent?
+                </legend>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {positionOptions.map((position) => (
+                    <Label key={position.value} className={choiceLabelClassName}>
+                      <input
+                        type="radio"
+                        name="position"
+                        value={position.value}
+                        required
+                        disabled={submitting}
+                        aria-invalid={Boolean(submissionError?.fieldErrors?.position)}
+                        className={choiceClassName}
+                      />
+                      {position.label}
+                    </Label>
+                  ))}
+                </div>
+                <FieldError field="position" error={submissionError} />
+              </fieldset>
+
+              <fieldset
+                className="space-y-3"
+                aria-describedby={errorDescription("language", submissionError)}
+              >
+                <legend className="font-medium text-sm">
+                  Vil du undervise på en norsk eller en internasjonal skole?
+                </legend>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {languageOptions.map((language) => (
+                    <Label key={language.value} className={choiceLabelClassName}>
+                      <input
+                        type="radio"
+                        name="language"
+                        value={language.value}
+                        required
+                        disabled={submitting}
+                        aria-invalid={Boolean(submissionError?.fieldErrors?.language)}
+                        className={choiceClassName}
+                      />
+                      {language.label}
+                    </Label>
+                  ))}
+                </div>
+                <FieldError field="language" error={submissionError} />
+              </fieldset>
             </fieldset>
 
             <aside

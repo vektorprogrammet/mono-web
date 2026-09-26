@@ -3,6 +3,7 @@ import { Database, type DatabaseOperations } from "../service.js";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { flow, Effect, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
+import type * as Statement from "effect/unstable/sql/Statement";
 import {
   AdmissionDepartment,
   AdmissionFieldOfStudy,
@@ -286,10 +287,11 @@ const findApplicantForUpdate = (
     ),
   );
 
-const findApplicationForApplicantPeriod = (
+/** Locks and reads the application that `where` selects. */
+const findApplicationForUpdate = (
   sql: DatabaseOperations,
-  applicantId: string,
-  admissionPeriodId: string,
+  where: Statement.Fragment,
+  operation: string,
 ): Effect.Effect<PublicApplication | undefined, PublicApplicationPersistenceError> =>
   sql<typeof PublicApplication.Encoded>`
     SELECT application_id AS id,
@@ -300,43 +302,25 @@ const findApplicationForApplicantPeriod = (
       year_of_study AS "yearOfStudy",
       to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "submittedAt",
       revision,
-      activation_digest AS "activationDigest"
+      activation_digest AS "activationDigest",
+      CASE WHEN position_weeks IS NULL THEN NULL ELSE json_build_object(
+        'mondayUnavailable', monday_unavailable,
+        'tuesdayUnavailable', tuesday_unavailable,
+        'wednesdayUnavailable', wednesday_unavailable,
+        'thursdayUnavailable', thursday_unavailable,
+        'fridayUnavailable', friday_unavailable,
+        'positionWeeks', position_weeks,
+        'preferredGroup', preferred_group,
+        'language', language
+      ) END AS availability
     FROM admission_applications
-    WHERE applicant_id = ${applicantId} AND admission_period_id = ${admissionPeriodId}
+    WHERE ${where}
     FOR UPDATE
   `.pipe(
     Effect.flatMap((rows) =>
       rows[0] === undefined ? Effect.succeed(undefined) : decodeApplicationRow(rows[0]),
     ),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("read duplicate application", cause)),
-    ),
-  );
-
-const findApplicationById = (
-  sql: DatabaseOperations,
-  applicationId: string,
-): Effect.Effect<PublicApplication | undefined, PublicApplicationPersistenceError> =>
-  sql<typeof PublicApplication.Encoded>`
-    SELECT application_id AS id,
-      applicant_id AS "applicantId",
-      admission_period_id AS "admissionPeriodId",
-      department_id AS "departmentId",
-      field_of_study_id AS "fieldOfStudyId",
-      year_of_study AS "yearOfStudy",
-      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "submittedAt",
-      revision,
-      activation_digest AS "activationDigest"
-    FROM admission_applications
-    WHERE application_id = ${applicationId}
-    FOR UPDATE
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeApplicationRow(rows[0]),
-    ),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("read application identity", cause)),
-    ),
+    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError(operation, cause))),
   );
 
 const findCommandReceipt = (
@@ -400,17 +384,24 @@ const updateApplicant = (
 
 const writeApplication = (
   sql: DatabaseOperations,
-  application: PublicApplication,
+  application: typeof PublicApplication.insert.Type,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
   INSERT INTO admission_applications (
     application_id, applicant_id, admission_period_id, department_id,
-    field_of_study_id, year_of_study, submitted_at, revision, activation_digest
+    field_of_study_id, year_of_study, submitted_at, revision, activation_digest,
+    monday_unavailable, tuesday_unavailable, wednesday_unavailable, thursday_unavailable,
+    friday_unavailable, position_weeks, preferred_group, language
   ) VALUES (
     ${application.id}, ${application.applicantId}, ${application.admissionPeriodId},
     ${application.departmentId}, ${application.fieldOfStudyId},
     ${application.yearOfStudy}, ${application.submittedAt}, ${application.revision},
-    ${application.activationDigest}
+    ${application.activationDigest},
+    ${application.availability.mondayUnavailable}, ${application.availability.tuesdayUnavailable},
+    ${application.availability.wednesdayUnavailable},
+    ${application.availability.thursdayUnavailable},
+    ${application.availability.fridayUnavailable}, ${application.availability.positionWeeks},
+    ${application.availability.preferredGroup}, ${application.availability.language}
   )
 `.pipe(
     Effect.asVoid,
@@ -580,19 +571,28 @@ const executeCommandInTransaction = (
       activationDigest,
     };
 
-    const duplicate = yield* findApplicationForApplicantPeriod(sql, applicant.id, period.id);
+    const duplicate = yield* findApplicationForUpdate(
+      sql,
+      sql`applicant_id = ${applicant.id} AND admission_period_id = ${period.id}`,
+      "read duplicate application",
+    );
 
     if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
 
     const applicationId = context.applicationId ?? publicApplicationIdForCommand(command);
-    const collidingApplication = yield* findApplicationById(sql, applicationId);
+
+    const collidingApplication = yield* findApplicationForUpdate(
+      sql,
+      sql`application_id = ${applicationId}`,
+      "read application identity",
+    );
 
     if (collidingApplication !== undefined) return yield* new DuplicatePublicApplication();
 
     if (existingApplicant === undefined) yield* writeApplicant(sql, applicant);
     else yield* updateApplicant(sql, applicant);
 
-    const application: PublicApplication = {
+    const application: typeof PublicApplication.insert.Type = {
       id: applicationId,
       applicantId: applicant.id,
       admissionPeriodId: period.id,
@@ -602,6 +602,7 @@ const executeCommandInTransaction = (
       submittedAt: now,
       revision: 0,
       activationDigest,
+      availability: command.availability,
     };
 
     yield* writeApplication(sql, application);

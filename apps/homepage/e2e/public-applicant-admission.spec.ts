@@ -8,14 +8,16 @@ import {
   type NativeValidationError,
   PublicApplicationConfirmationSchema,
   ReadApplicationCatalogEndpoint,
+  SubmitApplicationRequest,
 } from "@vektorprogrammet/http-api";
-import { Schema } from "effect";
+import { Schema, Struct } from "effect";
 import { type HttpApiEndpoint, HttpApiSchema } from "effect/unstable/httpapi";
 import {
   expect,
   test,
   type APIRequestContext,
   type APIResponse,
+  type Locator,
   type Page,
 } from "@playwright/test";
 
@@ -53,6 +55,48 @@ const privateCanaries = [
   APPLICANT_EMAIL,
   APPLICANT_PHONE,
 ] as const;
+
+type ApplicantAvailability = SubmitApplicationRequest["availability"];
+
+type UnavailableWeekday = Extract<keyof ApplicantAvailability, `${string}Unavailable`>;
+
+/** Tuesday does not suit; four weeks in either block, at a Norwegian school. */
+const APPLICANT_AVAILABILITY: ApplicantAvailability = {
+  mondayUnavailable: false,
+  tuesdayUnavailable: true,
+  wednesdayUnavailable: false,
+  thursdayUnavailable: false,
+  fridayUnavailable: false,
+  positionWeeks: 4,
+  preferredGroup: "all",
+  language: "Norsk",
+};
+
+/** The labels that an applicant reads, so the browser answers the way a person does. */
+const WEEKDAY_LABELS: Readonly<Record<UnavailableWeekday, string>> = {
+  mondayUnavailable: "Mandag",
+  tuesdayUnavailable: "Tirsdag",
+  wednesdayUnavailable: "Onsdag",
+  thursdayUnavailable: "Torsdag",
+  fridayUnavailable: "Fredag",
+};
+
+type PositionAnswer = Pick<ApplicantAvailability, "positionWeeks" | "preferredGroup"> & {
+  readonly label: string;
+};
+
+const POSITION_ANSWERS: ReadonlyArray<PositionAnswer> = [
+  { label: "4 uker, bolk 1 eller bolk 2", positionWeeks: 4, preferredGroup: "all" },
+  { label: "4 uker, bare bolk 1", positionWeeks: 4, preferredGroup: "block-1" },
+  { label: "4 uker, bare bolk 2", positionWeeks: 4, preferredGroup: "block-2" },
+  { label: "8 uker, begge bolkene", positionWeeks: 8, preferredGroup: "all" },
+];
+
+const LANGUAGE_LABELS: Readonly<Record<ApplicantAvailability["language"], string>> = {
+  Norsk: "Norsk skole",
+  Engelsk: "Internasjonal skole (engelsk)",
+  "Norsk og engelsk": "Begge passer",
+};
 
 /** The body schema of each response that one endpoint declares. */
 type ResponseBody<Response> =
@@ -92,6 +136,11 @@ type ApplicationInput = {
   readonly gender: number;
   readonly fieldOfStudyId: string;
   readonly yearOfStudy: number;
+  /** Wider than the contract, so a law can send a length or a language that it rejects. */
+  readonly availability: Omit<ApplicantAvailability, "positionWeeks" | "language"> & {
+    readonly positionWeeks: number;
+    readonly language: string;
+  };
 };
 
 function applicationInput(overrides: Partial<ApplicationInput> = {}): ApplicationInput {
@@ -104,6 +153,7 @@ function applicationInput(overrides: Partial<ApplicationInput> = {}): Applicatio
     gender: 0,
     fieldOfStudyId: FIELD_OF_STUDY_ID,
     yearOfStudy: 3,
+    availability: APPLICANT_AVAILABILITY,
     ...overrides,
   };
 }
@@ -174,6 +224,29 @@ async function expectNoSeriousViolations(page: Page): Promise<number> {
   return serious.length;
 }
 
+/** The boxes and radios that state an input's availability, by the labels an applicant reads. */
+function availabilityControls(page: Page, input: ApplicationInput): Locator[] {
+  const availability = decodeStrict(SubmitApplicationRequest.fields.availability)(
+    input.availability,
+  );
+
+  const position = POSITION_ANSWERS.find(
+    (answer) =>
+      answer.positionWeeks === availability.positionWeeks &&
+      answer.preferredGroup === availability.preferredGroup,
+  );
+
+  if (position === undefined) throw new Error("The form offers no answer for this position");
+
+  return [
+    ...Struct.keys(WEEKDAY_LABELS)
+      .filter((weekday) => availability[weekday])
+      .map((weekday) => page.getByRole("checkbox", { name: WEEKDAY_LABELS[weekday], exact: true })),
+    page.getByRole("radio", { name: position.label, exact: true }),
+    page.getByRole("radio", { name: LANGUAGE_LABELS[availability.language], exact: true }),
+  ];
+}
+
 async function fillApplicationForm(page: Page, input: ApplicationInput): Promise<void> {
   await page.getByLabel("Avdeling").selectOption(input.departmentId);
   await page.getByLabel("Studieretning").selectOption(input.fieldOfStudyId);
@@ -183,6 +256,10 @@ async function fillApplicationForm(page: Page, input: ApplicationInput): Promise
   await page.getByLabel("E-post").fill(input.email);
   await page.getByLabel("Telefonnummer").fill(input.phone);
   await page.getByLabel("Kjønn").selectOption(String(input.gender));
+
+  for (const control of availabilityControls(page, input)) {
+    await control.check();
+  }
 }
 
 async function catalog(request: APIRequestContext) {
@@ -305,6 +382,9 @@ test.describe("Public applicant admission", () => {
         "gender",
         "fieldOfStudyId",
         "yearOfStudy",
+        ...Struct.keys(WEEKDAY_LABELS).filter((weekday) => acceptedInput.availability[weekday]),
+        "position",
+        "language",
       ].sort(),
     );
     const applicationId = await page.getByTestId("application-id").textContent();
@@ -351,6 +431,11 @@ test.describe("Public applicant admission", () => {
     await expect(page.getByLabel("Etternavn")).toHaveValue(duplicateInput.lastName);
     await expect(page.getByLabel("E-post")).toHaveValue(duplicateInput.email);
     await expect(page.getByLabel("Telefonnummer")).toHaveValue(duplicateInput.phone);
+
+    for (const control of availabilityControls(page, duplicateInput)) {
+      await expect(control).toBeChecked();
+    }
+
     const duplicateCommandId = await page.locator('input[name="commandId"]').inputValue();
     expect(duplicateCommandId).not.toBe(submittedCommandId);
     const errorAxeViolations = await expectNoSeriousViolations(page);
@@ -363,6 +448,14 @@ test.describe("Public applicant admission", () => {
       [applicationInput({ yearOfStudy: 6 }), "/yearOfStudy"],
       [applicationInput({ departmentId: "" }), "/departmentId"],
       [applicationInput({ fieldOfStudyId: "" }), "/fieldOfStudyId"],
+      [
+        applicationInput({ availability: { ...APPLICANT_AVAILABILITY, positionWeeks: 6 } }),
+        "/availability/positionWeeks",
+      ],
+      [
+        applicationInput({ availability: { ...APPLICANT_AVAILABILITY, language: "Svensk" } }),
+        "/availability/language",
+      ],
     ] as const;
 
     const validation = [];
@@ -522,6 +615,7 @@ test.describe("Public applicant admission", () => {
         commandId: submittedCommandId,
         submittedFieldNames: submittedFormFields,
         applicationId,
+        availability: acceptedInput.availability,
         draftPreservedAfterDuplicate: true,
         axe: {
           formSeriousCritical: formAxeViolations,
