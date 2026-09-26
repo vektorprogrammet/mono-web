@@ -21,6 +21,7 @@ export const capabilityLabels: Record<OrganizationCapability, string> = {
   "admissions.outcomes": "Opptaksutfall og søkerkontoer",
   "recruitment.interviews": "Intervjufordeling, bemanning og rapport",
   "placements.coordinate": "Skoleplassering og vikardekning",
+  "placements.days-served": "Bekrefte tjenestedager for attester",
   "schools.administer": "Skoler og kapasitet",
   "appointments.manage": "Verv i avdelingen",
   "people.read": "Brukerkatalog og epostlister",

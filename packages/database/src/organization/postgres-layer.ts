@@ -1,5 +1,9 @@
 import { Database } from "../service.js";
-import { readAppointmentManagement, executeOrganizationLifecycle } from "./lifecycle-postgres.js";
+import {
+  executeOrganizationLifecycle,
+  readAppointmentManagement,
+  readBoardRosters,
+} from "./lifecycle-postgres.js";
 import { executeDelegation, readDelegationManagement } from "../authz/delegation-postgres.js";
 import {
   createOrganizationDepartment,
@@ -35,6 +39,8 @@ export const OrganizationLive = Layer.effect(
     return Organization.of({
       readAppointmentManagement: (personId) =>
         readAppointmentManagement(personId).pipe(Effect.provideService(Database, database)),
+      readBoardRosters: (personId) =>
+        readBoardRosters(personId).pipe(Effect.provideService(Database, database)),
       executeLifecycle: (command, personId) =>
         executeOrganizationLifecycle(command, personId).pipe(
           Effect.provideService(Database, database),

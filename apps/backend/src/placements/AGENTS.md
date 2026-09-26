@@ -79,3 +79,8 @@ No `exports` entry of [apps/backend/package.json](../../package.json) points int
 Local invariants, pitfalls, and recipes go below this generated part; `just guides write` keeps them.
 
 [//]: # "guide: end"
+
+## Certificate fonts
+
+- `fonts/` holds the unhinted Noto Sans Regular and Bold files of one upstream release, unchanged, with its `OFL.txt`. `fonts/provenance.json` names the release archive and the SHA-256 of each file, and `certificate-pdf.test.ts` fails when a file differs from it or is not named.
+- The PDF embeds only the glyphs that it draws. A name that no glyph of both faces covers fails the issue with `certificate.unprintable` before the issue commits. To cover more scripts, add a release of a font that covers them, its license, and its checksums, and give the renderer a fallback face.

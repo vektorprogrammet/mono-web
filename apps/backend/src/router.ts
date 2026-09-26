@@ -1,5 +1,7 @@
 import { OnboardingApiHandlers } from "./onboarding/http.js";
 import { PlacementsApiHandlers } from "./placements/http.js";
+import { CertificateFontsLive } from "./placements/certificate-pdf.js";
+import { CertificatesApiHandlers } from "./placements/certificates-http.js";
 import { ContactApiHandlers } from "./contact/http.js";
 import { BlockList, isIP } from "node:net";
 import type { AuthEngineService, OAuthCredentialAuthority } from "@vektorprogrammet/database";
@@ -209,6 +211,7 @@ export const ExternalNativeApiRouterLive = (
     }),
     SocialEventsApiHandlers({ transactionHook: options.socialEventsTransactionHook }),
     TeamApplicationsApiHandlers(config.teamApplication),
+    CertificatesApiHandlers.pipe(Layer.provide(CertificateFontsLive)),
   ).pipe(Layer.provide(middlewareLayer));
 
   const nativeRoutes = HttpApiBuilder.layer(ExternalNativeApi).pipe(

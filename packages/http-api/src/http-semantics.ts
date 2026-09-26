@@ -192,6 +192,13 @@ export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
     etag: StrongETag,
   });
 
+/** Successful mutation response carrying the bytes of a generated document and its entity tag. */
+export const documentMutationResponse = (contentType: string) =>
+  HttpApiSchema.WithHeaders(Schema.Uint8Array.pipe(HttpApiSchema.asUint8Array({ contentType })), {
+    ...externalHeaders(NoStore),
+    etag: StrongETag,
+  });
+
 /** Successful no-content mutation response, optionally with a new entity tag. */
 export const noContentMutationResponse = (options?: { readonly etag?: boolean }) => {
   const headers = externalHeaders(NoStore);
@@ -419,6 +426,18 @@ export const NativeProblemRegistry = {
     title: "Team application intake closed",
     status: 409,
     detail: "The team is not accepting applications now.",
+  },
+  "certificate.empty": {
+    type: "urn:vektorprogrammet:problem:v0.2:certificate.empty",
+    title: "Nothing to certify",
+    status: 409,
+    detail: "No semester of the department has a confirmed total of days served above zero.",
+  },
+  "certificate.unprintable": {
+    type: "urn:vektorprogrammet:problem:v0.2:certificate.unprintable",
+    title: "Certificate cannot be printed",
+    status: 422,
+    detail: "A name on the certificate has characters that the certificate font cannot print.",
   },
   "transaction.conflict": {
     type: "urn:vektorprogrammet:problem:v0.2:transaction.conflict",

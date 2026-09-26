@@ -68,9 +68,14 @@ export const browserSessionNativeAccess = (input: {
     decisionTime: input.decisionTime,
   });
 
-/** Colocated AccessSpec constructor for a person operation accepting cookie or OAuth bearer. */
+/**
+ * Colocated AccessSpec constructor for a person operation accepting cookie or OAuth bearer. An
+ * operation that serves several capabilities names the others as `alternatives`; any one of
+ * them grants it.
+ */
 export const personNativeAccess = (input: {
   readonly capability: CapabilityValue;
+  readonly alternatives?: readonly [CapabilityValue, ...Array<CapabilityValue>];
   readonly canonicalScopeResolver: ScopeResolverValue;
   readonly requirements?: ReadonlyArray<RequirementValue>;
   readonly decisionTime: AuthorizationMode;
@@ -82,9 +87,16 @@ export const personNativeAccess = (input: {
       CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
     ],
     principalKinds: ["Person"],
-    capabilities: CapabilityExpressionSchema.cases.One.make({
-      capability: { type: CapabilityTypeId.make(input.capability) },
-    }),
+    capabilities:
+      input.alternatives === undefined
+        ? CapabilityExpressionSchema.cases.One.make({
+            capability: { type: CapabilityTypeId.make(input.capability) },
+          })
+        : CapabilityExpressionSchema.cases.Any.make({
+            capabilities: [input.capability, ...input.alternatives].map((capability) => ({
+              type: CapabilityTypeId.make(capability),
+            })),
+          }),
     requirements: typedRequirements(input.requirements ?? []),
     canonicalScopeResolver: ScopeResolverId.make(input.canonicalScopeResolver),
     concealment: ConcealmentPolicySchema.cases.Reveal.make({}),

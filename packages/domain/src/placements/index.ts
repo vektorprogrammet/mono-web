@@ -13,3 +13,9 @@ export * from "./service.js";
 export * from "./current-assignment-contracts.js";
 
 export * from "./scheduler.js";
+
+export * from "./days-served.js";
+
+export * from "./certificate.js";
+
+export * from "./certificate-failures.js";

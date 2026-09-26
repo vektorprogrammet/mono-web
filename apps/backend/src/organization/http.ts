@@ -10,6 +10,7 @@ import {
 import type { OAuthCredentialAuthority } from "@vektorprogrammet/database";
 import {
   AppointmentManagement,
+  BoardRosters,
   CreateDepartmentCommandSchema,
   CreateFieldOfStudyCommandSchema,
   CreateTeamCommandSchema,
@@ -49,6 +50,7 @@ import {
   ListTeamsEndpoint,
   MailingListResponse,
   ReadAppointmentManagementEndpoint,
+  ReadBoardRostersEndpoint,
   ReadDelegationManagementEndpoint,
   reflectAccessSpec,
   TeamInterestResponse,
@@ -955,6 +957,45 @@ const readAppointmentManagement = (request: Request) => {
   }).pipe(organizationProblems, credentialProblems(presentation));
 };
 
+/** The certificate-issuing boards the reader manages, with appointed and derived seats. */
+const readBoardRosters = (request: Request) => {
+  const presentation = personPresentation(request);
+
+  return Effect.gen(function* () {
+    yield* rejectQuery(request);
+    const resolved = yield* resolveRequestCredentialInTransaction(request, "OAuthUserBearer");
+
+    if (!Predicate.isTagged(resolved.credential.principal, "Person")) {
+      return yield* Problem.unauthenticated(presentation);
+    }
+
+    const personId = resolved.credential.principal.personId;
+    const rosters = yield* Organization.use((service) => service.readBoardRosters(personId));
+
+    yield* authorizePerson(
+      {
+        spec: Option.getOrThrow(reflectAccessSpec(ReadBoardRostersEndpoint)),
+        credential: resolved.credential,
+        personId,
+        resolution: {
+          selection: "ExactlyOne",
+          contexts: [
+            genericContext({
+              domainId: "organization",
+              authorityVersion: "appointment-management",
+            }),
+          ],
+        },
+        grantScopes: [Scope.Global()],
+        now: resolved.authorizationInstant,
+      },
+      presentation,
+    );
+
+    return yield* privateReadJson(BoardRosters)(rosters);
+  }).pipe(organizationProblems, credentialProblems(presentation));
+};
+
 const executeLifecycle = (request: Request, input: OrganizationApiHttpOptions) =>
   Effect.gen(function* () {
     yield* rejectQuery(request);
@@ -1181,6 +1222,7 @@ export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) =>
         .handleRaw("readAppointmentManagement", ({ request }) =>
           webHandler(request, readAppointmentManagement),
         )
+        .handleRaw("readBoardRosters", ({ request }) => webHandler(request, readBoardRosters))
         .handleRaw("executeLifecycle", ({ request }) =>
           webHandler(request, (webRequest) => executeLifecycle(webRequest, input)),
         )

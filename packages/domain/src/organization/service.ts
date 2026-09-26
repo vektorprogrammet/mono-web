@@ -15,6 +15,7 @@ import type {
   OrganizationLifecycleResult,
   OrganizationLifecycleFailure,
 } from "./lifecycle.js";
+import type { BoardRosters } from "./board-roster.js";
 import type {
   CreateDepartmentCommand,
   CreateDepartmentResult,
@@ -88,6 +89,14 @@ export interface OrganizationOperations {
   readonly readAppointmentManagement: (
     actorPersonId: PersonId,
   ) => Effect.Effect<AppointmentManagement, OrganizationLifecycleFailure>;
+  /**
+   * The rosters of Styret of an independent department and of Hovedstyret, for the boards whose
+   * appointments the person can read: appointed seats and the seats that current team
+   * leadership derives, at the request instant.
+   */
+  readonly readBoardRosters: (
+    actorPersonId: PersonId,
+  ) => Effect.Effect<BoardRosters, OrganizationLifecycleFailure>;
   readonly executeLifecycle: (
     command: OrganizationLifecycleCommand,
     actorPersonId: PersonId,
