@@ -39,7 +39,7 @@ it.effect("strictly decodes persisted records without exposing sensitive fields"
     applicant.email = "changed@example.com";
     expect(decodedApplicant.email).toBe("ADA@example.com");
 
-    const decodedApplication = yield* Schema.decodeUnknownEffect(PublicApplication)(application, {
+    const decodedApplication = yield* Schema.decodeEffect(PublicApplication)(application, {
       onExcessProperty: "error",
     });
 
@@ -82,7 +82,7 @@ it.effect("strictly decodes persisted records without exposing sensitive fields"
     expect(String(excess)).toContain("duplicateAuthority");
 
     const invalidInteger = yield* Effect.flip(
-      Schema.decodeUnknownEffect(PublicApplication)(
+      Schema.decodeEffect(PublicApplication)(
         { ...application, yearOfStudy: 2.5 },
         { onExcessProperty: "error" },
       ),
@@ -91,7 +91,7 @@ it.effect("strictly decodes persisted records without exposing sensitive fields"
     expect(String(invalidInteger)).toContain("yearOfStudy");
 
     const invalidActivation = yield* Effect.flip(
-      Schema.decodeUnknownEffect(PublicApplication)(
+      Schema.decodeEffect(PublicApplication)(
         { ...application, activationDigest: "not-a-sha256" },
         { onExcessProperty: "error" },
       ),

@@ -13,7 +13,7 @@ const row = (
   recommendation: "Ja" | "Kanskje" | "Nei" | null,
   scores: [number, number, number],
 ) =>
-  Schema.decodeUnknownSync(InterviewReportRow)({
+  Schema.decodeSync(InterviewReportRow)({
     interviewId: id,
     firstName: "Sofie",
     lastName: "Søker",

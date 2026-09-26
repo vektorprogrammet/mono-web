@@ -232,7 +232,7 @@ describe("service-principal receipt grants", () => {
     const pendingGrant = grant();
     const candidate = receipt("service-receipt-approval-pending", "Pending", pendingGrant);
 
-    const pendingRule = Schema.decodeUnknownSync(AuthzRuleSchema)(
+    const pendingRule = Schema.decodeSync(AuthzRuleSchema)(
       {
         ruleId: AuthzRuleId.make("service-receipt-pending-a"),
         capabilityId: "approveReceipt",

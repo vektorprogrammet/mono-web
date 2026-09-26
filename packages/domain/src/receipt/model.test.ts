@@ -28,7 +28,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
   } as const;
 
   return Effect.gen(function* () {
-    const receipt = yield* Schema.decodeUnknownEffect(Receipt)(selected, {
+    const receipt = yield* Schema.decodeEffect(Receipt)(selected, {
       onExcessProperty: "error",
     });
 
@@ -62,7 +62,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
     expect(String(oversizedFile)).toContain("byteLength");
 
     const fractionalAmount = yield* Effect.flip(
-      Schema.decodeUnknownEffect(Receipt)(
+      Schema.decodeEffect(Receipt)(
         { ...selected, amountOre: "12.5" },
         { onExcessProperty: "error" },
       ),

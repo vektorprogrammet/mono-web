@@ -17,7 +17,7 @@ it.effect("decodes branded records and rejects excess or invalid persisted value
   } as const;
 
   return Effect.gen(function* () {
-    const membership = yield* Schema.decodeUnknownEffect(MembershipInvariantSchema)(selected, {
+    const membership = yield* Schema.decodeEffect(MembershipInvariantSchema)(selected, {
       onExcessProperty: "error",
     });
 
@@ -33,7 +33,7 @@ it.effect("decodes branded records and rejects excess or invalid persisted value
     expect(String(excess)).toContain("duplicateAuthority");
 
     const invalidEnd = yield* Effect.flip(
-      Schema.decodeUnknownEffect(MembershipInvariantSchema)(
+      Schema.decodeEffect(MembershipInvariantSchema)(
         { ...selected, endAt: "2026-08-20T09:00:00.000Z" },
         { onExcessProperty: "error" },
       ),
@@ -42,7 +42,7 @@ it.effect("decodes branded records and rejects excess or invalid persisted value
     expect(String(invalidEnd)).toContain("membership");
 
     const missingHistory = yield* Effect.flip(
-      Schema.decodeUnknownEffect(MembershipInvariantSchema)(
+      Schema.decodeEffect(MembershipInvariantSchema)(
         { ...selected, teamId: null, deletedTeamName: null },
         { onExcessProperty: "error" },
       ),
@@ -51,7 +51,7 @@ it.effect("decodes branded records and rejects excess or invalid persisted value
     expect(String(missingHistory)).toContain("membership");
 
     const fractionalRevision = yield* Effect.flip(
-      Schema.decodeUnknownEffect(MembershipInvariantSchema)(
+      Schema.decodeEffect(MembershipInvariantSchema)(
         { ...selected, revision: 1.5 },
         { onExcessProperty: "error" },
       ),

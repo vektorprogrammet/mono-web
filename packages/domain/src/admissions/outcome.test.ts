@@ -22,7 +22,7 @@ const entry = (applicationId: string, outcome: string | null) =>
 
 describe("admission outcome authority and member visibility", () => {
   it("evaluates the requested department across all memberships using canonical authority rules", () => {
-    const authority = Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
+    const authority = Schema.decodeSync(OrganizationPersonAuthoritySchema)({
       personId: PersonId.make("person"),
       evaluatedAt: "2026-09-06T10:00:00.000Z",
       globalAdministrator: "Absent",

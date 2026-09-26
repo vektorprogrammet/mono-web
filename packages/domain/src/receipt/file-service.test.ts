@@ -25,7 +25,7 @@ const fileRequest = (
   effectType: "PromoteReceiptFile" | "DeleteReceiptFile",
   file: ReceiptFile,
 ) =>
-  Schema.decodeUnknownSync(
+  Schema.decodeSync(
     Schema.Union([
       ReceiptOutboxRequestSchema.cases.PromoteReceiptFile,
       ReceiptOutboxRequestSchema.cases.DeleteReceiptFile,

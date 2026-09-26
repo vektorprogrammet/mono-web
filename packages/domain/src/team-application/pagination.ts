@@ -47,13 +47,13 @@ export const decodeTeamApplicationCursor = (
   cursor: string,
 ): Effect.Effect<TeamApplicationCursorPosition, TeamApplicationInvalidCursor> =>
   Effect.gen(function* () {
-    yield* Schema.decodeUnknownEffect(TeamApplicationCursor)(cursor);
+    yield* Schema.decodeEffect(TeamApplicationCursor)(cursor);
 
     const text = yield* Encoding.decodeBase64String(cursor).pipe(
       Result.match({ onSuccess: Effect.succeed, onFailure: Effect.fail }),
     );
 
-    const [, timestamp, applicationId] = yield* Schema.decodeUnknownEffect(CursorTuple)(text);
+    const [, timestamp, applicationId] = yield* Schema.decodeEffect(CursorTuple)(text);
 
     return { timestamp, applicationId };
   }).pipe(Effect.mapError(() => new TeamApplicationInvalidCursor()));

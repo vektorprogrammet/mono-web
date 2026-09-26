@@ -40,7 +40,7 @@ describe("volunteer affiliation authority and lifecycle", () => {
     ).toThrow();
   });
   it("historical leadership, a team leadership and membership in another department do not authorize placement", () => {
-    const authority = Schema.decodeUnknownSync(OrganizationPersonAuthoritySchema)({
+    const authority = Schema.decodeSync(OrganizationPersonAuthoritySchema)({
       personId: PersonId.make("coordinator"),
       evaluatedAt: "2026-09-06T00:00:00.000Z",
       globalAdministrator: "Absent",
@@ -132,7 +132,7 @@ describe("placement boundaries", () => {
   });
   it("rejects persistence-overflow demand and calendar-invalid occurrence input", () => {
     expect(() =>
-      Schema.decodeUnknownSync(PlacementCommand)({
+      Schema.decodeSync(PlacementCommand)({
         action: "SetDemand",
         schoolId: 1,
         day: "Monday",
@@ -141,7 +141,7 @@ describe("placement boundaries", () => {
       }),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(PlacementCommand)({
+      Schema.decodeSync(PlacementCommand)({
         action: "ScheduleService",
         proposalId: `school-service-proposal-${"a".repeat(64)}`,
         schoolId: 1,

@@ -45,7 +45,7 @@ it.effect("strictly decodes every create command and rejects generated or unknow
     expect(unknown._tag).toBe("OrganizationDecodeError");
     expect(unknown.message).toContain("departmentId");
 
-    yield* Schema.decodeUnknownEffect(CreateTeamCommandSchema)(
+    yield* Schema.decodeEffect(CreateTeamCommandSchema)(
       CreateTeamCommandSchema.make({
         commandId: OrganizationCommandId.make("organization-domain-team-command"),
         departmentId: DepartmentId.make("department-reference"),
@@ -59,7 +59,7 @@ it.effect("strictly decodes every create command and rejects generated or unknow
       }),
       { onExcessProperty: "error" },
     );
-    yield* Schema.decodeUnknownEffect(CreateFieldOfStudyCommandSchema)(
+    yield* Schema.decodeEffect(CreateFieldOfStudyCommandSchema)(
       CreateFieldOfStudyCommandSchema.make({
         commandId: OrganizationCommandId.make("organization-domain-field-command"),
         name: "Computer Science",

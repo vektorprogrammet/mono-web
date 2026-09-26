@@ -8,7 +8,7 @@ import {
   transitionAppointment,
 } from "./lifecycle.js";
 
-const current = Schema.decodeUnknownSync(Appointment)({
+const current = Schema.decodeSync(Appointment)({
   appointmentId: "appointment-1",
   personId: PersonId.make("person-1"),
   target: { kind: "Team", id: "team-1" },

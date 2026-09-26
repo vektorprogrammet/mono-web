@@ -41,7 +41,7 @@ export const decodeDirectoryCursor = (
     ).pipe(Result.match({ onSuccess: Effect.succeed, onFailure: Effect.fail }));
 
     const [, lastName, firstName, personId] =
-      yield* Schema.decodeUnknownEffect(DirectoryCursorTuple)(text);
+      yield* Schema.decodeEffect(DirectoryCursorTuple)(text);
 
     return { lastName, firstName, personId };
   }).pipe(

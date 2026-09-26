@@ -221,7 +221,7 @@ const validateScore = (
   state: RecruitmentConductState,
   score: RecruitmentInterviewScore,
 ): Effect.Effect<void, ConductFailure> =>
-  Schema.decodeUnknownEffect(RecruitmentInterviewScoreSchema)(score, {
+  Schema.decodeEffect(RecruitmentInterviewScoreSchema)(score, {
     onExcessProperty: "error",
   }).pipe(
     Effect.asVoid,
@@ -277,7 +277,7 @@ export const finalizeInterview = (
       interviewRevision: revision,
     });
 
-    const observation = yield* Schema.decodeUnknownEffect(FinalizeInterviewObservationSchema)(
+    const observation = yield* Schema.decodeEffect(FinalizeInterviewObservationSchema)(
       FinalizeInterviewObservationSchema.make({
         commandId: command.commandId,
         interviewId: state.interview.interviewId,
@@ -329,7 +329,7 @@ export const cancelInterview = (
       interviewRevision: revision,
     });
 
-    const observation = yield* Schema.decodeUnknownEffect(CancelInterviewObservationSchema)(
+    const observation = yield* Schema.decodeEffect(CancelInterviewObservationSchema)(
       CancelInterviewObservationSchema.make({
         commandId: command.commandId,
         interviewId: state.interview.interviewId,
@@ -385,7 +385,7 @@ export const correctInterviewAssessment = (
       return yield* invalid(state, "an explicit interviewer recommendation is required");
     const resultingRevision = state.revision + 1;
 
-    const correction = yield* Schema.decodeUnknownEffect(RecruitmentInterviewCorrectionSchema)(
+    const correction = yield* Schema.decodeEffect(RecruitmentInterviewCorrectionSchema)(
       {
         interviewId: state.interview.interviewId,
         predecessorRevision: state.revision,
@@ -408,9 +408,7 @@ export const correctInterviewAssessment = (
       ),
     );
 
-    const observation = yield* Schema.decodeUnknownEffect(
-      CorrectInterviewAssessmentObservationSchema,
-    )(
+    const observation = yield* Schema.decodeEffect(CorrectInterviewAssessmentObservationSchema)(
       CorrectInterviewAssessmentObservationSchema.make({
         commandId: command.commandId,
         interviewId: state.interview.interviewId,

@@ -65,7 +65,7 @@ it.effect("strictly decodes the exact full directory and its partition laws", ()
       isActive: true,
     };
 
-    const directory = yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(
+    const directory = yield* Schema.decodeEffect(SchoolDirectorySchema)(
       { activeSchools: [entry], inactiveSchools: [] },
       { onExcessProperty: "error" },
     );
@@ -85,7 +85,7 @@ it.effect("strictly decodes the exact full directory and its partition laws", ()
     expect(String(excessFailure)).toContain("capacity");
 
     const partitionFailure = yield* Effect.flip(
-      Schema.decodeUnknownEffect(SchoolDirectorySchema)({
+      Schema.decodeEffect(SchoolDirectorySchema)({
         activeSchools: [],
         inactiveSchools: [entry],
       }),
@@ -94,7 +94,7 @@ it.effect("strictly decodes the exact full directory and its partition laws", ()
     expect(String(partitionFailure)).toContain("partitioned");
 
     const departmentOrderFailure = yield* Effect.flip(
-      Schema.decodeUnknownEffect(SchoolDirectorySchema)(
+      Schema.decodeEffect(SchoolDirectorySchema)(
         {
           activeSchools: [
             {

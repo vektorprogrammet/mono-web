@@ -881,9 +881,7 @@ describe("authorization rule decoding", () => {
       { ...encodedRule, effectKind: "parameter" },
       {
         ...encodedRule,
-        scope: Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
-          '{"_tag":"UnknownScope"}',
-        ),
+        scope: Schema.decodeSync(Schema.fromJsonString(Schema.Json))('{"_tag":"UnknownScope"}'),
       },
       { ...encodedRule, capabilityId: "reviewApplicants" },
       { ...encodedRule, params: { slot: "UnknownSlot" } },
@@ -938,7 +936,7 @@ describe("authorization rule decoding", () => {
       for (const input of [
         {
           ...common,
-          scope: Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+          scope: Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
             '{"_tag":"Receipt","receiptId":"authz-receipt"}',
           ),
           params: { requirementId: "receipts.pending", parameters: {} },

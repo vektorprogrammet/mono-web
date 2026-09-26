@@ -130,17 +130,17 @@ const receiptCommandAccess = makeAccessSpec({
 
 describe("principal, credential, and access algebra", () => {
   it("decodes every deferred OAuth credential and the service principal independently", () => {
-    const servicePrincipal = Schema.decodeUnknownSync(PrincipalSchema)(
+    const servicePrincipal = Schema.decodeSync(PrincipalSchema)(
       PrincipalSchema.cases.ServicePrincipal.make({
         servicePrincipalId: ServicePrincipalId.make("service-sync"),
       }),
     );
 
     const mechanisms = [
-      Schema.decodeUnknownSync(CredentialMechanismSchema)(
+      Schema.decodeSync(CredentialMechanismSchema)(
         CredentialMechanismSchema.cases.OAuthUserBearer.make({}),
       ),
-      Schema.decodeUnknownSync(CredentialMechanismSchema)(
+      Schema.decodeSync(CredentialMechanismSchema)(
         CredentialMechanismSchema.cases.OAuthServiceBearer.make({}),
       ),
     ];
@@ -273,14 +273,14 @@ describe("principal, credential, and access algebra", () => {
     ).toThrow();
     expect(() =>
       Schema.decodeUnknownSync(ScopeSchema)(
-        Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))(
+        Schema.decodeSync(Schema.fromJsonString(Schema.Json))(
           '{"_tag":"Tenant","tenantId":"tenant-one"}',
         ),
       ),
     ).toThrow();
     expect(() =>
       Schema.decodeUnknownSync(ScopeSchema)(
-        Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json))('{"_tag":"Receipt"}'),
+        Schema.decodeSync(Schema.fromJsonString(Schema.Json))('{"_tag":"Receipt"}'),
       ),
     ).toThrow();
     expect(() =>
@@ -309,7 +309,7 @@ describe("principal, credential, and access algebra", () => {
       tooDeep = Scope.And({ left: Scope.Global(), right: tooDeep });
     }
 
-    expect(() => Schema.decodeUnknownSync(ScopeSchema)(tooDeep)).toThrow();
+    expect(() => Schema.decodeSync(ScopeSchema)(tooDeep)).toThrow();
   });
 
   it("rejects resolver and requirement context-schema mismatches at registration", () => {

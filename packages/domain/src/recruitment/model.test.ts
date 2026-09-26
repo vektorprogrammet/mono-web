@@ -33,7 +33,7 @@ it.effect("strictly validates native question sources and immutable snapshots", 
   Effect.gen(function* () {
     const source = [sourceQuestion(0), sourceQuestion(1)];
     expect(
-      yield* Schema.decodeUnknownEffect(RecruitmentInterviewQuestionSourceSchema)(source, {
+      yield* Schema.decodeEffect(RecruitmentInterviewQuestionSourceSchema)(source, {
         onExcessProperty: "error",
       }),
     ).toEqual(source);
@@ -64,7 +64,7 @@ it.effect("strictly validates native question sources and immutable snapshots", 
       "kind",
       "alternatives",
     ]);
-    yield* Schema.decodeUnknownEffect(InterviewQuestionDefinitionSchema)(sourceQuestion(0), {
+    yield* Schema.decodeEffect(InterviewQuestionDefinitionSchema)(sourceQuestion(0), {
       onExcessProperty: "error",
     });
   }),
@@ -94,7 +94,7 @@ it.effect("requires a nullable persisted co-interviewer designation", () =>
     };
 
     expect(
-      (yield* Schema.decodeUnknownEffect(RecruitmentInterview)(interview, {
+      (yield* Schema.decodeEffect(RecruitmentInterview)(interview, {
         onExcessProperty: "error",
       })).coInterviewerPersonId,
     ).toBeNull();
@@ -120,9 +120,7 @@ it.effect("requires a nullable persisted co-interviewer designation", () =>
 
 it.effect("decodes contact-free co-interviewer scheduling projections", () =>
   Effect.gen(function* () {
-    const coInterviewer = yield* Schema.decodeUnknownEffect(
-      RecruitmentSchedulingCoInterviewerSchema,
-    )(
+    const coInterviewer = yield* Schema.decodeEffect(RecruitmentSchedulingCoInterviewerSchema)(
       { personId: PersonId.make("person-2"), displayName: "Cora Co-interviewer" },
       { onExcessProperty: "error" },
     );
@@ -144,14 +142,14 @@ it.effect("decodes contact-free co-interviewer scheduling projections", () =>
 
 it.effect("strictly decodes board status and assignment commands", () =>
   Effect.gen(function* () {
-    const query = yield* Schema.decodeUnknownEffect(RecruitmentAssignmentBoardQuerySchema)(
+    const query = yield* Schema.decodeEffect(RecruitmentAssignmentBoardQuerySchema)(
       { status: "new" },
       { onExcessProperty: "error" },
     );
 
     expect(query.status).toBe("new");
 
-    const command = yield* Schema.decodeUnknownEffect(RecruitmentAssignmentCommandSchema)(
+    const command = yield* Schema.decodeEffect(RecruitmentAssignmentCommandSchema)(
       {
         commandId: "command-1",
         applicationId: "application-1",
@@ -177,21 +175,19 @@ it.effect("strictly decodes board status and assignment commands", () =>
 it.effect("decodes only exact invitation capabilities and every response state", () =>
   Effect.gen(function* () {
     const capability = "aB09_-".padEnd(43, "x");
-    expect(
-      yield* Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(capability),
-    ).toBe(capability);
+    expect(yield* Schema.decodeEffect(RecruitmentInvitationCapabilitySchema)(capability)).toBe(
+      capability,
+    );
 
     for (const state of ["Pending", "Accepted", "Rejected", "RequestedNewTime"] as const) {
-      expect(
-        yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseStateSchema)(state),
-      ).toBe(state);
+      expect(yield* Schema.decodeEffect(RecruitmentInvitationResponseStateSchema)(state)).toBe(
+        state,
+      );
     }
 
     for (const invalid of [capability.slice(1), `${capability}x`, capability.replace("_", "=")]) {
       expect(
-        yield* Effect.flip(
-          Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(invalid),
-        ),
+        yield* Effect.flip(Schema.decodeEffect(RecruitmentInvitationCapabilitySchema)(invalid)),
       ).toBeDefined();
     }
   }),
@@ -204,12 +200,12 @@ it.effect(
       const capabilitySequence = "A".repeat(43);
       const validNearbyMessage = "B".repeat(42);
       expect(
-        yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseMessageSchema)(
+        yield* Schema.decodeEffect(RecruitmentInvitationResponseMessageSchema)(
           "  Please offer another time.  ",
         ),
       ).toBe("Please offer another time.");
       expect(
-        yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseMessageSchema)(
+        yield* Schema.decodeEffect(RecruitmentInvitationResponseMessageSchema)(
           `  ${validNearbyMessage}  `,
         ),
       ).toBe(validNearbyMessage);
@@ -222,7 +218,7 @@ it.effect(
       ]) {
         expect(
           yield* Effect.flip(
-            Schema.decodeUnknownEffect(RecruitmentInvitationResponseMessageSchema)(invalid),
+            Schema.decodeEffect(RecruitmentInvitationResponseMessageSchema)(invalid),
           ),
         ).toBeDefined();
       }
@@ -233,26 +229,26 @@ it.effect("normalizes optional rejection messages without weakening new-time mes
   Effect.gen(function* () {
     const capabilitySequence = "A".repeat(43);
     expect(
-      yield* Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(
+      yield* Schema.decodeEffect(RecruitmentInvitationRejectInputSchema)(
         {},
         { onExcessProperty: "error" },
       ),
     ).toEqual({});
     expect(
-      yield* Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(
+      yield* Schema.decodeEffect(RecruitmentInvitationRejectInputSchema)(
         { message: "   " },
         { onExcessProperty: "error" },
       ),
     ).toEqual({});
     expect(
-      yield* Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(
+      yield* Schema.decodeEffect(RecruitmentInvitationRejectInputSchema)(
         { message: "  Cannot attend.  " },
         { onExcessProperty: "error" },
       ),
     ).toEqual({ message: "Cannot attend." });
     expect(
       yield* Effect.flip(
-        Schema.decodeUnknownEffect(RecruitmentInvitationRequestNewTimeInputSchema)(
+        Schema.decodeEffect(RecruitmentInvitationRequestNewTimeInputSchema)(
           { message: "   " },
           { onExcessProperty: "error" },
         ),
@@ -262,7 +258,7 @@ it.effect("normalizes optional rejection messages without weakening new-time mes
     for (const message of [capabilitySequence, `Please use another time (${capabilitySequence})`]) {
       expect(
         yield* Effect.flip(
-          Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(
+          Schema.decodeEffect(RecruitmentInvitationRejectInputSchema)(
             { message },
             { onExcessProperty: "error" },
           ),
@@ -270,7 +266,7 @@ it.effect("normalizes optional rejection messages without weakening new-time mes
       ).toBeDefined();
       expect(
         yield* Effect.flip(
-          Schema.decodeUnknownEffect(RecruitmentInvitationRequestNewTimeInputSchema)(
+          Schema.decodeEffect(RecruitmentInvitationRequestNewTimeInputSchema)(
             { message },
             { onExcessProperty: "error" },
           ),
@@ -282,9 +278,7 @@ it.effect("normalizes optional rejection messages without weakening new-time mes
 
 it.effect("keeps applicant observations capability-free and response results strict", () =>
   Effect.gen(function* () {
-    const observation = yield* Schema.decodeUnknownEffect(
-      RecruitmentInvitationResponseObservationSchema,
-    )(
+    const observation = yield* Schema.decodeEffect(RecruitmentInvitationResponseObservationSchema)(
       {
         scheduledAt: "2031-09-20T10:00:00.000Z",
         room: "A-101",
@@ -311,7 +305,7 @@ it.effect("keeps applicant observations capability-free and response results str
       ),
     ).toBeDefined();
 
-    const result = yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseResultSchema)(
+    const result = yield* Schema.decodeEffect(RecruitmentInvitationResponseResultSchema)(
       RecruitmentInvitationResponseResultSchema.make({
         interviewRevision: 1,
         scheduleRevision: 1,

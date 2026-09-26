@@ -177,7 +177,7 @@ const decode = <A>(
   try {
     return {
       ok: true,
-      value: Schema.decodeUnknownSync(schema)(input, { onExcessProperty: "error" }),
+      value: Schema.decodeSync(schema)(input, { onExcessProperty: "error" }),
     };
   } catch (cause) {
     return { ok: false, message: String(cause) };

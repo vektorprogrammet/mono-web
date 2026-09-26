@@ -363,7 +363,7 @@ export const classifyReviewedOrganization = (
 
       if (
         Result.isFailure(candidate) ||
-        Option.isNone(Schema.decodeUnknownOption(Appointment)(candidate.success))
+        Option.isNone(Schema.decodeOption(Appointment)(candidate.success))
       ) {
         reject("InvalidRow");
         continue;

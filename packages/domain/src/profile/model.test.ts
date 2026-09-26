@@ -16,7 +16,7 @@ it("derives strict PersonProfile persistence variants", () => {
 
 it.effect("decodes canonical names and rejects excess fields", () =>
   Effect.gen(function* () {
-    const profile = yield* Schema.decodeUnknownEffect(PersonProfile)(
+    const profile = yield* Schema.decodeEffect(PersonProfile)(
       { personId: PersonId.make("person-1"), firstName: "Ada", lastName: "Lovelace", revision: 0 },
       { onExcessProperty: "error" },
     );
@@ -41,6 +41,6 @@ it.effect("decodes canonical names and rejects excess fields", () =>
 );
 
 it("matches the persisted visible-ASCII email boundary", () => {
-  expect(() => Schema.decodeUnknownSync(PersonContactEmail)("ada@example.invalid")).not.toThrow();
-  expect(() => Schema.decodeUnknownSync(PersonContactEmail)("søker@example.invalid")).toThrow();
+  expect(() => Schema.decodeSync(PersonContactEmail)("ada@example.invalid")).not.toThrow();
+  expect(() => Schema.decodeSync(PersonContactEmail)("søker@example.invalid")).toThrow();
 });

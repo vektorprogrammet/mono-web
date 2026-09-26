@@ -47,13 +47,13 @@ export const decodeReceiptCursor = (
   cursor: string,
 ): Effect.Effect<ReceiptCursorPosition, ReceiptDecodeError> =>
   Effect.gen(function* () {
-    yield* Schema.decodeUnknownEffect(ReceiptCursor)(cursor);
+    yield* Schema.decodeEffect(ReceiptCursor)(cursor);
 
     const text = yield* Encoding.decodeBase64String(cursor).pipe(
       Result.match({ onSuccess: Effect.succeed, onFailure: Effect.fail }),
     );
 
-    const [, timestamp, receiptId] = yield* Schema.decodeUnknownEffect(CursorTuple)(text);
+    const [, timestamp, receiptId] = yield* Schema.decodeEffect(CursorTuple)(text);
 
     return { timestamp, receiptId };
   }).pipe(Effect.mapError(() => new ReceiptDecodeError({ message: "invalid receipt cursor" })));

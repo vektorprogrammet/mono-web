@@ -35,7 +35,7 @@ it.effect("decodes selected rows strictly and leaves source values immutable", (
   };
 
   return Effect.gen(function* () {
-    const period = yield* Schema.decodeUnknownEffect(AdmissionPeriod)(selected, {
+    const period = yield* Schema.decodeEffect(AdmissionPeriod)(selected, {
       onExcessProperty: "error",
     });
 
@@ -54,7 +54,7 @@ it.effect("decodes selected rows strictly and leaves source values immutable", (
     expect(String(excess)).toContain("duplicateAuthority");
 
     const invalidInstant = yield* Effect.flip(
-      Schema.decodeUnknownEffect(AdmissionPeriod)(
+      Schema.decodeEffect(AdmissionPeriod)(
         { ...selected, id: "period-model-1", startAt: "2026-02-30T00:00:00.000Z" },
         { onExcessProperty: "error" },
       ),
@@ -63,7 +63,7 @@ it.effect("decodes selected rows strictly and leaves source values immutable", (
     expect(String(invalidInstant)).toContain("startAt");
 
     const invalidRevision = yield* Effect.flip(
-      Schema.decodeUnknownEffect(AdmissionPeriod)(
+      Schema.decodeEffect(AdmissionPeriod)(
         { ...selected, id: "period-model-1", revision: 1.5 },
         { onExcessProperty: "error" },
       ),
@@ -71,7 +71,7 @@ it.effect("decodes selected rows strictly and leaves source values immutable", (
 
     expect(String(invalidRevision)).toContain("revision");
 
-    const projection = yield* Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)(
+    const projection = yield* Schema.decodeEffect(AdmissionPeriodProjectionSchema)(
       { ...selected, id: "period-model-1", eligible: true },
       { onExcessProperty: "error" },
     );

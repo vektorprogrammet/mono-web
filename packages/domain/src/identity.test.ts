@@ -44,9 +44,9 @@ it("accepts only credential-free native session metadata", () => {
     current: true,
   };
 
-  expect(
-    Schema.decodeUnknownSync(IdentitySession)(session, { onExcessProperty: "error" }),
-  ).toBeInstanceOf(IdentitySession);
+  expect(Schema.decodeSync(IdentitySession)(session, { onExcessProperty: "error" })).toBeInstanceOf(
+    IdentitySession,
+  );
   expect(() =>
     Schema.decodeUnknownSync(IdentitySession)(
       { ...session, token: "must-not-be-exposed" },

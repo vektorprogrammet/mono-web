@@ -224,7 +224,7 @@ const readJson = (
         ),
     ),
     Effect.flatMap((source) => {
-      const decoded = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Json))(source);
+      const decoded = Schema.decodeResult(Schema.fromJsonString(Schema.Json))(source);
 
       return Result.isSuccess(decoded)
         ? Effect.succeed(decoded.success)
@@ -293,7 +293,7 @@ export const loadPersonAuthorityEffect = (
         ),
     ),
     Effect.flatMap((source) => {
-      const parsed = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Json))(source);
+      const parsed = Schema.decodeResult(Schema.fromJsonString(Schema.Json))(source);
 
       if (!Result.isSuccess(parsed)) {
         return Effect.fail(
