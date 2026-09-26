@@ -1,10 +1,10 @@
-import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
+import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { Predicate, Match } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { createConnection, createServer as createNetServer } from "node:net";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,60 +17,7 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 
-/**
- * Resolves each named port from the environment, or reserves a distinct
- * ephemeral loopback port for it: every reservation binds port 0 and stays
- * bound until all are read, so the kernel cannot hand one port out twice.
- */
-const configuredPorts = async (names) => {
-  const servers = [];
-
-  try {
-    const ports = [];
-
-    for (const name of names) {
-      const configured = process.env[name];
-
-      if (configured === undefined) {
-        const server = await new Promise((resolveServer, rejectServer) => {
-          const listening = createNetServer();
-          listening.once("error", rejectServer);
-          listening.listen(0, "127.0.0.1", () => resolveServer(listening));
-        });
-
-        servers.push(server);
-        const address = server.address();
-
-        if (address === null || Predicate.isString(address)) {
-          throw new Error(`${name} reservation did not bind a TCP port`);
-        }
-
-        ports.push(address.port);
-        continue;
-      }
-
-      const port = Number(configured);
-
-      if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-        throw new Error(`${name} must be a TCP port`);
-      }
-
-      ports.push(port);
-    }
-
-    return ports;
-  } finally {
-    await Promise.all(
-      servers.map((server) => new Promise((resolveClose) => server.close(resolveClose))),
-    );
-  }
-};
-
-const [dashboardPort, backendPort, postgresPort] = await configuredPorts([
-  "RECEIPT_APPROVAL_DASHBOARD_PORT",
-  "RECEIPT_APPROVAL_BACKEND_PORT",
-  "RECEIPT_APPROVAL_PG_PORT",
-]);
+const [dashboardPort, backendPort, postgresPort] = await reserveLoopbackPorts(3);
 
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
@@ -519,24 +466,20 @@ async function startRecordingProxy(targetOrigin) {
     }
   });
 
+  const [port] = await reserveLoopbackPorts(1);
+
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(port, "127.0.0.1", () => {
       server.removeListener("error", rejectListen);
       resolveListen();
     });
   });
-  const address = server.address();
-
-  if (address === null || Predicate.isString(address)) {
-    server.close();
-    throw new Error("Native Receipt evidence proxy did not bind a loopback port");
-  }
 
   let closed = false;
 
   return {
-    origin: `http://127.0.0.1:${address.port}`,
+    origin: `http://127.0.0.1:${port}`,
     records,
     sessionCookieEvidence: () =>
       [...sessionPersonsByCookie.entries()]

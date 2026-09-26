@@ -126,7 +126,7 @@ import {
   stableByteSetEvidence,
   type OrganizationImportStableState,
 } from "./organization-import-rehearsal-postgres.js";
-import { withDisposablePostgres } from "@monoweb/postgres";
+import { reserveLoopbackPorts, withDisposablePostgres } from "@monoweb/postgres";
 
 type RehearsalArtifact = typeof OrganizationImportRehearsalArtifactSchema.Type;
 
@@ -1086,25 +1086,20 @@ const startRecordingProxy = async (
     }
   });
 
+  const [port = 0] = await reserveLoopbackPorts(1);
   const listening = Promise.withResolvers<void>();
   server.once("error", listening.reject);
-  server.listen(0, "127.0.0.1", () => {
+  server.listen(port, "127.0.0.1", () => {
     server.removeListener("error", listening.reject);
     listening.resolve();
   });
   await listening.promise;
-  const address = server.address();
-
-  if (address === null || Predicate.isString(address)) {
-    server.close();
-    throw new Error("local rehearsal proxy did not bind a loopback port");
-  }
 
   let closed = false;
 
   return {
-    origin: `http://127.0.0.1:${address.port}`,
-    port: address.port,
+    origin: `http://127.0.0.1:${port}`,
+    port,
     records,
     close: async () => {
       if (closed) return;

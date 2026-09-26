@@ -1055,13 +1055,16 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
 - `reserveLoopbackPorts`: Reserves `count` distinct loopback ports for the servers that a journey starts: its backend, dashboard, receivers, and clusters.
-  [tools/postgres/index.ts:243](../tools/postgres/index.ts#L243), 17 consumers:
+  [tools/postgres/index.ts:243](../tools/postgres/index.ts#L243), 22 consumers:
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
   - [apps/dashboard/e2e/run-real-native-content-publication.mjs](../apps/dashboard/e2e/run-real-native-content-publication.mjs)
   - [apps/dashboard/e2e/run-real-native-identity-browser.mjs](../apps/dashboard/e2e/run-real-native-identity-browser.mjs)
   - [apps/dashboard/e2e/run-real-native-organization-administration.mjs](../apps/dashboard/e2e/run-real-native-organization-administration.mjs)
+  - [apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs](../apps/dashboard/e2e/run-real-native-recruitment-interview-scheduling.mjs)
+  - [apps/dashboard/e2e/run-real-receipt-approval.mjs](../apps/dashboard/e2e/run-real-receipt-approval.mjs)
   - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
+  - [apps/homepage/e2e/run-native-contact.mjs](../apps/homepage/e2e/run-native-contact.mjs)
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
   - [tools/acceptance/onboarding-check.ts](../tools/acceptance/onboarding-check.ts)
   - [tools/acceptance/password-recovery-check.ts](../tools/acceptance/password-recovery-check.ts)
@@ -1070,7 +1073,9 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
   - [tools/e2e/golden-reimbursement.mjs](../tools/e2e/golden-reimbursement.mjs)
   - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
+  - [tools/e2e/run-real-native-recruitment-assignment.mjs](../tools/e2e/run-real-native-recruitment-assignment.mjs)
   - [tools/verification/identity-cohort-rehearsal.ts](../tools/verification/identity-cohort-rehearsal.ts)
+  - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
 - `startDisposablePostgres`: Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.

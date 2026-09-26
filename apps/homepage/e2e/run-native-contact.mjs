@@ -9,7 +9,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startDisposablePostgres } from "@monoweb/postgres";
+import { reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { chromium, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
@@ -94,14 +94,6 @@ const listen = (server, desiredPort = 0) =>
     });
   });
 
-const port = async () => {
-  const s = createServer();
-  const p = await listen(s);
-  await new Promise((r) => s.close(r));
-
-  return p;
-};
-
 const ready = async (url) => {
   for (let n = 0; n < 150; n++) {
     try {
@@ -177,10 +169,7 @@ try {
   );
 
   const redirectOrigin = `http://127.0.0.1:${redirectPort}`;
-  const pgPort = await port();
-  const backendPort = await port();
-  const workerPort = await port();
-  const ingressPort = await port();
+  const [pgPort, backendPort, workerPort, ingressPort] = await reserveLoopbackPorts(4);
   const browserOrigin = `http://p000.vektor.phibkro.org:${ingressPort}`;
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   postgres = await startDisposablePostgres({ port: pgPort });

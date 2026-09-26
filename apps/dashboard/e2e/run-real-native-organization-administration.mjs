@@ -504,24 +504,20 @@ async function startRecordingProxy(targetOrigin) {
     }
   });
 
+  const [port] = await reserveLoopbackPorts(1);
+
   await new Promise((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(port, "127.0.0.1", () => {
       server.removeListener("error", rejectListen);
       resolveListen();
     });
   });
-  const address = server.address();
-
-  if (address === null || Predicate.isString(address)) {
-    server.close();
-    throw new Error("Native Organization evidence proxy did not bind a loopback port");
-  }
 
   let closed = false;
 
   return {
-    origin: `http://127.0.0.1:${address.port}`,
+    origin: `http://127.0.0.1:${port}`,
     records,
     close: async () => {
       if (closed) return;
