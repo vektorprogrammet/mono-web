@@ -6,7 +6,7 @@ import {
   decideReceipt,
   Receipt,
 } from "@vektorprogrammet/domain/receipt";
-import { Effect, Schema } from "effect";
+import { Console, Effect, Schema } from "effect";
 
 const context = {
   receiptId: "example-receipt",
@@ -82,7 +82,7 @@ const program = Effect.gen(function* () {
   assert.equal(Object.hasOwn(publicReceipt, "paymentAccountCiphertext"), false);
   assert.equal(Object.hasOwn(publicReceipt, "file"), false);
 
-  console.log(
+  yield* Console.log(
     "Pending -> Approved; owner approval denied; stale revision rejected; public encoding omits private fields. No persistence, delivery, or payment occurred.",
   );
 });

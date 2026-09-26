@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { nextAffiliationStatus } from "@vektorprogrammet/domain/placements";
+import { Console, Effect } from "effect";
 
 const requested = nextAffiliationStatus("Absent", "Request");
 
@@ -16,4 +17,4 @@ assert.equal(current, "Pending");
 
 assert.equal(nextAffiliationStatus(current, "Withdraw"), "Inactive");
 
-console.log("Absent -> Pending; repeated Request rejected; Withdraw -> Inactive");
+Effect.runSync(Console.log("Absent -> Pending; repeated Request rejected; Withdraw -> Inactive"));
