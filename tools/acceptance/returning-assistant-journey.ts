@@ -98,6 +98,48 @@ const foreignDepartmentId = "department-returning-foreign-0104";
 
 const foreignTeamId = "team-returning-foreign-0104";
 
+// The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise the
+// current time. The conduct seed derives its semester, period, and interviews from the same
+// instant, so every instant below stays coherent with those windows.
+const journeyNow = Date.parse(process.env.ADMISSION_FIXED_NOW ?? new Date().toISOString());
+
+if (!Number.isFinite(journeyNow)) {
+  throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
+}
+
+const fromJourneyNow = (days: number, minutes = 0) =>
+  new Date(journeyNow + days * 86_400_000 + minutes * 60_000).toISOString();
+
+// The next semester and period open one day after the conduct period opens and stay open
+// after it ends.
+const nextPeriodStartAt = fromJourneyNow(-29);
+
+const nextPeriodEndAt = fromJourneyNow(90);
+
+// A closed period ends after it starts and before the run.
+const nextPeriodClosedEndAt = fromJourneyNow(-28);
+
+const conductPeriodClosedEndAt = fromJourneyNow(-8);
+
+// The original application was submitted in the conduct period, then interviewed, and its
+// applicant account was claimed afterwards.
+const applicationSubmittedAt = fromJourneyNow(-21);
+
+const interviewAssignedAt = fromJourneyNow(-20);
+
+const interviewFinalizedAt = fromJourneyNow(-19);
+
+const accountClaimIssuedAt = fromJourneyNow(-14);
+
+const accountLinkedAt = fromJourneyNow(-13);
+
+const accountClaimExpiresAt = fromJourneyNow(120);
+
+const placementCreatedAt = fromJourneyNow(-57);
+
+// The backend rejects a schedule at or before its clock.
+const nextInterviewScheduledAt = fromJourneyNow(7);
+
 const negativeProbePersons = [
   {
     personId: "journey-returning-no-placement-0104",
@@ -181,16 +223,16 @@ export const seedReturningAssistant = async ({
     await seedQuery(
       "next semester",
       `INSERT INTO public.admission_period_semesters(semester_id,start_at,end_at,revision)
-       VALUES($1,'2026-08-02T00:00:00Z','2026-12-31T23:59:59.999Z',0)
+       VALUES($1,$2,$3,0)
        ON CONFLICT (semester_id) DO NOTHING`,
-      [nextSemesterId],
+      [nextSemesterId, nextPeriodStartAt, nextPeriodEndAt],
     );
     await seedQuery(
       "next admission period",
       `INSERT INTO public.admission_periods(admission_period_id,department_id,semester_id,start_at,end_at,revision,last_command_id)
-       VALUES($1,$2,$3,'2026-08-02T00:00:00Z','2026-12-31T23:59:59.999Z',0,'returning-next-period-seed-0104')
+       VALUES($1,$2,$3,$4,$5,0,'returning-next-period-seed-0104')
        ON CONFLICT (admission_period_id) DO NOTHING`,
-      [nextAdmissionPeriodId, departmentId, nextSemesterId],
+      [nextAdmissionPeriodId, departmentId, nextSemesterId, nextPeriodStartAt, nextPeriodEndAt],
     );
     await seedQuery(
       "historical department",
@@ -241,8 +283,15 @@ export const seedReturningAssistant = async ({
     await seedQuery(
       "application",
       `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
-       VALUES($1,$2,$3,$4,$5,2,'2026-08-20T10:00:00Z',0) ON CONFLICT DO NOTHING`,
-      [applicationId, applicantId, admissionPeriodId, departmentId, fieldOfStudyId],
+       VALUES($1,$2,$3,$4,$5,2,$6,0) ON CONFLICT DO NOTHING`,
+      [
+        applicationId,
+        applicantId,
+        admissionPeriodId,
+        departmentId,
+        fieldOfStudyId,
+        applicationSubmittedAt,
+      ],
     );
     await seedQuery(
       "original public receipt",
@@ -263,7 +312,7 @@ export const seedReturningAssistant = async ({
            'yearOfStudy',$10::int
          ),
          jsonb_build_object('_tag','Submitted','commandId',$1::text,'applicationId',$11::text),
-         $11::text,'2026-08-20T10:00:00Z'
+         $11::text,$12
        ) ON CONFLICT DO NOTHING`,
       [
         originalPublicCommandId,
@@ -277,32 +326,35 @@ export const seedReturningAssistant = async ({
         fieldOfStudyId,
         originalPublicCommand.yearOfStudy,
         applicationId,
+        applicationSubmittedAt,
       ],
     );
     await seedQuery(
       "original public audit",
       `INSERT INTO public.admission_application_audit(
          command_id,application_id,applicant_id,action,application_revision,occurred_at
-       ) VALUES($1,$2,$3,'PublicApplicationSubmitted',0,'2026-08-20T10:00:00Z')
+       ) VALUES($1,$2,$3,'PublicApplicationSubmitted',0,$4)
        ON CONFLICT DO NOTHING`,
-      [originalPublicCommandId, applicationId, applicantId],
+      [originalPublicCommandId, applicationId, applicantId, applicationSubmittedAt],
     );
     await seedQuery(
       "invitation",
       `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
-       VALUES($1,$2,$3,$4,'2026-12-31T00:00:00Z','Claimed','journey-conduct-leader-0063','2026-01-02T00:00:00Z') ON CONFLICT DO NOTHING`,
+       VALUES($1,$2,$3,$4,$5,'Claimed','journey-conduct-leader-0063',$6) ON CONFLICT DO NOTHING`,
       [
         invitationId,
         applicationId,
         applicantId,
         createHash("sha256").update(invitationId).digest("hex"),
+        accountClaimExpiresAt,
+        accountClaimIssuedAt,
       ],
     );
     await seedQuery(
       "account link",
       `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
-       VALUES($1,$2,'2026-01-03T00:00:00Z',$3) ON CONFLICT DO NOTHING`,
-      [applicantId, person.personId, invitationId],
+       VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+      [applicantId, person.personId, accountLinkedAt, invitationId],
     );
 
     const negativeApplicants = [
@@ -346,32 +398,35 @@ export const seedReturningAssistant = async ({
       await seedQuery(
         `negative application ${index}`,
         `INSERT INTO public.admission_applications(application_id,applicant_id,admission_period_id,department_id,field_of_study_id,year_of_study,submitted_at,revision)
-         VALUES($1,$2,$3,$4,$5,2,'2026-08-20T10:00:00Z',0) ON CONFLICT DO NOTHING`,
+         VALUES($1,$2,$3,$4,$5,2,$6,0) ON CONFLICT DO NOTHING`,
         [
           negative.applicationId,
           negative.applicantId,
           admissionPeriodId,
           departmentId,
           negative.field,
+          applicationSubmittedAt,
         ],
       );
       const negativeInvitation = `invitation-returning-negative-${index}-0104`;
       await seedQuery(
         `negative invitation ${index}`,
         `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at)
-         VALUES($1,$2,$3,$4,'2026-12-31T00:00:00Z','Claimed','journey-conduct-leader-0063','2026-01-02T00:00:00Z') ON CONFLICT DO NOTHING`,
+         VALUES($1,$2,$3,$4,$5,'Claimed','journey-conduct-leader-0063',$6) ON CONFLICT DO NOTHING`,
         [
           negativeInvitation,
           negative.applicationId,
           negative.applicantId,
           createHash("sha256").update(negativeInvitation).digest("hex"),
+          accountClaimExpiresAt,
+          accountClaimIssuedAt,
         ],
       );
       await seedQuery(
         `negative account link ${index}`,
         `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id)
-         VALUES($1,$2,'2026-01-03T00:00:00Z',$3) ON CONFLICT DO NOTHING`,
-        [negative.applicantId, negative.personId, negativeInvitation],
+         VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+        [negative.applicantId, negative.personId, accountLinkedAt, negativeInvitation],
       );
     }
 
@@ -448,8 +503,15 @@ export const seedReturningAssistant = async ({
     await seedQuery(
       "placement audit",
       `INSERT INTO public.assistant_placement_audit(placement_id,revision,actor_person_id,occurred_at,action,snapshot)
-       VALUES($1::text,1,$2::text,'2026-01-04T00:00:00Z','Create',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Monday','workdays',4,'block','1','active',true,'revision',1)) ON CONFLICT DO NOTHING`,
-      [placementId, person.personId, departmentId, semesterId, school.rows[0].school_id],
+       VALUES($1::text,1,$2::text,$6,'Create',jsonb_build_object('placementId',$1::text,'personId',$2::text,'departmentId',$3::text,'semesterId',$4::text,'schoolId',$5::text,'day','Monday','workdays',4,'block','1','active',true,'revision',1)) ON CONFLICT DO NOTHING`,
+      [
+        placementId,
+        person.personId,
+        departmentId,
+        semesterId,
+        school.rows[0].school_id,
+        placementCreatedAt,
+      ],
     );
     await seedQuery(
       "historical placement audit",
@@ -469,8 +531,8 @@ export const seedReturningAssistant = async ({
     await seedQuery(
       "interview",
       `INSERT INTO public.recruitment_interviews(interview_id,application_id,department_id,interviewer_person_id,interview_schema_id,assigned_by_person_id,assigned_at,revision)
-       VALUES('interview-returning-0104',$1,$2,'journey-returning-assistant-0104','interview-schema-native-conduct-0063','journey-conduct-leader-0063','2026-08-21T10:00:00Z',1) ON CONFLICT DO NOTHING`,
-      [applicationId, departmentId],
+       VALUES('interview-returning-0104',$1,$2,'journey-returning-assistant-0104','interview-schema-native-conduct-0063','journey-conduct-leader-0063',$3,1) ON CONFLICT DO NOTHING`,
+      [applicationId, departmentId, interviewAssignedAt],
     );
     await seedQuery(
       "question snapshots",
@@ -483,7 +545,8 @@ export const seedReturningAssistant = async ({
     await seedQuery(
       "interview conduct",
       `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation)
-       VALUES('interview-returning-0104','[]'::jsonb,8,8,8,'journey-conduct-leader-0063','2026-08-22T10:00:00Z',1,'Ja') ON CONFLICT DO NOTHING`,
+       VALUES('interview-returning-0104','[]'::jsonb,8,8,8,'journey-conduct-leader-0063',$1,1,'Ja') ON CONFLICT DO NOTHING`,
+      [interviewFinalizedAt],
     );
     await client.query("COMMIT");
   } catch (error) {
@@ -1719,10 +1782,10 @@ export const runReturningAssistantBrowserJourney = async ({
     });
     // Model the legitimate semester transition: the old period ends at a valid
     // instant and remains closed while the next period becomes authoritative.
-    await pool.query(
-      "UPDATE public.admission_periods SET end_at='2026-09-12T00:00:00Z' WHERE admission_period_id=$1",
-      [admissionPeriodId],
-    );
+    await pool.query("UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2", [
+      conductPeriodClosedEndAt,
+      admissionPeriodId,
+    ]);
 
     const postClosePeriodContext = await pool.query(
       `SELECT
@@ -1893,7 +1956,7 @@ export const runReturningAssistantBrowserJourney = async ({
             origin: ui,
           },
           data: {
-            scheduledAt: "2026-09-20T10:00:00.000Z",
+            scheduledAt: nextInterviewScheduledAt,
             room: "Returning Room 0104",
             campus: "Gløshaugen",
             mapLink: "https://maps.example.invalid/returning-next-0104",
@@ -1918,7 +1981,7 @@ export const runReturningAssistantBrowserJourney = async ({
       assert.equal(scheduleBody.responseState, "Pending");
       assert.equal(scheduleBody.notificationState, "Pending");
       assert.equal(scheduleBody.schedule.scheduleRevision, 1);
-      assert.equal(scheduleBody.schedule.scheduledAt, "2026-09-20T10:00:00.000Z");
+      assert.equal(scheduleBody.schedule.scheduledAt, nextInterviewScheduledAt);
       trace.push({
         phase: "returning:native-schedule",
         actorPersonId: "report-coordinator-0103",
@@ -1998,7 +2061,7 @@ export const runReturningAssistantBrowserJourney = async ({
     const invitationETag = invitationPendingResponse.headers.get("etag");
     assert.ok(invitationETag);
     assert.deepEqual(invitationPending, {
-      scheduledAt: "2026-09-20T10:00:00.000Z",
+      scheduledAt: nextInterviewScheduledAt,
       room: "Returning Room 0104",
       campus: "Gløshaugen",
       responseState: "Pending",
@@ -2037,7 +2100,7 @@ export const runReturningAssistantBrowserJourney = async ({
     )(JSON.parse(await invitationAcceptedResponse.text()));
 
     assert.deepEqual(invitationAccepted, {
-      scheduledAt: "2026-09-20T10:00:00.000Z",
+      scheduledAt: nextInterviewScheduledAt,
       room: "Returning Room 0104",
       campus: "Gløshaugen",
       responseState: "Accepted",
@@ -2340,10 +2403,10 @@ export const runReturningAssistantBrowserJourney = async ({
 
     assert.deepEqual(nextRevisionAfterReplay.rows, nextRevisionBeforeReplay.rows);
     const closedBefore = await negativeMutationSnapshot(person.personId);
-    await pool.query(
-      "UPDATE public.admission_periods SET end_at='2026-08-03T00:00:00Z' WHERE admission_period_id=$1",
-      [nextAdmissionPeriodId],
-    );
+    await pool.query("UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2", [
+      nextPeriodClosedEndAt,
+      nextAdmissionPeriodId,
+    ]);
 
     try {
       const closedReplay = await context.request.post(
@@ -2363,8 +2426,8 @@ export const runReturningAssistantBrowserJourney = async ({
       trace.push({ phase: "negative-gate", gate: "closed-period", status: closedReplay.status() });
     } finally {
       await pool.query(
-        "UPDATE public.admission_periods SET end_at='2026-12-31T23:59:59.999Z' WHERE admission_period_id=$1",
-        [nextAdmissionPeriodId],
+        "UPDATE public.admission_periods SET end_at=$1 WHERE admission_period_id=$2",
+        [nextPeriodEndAt, nextAdmissionPeriodId],
       );
     }
 

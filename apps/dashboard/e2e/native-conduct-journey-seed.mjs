@@ -56,9 +56,35 @@ const invitationA = "invitation-native-conduct-a-0063";
 
 const invitationB = "invitation-native-conduct-b-0063";
 
-const scheduleA = "2026-09-19T13:30:00.000Z";
+// The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise
+// the current time. Every instant below is relative to it: the semester and the admission
+// period are current, and both interviews were assigned, accepted, and held in the days before.
+const journeyNow = Date.parse(process.env.ADMISSION_FIXED_NOW ?? new Date().toISOString());
 
-const scheduleB = "2026-09-19T15:00:00.000Z";
+if (!Number.isFinite(journeyNow)) {
+  throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
+}
+
+const fromJourneyNow = (days, minutes = 0) =>
+  new Date(journeyNow + days * 86_400_000 + minutes * 60_000).toISOString();
+
+const semesterStartAt = fromJourneyNow(-60);
+
+const semesterEndAt = fromJourneyNow(120);
+
+const claimedAt = fromJourneyNow(-14);
+
+// Applicant B follows applicant A by one minute at every step.
+const interviewTimes = (minutes) => ({
+  submittedAt: fromJourneyNow(-21, minutes),
+  assignedAt: fromJourneyNow(-7, minutes),
+  scheduleCommittedAt: fromJourneyNow(-7, 10 + minutes),
+  respondedAt: fromJourneyNow(-6, minutes),
+});
+
+const timesA = { ...interviewTimes(0), scheduledAt: fromJourneyNow(-2) };
+
+const timesB = { ...interviewTimes(1), scheduledAt: fromJourneyNow(-2, 90) };
 
 const questions = [
   ["q0", 0, "Fortell kort om motivasjonen din.", null, "text", []],
@@ -84,9 +110,9 @@ const questions = [
 const sql = `
 BEGIN;
 INSERT INTO admission_period_departments (department_id, name) VALUES ('${departmentId}', 'Trondheim') ON CONFLICT (department_id) DO NOTHING;
-INSERT INTO admission_period_semesters (semester_id, start_at, end_at) VALUES ('${semesterId}', '2026-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z') ON CONFLICT (semester_id) DO NOTHING;
+INSERT INTO admission_period_semesters (semester_id, start_at, end_at) VALUES ('${semesterId}', '${semesterStartAt}', '${semesterEndAt}') ON CONFLICT (semester_id) DO NOTHING;
 INSERT INTO admission_periods (admission_period_id, department_id, semester_id, start_at, end_at, revision, last_command_id)
-VALUES ('${periodId}', '${departmentId}', '${semesterId}', '2026-08-01T00:00:00.000Z', '2026-09-30T23:59:59.999Z', 0, 'admission-period-native-conduct-seed-0063')
+VALUES ('${periodId}', '${departmentId}', '${semesterId}', '${fromJourneyNow(-30)}', '${fromJourneyNow(30)}', 0, 'admission-period-native-conduct-seed-0063')
 ON CONFLICT (admission_period_id) DO NOTHING;
 INSERT INTO admission_period_fields_of_study (field_of_study_id, department_id, name, active)
 VALUES ('${fieldId}', '${departmentId}', 'Datateknologi', TRUE) ON CONFLICT (field_of_study_id) DO NOTHING;
@@ -97,14 +123,14 @@ VALUES
 ON CONFLICT (applicant_id) DO NOTHING;
 INSERT INTO admission_applications (application_id, applicant_id, admission_period_id, department_id, field_of_study_id, year_of_study, submitted_at, revision)
 VALUES
- ('${applicationA}', '${applicantA}', '${periodId}', '${departmentId}', '${fieldId}', 3, '2026-08-20T10:00:00.000Z', 0),
- ('${applicationB}', '${applicantB}', '${periodId}', '${departmentId}', '${fieldId}', 2, '2026-08-20T10:01:00.000Z', 0)
+ ('${applicationA}', '${applicantA}', '${periodId}', '${departmentId}', '${fieldId}', 3, '${timesA.submittedAt}', 0),
+ ('${applicationB}', '${applicantB}', '${periodId}', '${departmentId}', '${fieldId}', 2, '${timesB.submittedAt}', 0)
 ON CONFLICT (application_id) DO NOTHING;
 INSERT INTO applicant_account_invitations (invitation_id, application_id, applicant_id, token_digest, expires_at, state, issued_by, issued_at)
-VALUES ('applicant-account-native-conduct-a-0063', '${applicationA}', '${applicantA}', repeat('c', 64), '2027-01-01T00:00:00.000Z', 'Claimed', '${persons.leader.personId}', '2026-09-01T00:00:00.000Z')
+VALUES ('applicant-account-native-conduct-a-0063', '${applicationA}', '${applicantA}', repeat('c', 64), '${semesterEndAt}', 'Claimed', '${persons.leader.personId}', '${claimedAt}')
 ON CONFLICT (invitation_id) DO NOTHING;
 INSERT INTO applicant_account_links (applicant_id, person_id, linked_at, invitation_id)
-VALUES ('${applicantA}', '${persons.applicant.personId}', '2026-09-01T00:00:00.000Z', 'applicant-account-native-conduct-a-0063')
+VALUES ('${applicantA}', '${persons.applicant.personId}', '${claimedAt}', 'applicant-account-native-conduct-a-0063')
 ON CONFLICT (applicant_id) DO NOTHING;
 INSERT INTO organization_departments (department_id, name, short_name, email, city, active, revision)
 VALUES ('${departmentId}', 'Vektorprogrammet Trondheim', 'Trondheim', 'trondheim.conduct@example.invalid', 'Trondheim', TRUE, 0)
@@ -126,7 +152,7 @@ JOIN admission_applicants applicant USING (applicant_id)
 WHERE link.applicant_id = '${applicantA}'
 ON CONFLICT (person_id) DO NOTHING;
 INSERT INTO organization_memberships (membership_id, person_id, team_id, deleted_team_name, start_at, end_at, position_id, is_team_leader, is_suspended, revision)
-VALUES ('membership-native-conduct-leader-0063', '${persons.leader.personId}', '${teamId}', NULL, '2026-01-01T00:00:00.000Z', NULL, 'teamleader', TRUE, FALSE, 0)
+VALUES ('membership-native-conduct-leader-0063', '${persons.leader.personId}', '${teamId}', NULL, '${semesterStartAt}', NULL, 'teamleader', TRUE, FALSE, 0)
 ON CONFLICT (membership_id) DO NOTHING;
 INSERT INTO recruitment_interview_schemas (interview_schema_id, name, question_count, active, revision)
 VALUES ('${schemaId}', 'Førstegangsintervju 0063', ${questions.length}, TRUE, 0) ON CONFLICT (interview_schema_id) DO NOTHING;
@@ -136,23 +162,23 @@ ${questions.map(([id, ordinal, prompt, help, kind, alternatives]) => ` ('${schem
 ON CONFLICT (interview_schema_id, question_id) DO NOTHING;
 INSERT INTO recruitment_interviews (interview_id, application_id, department_id, interviewer_person_id, interview_schema_id, assigned_by_person_id, assigned_at, revision)
 VALUES
- ('${interviewA}', '${applicationA}', '${departmentId}', '${persons.leader.personId}', '${schemaId}', '${persons.leader.personId}', '2026-09-12T09:00:00.000Z', 1),
- ('${interviewB}', '${applicationB}', '${departmentId}', '${persons.leader.personId}', '${schemaId}', '${persons.leader.personId}', '2026-09-12T09:01:00.000Z', 1)
+ ('${interviewA}', '${applicationA}', '${departmentId}', '${persons.leader.personId}', '${schemaId}', '${persons.leader.personId}', '${timesA.assignedAt}', 1),
+ ('${interviewB}', '${applicationB}', '${departmentId}', '${persons.leader.personId}', '${schemaId}', '${persons.leader.personId}', '${timesB.assignedAt}', 1)
 ON CONFLICT (interview_id) DO NOTHING;
 INSERT INTO recruitment_interview_schedules (interview_id, scheduled_at, room, campus, map_link, message, scheduled_by_person_id, committed_at, schedule_revision)
 VALUES
- ('${interviewA}', '${scheduleA}', 'K-0063A', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-a', 'Velkommen til intervjuet.', '${persons.leader.personId}', '2026-09-12T09:10:00.000Z', 1),
- ('${interviewB}', '${scheduleB}', 'K-0063B', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-b', 'Velkommen til intervjuet.', '${persons.leader.personId}', '2026-09-12T09:11:00.000Z', 1)
+ ('${interviewA}', '${timesA.scheduledAt}', 'K-0063A', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-a', 'Velkommen til intervjuet.', '${persons.leader.personId}', '${timesA.scheduleCommittedAt}', 1),
+ ('${interviewB}', '${timesB.scheduledAt}', 'K-0063B', 'Gløshaugen', 'https://maps.example.invalid/conduct-0063-b', 'Velkommen til intervjuet.', '${persons.leader.personId}', '${timesB.scheduleCommittedAt}', 1)
 ON CONFLICT (interview_id, schedule_revision) DO NOTHING;
 INSERT INTO recruitment_invitations (invitation_id, interview_id, schedule_revision, capability_sha256, response_state, created_at, response_message, responded_at, response_revision, superseded_at)
 VALUES
- ('${invitationA}', '${interviewA}', 1, repeat('a', 64), 'Accepted', '2026-09-12T09:10:00.000Z', NULL, '2026-09-13T10:00:00.000Z', 1, NULL),
- ('${invitationB}', '${interviewB}', 1, repeat('b', 64), 'Accepted', '2026-09-12T09:11:00.000Z', NULL, '2026-09-13T10:01:00.000Z', 1, NULL)
+ ('${invitationA}', '${interviewA}', 1, repeat('a', 64), 'Accepted', '${timesA.scheduleCommittedAt}', NULL, '${timesA.respondedAt}', 1, NULL),
+ ('${invitationB}', '${interviewB}', 1, repeat('b', 64), 'Accepted', '${timesB.scheduleCommittedAt}', NULL, '${timesB.respondedAt}', 1, NULL)
 ON CONFLICT (invitation_id) DO NOTHING;
 INSERT INTO recruitment_invitation_response_audit (invitation_id, interview_id, schedule_revision, response_revision, response_state, response_message, responded_at)
 VALUES
- ('${invitationA}', '${interviewA}', 1, 1, 'Accepted', NULL, '2026-09-13T10:00:00.000Z'),
- ('${invitationB}', '${interviewB}', 1, 1, 'Accepted', NULL, '2026-09-13T10:01:00.000Z')
+ ('${invitationA}', '${interviewA}', 1, 1, 'Accepted', NULL, '${timesA.respondedAt}'),
+ ('${invitationB}', '${interviewB}', 1, 1, 'Accepted', NULL, '${timesB.respondedAt}')
 ON CONFLICT (invitation_id) DO NOTHING;
 INSERT INTO public.recruitment_interview_question_snapshots (interview_id, question_id, ordinal, prompt, help_text, kind, alternatives)
 SELECT i.interview_id, q.question_id, q.ordinal, q.prompt, q.help_text, q.kind, q.alternatives

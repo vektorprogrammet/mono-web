@@ -20,6 +20,8 @@
  * Usage:
  *   JOURNEY_SEED_PG_URL=postgres://postgres@127.0.0.1:45121/postgres \
  *     bun apps/dashboard/e2e/native-recruitment-journey-seed.mjs
+ *
+ * Pass the backend's ADMISSION_FIXED_NOW when it has one; the windows follow that clock.
  */
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -90,17 +92,30 @@ const applicationId = "application-native-journey-0049";
 
 const interviewSchemaId = "interview-schema-native-journey-0049";
 
-// The admission period must be OPEN at the authorization instant (real clock),
-// so its window brackets 2026. Membership windows bracket 2026 as well.
-const membershipStartAt = "2026-01-01T00:00:00.000Z";
+// The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise
+// the current time. Every window below is relative to it, so the admission period is open
+// whenever the journey runs.
+const journeyNow = Date.parse(process.env.ADMISSION_FIXED_NOW ?? new Date().toISOString());
 
-const semesterStartAt = "2026-01-01T00:00:00.000Z";
+if (!Number.isFinite(journeyNow)) {
+  throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
+}
 
-const semesterEndAt = "2027-01-01T00:00:00.000Z";
+const daysFromJourneyNow = (days) => new Date(journeyNow + days * 86_400_000).toISOString();
 
-const periodStartAt = "2026-08-01T00:00:00.000Z";
+const journeyInstant = daysFromJourneyNow(0);
 
-const periodEndAt = "2026-09-30T23:59:59.999Z";
+const membershipStartAt = daysFromJourneyNow(-60);
+
+const semesterStartAt = daysFromJourneyNow(-60);
+
+const semesterEndAt = daysFromJourneyNow(120);
+
+const periodStartAt = daysFromJourneyNow(-30);
+
+const periodEndAt = daysFromJourneyNow(30);
+
+const submittedAt = daysFromJourneyNow(-7);
 
 const seedSql = `
 BEGIN;
@@ -148,7 +163,7 @@ INSERT INTO admission_applications (
 )
 VALUES (
   '${applicationId}', '${applicantId}', '${admissionPeriodId}', '${departmentId}',
-  '${fieldOfStudyId}', 3, '2026-08-20T10:00:00.000Z', 0
+  '${fieldOfStudyId}', 3, '${submittedAt}', 0
 )
 ON CONFLICT (application_id) DO NOTHING;
 
@@ -256,7 +271,7 @@ async function main() {
     const checks = await observer.query(`
       SELECT
         (SELECT count(*) FROM admission_applications WHERE application_id = '${applicationId}') AS applications,
-        (SELECT count(*) FROM admission_periods p WHERE p.admission_period_id = '${admissionPeriodId}' AND p.start_at <= now() AND now() < p.end_at) AS open_periods,
+        (SELECT count(*) FROM admission_periods p WHERE p.admission_period_id = '${admissionPeriodId}' AND p.start_at <= '${journeyInstant}'::timestamptz AND '${journeyInstant}'::timestamptz < p.end_at) AS open_periods,
         (SELECT count(*) FROM organization_memberships m WHERE m.is_team_leader AND NOT m.is_suspended AND m.person_id = '${journeyPersons.leader.personId}') AS leader_memberships,
         (SELECT count(*) FROM organization_memberships m WHERE m.team_id = '${recruitmentTeamId}' AND NOT m.is_suspended AND m.is_team_leader = FALSE) AS interviewer_memberships,
         (SELECT count(*) FROM recruitment_interview_schemas s WHERE s.interview_schema_id = '${interviewSchemaId}' AND s.active) AS schemas,
@@ -266,7 +281,7 @@ async function main() {
 
     const counts = checks.rows[0];
     assert(Number(counts.applications) === 1, "exactly one applicant application");
-    assert(Number(counts.open_periods) === 1, "open admission period present");
+    assert(Number(counts.open_periods) === 1, `admission period open at ${journeyInstant}`);
     assert(Number(counts.leader_memberships) >= 1, "active team-leader membership");
     assert(Number(counts.interviewer_memberships) === 2, "two active interviewer memberships");
     assert(Number(counts.schemas) === 1, "one active interview schema");

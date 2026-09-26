@@ -156,6 +156,8 @@ Required machine-caller contracts, migration rehearsals, and provider acceptance
 
 Only prerequisite facts enter through fixtures.
 The runner must not seed the outcome that the journey claims to establish.
+Fixture instants are relative to the clock that the backend reads: the runner's fixed instant, or the time of seeding.
+Then no fixture expires on a calendar date.
 Expected denials must leave no unauthorized business mutation or unintended delivery work.
 Security diagnostics can still record the denied attempt.
 

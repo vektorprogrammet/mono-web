@@ -42,6 +42,31 @@ const base = {
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 
+// The backend's admission clock: ADMISSION_FIXED_NOW when the runner pins one, otherwise the
+// current time. The fixtures live in the conduct seed's semester, which is derived from the same
+// instant, so the applicant-progress read always sees them as current.
+const journeyNow = Date.parse(process.env.ADMISSION_FIXED_NOW ?? new Date().toISOString());
+
+if (!Number.isFinite(journeyNow)) {
+  throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
+}
+
+const fromJourneyNow = (days: number, minutes = 0) =>
+  new Date(journeyNow + days * 86_400_000 + minutes * 60_000).toISOString();
+
+// Applications are submitted at now − 20 days and their accounts are claimed at now − 14 days.
+// Invitations cloned from the base interview (assigned at now − 7 days) are answered at now − 6
+// days, the completed interview is finalized at now − 1 day, and every schedule lies ahead.
+const accountClaimedAt = fromJourneyNow(-14);
+
+const accountClaimExpiresAt = fromJourneyNow(120);
+
+const respondedAt = fromJourneyNow(-6);
+
+const finalizedAt = fromJourneyNow(-1);
+
+const pendingAcceptedAt = fromJourneyNow(-1, 60);
+
 const clone = async (
   client: PoolClient,
   table: string,
@@ -62,12 +87,20 @@ const linkApplicant = async (
 ) => {
   const invitationId = `applicant-progress-account-${suffix}`;
   await client.query(
-    `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,'2027-01-01T00:00:00.000Z','Claimed',$5,'2026-09-01T00:00:00.000Z')`,
-    [invitationId, applicationId, applicantId, digest(invitationId), personId],
+    `INSERT INTO public.applicant_account_invitations(invitation_id,application_id,applicant_id,token_digest,expires_at,state,issued_by,issued_at) VALUES($1,$2,$3,$4,$5,'Claimed',$6,$7)`,
+    [
+      invitationId,
+      applicationId,
+      applicantId,
+      digest(invitationId),
+      accountClaimExpiresAt,
+      personId,
+      accountClaimedAt,
+    ],
   );
   await client.query(
-    `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES($1,$2,'2026-09-01T00:00:00.000Z',$3)`,
-    [applicantId, personId, invitationId],
+    `INSERT INTO public.applicant_account_links(applicant_id,person_id,linked_at,invitation_id) VALUES($1,$2,$3,$4)`,
+    [applicantId, personId, accountClaimedAt, invitationId],
   );
 };
 
@@ -88,7 +121,7 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
   await clone(client, "admission_applications", `application_id='${base.application}'`, {
     application_id: applicationId,
     applicant_id: applicantId,
-    submitted_at: `2026-08-21T10:0${ordinal}:00.000Z`,
+    submitted_at: fromJourneyNow(-20, ordinal),
   });
   await linkApplicant(client, state, applicationId, applicantId);
 
@@ -100,7 +133,7 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
   });
   await clone(client, "recruitment_interview_schedules", `interview_id='${base.schedule}'`, {
     interview_id: interviewId,
-    scheduled_at: `2026-09-2${ordinal}T10:00:00.000Z`,
+    scheduled_at: fromJourneyNow(ordinal - 1),
     room: `P-${ordinal}01`,
   });
 
@@ -111,7 +144,7 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
     Match.orElse(() => "Accepted" as const),
   );
 
-  const responded = responseState === "Pending" ? null : "2026-09-10T10:00:00.000Z";
+  const responded = responseState === "Pending" ? null : respondedAt;
   const responseMessage = responseState === "RequestedNewTime" ? "Trenger et nytt tidspunkt" : null;
   await clone(client, "recruitment_invitations", `invitation_id='${base.invitation}'`, {
     invitation_id: invitationId,
@@ -161,31 +194,30 @@ const seedProgressState = async (client: PoolClient, state: ProgressSeedState, o
     commandId: command.commandId,
     interviewId: command.interviewId,
     interviewRevision: 2,
-    finalizedAt: FinalizeInterviewObservationSchema.fields.finalizedAt.make(
-      "2026-09-20T10:00:00.000Z",
-    ),
+    finalizedAt: FinalizeInterviewObservationSchema.fields.finalizedAt.make(finalizedAt),
     completionState: "Completed",
     cancellationState: "NotCancelled",
     notificationState: "Pending",
   });
 
   await client.query(
-    `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES($1,'[]'::jsonb,7,8,9,$2,'2026-09-20T10:00:00.000Z',2,'Ja')`,
-    [interviewId, personId],
+    `INSERT INTO public.recruitment_interview_conducts(interview_id,answers,explanatory_power,role_model,suitability,finalized_by_person_id,finalized_at,interview_revision,recommendation) VALUES($1,'[]'::jsonb,7,8,9,$2,$3,2,'Ja')`,
+    [interviewId, personId, finalizedAt],
   );
   await client.query(
-    `INSERT INTO public.recruitment_interview_lifecycle_command_receipts(command_id,command_sha256,command_json,observation_json,kind,interview_id,resulting_revision,committed_at) VALUES($1,$2,$3::jsonb,$4::jsonb,'InterviewFinalized',$5,2,'2026-09-20T10:00:00.000Z')`,
+    `INSERT INTO public.recruitment_interview_lifecycle_command_receipts(command_id,command_sha256,command_json,observation_json,kind,interview_id,resulting_revision,committed_at) VALUES($1,$2,$3::jsonb,$4::jsonb,'InterviewFinalized',$5,2,$6)`,
     [
       commandId,
       sha256Hex(canonicalJsonBytes(command)),
       canonicalJson(command),
       canonicalJson(observation),
       interviewId,
+      finalizedAt,
     ],
   );
   await client.query(
-    `INSERT INTO public.recruitment_interview_lifecycle_audit(command_id,interview_id,kind,actor_person_id,resulting_revision,occurred_at) VALUES($1,$2,'InterviewFinalized',$3,2,'2026-09-20T10:00:00.000Z')`,
-    [commandId, interviewId, personId],
+    `INSERT INTO public.recruitment_interview_lifecycle_audit(command_id,interview_id,kind,actor_person_id,resulting_revision,occurred_at) VALUES($1,$2,'InterviewFinalized',$3,2,$4)`,
+    [commandId, interviewId, personId, finalizedAt],
   );
 };
 
@@ -232,7 +264,7 @@ const seedScopedApplication = async (
     admission_period_id: periodId,
     department_id: departmentId,
     field_of_study_id: fieldId,
-    submitted_at: suffix === "assigned" ? "2026-08-21T10:10:00.000Z" : "2026-08-21T10:11:00.000Z",
+    submitted_at: fromJourneyNow(-20, suffix === "assigned" ? 10 : 11),
   });
   await linkApplicant(client, suffix, applicationId, applicantId);
   await client.query(
@@ -258,7 +290,7 @@ const seedScopedApplication = async (
 
   if (suffix === "returning") {
     await client.query(
-      `INSERT INTO public.admission_returning_registrations(registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,3,false,false,false,false,false,4,'all','Norsk',NULL,false,'[]'::jsonb,'2026-09-01T00:00:00.000Z')`,
+      `INSERT INTO public.admission_returning_registrations(registration_id,application_id,applicant_id,person_id,placement_id,department_id,semester_id,admission_period_id,revision,command_id,year_of_study,monday_unavailable,tuesday_unavailable,wednesday_unavailable,thursday_unavailable,friday_unavailable,position_weeks,preferred_group,language,preferred_school,team_interest,team_ids,registered_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,3,false,false,false,false,false,4,'all','Norsk',NULL,false,'[]'::jsonb,$10)`,
       [
         `returning-registration-${digest("applicant-progress-returning-registration")}`,
         applicationId,
@@ -269,6 +301,7 @@ const seedScopedApplication = async (
         base.semester,
         periodId,
         "applicant-progress-returning-command",
+        accountClaimedAt,
       ],
     );
   }
@@ -526,10 +559,12 @@ export const runApplicantProgress0107 = async (input: {
   try {
     await client.query("BEGIN");
     await client.query(
-      `UPDATE public.recruitment_invitations SET response_state='Accepted',response_message=NULL,responded_at='2026-09-20T11:00:00.000Z',response_revision=1 WHERE invitation_id='invitation-progress-pending-0107'`,
+      `UPDATE public.recruitment_invitations SET response_state='Accepted',response_message=NULL,responded_at=$1,response_revision=1 WHERE invitation_id='invitation-progress-pending-0107'`,
+      [pendingAcceptedAt],
     );
     await client.query(
-      `INSERT INTO public.recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at) VALUES('invitation-progress-pending-0107','interview-progress-pending-0107',1,1,'Accepted',NULL,'2026-09-20T11:00:00.000Z')`,
+      `INSERT INTO public.recruitment_invitation_response_audit(invitation_id,interview_id,schedule_revision,response_revision,response_state,response_message,responded_at) VALUES('invitation-progress-pending-0107','interview-progress-pending-0107',1,1,'Accepted',NULL,$1)`,
+      [pendingAcceptedAt],
     );
     await client.query("COMMIT");
   } catch (cause) {

@@ -609,7 +609,8 @@ export async function observeInterviewReport(o: Options) {
 
   for (const [field, bad, good] of [
     ["is_suspended", "true", "false"],
-    ["end_at", "'2026-02-01'", "NULL"],
+    // Ends after it starts, as the interval check requires, and long before the run.
+    ["end_at", "start_at+interval '1 day'", "NULL"],
     ["is_team_leader", "false", "true"],
   ])
     await denyMutation(

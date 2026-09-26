@@ -533,7 +533,7 @@ try {
 
     const browserRows = await pool.query(
       `SELECT application.application_id AS "applicationId", application.year_of_study AS "yearOfStudy", preferences.active,
-      jsonb_build_object('monday',monday,'tuesday',tuesday,'wednesday',wednesday,'thursday',thursday,'friday',friday,'language',language) AS preferences
+      jsonb_build_object('monday',preferences.monday,'tuesday',preferences.tuesday,'wednesday',preferences.wednesday,'thursday',preferences.thursday,'friday',preferences.friday,'language',preferences.language) AS preferences
       FROM public.admission_applications application INNER JOIN public.admission_substitute_preferences preferences ON preferences.application_id=application.application_id WHERE application.application_id=$1`,
       [manifest.applicationId],
     );
