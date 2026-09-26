@@ -75,5 +75,7 @@
   "74_application-availability": "081d92f017902d406a3574a724d69e2f6cda637bb2b1d97ca3ad108928a8de67",
   "75_substitute-admission-outcome-coverage-records": "2d0b969239fcd4a93f92cada0e458a95695a7a357f5cffb027662c8a2b98a173",
   "76_reach-and-delegation": "ea7ad5562544a4b3fff34c2c2020164f39fa3b0db6fa07896fb21cfce802e33c",
-  "77_oauth-refresh-elapsed-windows": "42a6b36376e6a3e025b9eea971b406076f6b9e50d1d4ab8e6d122d7bdc46d779"
+  "77_oauth-refresh-elapsed-windows": "42a6b36376e6a3e025b9eea971b406076f6b9e50d1d4ab8e6d122d7bdc46d779",
+  "78_team-application-persisted-queue": "74f7316d14a71b0c6169d0d151df905ba4838cdeec36053e8e7895795a079b65",
+  "79_team-application-outbox-claim-columns": "70acda46f84c2ca8a79841049fc73739fe358ddc48f7b2551d7dcc09b3d77c44"
 }

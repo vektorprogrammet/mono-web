@@ -502,7 +502,7 @@ The form requires name, email, phone, year of study, field of study, biography, 
 A submission stores one application with its submission instant. An exact replay of one request returns the original result.
 A distinct submission from the same person is a second application. Anonymous submission is rate limited.
 The applicant receipt and the team notification commit with the application in one transaction and are delivered after commit through the outbox.
-A provider failure keeps the application; unattended recovery delivers the retained notifications. The confirmation states receipt, not delivery.
+A temporary provider failure keeps the application and its notifications; unattended recovery retries them. A permanent or ambiguous provider failure, or a temporary failure of the last attempt, quarantines the notification, which the delivery status shows. The confirmation states receipt, not delivery.
 
 A current, nonsuspended member of the team reads its applications. The current leader of the team opens or closes intake, sets or clears the deadline against the observed revision, and deletes applications.
 Global administration grants no implicit access. Deletion removes the application and its private fields from every stored notification.

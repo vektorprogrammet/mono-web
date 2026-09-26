@@ -612,6 +612,16 @@ export const databaseMigrationDefinitions = [
     name: "oauth-refresh-elapsed-windows",
     url: new URL("../migrations/0077-oauth-refresh-elapsed-windows.sql", import.meta.url),
   },
+  {
+    id: "78_team-application-persisted-queue",
+    name: "team-application-persisted-queue",
+    url: new URL("../migrations/0078-team-application-persisted-queue.sql", import.meta.url),
+  },
+  {
+    id: "79_team-application-outbox-claim-columns",
+    name: "team-application-outbox-claim-columns",
+    url: new URL("../migrations/0079-team-application-outbox-claim-columns.sql", import.meta.url),
+  },
 ] as const;
 
 /**

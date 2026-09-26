@@ -313,7 +313,7 @@ const readFacts = (client: PoolClient) =>
       ),
       outbox: yield* read(
         "outbox",
-        "SELECT effect_id, effect_type, team_id, application_id, command_id, ordinal, payload_json::text AS payload, status, attempts, last_failure_tag FROM team_application_outbox ORDER BY committed_at, command_id, ordinal",
+        "SELECT state.effect_id, state.effect_type, state.team_id, state.application_id, state.command_id, state.ordinal, outbox.payload_json::text AS payload, state.status, state.attempts, state.last_failure_tag FROM team_application_delivery_state AS state JOIN team_application_outbox AS outbox USING (effect_id) ORDER BY state.committed_at, state.command_id, state.ordinal",
         OutboxRow,
       ),
       receipts: yield* read(
@@ -327,13 +327,13 @@ const readFacts = (client: PoolClient) =>
 /** Snapshot of the journey's persistent facts in one read-only transaction. */
 export const snapshotFacts = (pool: Pool) => readOnlySnapshot(pool, readFacts);
 
-/** Outbox rows of one application, for delivery waits. */
+/** Delivery states of one application's notifications, for delivery waits. */
 export const notificationStates = (pool: Pool, applicationId: string) =>
   readOnlySnapshot(pool, (client) =>
     selectRows(
       client,
       "notification states",
-      "SELECT status, attempts FROM team_application_outbox WHERE application_id=$1 ORDER BY ordinal",
+      "SELECT status, attempts FROM team_application_delivery_state WHERE application_id=$1 ORDER BY ordinal",
       [applicationId],
       Schema.Struct({ status: Schema.String, attempts: Schema.Int }),
     ),
@@ -345,7 +345,7 @@ export const retainedAttempts = (pool: Pool) =>
     selectRows(
       client,
       "retained attempts",
-      "SELECT coalesce(sum(attempts),0)::int AS attempts FROM team_application_outbox WHERE status IN ('Pending','Processing','Failed')",
+      "SELECT coalesce(sum(attempts),0)::int AS attempts FROM team_application_delivery_state WHERE status IN ('Pending','Processing','Failed')",
       [],
       Schema.Struct({ attempts: Schema.Int }),
     ),

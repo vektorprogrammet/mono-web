@@ -115,7 +115,7 @@ const fixture = (environment: Readonly<Record<string, string>> = {}) => {
     Effect.runSync(decodeTeamApplicationApiConfig(environment)),
     Layer.mergeAll(
       database.layer,
-      TeamApplicationsLive.pipe(Layer.provide(database.layer)),
+      TeamApplicationsLive().pipe(Layer.provide(database.layer)),
       Layer.succeed(Identity, identity),
       Layer.succeed(IdentitySnapshot, identitySnapshot),
       Layer.succeed(OAuthCredentialAuthority, oauth),
@@ -220,6 +220,7 @@ describe("team application submission over HTTP", () => {
       );
       expect(yield* count("team_applications")).toBe(2);
       expect(yield* count("team_application_outbox")).toBe(4);
+      expect(yield* count("effect_queue")).toBe(4);
       expect(yield* count("native_http_idempotency_receipts")).toBe(2);
     }),
   );

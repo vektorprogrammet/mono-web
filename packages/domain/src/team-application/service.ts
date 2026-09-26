@@ -3,7 +3,7 @@
  *
  * @since 0.1.0
  */
-import { Context, Data, type Effect } from "effect";
+import { Context, Data, type Duration, type Effect } from "effect";
 import type { Mail } from "../mail.js";
 import type { TeamId } from "../organization/schema.js";
 import type {
@@ -129,15 +129,17 @@ export interface TeamApplicationsOperations {
     principal: TeamApplicationPrincipal,
     checkPrecondition: (current: TeamApplicationIntake) => Effect.Effect<void, E, R>,
   ) => Effect.Effect<TeamApplicationIntakeRevision, TeamApplicationReviseFailure | E, R>;
-  /** Returns claims older than the cutoff to Failed so the next attempt can retry them. */
-  readonly recoverStaleOutboxClaims: (
-    claimedBefore: string,
-  ) => Effect.Effect<number, TeamApplicationPersistenceError>;
-  /** Claims one due envelope, attempts delivery after the claim commits, and records the result. */
+  /**
+   * Takes the next due notification, attempts delivery, and records the outcome while the
+   * attempt holds the queue lease, or returns Idle when none is taken within `idle`. A
+   * temporary failure returns Failed; the queue retries it after its backoff.
+   */
   readonly deliverNextOutboxEffect: (
-    claimId: string,
     sender: string,
+    idle: Duration.Duration,
   ) => Effect.Effect<TeamApplicationOutboxDelivery, TeamApplicationPersistenceError, Mail>;
+  /** Removes queue items that completed before the retention window; outbox rows stay. */
+  readonly cleanUpDeliveryQueue: Effect.Effect<void, TeamApplicationPersistenceError>;
 }
 
 export class TeamApplications extends Context.Service<

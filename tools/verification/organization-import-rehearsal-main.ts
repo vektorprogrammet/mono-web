@@ -1415,7 +1415,7 @@ const makeRehearsalRuntime = (
   );
 
   const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(observedDatabaseLayer));
-  const teamApplicationsLayer = TeamApplicationsLive.pipe(Layer.provide(observedDatabaseLayer));
+  const teamApplicationsLayer = TeamApplicationsLive().pipe(Layer.provide(observedDatabaseLayer));
   const receiptAuxiliaryLayer = makeReceiptAuxiliaryRecording().layer;
 
   const servicePrincipalGrantLayer = Layer.succeed(

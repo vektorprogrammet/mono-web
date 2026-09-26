@@ -24,7 +24,7 @@
 import { type ChildProcess, execFile, spawn, spawnSync } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { accessSync, closeSync, constants, openSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -656,4 +656,192 @@ export const withDisposablePostgres = async <A>(
   } finally {
     await cluster.stop();
   }
+};
+
+// The owner holds this sentinel's standard input too. When the owner exits without `stop`, the
+// sentinel ends the pooler that its pid file names and removes the pooler's directory.
+const poolerSentinelScript = [
+  "trap '' HUP INT QUIT TERM",
+  'if read -r line && [ "$line" = released ]; then exit 0; fi',
+  'if [ -f "$1/pgbouncer.pid" ]; then kill -KILL "$(cat "$1/pgbouncer.pid")" 2>/dev/null; fi',
+  'rm -rf -- "$1"',
+].join("\n");
+
+const watchPooler = (root: string) => {
+  const sentinel = spawn("/bin/sh", ["-c", poolerSentinelScript, "vektor-pgbouncer-sentinel", root], {
+    stdio: ["pipe", "ignore", "ignore"],
+    detached: true,
+  });
+
+  const exited = Promise.withResolvers<void>();
+  sentinel.once("exit", () => exited.resolve());
+  sentinel.once("error", () => exited.resolve());
+
+  sentinel.stdin.on("error", () => undefined);
+  sentinel.unref();
+
+  return async () => {
+    sentinel.ref();
+    sentinel.stdin.end("released\n");
+    await exited.promise;
+  };
+};
+
+/** The PgBouncer program on `PATH`, which `devenv shell` provides. */
+const pgbouncerProgram = () => {
+  const directory = (process.env.PATH ?? "")
+    .split(delimiter)
+    .find((entry) => entry !== "" && executable(join(entry, "pgbouncer")));
+
+  if (directory === undefined)
+    throw new Error("PgBouncer is required on PATH. Run the command inside `devenv shell`.");
+
+  return join(directory, "pgbouncer");
+};
+
+/** How `startDisposablePgBouncer` pools a cluster. Every field is optional. */
+export interface DisposablePgBouncerOptions {
+  /** `transaction` (the default), the mode of a managed transaction pooler, or `session`. */
+  readonly poolMode?: "transaction" | "session" | undefined;
+  /** Server connections per database and user. Defaults to 4. */
+  readonly poolSize?: number | undefined;
+  /** The loopback port, which `reserveLoopbackPorts` reserved. Defaults to a port that it reserves. */
+  readonly port?: number | undefined;
+}
+
+/** A running PgBouncer that `startDisposablePgBouncer` owns. */
+export interface DisposablePgBouncer {
+  /** 127.0.0.1: the pooler listens on loopback TCP only. */
+  readonly host: string;
+  readonly port: number;
+  /** The superuser of the cluster, which trust authentication admits. */
+  readonly user: string;
+  readonly poolMode: "transaction" | "session";
+  /** The pooler log. `stop` removes it. */
+  readonly logFile: string;
+  /** The connection URL of a database of the cluster through the pooler. */
+  readonly urlOf: (database: string) => string;
+  /** Stops the pooler and removes its directory. Later calls return the first call's promise. */
+  readonly stop: () => Promise<void>;
+}
+
+/**
+ * Starts PgBouncer on a private loopback port in front of `upstream`, with trust authentication
+ * and every database of the cluster, in transaction pool mode unless `options` names another.
+ * It resolves once the pooler accepts connections, as `pg_isready` reports.
+ *
+ * @remarks PgBouncer keeps `search_path` per client and restores it on a server connection only
+ * where the server reports it, as PostgreSQL 18 does. On PostgreSQL 17 a client's startup
+ * `search_path` does not reach the server, so a test names it on the database.
+ * @sideEffects Writes a private directory with the configuration and log, starts the pooler in
+ * its own process group, and starts a sentinel that ends it and removes the directory when this
+ * process exits without `stop`.
+ * @example
+ * const pooler = await startDisposablePgBouncer(cluster, { poolSize: 4 });
+ * const url = pooler.urlOf("pilot");
+ * await pooler.stop();
+ * @avoid Spawning `pgbouncer` elsewhere, and judging readiness by an open port.
+ * @construct test-harness
+ */
+export const startDisposablePgBouncer = async (
+  upstream: DisposablePostgres,
+  options: DisposablePgBouncerOptions = {},
+): Promise<DisposablePgBouncer> => {
+  const poolMode = options.poolMode ?? "transaction";
+  const port = options.port ?? (await reserveLoopbackPort());
+  const root = await mkdtemp(join(tmpdir(), "vektor-pgbouncer-"));
+  const release = watchPooler(root);
+  const logFile = join(root, "pgbouncer.log");
+  const configFile = join(root, "pgbouncer.ini");
+  const exited = Promise.withResolvers<void>();
+  const abandon = new AbortController();
+  let child: ChildProcess | undefined;
+  let stopping: Promise<void> | undefined;
+
+  const stop = () =>
+    (stopping ??= (async () => {
+      try {
+        if (child !== undefined && child.exitCode === null && child.signalCode === null) {
+          child.ref();
+          child.kill("SIGQUIT");
+
+          if (!(await settlesWithin(exited.promise, immediateShutdownMs))) {
+            child.kill("SIGKILL");
+            await exited.promise;
+          }
+        }
+
+        await rm(root, { recursive: true, force: true, maxRetries: 3 });
+      } finally {
+        await release();
+      }
+    })());
+
+  try {
+    await writeFile(join(root, "users.txt"), `"${upstream.user}" ""\n`, { mode: 0o600 });
+    await writeFile(
+      configFile,
+      [
+        "[databases]",
+        `* = host=${upstream.socketDirectory} port=${upstream.port} user=${upstream.user}`,
+        "[pgbouncer]",
+        `listen_addr = ${loopback}`,
+        `listen_port = ${port}`,
+        "unix_socket_dir =",
+        "auth_type = trust",
+        `auth_file = ${join(root, "users.txt")}`,
+        `admin_users = ${upstream.user}`,
+        `pool_mode = ${poolMode}`,
+        `default_pool_size = ${options.poolSize ?? 4}`,
+        "max_client_conn = 200",
+        "track_extra_parameters = IntervalStyle, search_path",
+        `logfile = ${logFile}`,
+        `pidfile = ${join(root, "pgbouncer.pid")}`,
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+
+    child = spawn(pgbouncerProgram(), [configFile], {
+      env: programEnvironment(process.env),
+      stdio: "ignore",
+      detached: true,
+    });
+    child.once("error", (cause) => {
+      exited.resolve();
+      abandon.abort(new Error(`PgBouncer did not start: ${cause.message}`));
+    });
+    child.once("exit", (code, signal) => {
+      exited.resolve();
+      abandon.abort(new Error(`PgBouncer exited with ${signal ?? `code ${code}`}`));
+    });
+    child.unref();
+
+    await waitForPostgres({ host: loopback, port, user: upstream.user }, readinessTimeoutMs, abandon.signal);
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+
+    const log = (() => {
+      try {
+        return readFileSync(logFile, "utf8").slice(-4_000).trim();
+      } catch {
+        return "(no pooler log)";
+      }
+    })();
+
+    await stop().catch(() => undefined);
+
+    throw new Error(`Disposable PgBouncer did not start: ${detail}. Pooler log:\n${log}`, { cause });
+  }
+
+  return {
+    host: loopback,
+    port,
+    user: upstream.user,
+    poolMode,
+    logFile,
+    urlOf: (database) =>
+      `postgres://${encodeURIComponent(upstream.user)}@${loopback}:${port}/${encodeURIComponent(database)}`,
+    stop,
+  };
 };

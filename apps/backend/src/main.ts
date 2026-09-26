@@ -23,7 +23,10 @@ import { RecruitmentLive } from "@vektorprogrammet/database/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/database/schools";
 import { SocialEventsLive } from "@vektorprogrammet/database/social-events";
 import { TeamApplicationsLive } from "@vektorprogrammet/database/team-application";
-import { runTeamApplicationDeliveryWorker } from "./team-application/worker.js";
+import {
+  runTeamApplicationDeliveryWorker,
+  teamApplicationDeliveryOptions,
+} from "./team-application/worker.js";
 import { runPublicApplicationOutboxWorker } from "./application/worker.js";
 import {
   Cause,
@@ -108,7 +111,11 @@ const recruitmentLayer = RecruitmentLive.pipe(
 
 const socialEventsLayer = SocialEventsLive.pipe(Layer.provide(databaseLayer));
 
-const teamApplicationsLayer = TeamApplicationsLive.pipe(Layer.provide(databaseLayer));
+const teamApplicationsLayer = TeamApplicationsLive(
+  config.teamApplicationDelivery === undefined
+    ? {}
+    : teamApplicationDeliveryOptions(config.teamApplicationDelivery),
+).pipe(Layer.provide(databaseLayer));
 
 const capabilityLayers = Layer.mergeAll(
   returningAssistantsLayer,
@@ -261,7 +268,7 @@ if (process.exitCode !== 1) {
     ingress === "internal" || config.teamApplicationDelivery === undefined
       ? undefined
       : runtime.runFork(
-          runTeamApplicationDeliveryWorker(config.teamApplicationDelivery).pipe(
+          runTeamApplicationDeliveryWorker(config.teamApplicationDelivery.sender).pipe(
             Effect.provide(HttpMailLive(config.teamApplicationDelivery.transport)),
           ),
         );

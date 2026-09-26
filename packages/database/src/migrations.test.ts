@@ -1553,7 +1553,8 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
           const columns = yield* Effect.gen(function* () {
             const database = yield* Database;
 
-            // The Migrator writes its own bookkeeping column with an untruncated default.
+            // The Migrator writes its own bookkeeping column with an untruncated default, and the
+            // PersistedQueue store writes NOW() into its lease and visibility columns.
             return yield* database<{
               readonly column: string;
               readonly guarded: boolean;
@@ -1590,7 +1591,10 @@ layer(DatabaseTestLive(), { excludeTestServices: true, timeout: "30 seconds" })(
             AND attribute.atttypid = 'timestamptz'::regtype
             AND relation.relkind IN ('r', 'p')
             AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
-            AND (namespace.nspname, relation.relname) <> ('public', 'vektorprogrammet_schema_migrations')
+            AND (namespace.nspname, relation.relname) NOT IN (
+              ('public', 'vektorprogrammet_schema_migrations'),
+              ('public', 'effect_queue')
+            )
           ORDER BY 1
         `;
           });

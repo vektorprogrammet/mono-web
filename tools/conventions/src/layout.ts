@@ -202,9 +202,11 @@ export const toolImportExceptions = [
       "apps/homepage/e2e/",
       "packages/database/runtime/",
       "packages/database/src/oauth-refresh-window.test.ts",
+      "packages/database/src/team-application/delivery-pgbouncer.test.ts",
+      "packages/database/src/team-application/queue-migration.test.ts",
     ],
     reason:
-      "Test harnesses, browser evidence drivers, and PostgreSQL proofs start disposable clusters of the selected major through the one toolchain and reserve their loopback ports through it. The OAuth refresh window test needs a session TimeZone with daylight saving time on the real server.",
+      "Test harnesses, browser evidence drivers, and PostgreSQL proofs start disposable clusters of the selected major through the one toolchain and reserve their loopback ports through it. The OAuth refresh window test needs a session TimeZone with daylight saving time on the real server. The team application queue migration proves its upgrade on the real server, and the queue's transaction test runs through a disposable PgBouncer in transaction mode.",
   },
   {
     tool: "tools/e2e",
