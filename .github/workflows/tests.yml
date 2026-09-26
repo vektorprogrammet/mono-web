@@ -129,7 +129,7 @@ jobs:
           path: ${{ steps.golden.outputs.artifact_paths }}
 
   # One journey per leg, so each leg owns its runner, disposable PostgreSQL, loopback ports,
-  # and Chromium. Several runners bind fixed loopback ports (5174, 55446, 45160-45163), so
+  # and Chromium. Several runners bind fixed loopback ports (5174, 8791, 55446, 45160-45163), so
   # never run two journeys on one runner. The timeout is three times the longest measured local
   # run (91 s, proof delivery-recovery), rounded up to 5 minutes.
   browser-journeys:
