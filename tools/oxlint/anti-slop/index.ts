@@ -11,6 +11,7 @@ import { noJsonTextParameterRule } from "./rules/no-json-text-parameter.ts";
 import { noLiteralWindowInstantRule } from "./rules/no-literal-window-instant.ts";
 import { noModuleMockingRule } from "./rules/no-module-mocking.ts";
 import { noObjectParametersRule } from "./rules/no-object-parameters.ts";
+import { noPortProbeRule } from "./rules/no-port-probe.ts";
 import { noReduceAccumulatorCopyRule } from "./rules/no-reduce-accumulator-copy.ts";
 import { noRawAdvisoryLockSqlRule } from "./rules/no-raw-advisory-lock-sql.ts";
 import { noReflectApplyRule } from "./rules/no-reflect-apply.ts";
@@ -41,6 +42,7 @@ const antiSlopPlugin = eslintCompatPlugin({
     "no-module-mocking": noModuleMockingRule,
     "no-literal-window-instant": noLiteralWindowInstantRule,
     "no-object-parameters": noObjectParametersRule,
+    "no-port-probe": noPortProbeRule,
     "no-raw-advisory-lock-sql": noRawAdvisoryLockSqlRule,
     "no-reflect-apply": noReflectApplyRule,
     "no-reflect-get": noReflectGetRule,
