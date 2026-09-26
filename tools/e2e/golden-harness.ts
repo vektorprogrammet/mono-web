@@ -19,11 +19,15 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as BunServices from "@effect/platform-bun/BunServices";
-import { postgresVersion, startDisposablePostgres } from "@monoweb/postgres";
+import {
+  loopbackPortFree,
+  postgresVersion,
+  reserveLoopbackPorts,
+  startDisposablePostgres,
+} from "@monoweb/postgres";
 import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/shared-kernel";
 import {
   Cause,
@@ -430,48 +434,6 @@ export const inspectSource = (root: string, pathspecs: ReadonlyArray<string>) =>
 
     return yield* captureSource(runToCompletion(ledger), root, safeEnvironment(), pathspecs);
   });
-
-const TcpAddress = Schema.Struct({ port: Schema.Int });
-
-const bindLoopback = (port: number) =>
-  Effect.callback<number, HarnessFailure>((resume) => {
-    const server = createTcpServer();
-
-    server.once("error", (cause) =>
-      resume(
-        Effect.fail(
-          new HarnessFailure({ stage: "ports", message: `127.0.0.1:${port}: ${cause.message}` }),
-        ),
-      ),
-    );
-    server.listen(port, "127.0.0.1", () => {
-      const bound = Schema.decodeUnknownSync(TcpAddress)(server.address()).port;
-
-      server.close(() => resume(Effect.succeed(bound)));
-    });
-  });
-
-/** Binds port 0 until it knows `count` distinct loopback ports that `taken` does not hold. */
-const distinctLoopbackPorts = (count: number, taken: ReadonlyArray<number>) =>
-  Effect.gen(function* () {
-    const ports: Array<number> = [];
-
-    while (ports.length < count) {
-      const port = yield* bindLoopback(0);
-
-      if (!ports.includes(port) && !taken.includes(port)) ports.push(port);
-    }
-
-    return ports;
-  });
-
-/**
- * The golden journeys' port reservation for runners that do not run inside the harness.
- *
- * @construct test-harness
- */
-export const reserveLoopbackPorts = (count: number): Promise<ReadonlyArray<number>> =>
-  Effect.runPromise(distinctLoopbackPorts(count, []));
 
 /** Polls a condition until it holds; a typed failure from the check ends polling at once. */
 export const eventually = <R>(
@@ -932,9 +894,8 @@ const verifyCleanup = (
     );
 
     const ports = yield* Effect.forEach(ledger.ports, (port) =>
-      bindLoopback(port).pipe(
-        Effect.as({ port, released: true }),
-        Effect.orElseSucceed(() => ({ port, released: false })),
+      Effect.promise(() => loopbackPortFree(port)).pipe(
+        Effect.map((released) => ({ port, released })),
       ),
     );
 
@@ -1130,7 +1091,7 @@ const main = (journey: GoldenJourney, root: string) =>
           return value;
         }),
       reservePorts: (count) =>
-        distinctLoopbackPorts(count, ledger.ports).pipe(
+        Effect.tryPromise({ try: () => reserveLoopbackPorts(count), catch: failure("ports") }).pipe(
           Effect.tap((ports) => Effect.sync(() => ledger.ports.push(...ports))),
         ),
       spawn: spawnOwned(ledger),

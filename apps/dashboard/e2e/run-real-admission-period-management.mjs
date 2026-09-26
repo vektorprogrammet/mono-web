@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
+import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { deriveHttpIdentity, encodePathIdentity } from "@vektorprogrammet/backend/http-semantics";
 import {
   AdmissionsApi,
@@ -15,7 +15,6 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));

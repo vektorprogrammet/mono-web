@@ -2,7 +2,6 @@ import { type Server } from "bun";
 /** Spec0054.2: real PostgreSQL, HTTP acknowledgement mailbox and production browser journey. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +10,12 @@ import { createRequire } from "node:module";
 import { Predicate, Console, Effect, Layer, Schema } from "effect";
 import { MailDeliveryRequest, Mail } from "../../packages/domain/src/mail.js";
 import { stopOwnedProcess } from "./owned-process.js";
-import { type DisposablePostgres, startDisposablePostgres } from "../postgres/index.ts";
+import {
+  type DisposablePostgres,
+  loopbackPortFree,
+  reserveLoopbackPorts,
+  startDisposablePostgres,
+} from "../postgres/index.ts";
 import { drainPasswordResetMail } from "../../packages/database/src/password-recovery.js";
 import { HttpMailLive } from "../../apps/backend/src/mail/http.js";
 
@@ -57,19 +61,6 @@ const start = (command: string, args: string[], env = process.env, cwd = root) =
   return child;
 };
 
-const port = async (requested = 0) => {
-  const s = createServer();
-  await new Promise<void>((ok, no) => {
-    s.once("error", no);
-    s.listen(requested, "127.0.0.1", ok);
-  });
-  const a = s.address();
-  assert.ok(a && !Predicate.isString(a));
-  await new Promise<void>((ok) => s.close(() => ok()));
-
-  return a.port;
-};
-
 const wait = async (test: () => Promise<boolean>) => {
   for (let i = 0; i < 150; i++) {
     try {
@@ -99,8 +90,10 @@ const gates: string[] = [];
 const submissions: { tokenPresent: boolean; queryAbsent: boolean }[] = [];
 
 try {
-  const apiPort = await port(),
-    uiPort = await port(5174);
+  const [apiPort] = await reserveLoopbackPorts(1),
+    uiPort = 5174;
+
+  assert.ok(await loopbackPortFree(uiPort), `loopback port ${uiPort} is in use`);
 
   postgres = await startDisposablePostgres();
   const pg = postgres.url;

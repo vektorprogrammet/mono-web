@@ -2,14 +2,18 @@ import { createServer as httpServer } from "node:http";
 /** 0099 real local API + browser acceptance. Reuses native identity seed and owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { createServer } from "node:net";
 import { randomBytes, createHash } from "node:crypto";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { stopOwnedProcess } from "./owned-process.js";
-import { type DisposablePostgres, startDisposablePostgres } from "../postgres/index.ts";
+import {
+  type DisposablePostgres,
+  loopbackPortFree,
+  reserveLoopbackPorts,
+  startDisposablePostgres,
+} from "../postgres/index.ts";
 import { Predicate, Schema } from "effect";
 
 const root = new URL("../../", import.meta.url).pathname;
@@ -87,20 +91,6 @@ const start = (command: string, args: string[], env = process.env) => {
   return child;
 };
 
-const port = async (requested = 0): Promise<number> => {
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(requested, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  assert.ok(address && !Predicate.isString(address));
-  const value = address.port;
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-
-  return value;
-};
-
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let postgres: DisposablePostgres | undefined;
@@ -122,8 +112,9 @@ let attempts = 0;
 let rejectNext = false;
 
 try {
-  const backendPort = await port();
-  const dashboardPort = await port(5174);
+  const [backendPort, mailboxPort] = await reserveLoopbackPorts(2);
+  const dashboardPort = 5174;
+  assert.ok(await loopbackPortFree(dashboardPort), `loopback port ${dashboardPort} is in use`);
   postgres = await startDisposablePostgres();
   const postgresUrl = postgres.url;
   secrets.add(postgresUrl);
@@ -131,7 +122,6 @@ try {
 
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
-  const mailboxPort = await port();
   mailbox = httpServer(async (req, res) => {
     if (req.headers.authorization !== `Bearer ${mailboxToken}`) {
       res.writeHead(401).end();

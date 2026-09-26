@@ -22,9 +22,12 @@ import {
   problemBody,
 } from "../../packages/http-api/src/http-semantics.js";
 import { createPromiseClient } from "../../packages/sdk/src/promise.js";
-import { reserveLoopbackPorts } from "../e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../e2e/local-backend-environment.ts";
-import { type DisposablePostgres, startDisposablePostgres } from "../postgres/index.ts";
+import {
+  type DisposablePostgres,
+  reserveLoopbackPorts,
+  startDisposablePostgres,
+} from "../postgres/index.ts";
 import { stopOwnedProcess } from "./owned-process.js";
 
 const root = new URL("../../", import.meta.url).pathname;

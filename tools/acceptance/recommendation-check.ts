@@ -7,7 +7,6 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { createServer } from "node:net";
 import { mkdtemp, writeFile, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,7 +23,12 @@ import {
   seedApplicantProgress0107,
 } from "./applicant-progress-0107.ts";
 import { stopOwnedProcess } from "./owned-process.js";
-import { type DisposablePostgres, startDisposablePostgres } from "../postgres/index.ts";
+import {
+  type DisposablePostgres,
+  loopbackPortFree,
+  reserveLoopbackPorts,
+  startDisposablePostgres,
+} from "../postgres/index.ts";
 import {
   returningAssistantFixture,
   runReturningAssistantBrowserJourney,
@@ -165,19 +169,6 @@ const start = (cmd: string, args: string[], env = process.env, cwd = root) => {
   c.stderr?.on("data", (v) => logs.push(String(v)));
 
   return c;
-};
-
-const port = async (preferred = 0) => {
-  const s = createServer();
-  await new Promise<void>((yes, no) => {
-    s.once("error", no);
-    s.listen(preferred, "127.0.0.1", yes);
-  });
-  const a = s.address();
-  assert.ok(a && !Predicate.isString(a));
-  await new Promise<void>((yes) => s.close(() => yes()));
-
-  return a.port;
 };
 
 const ready = async (test: () => Promise<boolean>) => {
@@ -464,9 +455,11 @@ const deliverRecruitmentInvitationOnce = async ({
 };
 
 try {
-  const apiPort = await port(),
-    effectPort = await port(),
-    uiPort = await port(5174);
+  // The cluster reserves its own port through the same construct, so no port repeats.
+  const [apiPort, effectPort] = await reserveLoopbackPorts(2),
+    uiPort = 5174;
+
+  assert.ok(await loopbackPortFree(uiPort), `loopback port ${uiPort} is in use`);
 
   postgres = await startDisposablePostgres();
 

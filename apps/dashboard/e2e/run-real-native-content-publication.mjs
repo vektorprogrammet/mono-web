@@ -6,8 +6,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startDisposablePostgres } from "@monoweb/postgres";
-import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { addressesAnyRoute, legacyRoutes } from "./request-routes.ts";
 

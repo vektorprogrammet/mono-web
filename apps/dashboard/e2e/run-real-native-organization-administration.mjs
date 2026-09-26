@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
+import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
@@ -8,7 +8,6 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";
 

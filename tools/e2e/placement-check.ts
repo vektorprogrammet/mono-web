@@ -11,7 +11,6 @@ import { IdempotencyIfMatchHeaders } from "@vektorprogrammet/http-api/http-seman
 /** 0096/0110/0111 real local API + browser acceptance with an owned process lifecycle. */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { createServer } from "node:net";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import { mkdtemp, writeFile, readFile, readdir, rm } from "node:fs/promises";
@@ -19,11 +18,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import {
+  loopbackPortFree,
   postgresVersion,
+  reserveLoopbackPorts,
   startDisposablePostgres,
   type DisposablePostgres,
 } from "@monoweb/postgres";
-import { Predicate, Schema, Record as Rec } from "effect";
+import { Schema, Record as Rec } from "effect";
 import { createGoldenObserver, goldenFaults, goldenSteps } from "./golden-school-service.mjs";
 import {
   goldenArtifactName,
@@ -162,20 +163,6 @@ const stopChild = async (child: ChildProcess): Promise<void> => {
   });
 };
 
-const port = async (requested = 0): Promise<number> => {
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(requested, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  assert.ok(address && !Predicate.isString(address));
-  const value = address.port;
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-
-  return value;
-};
-
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let pool: InstanceType<typeof Pool> | undefined;
@@ -240,13 +227,8 @@ const cleanup = () =>
       }
     }
 
-    for (const number of ownedPorts) {
-      try {
-        await port(number);
-      } catch {
-        errors.push("owned port remains occupied: " + number);
-      }
-    }
+    for (const number of ownedPorts)
+      if (!(await loopbackPortFree(number))) errors.push("owned port remains occupied: " + number);
 
     if (errors.length && failure === undefined) failure = "Resource cleanup failed";
 
@@ -388,14 +370,8 @@ const notificationRequests: Array<
 
 try {
   journey: {
-    const pgPort = await port();
-    const backendPort = await port();
-    const dashboardPort = await port();
-    const notificationPort = await port();
-    ownedPorts = [pgPort, backendPort, dashboardPort, notificationPort];
-    const homepagePort = recruitment ? await port() : undefined;
-
-    if (homepagePort) ownedPorts.push(homepagePort);
+    ownedPorts = [...(await reserveLoopbackPorts(recruitment ? 5 : 4))];
+    const [pgPort, backendPort, dashboardPort, notificationPort, homepagePort] = ownedPorts;
 
     const server = createHttpServer(async (request, response) => {
       if (request.method === "POST" && request.url?.startsWith("/observe/")) {

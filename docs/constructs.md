@@ -18,7 +18,7 @@ Consumers are the modules that import a construct, directly or through re-export
 | [worker](#worker)                 | 1          | Runs background workers on the Effect clock.                                                                                                |
 | [pagination](#pagination)         | 4          | Keyset cursors and pages over ordered PostgreSQL reads.                                                                                     |
 | [digest](#digest)                 | 4          | Canonical JSON and SHA-256 digests that evidence and idempotency identities hash.                                                           |
-| [test-harness](#test-harness)     | 11         | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
+| [test-harness](#test-harness)     | 12         | Starts and drives disposable infrastructure for tests, proofs, and journeys: PostgreSQL clusters, loopback ports, and the local backend.    |
 | [request-ledger](#request-ledger) | 2          | Classifies the requests that journey recorders observe by whole path segments: native contract operations and legacy routes.                |
 
 ## http-transport
@@ -989,16 +989,6 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [packages/database/src/migrations.test.ts](../packages/database/src/migrations.test.ts)
   - [packages/database/src/person-cohort-accepted-mappings.test.ts](../packages/database/src/person-cohort-accepted-mappings.test.ts)
   - [packages/database/src/rule-reconciliation-migration-postgres-proof.ts](../packages/database/src/rule-reconciliation-migration-postgres-proof.ts)
-- `reserveLoopbackPorts`: The golden journeys' port reservation for runners that do not run inside the harness.
-  [tools/e2e/golden-harness.ts:473](../tools/e2e/golden-harness.ts#L473), 8 consumers:
-  - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
-  - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
-  - [apps/dashboard/e2e/run-real-native-content-publication.mjs](../apps/dashboard/e2e/run-real-native-content-publication.mjs)
-  - [apps/dashboard/e2e/run-real-native-identity-browser.mjs](../apps/dashboard/e2e/run-real-native-identity-browser.mjs)
-  - [apps/dashboard/e2e/run-real-native-organization-administration.mjs](../apps/dashboard/e2e/run-real-native-organization-administration.mjs)
-  - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
-  - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
-  - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
 - `journeyClock`: A journey clock at a reference instant that the caller pins.
   [tools/e2e/journey-clock.ts:32](../tools/e2e/journey-clock.ts#L32), 7 consumers:
   - [apps/dashboard/e2e/dashboard-list-type-boundary.spec.ts](../apps/dashboard/e2e/dashboard-list-type-boundary.spec.ts)
@@ -1028,9 +1018,9 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
   - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
 - `selectedPostgresMajor`: The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
-  [tools/postgres/index.ts:89](../tools/postgres/index.ts#L89), no consumers.
+  [tools/postgres/index.ts:94](../tools/postgres/index.ts#L94), no consumers.
 - `postgresProgram`: Absolute path of a client program of the selected PostgreSQL major.
-  [tools/postgres/index.ts:155](../tools/postgres/index.ts#L155), 19 consumers:
+  [tools/postgres/index.ts:160](../tools/postgres/index.ts#L160), 19 consumers:
   - [apps/dashboard/e2e/receipt-approval.spec.ts](../apps/dashboard/e2e/receipt-approval.spec.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
@@ -1051,12 +1041,34 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/verification/identity-cohort-rehearsal.ts](../tools/verification/identity-cohort-rehearsal.ts)
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
 - `postgresVersion`: The `postgres --version` line of the selected major, such as `postgres (PostgreSQL) 18.6`, for evidence that names the toolchain whether or not a cluster started.
-  [tools/postgres/index.ts:163](../tools/postgres/index.ts#L163), 3 consumers:
+  [tools/postgres/index.ts:168](../tools/postgres/index.ts#L168), 3 consumers:
   - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
   - [tools/e2e/golden-reimbursement.mjs](../tools/e2e/golden-reimbursement.mjs)
   - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
+- `loopbackPortFree`: Whether a listener can bind `port` on loopback now.
+  [tools/postgres/index.ts:211](../tools/postgres/index.ts#L211), 5 consumers:
+  - [tools/acceptance/onboarding-check.ts](../tools/acceptance/onboarding-check.ts)
+  - [tools/acceptance/password-recovery-check.ts](../tools/acceptance/password-recovery-check.ts)
+  - [tools/acceptance/recommendation-check.ts](../tools/acceptance/recommendation-check.ts)
+  - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
+  - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
+- `reserveLoopbackPorts`: Reserves `count` distinct loopback ports for the servers that a journey starts: its backend, dashboard, receivers, and clusters.
+  [tools/postgres/index.ts:243](../tools/postgres/index.ts#L243), 13 consumers:
+  - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
+  - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
+  - [apps/dashboard/e2e/run-real-native-content-publication.mjs](../apps/dashboard/e2e/run-real-native-content-publication.mjs)
+  - [apps/dashboard/e2e/run-real-native-identity-browser.mjs](../apps/dashboard/e2e/run-real-native-identity-browser.mjs)
+  - [apps/dashboard/e2e/run-real-native-organization-administration.mjs](../apps/dashboard/e2e/run-real-native-organization-administration.mjs)
+  - [apps/dashboard/e2e/run-real-receipt-owner.mjs](../apps/dashboard/e2e/run-real-receipt-owner.mjs)
+  - [apps/homepage/e2e/run-real-public-applicant-admission.mjs](../apps/homepage/e2e/run-real-public-applicant-admission.mjs)
+  - [tools/acceptance/onboarding-check.ts](../tools/acceptance/onboarding-check.ts)
+  - [tools/acceptance/password-recovery-check.ts](../tools/acceptance/password-recovery-check.ts)
+  - [tools/acceptance/recommendation-check.ts](../tools/acceptance/recommendation-check.ts)
+  - [tools/acceptance/substitute-outcome-check.ts](../tools/acceptance/substitute-outcome-check.ts)
+  - [tools/e2e/golden-harness.ts](../tools/e2e/golden-harness.ts)
+  - [tools/e2e/placement-check.ts](../tools/e2e/placement-check.ts)
 - `startDisposablePostgres`: Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
-  [tools/postgres/index.ts:393](../tools/postgres/index.ts#L393), 33 consumers:
+  [tools/postgres/index.ts:436](../tools/postgres/index.ts#L436), 33 consumers:
   - [apps/backend/test/postgres.ts](../apps/backend/test/postgres.ts)
   - [apps/dashboard/e2e/run-real-admission-period-management.mjs](../apps/dashboard/e2e/run-real-admission-period-management.mjs)
   - [apps/dashboard/e2e/run-real-interview-response.mjs](../apps/dashboard/e2e/run-real-interview-response.mjs)
@@ -1091,7 +1103,7 @@ Starts and drives disposable infrastructure for tests, proofs, and journeys: Pos
   - [tools/verification/receipt-import-rehearsal.ts](../tools/verification/receipt-import-rehearsal.ts)
   - [tools/verification/unattended-delivery-recovery.ts](../tools/verification/unattended-delivery-recovery.ts)
 - `withDisposablePostgres`: Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
-  [tools/postgres/index.ts:605](../tools/postgres/index.ts#L605), 3 consumers:
+  [tools/postgres/index.ts:648](../tools/postgres/index.ts#L648), 3 consumers:
   - [packages/database/runtime/authorization-rules-postgres-proof-main.ts](../packages/database/runtime/authorization-rules-postgres-proof-main.ts)
   - [packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts](../packages/database/runtime/rule-reconciliation-postgres-tracer-main.ts)
   - [tools/verification/organization-import-rehearsal-main.ts](../tools/verification/organization-import-rehearsal-main.ts)

@@ -16,8 +16,13 @@
  * in-process exit hook would not cover that case. The sentinel runs in its own session and ignores
  * the termination signals, because the killers that end an owner also reach the owner's children:
  * a bash tool timeout and `hub stop` send SIGTERM to every descendant, also in other sessions.
+ *
+ * `reserveLoopbackPorts` is the one way to choose the loopback port of a server that a journey
+ * starts, a cluster included. It reserves below the kernel's ephemeral range and never returns a
+ * port twice in one process, so no other bind takes the port before its server binds it.
  */
 import { type ChildProcess, execFile, spawn, spawnSync } from "node:child_process";
+import { randomInt } from "node:crypto";
 import { accessSync, closeSync, constants, openSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -25,7 +30,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import { Predicate, Redacted, Schema } from "effect";
+import { Redacted, Schema } from "effect";
 
 const separator = " || ";
 
@@ -185,27 +190,62 @@ const programEnvironment = (
   LC_ALL: "C",
 });
 
-const freeLoopbackPort = (): Promise<number> => {
-  const { promise, resolve, reject } = Promise.withResolvers<number>();
-  const server = createServer();
-  server.once("error", reject);
-  server.listen({ host: loopback, port: 0, exclusive: true }, () => {
-    const address = server.address();
+// The kernel hands out port 0 binds and outgoing connections from its ephemeral range (Linux:
+// 32768-60999; other systems use the IANA dynamic range, 49152-65535). A port below both is taken
+// only by a process that names it.
+const reservableFirst = 20_000;
 
-    if (address === null || Predicate.isString(address)) {
-      server.close();
-      reject(new Error("failed to allocate a loopback port for PostgreSQL"));
+const reservableEnd = 32_768;
 
-      return;
-    }
+// A reserved port is free until its server binds it, so no second reservation of this process may
+// return it.
+const reservedPorts = new Set<number>();
 
-    server.close((cause) => {
-      if (cause === undefined) resolve(address.port);
-      else reject(cause);
-    });
+/**
+ * Whether a listener can bind `port` on loopback now. A journey checks with it that a fixed port is
+ * free before its server binds it, and that its reserved ports are free again after teardown. It
+ * reserves nothing: it answers for a port that the caller names.
+ *
+ * @construct test-harness
+ */
+export const loopbackPortFree = (port: number) =>
+  new Promise<boolean>((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.listen({ host: loopback, port, exclusive: true }, () =>
+      server.close(() => resolve(true)),
+    );
   });
 
-  return promise;
+const reserveLoopbackPort = async (): Promise<number> => {
+  for (let attempt = 0; attempt < reservableEnd - reservableFirst; attempt++) {
+    const port = randomInt(reservableFirst, reservableEnd);
+
+    if (!reservedPorts.has(port) && (await loopbackPortFree(port))) {
+      reservedPorts.add(port);
+
+      return port;
+    }
+  }
+
+  throw new Error(`no free loopback port in ${reservableFirst}-${reservableEnd - 1}`);
+};
+
+/**
+ * Reserves `count` distinct loopback ports for the servers that a journey starts: its backend,
+ * dashboard, receivers, and clusters. A probe that listens on port 0 and closes learns a port in
+ * the ephemeral range, where the run's next probe, a child, or another process can take it before
+ * its server binds it. A reserved port lies below that range, was free when it was reserved, and
+ * no other reservation of this process returns it.
+ *
+ * @construct test-harness
+ */
+export const reserveLoopbackPorts = async (count: number): Promise<ReadonlyArray<number>> => {
+  const ports: Array<number> = [];
+
+  while (ports.length < count) ports.push(await reserveLoopbackPort());
+
+  return ports;
 };
 
 /** Where a client reaches a server: an address or a Unix socket directory, a port, and a role. */
@@ -329,7 +369,10 @@ export interface DisposablePostgresOptions {
   readonly database?: string | undefined;
   /** The superuser that trust authentication admits without a password. Defaults to `postgres`. */
   readonly user?: string | undefined;
-  /** The port. Defaults to a free loopback port. Without TCP it only names the socket file. */
+  /**
+   * The port, which `reserveLoopbackPorts` reserved. Defaults to a port that it reserves. Without
+   * TCP it only names the socket file.
+   */
   readonly port?: number | undefined;
   /** `tcp` listens on 127.0.0.1 and the socket (the default); `socket` on the socket only. */
   readonly listen?: "tcp" | "socket" | undefined;
@@ -397,7 +440,7 @@ export const startDisposablePostgres = async (
   const listen = options.listen ?? "tcp";
   const environment = programEnvironment(options.environment ?? process.env);
   const version = postgresVersion();
-  const port = options.port ?? (await freeLoopbackPort());
+  const port = options.port ?? (await reserveLoopbackPort());
   const root = options.directory ?? (await mkdtemp(join(tmpdir(), "vektor-postgres-")));
 
   if (options.directory !== undefined) await mkdir(root, { mode: 0o700 });

@@ -1,4 +1,4 @@
-import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
+import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { ReadReceiptEvidenceEndpoint } from "@vektorprogrammet/http-api";
 import { Predicate } from "effect";
 import { randomBytes } from "node:crypto";
@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { startReceiptDeliverySink } from "../../../tools/e2e/receipt-delivery-sink.ts";
 import { deriveHttpIdentity } from "@vektorprogrammet/backend/http-semantics";

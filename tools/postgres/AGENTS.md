@@ -18,6 +18,8 @@ The shared constructs defined here. [docs/constructs.md](../../docs/constructs.m
 - [`selectedPostgresMajor`](index.ts) (test-harness): The major that `VEKTOR_POSTGRES_MAJOR` selects, or the default.
 - [`postgresProgram`](index.ts) (test-harness): Absolute path of a client program of the selected PostgreSQL major.
 - [`postgresVersion`](index.ts) (test-harness): The `postgres --version` line of the selected major, such as `postgres (PostgreSQL) 18.6`, for evidence that names the toolchain whether or not a cluster started.
+- [`loopbackPortFree`](index.ts) (test-harness): Whether a listener can bind `port` on loopback now.
+- [`reserveLoopbackPorts`](index.ts) (test-harness): Reserves `count` distinct loopback ports for the servers that a journey starts: its backend, dashboard, receivers, and clusters.
 - [`startDisposablePostgres`](index.ts) (test-harness): Starts a fresh cluster of the selected major on a private port and socket directory with trust authentication.
 - [`withDisposablePostgres`](index.ts) (test-harness): Runs `use` against the database `database` of a fresh cluster, which `startDisposablePostgres` starts, and removes the cluster when `use` settles, also when it fails.
 

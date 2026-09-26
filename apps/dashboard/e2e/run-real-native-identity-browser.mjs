@@ -8,8 +8,7 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
-import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
+import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 import { isNativeRequest } from "./native-operations.ts";
 

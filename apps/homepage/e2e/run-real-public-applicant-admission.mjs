@@ -1,4 +1,4 @@
-import { postgresProgram, startDisposablePostgres } from "@monoweb/postgres";
+import { postgresProgram, reserveLoopbackPorts, startDisposablePostgres } from "@monoweb/postgres";
 import {
   AdmissionPeriodManagementItem,
   AdmissionsSubmitApplicationProblem,
@@ -13,7 +13,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { reserveLoopbackPorts } from "../../../tools/e2e/golden-harness.ts";
 import { localBackendEnvironment } from "../../../tools/e2e/local-backend-environment.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
