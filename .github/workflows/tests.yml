@@ -147,6 +147,7 @@ jobs:
           - { recipe: golden, suite: reimbursement }
           - { recipe: golden, suite: team-application }
           - { recipe: e2e, suite: contact }
+          - { recipe: e2e, suite: homepage }
           - { recipe: e2e, suite: admission-periods }
           - { recipe: e2e, suite: approval }
           - { recipe: e2e, suite: conduct }

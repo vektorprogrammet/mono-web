@@ -17,6 +17,7 @@ import {
   cp,
   lstat,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
   readlink,
@@ -81,6 +82,7 @@ import {
   Effect,
   Layer,
   ManagedRuntime,
+  Option,
   Redacted,
   Result,
   Schema,
@@ -2742,8 +2744,19 @@ const program = Effect.gen(function* () {
     "ORGANIZATION_IMPORT_REHEARSAL_ADMIN_PG_URL",
   ).pipe(Config.withDefault(Redacted.make("postgresql:///postgres?host=/run/postgresql")));
 
-  const evidencePath = yield* Config.String("ORGANIZATION_IMPORT_REHEARSAL_EVIDENCE_PATH").pipe(
-    Config.withDefault(SPEC_0067.evidencePath),
+  // The runner writes its evidence exclusively, so every run needs a path of its own.
+  const evidencePath = yield* Config.option(
+    Config.String("ORGANIZATION_IMPORT_REHEARSAL_EVIDENCE_PATH"),
+  ).pipe(
+    Effect.flatMap(
+      Option.match({
+        onSome: Effect.succeed,
+        onNone: () =>
+          Effect.tryPromise(() => mkdtemp(join(tmpdir(), "vektor-organization-import-0067-"))).pipe(
+            Effect.map((directory) => join(directory, "evidence.json")),
+          ),
+      }),
+    ),
   );
 
   return yield* Effect.tryPromise(() =>

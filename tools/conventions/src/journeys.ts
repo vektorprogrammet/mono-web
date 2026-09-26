@@ -136,11 +136,6 @@ export const exclusions: ReadonlyArray<Exclusion> = [
     file: "apps/homepage/e2e/preview-smoke.spec.ts",
     reason: "Needs a deployed preview origin in PREVIEW_BASE_URL; without one, every test skips",
   },
-  {
-    file: "apps/homepage/e2e/homepage-dev-journey.spec.ts",
-    reason:
-      "Not yet observed under a journey name: it builds and serves the homepage worker itself; it becomes a just e2e suite once it passes locally",
-  },
 ];
 
 const sameJourney = (left: Journey, right: Journey): boolean =>

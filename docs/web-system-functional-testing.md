@@ -396,6 +396,7 @@ A name runs the files that its command names, and in turn the files that those n
 | `just golden team-application`               | Browser journeys (golden team-application)                       |
 | `just e2e applicant`                         | Public applicant (PostgreSQL and Chromium)                       |
 | `just e2e contact`                           | Browser journeys (e2e contact)                                   |
+| `just e2e homepage`                          | Browser journeys (e2e homepage)                                  |
 | `just e2e admission-periods`                 | Browser journeys (e2e admission-periods)                         |
 | `just e2e approval`                          | Browser journeys (e2e approval)                                  |
 | `just e2e conduct`                           | Browser journeys (e2e conduct)                                   |
@@ -444,7 +445,6 @@ These commands and files are not hosted:
 | `apps/dashboard/e2e/native-mailing-lists-journey.spec.ts`  | Needs a stack that e2e/native-team-interest-mailing-list-seed.mjs seeds, with REAL_NATIVE_IDENTITY_E2E set; no runner or recipe provides it, and without it every test skips                           |
 | `apps/dashboard/e2e/native-recruitment-assignment.spec.ts` | Superseded by native-recruitment-session-journey.spec.ts, which just e2e recruitment runs; nothing sets its REAL_RECRUITMENT_E2E variables, so every test skips                                        |
 | `apps/homepage/e2e/preview-smoke.spec.ts`                  | Needs a deployed preview origin in PREVIEW_BASE_URL; without one, every test skips                                                                                                                     |
-| `apps/homepage/e2e/homepage-dev-journey.spec.ts`           | Not yet observed under a journey name: it builds and serves the homepage worker itself; it becomes a just e2e suite once it passes locally                                                             |
 
 [//]: # "hosted-journeys: end"
 

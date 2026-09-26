@@ -19,6 +19,7 @@
     "e2e:show-report": "playwright show-report",
     "e2e:install": "playwright install",
     "e2e:applicant:real": "bun e2e/run-real-public-applicant-admission.mjs",
+    "e2e:homepage": "playwright test e2e/homepage-dev-journey.spec.ts --workers=1 --retries=0 --reporter=line",
     "lint": "oxlint",
     "format": "oxfmt --write",
     "e2e:contact:native": "node e2e/run-native-contact.mjs"

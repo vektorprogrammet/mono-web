@@ -37,7 +37,6 @@ export const SPEC_0067 = {
   failureFunction: "public.spec_0067_fail_organization_ledger()",
   failureSqlState: "P0001",
   failureMessage: "spec 0067 injected organization ledger failure",
-  evidencePath: "/tmp/mono-web-0067-organization-import-evidence.json",
 } as const;
 
 // The pages that the Chromium journey reads: the team-application chooser and the people directory.
