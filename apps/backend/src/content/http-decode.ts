@@ -31,7 +31,7 @@ export const versionFromQuery = (
 ): Effect.Effect<number | undefined, Problem<"request.malformed">> => {
   const parameters = [...new URL(request.url).searchParams];
 
-  if (parameters.length === 0) return Effect.succeed(undefined);
+  if (parameters.length === 0) return Effect.undefined;
 
   const version = Number(parameters[0]?.[1]);
 
